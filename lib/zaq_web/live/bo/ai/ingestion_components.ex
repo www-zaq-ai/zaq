@@ -191,6 +191,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponents do
 
   attr :modal_error, :string, default: nil
   attr :modal_name, :string, default: ""
+  attr :close_event, :string, default: "close_modal"
+  attr :create_event, :string, default: "create_folder"
 
   def modal_new_folder(assigns) do
     ModalNewFolder.modal_new_folder(assigns)

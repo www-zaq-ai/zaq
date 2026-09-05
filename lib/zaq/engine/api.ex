@@ -7,6 +7,7 @@ defmodule Zaq.Engine.Api do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.People
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Conversations
@@ -454,6 +455,22 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :system_config_get_skill_resource_config, _context),
+    do: %{event | response: System.get_skill_resource_config()}
+
+  def handle_event(%Event{} = event, :system_config_list_skill_resource_data_sources, _context),
+    do: %{event | response: {:ok, ChannelConfig.list_enabled_data_source_configs()}}
+
+  def handle_event(%Event{} = event, :system_config_save_skill_resource_config, _context) do
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: System.save_skill_resource_config(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :system_config_get_llm_config, _context),
     do: %{event | response: System.get_llm_config()}
 
@@ -655,6 +672,39 @@ defmodule Zaq.Engine.Api do
       other ->
         %{event | response: {:error, {:invalid_request, other}}}
     end
+  end
+
+  def handle_event(%Event{} = event, :conversation, _context) do
+    conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
+
+    response =
+      case event.request do
+        %{action: :list, opts: opts} when is_list(opts) ->
+          conversations_module.list_conversations(opts)
+
+        %{action: :get, conversation_id: conversation_id} ->
+          conversations_module.get_conversation(conversation_id)
+
+        %{action: :get!, conversation_id: conversation_id} ->
+          conversations_module.get_conversation!(conversation_id)
+
+        %{action: :messages, conversation: conversation} ->
+          conversations_module.list_messages(conversation)
+
+        %{action: :create, attrs: attrs} when is_map(attrs) ->
+          conversations_module.create_conversation(attrs)
+
+        %{action: :add_message, conversation: conversation, attrs: attrs} when is_map(attrs) ->
+          conversations_module.add_message(conversation, attrs)
+
+        %{action: :delete, conversation_id: conversation_id} ->
+          conversations_module.delete_conversation_by_id(conversation_id)
+
+        other ->
+          {:error, {:invalid_request, other}}
+      end
+
+    %{event | response: response}
   end
 
   def handle_event(%Event{} = event, action, _context) do

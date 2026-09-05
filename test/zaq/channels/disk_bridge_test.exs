@@ -153,6 +153,10 @@ defmodule Zaq.Channels.DiskBridgeTest do
     end
   end
 
+  test "returns unsupported for arbitrary to_internal arguments" do
+    assert {:error, :unsupported} = DiskBridge.to_internal(:payload, :config)
+  end
+
   describe "materialization handles" do
     test "attaches a disk_document handle naming the record and config" do
       stub_response({:ok, entry_page([entry("42")])})
@@ -185,6 +189,18 @@ defmodule Zaq.Channels.DiskBridgeTest do
       assert {:ok, %RecordPage{records: [record]}} = DiskBridge.list_files(config(), %{})
       assert record.materialization_handle == nil
     end
+
+    test "keeps valid metadata when an invalid config id cannot issue a handle" do
+      stub_response({:ok, entry_page([entry("42")])})
+
+      assert {:ok, %RecordPage{records: [record]}} =
+               DiskBridge.list_files(config(%{"id" => %{"invalid" => self()}}), %{})
+
+      assert record.id == "42"
+      assert record.name == "guide.md"
+      assert record.attributes["provider_record_id"] == "42"
+      assert record.materialization_handle == nil
+    end
   end
 
   # ── request shapes, one per callback ────────────────────────────────────────
@@ -212,6 +228,25 @@ defmodule Zaq.Channels.DiskBridgeTest do
                          params: %{
                            "filters" => %{"parent" => "archives/manuals"},
                            "page_size" => 50
+                         }
+                       }}
+    end
+
+    test "prefixes provider scope_id onto unscoped list paths" do
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.list_files(config(), %{
+                 "scope_id" => "archives",
+                 "path" => "Skills/.agents/skills/runtime/references"
+               })
+
+      assert_received {:dispatch, :storage, :list_documents,
+                       %{
+                         params: %{
+                           "filters" => %{
+                             "parent" => "archives/Skills/.agents/skills/runtime/references"
+                           }
                          }
                        }}
     end
@@ -255,6 +290,40 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       assert_received {:dispatch, :storage, :list_documents, %{params: request_params}}
       assert request_params == %{"filters" => %{"parent" => "archives/manuals"}}
+    end
+
+    test "combines a scope with an existing parent filter without duplicating the scope" do
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.list_files(config(), %{
+                 "scope_id" => "archives",
+                 "filters" => %{"parent" => "manuals"}
+               })
+
+      assert_received {:dispatch, :storage, :list_documents, %{params: request_params}}
+      assert request_params == %{"filters" => %{"parent" => "archives/manuals"}}
+      refute Map.has_key?(request_params, "scope_id")
+    end
+
+    test "keeps the root path when a scope is combined with it" do
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.list_files(config(), %{"scope_id" => "archives", "path" => "/"})
+
+      assert_received {:dispatch, :storage, :list_documents, %{params: request_params}}
+      assert request_params["path"] == "/"
+    end
+
+    test "does not duplicate a scope already present in the path" do
+      stub_response({:ok, entry_page([])})
+
+      assert {:ok, %RecordPage{}} =
+               DiskBridge.list_files(config(), %{"scope_id" => "archives", "path" => "archives"})
+
+      assert_received {:dispatch, :storage, :list_documents, %{params: request_params}}
+      assert request_params == %{"filters" => %{"parent" => "archives"}}
     end
 
     test "forwards trusted internal actor as event actor without leaking it into params" do
@@ -339,6 +408,21 @@ defmodule Zaq.Channels.DiskBridgeTest do
              }
     end
 
+    test "prefixes provider scope_id onto unscoped create paths" do
+      stub_response({:ok, %{status: "created", entry: entry("42")}})
+
+      assert {:ok, %{status: "created", record: %Record{id: "42"}}} =
+               DiskBridge.create_file(config(), %{
+                 "scope_id" => "archives",
+                 "name" => "guide.md",
+                 "path" => "Skills/.agents/skills/runtime/references",
+                 "content" => "# Guide"
+               })
+
+      assert_received {:dispatch, :storage, :persist_document, request}
+      assert request["path"] == "archives/Skills/.agents/skills/runtime/references"
+    end
+
     test "defaults absent content to an empty string and leaves encoding nil" do
       stub_response({:ok, %{status: "created", entry: entry("42")}})
 
@@ -363,6 +447,21 @@ defmodule Zaq.Channels.DiskBridgeTest do
 
       assert request["name"] == "conversation-history-zaq-legacy.md"
       assert request["path"] == "docs"
+    end
+
+    test "treats a root file path ending with the exact name as no parent path" do
+      stub_response({:ok, %{status: "created", entry: entry("42")}})
+
+      assert {:ok, %{status: "created", record: %Record{id: "42"}}} =
+               DiskBridge.create_file(config(), %{
+                 "name" => "notes.md",
+                 "path" => "/notes.md",
+                 "content" => "# notes"
+               })
+
+      assert_received {:dispatch, :storage, :persist_document, request}
+      assert request["name"] == "notes.md"
+      assert request["path"] == nil
     end
 
     test "does not strip similar but non-identical file path basenames" do
@@ -592,6 +691,29 @@ defmodule Zaq.Channels.DiskBridgeTest do
       stub_response({:error, :not_found})
 
       assert {:error, :not_found} = DiskBridge.list_permissions(config(), %{"file_id" => "42"})
+    end
+  end
+
+  describe "replace_permissions/2" do
+    test "defaults omitted grants and forwards trusted context separately from the request" do
+      actor = %{person_id: 123}
+      stub_response({:ok, %{status: "updated"}})
+
+      assert {:ok, %{status: "updated"}} =
+               DiskBridge.replace_permissions(
+                 config(),
+                 %{"file_id" => 42},
+                 %TrustedContext{actor: actor, skip_permissions: true}
+               )
+
+      assert_received {:dispatch, :storage, :replace_document_grants,
+                       %{file_id: "42", grants: []} = request}
+
+      refute Map.has_key?(request, :actor)
+      refute Map.has_key?(request, :skip_permissions)
+      assert_received {:dispatch_actor, :storage, :replace_document_grants, ^actor}
+      assert_received {:dispatch_opts, :storage, :replace_document_grants, event_opts}
+      assert event_opts[:skip_permissions] == true
     end
   end
 

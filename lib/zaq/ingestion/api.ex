@@ -29,6 +29,12 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: Ingestion.enrich_records(records)}
   end
 
+  def handle_event(%Event{request: %{query: query}} = event, :list_document_sources, _context)
+      when is_binary(query) do
+    ingestion_module = Keyword.get(event.opts, :ingestion_module, Ingestion)
+    %{event | response: ingestion_module.list_document_sources(query)}
+  end
+
   def handle_event(
         %Event{request: %{provider: provider, params: params}} = event,
         :sync_data_source_permissions,

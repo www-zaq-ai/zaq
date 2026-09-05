@@ -27,9 +27,11 @@ defmodule Zaq.Agent.Skills do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Skill
+  alias Zaq.Agent.Skill.Resource
   alias Zaq.Agent.Skills.Validation
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Repo
+  alias Zaq.System
   alias Zaq.Utils.ParseUtils
 
   require Logger
@@ -92,11 +94,6 @@ defmodule Zaq.Agent.Skills do
   the skill. The agent's own keys are passed through unfiltered — resolution
   errors for those surface exactly as they do today.
   """
-  # Provisioned onto an agent whenever it has ≥1 active skill, and dropped (via RuntimeSync's
-  # managed-tool diff) when its last skill is detached — an index-only prompt is useless
-  # without it, and a skill-less agent has no reason to carry it.
-  @load_skill_key "skills.load_skill"
-
   @spec provisioned_tool_keys(ConfiguredAgent.t(), [Skill.t()]) :: [String.t()]
   def provisioned_tool_keys(%ConfiguredAgent{} = agent, skills) when is_list(skills) do
     skill_keys =
@@ -104,18 +101,67 @@ defmodule Zaq.Agent.Skills do
       |> Enum.flat_map(&provided_tool_keys/1)
       |> Enum.filter(&Registry.valid_tool_key?/1)
 
-    base = (agent.enabled_tool_keys || []) ++ skill_keys
-    keys = if skills == [], do: base, else: base ++ [@load_skill_key]
-
-    Enum.uniq(keys)
+    Enum.uniq((agent.enabled_tool_keys || []) ++ skill_keys)
   end
 
-  # Reads the new column, falling back to the old one for any row written by a node still
-  # running pre-dual-write code. Drop the fallback with the `tool_keys` column.
-  defp provided_tool_keys(%Skill{} = skill) do
-    case skill.provided_tool_keys do
-      keys when is_list(keys) and keys != [] -> keys
-      _ -> skill.tool_keys || []
+  defp provided_tool_keys(%Skill{} = skill), do: skill.provided_tool_keys || []
+
+  @doc "Returns the persisted runtime resources for a skill."
+  @spec list_skill_resources(Skill.t()) :: [Resource.t()]
+  def list_skill_resources(%Skill{id: skill_id}) do
+    Resource
+    |> where(skill_id: ^skill_id)
+    |> order_by(asc: :name)
+    |> Repo.all()
+  end
+
+  @doc "Fetches a skill resource by Jido's opaque provider resource id."
+  @spec get_skill_resource_by_provider_id(Skill.t(), String.t()) :: Resource.t() | nil
+  def get_skill_resource_by_provider_id(%Skill{id: skill_id}, provider_resource_id)
+      when is_binary(provider_resource_id) do
+    Repo.get_by(Resource, skill_id: skill_id, provider_resource_id: provider_resource_id)
+  end
+
+  @doc "Creates or updates the persisted resource row for an uploaded skill resource."
+  @spec upsert_skill_resource(Skill.t(), map()) :: {:ok, Resource.t()} | {:error, Changeset.t()}
+  def upsert_skill_resource(%Skill{id: skill_id}, attrs) when is_map(attrs) do
+    attrs = Map.put(attrs, :skill_id, skill_id)
+
+    %Resource{}
+    |> Resource.changeset(attrs)
+    |> Repo.insert(
+      on_conflict:
+        {:replace, [:name, :resource_type, :size, :mime_type, :modified_at, :updated_at]},
+      conflict_target: [:skill_id, :provider_resource_id],
+      returning: true
+    )
+  end
+
+  @doc "Deletes one persisted skill resource row."
+  @spec delete_skill_resource(Resource.t()) :: {:ok, Resource.t()} | {:error, Changeset.t()}
+  def delete_skill_resource(%Resource{} = resource), do: Repo.delete(resource)
+
+  @doc "Returns the pinned or global default resource location for a skill."
+  def resource_location(%Skill{} = skill) do
+    pinned = %{
+      provider: skill.resource_provider,
+      config_id: skill.resource_config_id,
+      scope_id: skill.resource_scope_id,
+      folder_id: skill.resource_folder_id,
+      folder_path: skill.resource_folder_path
+    }
+
+    if pinned.provider && pinned.config_id do
+      {:ok, Map.put(pinned, :pinned?, true)}
+    else
+      case System.get_skill_resource_config() do
+        %{provider: provider, config_id: config_id} = config
+        when is_binary(provider) and is_integer(config_id) ->
+          {:ok, Map.put(config, :pinned?, false)}
+
+        _ ->
+          {:error, :skill_resource_location_not_configured}
+      end
     end
   end
 
@@ -151,11 +197,14 @@ defmodule Zaq.Agent.Skills do
       name: skill.name,
       description: skill.description,
       body: skill.body,
+      license: skill.license,
+      compatibility: skill.compatibility,
+      metadata: skill.metadata || %{},
       allowed_tools: skill.allowed_tools || []
     }
 
     case Validation.validate(attrs) do
-      {:ok, %Spec{} = spec, _diagnostics} -> {:ok, %{spec | tags: skill.tags || []}}
+      {:ok, %Spec{} = spec} -> {:ok, %{spec | source: nil, tags: skill.tags || []}}
       {:error, errors} -> {:error, errors}
     end
   end

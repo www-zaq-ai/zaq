@@ -4,13 +4,15 @@ defmodule ZaqWeb.Components.DesignSystem.ModalNewFolder do
 
   attr :modal_error, :string, default: nil
   attr :modal_name, :string, default: ""
+  attr :close_event, :string, default: "close_modal"
+  attr :create_event, :string, default: "create_folder"
 
   def modal_new_folder(assigns) do
     ~H"""
     <div id="new-folder-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        phx-click-away="close_modal"
-        phx-window-keydown="close_modal"
+        phx-click-away={@close_event}
+        phx-window-keydown={@close_event}
         phx-key="Escape"
         class="bg-white rounded-2xl shadow-2xl border border-black/[0.06] w-full max-w-md overflow-hidden"
       >
@@ -30,7 +32,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalNewFolder do
           </div>
         </div>
 
-        <form id="new-folder-form" phx-submit="create_folder">
+        <form id="new-folder-form" phx-submit={@create_event}>
           <div class="px-6 pb-6">
             <div :if={@modal_error} class="mb-3 px-3 py-2 rounded-xl bg-red-50 border border-red-100">
               <p class="font-mono text-[0.72rem] text-red-500">{@modal_error}</p>
@@ -51,7 +53,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModalNewFolder do
           <div class="px-6 py-4 bg-[#fafafa] border-t border-black/[0.06] flex items-center justify-end gap-2">
             <button
               type="button"
-              phx-click="close_modal"
+              phx-click={@close_event}
               class="font-mono text-[0.78rem] px-4 py-2 rounded-xl text-black/50 hover:bg-black/5 transition-colors"
             >
               Cancel

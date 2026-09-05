@@ -2,15 +2,19 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Tools.KnowledgeBaseOverview
+  alias Zaq.Event
   alias Zaq.Ingestion.{Chunk, Document, DocumentAccess}
 
   # Routes directly to DocumentAccess without going through a real node boundary.
   defmodule PassthroughRouter do
-    def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [opts]) do
-      DocumentAccess.list_files_with_ingestion_status(opts)
-    end
+    def dispatch(
+          %Event{
+            request: %{function: :list_files_with_ingestion_status, args: [opts]}
+          } = event
+        ),
+        do: %{event | response: DocumentAccess.list_files_with_ingestion_status(opts)}
 
-    def call(_role, _mod, :broadcast_status, _args), do: :ok
+    def dispatch(%Event{} = event), do: %{event | response: :ok}
   end
 
   setup do
@@ -113,11 +117,10 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverviewTest do
 
     test "returns error tuple when router returns error" do
       defmodule ErrorRouter do
-        def call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [_opts]) do
-          {:error, :simulated_failure}
-        end
+        def dispatch(%Event{request: %{function: :list_files_with_ingestion_status}} = event),
+          do: %{event | response: {:error, :simulated_failure}}
 
-        def call(_role, _mod, :broadcast_status, _args), do: :ok
+        def dispatch(%Event{} = event), do: %{event | response: :ok}
       end
 
       ctx = %{status_context: nil, node_router: ErrorRouter, skip_permissions: true}

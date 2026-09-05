@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   alias Zaq.Accounts
   alias Zaq.Agent.MCP
   alias Zaq.Agent.Skill
+  alias Zaq.Agent.Skill.Resource
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Skills.Limits
   alias Zaq.Channels.ChannelConfig
@@ -36,7 +37,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       %{
         body: "Instructions.",
         description: "What this skill does, and when to use it.",
-        tool_keys: [],
+        provided_tool_keys: [],
         tags: []
       }
       |> Map.merge(attrs)
@@ -115,6 +116,54 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     end
   end
 
+  defmodule MissingResourceRouter do
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :data_source_delete_file do
+        %{event | response: {:error, :not_found}}
+      else
+        RealRouter.dispatch(event)
+      end
+    end
+
+    def dispatch(event), do: RealRouter.dispatch(event)
+  end
+
+  defmodule RecordIdOnlyUploadRouter do
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :data_source_create_file do
+        record = %Zaq.Contracts.Record{
+          id: "record-only-id",
+          kind: :file,
+          name: event.request.params["name"],
+          mime_type: "text/markdown",
+          size: 1
+        }
+
+        %{event | response: {:ok, %{record: record}}}
+      else
+        RealRouter.dispatch(event)
+      end
+    end
+
+    def dispatch(event), do: RealRouter.dispatch(event)
+  end
+
+  defmodule PinnedLocationRouter do
+    def dispatch(%{next_hop: %{destination: :agent}, opts: opts, request: request} = event) do
+      if Keyword.get(opts, :action) == :agent_skill_updated do
+        if request.attrs == %{} do
+          RealRouter.dispatch(event)
+        else
+          %{event | response: {:error, :unexpected_location_update}}
+        end
+      else
+        RealRouter.dispatch(event)
+      end
+    end
+
+    def dispatch(event), do: RealRouter.dispatch(event)
+  end
+
   defmodule MixedUploadRouter do
     def dispatch(%{next_hop: %{destination: :channels}, opts: opts, request: request} = event) do
       if Keyword.get(opts, :action) == :data_source_create_file and
@@ -132,28 +181,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
       if Keyword.get(opts, :action) == :data_source_list_source_scopes do
         %{event | response: {:ok, [%{}, "invalid-scope"]}}
-      else
-        RealRouter.dispatch(event)
-      end
-    end
-
-    def dispatch(event), do: RealRouter.dispatch(event)
-  end
-
-  defmodule StringKeyRecordsRouter do
-    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
-      if Keyword.get(opts, :action) == :data_source_list_files do
-        %{
-          event
-          | response:
-              {:ok,
-               %{
-                 "records" => [
-                   %{kind: :file, name: "kept.md", size: 4, modified_at: DateTime.utc_now()},
-                   %{kind: :directory, name: "ignored"}
-                 ]
-               }}
-        }
       else
         RealRouter.dispatch(event)
       end
@@ -186,6 +213,9 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
     def delete_file("disk", params, context),
       do: DiskBridge.delete_file(config(), params, context)
+
+    def delete_file(%Zaq.Contracts.Record{} = record, context),
+      do: DiskBridge.delete_file(config(), %{"file_id" => record.id}, context)
 
     def list_files("disk", params, context), do: DiskBridge.list_files(config(), params, context)
 
@@ -222,10 +252,10 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     def dispatch(event), do: RealRouter.dispatch(event)
   end
 
-  # Everything works except removing the resource directory.
+  # Everything works except removing resource files.
   defmodule ResourceDeleteFailureRouter do
-    def dispatch(%{next_hop: %{destination: :storage}, opts: opts} = event) do
-      if Keyword.get(opts, :action) == :delete_document do
+    def dispatch(%{next_hop: %{destination: :channels}, opts: opts} = event) do
+      if Keyword.get(opts, :action) == :data_source_delete_file do
         %{event | response: {:error, :eperm}}
       else
         RealRouter.dispatch(event)
@@ -251,6 +281,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     previous_bridge = Application.get_env(:zaq, :skills_live_data_source_bridge_module)
     previous_config = Application.get_env(:zaq, :skills_live_test_disk_config)
     previous_storage = Application.get_env(:zaq, Zaq.Storage)
+    previous_skill_resource_config = Zaq.System.get_skill_resource_config()
     base_path = System.tmp_dir!()
 
     Application.put_env(:zaq, Zaq.Storage, base_path: base_path, volumes: %{})
@@ -275,6 +306,18 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
         |> Repo.insert!()
       end
 
+    if volume_settings == [] do
+      Zaq.System.save_skill_resource_config(%{})
+    else
+      scope = volumes |> Map.keys() |> Enum.sort() |> List.first()
+
+      Zaq.System.save_skill_resource_config(%{
+        "provider" => "disk",
+        "config_id" => config.id,
+        "scope_id" => scope
+      })
+    end
+
     Application.put_env(:zaq, :skills_live_data_source_bridge_module, SkillsDiskBridge)
     Application.put_env(:zaq, :skills_live_test_disk_config, config)
 
@@ -282,6 +325,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       restore_env(:skills_live_data_source_bridge_module, previous_bridge)
       restore_env(:skills_live_test_disk_config, previous_config)
       restore_env(Zaq.Storage, previous_storage)
+      Zaq.System.save_skill_resource_config(previous_skill_resource_config)
     end)
   end
 
@@ -305,17 +349,17 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   end
 
   describe "skill resources — volume gate" do
-    test "uses only valid configured scopes and gates uploads when none are usable", %{conn: conn} do
+    test "gates uploads when skill resource storage is not configured", %{conn: conn} do
       configure_volumes(%{"documents" => tmp_volume("malformed_scopes")})
-      with_skills_live_node_router(MalformedScopesRouter)
+      Zaq.System.save_skill_resource_config(%{})
+      with_skills_live_node_router(RealRouter)
       skill = create_skill!(%{name: "malformed-scopes"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
       open_skill(view, skill)
-      html = view |> element("#add-resource-button") |> render_click()
 
-      assert html =~ "Please, connect a volume to be able upload a resource"
-      assert has_element?(view, "#no-volume-modal")
+      assert has_element?(view, "#add-resource-button[disabled]")
+      assert render(view) =~ "Connect a Skills resource folder in System Config to add resources."
       refute has_element?(view, "#skill-resource-form")
     end
 
@@ -328,23 +372,18 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
       open_skill(view, skill)
 
-      html = view |> element("#add-resource-button") |> render_click()
-
-      assert html =~ "Please, connect a volume to be able upload a resource"
-      assert has_element?(view, "#no-volume-modal")
+      assert has_element?(view, "#add-resource-button[disabled]")
+      assert render(view) =~ "Connect a Skills resource folder in System Config to add resources."
       refute has_element?(view, "#skill-resource-form")
     end
 
-    test "closes the no-volume popup", %{conn: conn} do
+    test "does not open the no-volume popup when resources are not configured", %{conn: conn} do
       configure_volumes(%{})
       with_skills_live_node_router(RealRouter)
       skill = create_skill!(%{name: "gated-close"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
       open_skill(view, skill)
-      view |> element("#add-resource-button") |> render_click()
-
-      view |> element("#no-volume-modal-close") |> render_click()
 
       refute has_element?(view, "#no-volume-modal")
     end
@@ -361,22 +400,29 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
       assert has_element?(view, "#skill-resource-form")
       refute has_element?(view, "#no-volume-modal")
-      assert html =~ ".agents/skills/gate-ok/references"
+      assert html =~ "gate-ok"
     end
   end
 
   describe "skill resources — upload" do
-    test "renders string-keyed file records and ignores directories", %{conn: conn} do
+    test "renders DB-backed resource entries", %{conn: conn} do
       configure_volumes(%{"documents" => tmp_volume("string_records")})
-      with_skills_live_node_router(StringKeyRecordsRouter)
+      with_skills_live_node_router(RealRouter)
       skill = create_skill!(%{name: "string-records"})
+
+      {:ok, _resource} =
+        Skills.upsert_skill_resource(skill, %{
+          provider_resource_id: "doc-1",
+          name: "kept.md",
+          resource_type: "reference",
+          size: 4
+        })
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
       open_skill(view, skill)
 
       html = render(view)
       assert html =~ "kept.md"
-      refute html =~ "ignored"
     end
 
     test "keeps the modal open and persists only successful mixed uploads", %{conn: conn} do
@@ -405,16 +451,24 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
       assert html =~ "1 resource(s) added. 1 failed."
       assert has_element?(view, "#skill-resource-modal")
-      assert File.exists?(Path.join(volume, ".agents/skills/mixed-edit/references/saved.md"))
-      refute File.exists?(Path.join(volume, ".agents/skills/mixed-edit/references/blocked.md"))
-      assert Skills.get_skill!(skill.id).resource_root == ".agents/skills/mixed-edit"
+      assert File.exists?(Path.join(volume, "mixed-edit/saved.md"))
+      refute File.exists?(Path.join(volume, "mixed-edit/blocked.md"))
+      assert Skills.get_skill!(skill.id).resource_root == "mixed-edit"
     end
 
     test "direct resource handlers preserve an idle socket" do
       {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
 
-      assert {:noreply, ^socket} = SkillsLive.handle_event("validate_skill_resource", %{}, socket)
+      assert {:noreply, socket} =
+               SkillsLive.handle_event(
+                 "validate_skill_resource",
+                 %{"resource_type" => "asset"},
+                 socket
+               )
+
+      assert socket.assigns.resource_type == "asset"
       assert {:noreply, ^socket} = SkillsLive.handle_event("upload_skill_resource", %{}, socket)
+      assert {:noreply, ^socket} = SkillsLive.handle_event("remove_resource", %{}, socket)
       assert {:noreply, ^socket} = SkillsLive.handle_event("open_resource_upload", %{}, socket)
     end
 
@@ -431,10 +485,10 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
       assert has_element?(view, "#skill-resource-modal")
       refute has_element?(view, "#resource-upload-toast")
-      refute File.exists?(Path.join(volume, ".agents/skills/empty-edit"))
+      refute File.exists?(Path.join(volume, "empty-edit"))
     end
 
-    test "writes the file under .agents/skills/{name}/references and persists resource_root",
+    test "writes the file under {name}/ and persists resource_root",
          %{conn: conn} do
       volume = tmp_volume("upload")
       configure_volumes(%{"documents" => volume})
@@ -453,8 +507,38 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert render_upload(upload, "prices.md")
       view |> form("#skill-resource-form") |> render_submit()
 
-      assert File.exists?(Path.join(volume, ".agents/skills/pricing-faq/references/prices.md"))
-      assert Skills.get_skill!(skill.id).resource_root == ".agents/skills/pricing-faq"
+      assert File.exists?(Path.join(volume, "pricing-faq/prices.md"))
+      assert Skills.get_skill!(skill.id).resource_root == "pricing-faq"
+    end
+
+    test "classifies uploaded resources and shows the type cue", %{conn: conn} do
+      volume = tmp_volume("typed_upload")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(RealRouter)
+      skill = create_skill!(%{name: "typed-skill"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      html = view |> element("#add-resource-button") |> render_click()
+
+      assert html =~ "Resource type"
+      assert html =~ "Additional information the agent should know."
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "template.md", content: "Template", type: "text/markdown"}
+        ])
+
+      assert render_upload(upload, "template.md")
+
+      html =
+        view |> form("#skill-resource-form", %{"resource_type" => "asset"}) |> render_submit()
+
+      skill = Skills.get_skill!(skill.id)
+
+      assert File.exists?(Path.join(volume, "typed-skill/template.md"))
+      assert [%{name: "template.md", resource_type: "asset"}] = Skills.list_skill_resources(skill)
+      assert html =~ "Asset"
     end
 
     test "lists the uploaded file in the resources panel", %{conn: conn} do
@@ -479,7 +563,103 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       refute has_element?(view, "#skill-resource-modal")
     end
 
-    test "writes into the volume the operator selected", %{conn: conn} do
+    test "removes a persisted resource file and its DB entry", %{conn: conn} do
+      volume = tmp_volume("remove_file")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(RealRouter)
+      skill = create_skill!(%{name: "remove-file"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      view |> element("#add-resource-button") |> render_click()
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "obsolete.exs", content: "old", type: "text/x-elixir"}
+        ])
+
+      assert render_upload(upload, "obsolete.exs")
+      view |> form("#skill-resource-form", %{"resource_type" => "script"}) |> render_submit()
+
+      path = Path.join(volume, "remove-file/obsolete.exs")
+      assert File.exists?(path)
+
+      assert [%{name: "obsolete.exs", resource_type: "script"}] =
+               skill.id |> Skills.get_skill!() |> Skills.list_skill_resources()
+
+      html = view |> element("#remove-resource-obsolete-exs") |> render_click()
+
+      refute File.exists?(path)
+      refute html =~ "obsolete.exs"
+      assert [] = skill.id |> Skills.get_skill!() |> Skills.list_skill_resources()
+    end
+
+    test "keeps a persisted resource when provider removal fails", %{conn: conn} do
+      volume = tmp_volume("remove_fail")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(ResourceDeleteFailureRouter)
+      skill = create_skill!(%{name: "remove-fail"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      view |> element("#add-resource-button") |> render_click()
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "kept.md", content: "old", type: "text/markdown"}
+        ])
+
+      assert render_upload(upload, "kept.md")
+      view |> form("#skill-resource-form", %{"resource_type" => "asset"}) |> render_submit()
+
+      path = Path.join(volume, "remove-fail/kept.md")
+      assert File.exists?(path)
+
+      html = view |> element("#remove-resource-kept-md") |> render_click()
+
+      assert File.exists?(path)
+      assert html =~ "Resource could not be removed"
+      assert html =~ "kept.md"
+
+      assert [%{name: "kept.md", resource_type: "asset"}] =
+               skill.id |> Skills.get_skill!() |> Skills.list_skill_resources()
+    end
+
+    test "removing an already-missing provider file preserves its manifest row", %{conn: conn} do
+      volume = tmp_volume("remove_missing")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(RealRouter)
+      skill = create_skill!(%{name: "remove-missing"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      view |> element("#add-resource-button") |> render_click()
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "obsolete.exs", content: "old", type: "text/x-elixir"}
+        ])
+
+      assert render_upload(upload, "obsolete.exs")
+      view |> form("#skill-resource-form", %{"resource_type" => "script"}) |> render_submit()
+
+      path = Path.join(volume, "remove-missing/obsolete.exs")
+      assert File.exists?(path)
+      [resource] = Skills.list_skill_resources(Skills.get_skill!(skill.id))
+      resource_id = resource.id
+      assert resource.name == "obsolete.exs"
+
+      File.rm!(path)
+      html = view |> element("#remove-resource-obsolete-exs") |> render_click()
+
+      assert html =~ "Resource could not be removed"
+      refute html =~ "Resource already removed"
+      assert Skills.get_skill!(skill.id).id == skill.id
+      assert [%{id: ^resource_id, name: "obsolete.exs"}] = Skills.list_skill_resources(skill)
+      assert has_element?(view, "#remove-resource-obsolete-exs")
+    end
+
+    test "writes into the globally configured resource location", %{conn: conn} do
       documents = tmp_volume("multi_docs")
       archives = tmp_volume("multi_arch")
       configure_volumes(%{"documents" => documents, "archives" => archives})
@@ -490,8 +670,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       open_skill(view, skill)
       view |> element("#add-resource-button") |> render_click()
 
-      render_change(view, "select_resource_volume", %{"volume" => "documents"})
-
       upload =
         file_input(view, "#skill-resource-form", :skill_resources, [
           %{name: "picked.md", content: "picked", type: "text/markdown"}
@@ -500,8 +678,80 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert render_upload(upload, "picked.md")
       view |> form("#skill-resource-form") |> render_submit()
 
-      assert File.exists?(Path.join(documents, ".agents/skills/multi-vol/references/picked.md"))
-      refute File.exists?(Path.join(archives, ".agents/skills/multi-vol/references/picked.md"))
+      assert File.exists?(Path.join(archives, "multi-vol/picked.md"))
+      refute File.exists?(Path.join(documents, "multi-vol/picked.md"))
+    end
+
+    test "preserves a pinned resource location after upload", %{conn: conn} do
+      documents = tmp_volume("pinned_docs")
+      archives = tmp_volume("pinned_archives")
+      configure_volumes(%{"documents" => documents, "archives" => archives})
+      with_skills_live_node_router(PinnedLocationRouter)
+
+      config = Application.fetch_env!(:zaq, :skills_live_test_disk_config)
+
+      attrs = %{
+        resource_provider: "disk",
+        resource_config_id: config.id,
+        resource_scope_id: "archives",
+        resource_folder_id: nil,
+        resource_folder_path: "pinned",
+        resource_root: "pinned-root"
+      }
+
+      skill = create_skill!(Map.merge(%{name: "pinned-location"}, attrs))
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      upload_resource!(view, "pinned.md")
+
+      persisted = Skills.get_skill!(skill.id)
+      assert Map.take(persisted, Map.keys(attrs)) == attrs
+      assert File.exists?(Path.join(archives, "pinned/pinned-root/pinned.md"))
+    end
+
+    test "persists the plain record id when upload has no provider attribute", %{conn: conn} do
+      configure_volumes(%{"documents" => tmp_volume("record_id_only")})
+      with_skills_live_node_router(RecordIdOnlyUploadRouter)
+      skill = create_skill!(%{name: "record-id-only"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      upload_resource!(view, "plain-id.md")
+
+      assert [%{provider_resource_id: "record-only-id"}] = Skills.list_skill_resources(skill)
+    end
+
+    test "writes into the selected folder inside the configured volume", %{conn: conn} do
+      documents = tmp_volume("folder_docs")
+      archives = tmp_volume("folder_arch")
+      configure_volumes(%{"documents" => documents, "archives" => archives})
+      with_skills_live_node_router(RealRouter)
+
+      Zaq.System.save_skill_resource_config(%{
+        "provider" => "disk",
+        "config_id" => Application.fetch_env!(:zaq, :skills_live_test_disk_config).id,
+        "scope_id" => "archives",
+        "folder_path" => "docs"
+      })
+
+      skill = create_skill!(%{name: "folder-skill"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+      view |> element("#add-resource-button") |> render_click()
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "inside.md", content: "inside", type: "text/markdown"}
+        ])
+
+      assert render_upload(upload, "inside.md")
+      view |> form("#skill-resource-form") |> render_submit()
+
+      assert File.exists?(Path.join(archives, "docs/folder-skill/inside.md"))
+
+      refute File.exists?(Path.join(documents, "docs/folder-skill/inside.md"))
     end
 
     test "a renamed skill keeps writing to its original resource_root", %{conn: conn} do
@@ -509,7 +759,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       configure_volumes(%{"documents" => volume})
       with_skills_live_node_router(RealRouter)
       skill = create_skill!(%{name: "original-name"})
-      {:ok, _} = Skills.update_skill(skill, %{resource_root: ".agents/skills/original-name"})
+      {:ok, _} = Skills.update_skill(skill, %{resource_root: "original-name"})
       {:ok, renamed} = Skills.update_skill(Skills.get_skill!(skill.id), %{name: "new-name"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
@@ -525,11 +775,9 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       view |> form("#skill-resource-form") |> render_submit()
 
       # The sticky root wins — files already uploaded under the old name are not orphaned.
-      assert File.exists?(
-               Path.join(volume, ".agents/skills/original-name/references/after-rename.md")
-             )
+      assert File.exists?(Path.join(volume, "original-name/after-rename.md"))
 
-      refute File.exists?(Path.join(volume, ".agents/skills/new-name/references/after-rename.md"))
+      refute File.exists?(Path.join(volume, "new-name/after-rename.md"))
     end
 
     test "reports an upload failure and does not persist resource_root", %{conn: conn} do
@@ -629,19 +877,17 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   end
 
   describe "skill resources — degraded ingestion" do
-    test "treats an unreachable ingestion node as no volumes, without crashing", %{conn: conn} do
+    test "treats missing resource config as no volumes, without crashing", %{conn: conn} do
       configure_volumes(%{"documents" => tmp_volume("down")})
-      with_skills_live_node_router(IngestionDownRouter)
+      Zaq.System.save_skill_resource_config(%{})
+      with_skills_live_node_router(RealRouter)
       skill = create_skill!(%{name: "down-skill"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
       open_skill(view, skill)
 
-      html = view |> element("#add-resource-button") |> render_click()
-
-      # `list_volumes` returned an error tuple, not a map — the page degrades to the gate
-      # rather than rendering an upload form it cannot service.
-      assert html =~ "Please, connect a volume to be able upload a resource"
+      assert has_element?(view, "#add-resource-button[disabled]")
+      assert render(view) =~ "Connect a Skills resource folder in System Config to add resources."
     end
 
     test "ignores a volume that is not configured", %{conn: conn} do
@@ -665,9 +911,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert render_upload(upload, "safe.md")
       view |> form("#skill-resource-form") |> render_submit()
 
-      assert File.exists?(
-               Path.join(volume, ".agents/skills/unknown-vol-skill/references/safe.md")
-             )
+      assert File.exists?(Path.join(volume, "unknown-vol-skill/safe.md"))
     end
 
     test "still reports the upload when persisting resource_root fails", %{conn: conn} do
@@ -690,9 +934,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
       # The file is on disk, so the operator must be told it succeeded even though the
       # bookkeeping write did not land.
-      assert File.exists?(
-               Path.join(volume, ".agents/skills/sync-fail-skill/references/written.md")
-             )
+      assert File.exists?(Path.join(volume, "sync-fail-skill/written.md"))
 
       assert html =~ "1 resource(s) added."
       assert Skills.get_skill!(skill.id).resource_root == nil
@@ -712,7 +954,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       view |> form("#skill-resource-form") |> render_submit()
     end
 
-    test "removes the skill's resource directory from the volume", %{conn: conn} do
+    test "removes the skill's resource files from the configured provider", %{conn: conn} do
       volume = tmp_volume("delete_res")
       configure_volumes(%{"documents" => volume})
       with_skills_live_node_router(RealRouter)
@@ -722,13 +964,12 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       open_skill(view, skill)
       upload_resource!(view, "doomed.md")
 
-      skill_dir = Path.join(volume, ".agents/skills/doomed-skill")
-      assert File.dir?(skill_dir)
+      resource_file = Path.join(volume, "doomed-skill/doomed.md")
+      assert File.exists?(resource_file)
 
       view |> element("#delete-skill-button") |> render_click()
 
-      # The whole {slug} directory goes, not just references/.
-      refute File.exists?(skill_dir)
+      refute File.exists?(resource_file)
       assert Skills.get_skill(skill.id) == nil
     end
 
@@ -782,16 +1023,14 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
       open_skill(view, skill)
-      render_change(view, "select_resource_volume", %{"volume" => "archives"})
       upload_resource!(view, "swept.md")
 
-      archived_dir = Path.join(archives, ".agents/skills/swept-skill")
-      assert File.dir?(archived_dir)
+      archived_file = Path.join(archives, "swept-skill/swept.md")
+      assert File.exists?(archived_file)
 
       view |> element("#delete-skill-button") |> render_click()
 
-      # The volume is not persisted on the skill, so deletion sweeps every volume.
-      refute File.exists?(archived_dir)
+      refute File.exists?(archived_file)
     end
 
     test "removes the original directory for a renamed skill", %{conn: conn} do
@@ -811,7 +1050,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       view |> element("#delete-skill-button") |> render_click()
 
       # The sticky resource_root, not the current name, decides what gets removed.
-      refute File.exists?(Path.join(volume, ".agents/skills/before-rename"))
+      refute File.exists?(Path.join(volume, "before-rename/kept.md"))
     end
 
     test "still deletes the skill when resource cleanup fails, and says so", %{conn: conn} do
@@ -833,6 +1072,30 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert html =~ "resources could not be removed"
       assert Skills.get_skill(skill.id) == nil
     end
+
+    test "deletes a skill when its provider resource is already missing", %{conn: conn} do
+      configure_volumes(%{"documents" => tmp_volume("delete_missing")})
+      with_skills_live_node_router(MissingResourceRouter)
+      skill = create_skill!(%{name: "delete-missing"})
+
+      {:ok, resource} =
+        Skills.upsert_skill_resource(skill, %{
+          provider_resource_id: "missing-delete-file",
+          name: "gone.md",
+          resource_type: "reference",
+          size: 1
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+
+      html = view |> element("#delete-skill-button") |> render_click()
+
+      assert html =~ "Skill deleted"
+      refute html =~ "resources could not be removed"
+      assert Skills.get_skill(skill.id) == nil
+      assert Repo.get(Resource, resource.id) == nil
+    end
   end
 
   describe "skill resources — staged upload on a new skill" do
@@ -846,7 +1109,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       |> render_change()
     end
 
-    defp stage_resource!(view, filename) do
+    defp stage_resource!(view, filename, resource_type \\ "reference") do
       view |> element("#add-resource-button") |> render_click()
 
       upload =
@@ -855,7 +1118,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
         ])
 
       assert render_upload(upload, filename)
-      view |> form("#skill-resource-form") |> render_submit()
+      view |> form("#skill-resource-form", %{"resource_type" => resource_type}) |> render_submit()
     end
 
     defp submit_new_skill(view, name) do
@@ -866,7 +1129,66 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       |> render_submit()
     end
 
-    test "accepts only json, md, pdf and png", %{conn: conn} do
+    test "saves a new skill when resource storage is not configured", %{conn: conn} do
+      configure_volumes(%{})
+      with_skills_live_node_router(RealRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      fill_new_skill(view, "no-resource-config")
+
+      assert has_element?(view, "#add-resource-button[disabled]")
+
+      html = submit_new_skill(view, "no-resource-config")
+
+      assert html =~ "Skill created"
+
+      assert %Skill{name: "no-resource-config"} =
+               Skills.search_skills(%{q: "no-resource-config"}) |> hd()
+    end
+
+    test "guides resource uploads from the selected type and staged files", %{conn: conn} do
+      configure_volumes(%{"documents" => tmp_volume("type_guidance")})
+      with_skills_live_node_router(RealRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      fill_new_skill(view, "guided-skill")
+      html = view |> element("#add-resource-button") |> render_click()
+
+      assert html =~ "The skill body in Markdown, without frontmatter."
+      assert html =~ "Additional information the agent should know."
+      assert html =~ ~s(accept=".md,.pdf,.txt")
+
+      html =
+        view |> form("#skill-resource-form", %{"resource_type" => "asset"}) |> render_change()
+
+      assert html =~ "Files the agent should use, such as templates."
+      refute html =~ ~s(accept=)
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "tool.js", content: "run();", type: "application/javascript"}
+        ])
+
+      assert render_upload(upload, "tool.js")
+      html = render(view)
+      assert html =~ ~r/<option[^>]*value="reference"[^>]*disabled/
+      assert html =~ ~r/<option[^>]*value="script"/
+      refute html =~ ~r/<option[^>]*value="script"[^>]*disabled/
+
+      html =
+        view |> form("#skill-resource-form", %{"resource_type" => "script"}) |> render_change()
+
+      assert html =~ "Executable files the agent can run."
+      assert html =~ ~s(accept=".js,.lua,.rs,.ex,.exs,.py,.php,.exe")
+      assert html =~ ~r/<option[^>]*value="script"[^>]*selected/
+
+      state = :sys.get_state(view.pid)
+      [entry] = state.socket.assigns.uploads.skill_resources.entries
+      view |> element("#remove-pending-resource-#{entry.ref}") |> render_click()
+      assert has_element?(view, "#skill-resource-type option[value='reference']:not([disabled])")
+    end
+
+    test "accepts files according to the selected resource type", %{conn: conn} do
       configure_volumes(%{"documents" => tmp_volume("accept_gate")})
       with_skills_live_node_router(RealRouter)
 
@@ -874,7 +1196,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       fill_new_skill(view, "picky-skill")
       view |> element("#add-resource-button") |> render_click()
 
-      for filename <- ~w(notes.json notes.md notes.pdf notes.png) do
+      for filename <- ~w(notes.md notes.pdf notes.txt) do
         upload =
           file_input(view, "#skill-resource-form", :skill_resources, [
             %{name: filename, content: "ok", type: "application/octet-stream"}
@@ -883,15 +1205,61 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
         assert render_upload(upload, filename)
       end
 
-      # Formats ingestion accepts but a skill has no use for are refused client-side.
-      for filename <- ~w(sheet.xlsx notes.txt deck.pptx) do
+      state = :sys.get_state(view.pid)
+
+      Enum.each(state.socket.assigns.uploads.skill_resources.entries, fn entry ->
+        view |> element("#remove-pending-resource-#{entry.ref}") |> render_click()
+      end)
+
+      view |> form("#skill-resource-form", %{"resource_type" => "asset"}) |> render_change()
+
+      for filename <- ~w(sheet.xlsx image.png template) do
+        upload =
+          file_input(view, "#skill-resource-form", :skill_resources, [
+            %{name: filename, content: "ok", type: "application/octet-stream"}
+          ])
+
+        assert render_upload(upload, filename)
+      end
+
+      state = :sys.get_state(view.pid)
+
+      Enum.each(state.socket.assigns.uploads.skill_resources.entries, fn entry ->
+        view |> element("#remove-pending-resource-#{entry.ref}") |> render_click()
+      end)
+
+      view |> form("#skill-resource-form", %{"resource_type" => "script"}) |> render_change()
+
+      for filename <- ~w(run.js run.lua run.rs run.ex run.exs run.py run.php run.exe) do
+        upload =
+          file_input(view, "#skill-resource-form", :skill_resources, [
+            %{name: filename, content: "ok", type: "application/octet-stream"}
+          ])
+
+        assert render_upload(upload, filename)
+      end
+
+      state = :sys.get_state(view.pid)
+
+      Enum.each(state.socket.assigns.uploads.skill_resources.entries, fn entry ->
+        view |> element("#remove-pending-resource-#{entry.ref}") |> render_click()
+      end)
+
+      # Unsupported for scripts and only classifiable as assets.
+      for filename <- ~w(sheet.xlsx executable) do
+        view |> form("#skill-resource-form", %{"resource_type" => "asset"}) |> render_change()
+
         upload =
           file_input(view, "#skill-resource-form", :skill_resources, [
             %{name: filename, content: "no", type: "application/octet-stream"}
           ])
 
-        assert {:error, errors} = render_upload(upload, filename)
-        assert Enum.all?(errors, &match?([_ref, :not_accepted], &1))
+        assert render_upload(upload, filename)
+
+        html =
+          view |> form("#skill-resource-form", %{"resource_type" => "script"}) |> render_submit()
+
+        assert html =~ "Resource type does not match the selected file(s)."
       end
     end
 
@@ -927,8 +1295,35 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       # The hint is derived from the same limit `allow_upload/3` uses, so it cannot promise
       # a cap the server will not honour.
       expected = SizeFormat.format_size(Limits.get(:resource_max_bytes))
-      assert html =~ ".json .md .pdf .png"
+      assert html =~ ".md .pdf .txt"
       assert html =~ "max #{expected}"
+    end
+
+    test "closing the upload modal clears queued files and resets type restrictions", %{
+      conn: conn
+    } do
+      configure_volumes(%{"documents" => tmp_volume("close_reset")})
+      with_skills_live_node_router(RealRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      fill_new_skill(view, "close-reset")
+      view |> element("#add-resource-button") |> render_click()
+      view |> form("#skill-resource-form", %{"resource_type" => "asset"}) |> render_change()
+
+      upload =
+        file_input(view, "#skill-resource-form", :skill_resources, [
+          %{name: "tool.js", content: "run();", type: "application/javascript"}
+        ])
+
+      assert render_upload(upload, "tool.js")
+      assert render(view) =~ ~r/<option[^>]*value="reference"[^>]*disabled/
+
+      view |> element("#skill-resource-modal button", "Cancel") |> render_click()
+      html = view |> element("#add-resource-button") |> render_click()
+
+      assert html =~ ~r/<option[^>]*value="reference"/
+      refute html =~ ~r/<option[^>]*value="reference"[^>]*disabled/
+      assert html =~ ~s(accept=".md,.pdf,.txt")
     end
 
     test "hides the button until a name is typed", %{conn: conn} do
@@ -966,7 +1361,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       stage_resource!(view, "later.md")
 
       # Nothing is on the volume yet — the skill does not exist, so neither does its home.
-      refute File.exists?(Path.join(volume, ".agents/skills/staged-skill"))
+      refute File.exists?(Path.join(volume, "staged-skill"))
 
       state = :sys.get_state(view.pid)
       assert length(state.socket.assigns.uploads.skill_resources.entries) == 1
@@ -978,10 +1373,32 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
       fill_new_skill(view, "pending-skill")
-      html = stage_resource!(view, "pending.md")
+      html = stage_resource!(view, "pending.md", "script")
 
       assert html =~ "pending.md"
       assert html =~ "Pending"
+      assert html =~ "Script"
+    end
+
+    test "removes a staged file before saving the skill", %{conn: conn} do
+      volume = tmp_volume("staged_remove")
+      configure_volumes(%{"documents" => volume})
+      with_skills_live_node_router(RealRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      fill_new_skill(view, "pending-remove")
+      stage_resource!(view, "discard.md", "asset")
+
+      state = :sys.get_state(view.pid)
+      [entry] = state.socket.assigns.uploads.skill_resources.entries
+
+      view |> element("#remove-pending-resource-#{entry.ref}") |> render_click()
+      submit_new_skill(view, "pending-remove")
+
+      html = render(view)
+      refute html =~ "discard.md"
+      refute File.exists?(Path.join(volume, "pending-remove/discard.md"))
+      assert Skills.search_skills(%{q: "pending-remove"}) |> hd() |> Map.get(:metadata) == %{}
     end
 
     test "writes staged files to the real destination when the skill is saved", %{conn: conn} do
@@ -991,16 +1408,15 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
       fill_new_skill(view, "saved-with-res")
-      stage_resource!(view, "arrived.md")
+      stage_resource!(view, "arrived.md", "asset")
 
       submit_new_skill(view, "saved-with-res")
 
-      assert File.exists?(
-               Path.join(volume, ".agents/skills/saved-with-res/references/arrived.md")
-             )
+      assert File.exists?(Path.join(volume, "saved-with-res/arrived.md"))
 
       skill = Skills.search_skills(%{q: "saved-with-res", tags: []}) |> hd()
-      assert skill.resource_root == ".agents/skills/saved-with-res"
+      assert skill.resource_root == "saved-with-res"
+      assert [%{name: "arrived.md", resource_type: "asset"}] = Skills.list_skill_resources(skill)
     end
 
     test "reports mixed staged uploads and saves only the successful file", %{conn: conn} do
@@ -1017,10 +1433,10 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
       assert html =~ "Skill created with 1 resource(s). 1 could not be uploaded."
       refute has_element?(view, "#skill-form-drawer")
-      assert File.exists?(Path.join(volume, ".agents/skills/staged-mixed/references/saved.md"))
-      refute File.exists?(Path.join(volume, ".agents/skills/staged-mixed/references/blocked.md"))
+      assert File.exists?(Path.join(volume, "staged-mixed/saved.md"))
+      refute File.exists?(Path.join(volume, "staged-mixed/blocked.md"))
       assert [skill] = Skills.search_skills(%{q: "staged-mixed", tags: []})
-      assert skill.resource_root == ".agents/skills/staged-mixed"
+      assert skill.resource_root == "staged-mixed"
     end
 
     test "uses the name as saved, not the name at staging time", %{conn: conn} do
@@ -1035,8 +1451,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       # Renamed before saving — the destination is computed from the created record.
       submit_new_skill(view, "final-name")
 
-      assert File.exists?(Path.join(volume, ".agents/skills/final-name/references/moved.md"))
-      refute File.exists?(Path.join(volume, ".agents/skills/first-name"))
+      assert File.exists?(Path.join(volume, "final-name/moved.md"))
+      refute File.exists?(Path.join(volume, "first-name"))
     end
 
     test "keeps files staged when the save fails validation", %{conn: conn} do
@@ -1051,7 +1467,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       # Uppercase is rejected by the Open Agent Skills name format.
       submit_new_skill(view, "Not A Valid Name")
 
-      refute File.exists?(Path.join(volume, ".agents/skills"))
+      refute File.exists?(Path.join(volume, "failed-skill"))
 
       state = :sys.get_state(view.pid)
       assert length(state.socket.assigns.uploads.skill_resources.entries) == 1
@@ -1072,12 +1488,12 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       open_skill(view, other)
       upload_resource!(view, "legit.md")
 
-      innocent_dir = Path.join(volume, ".agents/skills/innocent-skill/references")
+      innocent_dir = Path.join(volume, "innocent-skill")
       assert File.exists?(Path.join(innocent_dir, "legit.md"))
 
       # The entry staged for the abandoned skill must not ride along into this one.
       refute File.exists?(Path.join(innocent_dir, "orphan.md"))
-      refute File.exists?(Path.join(volume, ".agents/skills/abandoned-skill"))
+      refute File.exists?(Path.join(volume, "abandoned-skill"))
     end
 
     test "does not leak a staged file into a second new skill", %{conn: conn} do
@@ -1093,7 +1509,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       fill_new_skill(view, "second-attempt")
       submit_new_skill(view, "second-attempt")
 
-      refute File.exists?(Path.join(volume, ".agents/skills/second-attempt/references/orphan.md"))
+      refute File.exists?(Path.join(volume, "second-attempt/orphan.md"))
     end
 
     test "drops staged files when the form is cancelled", %{conn: conn} do
@@ -1109,7 +1525,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
 
       state = :sys.get_state(view.pid)
       assert state.socket.assigns.uploads.skill_resources.entries == []
-      refute File.exists?(Path.join(volume, ".agents/skills/abandoned-skill"))
+      refute File.exists?(Path.join(volume, "abandoned-skill"))
     end
   end
 
@@ -1234,7 +1650,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     refute has_element?(view, "#skill-form-drawer")
 
     assert [skill] = Skills.search_skills(%{q: "created-skill"})
-    assert skill.tool_keys == ["answering.search_knowledge_base"]
+    assert skill.provided_tool_keys == ["answering.search_knowledge_base"]
     assert skill.tags == ["math", "utility"]
   end
 
@@ -1263,6 +1679,31 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     assert skill.allowed_tools == ["Read", "Bash", "create_document"]
     # allowed_tools is the OAS field and must NOT leak into ZAQ's provisioned tool keys.
     assert skill.provided_tool_keys == []
+  end
+
+  test "creates a skill with Agent Skills manifest metadata from the form", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+
+    render_click(element(view, "#new-skill-button"))
+
+    view
+    |> form("#skill-form",
+      skill: %{
+        "name" => "manifest-skill",
+        "description" => "Has manifest fields",
+        "body" => "Do it well.",
+        "license" => "Apache-2.0",
+        "compatibility" => "Requires documents.",
+        "metadata" => "\n owner\n\n =ignored\n tier=gold\n",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert [skill] = Skills.search_skills(%{q: "manifest-skill"})
+    assert skill.license == "Apache-2.0"
+    assert skill.compatibility == "Requires documents."
+    assert skill.metadata == %{"owner" => "", "tier" => "gold"}
   end
 
   test "shows validation errors on invalid create", %{conn: conn} do
@@ -1394,7 +1835,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   end
 
   test "adds and removes tools via the picker", %{conn: conn} do
-    skill = create_skill!(%{name: "toolable", tool_keys: ["answering.search_knowledge_base"]})
+    skill =
+      create_skill!(%{name: "toolable", provided_tool_keys: ["answering.search_knowledge_base"]})
 
     {:ok, view, _html} = live(conn, ~p"/bo/skills")
     render_click(element(view, "#skill-row-#{skill.id}"))
@@ -1423,7 +1865,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     )
     |> render_submit()
 
-    assert Skills.get_skill!(skill.id).tool_keys == ["data_source.get_document"]
+    assert Skills.get_skill!(skill.id).provided_tool_keys == ["data_source.get_document"]
   end
 
   test "tool picker closes and blank tool selection is ignored", %{conn: conn} do
@@ -1452,7 +1894,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     )
     |> render_submit()
 
-    assert Skills.get_skill!(hd(Skills.search_skills(%{q: "blank-tool-skill"})).id).tool_keys ==
+    assert Skills.get_skill!(hd(Skills.search_skills(%{q: "blank-tool-skill"})).id).provided_tool_keys ==
              []
   end
 
@@ -1749,7 +2191,105 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
     assert socket.assigns.form[:allowed_tools].value == []
   end
 
-  test "renders binary and map tag/tool values through a form", %{conn: conn} do
+  test "selecting an unknown volume is a no-op" do
+    {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+    original_socket = socket
+
+    {:noreply, ^original_socket} =
+      SkillsLive.handle_event("select_resource_volume", %{"volume" => "documents"}, socket)
+  end
+
+  test "malformed asset-only upload entries cannot select script" do
+    {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+
+    socket =
+      update_in(socket.assigns.uploads.skill_resources.entries, fn _entries ->
+        [%{ref: "malformed", client_name: nil, progress: 100}]
+      end)
+
+    {:noreply, socket} =
+      SkillsLive.handle_event("validate_skill_resource", %{"resource_type" => "script"}, socket)
+
+    assert socket.assigns.resource_type == "reference"
+  end
+
+  test "remove_resource rejects defensive resource maps without dispatching" do
+    with_skills_live_node_router(ResourceDeleteFailureRouter)
+    {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+
+    socket =
+      socket
+      |> Phoenix.Component.assign(:selected_skill, %Skill{id: 1, name: "defensive"})
+      |> Phoenix.Component.assign(:skill_resources, [
+        %{"name" => "string-name.md"},
+        %{path: :atom_path},
+        %{"path" => "string-path.md"},
+        %{other: "unrelated"}
+      ])
+
+    {:noreply, socket} =
+      SkillsLive.handle_event("remove_resource", %{"path" => "not-present.md"}, socket)
+
+    assert socket.assigns.upload_toast.message == "Resource could not be removed"
+
+    assert socket.assigns.skill_resources == [
+             %{"name" => "string-name.md"},
+             %{path: :atom_path},
+             %{"path" => "string-path.md"},
+             %{other: "unrelated"}
+           ]
+  end
+
+  test "renders a nil resource type as Reference", %{conn: conn} do
+    skill = create_skill!(%{name: "atom-resource"})
+
+    Repo.insert!(%Resource{
+      skill_id: skill.id,
+      provider_resource_id: "atom-resource-id",
+      name: "unknown-type.md",
+      resource_type: nil,
+      size: 0
+    })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/skills")
+    open_skill(view, skill)
+
+    html = render(view)
+
+    assert html =~ "unknown-type.md"
+    assert html =~ "Reference"
+  end
+
+  test "normalizes metadata and preserves direct map input" do
+    {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
+
+    {:noreply, socket} =
+      SkillsLive.handle_event(
+        "validate",
+        %{
+          "skill" => %{
+            "name" => "metadata-raw",
+            "description" => "Description.",
+            "body" => "Instructions.",
+            "metadata" => %{"owner" => "kept", "tier" => "silver"}
+          }
+        },
+        socket
+      )
+
+    assert socket.assigns.form[:metadata].value == %{"owner" => "kept", "tier" => "silver"}
+
+    {:noreply, socket} =
+      SkillsLive.handle_event(
+        "validate",
+        %{"skill" => %{"metadata" => 123}},
+        socket
+      )
+
+    assert socket.assigns.form[:metadata].value == %{}
+  end
+
+  test "normalizes binary and map tag/tool values through a form", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/skills")
     render_click(element(view, "#new-skill-button"))
 
@@ -1760,12 +2300,14 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
           "description" => "Description.",
           "body" => "Instructions.",
           "tags" => "alpha",
-          "allowed_tools" => "Read Bash"
+          "allowed_tools" => "Read Bash",
+          "metadata" => "owner=ops"
         }
       })
 
     assert html =~ ~s(value="alpha")
     assert html =~ ~s(value="Read Bash")
+    assert html =~ ~s(owner=ops)
 
     html =
       render_change(view, "validate", %{
@@ -1774,12 +2316,14 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
           "description" => "Description.",
           "body" => "Instructions.",
           "tags" => %{},
-          "allowed_tools" => %{}
+          "allowed_tools" => %{},
+          "metadata" => %{"zeta" => "last", "alpha" => "first"}
         }
       })
 
     assert html =~ ~s(name="skill[tags]" value="")
     assert html =~ ~s(name="skill[allowed_tools]" value="")
+    assert html =~ "alpha=first\nzeta=last"
   end
 
   test "cancel hides the form", %{conn: conn} do

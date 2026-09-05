@@ -1,6 +1,5 @@
 defmodule Zaq.Channels.Materializers.DataSourceDocumentTest do
   use Zaq.DataCase, async: true
-  use ExUnitProperties
 
   alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Event
@@ -61,6 +60,15 @@ defmodule Zaq.Channels.Materializers.DataSourceDocumentTest do
                      }, nil, _opts}
   end
 
+  test "rejects atom-key runtime options" do
+    assert {:error, :invalid_materialization_options} =
+             DataSourceDocument.materialize(
+               %{"provider" => "google_drive", "file_id" => "f1", "config_id" => "12"},
+               %{node_router: StubNodeRouter},
+               %{document_mime_type: "application/pdf", export_mime_type: "text/plain"}
+             )
+  end
+
   test "passes only an explicit trusted permission bypass through to Channels" do
     assert {:ok, %{content: "downloaded"}} =
              DataSourceDocument.materialize(
@@ -86,25 +94,6 @@ defmodule Zaq.Channels.Materializers.DataSourceDocumentTest do
                %{node_router: StubNodeRouter},
                %{"file_id" => "other"}
              )
-  end
-
-  property "runtime options never change signed locator identity" do
-    check all(
-            provider <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
-            file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
-            config_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
-            attempted_file_id <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20)
-          ) do
-      locator = %{"provider" => provider, "file_id" => file_id, "config_id" => config_id}
-
-      result =
-        DataSourceDocument.materialize(locator, %{node_router: StubNodeRouter}, %{
-          "file_id" => attempted_file_id,
-          "export_mime_type" => "text/plain"
-        })
-
-      assert {:error, :invalid_materialization_options} = result
-    end
   end
 
   test "rejects invalid locators" do

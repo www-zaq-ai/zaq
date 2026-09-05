@@ -11,7 +11,6 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
 
   @type_key "data_source_document"
   @locator_fields ~w(config_id document_mime_type)
-  @option_fields ~w(document_mime_type export_mime_type)
 
   @spec issue(atom() | String.t(), String.t(), map(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
@@ -27,12 +26,22 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
   end
 
   @impl true
+  def materialization_options, do: Zaq.Materialization.document_mime_options()
+
+  @impl true
   def materialize(locator, context, options \\ %{})
 
-  def materialize(locator, context, options)
+  def materialize(locator, context, options),
+    do: Zaq.Materialization.materialize_with_handler(__MODULE__, locator, context, options)
+
+  @impl true
+  def do_materialize(locator, context, options)
+
+  def do_materialize(locator, context, options)
       when is_map(locator) and is_map(context) and is_map(options) do
-    with {:ok, provider, params} <- validate_locator(locator),
-         {:ok, params} <- merge_options(params, options) do
+    with {:ok, provider, params} <- validate_locator(locator) do
+      params = merge_options(params, options)
+
       provider
       |> Events.build_and_dispatch_data_source_download_document_event(
         params,
@@ -44,7 +53,7 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
     end
   end
 
-  def materialize(_locator, _context, _options), do: {:error, :invalid_materialization_locator}
+  def do_materialize(_locator, _context, _options), do: {:error, :invalid_materialization_locator}
 
   defp validate_locator(locator) do
     provider = string(locator, "provider")
@@ -69,10 +78,7 @@ defmodule Zaq.Channels.Materializers.DataSourceDocument do
   end
 
   defp merge_options(params, options) do
-    case Map.keys(options) -- @option_fields do
-      [] -> {:ok, params |> Map.merge(Map.take(options, @option_fields)) |> drop_blank_values()}
-      _unknown -> {:error, :invalid_materialization_options}
-    end
+    params |> Map.merge(options) |> drop_blank_values()
   end
 
   defp data_source_event_opts(context) do

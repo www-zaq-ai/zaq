@@ -44,6 +44,7 @@ defmodule Zaq.Agent.Factory do
     tools: []
 
   alias Jido.AI.Context, as: AIContext
+  alias Jido.AI.Skill.AgentIntegration
 
   alias Zaq.Agent.{
     ConfiguredAgent,
@@ -51,7 +52,8 @@ defmodule Zaq.Agent.Factory do
     MediaResultTransformer,
     OpaqueAliases,
     ProviderSpec,
-    Skills
+    Skills,
+    Skills.Limits
   }
 
   alias Zaq.Agent.Tools.Registry
@@ -104,17 +106,43 @@ defmodule Zaq.Agent.Factory do
   def runtime_config(%ConfiguredAgent{} = configured_agent) do
     skills = Skills.enabled_for_agent(configured_agent)
 
-    with {:ok, tools} <-
+    with {:ok, skill_integration} <- skill_runtime_integration(skills),
+         {:ok, tools} <-
            Registry.resolve_modules(Skills.provisioned_tool_keys(configured_agent, skills)) do
       {:ok,
        %{
-         tools: tools,
+         tools: Enum.uniq(tools ++ skill_integration.tools),
          # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
          # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
          llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
-         system_prompt: Skills.system_prompt(configured_agent, skills),
+         system_prompt: runtime_system_prompt(configured_agent, skills, skill_integration),
+         tool_context: skill_integration.tool_context,
          context_window: context_window_config(configured_agent)
        }}
+    end
+  end
+
+  defp skill_runtime_integration([]), do: {:ok, %{tools: [], index: "", tool_context: %{}}}
+
+  defp skill_runtime_integration(skills) do
+    AgentIntegration.prepare(
+      specs: Skills.to_specs(skills),
+      resource_provider: {Zaq.Agent.Skill.ResourceProvider, :handle},
+      resource_policy: [
+        binary: :allow,
+        max_file_bytes: Limits.get(:resource_max_bytes),
+        max_text_bytes: Limits.get(:resource_read_max_bytes)
+      ]
+    )
+  end
+
+  defp runtime_system_prompt(configured_agent, _skills, %{index: index}) when is_binary(index) do
+    job = configured_agent.job || ""
+
+    case index do
+      "" -> job
+      index when job == "" -> index
+      index -> job <> "\n\n" <> index
     end
   end
 
@@ -205,13 +233,19 @@ defmodule Zaq.Agent.Factory do
           {:ok, %{request: term(), events: Enumerable.t()}} | {:error, term()}
   def ask_with_config(server, query, %ConfiguredAgent{} = configured_agent, opts \\ [])
       when is_binary(query) do
+    skills = Skills.enabled_for_agent(configured_agent)
+
     with {:ok, config} <- server_runtime_config(server, configured_agent),
-         :ok <- ensure_system_prompt(server, effective_system_prompt(configured_agent)) do
+         {:ok, skill_integration} <- skill_runtime_integration(skills),
+         :ok <- ensure_native_skill_tools_registered(server, skill_integration),
+         prompt <- runtime_system_prompt(configured_agent, skills, skill_integration),
+         :ok <- ensure_system_prompt(server, prompt) do
       ask_opts =
         opts
         |> Keyword.put(:llm_opts, Map.get(config, :llm_opts, []))
         |> Keyword.put(:max_iterations, configured_agent.max_iterations || 10)
         |> Keyword.put_new(:timeout, 300_000)
+        |> put_runtime_tool_context(skill_integration)
         |> put_context_window(config)
         |> maybe_put_tool_timeout(config)
 
@@ -250,6 +284,20 @@ defmodule Zaq.Agent.Factory do
     Keyword.put(opts, :tool_context, context)
   end
 
+  defp put_runtime_tool_context(opts, skill_integration) do
+    runtime_context = Map.get(skill_integration, :tool_context, %{})
+
+    context =
+      opts
+      |> Keyword.get(:tool_context, %{})
+      |> case do
+        %{} = context -> Map.merge(context, runtime_context)
+        _ -> runtime_context
+      end
+
+    Keyword.put(opts, :tool_context, context)
+  end
+
   @doc """
   Per-tool react execution timeout (ms) required by `tools`, or `nil` to use
   jido_ai's default (15s).
@@ -278,26 +326,29 @@ defmodule Zaq.Agent.Factory do
   def await(%{request: request}, opts), do: await(request, opts)
   def await(request, opts), do: super(request, opts)
 
-  # Recomputed on every ask so skill body/description edits propagate to live
-  # servers through the existing compare-and-set in ensure_system_prompt/2.
-  #
-  # The CONTENT changed in Step 4 (a name/description index instead of every skill body);
-  # the MECHANISM did not. `%Jido.AI.Skill.Spec{}` structs are consumed by
-  # `Jido.AI.Skill.Prompt` and ZAQ's own `load_skill` action — they must never be passed
-  # to `use Jido.AI.Agent`'s `:skills` option, which takes core `Jido.Skill` plugins with
-  # a `skill_spec/1` callback. They are unrelated concepts with confusingly similar names.
-  defp effective_system_prompt(configured_agent) do
-    skills = Skills.enabled_for_agent(configured_agent)
-    Skills.system_prompt(configured_agent, skills)
-  end
-
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do
-      {:ok, %{raw_state: %{runtime_config: %{} = config}}} ->
-        {:ok, config}
+      {:ok, %{raw_state: %{runtime_config: %{} = config}}} -> {:ok, config}
+      _ -> runtime_config(configured_agent)
+    end
+  end
 
-      _ ->
-        runtime_config(configured_agent)
+  defp ensure_native_skill_tools_registered(_server, %{tools: tools}) when tools in [nil, []],
+    do: :ok
+
+  defp ensure_native_skill_tools_registered(server, %{tools: tools}) do
+    case Jido.AI.list_tools(server) do
+      {:ok, registered} when is_list(registered) ->
+        missing = tools -- registered
+
+        if missing == [] do
+          :ok
+        else
+          {:error, {:runtime_sync_required, Enum.map(missing, & &1.name())}}
+        end
+
+      {:error, reason} ->
+        {:error, {:runtime_sync_check_failed, reason}}
     end
   end
 

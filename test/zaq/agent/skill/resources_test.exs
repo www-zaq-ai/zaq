@@ -30,99 +30,122 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
 
   describe "default_root/1" do
     test "derives the root from the skill name" do
-      assert Resources.default_root(skill(%{name: "pricing-faq"})) == ".agents/skills/pricing-faq"
+      assert Resources.default_root(skill(%{name: "pricing-faq"})) == "pricing-faq"
     end
 
     test "ignores any stored resource_root" do
-      s = skill(%{name: "pricing-faq", resource_root: ".agents/skills/old-name"})
-      assert Resources.default_root(s) == ".agents/skills/pricing-faq"
+      s = skill(%{name: "pricing-faq", resource_root: "old-name"})
+      assert Resources.default_root(s) == "pricing-faq"
     end
   end
 
   describe "root/1" do
     test "derives from the name when no resource_root is stored" do
-      assert Resources.root(skill(%{name: "pricing-faq"})) == ".agents/skills/pricing-faq"
+      assert Resources.root(skill(%{name: "pricing-faq"})) == "pricing-faq"
     end
 
     test "prefers a stored resource_root" do
-      s = skill(%{name: "new-name", resource_root: ".agents/skills/old-name"})
-      assert Resources.root(s) == ".agents/skills/old-name"
+      s = skill(%{name: "new-name", resource_root: "old-name"})
+      assert Resources.root(s) == "old-name"
     end
 
     test "ignores an unsafe stored root" do
-      assert Resources.root(skill(%{name: "s", resource_root: "/etc"})) == ".agents/skills/s"
-      assert Resources.root(skill(%{name: "s", resource_root: "../escape"})) == ".agents/skills/s"
+      assert Resources.root(skill(%{name: "s", resource_root: "/etc"})) == "s"
+      assert Resources.root(skill(%{name: "s", resource_root: "../escape"})) == "s"
     end
 
     test "is the parent of references_dir/1" do
-      # Deleting a skill removes `root/1`; `references_dir/1` is only one child of it.
       s = skill(%{name: "pricing-faq"})
-      assert Resources.references_dir(s) == Path.join(Resources.root(s), "references")
+      assert Resources.references_dir(s) == Resources.root(s)
     end
   end
 
   describe "references_dir/1" do
     test "uses the default root when resource_root is nil" do
       assert Resources.references_dir(skill(%{name: "pricing-faq"})) ==
-               ".agents/skills/pricing-faq/references"
+               "pricing-faq"
     end
 
     test "uses the default root when resource_root is empty" do
       assert Resources.references_dir(skill(%{name: "pricing-faq", resource_root: ""})) ==
-               ".agents/skills/pricing-faq/references"
+               "pricing-faq"
     end
 
     test "reuses a stored resource_root verbatim, even after a rename" do
       # The skill was renamed but its files still live under the original root.
-      s = skill(%{name: "new-name", resource_root: ".agents/skills/old-name"})
-      assert Resources.references_dir(s) == ".agents/skills/old-name/references"
+      s = skill(%{name: "new-name", resource_root: "old-name"})
+      assert Resources.references_dir(s) == "old-name"
     end
 
     test "normalises a trailing slash on the stored root" do
-      s = skill(%{name: "x", resource_root: ".agents/skills/old-name/"})
-      assert Resources.references_dir(s) == ".agents/skills/old-name/references"
+      s = skill(%{name: "x", resource_root: "old-name/"})
+      assert Resources.references_dir(s) == "old-name"
     end
   end
 
   describe "destination/2" do
-    test "places the file inside the references dir" do
+    test "places the file inside the skill root" do
       assert Resources.destination(skill(%{name: "pricing-faq"}), "prices.pdf") ==
-               ".agents/skills/pricing-faq/references/prices.pdf"
+               "pricing-faq/prices.pdf"
     end
 
     test "strips directory components from the client filename" do
       assert Resources.destination(skill(%{name: "s"}), "a/b/c.md") ==
-               ".agents/skills/s/references/c.md"
+               "s/c.md"
     end
 
     test "refuses to escape via traversal segments" do
       assert Resources.destination(skill(%{name: "s"}), "../../etc/passwd") ==
-               ".agents/skills/s/references/passwd"
+               "s/passwd"
     end
 
     test "refuses an absolute client path" do
       assert Resources.destination(skill(%{name: "s"}), "/etc/passwd") ==
-               ".agents/skills/s/references/passwd"
+               "s/passwd"
     end
 
     test "falls back to a placeholder filename when nothing usable remains" do
       assert Resources.destination(skill(%{name: "s"}), "..") ==
-               ".agents/skills/s/references/file"
+               "s/file"
 
       assert Resources.destination(skill(%{name: "s"}), "/") ==
-               ".agents/skills/s/references/file"
+               "s/file"
+    end
+
+    test "uses the placeholder for non-binary filenames without losing the resource root" do
+      default_skill = skill(%{name: "pricing-faq"})
+      pinned_skill = skill(%{name: "renamed", resource_root: "original/resources"})
+
+      for filename <- [
+            nil,
+            false,
+            :missing,
+            42,
+            1.5,
+            [],
+            ~c"report.pdf",
+            %{},
+            {:filename, "report.pdf"},
+            <<1::1>>
+          ] do
+        assert Resources.destination(default_skill, filename) == "pricing-faq/file",
+               "expected placeholder for #{inspect(filename)}"
+
+        assert Resources.destination(pinned_skill, filename) == "original/resources/file",
+               "expected placeholder with preserved root for #{inspect(filename)}"
+      end
     end
 
     test "preserves spaces and case in the filename itself" do
       # Only the *path shape* is sanitised — the filename is the operator's to choose,
       # and the storage browser displays it verbatim.
       assert Resources.destination(skill(%{name: "s"}), "Q3 Report.pdf") ==
-               ".agents/skills/s/references/Q3 Report.pdf"
+               "s/Q3 Report.pdf"
     end
   end
 
   describe "destination/2 containment (property)" do
-    property "never escapes .agents/skills/ regardless of skill name and filename" do
+    property "never escapes the skill root regardless of skill name and filename" do
       check all(
               name <- string(:printable, max_length: 40),
               filename <- string(:printable, max_length: 40),
@@ -130,11 +153,9 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
             ) do
         dest = Resources.destination(skill(%{name: name}), filename)
 
-        assert String.starts_with?(dest, ".agents/skills/")
         refute ".." in Path.split(dest)
         refute String.starts_with?(dest, "/")
-        # exactly: .agents, skills, <slug>, references, <file>
-        assert length(Path.split(dest)) == 5
+        assert length(Path.split(dest)) == 2
       end
     end
 
@@ -149,6 +170,36 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
         refute ".." in Path.split(dest)
         refute String.starts_with?(dest, "/")
       end
+    end
+
+    property "non-binary filenames always become the placeholder" do
+      check all(
+              filename <-
+                one_of([
+                  constant(nil),
+                  boolean(),
+                  integer(),
+                  list_of(integer(), max_length: 8),
+                  map_of(integer(), integer(), max_length: 8),
+                  tuple({integer(), integer()}),
+                  constant(<<1::1>>)
+                ]),
+              max_runs: 100
+            ) do
+        assert Resources.destination(
+                 skill(%{name: "s", resource_root: "original/resources"}),
+                 filename
+               ) ==
+                 "original/resources/file"
+      end
+    end
+  end
+
+  describe "resource type normalization" do
+    test "defaults unsupported or missing values to reference" do
+      assert Resources.normalize_resource_type("asset") == "asset"
+      assert Resources.normalize_resource_type("nope") == "reference"
+      assert Resources.normalize_resource_type(nil) == "reference"
     end
   end
 end

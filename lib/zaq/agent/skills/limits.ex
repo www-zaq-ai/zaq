@@ -14,9 +14,8 @@ defmodule Zaq.Agent.Skills.Limits do
 
   ## Body: three thresholds, two behaviours
 
-    * `skill_body_warning_tokens` — a **non-blocking warning** recorded in the skill's
-      diagnostics and surfaced in the BO. "This is large; consider moving bulk into
-      `references/` resources."
+    * `skill_body_warning_tokens` — a **non-blocking threshold** reserved for future
+      surfacing. Bodies above it still save successfully.
     * `skill_body_max_tokens` — a **hard reject**. Tokens are the real context cost.
     * `skill_body_max_bytes` — a **hard reject** and the absolute backstop. Tokens are
       estimated (`TokenEstimator`, word-based), so a pathological body — CJK, base64, no
@@ -32,16 +31,14 @@ defmodule Zaq.Agent.Skills.Limits do
 
   ## Resources: the ceiling has to be ours
 
-  `Jido.AI.Skill.Resources` imposes **no** size limit — `load_resource/2` is an uncapped
-  `File.read/1`, and `list_resources/1` reports whatever it finds. Jido's only length caps
-  are on SKILL.md metadata (see above). So nothing upstream stops a 20 MB reference file
-  from being loaded straight into a tool result and blowing the context window:
+  Jido's resource policy enforces separate file and text limits at load time. ZAQ supplies
+  these limits when preparing each agent's skill integration so the BO upload policy and
+  runtime loading policy stay aligned:
 
     * `resource_max_bytes` — per-file **upload** cap, enforced at write time in the BO.
       Deliberately looser than the read cap, because a PDF or PNG reference is legitimately
       larger than anything the model will be handed as text.
-    * `resource_read_max_bytes` — per-file **read** cap for the text a tool returns to the
-      model. Declared here; enforced in Part 2 (M8.6), where the read path exists.
+    * `resource_read_max_bytes` — per-file **read** cap for text returned to the model.
   """
 
   @defaults %{
@@ -51,7 +48,7 @@ defmodule Zaq.Agent.Skills.Limits do
     # Part 2 (import) — declared here, enforced in M4.
     bundle_max_bytes: 50 * 1024 * 1024,
     bundle_max_files: 500,
-    # Resources: upload cap enforced now (BO write path), read cap in Part 2 M8.6.
+    # Resources: upload and runtime load caps.
     resource_max_bytes: 5 * 1024 * 1024,
     resource_max_files: 10,
     resource_read_max_bytes: 262_144

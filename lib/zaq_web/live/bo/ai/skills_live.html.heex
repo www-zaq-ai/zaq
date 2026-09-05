@@ -100,7 +100,7 @@
           </DSTable.table_cell>
           <DSTable.table_cell>
             <span class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
-              {length(skill.tool_keys)}
+              {length(skill.provided_tool_keys)}
             </span>
           </DSTable.table_cell>
           <DSTable.table_cell>
@@ -204,6 +204,58 @@
 
       <div class="grid grid-cols-2 gap-4">
         <div>
+          <label class="zaq-field-label-uppercase block mb-1.5">
+            License
+          </label>
+          <input
+            type="text"
+            name="skill[license]"
+            value={@form[:license].value}
+            placeholder="Apache-2.0"
+            class="w-full zaq-control-text"
+          />
+          <p :for={error <- field_errors(@form[:license])} class="zaq-field-error mt-1">
+            {error}
+          </p>
+        </div>
+
+        <div>
+          <label class="zaq-field-label-uppercase block mb-1.5">
+            Compatibility
+          </label>
+          <input
+            type="text"
+            name="skill[compatibility]"
+            value={@form[:compatibility].value}
+            placeholder="Requires document access"
+            class="w-full zaq-control-text"
+          />
+          <p :for={error <- field_errors(@form[:compatibility])} class="zaq-field-error mt-1">
+            {error}
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <label class="zaq-field-label-uppercase block mb-1.5">
+          Metadata
+        </label>
+        <textarea
+          name="skill[metadata]"
+          rows="3"
+          placeholder="owner=ops&#10;tier=standard"
+          class="w-full zaq-control-text"
+        >{metadata_to_string(@form[:metadata].value)}</textarea>
+        <p class="zaq-text-caption mt-1" style="color: var(--zaq-text-color-body-tertiary)">
+          Optional Agent Skills metadata as one key=value pair per line. Values must be strings.
+        </p>
+        <p :for={error <- field_errors(@form[:metadata])} class="zaq-field-error mt-1">
+          {error}
+        </p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div>
           <div class="mb-2 flex items-center justify-between">
             <label class="zaq-field-label-uppercase block">
               Tools
@@ -292,8 +344,7 @@
         </p>
       </div>
 
-      <%!-- Resources: reference files stored on a storage volume under
-            .agents/skills/{slug}/references/ --%>
+      <%!-- Resources: files stored in this skill's flat folder under the global Skills data source. --%>
       <div>
         <div class="mb-2 flex items-center justify-between">
           <label class="zaq-field-label-uppercase block">
@@ -304,29 +355,38 @@
                 applicable yet". Secondary variant — the drawer footer already owns this
                 drawer's single primary button. --%>
           <DSButton.button
-            :if={resources_addable?(assigns)}
+            :if={resource_destination_available_for_template?(assigns)}
             id="add-resource-button"
             variant={:secondary}
             type="button"
             class="shrink-0"
             phx-click="open_resource_upload"
+            disabled={!resources_addable?(assigns)}
           >
             Add resource
           </DSButton.button>
         </div>
+        <p
+          :if={resource_unavailable_message(assigns)}
+          class="mb-3 font-mono text-[0.72rem] text-black/50"
+        >
+          {resource_unavailable_message(assigns)}
+        </p>
 
         <DSTable.table id="skill-resources-table">
           <:head>
             <DSTable.table_head_row>
               <DSTable.table_cell element={:th}>File</DSTable.table_cell>
+              <DSTable.table_cell element={:th}>Type</DSTable.table_cell>
               <DSTable.table_cell element={:th}>Size</DSTable.table_cell>
               <DSTable.table_cell element={:th}>Modified</DSTable.table_cell>
+              <DSTable.table_cell element={:th} align={:right}>Actions</DSTable.table_cell>
             </DSTable.table_head_row>
           </:head>
           <:body>
             <DSTable.table_empty
               :if={@skill_resources == [] and @uploads.skill_resources.entries == []}
-              colspan={3}
+              colspan={5}
             >
               No resources yet.
             </DSTable.table_empty>
@@ -337,6 +397,11 @@
                 <DSTable.table_text label={entry.client_name} />
               </DSTable.table_cell>
               <DSTable.table_cell>
+                <span class="zaq-pill zaq-text-caption zaq-pill--elevated">
+                  {staged_resource_type(assigns, entry)}
+                </span>
+              </DSTable.table_cell>
+              <DSTable.table_cell>
                 <DSTable.table_text
                   label={ZaqWeb.Helpers.SizeFormat.format_size(entry.client_size)}
                   tone={:secondary}
@@ -345,10 +410,29 @@
               <DSTable.table_cell>
                 <span class="zaq-pill zaq-text-caption zaq-pill--elevated">Pending</span>
               </DSTable.table_cell>
+              <DSTable.table_cell align={:right} nowrap>
+                <DSTable.table_actions reveal={:hover}>
+                  <DSButton.button
+                    id={"remove-pending-resource-#{entry.ref}"}
+                    variant={:tertiary}
+                    danger
+                    icon="hero-trash"
+                    icon_only
+                    aria-label={"Remove pending #{entry.client_name}"}
+                    phx-click="remove_resource"
+                    phx-value-ref={entry.ref}
+                  />
+                </DSTable.table_actions>
+              </DSTable.table_cell>
             </DSTable.table_row>
             <DSTable.table_row :for={resource <- @skill_resources}>
               <DSTable.table_cell>
                 <DSTable.table_text label={resource.name} />
+              </DSTable.table_cell>
+              <DSTable.table_cell>
+                <span class="zaq-pill zaq-text-caption zaq-pill--elevated">
+                  {persisted_resource_type(@selected_skill, resource)}
+                </span>
               </DSTable.table_cell>
               <DSTable.table_cell>
                 <DSTable.table_text
@@ -359,6 +443,21 @@
               <DSTable.table_cell>
                 <DSTable.table_datetime value={resource.modified_at} />
               </DSTable.table_cell>
+              <DSTable.table_cell align={:right} nowrap>
+                <DSTable.table_actions reveal={:hover}>
+                  <DSButton.button
+                    id={"remove-resource-#{resource_dom_id(resource)}"}
+                    variant={:tertiary}
+                    danger
+                    icon="hero-trash"
+                    icon_only
+                    aria-label={"Remove #{resource.name}"}
+                    phx-click="remove_resource"
+                    phx-value-path={resource_path(resource)}
+                    data-confirm="Remove this resource file?"
+                  />
+                </DSTable.table_actions>
+              </DSTable.table_cell>
             </DSTable.table_row>
           </:body>
         </DSTable.table>
@@ -368,7 +467,7 @@
         >
           {if @mode == :new,
             do: "Name the skill to add resources — they upload when you save.",
-            else: "Reference files, stored on a storage volume."}
+            else: "Files are stored in this skill's folder on the configured Skills data source."}
         </p>
       </div>
 
@@ -384,6 +483,9 @@
           rows={10}
           placeholder="Markdown instructions injected into the agent's system prompt..."
         />
+        <p class="zaq-text-caption mt-1" style="color: var(--zaq-text-color-body-tertiary)">
+          The skill body in Markdown, without frontmatter.
+        </p>
         <p
           :for={error <- field_errors(@form[:body])}
           class="zaq-field-error mt-1"
@@ -463,11 +565,33 @@
     submit_event="upload_skill_resource"
     change_event="validate_skill_resource"
     file_cancel_event="cancel_skill_resource"
-    label="Reference file"
+    label="Resource file"
     submit_label="Add"
-    hint={resource_upload_hint()}
+    hint={resource_upload_hint(@resource_type)}
+    input_accept={resource_input_accept(@resource_type)}
     folder_drop?={false}
-  />
+  >
+    <:form_fields>
+      <div class="zaq-field-row-block mb-3">
+        <label class="zaq-field-label-uppercase block mb-1.5" for="skill-resource-type">
+          Resource type
+        </label>
+        <select id="skill-resource-type" name="resource_type" class="w-full zaq-control-select">
+          <option
+            :for={{label, value} <- resource_type_options()}
+            value={value}
+            selected={@resource_type == value}
+            disabled={!compatible_resource_type?(assigns, value)}
+          >
+            {label}
+          </option>
+        </select>
+        <p class="zaq-text-caption mt-1" style="color: var(--zaq-text-color-body-tertiary)">
+          {resource_type_description(@resource_type)}
+        </p>
+      </div>
+    </:form_fields>
+  </ModalUpload.modal_upload>
 
   <ModalUpload.modal_no_volume :if={@resource_modal == :no_volume} />
 
@@ -493,7 +617,7 @@
     title="Add tools"
     max_width_class="zaq-modal--width-lg"
   >
-    <form phx-change="add_tool_from_picker">
+    <form id="skill-tools-picker-form" phx-change="add_tool_from_picker">
       <.searchable_select
         id="skill-tools-picker-select"
         name="tool_key"
@@ -527,7 +651,7 @@
     title="Add MCP endpoints"
     max_width_class="zaq-modal--width-lg"
   >
-    <form phx-change="add_mcp_from_picker">
+    <form id="skill-mcp-picker-form" phx-change="add_mcp_from_picker">
       <.searchable_select
         id="skill-mcp-picker-select"
         name="endpoint_id"

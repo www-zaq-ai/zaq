@@ -2350,7 +2350,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         %{
           body: "Instructions.",
           description: "What this skill does, and when to use it.",
-          tool_keys: [],
+          provided_tool_keys: [],
           tags: []
         }
         |> Map.merge(attrs)

@@ -13,7 +13,12 @@
         <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-4">
           Update Add-ons
         </p>
-        <.form for={%{}} phx-submit="upload_addon" phx-change="validate">
+        <.form
+          for={%{}}
+          id="addon-package-update-form"
+          phx-submit="upload_addon"
+          phx-change="validate"
+        >
           <div class="flex items-center gap-4">
             <label class="flex-1 flex items-center gap-3 px-4 py-3 rounded-lg border border-dashed border-black/20 cursor-pointer hover:border-black/40 transition-colors">
               <svg
@@ -208,7 +213,12 @@
           <p class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-3">
             Already have an add-on package?
           </p>
-          <.form for={%{}} phx-submit="upload_addon" phx-change="validate">
+          <.form
+            for={%{}}
+            id="addon-package-activation-form"
+            phx-submit="upload_addon"
+            phx-change="validate"
+          >
             <div class="flex items-center gap-3 max-w-sm mx-auto">
               <label class="flex-1 flex items-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-black/20 cursor-pointer hover:border-black/40 transition-colors">
                 <svg

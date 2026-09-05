@@ -146,6 +146,7 @@ defmodule ZaqWeb.Components.PortalConsentModal do
 
         <form
           :if={@show_email_input}
+          id="portal-consent-email-form"
           phx-change={@on_email_change}
           phx-target={@target}
           class="mb-5"

@@ -229,7 +229,7 @@
       <label class="font-mono text-[0.68rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
         Provider Default Agent
       </label>
-      <form phx-change="set_provider_default_agent">
+      <form id="provider-default-agent-form" phx-change="set_provider_default_agent">
         <input type="hidden" name="config_id" value={List.first(@configs).id} />
         <select
           id="provider-default-agent-select"
@@ -293,7 +293,10 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <form phx-change="set_retrieval_channel_agent">
+          <form
+            id={"retrieval-channel-agent-form-#{rc.id}"}
+            phx-change="set_retrieval_channel_agent"
+          >
             <input type="hidden" name="retrieval_channel_id" value={rc.id} />
             <select
               id={"retrieval-channel-agent-select-#{rc.id}"}

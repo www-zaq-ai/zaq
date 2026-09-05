@@ -44,7 +44,7 @@ Work through the planned Beadwork issues one at a time:
 1. Read the relevant source files using `mcp__serena__get_symbols_overview` before editing.
 2. Implement the change.
 3. Write or update unit tests covering the change.
-4. Target at least 90% coverage for new development in the changed scope (unit/integration as appropriate).
+4. Target at least 95% coverage for new development in the changed scope (unit/integration as appropriate).
 5. Apply `docs/testing-approach.md`: add property tests when the change touches invariants, broad input spaces, normalization, or permission/safety defaults.
 6. Run `mix test` — fix all failures before moving to the next step.
 7. Update the active Beadwork issue notes/description with decisions and progress as you go.
@@ -66,10 +66,9 @@ Work through the planned Beadwork issues one at a time:
 ## Phase 4 — Validate
 
 ### Unit validation
-1. Run `mix precommit` — fix everything it reports. Never skip or replace it.
-2. Run the full unit test suite: `mix test`.
-3. If coverage for new development is below 90%, document the exception in the PR with rationale and a follow-up plan.
-4. Review your own diff — check for dead code, debug statements, and convention violations.
+1. Run `mix q` — fix everything it reports. Never skip or replace it.
+2. If coverage for new development is below 95%, document the exception in the PR with rationale and a follow-up plan.
+3. Review your own diff — check for dead code, debug statements, and convention violations.
 
 ### E2E validation
 Run E2E tests when your change touches any of these areas:

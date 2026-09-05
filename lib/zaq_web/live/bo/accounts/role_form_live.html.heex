@@ -31,7 +31,13 @@
 
       <!-- Form -->
       <div class="px-8 py-6">
-        <.form for={@form} phx-submit="save" phx-change="validate" class="space-y-6">
+        <.form
+          for={@form}
+          id="role-form"
+          phx-submit="save"
+          phx-change="validate"
+          class="space-y-6"
+        >
           <!-- Name -->
           <div>
             <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">

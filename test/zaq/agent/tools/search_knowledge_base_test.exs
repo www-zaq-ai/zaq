@@ -2,27 +2,34 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Agent.Tools.SearchKnowledgeBase
+  alias Zaq.Event
 
   defmodule StubNodeRouter do
-    def call(:ingestion, _mod, :query_extraction, ["find elixir", _opts]) do
-      {:ok,
-       [
-         %{"content" => "Elixir runs on the BEAM VM.", "source" => "docs/elixir.md"},
-         %{"content" => "It was created by José Valim."}
-       ]}
+    def dispatch(
+          %Event{request: %{function: :query_extraction, args: ["find elixir", _opts]}} = event
+        ) do
+      %{
+        event
+        | response:
+            {:ok,
+             [
+               %{"content" => "Elixir runs on the BEAM VM.", "source" => "docs/elixir.md"},
+               %{"content" => "It was created by José Valim."}
+             ]}
+      }
     end
 
-    def call(:ingestion, _mod, :query_extraction, ["timeout query", _opts]) do
-      {:error, :timeout}
-    end
+    def dispatch(
+          %Event{request: %{function: :query_extraction, args: ["timeout query", _opts]}} = event
+        ),
+        do: %{event | response: {:error, :timeout}}
 
-    def call(:ingestion, _mod, :query_extraction, [_query, _opts]) do
-      {:ok, []}
-    end
+    def dispatch(%Event{request: %{function: :query_extraction}} = event),
+      do: %{event | response: {:ok, []}}
   end
 
   defmodule RaisingNodeRouter do
-    def call(:ingestion, _mod, :query_extraction, [_query, _opts]) do
+    def dispatch(%Event{request: %{function: :query_extraction}}) do
       raise "router crashed"
     end
   end
@@ -31,35 +38,45 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   # skip_permissions: false — any deviation causes the fallback to return an
   # error, which fails the test that asserts {:ok, _}.
   defmodule PermissionRouter do
-    def call(:ingestion, _mod, :query_extraction, [
-          _query,
-          [person_id: 42, team_ids: [1, 2], skip_permissions: false]
-        ]) do
-      {:ok, []}
+    def dispatch(
+          %Event{
+            request: %{
+              function: :query_extraction,
+              args: [_query, [person_id: 42, team_ids: [1, 2], skip_permissions: false]]
+            }
+          } = event
+        ) do
+      %{event | response: {:ok, []}}
     end
 
-    def call(:ingestion, _mod, :query_extraction, [_query, opts]) do
-      {:error, {:unexpected_opts, opts}}
+    def dispatch(%Event{request: %{function: :query_extraction, args: [_query, opts]}} = event) do
+      %{event | response: {:error, {:unexpected_opts, opts}}}
     end
   end
 
   defmodule SkipPermissionsRouter do
-    def call(:ingestion, _mod, :query_extraction, [_query, opts]) do
-      case {Keyword.get(opts, :person_id), Keyword.get(opts, :skip_permissions)} do
-        {nil, false} -> {:ok, []}
-        {nil, true} -> {:ok, []}
-        {_id, false} -> {:ok, []}
-        {_id, other} -> {:error, {:skip_permissions_was, other}}
-      end
+    def dispatch(%Event{request: %{function: :query_extraction, args: [_query, opts]}} = event) do
+      response =
+        case {Keyword.get(opts, :person_id), Keyword.get(opts, :skip_permissions)} do
+          {nil, false} -> {:ok, []}
+          {nil, true} -> {:ok, []}
+          {_id, false} -> {:ok, []}
+          {_id, other} -> {:error, {:skip_permissions_was, other}}
+        end
+
+      %{event | response: response}
     end
   end
 
   defmodule DefaultTeamIdsRouter do
-    def call(:ingestion, _mod, :query_extraction, [_query, opts]) do
-      case Keyword.get(opts, :team_ids) do
-        [] -> {:ok, []}
-        other -> {:error, {:team_ids_was, other}}
-      end
+    def dispatch(%Event{request: %{function: :query_extraction, args: [_query, opts]}} = event) do
+      response =
+        case Keyword.get(opts, :team_ids) do
+          [] -> {:ok, []}
+          other -> {:error, {:team_ids_was, other}}
+        end
+
+      %{event | response: response}
     end
   end
 

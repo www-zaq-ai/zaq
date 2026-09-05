@@ -34,6 +34,14 @@ defmodule Zaq.Engine.ApiTest do
       send(self(), {:trace_artifact_called, artifact_id, user.id})
       {:ok, %{artifact_id: artifact_id, user_id: user.id}}
     end
+
+    def list_conversations(opts), do: {:listed, opts}
+    def get_conversation(id), do: {:conversation, id}
+    def get_conversation!(id), do: {:conversation!, id}
+    def list_messages(conversation), do: {:messages, conversation}
+    def create_conversation(attrs), do: {:created, attrs}
+    def add_message(conversation, attrs), do: {:message_added, conversation, attrs}
+    def delete_conversation_by_id(id), do: {:deleted, id}
   end
 
   defmodule StubConnect do
@@ -95,6 +103,39 @@ defmodule Zaq.Engine.ApiTest do
     result = Api.handle_event(event, :persist_from_incoming, nil)
 
     assert result.response == {:error, {:invalid_request, %{incoming: :bad, metadata: %{}}}}
+  end
+
+  describe "conversation action" do
+    defp conversation_event(request) do
+      Event.new(request, :engine,
+        opts: [action: :conversation, conversations_module: StubConversations]
+      )
+    end
+
+    test "routes supported conversation operations" do
+      cases = [
+        {%{action: :list, opts: [limit: 5]}, {:listed, [limit: 5]}},
+        {%{action: :get, conversation_id: "c1"}, {:conversation, "c1"}},
+        {%{action: :get!, conversation_id: "c1"}, {:conversation!, "c1"}},
+        {%{action: :messages, conversation: :conversation}, {:messages, :conversation}},
+        {%{action: :create, attrs: %{channel_type: "bo"}}, {:created, %{channel_type: "bo"}}},
+        {%{action: :add_message, conversation: :conversation, attrs: %{role: "assistant"}},
+         {:message_added, :conversation, %{role: "assistant"}}},
+        {%{action: :delete, conversation_id: "c1"}, {:deleted, "c1"}}
+      ]
+
+      for {request, expected} <- cases do
+        assert Api.handle_event(conversation_event(request), :conversation, nil).response ==
+                 expected
+      end
+    end
+
+    test "rejects malformed conversation operations" do
+      request = %{action: :create, attrs: []}
+
+      assert Api.handle_event(conversation_event(request), :conversation, nil).response ==
+               {:error, {:invalid_request, request}}
+    end
   end
 
   test "handles persist_message_history action" do
@@ -862,7 +903,8 @@ defmodule Zaq.Engine.ApiTest do
       {:system_config_connect_schedule_refresh, %{}},
       {:system_config_set_global_base_url, %{}},
       {:system_config_set_system_language, %{}},
-      {:system_config_set_system_timezone, %{}}
+      {:system_config_set_system_timezone, %{}},
+      {:system_config_save_skill_resource_config, %{}}
     ]
 
     Enum.each(invalid_cases, fn {action, request} ->
@@ -881,6 +923,75 @@ defmodule Zaq.Engine.ApiTest do
     assert result.response == :ok
     assert Zaq.System.get_global_default_agent_id() == agent.id
     assert result == %{event | response: :ok}
+  end
+
+  test "engine API gets and saves skill resource config" do
+    save =
+      Api.handle_event(
+        Event.new(%{attrs: %{provider: "disk", config_id: "7", folder_id: "skills"}}, :engine),
+        :system_config_save_skill_resource_config,
+        nil
+      )
+
+    assert {:ok, %{provider: "disk", config_id: 7, folder_id: "skills"}} = save.response
+
+    get =
+      Api.handle_event(
+        Event.new(%{}, :engine),
+        :system_config_get_skill_resource_config,
+        nil
+      )
+
+    assert %{provider: "disk", config_id: 7, folder_id: "skills"} = get.response
+  end
+
+  test "engine API lists enabled data source configs for skill resources" do
+    enabled = channel_config_fixture(%{name: "Enabled Disk", provider: "disk", enabled: true})
+
+    _disabled =
+      channel_config_fixture(%{name: "Disabled Drive", provider: "google_drive", enabled: false})
+
+    _retrieval =
+      channel_config_fixture(%{
+        name: "Mattermost",
+        provider: "mattermost",
+        kind: "retrieval",
+        url: "https://mattermost.example",
+        token: "token"
+      })
+
+    result =
+      Api.handle_event(
+        Event.new(%{}, :engine),
+        :system_config_list_skill_resource_data_sources,
+        nil
+      )
+
+    assert {:ok, configs} = result.response
+    assert Enum.map(configs, & &1.id) == [enabled.id]
+  end
+
+  defp channel_config_fixture(attrs) do
+    attrs =
+      Map.merge(
+        %{
+          name: "Data Source #{System.unique_integer([:positive])}",
+          provider: "disk",
+          kind: "data_source",
+          enabled: true,
+          url: "",
+          token: "",
+          settings: %{"volumes" => [%{"name" => "default", "path" => "tmp"}]}
+        },
+        attrs
+      )
+
+    {:ok, config} =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(attrs)
+      |> Repo.insert()
+
+    config
   end
 
   # --- :trigger handler ---

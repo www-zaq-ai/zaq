@@ -1,7 +1,7 @@
 defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLive do
   use ZaqWeb, :live_view
 
-  alias Zaq.Engine.Telemetry
+  alias Zaq.{Engine.Telemetry, Event}
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.NodeRouter
   alias ZaqWeb.Helpers.MetricsHelpers
@@ -74,7 +74,15 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLive do
   end
 
   defp load_knowledge_base_metrics_data(filters) do
-    case node_router_module().call(:engine, Telemetry, :load_knowledge_base_metrics, [filters]) do
+    event =
+      Event.new(
+        %{module: Telemetry, function: :load_knowledge_base_metrics, args: [filters]},
+        :engine,
+        opts: [action: :invoke]
+      )
+
+    case node_router_module().dispatch(event) do
+      %{response: %{} = payload} -> payload
       %{} = payload -> payload
       _ -> default_payload(filters)
     end

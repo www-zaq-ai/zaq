@@ -1,6 +1,5 @@
 defmodule Zaq.Channels.Materializers.CommunicationMediaTest do
   use Zaq.DataCase, async: true
-  use ExUnitProperties
 
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Event
@@ -182,26 +181,18 @@ defmodule Zaq.Channels.Materializers.CommunicationMediaTest do
              })
   end
 
-  property "runtime options never change signed locator identity" do
-    check all(
-            provider <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
-            reference <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20),
-            attempted_reference <- StreamData.string(:alphanumeric, min_length: 1, max_length: 20)
-          ) do
-      locator = %{
-        "provider" => provider,
-        "reference" => reference,
-        "source_author_id" => "author-1"
-      }
+  test "rejects runtime options because communication media declares none" do
+    locator = %{
+      "provider" => "mattermost",
+      "reference" => "file-1",
+      "source_author_id" => "author-1"
+    }
 
-      assert {:error, :invalid_materialization_options} =
-               CommunicationMedia.materialize(
-                 locator,
-                 %{node_router: StubNodeRouter, actor: %{id: "author-1"}},
-                 %{
-                   "reference" => attempted_reference
-                 }
-               )
-    end
+    assert {:error, :invalid_materialization_options} =
+             CommunicationMedia.materialize(
+               locator,
+               %{node_router: StubNodeRouter, actor: %{id: "author-1"}},
+               %{"reference" => "other"}
+             )
   end
 end

@@ -8,7 +8,7 @@ defmodule Zaq.People.IdentityResolverTest do
   alias Zaq.People.IdentityResolverTest.ErrorRouter
   alias Zaq.People.IdentityResolverTest.RaiseRouter
 
-  defp incoming(overrides \\ %{}) do
+  defp incoming(overrides) do
     struct(
       %Incoming{
         content: "hello",
@@ -23,7 +23,7 @@ defmodule Zaq.People.IdentityResolverTest do
     )
   end
 
-  defp complete_person_with_channel(channel_identifier, attrs \\ %{}) do
+  defp complete_person_with_channel(channel_identifier, attrs) do
     {:ok, person} =
       People.create_person(
         Map.merge(%{full_name: "Jane Smith", email: "jane@example.com"}, attrs)

@@ -257,6 +257,18 @@ defmodule Zaq.Agent.Tools.DataSource.DownloadDocumentTest do
       assert_received {:second_hop, :storage, :materialize_document, "guide.md"}
     end
 
+    test "Jido.Exec accepts materialized output records without provenance" do
+      assert {:ok, handle} = DiskDocument.issue("guide.md")
+
+      assert {:ok, %{record: %Record{} = record}} =
+               Jido.Exec.run(DownloadDocument, %{materialization_handle: handle}, %{
+                 node_router: DiskNodeRouter
+               })
+
+      assert record.content == "# guide"
+      assert record.provenance_ref == nil
+    end
+
     test "returns base64 content for a binary file, flagged in attributes" do
       {:ok, handle} = DiskDocument.issue("deck.pdf")
 

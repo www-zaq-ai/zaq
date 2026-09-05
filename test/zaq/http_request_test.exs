@@ -5,7 +5,7 @@ defmodule Zaq.HttpRequestTest do
 
   defp build(params, opts \\ []), do: HttpRequest.build(params, opts)
 
-  defp base(overrides \\ %{}),
+  defp base(overrides),
     do: Map.merge(%{method: "GET", url: "https://api.acme.test/x"}, overrides)
 
   describe "build/2" do

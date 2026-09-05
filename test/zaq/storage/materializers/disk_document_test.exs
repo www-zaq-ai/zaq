@@ -94,16 +94,33 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
     assert opts[:action] == :materialize_document
   end
 
-  test "passes the encoding runtime option through to storage" do
+  test "accepts shared MIME runtime options for cross-source compatibility" do
     assert {:ok, _answer} =
+             DiskDocument.materialize(
+               %{"file_id" => "guide.md"},
+               %{node_router: StubNodeRouter},
+               %{"document_mime_type" => "text/markdown", "export_mime_type" => "text/plain"}
+             )
+
+    assert_received {:dispatch, :storage, :materialize_document, %{file_id: "guide.md"}}
+  end
+
+  test "rejects atom-key shared MIME runtime options" do
+    assert {:error, :invalid_materialization_options} =
+             DiskDocument.materialize(
+               %{"file_id" => "guide.md"},
+               %{node_router: StubNodeRouter},
+               %{document_mime_type: "text/markdown"}
+             )
+  end
+
+  test "rejects obsolete encoding runtime option" do
+    assert {:error, :invalid_materialization_options} =
              DiskDocument.materialize(
                %{"file_id" => "guide.md"},
                %{node_router: StubNodeRouter},
                %{"encoding" => "base64"}
              )
-
-    assert_received {:dispatch, :storage, :materialize_document,
-                     %{file_id: "guide.md", encoding: "base64"}}
   end
 
   test "rejects runtime options that try to override locator identity" do
@@ -154,6 +171,23 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
 
     assert {:error, :invalid_materialization_locator} =
              DiskDocument.materialize(%{"file_id" => "guide.md"}, %{}, "base64")
+
+    refute_received {:dispatch, _destination, _action, _request}
+  end
+
+  test "rejects non-map inputs through the materialization handler callback" do
+    valid_locator = %{"file_id" => "guide.md"}
+    valid_context = %{node_router: StubNodeRouter}
+    valid_options = %{}
+
+    for {locator, context, options} <- [
+          {"disk:archives:guide.md", valid_context, valid_options},
+          {valid_locator, nil, valid_options},
+          {valid_locator, valid_context, "base64"}
+        ] do
+      assert {:error, :invalid_materialization_locator} =
+               DiskDocument.do_materialize(locator, context, options)
+    end
 
     refute_received {:dispatch, _destination, _action, _request}
   end

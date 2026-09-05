@@ -6,20 +6,6 @@ defmodule Zaq.Agent.Skills.ValidationTest do
   alias Jido.AI.Skill.Spec
   alias Zaq.Agent.Skill
   alias Zaq.Agent.Skills.Validation
-  alias Zaq.Repo
-
-  defmodule NilDiagnosticsLoader do
-    def parse(_content, _source_path, _opts) do
-      {:ok,
-       %Spec{
-         name: "calculator",
-         description: "Precise arithmetic. Use when the user asks for a calculation.",
-         body_ref: {:inline, "# Calculator\nUse the arithmetic tools instead of mental math."},
-         allowed_tools: [],
-         diagnostics: nil
-       }}
-    end
-  end
 
   defmodule GenericFailure do
     defexception message: "generic parser failure"
@@ -55,23 +41,117 @@ defmodule Zaq.Agent.Skills.ValidationTest do
     name: "calculator",
     description: "Precise arithmetic. Use when the user asks for a calculation.",
     body: "# Calculator\nUse the arithmetic tools instead of mental math.",
+    license: "Apache-2.0",
+    compatibility: "Requires calculator tools.",
+    metadata: %{"owner" => "ops", "tier" => "standard"},
     allowed_tools: []
   }
 
   describe "round trip: attrs -> SKILL.md -> %Spec{}" do
     test "a valid skill round-trips field-for-field" do
-      assert {:ok, %Spec{} = spec, _diagnostics} = Validation.validate(@valid)
+      assert {:ok, %Spec{} = spec} = Validation.validate(@valid)
 
       assert spec.name == @valid.name
       assert spec.description == @valid.description
       assert spec.body_ref == {:inline, @valid.body}
+      assert spec.license == @valid.license
+      assert spec.compatibility == @valid.compatibility
+      assert spec.metadata == @valid.metadata
     end
 
     test "the serialized document is parseable SKILL.md" do
-      content = Validation.to_skill_md(@valid.name, @valid.description, @valid.body)
+      content =
+        Validation.to_skill_md(
+          @valid.name,
+          @valid.description,
+          @valid.body,
+          @valid.allowed_tools,
+          @valid.license,
+          @valid.compatibility,
+          @valid.metadata
+        )
 
       assert String.starts_with?(content, "---\n")
-      assert {:ok, %Spec{}} = Loader.parse(content, "calculator/SKILL.md", lenient: false)
+      assert content =~ ~s(license: "Apache-2.0")
+      assert content =~ ~s(compatibility: "Requires calculator tools.")
+      assert content =~ "metadata:\n  owner: \"ops\""
+      assert {:ok, %Spec{} = spec} = Loader.parse(content, "calculator/SKILL.md", lenient: false)
+      assert spec.metadata == @valid.metadata
+    end
+
+    test "serializer defaults are parseable and trailing fields stay absent" do
+      content = Validation.to_skill_md(@valid.name, @valid.description, @valid.body)
+
+      assert {:ok, %Spec{} = spec} = Loader.parse(content, "calculator/SKILL.md", lenient: false)
+      assert spec.allowed_tools == []
+      assert spec.license == nil
+      assert spec.compatibility == nil
+      assert spec.metadata == %{}
+
+      assert {:ok, %Spec{} = spec} =
+               Validation.to_skill_md(
+                 @valid.name,
+                 @valid.description,
+                 @valid.body,
+                 @valid.allowed_tools,
+                 "MIT"
+               )
+               |> then(&Loader.parse(&1, "calculator/SKILL.md", lenient: false))
+
+      assert spec.license == "MIT"
+      assert spec.compatibility == nil
+      assert spec.metadata == %{}
+
+      assert {:ok, %Spec{} = spec} =
+               Validation.to_skill_md(
+                 @valid.name,
+                 @valid.description,
+                 @valid.body,
+                 @valid.allowed_tools,
+                 "BSD-3-Clause",
+                 "Needs networking."
+               )
+               |> then(&Loader.parse(&1, "calculator/SKILL.md", lenient: false))
+
+      assert spec.license == "BSD-3-Clause"
+      assert spec.compatibility == "Needs networking."
+      assert spec.metadata == %{}
+    end
+
+    test "optional fields are defensively serialized" do
+      content =
+        Validation.to_skill_md(
+          @valid.name,
+          @valid.description,
+          @valid.body,
+          @valid.allowed_tools,
+          :invalid,
+          "Requires networking.",
+          %{}
+        )
+
+      refute content =~ "license:"
+      assert content =~ ~s(compatibility: "Requires networking.")
+
+      assert {:ok, %Spec{license: nil, compatibility: "Requires networking."}} =
+               Loader.parse(content, "calculator/SKILL.md", lenient: false)
+    end
+
+    test "non-map metadata is omitted from serialization" do
+      content =
+        Validation.to_skill_md(
+          @valid.name,
+          @valid.description,
+          @valid.body,
+          @valid.allowed_tools,
+          @valid.license,
+          @valid.compatibility,
+          :invalid
+        )
+
+      refute content =~ "metadata:"
+      assert {:ok, %Spec{} = spec} = Loader.parse(content, "calculator/SKILL.md", lenient: false)
+      assert spec.metadata == %{}
     end
 
     # The body is markdown and may legitimately contain a `---` horizontal rule. If that
@@ -79,7 +159,7 @@ defmodule Zaq.Agent.Skills.ValidationTest do
     test "a body containing --- survives serialization intact" do
       body = "Intro paragraph.\n\n---\n\nSection after a horizontal rule.\n\n---\n\nAnd another."
 
-      assert {:ok, %Spec{body_ref: {:inline, parsed}}, _} =
+      assert {:ok, %Spec{body_ref: {:inline, parsed}}} =
                Validation.validate(%{@valid | body: body})
 
       assert parsed == body
@@ -88,9 +168,43 @@ defmodule Zaq.Agent.Skills.ValidationTest do
     test "a description containing colons, quotes and hashes survives YAML encoding" do
       description = ~s(Handles "quoted" text: colons, # hashes, and 'apostrophes'.)
 
-      assert {:ok, %Spec{} = spec, _} = Validation.validate(%{@valid | description: description})
+      assert {:ok, %Spec{} = spec} = Validation.validate(%{@valid | description: description})
 
       assert spec.description == description
+    end
+  end
+
+  describe "manifest field conformance" do
+    test "empty optional strings are omitted and round-trip as nil" do
+      assert {:ok, %Spec{license: nil, compatibility: nil}} =
+               Validation.validate(%{@valid | license: "", compatibility: ""})
+    end
+
+    test "rejects over-long compatibility through Jido validation" do
+      assert {:error, errors} =
+               Validation.validate(%{@valid | compatibility: String.duplicate("c", 501)})
+
+      assert {:compatibility, message} = List.keyfind(errors, :compatibility, 0)
+      assert message =~ "compatibility"
+    end
+
+    test "rejects metadata values that are not strings" do
+      assert {:error, errors} = Validation.validate(%{@valid | metadata: %{"owner" => :ops}})
+
+      assert {:metadata, "could not be encoded"} in errors
+    end
+
+    test "rejects metadata that is not a map" do
+      assert {:error, errors} = Validation.validate(%{@valid | metadata: ["not", "a", "map"]})
+
+      assert {:metadata, "could not be encoded"} in errors
+    end
+
+    test "rejects enumerable metadata structs" do
+      assert {:error, errors} =
+               Validation.validate(%{@valid | metadata: MapSet.new([{"owner", "ops"}])})
+
+      assert {:metadata, "could not be encoded"} in errors
     end
   end
 
@@ -106,7 +220,7 @@ defmodule Zaq.Agent.Skills.ValidationTest do
     end
 
     test "round-trips back to a list of tool names" do
-      assert {:ok, %Spec{allowed_tools: tools}, _} =
+      assert {:ok, %Spec{allowed_tools: tools}} =
                Validation.validate(%{@valid | allowed_tools: ["Read", "Bash"]})
 
       assert tools == ["Read", "Bash"]
@@ -127,28 +241,15 @@ defmodule Zaq.Agent.Skills.ValidationTest do
   end
 
   # Jido warns when a skill's name does not match its parent directory. Parsing with
-  # source_path "inline" makes Path.dirname/1 return ".", which never matches — so every
-  # DB-backed skill would collect a bogus warning and be badged as broken in the BO.
-  describe "diagnostics" do
-    test "a clean skill produces NO warnings — in particular no directory_name_mismatch" do
-      assert {:ok, _spec, diagnostics} = Validation.validate(@valid)
+  # source_path "inline" makes Path.dirname/1 return ".", which never matches. DB-backed
+  # skills must therefore use a source path matching the skill name even though ZAQ no
+  # longer persists diagnostics.
+  describe "loader source path" do
+    test "a clean skill parses without directory_name_mismatch" do
+      assert {:ok, %Spec{} = spec} = Validation.validate(@valid)
 
-      # String-keyed to match the stored/reloaded shape (the :map column round-trips to
-      # string keys), so ZAQ can merge its own warnings without mixing key types.
-      assert diagnostics["warning_count"] == 0,
-             "unexpected warnings: #{inspect(diagnostics["warnings"])}"
-
-      refute Enum.any?(diagnostics["warnings"], &(&1["type"] == "directory_name_mismatch"))
-    end
-
-    test "diagnostics are persisted on the record so the BO need not re-parse" do
-      assert {:ok, skill} = %Skill{} |> Skill.changeset(@valid) |> Repo.insert()
-
-      # Reloaded, not the in-memory struct: this asserts the map actually survives the
-      # JSON round trip through the :map column (atom keys go in, string keys come back).
-      reloaded = Repo.get!(Skill, skill.id)
-
-      assert %{"warning_count" => 0, "warnings" => []} = reloaded.diagnostics
+      warnings = spec.diagnostics.warnings || []
+      refute Enum.any?(warnings, &(&1.type == :directory_name_mismatch))
     end
   end
 
@@ -214,10 +315,6 @@ defmodule Zaq.Agent.Skills.ValidationTest do
       assert {:description, message} = List.keyfind(errors, :description, 0)
       assert message =~ "too long"
     end
-
-    test "nil diagnostics are preserved as nil" do
-      assert {:ok, _spec, nil} = Validation.validate(@valid, loader: NilDiagnosticsLoader)
-    end
   end
 
   describe "resource_root" do
@@ -240,15 +337,25 @@ defmodule Zaq.Agent.Skills.ValidationTest do
   property "validation never silently changes a field it accepts" do
     check all(
             description <- string(:alphanumeric, min_length: 1, max_length: 200),
-            body <- string(:printable, min_length: 1, max_length: 300)
+            body <- string(:printable, min_length: 1, max_length: 300),
+            license <- string(:alphanumeric, min_length: 1, max_length: 50),
+            compatibility <- string(:alphanumeric, min_length: 1, max_length: 200)
           ) do
-      attrs = %{@valid | description: description, body: body}
+      attrs = %{
+        @valid
+        | description: description,
+          body: body,
+          license: license,
+          compatibility: compatibility
+      }
 
       case Validation.validate(attrs) do
-        {:ok, %Spec{} = spec, _diagnostics} ->
+        {:ok, %Spec{} = spec} ->
           # The whole point of the guard: what comes back is what went in.
           assert spec.description == description
           assert spec.body_ref == {:inline, body}
+          assert spec.license == license
+          assert spec.compatibility == compatibility
 
         {:error, _errors} ->
           :ok
