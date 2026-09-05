@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-05T20:05:23Z",
+  "description": "Cleanup validation used mix coveralls.json over agent/ingestion suites plus NodeRouter and Skills/browser LiveView tests: 17 doctests, 31 properties, 2516 tests pass (1 skipped, 64 excluded). Existing whole-module gaps: lib/zaq/ingestion/ingestion.ex 86.4% (56 missed / 414 relevant), lib/zaq_web/live/bo/data_source_browser.ex 84.3% (8 missed / 51). NodeRouter moduledoc-only edit at 92.3%. Exception rationale: cleanup adds only actor-only persistence projection with regression/property coverage; browser only loses unused active_source helper; broad unrelated coverage additions would expand cleanup. Follow-up: inspect cover/excoveralls.json, add production-contract tests for uncovered existing ingestion/browser branches, include other LiveViews that exercise browser helpers, target \u003e=95%. Do not add test-only production seams.",
+  "id": "zaq-5qu",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8q7] Cover remaining ingestion and browser branches",
+  "type": "task",
+  "updated_at": "2026-09-05T20:05:23Z"
+}
