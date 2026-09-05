@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-05T12:24:20Z",
+  "description": "Worktree-only coverage workflow requested by user; no commits, pushes, or PRs. Coordinator must not implement tests. Required sequence: one general planner per target using test-coverage-planner and full missed lines; persist complete plans in Beadwork; review full plans and merge overlapping test ownership without summarizing; delegate final plans verbatim to mini-worker using test-gap-fixer; review and delegate corrections; mix format; mix q and delegate detailed fix plans if needed; finally mix test only added/edited test paths --cover, filtering targeted coverage only with grep. Targets: lib/zaq_web/live/bo/system/system_config_live.ex (94%): 124,139,147,160,1137,1190,1196,1202,1203,1215,1258,1275,1334,1348,1377,1396,1404,1559,1604,1684,1702,1706,1715,1718,1746,1749,1761,1783,1824,1835,2080. lib/zaq/agent/skill.ex (95%): 134,167,227. lib/zaq_web/live/bo/ai/skills_live.ex (95%): 280,675,740,748,801,804,858,1004,1005,1010,1011,1019. lib/zaq/agent/skill/resources.ex (96%): 151. lib/zaq/agent/stream_events.ex (96%): 246,274,313,348,356,360,361,362,451,542,580,617. lib/zaq/storage.ex (96%): 36,59,156,203,270,271,348,461,474,493,705,780,783,841. lib/zaq/channels/materializers/data_source_document.ex (96%): 56. lib/zaq/channels/materializers/communication_media.ex (97%): 59. Orientation complete: Serena instructions, WORKFLOW_AGENT, PLAN_STRATEGY, testing handbook, quality score and debt checked; bw prime run; git status clean. Native task/delegation tool unavailable; checking OpenCode CLI delegation before planning execution.",
+  "id": "zaq-5vh",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Coordinate eight-file coverage workflow",
+  "type": "epic",
+  "updated_at": "2026-09-05T12:24:20Z"
+}
