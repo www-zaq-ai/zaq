@@ -18,11 +18,15 @@
     {
       "text": "zaq-5vh.7: Added six planned StreamEvents coverage scenarios (base64 success/invalid/unmaterialized, ignored parts, timestamp-free struct, property). Targeted mix test with --cover passes: 29 tests, 1 property, 0 failures; StreamEvents coverage 91.6% (26 misses remain). Unreachable branches from plan remain intentionally uncovered. Worker did not run mix q or full suite per amendment; ticket left open for review.",
       "timestamp": "2026-09-05T13:18:05Z"
+    },
+    {
+      "text": "Final reviewed changes are test-only across eight test files plus storage scalar-permissions support. mix q passes (1150 source files, no issues); git diff --check passed. Final selected-file mix test --cover: 11 properties, 442 tests, 0 failures. Coverage: SystemConfigLive 98.2% (580 relevant,10 missed); Skill95.1% (62,3); SkillsLive95.8% (292,12); Resources100% (26,0); StreamEvents91.6% (313,26); Storage97.8% (372,8); DataSourceDocument3.5% (28,27); CommunicationMedia2.6% (38,37). Materializer selection includes only NEW rejection callback tests, not unchanged integration files, so low percentages are subset artifacts; do not compare directly to supplied aggregate baseline. StreamEvents likewise below supplied baseline in this subset. Stop per requested workflow, no further coverage chase. Remaining: documented unreachable/contract-inaccessible clauses; Codex discovery returns empty; embedding capability fixture passes alone but fails whole file (UNRESOLVED ISOLATION, not proven unreachable). No production changes/commits/pushes. Some workers violated scoped validation instructions by running broader suites concurrently; those results excluded. Coordinator final gates executed serially. First final command timed out at120s; successful600s retry and final wider-grep repeat both 442 tests0fail. Final grep widened because coverage tool truncates long paths.",
+      "timestamp": "2026-09-05T15:06:20Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5vh] Coordinate eight-file coverage workflow",
   "type": "epic",
-  "updated_at": "2026-09-05T13:18:05Z"
+  "updated_at": "2026-09-05T15:06:20Z"
 }
