@@ -199,30 +199,6 @@ defmodule Zaq.Engine.Telemetry do
   @spec load_main_dashboard_metrics(map()) :: map()
   def load_main_dashboard_metrics(filters), do: DashboardData.load_main_dashboard_metrics(filters)
 
-  @deprecated "Use load_main_dashboard_metrics/1 and consume metric_cards_chart.summary.metrics"
-  @doc "Legacy dashboard KPI helper retained for compatibility during migration."
-  @spec dashboard_kpis(integer() | map() | keyword()) :: %{
-          documents_ingested_30d: float(),
-          qa_avg_response_ms_30d: float(),
-          llm_api_calls_30d: non_neg_integer()
-        }
-  def dashboard_kpis(params \\ 30) do
-    days = normalize_days(params)
-    range = range_for_days(days)
-
-    metrics =
-      %{range: range}
-      |> load_main_dashboard_metrics()
-      |> get_in([:metric_cards_chart, :summary, :metrics])
-      |> List.wrap()
-
-    %{
-      documents_ingested_30d: metric_value(metrics, "dashboard-metric-documents-ingested", 0.0),
-      qa_avg_response_ms_30d: metric_value(metrics, "dashboard-metric-qa-response-time", 0.0),
-      llm_api_calls_30d: round(metric_value(metrics, "dashboard-metric-llm-api-calls", 0.0))
-    }
-  end
-
   @doc "Returns recent telemetry points for E2E inspection. Accepts metric (supports * wildcard), limit, and last_minutes."
   @spec list_recent_points(map()) :: [Point.t()]
   def list_recent_points(params \\ %{}) do
@@ -401,18 +377,6 @@ defmodule Zaq.Engine.Telemetry do
     }
   end
 
-  defp range_for_days(days) when days <= 1, do: "24h"
-  defp range_for_days(days) when days <= 7, do: "7d"
-  defp range_for_days(days) when days <= 30, do: "30d"
-  defp range_for_days(_days), do: "90d"
-
-  defp metric_value(metrics, metric_id, default) do
-    case Enum.find(metrics, &(&1.id == metric_id)) do
-      %{value: value} when is_number(value) -> value * 1.0
-      _ -> default
-    end
-  end
-
   defp benchmark_rollup_entry(row, now) do
     dimensions = row_value(row, "dimensions", %{})
 
@@ -536,20 +500,4 @@ defmodule Zaq.Engine.Telemetry do
   end
 
   defp to_integer(_), do: 0
-
-  defp normalize_days(days) when is_integer(days) and days > 0, do: days
-
-  defp normalize_days(params) when is_map(params) do
-    params
-    |> Map.get(:days)
-    |> normalize_days()
-  end
-
-  defp normalize_days(params) when is_list(params) do
-    params
-    |> Keyword.get(:days)
-    |> normalize_days()
-  end
-
-  defp normalize_days(_), do: 30
 end

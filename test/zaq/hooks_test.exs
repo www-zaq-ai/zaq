@@ -99,7 +99,8 @@ defmodule Zaq.HooksTest do
   end
 
   defmodule FakeNodeRouter do
-    def call(role, handler, fun, args) do
+    def dispatch(%Zaq.Event{next_hop: %{destination: role}, request: request}) do
+      %{module: handler, function: fun, args: args} = request
       # Extract test_pid from the payload argument (3rd element of args: [event, payload, ctx])
       payload = Enum.at(args, 1, %{})
 
@@ -112,7 +113,7 @@ defmodule Zaq.HooksTest do
   end
 
   defmodule FailingNodeRouter do
-    def call(_role, _handler, _fun, _args), do: raise("rpc failed")
+    def dispatch(_event), do: raise("rpc failed")
   end
 
   defmodule SyncCapture do
@@ -309,7 +310,7 @@ defmodule Zaq.HooksTest do
   end
 
   # Scenario 21
-  test "dispatch_async async hook with node_role — NodeRouter.call is invoked inside a Task" do
+  test "dispatch_async async hook with node_role — NodeRouter dispatch is invoked inside a Task" do
     Application.put_env(:zaq, :hooks_node_router_module, FakeNodeRouter)
 
     Registry.register(async_hook(PassThroughHook, [:retrieval_complete], :agent))
