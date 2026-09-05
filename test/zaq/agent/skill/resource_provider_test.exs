@@ -18,12 +18,25 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
           } =
             event
         ) do
-      send(self(), {:dispatch, opts[:action], params})
+      dispatch_target = :persistent_term.get({__MODULE__, :dispatch_target}, self())
+      send(dispatch_target, {:dispatch, opts[:action], params})
+
+      overrides =
+        Process.get(
+          :resource_provider_router_responses,
+          :persistent_term.get({__MODULE__, :responses}, %{})
+        )
 
       response =
-        case opts[:action] do
-          :data_source_get_file -> {:ok, %{record: metadata_record()}}
-          :data_source_download_document -> {:ok, %{record: content_record()}}
+        case Map.fetch(overrides, opts[:action]) do
+          {:ok, response} ->
+            response
+
+          :error ->
+            case opts[:action] do
+              :data_source_get_file -> {:ok, %{record: metadata_record()}}
+              :data_source_download_document -> {:ok, %{record: content_record()}}
+            end
         end
 
       %{event | response: response}
@@ -155,5 +168,139 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
              )
 
     refute_received {:dispatch, _, _}
+  end
+
+  test "returns skill_not_found for an absent skill", %{spec: spec} do
+    absent_spec = %{spec | name: "missing-skill"}
+
+    assert {:error, :skill_not_found} =
+             ResourceProvider.handle(%{operation: :list, skill: absent_spec, policy: nil}, %{
+               node_router: Router
+             })
+
+    refute_received {:dispatch, _, _}
+  end
+
+  test "rejects unsupported skill resource requests", %{spec: spec} do
+    assert {:error, :unsupported_skill_resource_request} =
+             ResourceProvider.handle(%{operation: :delete, skill: spec, policy: nil}, %{
+               node_router: Router
+             })
+  end
+
+  test "returns an error when the resource location is not configured", %{spec: spec} do
+    {:ok, _config} = System.save_skill_resource_config(%{})
+
+    assert {:error, :skill_resource_location_not_configured} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1", policy: nil},
+               %{node_router: Router}
+             )
+
+    refute_received {:dispatch, _, _}
+  end
+
+  test "returns an error when metadata has no materialization handle", %{spec: spec} do
+    set_router_responses(%{
+      data_source_get_file: {:ok, %{record: metadata_record(materialization_handle: nil)}}
+    })
+
+    assert {:error, :materialization_handle_missing} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1", policy: nil},
+               %{node_router: Router}
+             )
+
+    assert_received {:dispatch, :data_source_get_file, _}
+    refute_received {:dispatch, :data_source_download_document, _}
+  end
+
+  test "returns an error when metadata lookup fails", %{spec: spec} do
+    set_router_responses(%{data_source_get_file: {:error, :timeout}})
+
+    assert {:error, %{message: "Data source document request failed: :timeout"}} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1", policy: nil},
+               %{node_router: Router}
+             )
+
+    refute_received {:dispatch, :data_source_download_document, _}
+  end
+
+  test "returns an error when document download fails", %{spec: spec} do
+    set_router_responses(%{data_source_download_document: {:error, :timeout}})
+
+    assert {:error, %{message: "Record materialization failed: :timeout"}} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1", policy: nil},
+               %{node_router: Router}
+             )
+
+    assert_received {:dispatch, :data_source_get_file, _}
+    assert_received {:dispatch, :data_source_download_document, _}
+  end
+
+  test "returns an error when materialized content is not textual", %{spec: spec} do
+    set_router_responses(%{
+      data_source_download_document:
+        {:ok, %{record: content_record(content: ["structured", "content"])}}
+    })
+
+    assert {:error, :binary_resource} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1", policy: nil},
+               %{node_router: Router}
+             )
+
+    assert_received {:dispatch, :data_source_get_file, _}
+    assert_received {:dispatch, :data_source_download_document, _}
+  end
+
+  defp set_router_responses(responses) do
+    Process.put(:resource_provider_router_responses, responses)
+    :persistent_term.put({Router, :responses}, responses)
+    :persistent_term.put({Router, :dispatch_target}, self())
+
+    on_exit(fn ->
+      Process.delete(:resource_provider_router_responses)
+      :persistent_term.erase({Router, :responses})
+      :persistent_term.erase({Router, :dispatch_target})
+    end)
+  end
+
+  defp metadata_record(attrs) do
+    {:ok, handle} =
+      DataSourceDocument.issue("disk", "doc-1", %{
+        "config_id" => "7",
+        "document_mime_type" => "text/markdown"
+      })
+
+    %Record{
+      id: "doc-1",
+      kind: :file,
+      name: "guide.md",
+      size: 12,
+      mime_type: "text/markdown",
+      materialization_handle: handle
+    }
+    |> Map.merge(Map.new(attrs))
+    |> seal_record()
+  end
+
+  defp content_record(attrs) do
+    %Record{
+      id: "doc-1",
+      kind: :file,
+      name: "guide.md",
+      content: "Hello skill!",
+      mime_type: "text/markdown"
+    }
+    |> Map.merge(Map.new(attrs))
+    |> seal_record()
+  end
+
+  defp seal_record(record) do
+    {:ok, sealed} = Provenance.seal(record, %{"provider" => "disk", "config_id" => "7"})
+    sealed
   end
 end

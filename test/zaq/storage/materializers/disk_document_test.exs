@@ -175,6 +175,23 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
     refute_received {:dispatch, _destination, _action, _request}
   end
 
+  test "rejects non-map inputs through the materialization handler callback" do
+    valid_locator = %{"file_id" => "guide.md"}
+    valid_context = %{node_router: StubNodeRouter}
+    valid_options = %{}
+
+    for {locator, context, options} <- [
+          {"disk:archives:guide.md", valid_context, valid_options},
+          {valid_locator, nil, valid_options},
+          {valid_locator, valid_context, "base64"}
+        ] do
+      assert {:error, :invalid_materialization_locator} =
+               DiskDocument.do_materialize(locator, context, options)
+    end
+
+    refute_received {:dispatch, _destination, _action, _request}
+  end
+
   test "fails closed when no current disk config can be resolved" do
     assert {:error, :disk_channel_config_not_found} =
              DiskDocument.materialize(%{"file_id" => "disk:missing.md"}, %{})

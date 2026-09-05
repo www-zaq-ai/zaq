@@ -1,5 +1,6 @@
 defmodule ZaqWeb.Live.BO.DataSourceBrowserTest do
-  use Zaq.DataCase, async: true
+  use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ZaqWeb.Live.BO.DataSourceBrowser
 
@@ -23,9 +24,31 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowserTest do
       assert source.filters == %{"parent" => "volume-a"}
       assert source.label == "Volume A"
     end
+
+    test "uses provider and scope defaults when labels and names are absent" do
+      config = %{id: 12, provider: "google_drive"}
+
+      assert DataSourceBrowser.source(config, %{"scope_id" => "root"}) == %{
+               id: "google_drive:12:root",
+               provider: "google_drive",
+               config_id: 12,
+               scope_id: "root",
+               filters: %{"parent" => "root"},
+               label: "Google Drive",
+               path: nil
+             }
+    end
   end
 
   describe "navigation" do
+    test "selects the requested source and falls back to the first source" do
+      sources = [%{id: "first"}, %{id: "second"}]
+
+      assert DataSourceBrowser.active_source(sources, "second") == Enum.at(sources, 1)
+      assert DataSourceBrowser.active_source(sources, "unknown") == Enum.at(sources, 0)
+      assert DataSourceBrowser.active_source([], "unknown") == nil
+    end
+
     test "enters existing folders and ignores forged ids" do
       entries = [%{id: "a", name: "A", path: "a"}]
 
@@ -38,6 +61,28 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowserTest do
 
       assert DataSourceBrowser.current_folder(source, []).id == "volume-a"
       assert DataSourceBrowser.current_folder(source, [%{id: "child"}]).id == "child"
+    end
+
+    property "up_stack removes exactly the final folder" do
+      folder =
+        gen all(
+              id <- string(:alphanumeric, min_length: 1, max_length: 12),
+              name <- string(:alphanumeric, min_length: 1, max_length: 12),
+              path <- string(:alphanumeric, min_length: 1, max_length: 12)
+            ) do
+          %{id: id, name: name, path: path}
+        end
+
+      check all(
+              prefix <- list_of(folder, max_length: 8),
+              final_folder <- folder
+            ) do
+        assert DataSourceBrowser.up_stack(prefix ++ [final_folder]) == prefix
+      end
+    end
+
+    test "up_stack returns an empty stack for an empty stack" do
+      assert DataSourceBrowser.up_stack([]) == []
     end
   end
 
@@ -53,6 +98,23 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowserTest do
 
       assert get_in(DataSourceBrowser.list_params(source, "child"), ["filters", "parent"]) ==
                "child"
+
+      assert DataSourceBrowser.list_params(source, "", true) == %{
+               "config_id" => 1,
+               "filters" => %{"parent" => "volume-a"},
+               "include_permissions" => true
+             }
+    end
+
+    test "builds destination params from an opaque folder id and path" do
+      source = %{config_id: 7, filters: %{}}
+      stack = [%{id: "opaque-folder-id", path: "Reports"}]
+
+      assert DataSourceBrowser.destination_params(source, stack) == %{
+               config_id: "7",
+               parent_id: "opaque-folder-id",
+               path: "Reports"
+             }
     end
 
     test "builds CreateDocument folder params under selected source root" do
