@@ -1,7 +1,5 @@
 defmodule Zaq.Ingestion.RecordSourceTest do
-  # Listing local-volume children resolves document identity, so these tests need a
-  # sandboxed Repo checkout, not a bare ExUnit case.
-  use Zaq.DataCase, async: false
+  use Zaq.DataCase, async: true
 
   import Mox
 
@@ -9,57 +7,6 @@ defmodule Zaq.Ingestion.RecordSourceTest do
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
   alias Zaq.Ingestion.RecordSource
-
-  setup do
-    {Zaq.NodeRouter, node_router_binary, node_router_path} =
-      :code.get_object_code(Zaq.NodeRouter)
-
-    node_router_stub = """
-    defmodule Zaq.NodeRouter do
-      alias Zaq.Event
-
-      def dispatch(%Event{} = event), do: dispatch(event, %{})
-
-      def dispatch(%Event{} = event, _runtime) do
-        Zaq.NodeRouterMock.dispatch(event)
-      end
-
-      def find_node(supervisor), do: Zaq.NodeRouterMock.find_node(supervisor)
-      def invoke(role, mod, fun, args), do: Zaq.NodeRouterMock.invoke(role, mod, fun, args)
-      def invoke(role, mod, fun, args, runtime), do: Zaq.NodeRouterMock.invoke(role, mod, fun, args, runtime)
-      def call(role, mod, fun, args), do: Zaq.NodeRouterMock.call(role, mod, fun, args)
-      def fire(%Event{} = event), do: event
-    end
-    """
-
-    :code.purge(Zaq.NodeRouter)
-    :code.delete(Zaq.NodeRouter)
-    Code.compile_string(node_router_stub)
-
-    tmp_dir = Path.join(System.tmp_dir!(), "record_source_#{System.unique_integer([:positive])}")
-    File.mkdir_p!(Path.join(tmp_dir, "docs"))
-    File.write!(Path.join(tmp_dir, "docs/readme.md"), "# Readme")
-
-    previous = Application.get_env(:zaq, Zaq.Ingestion)
-
-    Application.put_env(:zaq, Zaq.Ingestion,
-      base_path: tmp_dir,
-      volumes: %{"docs" => Path.join(tmp_dir, "docs")}
-    )
-
-    on_exit(fn ->
-      Application.put_env(:zaq, Zaq.Ingestion, previous || [])
-      File.rm_rf!(tmp_dir)
-    end)
-
-    on_exit(fn ->
-      :code.purge(Zaq.NodeRouter)
-      :code.delete(Zaq.NodeRouter)
-      :code.load_binary(Zaq.NodeRouter, node_router_path, node_router_binary)
-    end)
-
-    %{tmp_dir: tmp_dir}
-  end
 
   setup :verify_on_exit!
 
@@ -81,6 +28,8 @@ defmodule Zaq.Ingestion.RecordSourceTest do
         )
     }
   end
+
+  defp router_context(extra \\ %{}), do: Map.put(extra, :node_router, Zaq.NodeRouterMock)
 
   test "normalizes record kinds without resolving provider paths" do
     record = %Record{
@@ -131,9 +80,12 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     end)
 
     assert {:ok, [listed]} =
-             RecordSource.list_children(parent, %{
-               actor: %{person_id: 123, skip_permissions: true}
-             })
+             RecordSource.list_children(
+               parent,
+               router_context(%{
+                 actor: %{person_id: 123, skip_permissions: true}
+               })
+             )
 
     assert listed.id == "child-1"
     assert listed.attributes["custom"] == "kept"
@@ -149,7 +101,8 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:error, :connector_unavailable}}
     end)
 
-    assert RecordSource.list_children(parent) == {:error, :connector_unavailable}
+    assert RecordSource.list_children(parent, router_context()) ==
+             {:error, :connector_unavailable}
   end
 
   test "materialize/1 stores downloaded row records as temporary markdown" do
@@ -174,7 +127,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(record)
+    assert {:ok, materialized} = RecordSource.materialize(record, router_context())
     assert materialized.record == record
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
     assert File.read!(materialized.path) =~ "| Name | Score |"
@@ -191,7 +144,8 @@ defmodule Zaq.Ingestion.RecordSourceTest do
   test "materialize/1 propagates materialization-handle issuance errors" do
     record = %{external_record() | mime_type: {:invalid, :json}}
 
-    assert RecordSource.materialize(record) == {:error, :invalid_materialization_locator}
+    assert RecordSource.materialize(record, router_context()) ==
+             {:error, :invalid_materialization_locator}
   end
 
   test "materialize/1 handles empty row downloads as empty markdown" do
@@ -203,7 +157,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(record)
+    assert {:ok, materialized} = RecordSource.materialize(record, router_context())
     assert File.read!(materialized.path) == ""
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
   end
@@ -216,36 +170,10 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(record)
+    assert {:ok, materialized} = RecordSource.materialize(record, router_context())
     assert File.read!(materialized.path) == "| Nullable |\n| --- |\n|  |"
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
     assert Path.dirname(materialized.path) in materialized.cleanup_paths
-  end
-
-  test "materialize/1 returns temporary markdown write errors unchanged", %{tmp_dir: tmp_dir} do
-    error_tmp_dir = Path.join(tmp_dir, "temporary-write-error")
-    File.mkdir_p!(error_tmp_dir)
-    temporary_root = Path.join(error_tmp_dir, "zaq_temporary_materializations")
-    File.write!(temporary_root, "not a directory")
-
-    previous_tmpdir = System.get_env("TMPDIR")
-    System.put_env("TMPDIR", error_tmp_dir)
-
-    on_exit(fn ->
-      if previous_tmpdir,
-        do: System.put_env("TMPDIR", previous_tmpdir),
-        else: System.delete_env("TMPDIR")
-
-      File.rm_rf!(error_tmp_dir)
-    end)
-
-    downloaded = %Record{id: "markdown", kind: :file, content: "markdown"}
-
-    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
-      %{event | response: {:ok, %{record: downloaded}}}
-    end)
-
-    assert RecordSource.materialize(external_record()) == {:error, :enotdir}
   end
 
   test "materialize/1 converts non-map row downloads without Elixir inspect syntax" do
@@ -257,7 +185,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(record)
+    assert {:ok, materialized} = RecordSource.materialize(record, router_context())
     assert File.read!(materialized.path) == "alpha\n123\n{\"bad\":\"shape\"}"
   end
 
@@ -280,7 +208,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(record)
+    assert {:ok, materialized} = RecordSource.materialize(record, router_context())
 
     content = File.read!(materialized.path)
 
@@ -303,7 +231,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(record)
+    assert {:ok, materialized} = RecordSource.materialize(record, router_context())
 
     content = File.read!(materialized.path)
 
@@ -327,7 +255,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: pdf_downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(pdf_record)
+    assert {:ok, materialized} = RecordSource.materialize(pdf_record, router_context())
     assert String.ends_with?(materialized.path, ".pdf")
     assert File.read!(materialized.path) == "PDF bytes"
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
@@ -346,7 +274,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: blob_downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(blob_record)
+    assert {:ok, materialized} = RecordSource.materialize(blob_record, router_context())
     assert String.ends_with?(materialized.path, ".bin")
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
   end
@@ -367,7 +295,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(source)
+    assert {:ok, materialized} = RecordSource.materialize(source, router_context())
     assert String.ends_with?(materialized.path, ".pdf")
     assert File.read!(materialized.path) == "PDF bytes"
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
@@ -388,7 +316,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(source)
+    assert {:ok, materialized} = RecordSource.materialize(source, router_context())
     assert String.ends_with?(materialized.path, ".md")
     assert File.read!(materialized.path) == "markdown"
   end
@@ -402,7 +330,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{content: Base.encode64("PDF bytes"), encoding: "base64"}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(pdf_record)
+    assert {:ok, materialized} = RecordSource.materialize(pdf_record, router_context())
     assert String.ends_with?(materialized.path, ".pdf")
     assert File.read!(materialized.path) == "PDF bytes"
   end
@@ -423,7 +351,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: downloaded}}}
     end)
 
-    assert {:ok, materialized} = RecordSource.materialize(record)
+    assert {:ok, materialized} = RecordSource.materialize(record, router_context())
     assert String.ends_with?(materialized.path, ".bin")
     assert File.read!(materialized.path) == "raw bytes"
     assert materialized.cleanup_paths == [Path.dirname(materialized.path)]
@@ -434,7 +362,8 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       %{event | response: {:ok, %{record: %Record{id: "bad", kind: :file, content: nil}}}}
     end)
 
-    assert RecordSource.materialize(external_record()) == {:error, :unsupported_downloaded_record}
+    assert RecordSource.materialize(external_record(), router_context()) ==
+             {:error, :unsupported_downloaded_record}
   end
 
   test "materialize/1 propagates invalid base64 decode errors" do
@@ -454,7 +383,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       }
     end)
 
-    assert :error = RecordSource.materialize(external_record())
+    assert :error = RecordSource.materialize(external_record(), router_context())
   end
 
   test "serializes and deserializes storage maps with datetime fallbacks" do

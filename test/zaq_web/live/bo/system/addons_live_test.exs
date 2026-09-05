@@ -477,8 +477,10 @@ defmodule ZaqWeb.Live.BO.System.AddonsLiveTest do
   end
 
   defp expiry_check_module_entry!(payload) do
+    module_name = "Elixir.LicenseManager.Paid.License#{System.unique_integer([:positive])}"
+
     module_source = """
-    defmodule LicenseManager.Paid.License do
+    defmodule #{module_name} do
       def check_expiry(addon_data) do
         case Map.fetch(addon_data, "expires_at") do
           :error -> {:error, :missing_expires_at}
@@ -496,7 +498,7 @@ defmodule ZaqWeb.Live.BO.System.AddonsLiveTest do
     """
 
     [{_module, beam_binary}] = Code.compile_string(module_source)
-    encrypt_module_entry!("Elixir.LicenseManager.Paid.License", beam_binary, payload)
+    encrypt_module_entry!(module_name, beam_binary, payload)
   end
 
   defp generic_module_entry!(module_name, payload) do
