@@ -18,11 +18,15 @@
     {
       "text": "Docs-only cleanup implemented in isolated skills-cleanup-ui worktree. Updated 4 service docs, 8 active agent instructions, and NodeRouter moduledoc only; UI changes untouched. Scoped audit finds no deleted wrapper/API/limit guidance; remaining eager mentions describe native non-eager body loading and valid MCP provisioning. git diff --check passes. mix format lib/zaq/node_router.ex blocked by missing worktree dependencies; tests and mix q delegated to parent as requested. No staging or commits; complete patch returned for parent integration.",
       "timestamp": "2026-09-05T19:52:06Z"
+    },
+    {
+      "text": "Updated active Events API examples (including keyword conversation filters), retired prompt/root/telemetry references, string-only materialization options, actor-only persisted context. Historical plans untouched.",
+      "timestamp": "2026-09-05T20:05:24Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8q7] Refresh active API guidance",
   "type": "task",
-  "updated_at": "2026-09-05T20:05:23Z"
+  "updated_at": "2026-09-05T20:05:24Z"
 }
