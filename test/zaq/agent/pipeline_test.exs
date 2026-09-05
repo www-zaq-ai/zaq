@@ -17,6 +17,15 @@ defmodule Zaq.Agent.PipelineTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubNodeRouter do
+    def dispatch(
+          %Zaq.Event{
+            request: %{module: module, function: function, args: args},
+            opts: [action: :invoke]
+          } = event
+        ) do
+      %{event | response: apply(module, function, args)}
+    end
+
     def dispatch(%Zaq.Event{request: %{provider: provider, channel_id: channel_id}}) do
       send(:pipeline_test_pid, {:typing_called, provider, channel_id})
       result = Process.get(:typing_router_result, :ok)
@@ -33,13 +42,6 @@ defmodule Zaq.Agent.PipelineTest do
     end
 
     def dispatch(%Zaq.Event{} = event), do: %{event | response: nil}
-
-    def call(:channels, Zaq.Channels.Router, :send_typing, [provider, channel_id]) do
-      send(:pipeline_test_pid, {:typing_called, provider, channel_id})
-      Process.get(:typing_router_result, :ok)
-    end
-
-    def call(_role, module, function, args), do: apply(module, function, args)
   end
 
   defmodule StubIdentityPlug do

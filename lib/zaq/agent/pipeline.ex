@@ -182,10 +182,7 @@ defmodule Zaq.Agent.Pipeline do
   # ---------------------------------------------------------------------------
 
   defp do_retrieval(clean_msg, history, opts, _incoming) do
-    case node_router(opts).call(:agent, retrieval_mod(opts), :ask, [
-           clean_msg,
-           [history: history]
-         ]) do
+    case retrieval_mod(opts).ask(clean_msg, history: history) do
       {:ok,
        %{
          "query" => query,

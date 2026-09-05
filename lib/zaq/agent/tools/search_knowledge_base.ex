@@ -22,6 +22,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     ]
 
   alias Zaq.Agent.Status
+  alias Zaq.Event
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
 
@@ -57,7 +58,14 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
     try do
-      case node_router_mod.call(:ingestion, doc_proc_mod, :query_extraction, [query, opts]) do
+      event =
+        Event.new(
+          %{module: doc_proc_mod, function: :query_extraction, args: [query, opts]},
+          :ingestion,
+          opts: [action: :invoke]
+        )
+
+      case node_router_mod.dispatch(event).response do
         {:ok, chunks} -> {:ok, %{chunks: chunks, count: length(chunks)}}
         {:error, reason} -> {:error, "Knowledge base search failed: #{inspect(reason)}"}
       end

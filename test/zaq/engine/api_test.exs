@@ -34,6 +34,14 @@ defmodule Zaq.Engine.ApiTest do
       send(self(), {:trace_artifact_called, artifact_id, user.id})
       {:ok, %{artifact_id: artifact_id, user_id: user.id}}
     end
+
+    def list_conversations(opts), do: {:listed, opts}
+    def get_conversation(id), do: {:conversation, id}
+    def get_conversation!(id), do: {:conversation!, id}
+    def list_messages(conversation), do: {:messages, conversation}
+    def create_conversation(attrs), do: {:created, attrs}
+    def add_message(conversation, attrs), do: {:message_added, conversation, attrs}
+    def delete_conversation_by_id(id), do: {:deleted, id}
   end
 
   defmodule StubConnect do
@@ -95,6 +103,39 @@ defmodule Zaq.Engine.ApiTest do
     result = Api.handle_event(event, :persist_from_incoming, nil)
 
     assert result.response == {:error, {:invalid_request, %{incoming: :bad, metadata: %{}}}}
+  end
+
+  describe "conversation action" do
+    defp conversation_event(request) do
+      Event.new(request, :engine,
+        opts: [action: :conversation, conversations_module: StubConversations]
+      )
+    end
+
+    test "routes supported conversation operations" do
+      cases = [
+        {%{action: :list, opts: [limit: 5]}, {:listed, [limit: 5]}},
+        {%{action: :get, conversation_id: "c1"}, {:conversation, "c1"}},
+        {%{action: :get!, conversation_id: "c1"}, {:conversation!, "c1"}},
+        {%{action: :messages, conversation: :conversation}, {:messages, :conversation}},
+        {%{action: :create, attrs: %{channel_type: "bo"}}, {:created, %{channel_type: "bo"}}},
+        {%{action: :add_message, conversation: :conversation, attrs: %{role: "assistant"}},
+         {:message_added, :conversation, %{role: "assistant"}}},
+        {%{action: :delete, conversation_id: "c1"}, {:deleted, "c1"}}
+      ]
+
+      for {request, expected} <- cases do
+        assert Api.handle_event(conversation_event(request), :conversation, nil).response ==
+                 expected
+      end
+    end
+
+    test "rejects malformed conversation operations" do
+      request = %{action: :create, attrs: []}
+
+      assert Api.handle_event(conversation_event(request), :conversation, nil).response ==
+               {:error, {:invalid_request, request}}
+    end
   end
 
   test "handles persist_message_history action" do

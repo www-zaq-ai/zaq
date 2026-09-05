@@ -29,34 +29,92 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       log = :persistent_term.get({__MODULE__, :dispatches}, [])
       :persistent_term.put({__MODULE__, :dispatches}, [event | log])
 
-      cond do
-        is_function(handler, 1) ->
-          handler.(event)
+      if domain_event?(event) do
+        dispatch_event(event, state)
+      else
+        cond do
+          is_function(handler, 1) ->
+            handler.(event)
 
-        is_function(handler, 0) ->
-          handler.()
+          is_function(handler, 0) ->
+            handler.()
 
-        true ->
-          Zaq.NodeRouter.dispatch(event, %{
-            current_node_fn: fn -> node() end,
-            node_list_fn: fn -> [] end
-          })
+          true ->
+            dispatch_event(event, state)
+        end
       end
     end
 
-    def call(role, mod, fun, args) do
-      state = :persistent_term.get(__MODULE__, %{})
-      handler = Map.get(state, {role, mod, fun})
+    defp domain_event?(%Event{next_hop: %{destination: :engine}, opts: opts}),
+      do: Keyword.get(opts, :action) in [:conversation, :rate_message]
 
-      log = :persistent_term.get({__MODULE__, :calls}, [])
-      :persistent_term.put({__MODULE__, :calls}, [{role, mod, fun, args} | log])
+    defp domain_event?(%Event{next_hop: %{destination: :ingestion}, opts: opts}),
+      do: Keyword.get(opts, :action) == :list_document_sources
 
-      cond do
-        is_function(handler, 1) -> handler.(args)
-        is_function(handler, 0) -> handler.()
-        true -> {:error, {:missing_stub, role, mod, fun}}
+    defp domain_event?(_event), do: false
+
+    defp dispatch_event(%Event{next_hop: %{destination: role}, opts: opts} = event, state) do
+      action = Keyword.fetch!(opts, :action)
+
+      case legacy_call(event.request, role, action) do
+        {mod, fun, args} ->
+          case Map.get(state, {role, mod, fun}) do
+            handler when is_function(handler, 1) -> %{event | response: handler.(args)}
+            handler when is_function(handler, 0) -> %{event | response: handler.()}
+            nil -> dispatch_real(event)
+          end
+
+        nil ->
+          dispatch_real(event)
       end
     end
+
+    defp dispatch_real(event) do
+      Zaq.NodeRouter.dispatch(event, %{
+        current_node_fn: fn -> node() end,
+        node_list_fn: fn -> [] end
+      })
+    end
+
+    defp legacy_call(%{action: :list, opts: opts}, :engine, :conversation),
+      do: {Zaq.Engine.Conversations, :list_conversations, [opts]}
+
+    defp legacy_call(%{module: mod, function: fun, args: args}, _role, :invoke),
+      do: {mod, fun, args}
+
+    defp legacy_call(%{action: :get, conversation_id: id}, :engine, :conversation),
+      do: {Zaq.Engine.Conversations, :get_conversation, [id]}
+
+    defp legacy_call(%{action: :get!, conversation_id: id}, :engine, :conversation),
+      do: {Zaq.Engine.Conversations, :get_conversation!, [id]}
+
+    defp legacy_call(%{action: :messages, conversation: conversation}, :engine, :conversation),
+      do: {Zaq.Engine.Conversations, :list_messages, [conversation]}
+
+    defp legacy_call(%{action: :create, attrs: attrs}, :engine, :conversation),
+      do: {Zaq.Engine.Conversations, :create_conversation, [attrs]}
+
+    defp legacy_call(
+           %{action: :add_message, conversation: conversation, attrs: attrs},
+           :engine,
+           :conversation
+         ),
+         do: {Zaq.Engine.Conversations, :add_message, [conversation, attrs]}
+
+    defp legacy_call(%{action: :delete, conversation_id: id}, :engine, :conversation),
+      do: {Zaq.Engine.Conversations, :delete_conversation_by_id, [id]}
+
+    defp legacy_call(%{query: query}, :ingestion, :list_document_sources),
+      do: {Zaq.Ingestion, :list_document_sources, [query]}
+
+    defp legacy_call(
+           %{message_ref: {:id, id}, rater_attrs: attrs},
+           :engine,
+           :rate_message
+         ),
+         do: {Zaq.Engine.Conversations, :rate_message_by_id, [id, attrs]}
+
+    defp legacy_call(_request, _role, _action), do: nil
 
     def put(role, mod, fun, response_or_fun) do
       state = :persistent_term.get(__MODULE__, %{})
@@ -65,10 +123,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         if is_function(response_or_fun), do: response_or_fun, else: fn -> response_or_fun end
 
       :persistent_term.put(__MODULE__, Map.put(state, {role, mod, fun}, handler))
-    end
-
-    def calls do
-      :persistent_term.get({__MODULE__, :calls}, []) |> Enum.reverse()
     end
 
     def dispatches do
@@ -85,13 +139,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end
 
     def reset_calls do
-      :persistent_term.put({__MODULE__, :calls}, [])
       :persistent_term.put({__MODULE__, :dispatches}, [])
     end
   end
 
-  # FakeExecutor bridges the old NodeRouterFake(:agent, Answering, :ask) stub convention
-  # to the new Executor.run interface used by the pipeline since the Jido refactor.
+  defmodule FakeRetrieval do
+    def ask(content, opts) do
+      Zaq.Event.new(%{module: Zaq.Agent.Retrieval, function: :ask, args: [content, opts]}, :agent,
+        opts: [action: :invoke]
+      )
+      |> NodeRouterFake.dispatch()
+      |> Map.fetch!(:response)
+    end
+  end
+
+  # FakeExecutor bridges Answering stubs to the Executor.run interface used by
+  # the pipeline since the Jido refactor.
   defmodule FakeExecutor do
     alias Zaq.Agent.Answering
     alias Zaq.Agent.Executor
@@ -100,7 +163,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     def run(%Incoming{} = incoming, opts) do
       nr = Keyword.get(opts, :node_router, NodeRouterFake)
 
-      case nr.call(:agent, Answering, :ask, []) do
+      event =
+        Event.new(%{module: Answering, function: :ask, args: []}, :agent, opts: [action: :invoke])
+
+      case nr.dispatch(event).response do
         {:ok, %{answer: answer, confidence: %{score: score}}} ->
           %Outgoing{
             body: answer,
@@ -152,6 +218,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
 
     Application.put_env(:zaq, :chat_live_node_router_module, NodeRouterFake)
+    Application.put_env(:zaq, :pipeline_retrieval_module, FakeRetrieval)
     Application.put_env(:zaq, :pipeline_executor_module, FakeExecutor)
     :persistent_term.put(NodeRouterFake, %{})
     NodeRouterFake.reset_calls()
@@ -174,9 +241,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     on_exit(fn ->
       Application.delete_env(:zaq, :chat_live_node_router_module)
+      Application.delete_env(:zaq, :pipeline_retrieval_module)
       Application.delete_env(:zaq, :pipeline_executor_module)
       :persistent_term.erase(NodeRouterFake)
-      :persistent_term.erase({NodeRouterFake, :calls})
       :persistent_term.erase({NodeRouterFake, :dispatches})
     end)
 
@@ -627,8 +694,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         bot.sources == [%{"index" => 1, "type" => "document", "path" => "guide.md"}]
     end)
 
-    refute Enum.any?(NodeRouterFake.calls(), fn {r, m, f, _a} ->
-             r == :engine and m == Zaq.Engine.Conversations and f == :add_message
+    refute Enum.any?(NodeRouterFake.dispatches(), fn event ->
+             event.next_hop.destination == :engine and
+               event.request[:module] == Zaq.Engine.Conversations and
+               event.request[:function] == :add_message
            end)
   end
 
@@ -2575,15 +2644,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
-      calls = NodeRouterFake.calls()
+      dispatches = NodeRouterFake.dispatches()
       assigns = state.socket.assigns
 
-      Enum.any?(calls, fn
-        {:engine, Conversations, :get_conversation, [^conv_id]} -> true
-        _ -> false
+      Enum.any?(dispatches, fn
+        %Event{
+          next_hop: %{destination: :engine},
+          opts: opts,
+          request: %{action: :get, conversation_id: ^conv_id}
+        } ->
+          Keyword.get(opts, :action) == :conversation
+
+        _ ->
+          false
       end) and
-        not Enum.any?(calls, fn
-          {:engine, Conversations, :create_conversation, _} -> true
+        not Enum.any?(dispatches, fn
+          %Event{request: %{action: :create}} -> true
           _ -> false
         end) and
         assigns.current_conversation_id == conv_id
@@ -2654,15 +2730,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
-      calls = NodeRouterFake.calls()
+      dispatches = NodeRouterFake.dispatches()
       assigns = state.socket.assigns
 
-      Enum.any?(calls, fn
-        {:engine, Conversations, :get_conversation, [^conv_id]} -> true
+      Enum.any?(dispatches, fn
+        %Event{request: %{action: :get, conversation_id: ^conv_id}} -> true
         _ -> false
       end) and
-        Enum.any?(calls, fn
-          {:engine, Conversations, :create_conversation, _} -> true
+        Enum.any?(dispatches, fn
+          %Event{request: %{action: :create}} -> true
           _ -> false
         end) and
         assigns.current_conversation_id == fresh_conv_id

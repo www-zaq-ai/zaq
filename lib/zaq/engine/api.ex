@@ -674,6 +674,39 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :conversation, _context) do
+    conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
+
+    response =
+      case event.request do
+        %{action: :list, opts: opts} when is_list(opts) ->
+          conversations_module.list_conversations(opts)
+
+        %{action: :get, conversation_id: conversation_id} ->
+          conversations_module.get_conversation(conversation_id)
+
+        %{action: :get!, conversation_id: conversation_id} ->
+          conversations_module.get_conversation!(conversation_id)
+
+        %{action: :messages, conversation: conversation} ->
+          conversations_module.list_messages(conversation)
+
+        %{action: :create, attrs: attrs} when is_map(attrs) ->
+          conversations_module.create_conversation(attrs)
+
+        %{action: :add_message, conversation: conversation, attrs: attrs} when is_map(attrs) ->
+          conversations_module.add_message(conversation, attrs)
+
+        %{action: :delete, conversation_id: conversation_id} ->
+          conversations_module.delete_conversation_by_id(conversation_id)
+
+        other ->
+          {:error, {:invalid_request, other}}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
