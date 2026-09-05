@@ -4,14 +4,15 @@
   "blocks": [
     "zaq-8q7.5"
   ],
+  "closed_at": "2026-09-05T20:01:37Z",
   "created": "2026-09-05T18:10:27Z",
   "description": "Approved cleanup plan step: Remove inert limits and resource helpers. Add/preserve behavioral tests before edits, use real internal boundaries with controlled external edges, update affected documentation, run focused tests and final mix q. No commit or PR requested.",
   "id": "zaq-8q7.2",
   "labels": [],
   "parent": "zaq-8q7",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8q7] Remove inert limits and resource helpers",
   "type": "task",
-  "updated_at": "2026-09-05T18:11:55Z"
+  "updated_at": "2026-09-05T20:01:37Z"
 }
