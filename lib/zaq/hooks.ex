@@ -20,7 +20,7 @@ defmodule Zaq.Hooks do
     * `:sync` hooks run in-process; return value is ignored; errors are caught
     * `:async` hooks are spawned in a `Task`:
       - `node_role: :local` → direct `Task.start/1`
-      - `node_role: role`   → `Task.start/1` wrapping `NodeRouter.call/4`
+      - `node_role: role`   → `Task.start/1` wrapping `NodeRouter.dispatch/1`
 
   ## Events
 
@@ -353,20 +353,22 @@ defmodule Zaq.Hooks do
 
     Task.start(fn ->
       try do
-        router.call(role, handler, :handle, [event, payload, ctx])
+        %{module: handler, function: :handle, args: [event, payload, ctx]}
+        |> Zaq.Event.new(role, opts: [action: :invoke])
+        |> router.dispatch()
       rescue
         e ->
           emit_handler_error(event, handler, e)
 
           Logger.warning(
-            "[Hooks] async NodeRouter call for #{inspect(handler)} raised in #{event}: #{inspect(e)}"
+            "[Hooks] async NodeRouter dispatch for #{inspect(handler)} raised in #{event}: #{inspect(e)}"
           )
       catch
         kind, reason ->
           emit_handler_error(event, handler, {kind, reason})
 
           Logger.warning(
-            "[Hooks] async NodeRouter call for #{inspect(handler)} threw in #{event}: #{inspect({kind, reason})}"
+            "[Hooks] async NodeRouter dispatch for #{inspect(handler)} threw in #{event}: #{inspect({kind, reason})}"
           )
       end
     end)

@@ -111,22 +111,6 @@ defmodule Zaq.NodeRouter do
   end
 
   @doc """
-  Calls mod.fun(args) on the node running the given service role.
-  Returns `{:error, {:service_unavailable, role}}` when no node owns the role.
-
-  Deprecated: use `dispatch/1` with `%Zaq.Event{}`.
-  """
-  @deprecated "Use dispatch/1 with %Zaq.Event{}"
-  def call(role, mod, fun, args) do
-    invoke(role, mod, fun, args, %{})
-  end
-
-  @deprecated "Use dispatch/2 with %Zaq.Event{}"
-  def call(role, mod, fun, args, runtime) when is_map(runtime) do
-    invoke(role, mod, fun, args, runtime)
-  end
-
-  @doc """
   Returns the node where the given supervisor is running.
   Checks local node first, then all connected peers.
   Returns nil if not found anywhere.

@@ -63,12 +63,27 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
   end
 
   defmodule NodeRouterDispatchStub do
-    def dispatch(event) do
+    def dispatch(%Zaq.Event{request: %{module: module, function: function, args: args}} = event) do
+      %{event | response: apply(module, function, args)}
+    end
+
+    def dispatch(%Zaq.Event{next_hop: %{destination: destination}} = event)
+        when destination != :channels do
+      Zaq.NodeRouter.dispatch(event)
+    end
+
+    def dispatch(%Zaq.Event{opts: opts} = event) do
       if pid = Process.whereis(:notification_imap_dispatch_observer) do
         send(pid, {:notification_imap_dispatch_called, event})
       end
 
-      %{event | response: {:ok, ["INBOX", "Support", "Sales"]}}
+      response =
+        case Keyword.get(opts, :action) do
+          :sync_provider_runtime -> :ok
+          :list_mailboxes -> {:ok, ["INBOX", "Support", "Sales"]}
+        end
+
+      %{event | response: response}
     end
 
     def call(_role, _mod, _fun, _args), do: {:error, :unexpected_call_path}
@@ -77,6 +92,18 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
   setup :verify_on_exit!
 
   setup %{conn: conn} do
+    original_node_router = Application.get_env(:zaq, :notification_imap_node_router_module)
+
+    Application.put_env(:zaq, :notification_imap_node_router_module, NodeRouterDispatchStub)
+
+    on_exit(fn ->
+      if is_nil(original_node_router) do
+        Application.delete_env(:zaq, :notification_imap_node_router_module)
+      else
+        Application.put_env(:zaq, :notification_imap_node_router_module, original_node_router)
+      end
+    end)
+
     user = user_fixture(%{username: "testadmin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
 

@@ -8,17 +8,17 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLiveTest do
   alias Zaq.Engine.Telemetry
 
   defmodule NodeRouterFake do
-    def call(role, mod, fun, args) do
+    def dispatch(%Zaq.Event{} = event) do
       handler = :persistent_term.get({__MODULE__, :handler}, nil)
 
-      if is_function(handler, 4) do
-        handler.(role, mod, fun, args)
+      if is_function(handler, 1) do
+        handler.(event)
       else
-        Zaq.NodeRouter.call(role, mod, fun, args)
+        Zaq.NodeRouter.dispatch(event)
       end
     end
 
-    def put_handler(handler) when is_function(handler, 4),
+    def put_handler(handler) when is_function(handler, 1),
       do: :persistent_term.put({__MODULE__, :handler}, handler)
 
     def clear_handler, do: :persistent_term.erase({__MODULE__, :handler})
@@ -94,7 +94,13 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLiveTest do
   end
 
   test "falls back to default payload when telemetry call returns non-map", %{conn: conn} do
-    NodeRouterFake.put_handler(fn :engine, Telemetry, :load_knowledge_base_metrics, [_filters] ->
+    NodeRouterFake.put_handler(fn %Zaq.Event{
+                                    next_hop: %{destination: :engine},
+                                    request: %{
+                                      module: Telemetry,
+                                      function: :load_knowledge_base_metrics
+                                    }
+                                  } ->
       :error
     end)
 
@@ -105,7 +111,13 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLiveTest do
   end
 
   test "falls back to default payload when telemetry call raises", %{conn: conn} do
-    NodeRouterFake.put_handler(fn :engine, Telemetry, :load_knowledge_base_metrics, [_filters] ->
+    NodeRouterFake.put_handler(fn %Zaq.Event{
+                                    next_hop: %{destination: :engine},
+                                    request: %{
+                                      module: Telemetry,
+                                      function: :load_knowledge_base_metrics
+                                    }
+                                  } ->
       raise "boom"
     end)
 
@@ -116,7 +128,14 @@ defmodule ZaqWeb.Live.BO.KnowledgeBaseMetricsLiveTest do
   end
 
   test "falls back to default metric card when chart shape is invalid", %{conn: conn} do
-    NodeRouterFake.put_handler(fn :engine, Telemetry, :load_knowledge_base_metrics, [filters] ->
+    NodeRouterFake.put_handler(fn %Zaq.Event{
+                                    next_hop: %{destination: :engine},
+                                    request: %{
+                                      module: Telemetry,
+                                      function: :load_knowledge_base_metrics,
+                                      args: [filters]
+                                    }
+                                  } ->
       filters
       |> Telemetry.load_knowledge_base_metrics()
       |> Map.put(:total_chunks_created_chart, %{})

@@ -38,6 +38,15 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 
 ---
 
+## Materialization Handles
+
+Channel materializers redeem signed handles through `Zaq.Materialization`. Runtime
+materialization options are JSON-compatible maps with string keys only; caller-facing
+tools may accept atom-keyed Elixir params, but must normalize them before calling
+`Zaq.Materialization.materialize/4` or handler `materialize/3` functions.
+
+---
+
 ## Data Source Credentials and Grants
 
 Data Source provider configs in BO (`/bo/channels/ingestion/:provider`) can attach

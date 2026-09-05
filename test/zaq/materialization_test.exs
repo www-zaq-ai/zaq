@@ -280,13 +280,13 @@ defmodule Zaq.MaterializationTest do
     assert {:error, "failed: upstream unavailable"} = result
   end
 
-  test "normalizes declared atom-keyed runtime options before handler dispatch" do
+  test "passes declared string-keyed runtime options before handler dispatch" do
     assert {:ok, _record} =
              Materialization.materialize(
                issue_handle!("f1"),
                %{node_router: OptionNodeRouter},
                "failed",
-               %{document_mime_type: "application/pdf", export_mime_type: "text/plain"}
+               %{"document_mime_type" => "application/pdf", "export_mime_type" => "text/plain"}
              )
 
     assert_received {:option_params,
@@ -310,13 +310,13 @@ defmodule Zaq.MaterializationTest do
     refute Map.has_key?(params, "export_mime_type")
   end
 
-  test "rejects duplicate runtime option spellings before dispatch" do
+  test "rejects atom-keyed runtime options before dispatch" do
     assert {:error, "failed: :invalid_materialization_options"} =
              Materialization.materialize(
                issue_handle!("f1"),
                %{node_router: OptionNodeRouter},
                "failed",
-               %{"document_mime_type" => "application/pdf", document_mime_type: "text/plain"}
+               %{document_mime_type: "application/pdf"}
              )
 
     refute_received {:option_params, _params}

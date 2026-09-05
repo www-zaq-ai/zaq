@@ -105,6 +105,15 @@ defmodule Zaq.Storage.Materializers.DiskDocumentTest do
     assert_received {:dispatch, :storage, :materialize_document, %{file_id: "guide.md"}}
   end
 
+  test "rejects atom-key shared MIME runtime options" do
+    assert {:error, :invalid_materialization_options} =
+             DiskDocument.materialize(
+               %{"file_id" => "guide.md"},
+               %{node_router: StubNodeRouter},
+               %{document_mime_type: "text/markdown"}
+             )
+  end
+
   test "rejects obsolete encoding runtime option" do
     assert {:error, :invalid_materialization_options} =
              DiskDocument.materialize(

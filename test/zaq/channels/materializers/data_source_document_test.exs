@@ -60,21 +60,13 @@ defmodule Zaq.Channels.Materializers.DataSourceDocumentTest do
                      }, nil, _opts}
   end
 
-  test "materializes with atom-key runtime options" do
-    assert {:ok, %{content: "downloaded"}} =
+  test "rejects atom-key runtime options" do
+    assert {:error, :invalid_materialization_options} =
              DataSourceDocument.materialize(
                %{"provider" => "google_drive", "file_id" => "f1", "config_id" => "12"},
                %{node_router: StubNodeRouter},
                %{document_mime_type: "application/pdf", export_mime_type: "text/plain"}
              )
-
-    assert_received {:dispatch, :channels, :data_source_download_document, "google_drive",
-                     %{
-                       "file_id" => "f1",
-                       "config_id" => "12",
-                       "document_mime_type" => "application/pdf",
-                       "export_mime_type" => "text/plain"
-                     }, nil, _opts}
   end
 
   test "passes only an explicit trusted permission bypass through to Channels" do
