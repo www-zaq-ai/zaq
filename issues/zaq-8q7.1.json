@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-8q7.5"
+  ],
   "created": "2026-09-05T18:10:26Z",
   "description": "Approved cleanup plan step: Retire legacy prompt rendering. Add/preserve behavioral tests before edits, use real internal boundaries with controlled external edges, update affected documentation, run focused tests and final mix q. No commit or PR requested.",
   "id": "zaq-8q7.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8q7] Retire legacy prompt rendering",
   "type": "task",
-  "updated_at": "2026-09-05T18:10:26Z"
+  "updated_at": "2026-09-05T18:10:59Z"
 }
