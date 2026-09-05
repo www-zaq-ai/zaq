@@ -5,6 +5,10 @@ defmodule Zaq.Ingestion.ApiTest do
   alias Zaq.Event
   alias Zaq.Ingestion.Api
 
+  defmodule StubIngestion do
+    def list_document_sources(query), do: [{:source, query}]
+  end
+
   defp handle(request, action) do
     request
     |> Event.new(:ingestion, opts: [action: action])
@@ -48,6 +52,24 @@ defmodule Zaq.Ingestion.ApiTest do
     assert result.request == event.request
     assert result.next_hop == event.next_hop
     assert result.opts == event.opts
+  end
+
+  test "lists document sources through the ingestion boundary" do
+    event =
+      Event.new(%{query: "handbook"}, :ingestion,
+        opts: [action: :list_document_sources, ingestion_module: StubIngestion]
+      )
+
+    result = Api.handle_event(event, :list_document_sources, nil)
+
+    assert result.response == [{:source, "handbook"}]
+  end
+
+  test "rejects malformed document source queries" do
+    event = Event.new(%{query: nil}, :ingestion, opts: [action: :list_document_sources])
+
+    assert Api.handle_event(event, :list_document_sources, nil).response ==
+             {:error, {:unsupported_action, :list_document_sources}}
   end
 
   describe "retired storage actions" do

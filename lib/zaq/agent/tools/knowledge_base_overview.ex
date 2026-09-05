@@ -54,6 +54,7 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
     schema: []
 
   alias Zaq.Agent.Status
+  alias Zaq.Event
   alias Zaq.Ingestion.DocumentAccess
   alias Zaq.NodeRouter
 
@@ -83,7 +84,13 @@ defmodule Zaq.Agent.Tools.KnowledgeBaseOverview do
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
     router_result =
-      node_router_mod.call(:ingestion, DocumentAccess, :list_files_with_ingestion_status, [opts])
+      Event.new(
+        %{module: DocumentAccess, function: :list_files_with_ingestion_status, args: [opts]},
+        :ingestion,
+        opts: [action: :invoke]
+      )
+      |> node_router_mod.dispatch()
+      |> Map.fetch!(:response)
 
     case router_result do
       {:error, reason} ->

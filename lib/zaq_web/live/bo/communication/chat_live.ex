@@ -16,7 +16,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.Ingestion.ContentSource
-  alias Zaq.NodeRouter
   alias Zaq.RuntimeDeps
   alias ZaqWeb.Live.BO.Communication.MessageHelpers
   alias ZaqWeb.Live.BO.PreviewHelpers
@@ -44,9 +43,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:#{session_id}")
 
     conversations =
-      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_conversations, [
-        [user_id: user_id, limit: 50]
-      ])
+      dispatch(:engine, :conversation, %{action: :list, opts: [user_id: user_id, limit: 50]})
 
     conversations = if is_list(conversations), do: conversations, else: []
 
@@ -165,9 +162,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   def handle_event("load_conversation", %{"id" => id}, socket) do
     with conv when not is_nil(conv) <-
-           NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :get_conversation!, [id]),
+           dispatch(:engine, :conversation, %{action: :get!, conversation_id: id}),
          db_messages when is_list(db_messages) <-
-           NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_messages, [conv]) do
+           dispatch(:engine, :conversation, %{action: :messages, conversation: conv}) do
       ui_messages = build_ui_messages_from_db(db_messages)
       history = build_history_from_db_messages(db_messages)
 
@@ -215,7 +212,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         {:noreply, assign(socket, :show_delete_confirm, false)}
 
       id ->
-        NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :delete_conversation_by_id, [id])
+        dispatch(:engine, :conversation, %{action: :delete, conversation_id: id})
 
         {:noreply,
          socket
@@ -262,12 +259,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     if msg && Map.get(msg, :db_id) do
       rater_attrs = MessageHelpers.positive_rater_attrs(current_user)
 
-      NodeRouter.invoke(
-        :engine,
-        Zaq.Engine.Conversations,
-        :rate_message_by_id,
-        [msg.db_id, rater_attrs]
-      )
+      dispatch(:engine, :rate_message, %{message_ref: {:id, msg.db_id}, rater_attrs: rater_attrs})
     end
 
     {:noreply, socket}
@@ -284,7 +276,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   def handle_event("filter_autocomplete", %{"query" => query}, socket)
       when is_binary(query) and byte_size(query) > 0 do
     suggestions =
-      case node_router().call(:ingestion, Zaq.Ingestion, :list_document_sources, [query]) do
+      case dispatch(:ingestion, :list_document_sources, %{query: query}) do
         list when is_list(list) ->
           list
 
@@ -425,12 +417,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     if msg && Map.get(msg, :db_id) do
       rater_attrs = MessageHelpers.negative_rater_attrs(current_user, reasons, comment)
 
-      NodeRouter.invoke(
-        :engine,
-        Zaq.Engine.Conversations,
-        :rate_message_by_id,
-        [msg.db_id, rater_attrs]
-      )
+      dispatch(:engine, :rate_message, %{message_ref: {:id, msg.db_id}, rater_attrs: rater_attrs})
     end
 
     {:noreply, socket}
@@ -782,6 +769,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     RuntimeDeps.chat_live_node_router()
   end
 
+  defp dispatch(destination, action, request) do
+    request
+    |> Event.new(destination, opts: [action: action])
+    |> node_router().dispatch()
+    |> Map.get(:response)
+  end
+
   defp list_chat_agents do
     Zaq.Agent.list_active_agents()
     |> Enum.map(fn agent -> %{id: to_string(agent.id), name: agent.name} end)
@@ -797,12 +791,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp resolve_conversation(current_user, nil), do: create_fresh_conversation(current_user)
 
   defp resolve_conversation(current_user, conversation_id) do
-    case node_router().call(
-           :engine,
-           Zaq.Engine.Conversations,
-           :get_conversation,
-           [conversation_id]
-         ) do
+    case dispatch(:engine, :conversation, %{action: :get, conversation_id: conversation_id}) do
       %{} = conv -> {:ok, conv}
       _ -> create_fresh_conversation(current_user)
     end
@@ -818,7 +807,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       %{channel_user_id: channel_user_id, channel_type: "bo"}
       |> then(fn a -> if user_id, do: Map.put(a, :user_id, user_id), else: a end)
 
-    case node_router().call(:engine, Zaq.Engine.Conversations, :create_conversation, [attrs]) do
+    case dispatch(:engine, :conversation, %{action: :create, attrs: attrs}) do
       {:ok, conv} = ok ->
         persist_welcome_message(conv)
         ok
@@ -829,10 +818,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   end
 
   defp persist_welcome_message(conv) do
-    node_router().call(:engine, Zaq.Engine.Conversations, :add_message, [
-      conv,
-      %{role: "assistant", content: @welcome_body, metadata: %{"welcome" => true}}
-    ])
+    dispatch(:engine, :conversation, %{
+      action: :add_message,
+      conversation: conv,
+      attrs: %{role: "assistant", content: @welcome_body, metadata: %{"welcome" => true}}
+    })
   end
 
   # ── Helpers ────────────────────────────────────────────────────────
@@ -876,9 +866,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     user_id = socket.assigns[:current_user] && socket.assigns.current_user.id
 
     conversations =
-      NodeRouter.invoke(:engine, Zaq.Engine.Conversations, :list_conversations, [
-        [user_id: user_id, limit: 50]
-      ])
+      dispatch(:engine, :conversation, %{action: :list, opts: [user_id: user_id, limit: 50]})
 
     assign(socket, :conversations, if(is_list(conversations), do: conversations, else: []))
   end
