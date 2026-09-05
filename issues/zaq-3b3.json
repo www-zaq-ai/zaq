@@ -6,9 +6,15 @@
   "description": "Consolidate ZAQ testing policy and recipes into docs/testing-approach.md, remove duplicated guidance, and align validation and coverage references.",
   "id": "zaq-3b3",
   "labels": [],
+  "comments": [
+    {
+      "text": "Authoritative handbook written; duplicated Elixir testing rules removed; workflow validation and coverage guidance aligned to mix q and 95%; mix q and policy checks pass.",
+      "timestamp": "2026-09-05T03:08:01Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-3b3] Author authoritative ZAQ testing handbook",
   "type": "task",
-  "updated_at": "2026-09-05T03:04:32Z"
+  "updated_at": "2026-09-05T03:08:01Z"
 }
