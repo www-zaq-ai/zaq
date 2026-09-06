@@ -10,9 +10,15 @@
   "description": "After regression tests in zaq-1y5, add a ContentPart-specific normalization before generic structs, matching ReqLLM base64 encoding while keeping generic recursive normalization. Owning module RequestEstimator covers whole-request textual projection. No new API or mocks. Update moduledoc and docs/services/agent.md. Tests: binary PDF/image, empty and valid UTF8 data, arbitrary bytes, transformer fitting/oversized behavior.",
   "id": "zaq-ne6",
   "labels": [],
+  "comments": [
+    {
+      "text": "Added ContentPart binary normalization matching ReqLLM base64 encoding and documented heuristic. mix format and focused context-window plus skill resource provider tests pass: 2 properties, 31 tests. No provider-bound mutation or extraction path added.",
+      "timestamp": "2026-09-06T06:54:24Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-1y5] Implement binary-safe estimation and documentation",
   "type": "task",
-  "updated_at": "2026-09-06T06:53:40Z"
+  "updated_at": "2026-09-06T06:54:24Z"
 }
