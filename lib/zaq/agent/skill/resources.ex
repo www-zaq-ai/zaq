@@ -45,9 +45,8 @@ defmodule Zaq.Agent.Skill.Resources do
   @doc """
   The skill's effective resource root — everything belonging to this skill lives under it.
 
-  Uses the stored `resource_root` when it is present and safe, else `default_root/1`. This
-  is the directory to remove when a skill is deleted; `references_dir/1` is only one child
-  of it.
+  Uses the stored `resource_root` when it is present and safe, else `default_root/1`.
+  All resource types share this flat directory.
   """
   @spec root(Skill.t()) :: String.t()
   def root(%Skill{resource_root: stored} = skill) do
@@ -56,15 +55,6 @@ defmodule Zaq.Agent.Skill.Resources do
       root -> root
     end
   end
-
-  @doc """
-  The directory holding a skill's files.
-
-  Kept under the old name because callers still mean "the directory to list/load resource files
-  from". It now returns the flat skill root.
-  """
-  @spec references_dir(Skill.t()) :: String.t()
-  def references_dir(%Skill{} = skill), do: root(skill)
 
   @doc """
   The destination path for an uploaded file, relative to the configured data-source folder.
@@ -78,7 +68,7 @@ defmodule Zaq.Agent.Skill.Resources do
   """
   @spec destination(Skill.t(), String.t()) :: String.t()
   def destination(%Skill{} = skill, filename) do
-    Path.join(references_dir(skill), safe_filename(filename))
+    Path.join(root(skill), safe_filename(filename))
   end
 
   @doc "Returns supported Agent Skill resource classifications."

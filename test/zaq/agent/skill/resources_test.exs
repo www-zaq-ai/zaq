@@ -54,32 +54,14 @@ defmodule Zaq.Agent.Skill.ResourcesTest do
       assert Resources.root(skill(%{name: "s", resource_root: "../escape"})) == "s"
     end
 
-    test "is the parent of references_dir/1" do
-      s = skill(%{name: "pricing-faq"})
-      assert Resources.references_dir(s) == Resources.root(s)
-    end
-  end
-
-  describe "references_dir/1" do
-    test "uses the default root when resource_root is nil" do
-      assert Resources.references_dir(skill(%{name: "pricing-faq"})) ==
-               "pricing-faq"
-    end
-
     test "uses the default root when resource_root is empty" do
-      assert Resources.references_dir(skill(%{name: "pricing-faq", resource_root: ""})) ==
+      assert Resources.root(skill(%{name: "pricing-faq", resource_root: ""})) ==
                "pricing-faq"
-    end
-
-    test "reuses a stored resource_root verbatim, even after a rename" do
-      # The skill was renamed but its files still live under the original root.
-      s = skill(%{name: "new-name", resource_root: "old-name"})
-      assert Resources.references_dir(s) == "old-name"
     end
 
     test "normalises a trailing slash on the stored root" do
       s = skill(%{name: "x", resource_root: "old-name/"})
-      assert Resources.references_dir(s) == "old-name"
+      assert Resources.root(s) == "old-name"
     end
   end
 

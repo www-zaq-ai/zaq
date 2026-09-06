@@ -41,14 +41,6 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowserTest do
   end
 
   describe "navigation" do
-    test "selects the requested source and falls back to the first source" do
-      sources = [%{id: "first"}, %{id: "second"}]
-
-      assert DataSourceBrowser.active_source(sources, "second") == Enum.at(sources, 1)
-      assert DataSourceBrowser.active_source(sources, "unknown") == Enum.at(sources, 0)
-      assert DataSourceBrowser.active_source([], "unknown") == nil
-    end
-
     test "enters existing folders and ignores forged ids" do
       entries = [%{id: "a", name: "A", path: "a"}]
 

@@ -349,6 +349,70 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   end
 
   describe "skill resources — volume gate" do
+    test "opens uploads for a pinned location without global configuration", %{conn: conn} do
+      volume = tmp_volume("pinned_gate")
+      configure_volumes(%{"documents" => volume})
+      config = Application.fetch_env!(:zaq, :skills_live_test_disk_config)
+      Zaq.System.save_skill_resource_config(%{})
+      with_skills_live_node_router(RealRouter)
+
+      skill =
+        create_skill!(%{
+          name: "renamed-pinned",
+          resource_provider: "disk",
+          resource_config_id: config.id,
+          resource_scope_id: "documents",
+          resource_root: "original-root"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      open_skill(view, skill)
+
+      assert has_element?(view, "#add-resource-button:not([disabled])")
+      upload_resource!(view, "pinned.md")
+
+      assert File.exists?(Path.join(volume, "original-root/pinned.md"))
+      refute File.exists?(Path.join(volume, "renamed-pinned/pinned.md"))
+      refute has_element?(view, "#no-volume-modal")
+    end
+
+    test "uses resource configuration added after mount", %{conn: conn} do
+      volume = tmp_volume("configured_after_mount")
+      configure_volumes(%{"documents" => volume})
+      config = Zaq.System.get_skill_resource_config()
+      Zaq.System.save_skill_resource_config(%{})
+      with_skills_live_node_router(RealRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      Zaq.System.save_skill_resource_config(config)
+      fill_new_skill(view, "configured-later")
+
+      assert has_element?(view, "#add-resource-button:not([disabled])")
+      stage_resource!(view, "later.md")
+      submit_new_skill(view, "configured-later")
+
+      assert File.exists?(Path.join(volume, "configured-later/later.md"))
+      refute has_element?(view, "#no-volume-modal")
+    end
+
+    test "configuration removed after mount disables uploads but not skill creation", %{
+      conn: conn
+    } do
+      configure_volumes(%{"documents" => tmp_volume("removed_after_mount")})
+      with_skills_live_node_router(RealRouter)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      Zaq.System.save_skill_resource_config(%{})
+      fill_new_skill(view, "removed-config")
+
+      assert has_element?(view, "#add-resource-button[disabled]")
+      render_click(view, "open_resource_upload", %{})
+      refute has_element?(view, "#skill-resource-form")
+      refute has_element?(view, "#no-volume-modal")
+      assert submit_new_skill(view, "removed-config") =~ "Skill created"
+      assert [%Skill{name: "removed-config"}] = Skills.search_skills(%{q: "removed-config"})
+    end
+
     test "gates uploads when skill resource storage is not configured", %{conn: conn} do
       configure_volumes(%{"documents" => tmp_volume("malformed_scopes")})
       Zaq.System.save_skill_resource_config(%{})
@@ -702,12 +766,15 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       skill = create_skill!(Map.merge(%{name: "pinned-location"}, attrs))
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      global_config = Zaq.System.get_skill_resource_config()
+      Zaq.System.save_skill_resource_config(%{global_config | scope_id: "documents"})
       open_skill(view, skill)
       upload_resource!(view, "pinned.md")
 
       persisted = Skills.get_skill!(skill.id)
       assert Map.take(persisted, Map.keys(attrs)) == attrs
       assert File.exists?(Path.join(archives, "pinned/pinned-root/pinned.md"))
+      refute File.exists?(Path.join(documents, "pinned/pinned-root/pinned.md"))
     end
 
     test "persists the plain record id when upload has no provider attribute", %{conn: conn} do
@@ -874,6 +941,33 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       state = :sys.get_state(view.pid)
       assert state.socket.assigns.uploads.skill_resources.entries == []
     end
+
+    for event <- ["cancel_skill_resource", "remove_resource"] do
+      @cancel_event event
+      test "#{event} removes a staged resource and its type before saving", %{conn: conn} do
+        volume = tmp_volume("cancel_staged")
+        configure_volumes(%{"documents" => volume})
+        with_skills_live_node_router(RealRouter)
+
+        {:ok, view, _html} = live(conn, ~p"/bo/skills")
+        fill_new_skill(view, "cancel-staged")
+        stage_resource!(view, "discard.md", "asset")
+
+        state = :sys.get_state(view.pid)
+        [entry] = state.socket.assigns.uploads.skill_resources.entries
+        assert state.socket.assigns.staged_resource_types[entry.ref] == "asset"
+
+        render_click(view, @cancel_event, %{"ref" => entry.ref})
+
+        state = :sys.get_state(view.pid)
+        assert state.socket.assigns.staged_resource_types == %{}
+        refute render(view) =~ "discard.md"
+        assert submit_new_skill(view, "cancel-staged") =~ "Skill created"
+        [skill] = Skills.search_skills(%{q: "cancel-staged"})
+        assert Skills.list_skill_resources(skill) == []
+        refute File.exists?(Path.join(volume, "cancel-staged/discard.md"))
+      end
+    end
   end
 
   describe "skill resources — degraded ingestion" do
@@ -890,19 +984,21 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert render(view) =~ "Connect a Skills resource folder in System Config to add resources."
     end
 
-    test "ignores a volume that is not configured", %{conn: conn} do
-      volume = tmp_volume("unknown_vol")
-      configure_volumes(%{"documents" => volume})
+    test "uses the current configured location instead of a volume picker", %{conn: conn} do
+      documents = tmp_volume("current_docs")
+      archives = tmp_volume("current_archives")
+      configure_volumes(%{"documents" => documents, "archives" => archives})
       with_skills_live_node_router(RealRouter)
       skill = create_skill!(%{name: "unknown-vol-skill"})
 
       {:ok, view, _html} = live(conn, ~p"/bo/skills")
+      config = Zaq.System.get_skill_resource_config()
+      Zaq.System.save_skill_resource_config(%{config | scope_id: "documents"})
       open_skill(view, skill)
       view |> element("#add-resource-button") |> render_click()
 
-      render_change(view, "select_resource_volume", %{"volume" => "does-not-exist"})
+      refute has_element?(view, "#skill-resource-modal-volume-form")
 
-      # The selection is refused, so the upload still targets the real volume.
       upload =
         file_input(view, "#skill-resource-form", :skill_resources, [
           %{name: "safe.md", content: "x", type: "text/markdown"}
@@ -911,7 +1007,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       assert render_upload(upload, "safe.md")
       view |> form("#skill-resource-form") |> render_submit()
 
-      assert File.exists?(Path.join(volume, "unknown-vol-skill/safe.md"))
+      assert File.exists?(Path.join(documents, "unknown-vol-skill/safe.md"))
+      refute File.exists?(Path.join(archives, "unknown-vol-skill/safe.md"))
     end
 
     test "still reports the upload when persisting resource_root fails", %{conn: conn} do
@@ -2189,14 +2286,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
       )
 
     assert socket.assigns.form[:allowed_tools].value == []
-  end
-
-  test "selecting an unknown volume is a no-op" do
-    {:ok, socket} = SkillsLive.mount(%{}, %{}, %Phoenix.LiveView.Socket{})
-    original_socket = socket
-
-    {:noreply, ^original_socket} =
-      SkillsLive.handle_event("select_resource_volume", %{"volume" => "documents"}, socket)
   end
 
   test "malformed asset-only upload entries cannot select script" do
