@@ -4,6 +4,7 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformerTest do
 
   alias Jido.AI.Context.Entry
   alias Jido.AI.Reasoning.ReAct.Config
+  alias ReqLLM.Message.ContentPart
   alias Zaq.Agent.ContextWindow.RequestEstimator
   alias Zaq.Agent.ContextWindow.RequestTransformer
 
@@ -28,6 +29,30 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformerTest do
              })
 
     assert messages == request.messages
+  end
+
+  test "preserves binary skill resources within budget and rejects oversized mandatory resources" do
+    part =
+      ContentPart.file("%PDF-1.3\n%" <> <<255, 255, 255, 255>>, "guide.pdf", "application/pdf")
+
+    request = %{
+      messages: [
+        %ReqLLM.Message{role: :user, content: [ContentPart.text("Read the skill resource")]},
+        %ReqLLM.Message{role: :user, content: [part]}
+      ]
+    }
+
+    assert {:ok, %{messages: messages}} =
+             RequestTransformer.transform_request(request, nil, config(1), %{
+               context_window: window(1_000)
+             })
+
+    assert messages == request.messages
+
+    assert {:error, {:context_window_exceeded, :mandatory_payload_too_large}} =
+             RequestTransformer.transform_request(request, nil, config(1), %{
+               context_window: window(2)
+             })
   end
 
   test "drops oldest historical units before the current user turn" do
