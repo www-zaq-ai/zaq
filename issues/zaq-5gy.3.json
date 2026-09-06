@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-06T07:54:56Z",
+  "description": "JidoConnectBridge owns provider root filters via ProviderCatalog; preserve config-backed scope identity for persisted selections and Disk scopes unchanged. Tests first: real DataSourceBridge scope routing, Google/SharePoint defaults. Trace literal dot through list mapping. No auth changes. Docs: channels scope contract.",
+  "id": "zaq-5gy.3",
+  "labels": [],
+  "parent": "zaq-5gy",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5gy] Define provider-owned browser roots",
+  "type": "task",
+  "updated_at": "2026-09-06T07:54:56Z"
+}
