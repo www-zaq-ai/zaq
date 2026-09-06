@@ -9,9 +9,15 @@
   "id": "zaq-5gy.1",
   "labels": [],
   "parent": "zaq-5gy",
+  "comments": [
+    {
+      "text": "Validation: mix format and mix q PASS. Complete focused six-file mix test: 735 tests + 4 properties, zero failures (seed 782386); coverage run repeats same passing count (seed 692270). Chromium E2E ingestion + system_config: 56 passed, 1 pre-existing skipped. Coverage: DataSourceBrowser 100% (52/52); IngestionLive 95.4% (755/791); JidoConnectBridge 68.3% whole-file (796/1165), new scope callback directly covered. Existing 369 uncovered connector lines are outside this bugfix (OAuth/watch/sheets/failure branches); broader bridge coverage is excluded from this minimal fix and requires follow-up. First focused run timed out and stopped early; superseded by complete passing run. Nonblocking existing license_manager configuration warning remains.",
+      "timestamp": "2026-09-06T08:14:45Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5gy] Validate shared browser fix",
   "type": "task",
-  "updated_at": "2026-09-06T08:10:20Z"
+  "updated_at": "2026-09-06T08:14:45Z"
 }
