@@ -9,9 +9,15 @@
   "id": "zaq-5gy.3",
   "labels": [],
   "parent": "zaq-5gy",
+  "comments": [
+    {
+      "text": "Red tests reproduced config ID in connector query, empty-map rewriting, missing provider root scopes. Added Jido callback preserving existing config-backed scope_id to retain persisted selections. Disk callback untouched. Dependency chain is .3 -\u003e .2 -\u003e .1 (bw show appears to summarize transitive blockers).",
+      "timestamp": "2026-09-06T07:58:39Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5gy] Define provider-owned browser roots",
   "type": "task",
-  "updated_at": "2026-09-06T07:56:32Z"
+  "updated_at": "2026-09-06T07:58:39Z"
 }
