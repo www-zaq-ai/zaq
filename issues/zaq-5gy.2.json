@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-5gy.1"
   ],
+  "closed_at": "2026-09-06T08:09:57Z",
+  "close_reason": "Shared browser normalization and canonical-ID navigation implemented. Focused complete run: 735 tests and 4 properties passed; mix q passes. No commit per user.",
   "created": "2026-09-06T07:54:55Z",
   "description": "DataSourceBrowser owns generic normalization and parameters; Ingestion consumes opaque folder IDs, not path joins. Tests first: empty-map normalization property, root/child/up and destinations, Skills picker and Ingestion LiveView regression. Real scopes where practical, external listings controlled. Preserve Disk paths. Docs: shared browser contract.",
   "id": "zaq-5gy.2",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-5gy] Preserve shared browser navigation and destinations",
   "type": "task",
-  "updated_at": "2026-09-06T08:06:20Z"
+  "updated_at": "2026-09-06T08:09:57Z"
 }
