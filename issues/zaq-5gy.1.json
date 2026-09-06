@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-06T07:54:55Z",
+  "description": "Run focused tests, mix format, mix q and relevant E2E; inspect diff and coverage. Resolve environment safely, record blockers and dot evidence. No commits pushes or PRs.",
+  "id": "zaq-5gy.1",
+  "labels": [],
+  "parent": "zaq-5gy",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5gy] Validate shared browser fix",
+  "type": "task",
+  "updated_at": "2026-09-06T07:54:55Z"
+}
