@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-06T07:29:44Z",
+  "description": "Depends on implementation. Update docs/services/agent.md access semantics and model disclosure caveat. Run focused integration and property tests, target 95 percent ResourceProvider coverage, mix format and mix q; record environmental blockers. No UI changes, E2E not needed.",
+  "id": "zaq-d9q.2",
+  "labels": [],
+  "parent": "zaq-d9q",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-d9q] Document resource access and validate",
+  "type": "task",
+  "updated_at": "2026-09-06T07:29:44Z"
+}
