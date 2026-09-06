@@ -4,6 +4,8 @@
     "zaq-5gy.2"
   ],
   "blocks": [],
+  "closed_at": "2026-09-06T08:23:07Z",
+  "close_reason": "Focused tests, expanded coverage, mix q, and Chromium E2E all pass. Coverage exception tracked in zaq-fja; literal-dot uncertainty documented. Workspace-only delivery.",
   "created": "2026-09-06T07:54:55Z",
   "description": "Run focused tests, mix format, mix q and relevant E2E; inspect diff and coverage. Resolve environment safely, record blockers and dot evidence. No commits pushes or PRs.",
   "id": "zaq-5gy.1",
@@ -24,8 +26,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-5gy] Validate shared browser fix",
   "type": "task",
-  "updated_at": "2026-09-06T08:23:01Z"
+  "updated_at": "2026-09-06T08:23:07Z"
 }
