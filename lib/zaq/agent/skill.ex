@@ -100,7 +100,6 @@ defmodule Zaq.Agent.Skill do
 
     max_bytes = Limits.get(:skill_body_max_bytes)
     max_tokens = Limits.get(:skill_body_max_tokens)
-    warning_tokens = Limits.get(:skill_body_warning_tokens)
 
     cond do
       bytes > max_bytes ->
@@ -108,9 +107,6 @@ defmodule Zaq.Agent.Skill do
 
       tokens > max_tokens ->
         add_error(changeset, :body, "is too long (max #{max_tokens} tokens)", count: tokens)
-
-      tokens > warning_tokens ->
-        changeset
 
       true ->
         changeset

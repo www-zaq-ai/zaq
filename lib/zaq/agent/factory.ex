@@ -94,7 +94,7 @@ defmodule Zaq.Agent.Factory do
   Resolves tool modules from `enabled_tool_keys` unioned with attached skill tools
   (`Zaq.Agent.Skills.provisioned_tool_keys/2`) via `Tools.Registry`, merges system-level
   LLM sampling opts with any per-agent overrides from `ProviderSpec`, and returns the
-  agent's `job` field plus rendered skill instructions as the system prompt.
+  agent's `job` field plus the native skill index as the system prompt.
 
   Returns `{:ok, %{tools: [...], llm_opts: [...], system_prompt: binary()}}` or
   `{:error, reason}` if tool resolution fails.
@@ -115,7 +115,7 @@ defmodule Zaq.Agent.Factory do
          # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
          # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
          llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
-         system_prompt: runtime_system_prompt(configured_agent, skills, skill_integration),
+         system_prompt: runtime_system_prompt(configured_agent, skill_integration),
          tool_context: skill_integration.tool_context,
          context_window: context_window_config(configured_agent)
        }}
@@ -137,7 +137,7 @@ defmodule Zaq.Agent.Factory do
     )
   end
 
-  defp runtime_system_prompt(configured_agent, _skills, %{index: index}) when is_binary(index) do
+  defp runtime_system_prompt(configured_agent, %{index: index}) when is_binary(index) do
     job = configured_agent.job || ""
 
     case index do
@@ -239,7 +239,7 @@ defmodule Zaq.Agent.Factory do
     with {:ok, config} <- server_runtime_config(server, configured_agent),
          {:ok, skill_integration} <- skill_runtime_integration(skills),
          :ok <- ensure_native_skill_tools_registered(server, skill_integration),
-         prompt <- runtime_system_prompt(configured_agent, skills, skill_integration),
+         prompt <- runtime_system_prompt(configured_agent, skill_integration),
          :ok <- ensure_system_prompt(server, prompt) do
       ask_opts =
         opts

@@ -17,11 +17,8 @@ defmodule Zaq.Agent.Skills.LimitsTest do
   test "exposes the configured defaults" do
     limits = Limits.all()
 
-    assert limits.skill_body_warning_tokens == 16_000
     assert limits.skill_body_max_tokens == 32_000
     assert limits.skill_body_max_bytes == 131_072
-    assert limits.bundle_max_bytes == 50 * 1024 * 1024
-    assert limits.bundle_max_files == 500
     assert limits.resource_max_bytes == 5 * 1024 * 1024
     assert limits.resource_max_files == 10
     assert limits.resource_read_max_bytes == 262_144

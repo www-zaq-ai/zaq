@@ -9,11 +9,9 @@ defmodule Zaq.Agent.Skills do
       `provisioned_mcp_endpoint_ids/2` (agent endpoints ∪ skill endpoints). These are
       **ZAQ** concepts: what must be installed on the live agent server when a skill is
       attached. The union is correct, and `Zaq.Agent.RuntimeSync` consumes it.
-    * **The prompt** — `system_prompt/3`, which is progressive by default:
-      `to_spec/1` converts each record to a `%Jido.AI.Skill.Spec{}` and the prompt carries
-      a **name + description index only**. Bodies are pulled on demand by the `load_skill`
-      tool. `effective_system_prompt/2` is the old eager renderer, kept as the
-      `:skills_progressive_disclosure` flag's off-path until rollout is confirmed.
+    * **Native skill specs** — `to_spec/1` converts each record to a
+      `%Jido.AI.Skill.Spec{}`. `Zaq.Agent.Factory` prepares Jido's index and native
+      tools; bodies are pulled on demand by `load_skill`.
 
   Runtime propagation of skill changes to live agent servers is handled by
   `Zaq.Agent.RuntimeSync`, not here.
@@ -22,7 +20,6 @@ defmodule Zaq.Agent.Skills do
   import Ecto.Query
 
   alias Ecto.Changeset
-  alias Jido.AI.Skill.Prompt
   alias Jido.AI.Skill.Spec
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
@@ -35,16 +32,6 @@ defmodule Zaq.Agent.Skills do
   alias Zaq.Utils.ParseUtils
 
   require Logger
-
-  @skill_prompt_header "You have access to the following skills:"
-
-  # The index tells the model the skills exist and how to read one. Without the second
-  # sentence the model sees a catalog it has no way to open.
-  @skill_index_header """
-  You have access to the following skills. Each entry lists a skill's name and what it is \
-  for — not its instructions. To follow a skill, first call the `load_skill` tool with its \
-  name to read the full instructions.\
-  """
 
   @spec list_skills() :: [Skill.t()]
   def list_skills do
@@ -232,94 +219,6 @@ defmodule Zaq.Agent.Skills do
           []
       end
     end)
-  end
-
-  @doc """
-  The agent's system prompt: its `job`, followed by its skills.
-
-  Progressive by default — the skills section is a **name + description index**, and the
-  model pulls a body on demand via `load_skill`. With `:skills_progressive_disclosure`
-  disabled, falls back to the eager renderer that concatenates every body.
-  """
-  @spec system_prompt(ConfiguredAgent.t(), [Skill.t()], keyword()) :: String.t()
-  def system_prompt(%ConfiguredAgent{} = agent, skills, opts \\ []) when is_list(skills) do
-    if progressive_disclosure?(opts) do
-      index_system_prompt(agent, skills)
-    else
-      effective_system_prompt(agent, skills)
-    end
-  end
-
-  @doc """
-  Composes `job` + a name/description **index** of the agent's skills — never bodies.
-
-  Uses `Jido.AI.Skill.Prompt.render/2` with `include_body: false`, so the token cost is
-  O(skill count) rather than O(total body bytes). `allowed_tools` is rendered for free by
-  the same call: visible to the model, but not enforced in Part 1.
-  """
-  @spec index_system_prompt(ConfiguredAgent.t(), [Skill.t()]) :: String.t()
-  def index_system_prompt(%ConfiguredAgent{} = agent, skills) when is_list(skills) do
-    job = agent.job || ""
-
-    index =
-      skills
-      |> to_specs()
-      |> Prompt.render(include_body: false, header: @skill_index_header)
-
-    case index do
-      "" -> job
-      index when job == "" -> index
-      index -> job <> "\n\n" <> index
-    end
-  end
-
-  # Defaults ON: the `load_skill` tool exists (Step 5) and is auto-provisioned to any agent
-  # with skills, so an index-only prompt is always actionable. Set
-  # `config :zaq, :skills_progressive_disclosure, false` to fall back to the eager renderer
-  # (the rollback path for an answer-quality regression, until Step 7 removes it).
-  defp progressive_disclosure?(opts) do
-    Zaq.Config.get(:zaq, :skills_progressive_disclosure, true, opts)
-  end
-
-  @doc """
-  Composes the agent's effective system prompt: its `job` followed by the
-  rendered instruction blocks of the given skills.
-
-  Returns the bare job when there are no skills, and just the skills block when
-  the job is empty.
-  """
-  @spec effective_system_prompt(ConfiguredAgent.t(), [Skill.t()]) :: String.t()
-  def effective_system_prompt(%ConfiguredAgent{} = agent, skills) when is_list(skills) do
-    job = agent.job || ""
-
-    case render_prompt_block(skills) do
-      nil -> job
-      block when job == "" -> block
-      block -> job <> "\n\n" <> block
-    end
-  end
-
-  @doc """
-  Renders skills as a markdown block for system prompt injection.
-
-  Mirrors the `Jido.AI.Skill.Prompt` format: a header line followed by a
-  `## name` section per skill with its description and body. Returns `nil`
-  for an empty list.
-  """
-  @spec render_prompt_block([Skill.t()]) :: String.t() | nil
-  def render_prompt_block([]), do: nil
-
-  def render_prompt_block(skills) when is_list(skills) do
-    sections =
-      Enum.map(skills, fn %Skill{} = skill ->
-        header = "## #{skill.name}"
-
-        [header, skill.description, skill.body]
-        |> Enum.reject(&(&1 in [nil, ""]))
-        |> Enum.join("\n\n")
-      end)
-
-    Enum.join([@skill_prompt_header | sections], "\n\n")
   end
 
   @spec get_skill!(integer() | String.t()) :: Skill.t()
