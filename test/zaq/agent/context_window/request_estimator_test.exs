@@ -1,6 +1,8 @@
 defmodule Zaq.Agent.ContextWindow.RequestEstimatorTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
+  alias ReqLLM.Message.ContentPart
   alias Zaq.Agent.ContextWindow.RequestEstimator
 
   describe "estimate/2" do
@@ -43,6 +45,38 @@ defmodule Zaq.Agent.ContextWindow.RequestEstimatorTest do
   end
 
   describe "character_count/1" do
+    test "counts binary content parts using their JSON-safe representation" do
+      for part <- [
+            ContentPart.file(
+              "%PDF-1.3\n%" <> <<255, 255, 255, 255>>,
+              "guide.pdf",
+              "application/pdf"
+            ),
+            ContentPart.image(<<137, 80, 78, 71, 255>>),
+            ContentPart.file("hello", "guide.txt", "text/plain"),
+            ContentPart.file(<<>>, "empty.pdf", "application/pdf"),
+            ContentPart.text("plain text"),
+            ContentPart.file_id("file-123")
+          ] do
+        request = %{messages: [%ReqLLM.Message{role: :user, content: [part]}]}
+        expected_count = request |> Jason.encode!() |> String.length()
+
+        assert RequestEstimator.character_count(request) == expected_count
+      end
+    end
+
+    property "arbitrary binary attachments have deterministic JSON-safe estimates" do
+      check all(data <- binary(max_length: 1_024)) do
+        part = ContentPart.file(data, "resource.pdf", "application/pdf")
+        request = %{messages: [%ReqLLM.Message{role: :user, content: [part]}]}
+        expected_count = request |> Jason.encode!() |> String.length()
+
+        assert RequestEstimator.character_count(request) == expected_count
+        assert RequestEstimator.estimate(request) == ceil(expected_count * 0.5)
+        assert RequestEstimator.character_count(request) == expected_count
+      end
+    end
+
     test "normalizes structs as their underlying maps" do
       date = ~D[2026-08-31]
       struct_request = %{output: date}

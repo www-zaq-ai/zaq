@@ -479,6 +479,7 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 
 ### Context Window (`Zaq.Agent.ContextWindow.*`)
 - `RequestEstimator` estimates a full outbound request from messages, tools, schemas, options, model metadata, and structured-output config using the runtime fixed character/token coefficient.
+- Binary content-part data (including skill PDFs and images) is counted using its base64 representation, matching ReqLLM's JSON encoding without modifying model-bound bytes. This is a textual size heuristic, not a provider-specific media token count.
 - `RequestTransformer` is registered as the Jido ReAct `request_transformer` and runs before every model turn.
 - Enforcement is non-destructive: it may omit older history from a provider request, but it does not truncate Jido's retained context/state.
 - Mandatory request material is preserved: system messages, the latest user turn, active ReAct/tool interaction, tools, and output schema. If mandatory material cannot fit after reserving output tokens and safety margin, the transformer returns `context_window_exceeded` instead of sending an invalid provider request.

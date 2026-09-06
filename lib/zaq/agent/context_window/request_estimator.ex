@@ -5,6 +5,10 @@ defmodule Zaq.Agent.ContextWindow.RequestEstimator do
   The estimate is intentionally based on a deterministic textual projection of
   the whole request shape, not only message contents, so tools, schemas, and
   relevant options are counted before a provider call is attempted.
+
+  Binary content-part data is counted as base64, matching ReqLLM's JSON encoding,
+  without changing the original model-bound content. This remains a textual size
+  heuristic, not a provider-specific media token estimate.
   """
 
   @default_tokens_per_character 0.5
@@ -41,6 +45,13 @@ defmodule Zaq.Agent.ContextWindow.RequestEstimator do
   defp value_from(%{} = map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
   defp value_from(list, key) when is_list(list), do: Keyword.get(list, key)
   defp value_from(_other, _key), do: nil
+
+  defp normalize(%ReqLLM.Message.ContentPart{data: data} = part) when is_binary(data) do
+    part
+    |> Map.from_struct()
+    |> Map.put(:data, Base.encode64(data))
+    |> normalize()
+  end
 
   defp normalize(%_{} = struct), do: struct |> Map.from_struct() |> normalize()
 
