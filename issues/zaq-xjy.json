@@ -6,9 +6,15 @@
   "description": "Use exact active skill names without search fallbacks; add regression coverage; document unrestricted asset uploads and provider_models_adapter; validate with mix format and mix q.",
   "id": "zaq-xjy",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented exact active-name lookup without search/normalization fallbacks; added list/load regression and suffix property coverage. Documented unrestricted assets and provider-model adapter contract. mix format, focused tests (82 tests, 3 properties), mix q, and diff checks passed. Changes remain uncommitted for user review.",
+      "timestamp": "2026-09-06T11:40:56Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[agent-skills] Exact resource lookup and review documentation",
   "type": "task",
-  "updated_at": "2026-09-06T11:38:05Z"
+  "updated_at": "2026-09-06T11:40:56Z"
 }
