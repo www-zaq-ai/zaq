@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-5gy.2"
   ],
+  "closed_at": "2026-09-06T07:59:09Z",
+  "close_reason": "Provider scopes and connector-boundary regressions pass. Implementation remains uncommitted per user; final validation tracked separately.",
   "created": "2026-09-06T07:54:56Z",
   "description": "JidoConnectBridge owns provider root filters via ProviderCatalog; preserve config-backed scope identity for persisted selections and Disk scopes unchanged. Tests first: real DataSourceBridge scope routing, Google/SharePoint defaults. Trace literal dot through list mapping. No auth changes. Docs: channels scope contract.",
   "id": "zaq-5gy.3",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-5gy] Define provider-owned browser roots",
   "type": "task",
-  "updated_at": "2026-09-06T07:58:39Z"
+  "updated_at": "2026-09-06T07:59:09Z"
 }
