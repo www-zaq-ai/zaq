@@ -98,6 +98,22 @@ defmodule Zaq.Channels.JidoConnectBridge do
     list_files(config, params)
   end
 
+  @doc "Exposes the provider root separately from the stable config-backed scope identity."
+  @impl true
+  @spec list_source_scopes(map(), map()) :: {:ok, [map()]}
+  def list_source_scopes(config, _params) when is_map(config) do
+    {:ok,
+     [
+       %{
+         provider: config.provider,
+         config_id: config.id,
+         scope_id: to_string(config.id),
+         label: config.name,
+         filters: %{"parent" => ProviderCatalog.root_folder_default(config.provider)}
+       }
+     ]}
+  end
+
   @impl true
   def list_files(config, params, _context \\ %{}) when is_map(config) and is_map(params) do
     params =

@@ -62,11 +62,13 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowser do
   end
 
   def list_params(source, parent_id, include_permissions \\ false) do
+    source_filters = source.filters || %{}
+
     filters =
-      case parent_id do
-        nil -> source.filters || %{}
-        "" -> source.filters || %{}
-        id -> Map.put(source.filters || %{}, "parent", id)
+      if parent_id in [nil, "", Map.get(source_filters, "parent")] do
+        source_filters
+      else
+        Map.merge(source_filters, %{"parent" => parent_id, "include_shared" => false})
       end
 
     %{
@@ -99,6 +101,7 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowser do
     |> Map.merge(destination_params(source, stack))
   end
 
+  defp provider_parent_id(%{record_id: id}), do: provider_parent_id(%{id: id})
   defp provider_parent_id(%{id: id}) when is_binary(id) and id not in ["", "."], do: id
   defp provider_parent_id(_), do: nil
 
@@ -122,7 +125,7 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowser do
 
   defp source_filters(scope, scope_id) do
     case value(scope, :filters) do
-      filters when is_map(filters) and map_size(filters) > 0 -> filters
+      filters when is_map(filters) -> filters
       _ -> %{"parent" => scope_id}
     end
   end

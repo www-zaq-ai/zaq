@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.DataSource.CreateDocument
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Chunk
@@ -565,6 +566,46 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       assert has_element?(view, "button", "Nested Folder")
       assert has_element?(view, "span", "No Preview.txt")
+    end
+
+    test "scoped provider roots preserve opaque child ids through navigation and creation", %{
+      conn: conn,
+      provider_config: config
+    } do
+      {:ok, scopes} =
+        DataSourceBridge.list_source_scopes("google_drive", %{
+          "config_id" => config.id
+        })
+
+      Application.put_env(:zaq, :provider_browser_scopes_response, {:ok, scopes})
+
+      Application.put_env(
+        :zaq,
+        :provider_browser_capability_snapshot,
+        {:ok, %{resolved: %{list_items: true, create_item: true}}}
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
+      assert_received {:list_files, "google_drive", %{"filters" => %{"parent" => "root"}}}
+
+      render_hook(view, "navigate", %{"path" => "folder-1"})
+      assert_received {:list_files, "google_drive", %{"filters" => %{"parent" => "folder-1"}}}
+      assert has_element?(view, "button", "Nested Folder")
+
+      render_hook(view, "show_new_folder_modal", %{})
+      render_hook(view, "create_folder", %{"name" => "Reports"})
+      assert_received {:create_file, "google_drive", %{"parent_id" => "folder-1"}}
+
+      render_hook(view, "navigate", %{"path" => "child-folder"})
+      assert_received {:list_files, "google_drive", %{"filters" => %{"parent" => "child-folder"}}}
+      render_hook(view, "go_back", %{})
+      assert_received {:list_files, "google_drive", %{"filters" => %{"parent" => "folder-1"}}}
+      render_hook(view, "go_back", %{})
+      assert_received {:list_files, "google_drive", %{"filters" => %{"parent" => "root"}}}
+
+      render_hook(view, "show_new_folder_modal", %{})
+      render_hook(view, "create_folder", %{"name" => "Root Folder"})
+      assert_received {:create_file, "google_drive", %{"parent_id" => "root"}}
     end
 
     test "provider rename modal uses the record name instead of the provider id", %{conn: conn} do
@@ -1387,7 +1428,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       assert state.socket.assigns.current_dir == "folder-1"
 
       assert state.socket.assigns.provider_folder_stack == [
-               %{id: "folder-1", name: "Project Docs", path: nil}
+               %{id: "folder-1", record_id: "folder-1", name: "Project Docs", path: nil}
              ]
 
       assert state.socket.assigns.breadcrumbs == [%{name: "Project Docs", path: "folder-1"}]

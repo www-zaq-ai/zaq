@@ -1,11 +1,12 @@
 defmodule Zaq.Channels.JidoConnectBridgeTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{ChannelConfig, JidoConnectBridge}
+  alias Zaq.Channels.{ChannelConfig, DataSourceBridge, JidoConnectBridge}
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Connect
   alias Zaq.Materialization.Handle
   alias Zaq.Repo
+  alias ZaqWeb.Live.BO.DataSourceBrowser
 
   defmodule StubIntegration do
   end
@@ -1920,6 +1921,34 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     assert_received {:invoke_files, params, _opts}
     assert is_binary(params[:query]) || is_binary(params["query"])
+  end
+
+  test "browser scopes reach the connector as root and opaque child queries" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    assert {:ok, [scope]} =
+             DataSourceBridge.list_source_scopes(:google_drive, %{
+               "config_id" => config.id
+             })
+
+    source = DataSourceBrowser.source(config, scope)
+
+    for {parent, expected} <- [{nil, "root"}, {"opaque-child", "opaque-child"}, {nil, "root"}] do
+      params = DataSourceBrowser.list_params(source, parent)
+      assert {:ok, _} = JidoConnectBridge.list_files(config, params)
+      assert_received {:invoke_files, request, _opts}
+      assert request[:query] =~ "'#{expected}' in parents"
+      refute request[:query] =~ "'#{config.id}' in parents"
+      refute request[:query] =~ "'.' in parents"
+
+      if parent do
+        refute request[:query] =~ "sharedWithMe"
+      else
+        assert request[:query] =~ "sharedWithMe"
+      end
+    end
   end
 
   test "list_files excludes shared-with-me clause when nested filters disable shared items" do

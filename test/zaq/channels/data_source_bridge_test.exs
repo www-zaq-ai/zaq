@@ -453,6 +453,26 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
            }
   end
 
+  test "connector scopes expose provider roots without changing saved scope identities" do
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: Zaq.Channels.JidoConnectBridge},
+      sharepoint: %{bridge: Zaq.Channels.JidoConnectBridge},
+      disk: %{bridge: DiskBridge}
+    })
+
+    for {provider, parent} <- [{:google_drive, "root"}, {:sharepoint, "/"}, {:disk, "docs"}] do
+      config = insert_data_source_config(provider)
+
+      assert {:ok, [scope]} =
+               DataSourceBridge.list_source_scopes(provider, %{"config_id" => config.id})
+
+      assert scope.provider == to_string(provider)
+      assert scope.config_id == config.id
+      assert scope.scope_id == if(provider == :disk, do: "docs", else: to_string(config.id))
+      assert scope.filters == %{"parent" => parent}
+    end
+  end
+
   describe "download_resource/2 default params" do
     test "download_resource/2 delegates with default empty params map" do
       insert_data_source_config(:google_drive)
