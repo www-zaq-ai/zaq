@@ -17,11 +17,15 @@
     {
       "text": "Final review identified shared-item leakage in Skills child listings: list_params did not disable include_shared, and real Jido query included sharedWithMe inside child folders. Added red tests at helper and connector boundaries, then generic child-filter fix; root reload by nil/empty/explicit root ID preserves original filters. Included as root/child navigation correctness, not a provider branch in UI.",
       "timestamp": "2026-09-06T08:16:44Z"
+    },
+    {
+      "text": "FINAL: mix format PASS; mix q PASS; git diff --check PASS. MIX_ENV=test mix coveralls.json test/zaq_web/live/bo/data_source_browser_test.exs test/zaq/channels/data_source_bridge_test.exs test/zaq/channels/jido_connect_bridge_test.exs test/zaq/channels/jido_connect_bridge_coverage_gaps_test.exs test/zaq_web/live/bo/ai/ingestion_live_test.exs test/zaq_web/live/bo/system/system_config_live_test.exs test/zaq_web/live/bo/ai/skills_live_test.exs: 758 tests + 4 properties, 0 failures. Coverage: browser 100%; IngestionLive 95.4%; Jido bridge 77.3% with broader exception tracked zaq-fja. From test/e2e: npm run test -- specs/ingestion.spec.js specs/system_config.spec.js --project=journeys-chromium: 56 passed, 1 existing skipped, repeated after final child-filter correction. Live Google not contacted; literal dot not reproduced and could not be proven from error text alone. Nine intended tracked files; no commits/push/PR. Initial scope IDs preserved for saved selections, no migration of already-invalid folder settings attempted.",
+      "timestamp": "2026-09-06T08:23:01Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5gy] Validate shared browser fix",
   "type": "task",
-  "updated_at": "2026-09-06T08:16:44Z"
+  "updated_at": "2026-09-06T08:23:01Z"
 }
