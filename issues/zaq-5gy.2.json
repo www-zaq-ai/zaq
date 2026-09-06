@@ -11,9 +11,15 @@
   "id": "zaq-5gy.2",
   "labels": [],
   "parent": "zaq-5gy",
+  "comments": [
+    {
+      "text": "Added passing red-to-green Ingestion root/child/up/create and helper canonical-ID regressions; Skills picker regression uses real DataSourceBridge scopes and persists root folder_id separately from unchanged scope_id. Focused six-file run reported 390 tests + 3 properties, zero failures, but shell timeout occurred during shutdown; retry planned. Ingestion stack retains record_id separately from UI path to preserve Disk navigation. Dot trace: Ingestion uses '.' only as local root sentinel; Skills root lists nil-\u003escope filters. Jido list handler and HTTP client do not manufacture dot. No live request evidence proving literal dot origin.",
+      "timestamp": "2026-09-06T08:06:20Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5gy] Preserve shared browser navigation and destinations",
   "type": "task",
-  "updated_at": "2026-09-06T07:59:25Z"
+  "updated_at": "2026-09-06T08:06:20Z"
 }
