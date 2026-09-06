@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-1y5"
+  ],
   "blocks": [],
   "created": "2026-09-06T06:52:28Z",
   "description": "After regression tests in zaq-1y5, add a ContentPart-specific normalization before generic structs, matching ReqLLM base64 encoding while keeping generic recursive normalization. Owning module RequestEstimator covers whole-request textual projection. No new API or mocks. Update moduledoc and docs/services/agent.md. Tests: binary PDF/image, empty and valid UTF8 data, arbitrary bytes, transformer fitting/oversized behavior.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-1y5] Implement binary-safe estimation and documentation",
   "type": "task",
-  "updated_at": "2026-09-06T06:52:28Z"
+  "updated_at": "2026-09-06T06:52:40Z"
 }
