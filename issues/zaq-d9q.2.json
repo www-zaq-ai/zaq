@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-d9q.1"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-d9q",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-d9q] Document resource access and validate",
   "type": "task",
-  "updated_at": "2026-09-06T07:30:25Z"
+  "updated_at": "2026-09-06T07:33:39Z"
 }
