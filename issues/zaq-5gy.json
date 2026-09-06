@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-06T07:54:29Z",
+  "description": "Workspace-only fix; no commit/push/PR. Trace dot 404 and separate provider root identity from config identity. Sequence: Channels scopes and regression tests -\u003e shared browser/UI regressions -\u003e validation. graph LR; A--\u003eB; B--\u003eC",
+  "id": "zaq-5gy",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Fix shared provider browser roots",
+  "type": "epic",
+  "updated_at": "2026-09-06T07:54:29Z"
+}
