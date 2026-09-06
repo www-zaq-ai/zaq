@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-06T06:51:14Z",
+  "description": "Scope: RequestEstimator must preserve ReqLLM ContentPart binary-safe JSON semantics without modifying provider-bound bytes. Test first: PDF invalid UTF8, image bytes, arbitrary binary property; transformer retains fitting attachments and rejects oversized mandatory attachments. No mocks. Update agent service docs, run focused tests, mix format and mix q. Working-tree delivery only.",
+  "id": "zaq-1y5",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Fix binary skill-resource context estimation",
+  "type": "bug",
+  "updated_at": "2026-09-06T06:51:14Z"
+}
