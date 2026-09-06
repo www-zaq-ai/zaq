@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-06T11:37:54Z",
+  "description": "Use exact active skill names without search fallbacks; add regression coverage; document unrestricted asset uploads and provider_models_adapter; validate with mix format and mix q.",
+  "id": "zaq-xjy",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[agent-skills] Exact resource lookup and review documentation",
+  "type": "task",
+  "updated_at": "2026-09-06T11:37:54Z"
+}
