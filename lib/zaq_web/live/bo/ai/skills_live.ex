@@ -68,10 +68,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
       |> assign(:resource_type, "reference")
       |> assign(:staged_resource_types, %{})
       |> assign(:skill_resources, [])
-      |> assign_volumes()
-      # Size and count come from `Skills.Limits`, not from IngestionLive's rails: nothing
-      # upstream caps a resource read (Jido's `load_resource/2` is an uncapped `File.read/1`),
-      # so a 20 MB reference would be uploadable and then unusable.
+      # Upload caps share the limits used by Factory's native resource policy.
       |> allow_upload(:skill_resources,
         accept: :any,
         max_entries: Limits.get(:resource_max_files),
@@ -152,8 +149,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   def handle_event("open_resource_upload", _params, socket) do
     if can_add_resources?(socket.assigns) do
-      modal = if socket.assigns.volumes_connected?, do: :upload, else: :no_volume
-      {:noreply, assign(socket, :resource_modal, modal)}
+      {:noreply, assign(socket, :resource_modal, :upload)}
     else
       {:noreply, socket}
     end
@@ -171,14 +167,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     {:noreply, assign(socket, :upload_toast, nil)}
   end
 
-  def handle_event("select_resource_volume", %{"volume" => volume}, socket) do
-    if Map.has_key?(socket.assigns.volumes, volume) do
-      {:noreply, socket |> assign(:resource_volume, volume) |> load_skill_resources()}
-    else
-      {:noreply, socket}
-    end
-  end
-
   def handle_event("validate_skill_resource", params, socket) do
     type = resource_type_from_params(params)
 
@@ -189,7 +177,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     end
   end
 
-  def handle_event("cancel_skill_resource", %{"ref" => ref}, socket) do
+  def handle_event(event, %{"ref" => ref}, socket)
+      when event in ["cancel_skill_resource", "remove_resource"] do
     {:noreply,
      socket
      |> cancel_upload(:skill_resources, ref)
@@ -257,13 +246,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   def handle_event("upload_skill_resource", _params, socket), do: {:noreply, socket}
 
-  def handle_event("remove_resource", %{"ref" => ref}, socket) do
-    {:noreply,
-     socket
-     |> cancel_upload(:skill_resources, ref)
-     |> update(:staged_resource_types, &Map.delete(&1, ref))}
-  end
-
   def handle_event(
         "remove_resource",
         %{"path" => path},
@@ -277,10 +259,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
        |> load_skill_resources()
        |> put_toast(:info, "Resource removed")}
     else
-      {:error, reason} when reason in [:enoent, :not_found] ->
-        {:noreply,
-         socket |> load_skill_resources() |> put_toast(:info, "Resource already removed")}
-
       _ ->
         {:noreply, put_toast(socket, :error, "Resource could not be removed")}
     end
@@ -500,15 +478,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   # ── Skill resources ─────────────────────────────────────────────
 
-  defp assign_volumes(socket) do
-    configured? = match?({:ok, _location}, resource_location(resource_target(socket.assigns)))
-
-    socket
-    |> assign(:volumes, %{})
-    |> assign(:volumes_connected?, configured?)
-    |> assign(:resource_volume, nil)
-  end
-
   # Resources need a destination, and the destination needs a name. A saved skill always
   # has one; an unsaved one has whatever is currently typed into the form.
   defp can_add_resources?(assigns),
@@ -573,7 +542,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
   defp upload_resource(socket, skill, tmp_path, entry, type) do
     with {:ok, location} <- resource_location(skill),
-         {:ok, parent_path} <- provider_path(location, references_dir(skill)),
+         {:ok, parent_path} <- provider_path(location, Resources.root(skill)),
          {:ok, binary} <- File.read(tmp_path),
          {:ok, %{record: record}} <-
            data_source_action(
@@ -670,15 +639,12 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     assign(socket, :skill_resources, Skills.list_skill_resources(skill))
   end
 
-  # No skill selected, or no volume to read from (nothing configured, or the data-source node
-  # did not answer). Guard rather than let a degraded data-source path crash the page.
+  # Resource listings come from the database; an unsaved skill has no manifest yet.
   defp load_skill_resources(socket), do: assign(socket, :skill_resources, [])
-
-  defp references_dir(%Skill{} = skill), do: Resources.references_dir(skill)
 
   # Shown in the upload modal so the operator can see where the file will land in the
   # storage browser before committing to it. Template-facing.
-  defp resource_destination(assigns), do: references_dir(resource_target(assigns))
+  defp resource_destination(assigns), do: Resources.root(resource_target(assigns))
 
   defp resource_type_options do
     [
@@ -731,13 +697,13 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
     |> resource_type_label()
   end
 
-  defp persisted_resource_type(_skill, %{resource_type: _type} = resource) do
+  defp persisted_resource_type(%{resource_type: _type} = resource) do
     resource
     |> Map.get(:resource_type)
     |> resource_type_label()
   end
 
-  defp persisted_resource_type(_skill, _resource), do: resource_type_label(nil)
+  defp persisted_resource_type(_resource), do: resource_type_label(nil)
 
   defp resource_type_label("asset"), do: "Asset"
   defp resource_type_label("script"), do: "Script"
@@ -776,12 +742,7 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
   defp resource_input_accept("script"), do: Enum.join(@script_extensions, ",")
   defp resource_input_accept(_type), do: Enum.join(@reference_extensions, ",")
 
-  # Removes a deleted skill's whole resource directory.
-  #
-  # The volume is swept rather than looked up: the upload modal lets the operator choose a
-  # volume, but only the volume-relative `resource_root` is persisted, so which volume
-  # holds the files is not recoverable from the skill. Sweeping is safe because the root is
-  # namespaced per skill, and volumes without the directory are skipped.
+  # Removes the deleted skill's manifest files from its resolved resource location.
   #
   # Runs *after* the record is deleted. If it fails, the skill is still gone and the files
   # remain visible in the storage browser — recoverable. The reverse order could strip a

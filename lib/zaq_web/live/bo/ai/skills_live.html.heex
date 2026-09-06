@@ -431,7 +431,7 @@
               </DSTable.table_cell>
               <DSTable.table_cell>
                 <span class="zaq-pill zaq-text-caption zaq-pill--elevated">
-                  {persisted_resource_type(@selected_skill, resource)}
+                  {persisted_resource_type(resource)}
                 </span>
               </DSTable.table_cell>
               <DSTable.table_cell>
@@ -548,17 +548,14 @@
     </:actions>
   </Drawer.form_drawer>
 
-  <%!-- The ingestion upload modal, configured for skill references: volume picker and
-        destination preview on, folder-drop off (references are a flat directory). --%>
+  <%!-- Skill resources use the resolved location and a flat root: destination preview on,
+        volume picker and folder-drop off. --%>
   <ModalUpload.modal_upload
     :if={@resource_modal == :upload}
     id="skill-resource-modal"
     title="Add resource"
     cancel_event="close_resource_modal"
     uploads={@uploads}
-    volumes={@volumes}
-    current_volume={@resource_volume}
-    volume_event="select_resource_volume"
     destination={resource_destination(assigns)}
     upload_name={:skill_resources}
     id_prefix="skill-resource"
@@ -592,8 +589,6 @@
       </div>
     </:form_fields>
   </ModalUpload.modal_upload>
-
-  <ModalUpload.modal_no_volume :if={@resource_modal == :no_volume} />
 
   <%!-- Upload results report here, not in the BOLayout flash: the drawer is open when a
         resource is added, and an inline banner renders behind it. Same affordance the

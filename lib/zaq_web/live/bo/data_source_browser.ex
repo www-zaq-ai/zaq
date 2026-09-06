@@ -29,10 +29,6 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowser do
     Enum.join([provider, to_string(config_id), scope_id], ":")
   end
 
-  def active_source(sources, source_id) when is_list(sources) do
-    Enum.find(sources, &(&1.id == source_id)) || List.first(sources)
-  end
-
   def reset_stack, do: []
 
   def enter_folder(stack, entries, id) when is_list(stack) and is_list(entries) do
