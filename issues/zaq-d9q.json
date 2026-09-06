@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-06T07:29:24Z",
+  "description": "User approved loader-only permission bypass without grants or public files. Preserve native Jido activation/catalog and ZAQ active-skill manifest boundaries; do not alter session revocation semantics or general tool context. Steps: scope audit -\u003e regression tests/local bypass -\u003e documentation and validation.",
+  "id": "zaq-d9q",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Skill resource private access",
+  "type": "epic",
+  "updated_at": "2026-09-06T07:29:24Z"
+}
