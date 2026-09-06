@@ -4,14 +4,15 @@
   "blocks": [
     "zaq-d9q.1"
   ],
+  "closed_at": "2026-09-06T07:30:25Z",
   "created": "2026-09-06T07:29:44Z",
   "description": "Audit complete: Jido LoadSkill selects prepared catalog; LoadResource checks session activation and listed resource IDs and strips reserved keys before provider callback. ZAQ checks active skill and current manifest. Preserve existing activated-session semantics; no parallel catalog guard. No code changes or tests required for read-only audit.",
   "id": "zaq-d9q.3",
   "labels": [],
   "parent": "zaq-d9q",
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-d9q] Verify native skill resource scope",
   "type": "task",
-  "updated_at": "2026-09-06T07:30:00Z"
+  "updated_at": "2026-09-06T07:30:25Z"
 }
