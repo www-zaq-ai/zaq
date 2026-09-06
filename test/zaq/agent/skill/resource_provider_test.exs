@@ -142,6 +142,51 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
              })
   end
 
+  test "lists and loads the exact skill despite earlier fuzzy matches", %{spec: spec} do
+    for name <- ["aaa-helper", "aaa-runtime-skill"] do
+      assert {:ok, _} =
+               Skills.create_skill(%{
+                 name: name,
+                 description: "Supports runtime-skill",
+                 body: "Unrelated instructions.",
+                 active: true
+               })
+    end
+
+    assert {:ok, %{resources: [%{id: "doc-1"}], complete: true}} =
+             ResourceProvider.handle(%{operation: :list, skill: spec}, %{})
+
+    assert {:ok, %{content: "Hello skill!", resource_id: "doc-1"}} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1"},
+               %{node_router: Router}
+             )
+  end
+
+  test "does not fall back to partial names, descriptions, or normalized names", %{spec: spec} do
+    for name <- ["runtime", "Runtime skill resources.", "RUNTIME-SKILL", " runtime-skill "] do
+      for operation <- [:list, :load] do
+        assert {:error, :skill_not_found} =
+                 ResourceProvider.handle(
+                   %{operation: operation, skill: %{spec | name: name}, resource_id: "doc-1"},
+                   %{node_router: Router}
+                 )
+      end
+    end
+
+    refute_received {:dispatch, _, _}
+  end
+
+  property "exact lookup never accepts names with extra suffixes", %{spec: spec} do
+    check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 30)) do
+      assert {:error, :skill_not_found} =
+               ResourceProvider.handle(
+                 %{operation: :list, skill: %{spec | name: spec.name <> "-" <> suffix}},
+                 %{}
+               )
+    end
+  end
+
   test "lists no resources without data-source discovery" do
     {:ok, skill} =
       Skills.create_skill(%{
