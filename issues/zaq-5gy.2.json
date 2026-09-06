@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-5gy.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-5gy.1"
+  ],
   "created": "2026-09-06T07:54:55Z",
   "description": "DataSourceBrowser owns generic normalization and parameters; Ingestion consumes opaque folder IDs, not path joins. Tests first: empty-map normalization property, root/child/up and destinations, Skills picker and Ingestion LiveView regression. Real scopes where practical, external listings controlled. Preserve Disk paths. Docs: shared browser contract.",
   "id": "zaq-5gy.2",
