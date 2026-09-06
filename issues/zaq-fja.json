@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-06T08:16:44Z",
+  "description": "Follow-up to shared-browser fix coverage exception: six-file focused coverage gives JidoConnectBridge 68.3% (796/1165 relevant lines). New source-scope callback is exercised; existing OAuth, sheets, watch and failure paths account for broader uncovered surface. Include existing coverage-gaps suite and identify remaining branches; use external-edge controls and real internal boundaries. Do not expand browser bugfix into unrelated bridge refactoring.",
+  "id": "zaq-fja",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5gy] Improve existing JidoConnectBridge coverage",
+  "type": "task",
+  "updated_at": "2026-09-06T08:16:44Z"
+}
