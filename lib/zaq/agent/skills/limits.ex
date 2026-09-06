@@ -12,10 +12,8 @@ defmodule Zaq.Agent.Skills.Limits do
   values via `config :zaq, :agent_skills, ...` (for example in `runtime.exs`), and tests
   can stub them through the app-config layer.
 
-  ## Body: three thresholds, two behaviours
+  ## Body: hard rejection thresholds
 
-    * `skill_body_warning_tokens` — a **non-blocking threshold** reserved for future
-      surfacing. Bodies above it still save successfully.
     * `skill_body_max_tokens` — a **hard reject**. Tokens are the real context cost.
     * `skill_body_max_bytes` — a **hard reject** and the absolute backstop. Tokens are
       estimated (`TokenEstimator`, word-based), so a pathological body — CJK, base64, no
@@ -26,8 +24,6 @@ defmodule Zaq.Agent.Skills.Limits do
     * `description` (1024 chars) and `compatibility` (500 chars) are capped by
       `Jido.AI.Skill.Loader`, not ZAQ. Duplicating them as settable here would be a lie —
       changing our number would not change Jido's.
-    * `bundle_max_bytes` / `bundle_max_files` guard **SKILL.md import** (Part 2 M4). They
-      live here so the ceilings are all in one place, but nothing enforces them in Part 1.
 
   ## Resources: the ceiling has to be ours
 
@@ -42,12 +38,8 @@ defmodule Zaq.Agent.Skills.Limits do
   """
 
   @defaults %{
-    skill_body_warning_tokens: 16_000,
     skill_body_max_tokens: 32_000,
     skill_body_max_bytes: 131_072,
-    # Part 2 (import) — declared here, enforced in M4.
-    bundle_max_bytes: 50 * 1024 * 1024,
-    bundle_max_files: 500,
     # Resources: upload and runtime load caps.
     resource_max_bytes: 5 * 1024 * 1024,
     resource_max_files: 10,
