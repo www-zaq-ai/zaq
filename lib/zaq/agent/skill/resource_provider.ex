@@ -5,6 +5,11 @@ defmodule Zaq.Agent.Skill.ResourceProvider do
   The adapter maps Jido's generic list/load callbacks onto ZAQ's existing
   data-source document actions through `Jido.Exec`. It never calls channel bridges
   directly and never accepts caller-supplied provider identity from the model.
+
+  Manifest-listed resources are skill assets: loading them explicitly bypasses the
+  requesting person's data-source permissions without granting ordinary file access.
+  The bypass is local to these reads; the caller's actor and shared context are preserved.
+  Jido owns skill activation and resource selection before invoking this adapter.
   """
 
   alias Jido.AI.Skill.Spec
@@ -32,10 +37,11 @@ defmodule Zaq.Agent.Skill.ResourceProvider do
     with {:ok, skill} <- fetch_skill(name),
          {:ok, location} <- Skills.resource_location(skill),
          %Resource{} = resource <- Skills.get_skill_resource_by_provider_id(skill, resource_id),
+         resource_context = Map.put(context, :skip_permissions, true),
          {:ok, %Record{materialization_handle: handle} = record} <-
-           get_document(location, resource, context),
+           get_document(location, resource, resource_context),
          {:ok, %{record: %Record{content: content} = loaded_record}} <-
-           Jido.Exec.run(DownloadDocument, download_params(handle, record), context),
+           Jido.Exec.run(DownloadDocument, download_params(handle, record), resource_context),
          {:ok, content} <- decode_content(content, loaded_record.attributes) do
       {:ok,
        %{

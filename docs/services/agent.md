@@ -321,6 +321,14 @@ the provider delete succeeds. Runtime resource listing never scans directories.
   a resource-less skill. The `:load` callback resolves the stored id through `get_document`,
   receives a fresh `materialization_handle`, and immediately calls `download_document`; handles
   are never persisted.
+- Skill resources are private through ordinary file access but readable through the skill loader.
+  After validating the active skill and its persisted resource manifest, the provider explicitly
+  sets `skip_permissions: true` only on its document-read context, preserving the requesting actor.
+  This works regardless of the requesting person's identity, including absent identity; it does
+  not create grants, make files public, or elevate other tools or the shared execution context.
+  Jido still owns session activation and listed-resource selection; existing activation lifetime
+  semantics are unchanged. Resource contents enter the model context and may appear in answers,
+  so this privacy boundary does not hide those contents from people using the skill.
 - Runtime integration enables Jido's binary resource policy. The provider decodes ZAQ's base64
   data-source transport into raw bytes and supplies filename, MIME type, and decoded size so Jido
   can validate and project supported images and files into model-facing content parts.

@@ -1,10 +1,14 @@
 defmodule Zaq.Agent.Skill.ResourceProviderTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   alias Jido.AI.Skill.ResourcePolicy
   alias Jido.AI.Skill.Spec
+  alias Zaq.Accounts.People
   alias Zaq.Agent.Skill.ResourceProvider
   alias Zaq.Agent.Skills
+  alias Zaq.Agent.Tools.DataSource.GetDocument
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
@@ -21,6 +25,11 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
         ) do
       dispatch_target = :persistent_term.get({__MODULE__, :dispatch_target}, self())
       send(dispatch_target, {:dispatch, opts[:action], params})
+
+      send(
+        dispatch_target,
+        {:resource_access, opts[:action], event.actor, opts[:skip_permissions]}
+      )
 
       overrides =
         Process.get(
@@ -41,6 +50,14 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
         end
 
       %{event | response: response}
+    end
+
+    def dispatch(%Event{next_hop: %{destination: :channels}, opts: opts} = event) do
+      Zaq.Channels.Api.handle_event(event, Keyword.fetch!(opts, :action), nil)
+    end
+
+    def dispatch(%Event{next_hop: %{destination: :storage}, opts: opts} = event) do
+      Zaq.Storage.Api.handle_event(event, Keyword.fetch!(opts, :action), nil)
     end
 
     defp metadata_record do
@@ -159,6 +176,142 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
                %{operation: :load, skill: spec, resource_id: "doc-1", policy: nil},
                %{node_router: Router}
              )
+  end
+
+  test "resource reads explicitly bypass permissions while preserving the actor", %{spec: spec} do
+    set_router_responses(%{})
+    actor = %{person: %{id: Ecto.UUID.generate()}}
+    context = %{node_router: Router, actor: actor, skip_permissions: false}
+
+    assert {:ok, %{content: "Hello skill!"}} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1"},
+               context
+             )
+
+    assert_received {:resource_access, :data_source_get_file, ^actor, true}
+    assert_received {:resource_access, :data_source_download_document, ^actor, true}
+
+    assert {:ok, _} =
+             Jido.Exec.run(
+               GetDocument,
+               %{provider: "disk", config_id: "7", document_id: "doc-1"},
+               context
+             )
+
+    assert_received {:resource_access, :data_source_get_file, ^actor, bypass}
+    refute bypass
+  end
+
+  @tag :tmp_dir
+  test "private disk resources remain denied outside the skill loader", %{
+    tmp_dir: root,
+    skill: skill,
+    spec: spec
+  } do
+    previous_storage = Application.get_env(:zaq, Zaq.Storage)
+    Application.put_env(:zaq, Zaq.Storage, base_path: root, volumes: %{})
+
+    on_exit(fn ->
+      if previous_storage,
+        do: Application.put_env(:zaq, Zaq.Storage, previous_storage),
+        else: Application.delete_env(:zaq, Zaq.Storage)
+    end)
+
+    File.mkdir_p!(Path.join(root, "resources"))
+    File.write!(Path.join(root, "resources/private.md"), "Private skill instructions")
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Private skill disk",
+        provider: "disk",
+        kind: "data_source",
+        enabled: true,
+        settings: %{"volumes" => [%{"name" => "skills", "path" => "resources"}]}
+      })
+      |> Repo.insert!()
+
+    {:ok, _} = System.save_skill_resource_config(%{provider: "disk", config_id: config.id})
+
+    {:ok, _} =
+      Skills.upsert_skill_resource(skill, %{
+        provider_resource_id: "skills/private.md",
+        name: "private.md",
+        resource_type: "asset"
+      })
+
+    params = %{
+      provider: "disk",
+      config_id: to_string(config.id),
+      document_id: "skills/private.md"
+    }
+
+    {:ok, person} = People.create_person(%{full_name: "Skill user"})
+
+    for actor <- [%{person: %{id: person.id}}, nil] do
+      context = %{node_router: Router, actor: actor, skip_permissions: false}
+
+      assert {:error, %{message: "Data source document request failed: :unauthorized"}} =
+               Jido.Exec.run(GetDocument, params, context)
+
+      assert {:ok, %{content: "Private skill instructions"}} =
+               ResourceProvider.handle(
+                 %{operation: :load, skill: spec, resource_id: "skills/private.md"},
+                 context
+               )
+
+      assert {:error, %{message: "Data source document request failed: :unauthorized"}} =
+               Jido.Exec.run(GetDocument, params, context)
+    end
+  end
+
+  property "unregistered resource IDs never acquire privileged access", %{spec: spec} do
+    check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 64)) do
+      assert {:error, :not_found} =
+               ResourceProvider.handle(
+                 %{operation: :load, skill: spec, resource_id: "unregistered-" <> suffix},
+                 %{node_router: Router, person_id: nil}
+               )
+
+      refute_received {:dispatch, _, _}
+    end
+  end
+
+  test "rejects inactive skills before privileged access", %{skill: skill, spec: spec} do
+    {:ok, _} = Skills.update_skill(skill, %{active: false})
+
+    assert {:error, :skill_not_found} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1"},
+               %{node_router: Router}
+             )
+
+    refute_received {:dispatch, _, _}
+  end
+
+  test "rejects resources belonging to another skill", %{spec: spec} do
+    {:ok, other} =
+      Skills.create_skill(%{
+        name: "other-skill",
+        description: "Other resources",
+        body: "Instructions"
+      })
+
+    {:ok, _} =
+      Skills.upsert_skill_resource(other, %{
+        provider_resource_id: "other-doc",
+        name: "other.md",
+        resource_type: "asset"
+      })
+
+    assert {:error, :not_found} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "other-doc"},
+               %{node_router: Router}
+             )
+
+    refute_received {:dispatch, _, _}
   end
 
   test "decodes a base64 binary resource with filename and MIME metadata", %{spec: spec} do
