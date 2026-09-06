@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-d9q.2"
   ],
+  "closed_at": "2026-09-06T07:33:39Z",
   "created": "2026-09-06T07:29:43Z",
   "description": "Owner ResourceProvider adapter; derive explicit skip_permissions context after active skill/location/manifest validation, preserve actor and ordinary access. Tests first: event bypass + actor retained, unknown/cross-skill/inactive reject, generated unknown IDs never dispatch, real private disk read only through loader including nil person. No permission grants/writes. Use real role APIs with transport-only routing. Update moduledoc. Native activated-session revocation unchanged.",
   "id": "zaq-d9q.1",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-d9q] Add loader-local permission bypass and regression tests",
   "type": "task",
-  "updated_at": "2026-09-06T07:33:34Z"
+  "updated_at": "2026-09-06T07:33:39Z"
 }
