@@ -1,6 +1,6 @@
 ---
 name: node-router-enforcer
-description: Scans ZAQ codebase for direct module calls from BO that bypass NodeRouter.call/4. Use this agent to detect and fix architectural violations where Zaq.Agent.*, Zaq.Engine.*, Zaq.Ingestion.*, or Zaq.Channels.* are called directly from lib/zaq_web/. Do not use for general security audits — use security-scanner for that.
+description: Scans ZAQ codebase for direct context calls from BO that bypass role/channel Events helpers and NodeRouter. Use this agent to detect and fix architectural violations where Zaq.Agent.*, Zaq.Engine.*, Zaq.Ingestion.*, or Zaq.Channels.* contexts are called directly from lib/zaq_web/. Do not use for general security audits — use security-scanner for that.
 tools: Read, Write, Edit, Glob, Bash
 ---
 
@@ -8,7 +8,7 @@ tools: Read, Write, Edit, Glob, Bash
 
 ## Purpose
 
-Scan the codebase for direct module calls from BO that bypass `NodeRouter.call/4`
+Scan the codebase for direct context calls from BO that bypass role/channel Events helpers
 and open fix-up PRs for each violation found.
 
 ---
@@ -25,8 +25,8 @@ Run this agent:
 ## Instructions
 
 You are an architectural enforcement agent for the ZAQ codebase. Your job is to
-ensure all cross-service calls from BO go through `NodeRouter.call/4` and never
-call agent, ingestion, engine, or channel modules directly.
+ensure all cross-service calls from BO use role/channel Events helpers and never
+call agent, ingestion, engine, or channel context functions directly.
 
 ### Step 1 — Read the rules
 
@@ -39,7 +39,7 @@ Scan all files under:
 - `lib/zaq_web/controllers/`
 - `lib/zaq_web/plugs/`
 
-Flag any direct calls to modules in these namespaces:
+Flag direct context calls in these namespaces, not calls to their Events helpers:
 - `Zaq.Agent.*`
 - `Zaq.Ingestion.*`
 - `Zaq.Engine.*`
@@ -50,24 +50,38 @@ A direct call looks like:
 ```elixir
 # VIOLATION — direct module call
 Zaq.Agent.Retrieval.ask(question, opts)
-Zaq.Ingestion.ingest_file(path, opts)
-Zaq.Engine.Conversations.list_conversations(user)
+Zaq.Ingestion.ingest_records(records, params)
+Zaq.Engine.Conversations.list_conversations(user_id: user.id)
 ```
 
 The correct pattern is:
 
 ```elixir
-# CORRECT — routed through NodeRouter
-NodeRouter.call(:agent, Zaq.Agent.Retrieval, :ask, [question, opts])
-NodeRouter.call(:ingestion, Zaq.Ingestion, :ingest_file, [path, opts])
-NodeRouter.call(:engine, Zaq.Engine.Conversations, :list_conversations, [user])
+# CORRECT — role helpers route through NodeRouter and return an Event
+Zaq.Agent.Events.build_and_dispatch_invoke_event(
+  %{module: Zaq.Agent.Retrieval, function: :ask, args: [question, opts]},
+  :invoke
+).response
+
+Zaq.Engine.Events.build_and_dispatch_invoke_event(
+  %{module: Zaq.Engine.Conversations, function: :list_conversations, args: [[user_id: user.id]]},
+  :invoke
+).response
 ```
+
+Agent, Engine, and BO expose this generic invoke helper. Ingestion does not:
+`Zaq.Ingestion.Events.build_and_dispatch_materialize_document_event/2` builds the fixed
+`:materialize_document` action, not arbitrary ingestion calls. Channels also exposes
+action-specific helpers. Inspect the destination API, helper contract, and working call sites
+before choosing an action or request shape; do not substitute a materialization helper for an
+ingestion trigger. Helper options carry trusted `actor:` and local `node_router:` dependencies;
+the dispatched Event's `.response` contains the context result.
 
 ### Step 3 — Fix violations
 
 For each violation:
 
-1. Replace the direct call with the correct `NodeRouter.call/4` pattern.
+1. Replace the direct call with the applicable role/channel Events helper, preserving the request, actor, and response contract. Never use raw dispatch where a role helper exists; if no helper covers the action, identify the correct boundary before editing.
 2. Verify the correct role is used:
    - `:agent` for `Zaq.Agent.*`
    - `:ingestion` for `Zaq.Ingestion.*`
@@ -79,7 +93,7 @@ For each violation:
 ### Step 4 — Open PRs
 
 - One PR per file containing violations.
-- PR title: `fix(<module>): replace direct calls with NodeRouter.call/4`
+- PR title: `fix(<module>): route context calls through Events helpers`
 - PR description must list each violation fixed with before/after code snippets.
 
 ---

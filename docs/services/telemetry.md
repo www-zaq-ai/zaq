@@ -51,7 +51,6 @@ DashboardData.load_dashboard/1
 - `load_dashboard/1`, `load_chart/2` — standard dashboard/single-chart payloads.
 - `load_llm_performance/1`, `load_conversations_metrics/1`,
   `load_knowledge_base_metrics/1`, `load_main_dashboard_metrics/1` — scoped dashboard loaders.
-- `dashboard_kpis/1` — deprecated compatibility shim.
 - `list_recent_points/1` — raw points for E2E/inspection; supports `*` wildcard on metric.
 - `list_local_rollups_since/2` — rollup rows after a cursor for push sync.
 - `upsert_benchmark_rollups/1` — stores benchmark rows with `source="benchmark"`.

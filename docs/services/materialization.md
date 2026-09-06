@@ -32,8 +32,8 @@ config dependencies without storing them in the transported context.
 3. `Zaq.Materialization` verifies the handle and looks up the materializer type in
    `Zaq.Materialization.Registry`.
 4. `Zaq.Materialization` validates per-redemption options against the handler's
-   declared option list, normalizes accepted atom/string key spellings to strings,
-   and rejects duplicate spellings or undeclared keys as `:invalid_materialization_options`.
+   declared option list. Options must have string keys; atom keys and undeclared keys
+   are rejected as `:invalid_materialization_options`, not normalized.
 5. The trusted handler validates the locator and builds a fixed `%Zaq.Event{}` through
    role event helpers.
 6. `NodeRouter` routes by role to any node running that service.

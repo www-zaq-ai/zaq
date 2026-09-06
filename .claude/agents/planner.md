@@ -19,10 +19,10 @@ You are a technical planning agent for the ZAQ project (Elixir 1.19, Phoenix 1.7
 **Context boundaries**
 - Business logic lives in `lib/zaq/<context>/` — never in LiveViews or workers
 - Cross-context calls use public context functions only — never internal helpers
-- BO LiveViews call `NodeRouter.call/4` for cross-service calls — never direct module calls
+- BO LiveViews use role/channel Events helpers for cross-service calls — never direct context calls
 
 **NodeRouter**
-- All BO → Engine/Agent/Ingestion calls MUST go through `NodeRouter.call/4`
+- BO → Engine/Agent calls use the role's `Events.build_and_dispatch_invoke_event/3`; Ingestion calls use its applicable action-specific Events helper, not an assumed generic invoke helper
 - Flag any plan step that crosses a node boundary
 
 **Multi-node roles**
