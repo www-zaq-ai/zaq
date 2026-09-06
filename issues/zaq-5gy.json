@@ -2,13 +2,15 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-06T08:23:14Z",
+  "close_reason": "Implemented and validated shared Skills/Ingestion browser root fix, canonical child IDs, shared-child filters, and stable saved scope identities. No commit/push/PR per user. Follow-up zaq-fja tracks broader existing bridge coverage.",
   "created": "2026-09-06T07:54:29Z",
   "description": "Workspace-only fix; no commit/push/PR. Trace dot 404 and separate provider root identity from config identity. Sequence: Channels scopes and regression tests -\u003e shared browser/UI regressions -\u003e validation. graph LR; A--\u003eB; B--\u003eC",
   "id": "zaq-5gy",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-5gy] Fix shared provider browser roots",
   "type": "epic",
-  "updated_at": "2026-09-06T08:21:00Z"
+  "updated_at": "2026-09-06T08:23:14Z"
 }
