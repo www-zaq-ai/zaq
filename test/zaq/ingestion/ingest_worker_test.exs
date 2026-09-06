@@ -104,8 +104,9 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   end
 
   defmodule ExternalDataSourceBridgeStub do
-    def download_document(provider, params, _context) do
+    def download_document(provider, params, context) do
       send(self(), {:download_document, provider, params})
+      send(self(), {:download_context, context})
 
       {:ok,
        %{
@@ -122,6 +123,65 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   end
 
   describe "perform/1" do
+    test "materializes a reloaded ingestion job without its runtime router" do
+      previous = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        __MODULE__.ExternalDataSourceBridgeStub
+      )
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+        else
+          Application.put_env(:zaq, :ingestion_data_source_bridge_module, previous)
+        end
+      end)
+
+      record = %Record{
+        id: "reload-1",
+        kind: :file,
+        name: "Reload.pdf",
+        mime_type: "application/pdf",
+        attributes: %{"provider" => "google_drive", "config_id" => "cfg-reload"}
+      }
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, [job]} =
+                 Zaq.Ingestion.ingest_records([signed_record(record)], %{
+                   actor: %{person_id: nil},
+                   node_router: Zaq.NodeRouterMock
+                 })
+
+        reloaded = Repo.get!(IngestJob, job.id)
+
+        assert reloaded.source_record["materialization_context"] == %{
+                 "actor" => %{"person_id" => nil}
+               }
+
+        expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, opts ->
+          assert File.read!(path) == "PDF bytes"
+          assert opts[:source_override] == "data_source/google_drive/cfg-reload/reload-1"
+          {:ok, create_document(%{source: opts[:source_override]})}
+        end)
+
+        assert :ok =
+                 IngestWorker.perform(%Oban.Job{
+                   args: %{"job_id" => reloaded.id},
+                   attempt: 1,
+                   max_attempts: 3
+                 })
+
+        assert_received {:download_document, "google_drive", %{"file_id" => "reload-1"}}
+        assert_received {:download_context, context}
+        assert context.actor == %{"person_id" => nil}
+        refute context.skip_permissions
+        assert Repo.get!(IngestJob, job.id).status == "completed"
+      end)
+    end
+
     test "sets status to completed on success" do
       job = create_job()
       Zaq.Ingestion.subscribe()

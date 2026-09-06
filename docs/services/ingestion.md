@@ -42,6 +42,10 @@ Canonical records (from any data-source bridge)
 - `ingest_records/2` — the entry point; takes `%Zaq.Contracts.Record{}` values from any data-source bridge and a `%{mode: :async | :inline}` map, and answers `{:ok, jobs}` or `{:error, {:partial_failure, jobs, errors}}`
 - `ingest_record/2` — one record; a file record becomes a job, a folder record is expanded through `RecordSource.list_children/1` and fanned back into `ingest_records/2`
 
+Persisted source-record `materialization_context` contains only the actor. The `node_router`
+module is a runtime dependency and is never serialized into new job data. Router injection
+remains available for immediate operations such as folder expansion and materialization.
+
 **Job queries**
 - `list_jobs/1` — paginated job list with optional status filter
 - `get_job/1` — fetch a single job by ID

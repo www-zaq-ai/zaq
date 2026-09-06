@@ -999,7 +999,7 @@ defmodule Zaq.Ingestion do
   defp source_record_for_job(record, context) do
     record
     |> RecordSource.to_storage_map()
-    |> maybe_put_materialization_context(context)
+    |> maybe_put_materialization_context(Map.take(context, [:actor]))
   end
 
   defp maybe_put_materialization_context(source_record, context) when map_size(context) > 0,
@@ -1010,8 +1010,9 @@ defmodule Zaq.Ingestion do
   defp maybe_put_context(context, :actor, actor) when is_map(actor),
     do: Map.put(context, :actor, actor)
 
-  defp maybe_put_context(context, :node_router, node_router) when is_atom(node_router),
-    do: Map.put(context, :node_router, node_router)
+  defp maybe_put_context(context, :node_router, node_router)
+       when is_atom(node_router) and not is_nil(node_router),
+       do: Map.put(context, :node_router, node_router)
 
   defp maybe_put_context(context, _key, _value), do: context
 
