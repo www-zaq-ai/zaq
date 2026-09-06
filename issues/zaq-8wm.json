@@ -4,6 +4,7 @@
     "zaq-ne6"
   ],
   "blocks": [],
+  "closed_at": "2026-09-06T06:56:14Z",
   "created": "2026-09-06T06:52:27Z",
   "description": "After implementation, run context-window focused tests plus resource-provider regression suite, mix format, mix q; measure changed-module coverage \u003e=95% or record blocker and follow-up. Review diff. No live LLM or E2E required for pure estimator fix.",
   "id": "zaq-8wm",
@@ -15,8 +16,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-1y5] Validate binary-resource estimator fix",
   "type": "task",
-  "updated_at": "2026-09-06T06:56:13Z"
+  "updated_at": "2026-09-06T06:56:14Z"
 }
