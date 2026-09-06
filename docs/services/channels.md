@@ -181,6 +181,15 @@ again before returning content.
 
 `Zaq.Channels.DataSourceBridge` owns provider normalization, bridge resolution, and DataSource operation delegation (`auth_handshake`, `list_resources`, `download_resource`, `list_files`, file CRUD/search, listener setup/teardown, provider watch setup/teardown, and webhook normalization).
 
+Source scopes separate selection identity (`scope_id`) from provider listing filters.
+`JidoConnectBridge.list_source_scopes/2` keeps the config-backed scope identity and
+supplies the provider root from `ProviderCatalog` (`root` for Google Drive, `/` for
+SharePoint). Disk continues to expose one scope per volume. An explicit empty
+filter map is valid and must not be replaced with a parent inferred from the scope
+identity. BO browsers preserve these filters at the root and use canonical Record
+IDs, not joined display paths, when entering folders. Child listings disable
+shared-item inclusion; returning to the root restores the source filters.
+
 Data-source file callbacks receive `%Zaq.Events.TrustedContext{}` separately from provider
 parameters. `Zaq.Channels.Api` derives it only from the incoming event envelope; bridges must
 never derive actors or `skip_permissions` from request parameters. New code puts permission

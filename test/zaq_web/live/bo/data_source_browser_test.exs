@@ -5,6 +5,35 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowserTest do
   alias ZaqWeb.Live.BO.DataSourceBrowser
 
   describe "source/2" do
+    property "preserves explicit filters, including empty maps, regardless of scope identity" do
+      check all(
+              scope_id <- string(:alphanumeric, min_length: 1, max_length: 20),
+              filters <-
+                map_of(string(:alphanumeric, min_length: 1), string(:alphanumeric), max_length: 4),
+              key <- member_of([:filters, "filters"])
+            ) do
+        config = %{id: 12, provider: "google_drive"}
+        source = DataSourceBrowser.source(config, %{key => filters, :scope_id => scope_id})
+
+        assert source.filters == filters
+        assert DataSourceBrowser.source(config, source) == source
+        assert DataSourceBrowser.list_params(source, nil)["filters"] == filters
+      end
+    end
+
+    test "empty filters do not turn a config id into a provider folder id" do
+      source = DataSourceBrowser.source(%{id: 12, provider: "google_drive"}, %{filters: %{}})
+
+      assert source.filters == %{}
+      assert DataSourceBrowser.current_folder(source, []).id == nil
+
+      assert DataSourceBrowser.destination_params(source, []) == %{
+               config_id: "12",
+               parent_id: nil,
+               path: nil
+             }
+    end
+
     test "normalizes atom and string scope keys into a stable source" do
       config = %{id: 12, name: "Documents", provider: "disk"}
 
@@ -91,6 +120,13 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowserTest do
       assert get_in(DataSourceBrowser.list_params(source, "child"), ["filters", "parent"]) ==
                "child"
 
+      assert DataSourceBrowser.list_params(source, "child")["filters"] == %{
+               "parent" => "child",
+               "include_shared" => false
+             }
+
+      assert DataSourceBrowser.list_params(source, "volume-a")["filters"] == source.filters
+
       assert DataSourceBrowser.list_params(source, "", true) == %{
                "config_id" => 1,
                "filters" => %{"parent" => "volume-a"},
@@ -106,6 +142,17 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowserTest do
                config_id: "7",
                parent_id: "opaque-folder-id",
                path: "Reports"
+             }
+    end
+
+    test "uses the canonical record id when navigation is keyed by a display path" do
+      source = %{config_id: 7, filters: %{"parent" => "docs"}}
+      stack = [%{id: "Reports", record_id: "opaque-folder-id", path: "Reports"}]
+
+      assert DataSourceBrowser.destination_params(source, stack) == %{
+               config_id: "7",
+               parent_id: "opaque-folder-id",
+               path: "docs/Reports"
              }
     end
 

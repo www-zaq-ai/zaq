@@ -2306,9 +2306,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
     filters =
       case folder do
-        %{id: id} when is_binary(id) and id != "." ->
+        %{record_id: id} when is_binary(id) ->
           Map.merge(source_filters, %{
-            "parent" => data_source_parent(socket, id),
+            "parent" => id,
             "include_shared" => false
           })
 
@@ -2353,7 +2353,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       record = Map.get(socket.assigns.records_by_path, id) ->
         stack =
           socket.assigns.provider_folder_stack ++
-            [%{id: record_path(record), name: record.name, path: record.path}]
+            [
+              %{
+                id: record_path(record),
+                record_id: record.id,
+                name: record.name,
+                path: record.path
+              }
+            ]
 
         socket
         |> assign(

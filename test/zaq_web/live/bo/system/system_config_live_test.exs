@@ -13,6 +13,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.ZAQRouter
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.DiskBridge
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Engine.Connect
@@ -476,6 +477,66 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "Skills resource settings saved"
       assert %{folder_id: "folder-1", folder_path: "Skills"} = System.get_skill_resource_config()
+    end
+
+    test "Drive picker uses provider root for browsing and saved root destination", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      config = channel_config_fixture(%{name: "Skills Drive", provider: "google_drive"})
+      test_pid = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_list_skill_resource_data_sources ->
+            %{event | response: {:ok, [config]}}
+
+          :data_source_list_source_scopes ->
+            %{
+              event
+              | response:
+                  DataSourceBridge.list_source_scopes(
+                    "google_drive",
+                    event.request.params
+                  )
+            }
+
+          :data_source_list_files ->
+            parent = get_in(event.request, [:params, "filters", "parent"])
+            send(test_pid, {:skills_browser_parent, parent})
+
+            records =
+              case parent do
+                "root" -> [%Record{id: "opaque-folder", kind: :folder, name: "Skills", path: nil}]
+                "opaque-folder" -> []
+              end
+
+            %{event | response: {:ok, %RecordPage{resource_type: :item, records: records}}}
+
+          :system_config_save_skill_resource_config ->
+            %{event | response: System.save_skill_resource_config(event.request.attrs)}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=skills")
+      render_click(view, "open_skill_resource_folder_modal", %{})
+      assert_received {:skills_browser_parent, "root"}
+      render_click(view, "skill_resource_folder_navigate", %{"id" => "opaque-folder"})
+      assert_received {:skills_browser_parent, "opaque-folder"}
+      render_click(view, "confirm_skill_resource_folder", %{})
+      assert has_element?(view, "input[name='skill_resources[folder_id]'][value='opaque-folder']")
+
+      render_click(view, "open_skill_resource_folder_modal", %{})
+      render_click(view, "skill_resource_folder_navigate", %{"id" => "opaque-folder"})
+      render_click(view, "skill_resource_folder_up", %{})
+      assert_received {:skills_browser_parent, "root"}
+      render_click(view, "confirm_skill_resource_folder", %{})
+      assert has_element?(view, "input[name='skill_resources[folder_id]'][value='root']")
+
+      view |> form("#skill-resource-config-form") |> render_submit()
+      assert %{scope_id: scope_id, folder_id: "root"} = System.get_skill_resource_config()
+      assert scope_id == to_string(config.id)
     end
 
     test "creates a folder from the resource browser and selects it", %{conn: conn} do
