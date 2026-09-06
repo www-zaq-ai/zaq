@@ -13,11 +13,15 @@
     {
       "text": "Validation: mix format and mix q PASS. Complete focused six-file mix test: 735 tests + 4 properties, zero failures (seed 782386); coverage run repeats same passing count (seed 692270). Chromium E2E ingestion + system_config: 56 passed, 1 pre-existing skipped. Coverage: DataSourceBrowser 100% (52/52); IngestionLive 95.4% (755/791); JidoConnectBridge 68.3% whole-file (796/1165), new scope callback directly covered. Existing 369 uncovered connector lines are outside this bugfix (OAuth/watch/sheets/failure branches); broader bridge coverage is excluded from this minimal fix and requires follow-up. First focused run timed out and stopped early; superseded by complete passing run. Nonblocking existing license_manager configuration warning remains.",
       "timestamp": "2026-09-06T08:14:45Z"
+    },
+    {
+      "text": "Final review identified shared-item leakage in Skills child listings: list_params did not disable include_shared, and real Jido query included sharedWithMe inside child folders. Added red tests at helper and connector boundaries, then generic child-filter fix; root reload by nil/empty/explicit root ID preserves original filters. Included as root/child navigation correctness, not a provider branch in UI.",
+      "timestamp": "2026-09-06T08:16:44Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5gy] Validate shared browser fix",
   "type": "task",
-  "updated_at": "2026-09-06T08:14:45Z"
+  "updated_at": "2026-09-06T08:16:44Z"
 }
