@@ -11,11 +11,15 @@
     {
       "text": "All six approved cleanup steps implemented and validated in current worktree, uncommitted as requested. Separate follow-up zaq-5qu tracks existing coverage gaps. Native binary resource handling preserved. All-invalid DB skills discovery fallback fixed while migrating old prompt invariant tests to Factory. Spec tests renamed to test/zaq/agent/skills/spec_test.exs.",
       "timestamp": "2026-09-05T20:06:16Z"
+    },
+    {
+      "text": "User requested grouped commits. Created five commits with hooks enabled: c48f7904 discovery fix; 8974a3d0 legacy prompt/limit cleanup; f97b8945 resource upload cleanup; 071c7e5d durable ingestion context; f03672bf active docs. mix format and mix q rerun successfully; each commit passed quality and commit-message hooks. No push or PR.",
+      "timestamp": "2026-09-06T06:23:53Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "Agent Skills cleanup",
   "type": "epic",
-  "updated_at": "2026-09-05T20:06:17Z"
+  "updated_at": "2026-09-06T06:23:53Z"
 }
