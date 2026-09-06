@@ -434,6 +434,21 @@ defmodule Zaq.Agent.RuntimeSyncTest do
     assert_receive {:unregister_tool_called, "load_skill_resource"}
   end
 
+  test "sync_agent_configured_tools ignores invalid skills without filesystem discovery" do
+    {:ok, skill} =
+      Skills.create_skill(%{name: "invalid-legacy", description: "Legacy skill.", body: "Body."})
+
+    Repo.query!("UPDATE agent_skills SET name = 'Bad Name' WHERE id = $1", [skill.id])
+    agent = %ConfiguredAgent{enabled_tool_keys: [], enabled_skill_ids: [skill.id]}
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:ok, %{added_tools: [], removed_tools: []}} =
+               RuntimeSync.sync_agent_configured_tools(agent, :server_ref,
+                 list_tools_fn: fn :server_ref -> {:ok, []} end
+               )
+    end)
+  end
+
   test "sync_agent_configured_tools removes stale managed tools and keeps non-managed tools" do
     agent = %ConfiguredAgent{enabled_tool_keys: [], enabled_mcp_endpoint_ids: []}
 

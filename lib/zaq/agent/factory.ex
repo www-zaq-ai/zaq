@@ -127,6 +127,7 @@ defmodule Zaq.Agent.Factory do
   defp skill_runtime_integration(skills) do
     AgentIntegration.prepare(
       specs: Skills.to_specs(skills),
+      paths: [],
       resource_provider: {Zaq.Agent.Skill.ResourceProvider, :handle},
       resource_policy: [
         binary: :allow,

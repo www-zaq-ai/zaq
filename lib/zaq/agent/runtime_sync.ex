@@ -173,6 +173,7 @@ defmodule Zaq.Agent.RuntimeSync do
   defp native_skill_integration(Skills, skills) do
     AgentIntegration.prepare(
       specs: Skills.to_specs(skills),
+      paths: [],
       resource_provider: {Zaq.Agent.Skill.ResourceProvider, :handle}
     )
   end

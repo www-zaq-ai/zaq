@@ -197,6 +197,51 @@ defmodule Zaq.Agent.FactoryTest do
     refute String.starts_with?(config.system_prompt, "\n\n")
   end
 
+  test "runtime_config index size does not grow with skill bodies" do
+    {:ok, skill} =
+      Skills.create_skill(%{
+        name: "bounded-index",
+        description: "Instructions for a bounded index.",
+        body: "Small body.",
+        allowed_tools: ["Read", "Bash"]
+      })
+
+    agent = %ConfiguredAgent{
+      job: "Job.",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [skill.id],
+      credential: nil
+    }
+
+    assert {:ok, small} = Factory.runtime_config(agent)
+
+    assert small.tool_context[LoadSkill.context_skills_key()]["bounded-index"].allowed_tools ==
+             ["Read", "Bash"]
+
+    {:ok, _} = Skills.update_skill(skill, %{body: String.duplicate("x", 50_000)})
+    assert {:ok, large} = Factory.runtime_config(agent)
+    assert large.system_prompt == small.system_prompt
+  end
+
+  test "runtime_config keeps the bare job when the only attached skill is invalid" do
+    {:ok, skill} =
+      Skills.create_skill(%{name: "legacy-skill", description: "Legacy skill.", body: "Body."})
+
+    Repo.query!("UPDATE agent_skills SET name = 'Bad Name' WHERE id = $1", [skill.id])
+
+    agent = %ConfiguredAgent{
+      job: "Job.",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [skill.id],
+      credential: nil
+    }
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:ok, config} = Factory.runtime_config(agent)
+      assert config.system_prompt == "Job."
+    end)
+  end
+
   test "runtime_config ignores inactive and ghost skills" do
     {:ok, skill} =
       Skills.create_skill(%{
