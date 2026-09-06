@@ -60,8 +60,8 @@ defmodule Zaq.Agent.Skill.ResourceProvider do
   def handle(_request, _context), do: {:error, :unsupported_skill_resource_request}
 
   defp fetch_skill(name) do
-    case Skills.search_skills(%{q: name, active: true}) do
-      [%Skill{name: ^name} = skill | _] -> {:ok, skill}
+    case Skills.get_active_skill_by_name(name) do
+      %Skill{} = skill -> {:ok, skill}
       _ -> {:error, :skill_not_found}
     end
   end

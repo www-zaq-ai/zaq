@@ -5,6 +5,20 @@ defmodule Zaq.Agent.ProviderModels do
   LLMDB remains the catalog source when a provider exists there. ReqLLM-only
   providers use a small candidate list and `ReqLLM.model/1` for validation and
   metadata enrichment when credential-scoped discovery is unavailable.
+
+  ## Adapter configuration
+
+  The internal `:zaq, :provider_models_adapter` runtime config key selects the
+  catalog/discovery adapter, defaulting to <code>Zaq.Agent.ProviderModels.Adapter</code>.
+  `models/2` and `models_for_credential/2` resolve it through <code>Zaq.Config.get/4</code>;
+  callers can pass `config: MyConfig` for a per-call override without changing
+  application environment. Passing `provider_models_adapter:` alone in opts
+  does not override the default config reader.
+
+  Adapters implement `models/1`, `provider/1`, and `parse_provider/1` with the
+  contracts of `LLMDB.models/1`, `LLMDB.provider/1`, and `LLMDB.Spec.parse_provider/1`,
+  plus `available_models/1` and `model/1` with the corresponding ReqLLM contracts.
+  This seam replaces catalog/discovery access, not provider credential or URL logic.
   """
 
   alias Zaq.Agent.ProviderSpec

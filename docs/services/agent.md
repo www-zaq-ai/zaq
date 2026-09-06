@@ -285,6 +285,14 @@ fields, and `resource_root` on the skill. Each successful upload also stores an
 `agent_skill_resources` row with the canonical data-source document id and selected resource
 classification. Later global config changes do not move or retarget existing skill resources.
 
+**Asset file types:** assets intentionally accept any file format, including files without
+an extension. The BO picker advertises "Any file" and omits HTML `accept` rather than
+maintaining an incomplete extension allowlist. Reference and script classifications retain
+their extension compatibility checks; upload size/count limits still apply to assets.
+HTML `accept` is only a picker hint, not a security boundary. Accepting a file for storage
+does not guarantee the model can consume it; runtime resource policy and model capabilities
+determine supported content.
+
 **Staged uploads on an unsaved skill.** Resources can be added before a skill exists, as
 soon as a name is typed — the name is all the destination needs. Those entries are held in
 the LiveView's own upload buffer (uploaded to the server, deliberately **not** consumed) and
@@ -321,6 +329,8 @@ the provider delete succeeds. Runtime resource listing never scans directories.
   a resource-less skill. The `:load` callback resolves the stored id through `get_document`,
   receives a fresh `materialization_handle`, and immediately calls `download_document`; handles
   are never persisted.
+- Both callbacks resolve only an active skill with the exact, case-sensitive spec name.
+  They never fall back to substring/description search or normalize a missing name.
 - Skill resources are private through ordinary file access but readable through the skill loader.
   After validating the active skill and its persisted resource manifest, the provider explicitly
   sets `skip_permissions: true` only on its document-read context, preserving the requesting actor.

@@ -232,6 +232,12 @@ defmodule Zaq.Agent.Skills do
     end
   end
 
+  @doc "Returns an active skill by its exact, case-sensitive name, without normalization or fallback."
+  @spec get_active_skill_by_name(String.t()) :: Skill.t() | nil
+  def get_active_skill_by_name(name) when is_binary(name) do
+    Repo.get_by(Skill, name: name, active: true)
+  end
+
   @spec create_skill(map()) :: {:ok, Skill.t()} | {:error, Ecto.Changeset.t()}
   def create_skill(attrs) do
     %Skill{}
