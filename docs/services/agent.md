@@ -203,8 +203,9 @@ BO-managed skills built on **Open Agent Skills**, using Jido's *stateless* skill
 3. **Seam** (`Skills.to_spec/1`). Each record → `%Jido.AI.Skill.Spec{}` with
    `body_ref: {:inline, body}`. Invalid records are **skipped and logged**, never fatal to boot.
    ZAQ tool/MCP concepts never enter the Spec.
-4. **Index** (`Skills.system_prompt/3` → `Prompt.render/2, include_body: false`). The system
-   prompt carries **name + description only** — never bodies. Token cost is O(skill count).
+4. **Native prepared index.** Factory calls `Jido.AI.Skill.AgentIntegration.prepare/1` with
+   `Skills.to_specs/1` and appends the returned `index` to the configured agent's job prompt.
+   Skill bodies are not eagerly injected; Jido supplies the catalog and runtime tool context.
 5. **Native skill actions** (`Jido.AI.Actions.Skill.LoadSkill` and `LoadResource`). The model
    pulls full instructions and resources on demand through Jido's runtime tool context.
 
@@ -219,7 +220,7 @@ over-long fields in strict mode. ZAQ serializes DB-backed skills to `SKILL.md`, 
 and rejects lossy fields such as `allowed_tools` so persisted skills remain import/export safe.
 
 **Body size** is capped at write time (`Zaq.Agent.Skills.Limits`, global config
-`:agent_skills`): a warning threshold, a token cap, and an un-gameable byte cap. A loaded body
+`:agent_skills`): a hard token cap and an un-gameable byte cap. A loaded body
 stays in the agent's context for the server's life, so this protects the very window progressive
 disclosure exists to preserve.
 
@@ -234,6 +235,9 @@ re-runs `Jido.AI.Skill.AgentIntegration.prepare/1` for the current attached skil
 skill index in the prompt, and merges only Jido's reserved skill/resource `tool_context` entries
 into the caller's existing context. Caller actor, permissions, conversation metadata, and
 context-window data are preserved.
+
+Factory and RuntimeSync pass `paths: []` when preparing DB-backed specs, preventing filesystem
+skill discovery even when every attached record is invalid and `Skills.to_specs/1` returns `[]`.
 
 **RuntimeSync owns tool registration:** attaching or detaching skills reconciles native
 `LoadSkill`/`LoadResource` through `RuntimeSync.sync_agent_configured_tools/3`. If a request sees
@@ -256,8 +260,8 @@ mechanism and no hardcoded `.agents/skills/` prefix.
 
 - `default_root/1` — `{slug}` derived from `Skill.name`
 - `root/1` — the skill's effective root: the stored `resource_root` when present and safe,
-  else `default_root/1`. This is the directory removed on skill deletion
-- `references_dir/1` — kept for call-site compatibility; returns `root/1`
+  else `default_root/1`. Skill deletion removes manifest-listed files from this root,
+  not the directory itself
 - `destination/2` — `{root}/{basename}`; the client filename is reduced to a bare basename
   so directory components and traversal segments cannot survive
 - `slug/1` — defensive normaliser; identity for any persisted skill, since Jido already

@@ -28,7 +28,7 @@ Never use raw Bash. Never use Read/Write/Edit/Glob directly.
 - `async: true` unless tests share global state (e.g. Oban queue)
 - `errors_on/1` for changeset assertions
 - `insert/1` for factory helpers
-- Test context functions directly — do not test `NodeRouter.call/4`
+- Test context functions directly for unit coverage; exercise role/channel Events helpers and real internal boundaries in integration tests, controlling external edges
 
 ## Commands
 ```bash

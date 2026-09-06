@@ -93,12 +93,21 @@ end
 ## Cross-Service Calls
 
 ```elixir
-# In controllers or LiveViews — ALWAYS use NodeRouter
-NodeRouter.call(:agent, Zaq.Agent.Retrieval, :ask, [question, opts])
+# In controllers or LiveViews — route through the role's Events helper
+Zaq.Agent.Events.build_and_dispatch_invoke_event(
+  %{module: Zaq.Agent.Retrieval, function: :ask, args: [question, opts]},
+  :invoke
+).response
 
 # NEVER call directly
 Zaq.Agent.Retrieval.ask(question, opts)
 ```
+
+Agent, Engine, and BO expose `build_and_dispatch_invoke_event/3` on their Events modules.
+These return a `%Zaq.Event{}`; extract `.response` for the context result. Pass trusted actor
+and runtime router dependencies in helper options, not in the invoke request. For Ingestion
+and Channels, inspect the action-specific Events helpers and working call sites; do not assume
+a generic invoke dispatcher exists or use raw dispatch where a role helper covers the action.
 
 ---
 

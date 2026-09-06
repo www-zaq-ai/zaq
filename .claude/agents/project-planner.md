@@ -34,7 +34,7 @@ If the user provides a feature description or roadmap, produce the task table di
 
 - New channel adapters go in `lib/zaq/channels/<kind>/` and are managed by Engine — never wired directly to `Zaq.Channels.Supervisor`
 - New BO features need: LiveView + HEEx template + router entry + auth plug check
-- Cross-service calls must route through `NodeRouter.call/4`
+- Cross-service calls must use role/channel Events helpers: Agent, Engine, and BO expose `build_and_dispatch_invoke_event/3`; inspect action-specific helpers for Ingestion and Channels rather than assuming the same API
 - LLM/embedding config is customer-provided — never plan to hardcode endpoints
 - Background work goes through Oban workers in `lib/zaq/ingestion/`
 

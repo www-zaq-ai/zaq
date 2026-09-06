@@ -26,7 +26,7 @@ Use LSP before reading files manually:
 ## Review Checklist
 
 ### ZAQ Architecture Boundaries
-- [ ] BO LiveViews call `NodeRouter.call/4`, not context modules directly
+- [ ] BO LiveViews use role/channel Events helpers, not direct context calls or raw dispatch where a helper exists
 - [ ] Context modules only access their own schemas and `Repo`
 - [ ] No adapter logic added to `Zaq.Channels.Supervisor` — adapters belong to Engine
 - [ ] No behaviour contracts defined in `lib/zaq/channels/` — they belong in `lib/zaq/engine/`
@@ -92,8 +92,8 @@ Use LSP before reading files manually:
 
 ```
 [MUST FIX] lib/zaq_web/live/bo/ai/ingestion_live.ex:42
-  Direct call to Zaq.Agent.Retrieval.ask/2 — must use NodeRouter.call/4
-  Fix: NodeRouter.call(:agent, Zaq.Agent.Retrieval, :ask, [question, opts])
+  Direct call to Zaq.Agent.Retrieval.ask/2 — must use the Agent Events helper
+  Fix: Zaq.Agent.Events.build_and_dispatch_invoke_event(%{module: Zaq.Agent.Retrieval, function: :ask, args: [question, opts]}, :invoke).response
 
 [SHOULD FIX] lib/zaq/ingestion/chunker.ex:18
   Magic number 512 — extract as @default_chunk_size module attribute

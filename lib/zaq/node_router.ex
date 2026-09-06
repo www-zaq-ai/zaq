@@ -9,8 +9,6 @@ defmodule Zaq.NodeRouter do
   - Support both sync and async hop execution.
   - Support multi-hop event chains by recursively dispatching returned
     `next_hop` values.
-  - Provide a temporary `call/4` compatibility wrapper by wrapping calls as
-    `:invoke` events.
 
   This module does not own service business logic; each role API handles its
   own actions.

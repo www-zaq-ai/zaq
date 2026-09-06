@@ -50,7 +50,9 @@ expected {:ok, _} got {:error, #Ecto.Changeset<...>}
 Check required fields, validations, or unique constraints in the schema.
 
 ### NodeRouter calls in LiveView tests
-Do not call `NodeRouter.call/4` in tests — stub the underlying context function or use `Mox` if a behaviour is defined.
+Exercise role/channel Events helpers through real internal boundaries; control external edges.
+Where router injection is needed, pass `node_router:` in the helper options and implement the
+`dispatch/1` contract returning a `%Zaq.Event{}` with `response`, not a bare context result.
 
 ### Oban worker failures
 ```bash
