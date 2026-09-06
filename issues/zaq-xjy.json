@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-06T12:10:34Z",
   "created": "2026-09-06T11:37:54Z",
   "description": "Use exact active skill names without search fallbacks; add regression coverage; document unrestricted asset uploads and provider_models_adapter; validate with mix format and mix q.",
   "id": "zaq-xjy",
@@ -13,8 +14,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[agent-skills] Exact resource lookup and review documentation",
   "type": "task",
-  "updated_at": "2026-09-06T11:40:56Z"
+  "updated_at": "2026-09-06T12:10:34Z"
 }
