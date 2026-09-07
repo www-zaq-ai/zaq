@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-5j6.2"
   ],
+  "closed_at": "2026-09-07T10:32:05Z",
   "created": "2026-09-07T10:30:58Z",
   "description": "Audit complete: local agent-browser0.12 differs Docker0.19; Docker CLI absent. Use a shared version file and extracted Docker browser-runtime parent used by app and CI. CI host Mix invokes genuine tool via docker-exec wrapper into production browser image on host network, avoiding copying OTP across distros. Install0.19 only in approved temp location for local real-browser validation. No app hooks.",
   "id": "zaq-5j6.1",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-5j6] Define shared browser pin and runtime prerequisites",
   "type": "task",
   "updated_at": "2026-09-07T10:32:05Z"
