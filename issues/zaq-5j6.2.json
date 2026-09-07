@@ -11,9 +11,15 @@
   "id": "zaq-5j6.2",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Real browser flow passes locally with isolated pinned agent-browser0.19.0 and cached Chromium: 16 incoming messages exercise open/text/snapshot/link/wait/url/fill/live-preview/submit/confirmation/close. Site nonce and exact form value independently observed once at local HTTP endpoint. Two fixture tests also pass. No browser executable mocks; default real_browser exclusion verified.",
+      "timestamp": "2026-09-07T10:36:58Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Test real browser navigation form fill and submit",
   "type": "task",
-  "updated_at": "2026-09-07T10:32:06Z"
+  "updated_at": "2026-09-07T10:36:58Z"
 }
