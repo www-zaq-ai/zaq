@@ -11,6 +11,12 @@
   "id": "zaq-gi8.2",
   "labels": [],
   "parent": "zaq-gi8",
+  "comments": [
+    {
+      "text": "Small API adjustment: handler/1 creates an unnamed Agent via ExUnit.start_supervised! in the calling test; server/2 wraps it with existing OpenAIStub. Both processes owned by test supervisor, avoiding an extra custom supervisor module.",
+      "timestamp": "2026-09-07T06:57:25Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-gi8] Add isolated routed one-tool HTTP handler",
