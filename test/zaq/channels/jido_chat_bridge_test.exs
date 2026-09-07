@@ -8,6 +8,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Jido.Chat.Media
   alias Zaq.Agent.{MCP, ServerManager}
+  alias Zaq.Agent.Tools.DataSource.DownloadDocument
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
@@ -18,6 +19,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Materialization.Handle
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
   alias Zaq.TestSupport.OpenAIStub
@@ -43,7 +45,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   defmodule FetchMediaAdapter do
     def fetch_media(reference, opts) do
-      send(self(), {:fetch_media, reference, opts})
+      send(Process.whereis(:bridge_test_observer) || self(), {:fetch_media, reference, opts})
       {:ok, <<0, 1, 2, 3>>}
     end
   end
@@ -821,6 +823,118 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert attrs["provider"] == "mattermost"
       refute Map.has_key?(attrs, "channel_config_id")
       refute Map.has_key?(attrs, "source_message_id")
+    end
+  end
+
+  describe "incoming media materialization integration" do
+    test "materializes a media attachment using the handle generated from the incoming message" do
+      # Jido.Exec runs the action in a child process; observe the network boundary here.
+      Process.register(self(), :bridge_test_observer)
+      original_channels = Application.fetch_env(:zaq, :channels)
+
+      on_exit(fn ->
+        case original_channels do
+          {:ok, channels} -> Application.put_env(:zaq, :channels, channels)
+          :error -> Application.delete_env(:zaq, :channels)
+        end
+      end)
+
+      channels = Application.get_env(:zaq, :channels, %{})
+
+      mattermost =
+        channels
+        |> Map.get(:mattermost, %{})
+        |> Map.merge(%{bridge: JidoChatBridge, adapter: FetchMediaAdapter})
+
+      Application.put_env(:zaq, :channels, Map.put(channels, :mattermost, mattermost))
+
+      config =
+        insert_channel_config(%{
+          provider: "mattermost",
+          url: "https://mattermost.example",
+          token: "secret"
+        })
+
+      incoming = %ChatIncoming{
+        text: "Please inspect this image",
+        external_room_id: "room-123",
+        external_thread_id: nil,
+        external_message_id: "message-456",
+        author: %Author{user_id: "author-789", user_name: "alice"},
+        media: [
+          %Media{
+            kind: :image,
+            filename: "diagram.png",
+            media_type: "image/png",
+            size_bytes: 4,
+            metadata: %{file_id: "file-abc"}
+          }
+        ],
+        metadata: %{}
+      }
+
+      internal = JidoChatBridge.to_internal(incoming, %{provider: :mattermost, id: config.id})
+
+      assert [attachment] = internal.attachments
+
+      assert %Record{
+               id: "file-abc",
+               name: "diagram.png",
+               mime_type: "image/png",
+               size: 4,
+               content: nil
+             } = attachment
+
+      assert is_binary(attachment.materialization_handle)
+      refute_received {:fetch_media, _, _}
+
+      assert attachment.attributes == %{
+               "provider" => "mattermost",
+               "source_id" => "file-abc",
+               "channel_config_id" => to_string(config.id),
+               "source_author_id" => "author-789",
+               "source_channel_id" => "room-123",
+               "source_message_id" => "message-456",
+               "media_kind" => "image",
+               "source_type" => "communication_media"
+             }
+
+      assert {:ok, %{type: "communication_media", locator: locator}} =
+               Handle.verify(attachment.materialization_handle)
+
+      assert locator["provider"] == "mattermost"
+      assert locator["reference"] == "file-abc"
+      assert locator["channel_config_id"] == to_string(config.id)
+      assert locator["source_author_id"] == "author-789"
+      assert locator["source_channel_id"] == "room-123"
+      assert locator["source_message_id"] == "message-456"
+      assert locator["name"] == "diagram.png"
+      assert locator["mime_type"] == "image/png"
+      assert locator["size"] == 4
+      assert locator["media_kind"] == "image"
+
+      assert {:ok, %{record: materialized}} =
+               Jido.Exec.run(
+                 DownloadDocument,
+                 %{materialization_handle: attachment.materialization_handle},
+                 %{actor: %{id: "author-789"}, node_router: RealAllActionsNodeRouter}
+               )
+
+      assert_received {:fetch_media, "file-abc", opts}
+      assert opts[:url] == "https://mattermost.example"
+      assert opts[:token] == "secret"
+
+      assert %Record{
+               id: "file-abc",
+               name: "diagram.png",
+               mime_type: "image/png",
+               size: 4,
+               content: <<0, 1, 2, 3>>
+             } = materialized
+
+      assert materialized.attributes["provider"] == "mattermost"
+      assert materialized.attributes["source_id"] == "file-abc"
+      assert materialized.attributes["source_type"] == "communication_media"
     end
   end
 
