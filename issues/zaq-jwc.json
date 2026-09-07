@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-07T08:28:14Z",
@@ -7,7 +7,7 @@
   "id": "zaq-jwc",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jwc] Enable LuaEval runtime dependency and execution test",
   "type": "task",
   "updated_at": "2026-09-07T08:28:23Z"
