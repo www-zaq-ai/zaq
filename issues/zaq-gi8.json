@@ -6,9 +6,15 @@
   "description": "Approved plan: structured Responses API parsing -\u003e isolated one-call helper -\u003e real Executor integration -\u003e documentation and validation. Test-only changes; no fake Jido execution. Dependency chain avoids diamonds.",
   "id": "zaq-gi8",
   "labels": [],
+  "comments": [
+    {
+      "text": "All four implementation steps complete in working tree. Full repository suite remains unverified due to runtime limit; focused affected integrations and mandatory mix q pass. User can commit/review the six changed/new files; no production behavior changed.",
+      "timestamp": "2026-09-07T07:18:11Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-gi8] Generic tool-calling LLM test support",
   "type": "epic",
-  "updated_at": "2026-09-07T06:54:51Z"
+  "updated_at": "2026-09-07T07:18:11Z"
 }
