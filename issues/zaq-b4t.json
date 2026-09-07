@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-lam"
   ],
@@ -11,8 +11,8 @@
   "id": "zaq-b4t",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-b4t] Mattermost constrained reaction mapping and docs",
   "type": "task",
-  "updated_at": "2026-09-07T17:54:21Z"
+  "updated_at": "2026-09-07T17:56:20Z"
 }
