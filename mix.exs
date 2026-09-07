@@ -109,6 +109,7 @@ defmodule Zaq.MixProject do
       {:llm_db, "~> 2026.5", runtime: false, override: true},
       {:jido, "~> 2.3"},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
+      {:lua, "~> 1.0.2"},
       # {:jido_chat, "~> 1.0"},
       # {:jido_chat,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat", override: true},
