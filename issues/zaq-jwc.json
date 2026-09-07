@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T08:28:14Z",
+  "description": "Approved small dependency-wiring change: add async Jido.Exec.run/3 LuaEval regression test, prove missing dependency failure, add lua ~\u003e 1.0.2 matching upstream lock, fetch and verify minimal lockfile diff. Run format, targeted Lua/registry tests, full mix test, mix q. No interpreter implementation or registration changes.",
+  "id": "zaq-jwc",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Enable LuaEval runtime dependency and execution test",
+  "type": "task",
+  "updated_at": "2026-09-07T08:28:14Z"
+}
