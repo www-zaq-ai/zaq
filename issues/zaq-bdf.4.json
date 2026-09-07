@@ -9,9 +9,15 @@
   "id": "zaq-bdf.4",
   "labels": [],
   "parent": "zaq-bdf",
+  "comments": [
+    {
+      "text": "Final validation: affected suite passes twice (220 tests + 9 properties, latest seed29). Includes Storage/context and subtree property regressions, Storage APIs/materializers/catalog/volume config, DiskBridge, generic stub tests, real disk four-message flow, arithmetic/nested-agent/materialization/Executor/media integrations. mix format, mix q and git diff --check pass. Direct Erlang cover: Storage95.4%, ToolCallingLLMStub100%; search_roots code covered. No leftover Flow1 fixture files. Added docs for sequential stub and disk scoped search; config/test.exs explicitly uses existing default priv/documents base. Full repository/E2E suite not rerun; focused backend boundary tests used. Pause for user review and explicit commit; Flow2/Flow3 not started.",
+      "timestamp": "2026-09-07T09:07:31Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdf] Validate Flow1 and pause for user review",
   "type": "task",
-  "updated_at": "2026-09-07T09:03:48Z"
+  "updated_at": "2026-09-07T09:07:31Z"
 }
