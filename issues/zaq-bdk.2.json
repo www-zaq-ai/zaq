@@ -20,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "blocked",
   "title": "[zaq-bdk] Validate watch provenance fix and document recovery",
   "type": "task",
-  "updated_at": "2026-09-07T16:45:00Z"
+  "updated_at": "2026-09-07T16:45:10Z"
 }
