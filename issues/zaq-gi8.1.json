@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T06:54:51Z",
+  "description": "Owner test/support/multi_agent_openai_stub.ex. Tests first in test/support/multi_agent_openai_stub_test.exs: latest user content, typed output detection, JSON normalization property, malformed input. Only HTTP mocked; preserve SSE APIs. Document wire helpers in moduledoc.",
+  "id": "zaq-gi8.1",
+  "labels": [],
+  "parent": "zaq-gi8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-gi8] Parse Responses API messages and outputs",
+  "type": "task",
+  "updated_at": "2026-09-07T06:54:51Z"
+}
