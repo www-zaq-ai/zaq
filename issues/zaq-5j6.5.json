@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T10:45:57Z",
+  "description": "Outstanding verification, not implementation: Docker unavailable on current Mac. Build Dockerfile --target browser-runtime, run nonroot host-network browser container, execute pinned CLI via test/support/bin/agent-browser-container and opt-in browser_flow_integration_test.exs; verify production app target still builds. Manual .github/workflows/browser-tool.yml prepared but not executed or pushed. Local native0.19/Chrome148 flow and static checks passed. User review before commit/push; dispatch UI requires workflow on default branch.",
+  "id": "zaq-5j6.5",
+  "labels": [],
+  "parent": "zaq-5j6",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5j6] Run container browser flow on Docker-capable runner",
+  "type": "task",
+  "updated_at": "2026-09-07T10:45:57Z"
+}
