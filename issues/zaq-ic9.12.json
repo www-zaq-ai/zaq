@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T08:58:36Z",
+  "description": "Approved single-file test: real FakeImapServer BODYSTRUCTURE discovery via fetch_unseen -\u003e Incoming lazy Record -\u003e exact signed handle -\u003e real Channels materialization -\u003e targeted UID/section fetch and decoded bytes. No production changes. Validate format, direct test, related email tests, mix test, mix q. No commit or PR requested.",
+  "id": "zaq-ic9.12",
+  "labels": [],
+  "parent": "zaq-ic9",
+  "priority": 2,
+  "status": "open",
+  "title": "Add inbound IMAP attachment continuity integration test",
+  "type": "task",
+  "updated_at": "2026-09-07T08:58:36Z"
+}
