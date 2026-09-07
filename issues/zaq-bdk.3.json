@@ -11,9 +11,15 @@
   "id": "zaq-bdk.3",
   "labels": [],
   "parent": "zaq-bdk",
+  "comments": [
+    {
+      "text": "Test-first regression reproduced invalid_source_record at IngestWorker.perform/1 for a signed JSON watch record. Added canonical map verification/reconstruction before the legacy sparse-map path. Atom/JSON round-trip and nil/empty/nonempty permission property tests pass; tampered/missing canonical provenance creates no jobs; unsigned persisted jobs remain rejected. Recovery guidance added to ingestion service docs.",
+      "timestamp": "2026-09-07T16:31:32Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdk] Preserve canonical watch maps through ingestion persistence",
   "type": "task",
-  "updated_at": "2026-09-07T16:30:05Z"
+  "updated_at": "2026-09-07T16:31:32Z"
 }
