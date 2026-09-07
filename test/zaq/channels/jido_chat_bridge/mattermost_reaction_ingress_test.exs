@@ -137,6 +137,42 @@ defmodule Zaq.Channels.JidoChatBridge.MattermostReactionIngressTest do
     assert event.request.rater_attrs.rating == 1
   end
 
+  test "toned shortcodes reach Engine with the original message and rater", %{
+    pid: pid,
+    config: config
+  } do
+    for {emoji, rating} <- [
+          {"+1_medium_skin_tone", 5},
+          {":+1_medium_skin_tone:", 5},
+          {"thumbs_down_dark_skin_tone", 1},
+          {":-1_light_skin_tone:", 1}
+        ] do
+      assert :ok = deliver(pid, config, reaction_envelope(emoji))
+
+      assert_received {:node_router_dispatch, event}
+      assert event.opts[:action] == :rate_message
+
+      assert %{
+               message_ref: {:external_id, "post-1"},
+               rater_attrs: %{channel_user_id: "user-123", rating: ^rating}
+             } = event.request
+
+      refute_received {:node_router_dispatch, _event}
+    end
+  end
+
+  test "removing a toned reaction dispatches nothing", %{pid: pid, config: config} do
+    assert :ok =
+             deliver(pid, config, reaction_envelope(":+1_medium_skin_tone:", "reaction_removed"))
+
+    refute_received {:node_router_dispatch, _event}
+  end
+
+  test "custom toned names dispatch nothing", %{pid: pid, config: config} do
+    assert :ok = deliver(pid, config, reaction_envelope("custom_+1_medium_skin_tone"))
+    refute_received {:node_router_dispatch, _event}
+  end
+
   test "removing a reaction dispatches nothing", %{pid: pid, config: config} do
     assert :ok = deliver(pid, config, reaction_envelope("thumbsup", "reaction_removed"))
 

@@ -518,6 +518,16 @@ Reactions are feedback, not a separate domain. The channel layer owns exactly on
 
 Nothing downstream of step 3 knows a reaction was involved. See `docs/services/engine.md` for the `:rate_message` contract.
 
+For Mattermost, `ReactionMapper` maps `+1`, `thumbsup`, and `thumbs_up` to 5,
+and `-1`, `thumbsdown`, and `thumbs_down` to 1. These shortcodes can be bare
+or wrapped in a matched pair of colons, with an optional `_light_skin_tone`,
+`_medium_light_skin_tone`, `_medium_skin_tone`, `_medium_dark_skin_tone`, or
+`_dark_skin_tone` suffix inside the colons (for example, `:+1_medium_skin_tone:`).
+Only complete shortcodes match: custom prefixes, invalid suffixes, trailing junk,
+and unpaired colons remain ignored. This rating lookup does not change adapter
+event normalization, other providers' mappings, or supported Unicode forms.
+Reaction removals and unrelated emoji still dispatch no rating.
+
 ### Outbound flow
 
 Called by channels delivery routing (`Channels.Api` -> bridge-specific `send_reply/2`):
