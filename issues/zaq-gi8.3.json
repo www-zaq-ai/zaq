@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T06:54:51Z",
+  "description": "Rewrite ToolCallLoopStubTest with both arithmetic tools registered and message-selected add/subtract cases. Assert actual function_call_output values independently of final response, advertised names and arguments. Keep Jido real, HTTP alone mocked; shared sandbox and runtime cleanup.",
+  "id": "zaq-gi8.3",
+  "labels": [],
+  "parent": "zaq-gi8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-gi8] Verify two routes through real Executor and Factory",
+  "type": "task",
+  "updated_at": "2026-09-07T06:54:51Z"
+}
