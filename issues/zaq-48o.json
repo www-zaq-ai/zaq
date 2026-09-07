@@ -10,11 +10,15 @@
     {
       "text": "Filed user-requested QUERY transport issue https://github.com/www-zaq-ai/zaq/issues/729 (Bug). gh CLI unavailable; used authenticated GitHub integration after duplicate search and issue-type lookup. Revised Flow2 scope: GET OPTIONS PUT DELETE, denied POST, authenticated POST; six interactions. No production transport changes.",
       "timestamp": "2026-09-07T09:43:45Z"
+    },
+    {
+      "text": "Flow1 committed locally as43811417. Revised Flow2 complete in working tree and awaiting user review/commit; six messages GET OPTIONS PUT DELETE unauthenticated POST401 authenticated POST200. No production code changes. QUERY explicitly deferred to GitHub729 per user request. Stop here; do not begin Flow3 before user approval.",
+      "timestamp": "2026-09-07T09:50:31Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-48o] HTTP request agent integration flow",
   "type": "epic",
-  "updated_at": "2026-09-07T09:43:45Z"
+  "updated_at": "2026-09-07T09:50:31Z"
 }
