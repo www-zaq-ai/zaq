@@ -5,13 +5,10 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
   """
   use Zaq.DataCase, async: false
 
-  import Zaq.SystemConfigFixtures
-
-  alias Zaq.Agent
-  alias Zaq.Agent.{Executor, ServerManager}
+  alias Zaq.Agent.Executor
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.System.Command
-  alias Zaq.TestSupport.{BrowserFlowSite, ToolCallingLLMStub}
+  alias Zaq.TestSupport.{BrowserFlowSite, IntegrationAgent, ToolCallingLLMStub}
 
   @moduletag :real_browser
   @moduletag timeout: 180_000
@@ -165,41 +162,12 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
 
     start_supervised!(child)
 
-    credential =
-      ai_credential_fixture(%{
-        name: "LLM #{context.session}",
-        provider: "openai",
-        endpoint: endpoint,
-        api_key: "test-key"
-      })
-
-    {:ok, agent} =
-      Agent.create_agent(%{
-        name: "Agent #{context.session}",
-        job: "Use the browser tool to fulfill each request on the provided local site.",
-        model: "gpt-4.1-mini",
-        credential_id: credential.id,
-        strategy: "react",
-        active: true,
-        enabled_tool_keys: ["web.browsing"],
-        conversation_enabled: false,
-        model_max_context_tokens: 128_000,
-        advanced_options: %{"stream" => false}
-      })
-
-    on_exit(fn ->
-      case runtime_pid(agent, context.session) do
-        nil ->
-          :ok
-
-        pid ->
-          ref = Process.monitor(pid)
-          :ok = ServerManager.stop_server(agent)
-          assert_receive {:DOWN, ^ref, :process, ^pid, _}, 5_000
-      end
-    end)
-
-    agent
+    IntegrationAgent.create!(
+      endpoint,
+      context.session,
+      "Use the browser tool to fulfill each request on the provided local site.",
+      ["web.browsing"]
+    )
   end
 
   defp common(context),

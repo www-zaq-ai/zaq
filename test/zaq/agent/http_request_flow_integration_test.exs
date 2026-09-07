@@ -6,15 +6,12 @@ defmodule Zaq.Agent.HttpRequestFlowIntegrationTest do
   """
   use Zaq.DataCase, async: false
 
-  import Zaq.SystemConfigFixtures
-
-  alias Zaq.Agent
-  alias Zaq.Agent.{Executor, ServerManager}
+  alias Zaq.Agent.Executor
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.System, as: ZaqSystem
   alias Zaq.System.{HttpCredentialProviderRef, OutboundHttpPolicy}
-  alias Zaq.TestSupport.{OpenAIStub, ToolCallingLLMStub}
+  alias Zaq.TestSupport.{IntegrationAgent, OpenAIStub, ToolCallingLLMStub}
   alias Zaq.Types.EncryptedString
 
   # QUERY is deferred until its real transport support is fixed: GitHub issue #729.
@@ -238,44 +235,12 @@ defmodule Zaq.Agent.HttpRequestFlowIntegrationTest do
 
     start_supervised!(child)
 
-    llm_credential =
-      ai_credential_fixture(%{
-        name: "LLM #{context.id}",
-        provider: "openai",
-        endpoint: endpoint,
-        api_key: "test-key"
-      })
-
-    {:ok, agent} =
-      Agent.create_agent(%{
-        name: "Agent #{context.id}",
-        job: "Send each requested HTTP call once and report its response.",
-        model: "gpt-4.1-mini",
-        credential_id: llm_credential.id,
-        strategy: "react",
-        active: true,
-        enabled_tool_keys: ["general.http_request"],
-        conversation_enabled: false,
-        model_max_context_tokens: 128_000,
-        advanced_options: %{"stream" => false}
-      })
-
-    on_exit(fn ->
-      case Jido.AgentServer.whereis(
-             Jido.registry_name(Zaq.Agent.Jido),
-             "#{agent.name}:#{context.id}"
-           ) do
-        nil ->
-          :ok
-
-        pid ->
-          ref = Process.monitor(pid)
-          :ok = ServerManager.stop_server(agent)
-          assert_receive {:DOWN, ^ref, :process, ^pid, _}, 5_000
-      end
-    end)
-
-    agent
+    IntegrationAgent.create!(
+      endpoint,
+      context.id,
+      "Send each requested HTTP call once and report its response.",
+      ["general.http_request"]
+    )
   end
 
   defp arguments(target, method) do

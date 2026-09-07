@@ -239,6 +239,12 @@ Use `Zaq.TestSupport.ToolCallingLLMStub` for a single tool call followed by a
 final answer. It replaces only the LLM HTTP boundary; invoke the configured
 agent through `Executor.run/2` so Factory and Jido.AI execute the registered tool.
 
+The disk, HTTP and browser flows use `Zaq.TestSupport.IntegrationAgent.create!/4`
+for common credential/agent creation and monitored runtime shutdown. Pass the
+local LLM endpoint, unique Executor scope, scenario job and enabled tool keys
+explicitly. Keep routes, stub startup, completion waits and assertions in each
+flow test so their behavioral differences remain visible.
+
 ```elixir
 routes = [
   %{match: &String.contains?(&1, "add 2 and 3"), tool: "add",

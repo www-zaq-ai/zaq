@@ -7,16 +7,13 @@ defmodule Zaq.Agent.DiskDocumentFlowIntegrationTest do
   """
   use Zaq.DataCase, async: false
 
-  import Zaq.SystemConfigFixtures
-
   alias Zaq.Accounts.People
-  alias Zaq.Agent
-  alias Zaq.Agent.{Executor, ServerManager}
+  alias Zaq.Agent.Executor
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Storage
   alias Zaq.Storage.EntryCatalog
-  alias Zaq.TestSupport.ToolCallingLLMStub
+  alias Zaq.TestSupport.{IntegrationAgent, ToolCallingLLMStub}
 
   @source_content "# Disk flow source\nExact UTF-8 content: café — 42.\n"
   @created_content "# Created by the agent\nPersist these exact bytes.\n"
@@ -212,43 +209,12 @@ defmodule Zaq.Agent.DiskDocumentFlowIntegrationTest do
 
     start_supervised!(child)
 
-    credential =
-      ai_credential_fixture(%{
-        name: "LLM #{context.directory}",
-        provider: "openai",
-        endpoint: endpoint,
-        api_key: "test-key"
-      })
-
-    {:ok, agent} =
-      Agent.create_agent(%{
-        name: "Agent #{context.directory}",
-        job: "Use the enabled disk tools to fulfill each request.",
-        model: "gpt-4.1-mini",
-        credential_id: credential.id,
-        strategy: "react",
-        active: true,
-        enabled_tool_keys: Enum.map(@tools, &("data_source." <> &1)),
-        conversation_enabled: false,
-        model_max_context_tokens: 128_000,
-        advanced_options: %{"stream" => false}
-      })
-
-    on_exit(fn ->
-      registry = Jido.registry_name(Zaq.Agent.Jido)
-
-      case Jido.AgentServer.whereis(registry, "#{agent.name}:#{context.directory}") do
-        nil ->
-          :ok
-
-        pid ->
-          ref = Process.monitor(pid)
-          :ok = ServerManager.stop_server(agent)
-          assert_receive {:DOWN, ^ref, :process, ^pid, _}, 5_000
-      end
-    end)
-
-    agent
+    IntegrationAgent.create!(
+      endpoint,
+      context.directory,
+      "Use the enabled disk tools to fulfill each request.",
+      Enum.map(@tools, &("data_source." <> &1))
+    )
   end
 
   defp after_marker(message, marker), do: message |> String.split(marker, parts: 2) |> List.last()
