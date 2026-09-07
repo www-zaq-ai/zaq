@@ -11,9 +11,15 @@
   "id": "zaq-bdf.2",
   "labels": [],
   "parent": "zaq-bdf",
+  "comments": [
+    {
+      "text": "Added max_interactions with strict append-only observed request history, exact current call/result correlation, and raw full-body observations. Default remains one interaction. Focused helper + real arithmetic loop: 18 tests pass. Normal test runtime has fallback default volume priv/documents but no explicit base or disk datasource; Flow1 will make same base explicit in config/test.exs and sandbox a disk declaration for default/. rather than replacing volumes per test.",
+      "timestamp": "2026-09-07T08:44:45Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdf] Support bounded sequential disk messages in LLM stub",
   "type": "task",
-  "updated_at": "2026-09-07T08:39:41Z"
+  "updated_at": "2026-09-07T08:44:45Z"
 }
