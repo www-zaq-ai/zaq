@@ -1212,8 +1212,12 @@ defmodule Zaq.Ingestion do
   defp normalize_data_source_record(record, _fallback_id)
        when is_map_key(record, :provenance_ref) or is_map_key(record, "provenance_ref") do
     case Record.from_map(record) do
-      {:ok, canonical} -> canonical
-      {:error, _reason} -> nil
+      {:ok, canonical} ->
+        canonical
+
+      {:error, reason} ->
+        log_rejected_data_source_record(record, reason)
+        nil
     end
   end
 
@@ -1242,6 +1246,19 @@ defmodule Zaq.Ingestion do
   end
 
   defp normalize_data_source_record(_record, _fallback_id), do: nil
+
+  defp log_rejected_data_source_record(record, reason) do
+    # Only bounded identity text and an error category belong in diagnostics,
+    # never the projection, permission payload, or provenance token.
+    id = read_any(record, [:id, "id"])
+    id = if is_binary(id), do: binary_part(id, 0, min(byte_size(id), 128)), else: nil
+    reason = if is_atom(reason), do: reason, else: :invalid_record
+
+    Logger.warning(fn ->
+      "[Ingestion] Rejected data-source record " <>
+        "id=#{inspect(id)} reason=#{inspect(reason)}"
+    end)
+  end
 
   defp maybe_apply_signal_change(nil, _signal), do: nil
 

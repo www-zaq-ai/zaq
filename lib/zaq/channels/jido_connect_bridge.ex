@@ -2651,11 +2651,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
         record = read_any(signal, [:record, "record"])
 
         if is_map(record) and not deleted_signal?(signal) do
-          record =
-            record
-            |> map_file_record()
-            |> apply_signal_change(signal)
-            |> then(&put_external_record_attrs(config, &1))
+          record = normalize_changed_record(config, record, signal)
 
           signal |> Map.delete("record") |> Map.put(:record, record)
         else
@@ -2818,11 +2814,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
       {:ok, payload} ->
         raw = read_any(payload, [:file, "file"]) || payload
 
-        record =
-          raw
-          |> map_file_record()
-          |> apply_signal_change(signal)
-          |> then(&put_external_record_attrs(config, &1))
+        record = normalize_changed_record(config, raw, signal)
 
         DataSourceBridge.seal_response({:ok, record}, config)
 
@@ -2831,6 +2823,13 @@ defmodule Zaq.Channels.JidoConnectBridge do
          %Record{id: file_id, kind: :file, raw: %{}, attributes: %{}}
          |> apply_signal_change(signal)}
     end
+  end
+
+  defp normalize_changed_record(config, raw, signal) do
+    raw
+    |> map_file_record()
+    |> apply_signal_change(signal)
+    |> then(&put_external_record_attrs(config, &1))
   end
 
   defp deleted_signal?(signal) when is_map(signal) do
