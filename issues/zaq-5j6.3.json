@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-5j6.4"
   ],
+  "closed_at": "2026-09-07T10:42:05Z",
   "created": "2026-09-07T10:30:58Z",
   "description": "Owner Dockerfile browser-runtime refactor, shared CLI version pin file, docker-exec adapter script, separate workflow_dispatch job with Beam/Postgres and browser image. Keep default final production app target and release behavior, avoid secrets copy. Browser command same pinned binary/image in CI; log actual Chromium version and document apt rolling vs exact CLI pin, startup/dependency/setup steps.",
   "id": "zaq-5j6.3",
@@ -18,7 +19,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-5j6] Add Docker-aligned manual browser CI and docs",
   "type": "task",
   "updated_at": "2026-09-07T10:42:05Z"
