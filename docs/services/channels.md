@@ -313,6 +313,7 @@ Response behavior:
 - Data source providers return accepted/rejected JSON envelopes from the channels controller.
 - For `jido_connect` data-source webhooks, verification remains synchronous in `handle_webhook/2`, then post-verification processing runs asynchronously via `Zaq.Channels.JidoConnectBridge.WebhookWorker` on the `:channels` queue.
 - Data-source collection webhooks are metadata-only. Channels normalizes the delivery, resolves the Engine watch channel, calls the provider's collection change listing action with the stored checkpoint, and dispatches the resulting signals to Engine.
+- Changed collection metadata is converted to canonical Records in Channels. Both collection changes and successful file-watch metadata reads use `DataSourceBridge.seal_response/2`, including recursive permission sealing, before Engine handoff. Sparse tombstones and synthetic metadata-read fallbacks are not issued provenance. Watch notifications do not mint new materialization handles or grant permission bypass.
 - Provider sync notifications, such as Google Drive `resource_state: "sync"`, are accepted but treated as no-ops.
 - Public webhook URLs are built with `Zaq.Channels.WebhookUrl` from `system.global.base_url`. If the global base URL is unset, external provider watch setup is unavailable until configured.
 

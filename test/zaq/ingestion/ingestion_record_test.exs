@@ -5,8 +5,11 @@ defmodule Zaq.Ingestion.RecordIngestionTest do
   import Mox
 
   alias Zaq.Contracts.{Record, RecordPage}
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.IngestJob
+  alias Zaq.Ingestion.RecordSource
   alias Zaq.Repo
 
   setup do
@@ -132,6 +135,134 @@ defmodule Zaq.Ingestion.RecordIngestionTest do
                  }
         end
       end)
+    end
+  end
+
+  property "watch ingestion preserves signed canonical projections across persistence" do
+    check all(
+            id <- string(:alphanumeric, min_length: 1, max_length: 30),
+            projection <- member_of([:json, :atom]),
+            permission_state <- member_of([:not_loaded, :empty, :loaded]),
+            max_runs: 20
+          ) do
+      {:ok, permission} =
+        Provenance.seal(%Record{
+          id: "reader",
+          kind: :permission,
+          attributes: %{
+            "principal" => %{"channel" => "email", "identifier" => "reader@example.test"},
+            "access_rights" => ["read"]
+          }
+        })
+
+      permissions =
+        case permission_state do
+          :not_loaded -> nil
+          :empty -> []
+          :loaded -> [permission]
+        end
+
+      {:ok, record} =
+        Provenance.seal(%Record{
+          id: id,
+          kind: :file,
+          name: "Changed.md",
+          parent_id: "watched-folder",
+          parent_ids: ["watched-folder"],
+          permissions: permissions,
+          materialization_handle: "preserve-opaque-handle",
+          attributes: %{"provider" => "google_drive", "config_id" => "watch-config"}
+        })
+
+      {:ok, _} =
+        Document.upsert(%{
+          source: "data_source/google_drive/watch-config/#{id}",
+          watch_status: "watched"
+        })
+
+      map =
+        if projection == :json,
+          do: Jason.decode!(Jason.encode!(record)),
+          else: Map.from_struct(record)
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [job], removed: 0}} =
+                 Ingestion.process_data_source_changes(%{
+                   provider: "google_drive",
+                   config_id: "watch-config",
+                   signals: [%{record: map, change_type: :updated}]
+                 })
+
+        stored = Repo.get!(IngestJob, job.id).source_record
+        assert {:ok, restored} = RecordSource.from_storage_map(stored)
+        assert restored.provenance_ref == record.provenance_ref
+        assert restored.materialization_handle == record.materialization_handle
+        assert restored.permissions == permissions
+        assert restored.parent_id == record.parent_id
+        assert restored.parent_ids == record.parent_ids
+      end)
+    end
+  end
+
+  property "watch maps with invalid provenance never become ingestion jobs" do
+    check all(
+            id <- string(:alphanumeric, min_length: 1, max_length: 20),
+            mutation <- member_of([:identity, :permissions, :signature, :missing]),
+            max_runs: 20
+          ) do
+      {:ok, record} =
+        Provenance.seal(%Record{id: id, kind: :file, permissions: nil})
+
+      map = Jason.decode!(Jason.encode!(record))
+
+      map =
+        case mutation do
+          :identity -> Map.put(map, "id", id <> "-tampered")
+          :permissions -> Map.put(map, "permissions", [])
+          :signature -> Map.put(map, "provenance_ref", "invalid")
+          :missing -> Map.put(map, "provenance_ref", nil)
+        end
+
+      {:ok, _} =
+        Document.upsert(%{
+          source: "data_source/google_drive/watch-config/#{map["id"]}",
+          watch_status: "watched"
+        })
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [], removed: 0}} =
+                 Ingestion.process_data_source_changes(%{
+                   provider: "google_drive",
+                   config_id: "watch-config",
+                   records: [map]
+                 })
+
+        assert Repo.aggregate(IngestJob, :count) == 0
+      end)
+    end
+  end
+
+  test "unsigned JSON tombstones still delete only watched documents" do
+    for status <- ["watched", "unwatched"] do
+      id = "removed-#{status}"
+
+      {:ok, document} =
+        Document.insert_new(%{
+          source: "data_source/google_drive/watch-config/#{id}",
+          watch_status: status
+        })
+
+      tombstone = %Record{id: id, kind: :file, change_type: :deleted, lifecycle_state: :deleted}
+      removed = if status == "watched", do: 1, else: 0
+
+      assert {:ok, %{jobs: [], removed: ^removed}} =
+               Ingestion.process_data_source_changes(%{
+                 provider: "google_drive",
+                 config_id: "watch-config",
+                 signals: [%{removed?: true, record: Jason.decode!(Jason.encode!(tombstone))}]
+               })
+
+      assert is_nil(Repo.get(Document, document.id)) == (status == "watched")
     end
   end
 end

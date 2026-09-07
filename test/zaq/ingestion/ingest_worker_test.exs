@@ -123,6 +123,83 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   end
 
   describe "perform/1" do
+    test "unsigned persisted source records still fail closed on the final attempt" do
+      record = %Record{
+        id: "unsigned-watch",
+        kind: :file,
+        attributes: %{"provider" => "google_drive", "config_id" => "cfg-watch"}
+      }
+
+      job = create_job(%{source_record: RecordSource.to_storage_map(record)})
+
+      assert {:cancel, :invalid_source_record} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 3,
+                 max_attempts: 3
+               })
+
+      assert Repo.get!(IngestJob, job.id).status == "failed"
+    end
+
+    test "materializes a persisted signed JSON watch change" do
+      previous = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        __MODULE__.ExternalDataSourceBridgeStub
+      )
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:zaq, :ingestion_data_source_bridge_module),
+          else: Application.put_env(:zaq, :ingestion_data_source_bridge_module, previous)
+      end)
+
+      source = "data_source/google_drive/cfg-watch/watch-1"
+      document = create_document(%{source: source, watch_status: "watched"})
+
+      record =
+        signed_record(%Record{
+          id: "watch-1",
+          kind: :file,
+          name: "Watch.pdf",
+          mime_type: "application/pdf",
+          permissions: [],
+          attributes: %{"provider" => "google_drive", "config_id" => "cfg-watch"}
+        })
+
+      Oban.Testing.with_testing_mode(:manual, fn ->
+        assert {:ok, %{jobs: [job]}} =
+                 Zaq.Ingestion.process_data_source_changes(%{
+                   provider: "google_drive",
+                   config_id: "cfg-watch",
+                   signals: [
+                     %{record: Jason.decode!(Jason.encode!(record)), change_type: "updated"}
+                   ]
+                 })
+
+        expect(Zaq.DocumentProcessorMock, :process_single_file, fn path, opts ->
+          assert File.read!(path) == "PDF bytes"
+          assert opts[:source_override] == source
+          {:ok, document}
+        end)
+
+        assert :ok =
+                 IngestWorker.perform(%Oban.Job{
+                   args: %{"job_id" => job.id},
+                   attempt: 1,
+                   max_attempts: 3
+                 })
+
+        assert_received {:download_document, "google_drive", %{"file_id" => "watch-1"}}
+        assert_received {:download_context, context}
+        refute context.skip_permissions
+        assert Repo.get!(IngestJob, job.id).status == "completed"
+      end)
+    end
+
     test "materializes a reloaded ingestion job without its runtime router" do
       previous = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
 
