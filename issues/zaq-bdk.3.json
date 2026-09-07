@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-bdk",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-bdk] Preserve canonical watch maps through ingestion persistence",
   "type": "task",
-  "updated_at": "2026-09-07T16:24:18Z"
+  "updated_at": "2026-09-07T16:30:05Z"
 }
