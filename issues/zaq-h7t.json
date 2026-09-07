@@ -6,9 +6,15 @@
   "description": "Update only docker-compose.yml and README.md per approved plan; preserve unrelated staged changes. Document legacy migration input, runtime base path, and BO Disk setup; validate Compose and run mix q.",
   "id": "zaq-h7t",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented approved README/Compose alignment. mix q passed; git diff --check passed. docker compose config --quiet blocked because docker executable is unavailable. Only README.md and docker-compose.yml edited; existing staged changes preserved. Left uncommitted for user review.",
+      "timestamp": "2026-09-07T13:05:36Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Align Docker and README with DB-backed Disk volumes",
   "type": "task",
-  "updated_at": "2026-09-07T13:04:05Z"
+  "updated_at": "2026-09-07T13:05:36Z"
 }
