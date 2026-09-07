@@ -13,11 +13,15 @@
     {
       "text": "Confirmed prerequisite blocker by running two independent private SQL Sandbox owners against real global ServerManager: first allowance :ok, second {:already,:allowed}. Manager performs credential/Factory config DB reads during startup, so directory uniqueness cannot provide concurrent DB ownership. Existing async AgentTest also allows same singleton. Initialized new branch test database using existing ToolCallLoopStubTest (2 passing). No source changes. Await user decision: synchronous real-runtime flow retaining unique directory versus broader runtime-isolation prerequisite.",
       "timestamp": "2026-09-07T08:37:45Z"
+    },
+    {
+      "text": "User approved synchronous flow (async:false) on confirmed ServerManager ownership conflict. Keep existing volume and unique-directory isolation; no production modifications.",
+      "timestamp": "2026-09-07T08:39:40Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdf] Verify existing-volume async runtime ownership",
   "type": "task",
-  "updated_at": "2026-09-07T08:37:45Z"
+  "updated_at": "2026-09-07T08:39:40Z"
 }
