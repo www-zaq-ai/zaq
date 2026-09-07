@@ -12,9 +12,15 @@
   "id": "zaq-bdf.3",
   "labels": [],
   "parent": "zaq-bdf",
+  "comments": [
+    {
+      "text": "Four incoming messages pass against real disk datasource, actual person read/write grants, one live agent scope and returned mat_ alias. Exact downloaded/created bytes and stable search/list IDs verified. Readable same-named neighboring document is excluded and unchanged. Files isolated under existing default volume UUID directory, monitored runtime cleanup. User-approved async:false; no router/tool mocks.",
+      "timestamp": "2026-09-07T09:03:47Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdf] Exercise disk search download create and list",
   "type": "task",
-  "updated_at": "2026-09-07T08:56:56Z"
+  "updated_at": "2026-09-07T09:03:47Z"
 }
