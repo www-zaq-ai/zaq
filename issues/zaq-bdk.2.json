@@ -13,11 +13,15 @@
     {
       "text": "Validation: broad focused suites passed 16 properties and 1143 tests, 0 failures, 1 skipped, 56 excluded. E2E first boot failed missing isolated zaq_test_e2e_fix_watch_to_ingestion DB; created/migrated it with E2E=1. Second Playwright attempt timed out waiting 180s for server login. Investigating final startup blocker; no production DB or configuration changes.",
       "timestamp": "2026-09-07T16:40:32Z"
+    },
+    {
+      "text": "Final validation: mix format and mix q pass (format, warnings-as-errors compile/docs, strict Credo). Final coverage run passes 16 properties and 1144 tests, 0 failures, 1 skipped, 56 excluded. Coverage artifact: cover/excoveralls.json. Whole-file coverage: DataSourceBridge 97.0%, JidoConnectBridge 77.1% (269 existing/uncovered lines), Ingestion 86.9% (55 uncovered lines). Exception: broad pre-existing provider operations and ingestion orchestration branches are outside this scoped provenance fix; do not expand into unrelated coverage refactors. Follow-up: complete domain coverage toward 95% and rerun ingestion E2E after diagnosing startup timeout. E2E remains unvalidated: second attempt failed 180s server readiness timeout after isolated DB creation/migration; no listener on 4002 afterward. Initial coverage attempt timed out at tool 120s; rerun with 300s succeeded. No commits/push/PR/worktree creation.",
+      "timestamp": "2026-09-07T16:45:00Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdk] Validate watch provenance fix and document recovery",
   "type": "task",
-  "updated_at": "2026-09-07T16:40:32Z"
+  "updated_at": "2026-09-07T16:45:00Z"
 }
