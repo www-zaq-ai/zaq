@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T09:34:34Z",
+  "description": "Run Flow2 repeatedly, helper and existing HTTP policy/transport/credential/tool suites plus Flow1 regression, mix format and mix q, inspect coverage and diff. Document usage. Stop for review without committing Flow2 or starting Flow3.",
+  "id": "zaq-48o.3",
+  "labels": [],
+  "parent": "zaq-48o",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-48o] Validate HTTP flow and pause for review",
+  "type": "task",
+  "updated_at": "2026-09-07T09:34:34Z"
+}
