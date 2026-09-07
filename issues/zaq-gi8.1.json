@@ -9,9 +9,15 @@
   "id": "zaq-gi8.1",
   "labels": [],
   "parent": "zaq-gi8",
+  "comments": [
+    {
+      "text": "Parser examples and normalization property pass (4 tests). Structural tool_result? now ignores misleading user text. No production changes. Work remains uncommitted per user delivery scope.",
+      "timestamp": "2026-09-07T06:57:24Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-gi8] Parse Responses API messages and outputs",
   "type": "task",
-  "updated_at": "2026-09-07T06:55:04Z"
+  "updated_at": "2026-09-07T06:57:24Z"
 }
