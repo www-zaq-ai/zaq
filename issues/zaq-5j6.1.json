@@ -9,9 +9,15 @@
   "id": "zaq-5j6.1",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Installed agent-browser0.19.0 in approved temporary prefix (global0.12 untouched). Local cached Chromium executable available. Docker absent. Chosen CI pattern shares browser-runtime image with production and invokes its actual binary through docker exec; host Mix uses normal Postgres sandbox. No cross-distro OTP transplant.",
+      "timestamp": "2026-09-07T10:32:05Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Define shared browser pin and runtime prerequisites",
   "type": "task",
-  "updated_at": "2026-09-07T10:30:59Z"
+  "updated_at": "2026-09-07T10:32:05Z"
 }
