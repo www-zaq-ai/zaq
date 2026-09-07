@@ -233,6 +233,51 @@ meaningful duplication appears, not in anticipation of reuse.
 Keep fixtures minimal and deterministic. Prefer builders with explicit overrides over
 large shared fixtures. Avoid setup that creates data unused by most tests in the module.
 
+### Agent tool-call integration tests
+
+Use `Zaq.TestSupport.ToolCallingLLMStub` for a single tool call followed by a
+final answer. It replaces only the LLM HTTP boundary; invoke the configured
+agent through `Executor.run/2` so Factory and Jido.AI execute the registered tool.
+
+```elixir
+routes = [
+  %{match: &String.contains?(&1, "add 2 and 3"), tool: "add",
+    arguments: fn _message -> %{value: 2, amount: 3} end}
+]
+
+{child, endpoint} = ToolCallingLLMStub.server(routes,
+  final_response: fn %{tool_result: result} -> "Observed: #{Jason.encode!(result)}" end)
+start_supervised!(child)
+# Point a fixture credential at endpoint, enable arithmetic.add, and run Executor.
+assert_received {:llm_tool_call, "add", %{"value" => 2, "amount" => 3}}
+assert_received {:llm_tool_result, "add", result}
+assert result === %{"ok" => true, "result" => %{"result" => 5.0}}
+refute_received {:llm_stub_error, _}
+```
+
+Create the helper inside the test/setup process: its unnamed state Agent is
+automatically supervised by ExUnit. `handler/1` also supports direct composition
+with `OpenAIStub.server/2`. Observations default to the caller; override with
+`:test_pid`. Both entry points require `:final_response` (text or unary callback).
+Each instance handles exactly one interaction; create a fresh instance for each
+incoming message. Ordered predicate routes match the latest user text, which may
+include a runtime timestamp. Only advertised function names can be selected.
+
+Results correlate by `call_id` and preserve the actual Jido envelope: JSON is
+decoded without unwrapping it; plain text and content arrays remain unchanged.
+The final-response callback also receives `:raw_output`, `:raw_request_body`,
+`:user_message`, `:tool`, `:arguments`, and `:call_id`. The call observation alone
+does not prove execution: always assert the independently expected tool result
+and normal final agent response. See `ToolCallLoopStubTest` for two-route coverage.
+
+Unmatched routes, malformed requests, mismatched calls/results and extra turns
+raise and send `{:llm_stub_error, diagnostic}`; failed instances stay failed.
+Diagnostics omit content to avoid leaking private data. Nested-agent and
+materialization flows with multiple calls or existing tool history should keep
+using `MultiAgentOpenAIStub` SSE builders directly. Its structured
+`latest_user_message/1` and `tool_results/1` helpers understand Responses API
+input arrays, not Chat Completions messages.
+
 ## Property-Based Testing
 
 Use `ExUnitProperties` and `StreamData` when at least one condition applies:
