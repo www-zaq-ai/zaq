@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T09:34:34Z",
+  "description": "Read HttpClient, HTTP tool/validator, outbound policy and encrypted credentials. Plan seven real messages (five unsecure methods, denied POST, credential POST). Inspect actual QUERY wire compatibility; reproduce any failure before requesting scope change. Fixture uses existing OpenAIStub local server, no internal mocks.",
+  "id": "zaq-48o.1",
+  "labels": [],
+  "parent": "zaq-48o",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-48o] Verify HTTP fixture and method contracts",
+  "type": "task",
+  "updated_at": "2026-09-07T09:34:34Z"
+}
