@@ -9,9 +9,15 @@
   "id": "zaq-bdk.2",
   "labels": [],
   "parent": "zaq-bdk",
+  "comments": [
+    {
+      "text": "Validation: broad focused suites passed 16 properties and 1143 tests, 0 failures, 1 skipped, 56 excluded. E2E first boot failed missing isolated zaq_test_e2e_fix_watch_to_ingestion DB; created/migrated it with E2E=1. Second Playwright attempt timed out waiting 180s for server login. Investigating final startup blocker; no production DB or configuration changes.",
+      "timestamp": "2026-09-07T16:40:32Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdk] Validate watch provenance fix and document recovery",
   "type": "task",
-  "updated_at": "2026-09-07T16:33:06Z"
+  "updated_at": "2026-09-07T16:40:32Z"
 }
