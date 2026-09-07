@@ -208,6 +208,13 @@ are available only to bridges that implement `owns_permission_checks?/0` and ret
 Disk does this because Storage owns source ACLs and checks them with current filesystem
 context.
 
+Disk filename searches honor the optional `path`: use a volume name, a canonical
+`volume/folder` path, or a catalog folder id to search that subtree recursively.
+An absent/empty path, `/`, or `.` searches all volumes of the selected disk
+configuration. Explicit unresolved scopes fail rather than broadening the search;
+volume-boundary traversal is rejected. Scoped results still undergo the same
+Storage read-permission checks as unscoped searches.
+
 Unmaterialized data-source file records carry a signed `materialization_handle` of type
 `data_source_document`. The handle survives agent/tool JSON serialization and is redeemed
 through `Zaq.Materialization`; the Channels materializer validates the locator and dispatches

@@ -259,8 +259,12 @@ Create the helper inside the test/setup process: its unnamed state Agent is
 automatically supervised by ExUnit. `handler/1` also supports direct composition
 with `OpenAIStub.server/2`. Observations default to the caller; override with
 `:test_pid`. Both entry points require `:final_response` (text or unary callback).
-Each instance handles exactly one interaction; create a fresh instance for each
-incoming message. Ordered predicate routes match the latest user text, which may
+Each instance defaults to one interaction. For sequential incoming messages on
+the same live agent, set `max_interactions: N`: each message still has exactly one
+tool call followed by a final answer. The stub requires previously observed input
+and its emitted final answer to remain in history before the next user message;
+it rejects replayed, altered, or excess turns. Raw callback requests remain intact.
+Ordered predicate routes match the latest user text, which may
 include a runtime timestamp. Only advertised function names can be selected.
 
 Results correlate by `call_id` and preserve the actual Jido envelope: JSON is
@@ -270,10 +274,21 @@ The final-response callback also receives `:raw_output`, `:raw_request_body`,
 does not prove execution: always assert the independently expected tool result
 and normal final agent response. See `ToolCallLoopStubTest` for two-route coverage.
 
+`DiskDocumentFlowIntegrationTest` demonstrates four sequential messages: search,
+download using the returned alias, create, and list. It retains one runtime scope
+so Factory can expand the server-scoped alias. Files use a UUID-named directory
+inside the existing `default` volume; a readable neighboring directory verifies
+search/list scope and that unrelated files remain unchanged. The disk config and
+read/write grants live in the database sandbox. This full-runtime test uses
+`async: false`: the singleton ServerManager performs startup database reads and
+cannot be allowed by multiple independent sandbox owners at once. Cleanup waits
+for its agent to stop and deletes only the owned directory tree.
+
 Unmatched routes, malformed requests, mismatched calls/results and extra turns
 raise and send `{:llm_stub_error, diagnostic}`; failed instances stay failed.
 Diagnostics omit content to avoid leaking private data. Nested-agent and
-materialization flows with multiple calls or existing tool history should keep
+materialization flows with multiple calls per ask, pre-existing unobserved history,
+or context rewriting/compaction should keep
 using `MultiAgentOpenAIStub` SSE builders directly. Its structured
 `latest_user_message/1` and `tool_results/1` helpers understand Responses API
 input arrays, not Chat Completions messages.

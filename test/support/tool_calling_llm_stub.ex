@@ -17,8 +17,12 @@ defmodule Zaq.TestSupport.ToolCallingLLMStub do
   `{:llm_tool_result, tool, decoded_result}`. Call observations describe the
   stub's emitted call; the correlated result is evidence of actual execution.
   Protocol errors send `{:llm_stub_error, message}` and raise in the HTTP caller.
-  A failed or finished handler cannot start another interaction. Use a fresh
-  instance per interaction; complex histories belong in MultiAgentOpenAIStub.
+  A failed or finished handler cannot start another interaction. By default,
+  each instance handles one interaction. Set `:max_interactions` to a positive
+  integer for sequential messages on the same live agent: each message still
+  makes exactly one tool call, and previously observed input must be retained
+  unchanged. Multi-tool asks and rewritten/truncated histories belong in
+  MultiAgentOpenAIStub. Raw observations always contain the full HTTP body.
   """
 
   alias Zaq.TestSupport.{MultiAgentOpenAIStub, OpenAIStub}
@@ -28,7 +32,11 @@ defmodule Zaq.TestSupport.ToolCallingLLMStub do
     routes = Keyword.fetch!(opts, :routes)
     final_response = Keyword.fetch!(opts, :final_response)
     test_pid = Keyword.get(opts, :test_pid, self())
-    state = ExUnit.Callbacks.start_supervised!({Agent, fn -> :initial end}, id: make_ref())
+    limit = Keyword.get(opts, :max_interactions, 1)
+    expect!(is_integer(limit) and limit > 0, "max_interactions must be a positive integer")
+
+    state =
+      ExUnit.Callbacks.start_supervised!({Agent, fn -> {:initial, limit, []} end}, id: make_ref())
 
     fn conn, body ->
       result =
@@ -68,7 +76,16 @@ defmodule Zaq.TestSupport.ToolCallingLLMStub do
        :failed}
   end
 
-  defp respond(:initial, request, _body, routes, _final_response, test_pid) do
+  defp respond(
+         {:initial, remaining, history},
+         full_request,
+         _body,
+         routes,
+         _final_response,
+         test_pid
+       ) do
+    request = initial_turn!(full_request, history)
+
     expect!(
       MultiAgentOpenAIStub.tool_results(request) == [],
       "expected initial user turn without tool outputs"
@@ -92,7 +109,15 @@ defmodule Zaq.TestSupport.ToolCallingLLMStub do
     expect!(is_map(arguments), "route arguments must be a map")
     arguments = arguments |> Jason.encode!() |> Jason.decode!()
     call_id = "call_#{System.unique_integer([:positive, :monotonic])}"
-    context = %{user_message: message, tool: route.tool, arguments: arguments, call_id: call_id}
+
+    context = %{
+      user_message: message,
+      tool: route.tool,
+      arguments: arguments,
+      call_id: call_id,
+      remaining: remaining,
+      request_input: full_request["input"]
+    }
 
     sse =
       MultiAgentOpenAIStub.tool_call_sse(route.tool, arguments,
@@ -105,7 +130,15 @@ defmodule Zaq.TestSupport.ToolCallingLLMStub do
     {sse, {:awaiting_result, context}}
   end
 
-  defp respond({:awaiting_result, context}, request, body, _routes, final_response, test_pid) do
+  defp respond({:awaiting_result, context}, full_request, body, _routes, final_response, test_pid) do
+    suffix = appended_input!(full_request, context.request_input)
+
+    expect!(
+      match?([%{"type" => "function_call"}, %{"type" => "function_call_output"}], suffix),
+      "expected only the pending function call and its output"
+    )
+
+    request = Map.put(full_request, "input", [List.last(context.request_input) | suffix])
     results = MultiAgentOpenAIStub.tool_results(request)
     expect!(length(results) == 1, "expected exactly one pending tool result")
     [result] = results
@@ -133,7 +166,13 @@ defmodule Zaq.TestSupport.ToolCallingLLMStub do
         else: final_response
 
     expect!(is_binary(text), "final_response must return text")
-    {MultiAgentOpenAIStub.text_sse(text, model!(request)), :finished}
+
+    next_state =
+      if context.remaining == 1,
+        do: :finished,
+        else: {:initial, context.remaining - 1, %{input: full_request["input"], final_text: text}}
+
+    {MultiAgentOpenAIStub.text_sse(text, model!(request)), next_state}
   end
 
   defp respond(state, _request, _body, _routes, _final_response, _test_pid),
@@ -142,6 +181,33 @@ defmodule Zaq.TestSupport.ToolCallingLLMStub do
         ArgumentError,
         "Unexpected LLM request: interaction already #{state} (contents omitted)"
       )
+
+  defp initial_turn!(request, []), do: request
+
+  defp initial_turn!(request, %{input: history, final_text: text}) do
+    suffix = appended_input!(request, history)
+
+    expect!(
+      match?([%{"role" => "assistant"}, %{"role" => "user"}], suffix),
+      "expected the final assistant answer followed by one new user message"
+    )
+
+    [assistant, user] = suffix
+
+    expect!(
+      assistant["content"] == [%{"type" => "output_text", "text" => text}] and
+        is_nil(assistant["type"]),
+      "previous final assistant answer changed"
+    )
+
+    Map.put(request, "input", [user])
+  end
+
+  defp appended_input!(request, history) do
+    {prefix, suffix} = Enum.split(request["input"], length(history))
+    expect!(prefix == history, "previously observed input history changed")
+    suffix
+  end
 
   defp verify_call!(request, context) do
     calls = Enum.filter(request["input"], &(&1["type"] == "function_call"))

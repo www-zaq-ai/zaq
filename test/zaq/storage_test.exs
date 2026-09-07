@@ -1216,6 +1216,113 @@ defmodule Zaq.StorageTest do
              Storage.describe_document(entry.id, Keyword.put(opts, :skip_permissions, true))
   end
 
+  test "search_documents scopes recursion to the requested directory, not siblings", %{
+    root: root,
+    storage_opts: opts
+  } do
+    admin_opts = Keyword.put(opts, :skip_permissions, true)
+
+    assert {:ok, %{entry: folder}} =
+             Storage.persist_directory(%{"name" => "selected", "path" => "archives"}, admin_opts)
+
+    for directory <- ["selected", "selected/nested", "selected-neighbor"] do
+      File.mkdir_p!(Path.join(root, directory))
+      File.write!(Path.join([root, directory, "match.md"]), directory)
+    end
+
+    for path <- ["archives/selected", "./archives/selected"] do
+      assert {:ok, page} =
+               Storage.search_documents(%{"query" => "MATCH", "path" => path}, admin_opts)
+
+      assert Enum.sort(Enum.map(page.entries, & &1.relative_path)) == [
+               "selected/match.md",
+               "selected/nested/match.md"
+             ]
+    end
+
+    assert {:ok, page} = Storage.search_documents(%{query: "match", path: folder.id}, admin_opts)
+    assert length(page.entries) == 2
+
+    assert {:ok, %{entries: []}} =
+             Storage.search_documents(
+               %{"query" => "match", "path" => "archives/missing"},
+               admin_opts
+             )
+
+    # A path filter must never implicitly grant access.
+    assert {:ok, %{entries: []}} =
+             Storage.search_documents(%{"query" => "match", "path" => "archives/selected"}, opts)
+  end
+
+  test "search_documents accepts volume roots and preserves unscoped searches", %{
+    root: root,
+    storage_opts: opts
+  } do
+    for volume <- ["one", "two"] do
+      File.mkdir_p!(Path.join(root, volume))
+      File.write!(Path.join([root, volume, "match.md"]), volume)
+    end
+
+    opts =
+      opts
+      |> Keyword.put(:storage_config,
+        base_path: root,
+        volumes: %{"one" => Path.join(root, "one"), "two" => Path.join(root, "two")}
+      )
+      |> Keyword.put(:skip_permissions, true)
+
+    for path <- ["one", "one/", "one/."] do
+      assert {:ok, page} = Storage.search_documents(%{"query" => "match", "path" => path}, opts)
+      assert [%{volume: "one", name: "match.md"}] = page.entries
+    end
+
+    for path <- [nil, "", "/", "."] do
+      assert {:ok, page} = Storage.search_documents(%{"query" => "match", "path" => path}, opts)
+      assert Enum.sort(Enum.map(page.entries, & &1.volume)) == ["one", "two"]
+    end
+  end
+
+  test "search_documents rejects unsafe or unresolved explicit paths", %{storage_opts: opts} do
+    for path <- ["archives/..", "archives/../../outside"] do
+      assert {:error, :path_traversal} =
+               Storage.search_documents(%{"query" => "match", "path" => path}, opts)
+    end
+
+    for path <- ["unknown/folder", "unqualified", "/absolute/path"] do
+      assert {:error, :volume_required} =
+               Storage.search_documents(%{"query" => "match", "path" => path}, opts)
+    end
+
+    assert {:error, :invalid_path} =
+             Storage.search_documents(%{"query" => "match", "path" => 42}, opts)
+
+    {:ok, stale} = EntryCatalog.ensure("unmounted", "folder", "directory")
+
+    assert {:error, :unknown_volume} =
+             Storage.search_documents(%{"query" => "match", "path" => stale.id}, opts)
+  end
+
+  property "searching a directory never includes its prefix-sharing neighbor", %{
+    root: root,
+    storage_opts: opts
+  } do
+    check all(name <- string(:alphanumeric, min_length: 1, max_length: 12), max_runs: 12) do
+      for directory <- [name, name <> "-neighbor"] do
+        File.mkdir_p!(Path.join(root, directory))
+        File.write!(Path.join([root, directory, "scope-match.md"]), directory)
+      end
+
+      assert {:ok, page} =
+               Storage.search_documents(
+                 %{"query" => "scope-match", "path" => "archives/#{name}"},
+                 Keyword.put(opts, :skip_permissions, true)
+               )
+
+      assert [%{relative_path: relative_path}] = page.entries
+      assert relative_path == "#{name}/scope-match.md"
+    end
+  end
+
   test "search_documents/1 checks matching entry permissions with one permissions query", %{
     root: root,
     storage_opts: opts

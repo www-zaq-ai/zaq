@@ -112,6 +112,10 @@ config :zaq, e2e: true
 
 config :zaq, :workflows_enabled, true
 
+# Make FileExplorer's existing default volume base explicit for real Disk
+# datasource tests. Each test owns a uniquely named subdirectory, not a volume.
+config :zaq, Zaq.Storage, base_path: "priv/documents"
+
 if e2e? do
   config :zaq, Zaq.Repo,
     pool: DBConnection.ConnectionPool,

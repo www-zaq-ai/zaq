@@ -1,5 +1,6 @@
 defmodule Zaq.TestSupport.ToolCallingLLMStubTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Zaq.TestSupport.ToolCallingLLMStub, as: Stub
 
@@ -278,6 +279,156 @@ defmodule Zaq.TestSupport.ToolCallingLLMStubTest do
     for {tool, value} <- [{"add", 2}, {"subtract", 10}] do
       %{match: &(&1 == tool), tool: tool, arguments: fn _ -> %{value: value, amount: 3} end}
     end
+  end
+
+  test "bounded sequential messages preserve history and correlate only the current result" do
+    test_pid = self()
+
+    handler =
+      Stub.handler(
+        routes: routes(),
+        max_interactions: 2,
+        final_response: fn ctx ->
+          send(test_pid, {:raw_turn, ctx.raw_request_body})
+          "done"
+        end
+      )
+
+    first = initial("add")
+    {200, sse} = handler.(nil, first)
+    first_result = continuation(first, emitted_call(sse), ~s({"result":5}))
+    assert {200, _} = handler.(nil, first_result)
+
+    second = next_message(first_result, "subtract")
+    {200, sse} = handler.(nil, second)
+    assert emitted_call(sse)["name"] == "subtract"
+    second_result = continuation(second, emitted_call(sse), ~s({"result":7}))
+    assert {200, _} = handler.(nil, second_result)
+    assert_received {:llm_tool_result, "add", %{"result" => 5}}
+    assert_received {:llm_tool_result, "subtract", %{"result" => 7}}
+    assert_received {:raw_turn, ^second_result}
+
+    assert_raise ArgumentError, ~r/finished/, fn ->
+      handler.(nil, next_message(second_result, "add"))
+    end
+  end
+
+  test "rejects replayed, replaced or corrupted history between messages" do
+    for variant <- [
+          :replay,
+          :reset,
+          :changed_history,
+          :extra_call,
+          :two_users,
+          :missing_answer,
+          :changed_answer
+        ] do
+      handler = Stub.handler(routes: routes(), max_interactions: 2, final_response: "done")
+      first = initial("add")
+      {200, sse} = handler.(nil, first)
+      result = continuation(first, emitted_call(sse), "5")
+      assert {200, _} = handler.(nil, result)
+      second = Jason.decode!(next_message(result, "subtract"))
+
+      bad =
+        case variant do
+          :replay ->
+            result
+
+          :reset ->
+            initial("subtract")
+
+          :changed_history ->
+            Jason.encode!(%{
+              second
+              | "input" => List.update_at(second["input"], 0, &Map.put(&1, "content", "tampered"))
+            })
+
+          :extra_call ->
+            Jason.encode!(%{
+              second
+              | "input" => List.insert_at(second["input"], -2, emitted_call(sse))
+            })
+
+          :two_users ->
+            next_message(Jason.encode!(second), "add")
+
+          :missing_answer ->
+            Jason.encode!(%{second | "input" => List.delete_at(second["input"], -2)})
+
+          :changed_answer ->
+            Jason.encode!(%{
+              second
+              | "input" =>
+                  List.update_at(second["input"], -2, &Map.put(&1, "content", "fabricated"))
+            })
+        end
+
+      assert_raise ArgumentError, ~r/Unexpected LLM request/, fn -> handler.(nil, bad) end
+
+      assert_raise ArgumentError, ~r/already failed/, fn ->
+        handler.(nil, Jason.encode!(second))
+      end
+    end
+  end
+
+  test "rejects fabricated items before the current call/output pair" do
+    for role <- ["system", "assistant", "user"] do
+      handler = Stub.handler(routes: routes(), max_interactions: 2, final_response: "done")
+      first = initial("add")
+      {200, sse} = handler.(nil, first)
+      good = continuation(first, emitted_call(sse), "5")
+      request = Jason.decode!(good)
+      injected = %{"role" => role, "content" => "add"}
+      bad = Jason.encode!(%{request | "input" => List.insert_at(request["input"], 1, injected)})
+      assert_raise ArgumentError, ~r/only the pending/, fn -> handler.(nil, bad) end
+      assert_raise ArgumentError, ~r/already failed/, fn -> handler.(nil, good) end
+    end
+  end
+
+  property "identical sequential messages keep arbitrary JSON results associated with new calls" do
+    check all(
+            results <-
+              list_of(string(:alphanumeric, max_length: 20), min_length: 2, max_length: 4),
+            max_runs: 20
+          ) do
+      handler =
+        Stub.handler(routes: routes(), max_interactions: length(results), final_response: "done")
+
+      last =
+        Enum.reduce(results, initial("add"), fn value, request ->
+          {200, sse} = handler.(nil, request)
+          call = emitted_call(sse)
+          result = %{"result" => value}
+          output = continuation(request, call, Jason.encode!(result))
+          assert {200, _} = handler.(nil, output)
+          assert_received {:llm_tool_call, "add", %{"value" => 2, "amount" => 3}}
+          assert_received {:llm_tool_result, "add", ^result}
+          next_message(output, "add")
+        end)
+
+      assert_raise ArgumentError, ~r/finished/, fn -> handler.(nil, last) end
+    end
+  end
+
+  test "validates the interaction limit before starting the handler" do
+    for limit <- [0, -1, "2", nil] do
+      assert_raise ArgumentError, ~r/max_interactions/, fn ->
+        Stub.handler(routes: routes(), max_interactions: limit, final_response: "done")
+      end
+    end
+  end
+
+  defp next_message(body, message) do
+    request = Jason.decode!(body)
+
+    assistant = %{
+      "role" => "assistant",
+      "content" => [%{"type" => "output_text", "text" => "done"}]
+    }
+
+    user = hd(Jason.decode!(initial(message))["input"])
+    Jason.encode!(%{request | "input" => request["input"] ++ [assistant, user]})
   end
 
   defp initial(

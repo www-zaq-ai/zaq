@@ -217,16 +217,23 @@ defmodule Zaq.Storage do
     end
   end
 
-  @doc "Searches storage entries by filename across mounted volumes."
+  @doc """
+  Searches readable storage entries recursively by filename.
+
+  An optional `path` scopes the search to a volume (`volume`), a directory
+  (`volume/folder`), or a catalog directory id. Without a path, or with `/`
+  or `.`, searches all mounted volumes. An unresolved scope never falls back
+  to searching the whole datasource.
+  """
   @spec search_documents(map()) :: {:ok, map()} | {:error, term()}
   def search_documents(params, opts \\ []) when is_map(params) do
     with {:ok, opts} <- disk_config_opts(params, opts),
-         {:ok, query} <- required(params, "query", :query_required) do
+         {:ok, query} <- required(params, "query", :query_required),
+         {:ok, roots} <- search_roots(MapUtils.present_value(params, "path"), opts) do
       query = String.downcase(query)
 
       entries =
-        list_volumes(opts)
-        |> Enum.flat_map(fn {volume, _root} -> search_volume(volume, ".", query, opts) end)
+        Enum.flat_map(roots, fn {volume, path} -> search_volume(volume, path, query, opts) end)
 
       permission_data = listing_permission_data(entries, false, opts)
 
@@ -930,6 +937,25 @@ defmodule Zaq.Storage do
         []
     end
   end
+
+  defp search_roots(path, opts) when path in [nil, "", "/", "."],
+    do: {:ok, Enum.map(list_volumes(opts), fn {volume, _root} -> {volume, "."} end)}
+
+  defp search_roots(path, opts) when is_binary(path) do
+    path = path |> SourcePath.normalize_relative() |> String.trim_trailing("/")
+
+    case split_parent(path, opts) do
+      {nil, _relative_path} ->
+        {:error, :volume_required}
+
+      {volume, relative_path} ->
+        with {:ok, _absolute_path} <- resolve_path(volume, relative_path, opts) do
+          {:ok, [{volume, relative_path}]}
+        end
+    end
+  end
+
+  defp search_roots(_path, _opts), do: {:error, :invalid_path}
 
   defp decode_content(request) do
     content = MapUtils.present_value(request, "content") || ""
