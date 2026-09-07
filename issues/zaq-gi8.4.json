@@ -9,9 +9,15 @@
   "id": "zaq-gi8.4",
   "labels": [],
   "parent": "zaq-gi8",
+  "comments": [
+    {
+      "text": "Validation complete for changed scope: 47 tests + 1 property pass across OpenAIStub support, new parsing/handler tests, real two-tool loop, Executor, nested-agent, materialization-alias and media-attachment integrations. mix format, mix q and git diff --check pass. Direct Erlang cover instrumentation (temporary script; repository coveralls excludes test/) reports ToolCallingLLMStub 100%, MultiAgentOpenAIStub 98.33% (only existing tool_call_sse default-arity wrapper uncovered). Read-only review addressed callback throw/exit sanitization, HTTP method/path validation and malformed output arrays. Full mix test attempted twice but exceeded 110s and 290s process limits; no full-suite completion claim. No production modifications, commits or PR. Documentation updated in testing handbook.",
+      "timestamp": "2026-09-07T07:18:11Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-gi8] Document and validate tool-calling test support",
   "type": "task",
-  "updated_at": "2026-09-07T07:02:29Z"
+  "updated_at": "2026-09-07T07:18:11Z"
 }
