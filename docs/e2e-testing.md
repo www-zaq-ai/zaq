@@ -4,6 +4,9 @@
 
 E2E tests use [Playwright](https://playwright.dev/) and live in `test/e2e/`. The server runs on port `4002` with `MIX_ENV=test E2E=1`, which enables special `/e2e/*` endpoints for direct DB seeding.
 
+The separate [real browser-tool integration](#real-browser-tool-integration-flow-3)
+uses ExUnit and the production `agent-browser` CLI, not the Playwright journey suite.
+
 ```
 test/e2e/
 ├── playwright.config.js     # Playwright config (port, timeout, browser)
@@ -19,6 +22,68 @@ test/e2e/
 ```
 
 ---
+
+## Real browser-tool integration (Flow 3)
+
+`test/zaq/agent/browser_flow_integration_test.exs` is tagged `:real_browser` and
+excluded from normal test runs. Explicitly enabled runs **fail**, rather than
+silently skip, when the pinned CLI or a usable Chromium is unavailable.
+
+Prerequisites:
+- Normal Mix test dependencies and PostgreSQL, using `config/test.exs` sandbox settings.
+- `agent-browser` matching `priv/browser/agent-browser.version` (the same file
+  Docker uses for its Cargo install). Set `AGENT_BROWSER_BIN` to that executable
+  when it is not the default on PATH. A global older CLI need not be replaced.
+- Chromium/Chrome executable; set `AGENT_BROWSER_EXECUTABLE_PATH` to its absolute
+  path. The Docker runtime uses `/usr/bin/chromium`, `fonts-liberation`, writable
+  `/app` as HOME, and `--no-sandbox,--disable-dev-shm-usage` container flags.
+
+```sh
+AGENT_BROWSER_BIN=/absolute/path/to/agent-browser \
+AGENT_BROWSER_EXECUTABLE_PATH=/absolute/path/to/chromium \
+mix test test/zaq/agent/browser_flow_integration_test.exs --include real_browser
+```
+
+Do not set `E2E=1`; no Phoenix server, frontend build, Node, or Playwright package
+is needed for this test. It starts its own loopback HTML site and mocked LLM,
+then calls the real configured agent and `web_browsing` tool for every command.
+The test checks presentation text, navigation URL, form input via a live preview,
+the exact POST nonce/value, and a confirmation page. Each incoming message waits
+for Jido's actual terminal state before the next one. Selector waits replace
+timed sleeps. A unique browser session is closed on success and again during
+cleanup so failed assertions do not leave that session running.
+
+### GitHub CI
+
+Manually dispatch **Browser Tool Integration** (`.github/workflows/browser-tool.yml`).
+It builds Docker's `browser-runtime` target, starts it non-root with host networking,
+and runs Mix on the Ubuntu runner against the PostgreSQL service. Host networking
+lets container Chromium reach the ephemeral site on runner loopback. This job is
+separate from the existing three-browser Playwright matrix and is not required by
+normal test runs. A new dispatch-only workflow becomes discoverable in GitHub's
+Actions UI once it exists on the default branch.
+
+`test/support/bin/agent-browser-container` forwards argv with `docker exec` to
+the **real** CLI in that container. It is not a fake executable and does not
+fabricate tool output. The production `app` image inherits the same browser
+runtime stage, including the CLI, Chromium, libraries, fonts and launch flags.
+The workflow logs the CLI version, Chromium version and local image ID. An
+`always()` cleanup step attempts to remove the container and its daemon sessions
+after success or failure, and reports removal failures; forced runner termination
+can prevent cleanup. CLI stdout/stderr appears in Mix test failures. The final
+diagnostics step reports container state, not daemon logs.
+
+The CLI is exact-version pinned and installed with Cargo `--locked`. Chromium
+and the Debian base currently follow their existing rolling package/image tags;
+they are **not** exact-version/digest pinned. Sharing the stage prevents divergent
+installation logic, not package drift across builds on different dates. Review
+the logged versions when comparing runs; pinning Debian snapshots/digests would
+be a separate update/security-maintenance decision.
+
+The browser runs with its container sandbox relaxed, as in production. Tests
+restrict allowed domains to `127.0.0.1` and use only trusted local fixtures;
+do not repurpose this job for browsing untrusted websites. No repository secrets
+or host browser profiles are mounted into the browser container.
 
 ## Running Tests
 

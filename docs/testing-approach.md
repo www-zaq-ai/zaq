@@ -298,6 +298,13 @@ the test uses Jido's event-driven completion wait: stream completion can precede
 the parent agent's terminal state update. QUERY is deliberately
 excluded pending [transport support (#729)](https://github.com/www-zaq-ai/zaq/issues/729).
 
+`BrowserFlowIntegrationTest` is opt-in (`--include real_browser`) and drives
+actual Chromium through the registered `web_browsing` tool. It checks a two-page
+local site's content, link navigation, entered form data, and one server-observed
+submission with confirmation. The real browser is never mocked. See
+`docs/e2e-testing.md` for pinned CLI prerequisites, session cleanup, and the manual
+CI job that reuses Docker's production browser runtime.
+
 Unmatched routes, malformed requests, mismatched calls/results and extra turns
 raise and send `{:llm_stub_error, diagnostic}`; failed instances stay failed.
 Diagnostics omit content to avoid leaking private data. Nested-agent and
