@@ -4,6 +4,7 @@
     "zaq-bdf.3"
   ],
   "blocks": [],
+  "closed_at": "2026-09-07T09:07:31Z",
   "created": "2026-09-07T08:35:56Z",
   "description": "Run focused flow repeatedly and concurrent ownership/isolation regressions, existing tool-loop tests, coverage target 95 percent, mix format and mix q. Document usage/limitations and report to user; do not commit or begin Flow2 until user confirms.",
   "id": "zaq-bdf.4",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-bdf] Validate Flow1 and pause for user review",
   "type": "task",
   "updated_at": "2026-09-07T09:07:31Z"
