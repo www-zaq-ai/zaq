@@ -11,9 +11,15 @@
   "id": "zaq-5j6.3",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Implemented shared Docker browser-runtime parent (production app stays last), one CLI version pin file and Cargo --locked, manual workflow_dispatch on Ubuntu24.04 with existing Beam/Postgres versions. Host Mix invokes real container CLI via argv-preserving adapter; browser image gets no source/secrets/profiles mounts. Static review no blocking findings; corrected diagnostics to container state and cleanup to best-effort with errors surfaced. Docker absent locally; container build/run remains unverified.",
+      "timestamp": "2026-09-07T10:42:05Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Add Docker-aligned manual browser CI and docs",
   "type": "task",
-  "updated_at": "2026-09-07T10:36:58Z"
+  "updated_at": "2026-09-07T10:42:05Z"
 }
