@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-bdk.3"
   ],
+  "closed_at": "2026-09-07T16:45:10Z",
+  "close_reason": "Implemented and regression-tested in current worktree only; shared trusted sealing and provider normalization validated.",
   "created": "2026-09-07T16:23:25Z",
   "description": "Owners: JidoConnectBridge provider mapping; DataSourceBridge shared recursive egress sealing. Tests first: file/collection webhook output through persisted IngestJob and RecordSource verification, nested permissions, sparse removals, metadata failure, sync. Reuse existing connector/runtime stubs only at external/routing seams. Preserve Engine checkpoint and Ingestion watch policy. Document trusted sealing entrypoint and Channels flow.",
   "id": "zaq-bdk.1",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-bdk] Normalize and seal trusted watch records in Channels",
   "type": "task",
-  "updated_at": "2026-09-07T16:30:05Z"
+  "updated_at": "2026-09-07T16:45:10Z"
 }
