@@ -9,9 +9,15 @@
   "id": "zaq-48o.3",
   "labels": [],
   "parent": "zaq-48o",
+  "comments": [
+    {
+      "text": "Final Flow2 validation passed: 95 tests +5 properties in affected HTTP/policy/credentials/tool/helper suites plus Flow1 regression, latest seed29. Flow2 also passed repeated standalone seed11 and direct Erlang coverage run. Coverage of new integration test module98.23% (only fail-loud unexpected API request and no-runtime cleanup branches missed). Instrumentation exposed stream-before-parent-state completion race; test now uses Jido.AgentServer.await_completion with ReAct terminal status path before next ask, no sleeps/retries/production hooks. mix format, mix q and git diff --check pass. QUERY removed by user and tracked https://github.com/www-zaq-ai/zaq/issues/729. Only new Flow2 test + handbook changes remain; not committed or pushed. No Flow3 work.",
+      "timestamp": "2026-09-07T09:50:31Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-48o] Validate HTTP flow and pause for review",
   "type": "task",
-  "updated_at": "2026-09-07T09:46:03Z"
+  "updated_at": "2026-09-07T09:50:31Z"
 }
