@@ -6,9 +6,15 @@
   "description": "Flow1 only, user-approved sequential delivery; stop after validation for review/commit before Flow2. Reuse configured disk volume with unique directory, target async with verified SQL ownership, real Executor/Factory/Jido/Storage. Steps: ownership viability -\u003e bounded multi-message stub support -\u003e disk flow -\u003e validation. No production-only hooks or silent async downgrade.",
   "id": "zaq-bdf",
   "labels": [],
+  "comments": [
+    {
+      "text": "Flow1 complete in working tree, awaiting user review/commit. User approved async:false due verified ServerManager sandbox ownership conflict and approved real Storage path-filter fix after neighbor regression. Eight intended changed/new files; nothing committed or pushed. Do not start Flow2 before review/commit approval.",
+      "timestamp": "2026-09-07T09:07:31Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-bdf] Disk document agent integration flow",
   "type": "epic",
-  "updated_at": "2026-09-07T08:35:55Z"
+  "updated_at": "2026-09-07T09:07:31Z"
 }
