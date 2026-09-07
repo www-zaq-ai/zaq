@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T08:35:27Z",
+  "description": "Flow1 only, user-approved sequential delivery; stop after validation for review/commit before Flow2. Reuse configured disk volume with unique directory, target async with verified SQL ownership, real Executor/Factory/Jido/Storage. Steps: ownership viability -\u003e bounded multi-message stub support -\u003e disk flow -\u003e validation. No production-only hooks or silent async downgrade.",
+  "id": "zaq-bdf",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Disk document agent integration flow",
+  "type": "epic",
+  "updated_at": "2026-09-07T08:35:27Z"
+}
