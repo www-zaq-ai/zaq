@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T16:22:56Z",
+  "description": "Approved current-worktree-only follow-up to zaq-p4f.2/.3/.5. File watches emit unsigned Records; collection changes forward provider maps; ingestion reconstructs canonical maps lossily. Reuse Channels sealing policy, normalize provider signals only in Channels, preserve canonical projections in ingestion. No commits, push, PR, or worktree creation. Steps: Channels regression/fix; ingestion persisted-worker regression/fix; quality/E2E validation and recovery docs.",
+  "id": "zaq-bdk",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-p4f] Repair watch-triggered ingestion provenance",
+  "type": "bug",
+  "updated_at": "2026-09-07T16:22:56Z"
+}
