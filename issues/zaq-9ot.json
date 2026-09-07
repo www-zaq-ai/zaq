@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-07T17:29:51Z",
   "created": "2026-09-07T17:20:29Z",
   "description": "Extract credential/agent creation and monitored shutdown shared by disk, HTTP, and browser flow tests. Keep route construction, stub startup, assertions, and completion behavior local. Validate with targeted integration tests, mix format and mix q. Work in current worktree as requested.",
   "id": "zaq-9ot",
@@ -13,8 +14,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#730] Extract shared integration agent lifecycle setup",
   "type": "task",
-  "updated_at": "2026-09-07T17:23:31Z"
+  "updated_at": "2026-09-07T17:29:51Z"
 }
