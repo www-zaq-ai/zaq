@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-5j6.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-5j6.4"
+  ],
   "created": "2026-09-07T10:30:58Z",
   "description": "Owner Dockerfile browser-runtime refactor, shared CLI version pin file, docker-exec adapter script, separate workflow_dispatch job with Beam/Postgres and browser image. Keep default final production app target and release behavior, avoid secrets copy. Browser command same pinned binary/image in CI; log actual Chromium version and document apt rolling vs exact CLI pin, startup/dependency/setup steps.",
   "id": "zaq-5j6.3",

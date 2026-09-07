@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-5j6.3"
+  ],
   "blocks": [],
   "created": "2026-09-07T10:30:58Z",
   "description": "Run opted-in real-browser test repeatedly with pinned0.19 local binary, normal exclusion, existing browsing/tool stubs + Flow1/2 tests, mix format and mix q. Validate shell/YAML/Docker stage structure. Docker unavailable: explicitly record inability to run container workflow rather than claim CI validation. Target changed scope95 percent; stop uncommitted for review.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-5j6] Validate browser flow and pause for review",
   "type": "task",
-  "updated_at": "2026-09-07T10:30:58Z"
+  "updated_at": "2026-09-07T10:30:59Z"
 }
