@@ -10,9 +10,15 @@
   "description": "After regression tests, add anchored constrained regex in ReactionMapper reusing existing base mappings; no public API or Unicode expansion. Module responsibility verified. Only mapper and docs/services/channels.md production/doc edits. Document exact aliases, five tones, paired delimiters and ignored invalid forms.",
   "id": "zaq-b4t",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented Mattermost-only anchored regex with paired delimiter backreference, reusing exact base clauses. Mapper/docs updated. Focused tests now pass: 2 properties, 17 tests; mix format passed. No other provider or Unicode expansion.",
+      "timestamp": "2026-09-07T17:57:10Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-b4t] Mattermost constrained reaction mapping and docs",
   "type": "task",
-  "updated_at": "2026-09-07T17:56:20Z"
+  "updated_at": "2026-09-07T17:57:10Z"
 }
