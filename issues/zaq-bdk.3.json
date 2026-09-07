@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-bdk.1"
+  ],
   "blocks": [
     "zaq-bdk.2"
   ],
