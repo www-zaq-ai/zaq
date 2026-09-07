@@ -9,9 +9,15 @@
   "id": "zaq-bdk.1",
   "labels": [],
   "parent": "zaq-bdk",
+  "comments": [
+    {
+      "text": "Reproduced original collection-watch failure through reloaded IngestJob/RecordSource. Existing sealer made available to trusted Channels callers; collection provider maps normalized before shared sealing; successful file metadata sealed. Sparse tombstones and synthetic fallback Records stay unsigned; no new handles or permission bypass minted. Connector shape verified against installed Google Drive CollectionChanges.record/1.",
+      "timestamp": "2026-09-07T16:30:05Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdk] Normalize and seal trusted watch records in Channels",
   "type": "task",
-  "updated_at": "2026-09-07T16:24:00Z"
+  "updated_at": "2026-09-07T16:30:05Z"
 }
