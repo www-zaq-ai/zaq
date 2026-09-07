@@ -11,9 +11,15 @@
   "id": "zaq-gi8.3",
   "labels": [],
   "parent": "zaq-gi8",
+  "comments": [
+    {
+      "text": "Real Executor/Factory/Jido add and subtract cases pass. Observed wire envelope is {ok:true,result:{result:5.0/7.0}}; tests assert exact decoded values independently of final text. Both tools advertised in each request. Incoming user text includes runtime timestamp, so integration routes use substring predicates.",
+      "timestamp": "2026-09-07T07:02:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-gi8] Verify two routes through real Executor and Factory",
   "type": "task",
-  "updated_at": "2026-09-07T07:00:21Z"
+  "updated_at": "2026-09-07T07:02:28Z"
 }
