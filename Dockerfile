@@ -41,7 +41,7 @@ RUN cp /app/_build/prod/rel/zaq/lib/zaq-*/priv/python/crawler-ingest/requirement
 # -- agent-browser CLI (native Rust binary for the web_browsing action) --
 # Compiled from crates.io into a single self-contained binary that is copied
 # into the runtime image. The browser itself is the system Chromium installed
-# in the app stage (see AGENT_BROWSER_EXECUTABLE_PATH below), so we do not run
+# in the shared browser-runtime stage, so we do not run
 # `agent-browser install` (which would download ~684MB of Chrome for Testing).
 FROM rust:1-slim-trixie AS agent-browser
 
@@ -51,9 +51,12 @@ RUN apt-get update -y && \
 
 # Pin the version for reproducible builds — an unpinned install would compile
 # whatever is latest on crates.io at build time, risking silent CLI regressions.
-RUN cargo install agent-browser --version 0.19.0 --root /opt/agent-browser
+COPY priv/browser/agent-browser.version /tmp/agent-browser.version
+RUN cargo install agent-browser --version "=$(cat /tmp/agent-browser.version)" --locked --root /opt/agent-browser
 
-FROM debian:trixie-slim AS app
+# Production and the opt-in browser-tool CI job use this exact browser setup.
+# Chromium follows Debian security updates; its resolved version is logged below.
+FROM debian:trixie-slim AS browser-runtime
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
@@ -67,8 +70,6 @@ RUN apt-get update -y && \
 ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8 \
-    MIX_ENV=prod \
-    PHX_SERVER=true \
     HOME=/app \
     AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
     # --no-sandbox: Chromium's setuid sandbox can't run unprivileged in a
@@ -80,9 +81,16 @@ ENV LANG=en_US.UTF-8 \
 
 WORKDIR /app
 
-RUN useradd --system --uid 1000 --create-home --home-dir /app appuser
-COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/zaq ./
+RUN useradd --system --uid 1000 --create-home --home-dir /app appuser && \
+    chown appuser:appuser /app
 COPY --from=agent-browser /opt/agent-browser/bin/agent-browser /usr/local/bin/agent-browser
+RUN agent-browser --version && chromium --version
+
+# Keep app last: an ordinary docker build still produces the production release.
+FROM browser-runtime AS app
+
+ENV MIX_ENV=prod PHX_SERVER=true
+COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/zaq ./
 
 RUN python3 -m venv /app/.venv && \
     /app/.venv/bin/pip install --no-cache-dir -r /app/lib/zaq-*/priv/python/crawler-ingest/requirements.txt && \

@@ -1,0 +1,86 @@
+name: Browser Tool Integration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-tool:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: paradedb/paradedb:0.23.0
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: zaq_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      MIX_ENV: test
+      AGENT_BROWSER_BIN: ${{ github.workspace }}/test/support/bin/agent-browser-container
+      ZAQ_BROWSER_CONTAINER: zaq-browser-flow-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28.1"
+          elixir-version: "1.19.5"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build/test
+          key: ${{ runner.os }}-browser-tool-otp28.1-elixir1.19.5-${{ hashFiles('mix.lock') }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the production browser runtime (no release or test sources)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: browser-runtime
+          load: true
+          push: false
+          tags: zaq-browser-flow:ci
+          cache-from: type=gha,scope=browser-tool
+          cache-to: type=gha,mode=max,scope=browser-tool
+
+      - name: Start isolated browser runtime
+        run: |
+          docker run --detach --init --network host \
+            --name "$ZAQ_BROWSER_CONTAINER" --user 1000 \
+            --env AGENT_BROWSER_ALLOWED_DOMAINS=127.0.0.1 \
+            --entrypoint /bin/sleep zaq-browser-flow:ci infinity
+          "$AGENT_BROWSER_BIN" --version
+          docker exec "$ZAQ_BROWSER_CONTAINER" /usr/bin/chromium --version
+          docker image inspect zaq-browser-flow:ci --format '{{.Id}}'
+
+      - name: Install test dependencies
+        run: mix deps.get
+
+      - name: Exercise the real browser tool through the agent
+        run: mix test test/zaq/agent/browser_flow_integration_test.exs --include real_browser
+
+      # Browser command stdout/stderr is captured by the Mix test process,
+      # not docker logs (the container's main process is sleep).
+      - name: Browser container state
+        if: always()
+        run: docker inspect --format '{{json .State}}' "$ZAQ_BROWSER_CONTAINER" || true
+
+      - name: Remove browser runtime and all its sessions
+        if: always()
+        run: |
+          if docker container inspect "$ZAQ_BROWSER_CONTAINER" >/dev/null 2>&1; then
+            docker rm --force "$ZAQ_BROWSER_CONTAINER"
+          fi

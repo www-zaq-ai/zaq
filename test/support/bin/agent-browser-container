@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+# Thin transport into the real production browser image, not a browser mock.
+# Every argument stays separate, including form text and CSS selectors.
+: "${ZAQ_BROWSER_CONTAINER:?Set ZAQ_BROWSER_CONTAINER to the running browser-runtime container}"
+exec docker exec "$ZAQ_BROWSER_CONTAINER" /usr/local/bin/agent-browser "$@"
