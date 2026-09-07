@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-hp6"
   ],
+  "closed_at": "2026-09-07T17:57:10Z",
   "created": "2026-09-07T17:53:42Z",
   "description": "After regression tests, add anchored constrained regex in ReactionMapper reusing existing base mappings; no public API or Unicode expansion. Module responsibility verified. Only mapper and docs/services/channels.md production/doc edits. Document exact aliases, five tones, paired delimiters and ignored invalid forms.",
   "id": "zaq-b4t",
@@ -17,7 +18,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-b4t] Mattermost constrained reaction mapping and docs",
   "type": "task",
   "updated_at": "2026-09-07T17:57:10Z"
