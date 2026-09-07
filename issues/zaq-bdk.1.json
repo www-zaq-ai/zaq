@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-bdk",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-bdk] Normalize and seal trusted watch records in Channels",
   "type": "task",
-  "updated_at": "2026-09-07T16:23:39Z"
+  "updated_at": "2026-09-07T16:24:00Z"
 }
