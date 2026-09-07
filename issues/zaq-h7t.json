@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-07T13:03:59Z",
@@ -7,8 +7,8 @@
   "id": "zaq-h7t",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Align Docker and README with DB-backed Disk volumes",
   "type": "task",
-  "updated_at": "2026-09-07T13:03:59Z"
+  "updated_at": "2026-09-07T13:04:05Z"
 }
