@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-5j6.1"
+  ],
   "blocks": [],
   "created": "2026-09-07T10:30:58Z",
   "description": "Tests first. Owner new browser_flow_integration_test.exs plus local HTML fixture support if needed. Opt-in real_browser tag excluded normally; assert pinned CLI prerequisite when enabled. Supervised local two-page/form server, unique session, real Executor Factory Jido web_browsing. Assert page text, destination URL, form input effect, one POST payload and confirmation. Separate one-command asks with event-driven completion wait; cleanup session even failure, no sleeps/mock browser.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-5j6] Test real browser navigation form fill and submit",
   "type": "task",
-  "updated_at": "2026-09-07T10:30:58Z"
+  "updated_at": "2026-09-07T10:30:59Z"
 }
