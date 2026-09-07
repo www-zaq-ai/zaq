@@ -18,11 +18,15 @@
     {
       "text": "Committed 067690dc and pushed origin/test/comunication-to-materialization at user request. All commit and push hooks passed. No PR created or merge performed.",
       "timestamp": "2026-09-07T08:49:43Z"
+    },
+    {
+      "text": "CI follow-up approved: LuaEval inner default 1000ms timeout expired. Set explicit timeout_ms: 10_000 only in runtime wiring test, keeping async execution, sandbox defaults and exact result assertion. This tests functionality, not 1-second performance; no runtime default changes.",
+      "timestamp": "2026-09-07T09:39:34Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jwc] Enable LuaEval runtime dependency and execution test",
   "type": "task",
-  "updated_at": "2026-09-07T08:49:43Z"
+  "updated_at": "2026-09-07T09:39:34Z"
 }
