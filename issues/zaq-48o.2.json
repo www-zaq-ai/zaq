@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-48o.1"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-48o",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-48o] Implement real HTTP method and credential agent flow",
   "type": "task",
-  "updated_at": "2026-09-07T09:34:35Z"
+  "updated_at": "2026-09-07T09:35:34Z"
 }
