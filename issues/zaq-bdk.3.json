@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-bdk.2"
+  ],
   "created": "2026-09-07T16:23:25Z",
   "description": "Owner: Zaq.Ingestion normalization. Tests first: signed JSON and atom projections through process_data_source_changes, reloaded IngestJob, worker materialization; property for projection preservation and tampered/missing provenance rejection. Keep existing tombstone and watch filtering paths, no new provider normalization or unsigned acceptance. Update ingestion recovery docs.",
   "id": "zaq-bdk.3",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-bdk] Preserve canonical watch maps through ingestion persistence",
   "type": "task",
-  "updated_at": "2026-09-07T16:23:25Z"
+  "updated_at": "2026-09-07T16:23:39Z"
 }

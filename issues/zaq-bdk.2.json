@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-bdk.3"
+  ],
   "blocks": [],
   "created": "2026-09-07T16:23:25Z",
   "description": "Run targeted regression/property/security suites, mix format, mandatory mix q, ingestion Playwright E2E. Review diff and coverage constraints. Document existing unsigned failed jobs require fresh trusted re-ingestion rather than retrying corrupted snapshots. Worktree-only; report blockers, no commit/push/PR.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-bdk] Validate watch provenance fix and document recovery",
   "type": "task",
-  "updated_at": "2026-09-07T16:23:25Z"
+  "updated_at": "2026-09-07T16:23:39Z"
 }
