@@ -7,9 +7,15 @@
   "id": "zaq-ic9.12",
   "labels": [],
   "parent": "zaq-ic9",
+  "comments": [
+    {
+      "text": "Implemented single-file integration test with real inbound fetch_unseen and EmailBridge conversion, exact locator checks, no eager attachment fetch, and real handle redemption through Channels to targeted UID section fetch. mix format and direct test passed; requested related suites passed (93 tests). Running full suite and mix q next.",
+      "timestamp": "2026-09-07T09:01:12Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ic9.12] Add inbound IMAP attachment continuity integration test",
   "type": "task",
-  "updated_at": "2026-09-07T08:58:52Z"
+  "updated_at": "2026-09-07T09:01:12Z"
 }
