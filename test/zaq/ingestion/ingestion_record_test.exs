@@ -3,6 +3,7 @@ defmodule Zaq.Ingestion.RecordIngestionTest do
   use ExUnitProperties
 
   import Mox
+  import ExUnit.CaptureLog
 
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Contracts.Record.Provenance
@@ -239,6 +240,45 @@ defmodule Zaq.Ingestion.RecordIngestionTest do
 
         assert Repo.aggregate(IngestJob, :count) == 0
       end)
+    end
+  end
+
+  test "rejected canonical maps log identity and reason without sensitive projections" do
+    for map <- [
+          %{id: "rejected-watch", kind: :file, provenance_ref: "private-token"},
+          %{"id" => "rejected-watch", "kind" => "file", "provenance_ref" => "private-token"}
+        ] do
+      log =
+        capture_log(fn ->
+          assert {:ok, %{jobs: [], removed: 0}} =
+                   Ingestion.process_data_source_changes(%{
+                     records: [Map.put(map, "raw", %{"secret" => "private-payload"})]
+                   })
+        end)
+
+      assert log =~ "[warning]"
+      assert log =~ "Rejected data-source record id=\"rejected-watch\""
+      assert log =~ "reason=:invalid_record_provenance"
+      refute log =~ "private-token"
+      refute log =~ "private-payload"
+      assert Repo.aggregate(IngestJob, :count) == 0
+    end
+  end
+
+  property "rejection diagnostics bound and escape untrusted identifiers" do
+    check all(id <- binary(min_length: 129, max_length: 512), max_runs: 20) do
+      log =
+        capture_log(fn ->
+          assert {:ok, %{jobs: [], removed: 0}} =
+                   Ingestion.process_data_source_changes(%{
+                     records: [%{id: id, kind: :file, provenance_ref: nil}]
+                   })
+        end)
+
+      assert log =~ "Rejected data-source record"
+      assert log =~ "reason=:missing_record_provenance"
+      assert byte_size(log) < 2_000
+      assert length(String.split(String.trim(log), "\n")) == 1
     end
   end
 
