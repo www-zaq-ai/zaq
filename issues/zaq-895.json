@@ -6,9 +6,15 @@
   "description": "Add safe bounded provenance rejection logging with regression/property coverage; extract shared watch-record preparation preserving sealing boundaries; run mix format and mix q. Current worktree only; no commit or push.",
   "id": "zaq-895",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented shared normalize_changed_record/3 without moving sealing boundaries; provenance map rejection now logs bounded inspected ID and atom reason only. Added atom/JSON diagnostic regression and arbitrary-binary bounded single-line property. mix format passed; focused suite 4 properties, 28 tests, 0 failures; mix q passed (Credo no issues); git diff --check passed. Existing license_manager configuration warning remains. No E2E run: follow-up is logging plus behavior-preserving refactor, covered by bridge/ingestion integration tests. Changes intentionally uncommitted; no push.",
+      "timestamp": "2026-09-07T19:40:18Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdk] Apply PR 731 diagnostic and normalization review follow-up",
   "type": "task",
-  "updated_at": "2026-09-07T19:37:26Z"
+  "updated_at": "2026-09-07T19:40:18Z"
 }
