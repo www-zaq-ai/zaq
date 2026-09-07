@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-07T09:50:31Z",
   "created": "2026-09-07T09:33:58Z",
   "description": "Flow2 only after Flow1 commit43811417. Real Executor/Factory/Jido HTTP tool, mocked local API GET OPTIONS PUT DELETE QUERY and header-secured POST, persisted encrypted credential. Reuse OpenAIStub and ToolCallingLLMStub max_interactions. Seven messages including denied POST then authenticated success. Stop for review before commit or Flow3; no push.",
   "id": "zaq-48o",
@@ -17,7 +18,7 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-48o] HTTP request agent integration flow",
   "type": "epic",
   "updated_at": "2026-09-07T09:50:31Z"
