@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T06:54:51Z",
+  "description": "Owner test/support/tool_calling_llm_stub.ex. Tests first: routing and argument callbacks, observable decoded results, fixed/computed final responses, call correlation, exhaustion, malformed input and isolation. Reuse SSE builders and OpenAIStub. Test-supervised unnamed Agent state; no production changes. Document usage and lifecycle.",
+  "id": "zaq-gi8.2",
+  "labels": [],
+  "parent": "zaq-gi8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-gi8] Add isolated routed one-tool HTTP handler",
+  "type": "task",
+  "updated_at": "2026-09-07T06:54:51Z"
+}
