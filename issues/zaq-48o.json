@@ -6,9 +6,15 @@
   "description": "Flow2 only after Flow1 commit43811417. Real Executor/Factory/Jido HTTP tool, mocked local API GET OPTIONS PUT DELETE QUERY and header-secured POST, persisted encrypted credential. Reuse OpenAIStub and ToolCallingLLMStub max_interactions. Seven messages including denied POST then authenticated success. Stop for review before commit or Flow3; no push.",
   "id": "zaq-48o",
   "labels": [],
+  "comments": [
+    {
+      "text": "Filed user-requested QUERY transport issue https://github.com/www-zaq-ai/zaq/issues/729 (Bug). gh CLI unavailable; used authenticated GitHub integration after duplicate search and issue-type lookup. Revised Flow2 scope: GET OPTIONS PUT DELETE, denied POST, authenticated POST; six interactions. No production transport changes.",
+      "timestamp": "2026-09-07T09:43:45Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-48o] HTTP request agent integration flow",
   "type": "epic",
-  "updated_at": "2026-09-07T09:34:33Z"
+  "updated_at": "2026-09-07T09:43:45Z"
 }
