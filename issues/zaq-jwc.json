@@ -22,11 +22,15 @@
     {
       "text": "CI follow-up approved: LuaEval inner default 1000ms timeout expired. Set explicit timeout_ms: 10_000 only in runtime wiring test, keeping async execution, sandbox defaults and exact result assertion. This tests functionality, not 1-second performance; no runtime default changes.",
       "timestamp": "2026-09-07T09:39:34Z"
+    },
+    {
+      "text": "CI timeout follow-up implemented: test action params now set timeout_ms: 10_000 with rationale comment. mix format, focused LuaEval test (1/1), mix q and git diff --check passed. Full suite/CI not rerun for this test-only timeout adjustment. Uncommitted.",
+      "timestamp": "2026-09-07T09:40:41Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jwc] Enable LuaEval runtime dependency and execution test",
   "type": "task",
-  "updated_at": "2026-09-07T09:39:34Z"
+  "updated_at": "2026-09-07T09:40:41Z"
 }
