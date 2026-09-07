@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-bdf.2"
   ],
+  "closed_at": "2026-09-07T08:39:41Z",
   "created": "2026-09-07T08:35:55Z",
   "description": "Read existing directory isolation and SQL ownership infrastructure. Before implementing, probe two private sandbox owners allowing the real shared ServerManager; verify startup ownership works without stealing access. No internal runtime mocks or production-only hooks. If unsafe, record evidence and obtain user decision.",
   "id": "zaq-bdf.1",
@@ -20,8 +21,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-bdf] Verify existing-volume async runtime ownership",
   "type": "task",
-  "updated_at": "2026-09-07T08:39:40Z"
+  "updated_at": "2026-09-07T08:39:41Z"
 }
