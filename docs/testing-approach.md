@@ -284,6 +284,20 @@ read/write grants live in the database sandbox. This full-runtime test uses
 cannot be allowed by multiple independent sandbox owners at once. Cleanup waits
 for its agent to stop and deletes only the owned directory tree.
 
+`HttpRequestFlowIntegrationTest` uses six sequential messages against a local
+API: GET, OPTIONS, PUT, DELETE, POST without authentication (401), and POST with
+a persisted header credential (200). It reuses `OpenAIStub` for the external API
+and `ToolCallingLLMStub` for the LLM. Engine policy/credential preparation,
+NodeRouter and Channels transport remain real. The sandboxed policy permits
+loopback only on the API server's port and only for the tested methods; other
+address protections retain their defaults. Tests assert actual method/path,
+query encoding, JSON bodies, header injection, correlated tool results and final
+answers. The credential is checked as ciphertext in storage, and its value must
+not appear in LLM requests, arguments, results or answers. Before the next message,
+the test uses Jido's event-driven completion wait: stream completion can precede
+the parent agent's terminal state update. QUERY is deliberately
+excluded pending [transport support (#729)](https://github.com/www-zaq-ai/zaq/issues/729).
+
 Unmatched routes, malformed requests, mismatched calls/results and extra turns
 raise and send `{:llm_stub_error, diagnostic}`; failed instances stay failed.
 Diagnostics omit content to avoid leaking private data. Nested-agent and
