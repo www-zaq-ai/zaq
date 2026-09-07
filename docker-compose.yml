@@ -32,9 +32,13 @@ services:
       PHX_HOST: "localhost"
       DATABASE_URL: "${DATABASE_URL:-ecto://postgres:postgres@postgres:5432/zaq_prod}"
       SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
-      # LLM, Embedding, Image-to-Text, and Storage settings are configured
+      # LLM, Embedding, and Image-to-Text settings are configured
       # via the back-office UI at /bo/system-config (persisted in the database).
-      STORAGE_VOLUMES: "${STORAGE_VOLUMES:-/}"
+      # Disk volume declarations are saved in Data Sources > Disk
+      # (/bo/channels/data_source/disk), not in environment variables.
+      # Legacy one-time migration input only; leave empty for new installations.
+      STORAGE_VOLUMES: "${STORAGE_VOLUMES:-}"
+      # Runtime filesystem base; keep aligned with the bind-mount destination below.
       STORAGE_VOLUMES_BASE: "${STORAGE_VOLUMES_BASE:-/zaq/volumes}"
       SYSTEM_CONFIG_ENCRYPTION_KEY: "${SYSTEM_CONFIG_ENCRYPTION_KEY}"
     volumes:
