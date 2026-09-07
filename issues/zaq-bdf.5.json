@@ -9,9 +9,15 @@
   "id": "zaq-bdf.5",
   "labels": [],
   "parent": "zaq-bdf",
+  "comments": [
+    {
+      "text": "Regression reproduced with readable same-named neighbor; user approved fix. Storage.search_documents now resolves optional path via existing SourcePath/split_parent/resolve_path, scopes traversal before permission filtering, preserves no-path/root behavior, and fails unresolved/traversal scopes. Regression/property tests pass; read-only review found no actionable regressions. Broader affected suite: 220 tests + 9 properties pass. mix q passes.",
+      "timestamp": "2026-09-07T09:03:46Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-bdf] Fix disk search path filtering regression",
   "type": "task",
-  "updated_at": "2026-09-07T08:56:56Z"
+  "updated_at": "2026-09-07T09:03:46Z"
 }
