@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-07T19:43:03Z",
   "created": "2026-09-07T19:37:19Z",
   "description": "Add safe bounded provenance rejection logging with regression/property coverage; extract shared watch-record preparation preserving sealing boundaries; run mix format and mix q. Current worktree only; no commit or push.",
   "id": "zaq-895",
@@ -13,8 +14,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-bdk] Apply PR 731 diagnostic and normalization review follow-up",
   "type": "task",
-  "updated_at": "2026-09-07T19:40:18Z"
+  "updated_at": "2026-09-07T19:43:03Z"
 }
