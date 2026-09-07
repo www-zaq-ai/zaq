@@ -4,6 +4,7 @@
     "zaq-gi8.3"
   ],
   "blocks": [],
+  "closed_at": "2026-09-07T07:18:11Z",
   "created": "2026-09-07T06:54:52Z",
   "description": "Document helper usage and limitations in testing handbook. Run focused and existing agent integrations, mix format and mix q; review diff and changed-scope coverage targeting 95 percent. Record environmental blockers and coverage exceptions.",
   "id": "zaq-gi8.4",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-gi8] Document and validate tool-calling test support",
   "type": "task",
   "updated_at": "2026-09-07T07:18:11Z"
