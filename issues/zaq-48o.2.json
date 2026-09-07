@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-48o.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-48o.3"
+  ],
   "created": "2026-09-07T09:34:34Z",
   "description": "Owner test/zaq/agent/http_request_flow_integration_test.exs. Tests first through Executor Factory Jido http_request. Scope loopback policy to target port. Persist provider and encrypted API key credential, assert raw stored ciphertext and header injection only at target. Assert exact target method/path/query/body and real LLM result, final answer and no secret leaks. Reject POST without credential before authenticated POST. Reuse existing stub max_interactions7 and monitored cleanup.",
   "id": "zaq-48o.2",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-48o] Implement real HTTP method and credential agent flow",
   "type": "task",
-  "updated_at": "2026-09-07T09:34:34Z"
+  "updated_at": "2026-09-07T09:34:35Z"
 }
