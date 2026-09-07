@@ -1,7 +1,9 @@
 # Global owners — can merge without waiting for approval
-* @jat10 @jfayad
+
+- @jfayad
 
 # Protect /zaq access-control automation.
+
 /.github/workflows/opencode.yml @www-zaq-ai
 /.github/workflows/protect-opencode-workflow.yml @www-zaq-ai
 /.github/CODEOWNERS @www-zaq-ai
