@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-gi8.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-gi8",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-gi8] Parse Responses API messages and outputs",
   "type": "task",
-  "updated_at": "2026-09-07T06:55:03Z"
+  "updated_at": "2026-09-07T06:55:04Z"
 }
