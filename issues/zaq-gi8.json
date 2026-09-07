@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T06:54:33Z",
+  "description": "Approved plan: structured Responses API parsing -\u003e isolated one-call helper -\u003e real Executor integration -\u003e documentation and validation. Test-only changes; no fake Jido execution. Dependency chain avoids diamonds.",
+  "id": "zaq-gi8",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Generic tool-calling LLM test support",
+  "type": "epic",
+  "updated_at": "2026-09-07T06:54:33Z"
+}
