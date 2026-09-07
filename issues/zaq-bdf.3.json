@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-bdf.2"
+  ],
   "blocks": [],
   "created": "2026-09-07T08:35:56Z",
   "description": "Owner test/zaq/agent/disk_document_flow_integration_test.exs. Existing configured volume plus unique relative directory only. Real permission fixtures and agent identity. Test search handle -\u003e exact download bytes -\u003e create filesystem assertion -\u003e list both names via Executor/Factory/Jido. Target async after ownership proof. No tool/router mocks; deterministic cleanup.",

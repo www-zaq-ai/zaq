@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-bdf.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-bdf.3"
+  ],
   "created": "2026-09-07T08:35:55Z",
   "description": "Owner test/support/tool_calling_llm_stub.ex and tests. Test-first: preserve single-interaction behavior; correlate current calls against retained prior history; reject duplicates/excess/mismatches. Preserve real Jido conversation and raw observations. Document API. Only LLM HTTP mocked.",
   "id": "zaq-bdf.2",
