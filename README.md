@@ -119,20 +119,21 @@ Use this path to explicitly test the local Docker image/runtime flow.
 
 This path uses `docker-compose.yml` with:
 
-- `pgvector` service (PostgreSQL + pgvector)
+- `postgres` service (PostgreSQL + pgvector)
 - `zaq` service (Phoenix release built from `Dockerfile`)
 - automatic DB migration on container start
 
 Defaults used by the Docker setup:
 
-- storage volume root: `/zaq/volumes`
-- default storage folder: `/zaq/volumes`
-- named volume map: none; unset `STORAGE_VOLUMES` exposes `/zaq/volumes` as the default volume
+- runtime storage base path: `/zaq/volumes`
+- bind mount: `./ingestion-volumes:/zaq/volumes`
+- Disk volume declarations: configured in Back Office and persisted in the database;
+  leaving `STORAGE_VOLUMES` empty does not create a Disk data source or expose the root automatically
 
 1. Create the host folder used by the default bind mount:
 
 ```bash
-mkdir -p ingestion-volumes
+mkdir -p ingestion-volumes/documents
 ```
 
 2. Set a production secret key base (required by `runtime.exs`):
@@ -141,15 +142,10 @@ mkdir -p ingestion-volumes
 export SECRET_KEY_BASE="$(openssl rand -hex 64)"
 ```
 
-3. Optionally override base URL and storage paths from your host environment:
-
-```bash
-export BASE_URL_SCHEME="http"
-export BASE_URL="http://localhost:4000"
-
-export STORAGE_VOLUMES=""
-export STORAGE_VOLUMES_BASE="/zaq/volumes"
-```
+3. Keep the default storage base path, or adjust `STORAGE_VOLUMES_BASE` and the
+   bind-mount destination in `docker-compose.yml` together. Changing the environment
+   variable alone does not move the mount. Configure volume names and relative paths
+   in Back Office after startup, not through `STORAGE_VOLUMES`.
 
 LLM, embedding, and image-to-text provider/model settings are configured from Back Office at
 `/bo/system-config` and persisted in the database (`system_configs`).
@@ -178,6 +174,21 @@ docker compose up --build
 
 6. Open the Back Office at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
 
+7. After completing first-login setup, open **Data Sources → Disk** at
+   [`/bo/channels/data_source/disk`](http://localhost:4000/bo/channels/data_source/disk).
+   Save a volume with **Name** `documents`, **Relative path** `documents`, and select
+   it as the **Default**. These are the new form's prefilled values. Ensure the Disk
+   data source is enabled.
+
+This declaration points to `/zaq/volumes/documents` inside the container, backed by
+`./ingestion-volumes/documents` on the host. To expose the mounted root instead,
+explicitly use `.` as the relative path. Paths must be relative to the storage base;
+absolute paths and `..` components are rejected. Removing a volume declaration makes
+that path inaccessible through the declaration but does not delete its files.
+
+The auto-installer uses the same Disk setup step after login; creating the host
+folder alone does not configure the data source.
+
 To stop containers:
 
 ```bash
@@ -196,16 +207,25 @@ docker compose down -v
 
 | Variable                            | Docker Compose default                            | Required           | Notes                                                                                 |
 | ----------------------------------- | ------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                      | `ecto://postgres:postgres@pgvector:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database                                     |
+| `DATABASE_URL`                      | `ecto://postgres:postgres@postgres:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database                                     |
 | `SECRET_KEY_BASE`                   | none                                              | Yes (prod runtime) | Generate with `openssl rand -hex 64`                                                  |
-| `STORAGE_VOLUMES`                   | empty                                             | No                 | One-time import input for Disk data-source volume declarations                        |
-| `STORAGE_VOLUMES_BASE`              | `/zaq/volumes`                                    | No                 | Base path for imported Disk volume declarations                                       |
+| `STORAGE_VOLUMES`                   | empty                                             | No                 | Legacy one-time migration input only; leave empty for new installations               |
+| `STORAGE_VOLUMES_BASE`              | `/zaq/volumes`                                    | No                 | Runtime filesystem base for all saved Disk volume relative paths; must match the mount destination |
 | `OBAN_INGESTION_CONCURRENCY`        | `3`                                               | No                 | Number of document-level ingestion jobs processed in parallel                         |
 | `OBAN_INGESTION_CHUNKS_CONCURRENCY` | `6`                                               | No                 | Number of chunk child-jobs processed in parallel by `Zaq.Ingestion.IngestChunkWorker` |
 
 AI model settings (LLM, embedding, image-to-text) are managed in Back Office System Config
 at `/bo/system-config`, not via environment variables.
-Disk volume declarations are managed in Back Office Data Sources > Disk and stored as a normal data-source `ChannelConfig`.
+Disk volume declarations are managed in Back Office **Data Sources → Disk**
+(`/bo/channels/data_source/disk`) and stored in the database as a normal data-source
+`ChannelConfig`, not in System Config. The storage base path remains environment-backed.
+
+**Upgrading an existing installation:** `STORAGE_VOLUMES` accepts comma-separated
+names (for example, `documents,manuals`), each imported with the same relative path
+during the one-time Disk volume migration. Empty input or `/` imports no declarations.
+The migration preserves existing nonempty Disk declarations. Changing this variable
+after the migration has run does not update the database; make subsequent changes
+in Data Sources → Disk instead.
 
 `OBAN_INGESTION_CHUNKS_CONCURRENCY` directly impacts chunk ingestion behavior:
 
