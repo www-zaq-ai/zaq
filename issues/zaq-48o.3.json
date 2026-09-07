@@ -4,6 +4,7 @@
     "zaq-48o.2"
   ],
   "blocks": [],
+  "closed_at": "2026-09-07T09:50:31Z",
   "created": "2026-09-07T09:34:34Z",
   "description": "Run Flow2 repeatedly, helper and existing HTTP policy/transport/credential/tool suites plus Flow1 regression, mix format and mix q, inspect coverage and diff. Document usage. Stop for review without committing Flow2 or starting Flow3.",
   "id": "zaq-48o.3",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-48o] Validate HTTP flow and pause for review",
   "type": "task",
   "updated_at": "2026-09-07T09:50:31Z"
