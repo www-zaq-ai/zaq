@@ -616,11 +616,19 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
-  defp seal_response({:ok, payload}, %ChannelConfig{} = config) do
+  @doc """
+  Seals successful canonical Records issued by a trusted data-source bridge.
+
+  Used by synchronous operations and verified provider-change processing. This
+  is not an authorization boundary: callers must not pass untrusted requests,
+  synthetic fallback Records, or tombstones as successful provider records.
+  """
+  @spec seal_response(term(), map()) :: term()
+  def seal_response({:ok, payload}, %ChannelConfig{} = config) do
     seal_value(payload, config)
   end
 
-  defp seal_response(other, _config), do: other
+  def seal_response(other, _config), do: other
 
   defp seal_value(%RecordPage{records: records} = page, %ChannelConfig{} = config)
        when is_list(records) do

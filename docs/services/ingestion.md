@@ -73,6 +73,19 @@ remains available for immediate operations such as folder expansion and material
 - `count_watched_provider_documents/2` — counts watched provider documents for a data-source config.
 - `data_source_inherited_watch/3`, `data_source_record_watch_state/2`, `data_source_record_watch_active?/1` — shared BO/processing helpers for direct and inherited folder watch state.
 
+Watch changes carrying canonical Record maps are reconstructed with `Record.from_map/1`,
+preserving verified provenance, permission projections, handles, and canonical metadata
+before job persistence. Invalid canonical projections are not scheduled. Sparse removal
+signals retain their existing deletion and watch-filtering behavior.
+
+Previously failed jobs whose stored `source_record` lacks valid provenance are not repaired
+by retrying: retry reuses the same snapshot. After deploying the watch fix, manually ingest
+the affected files again through the data-source browser to obtain fresh trusted Records,
+or let a new provider change create a fresh job. Do not add signatures to old job payloads
+or disable verification. Provider checkpoints may already have advanced, so do not assume
+the failed changes will automatically replay. Metadata-read fallback records remain unsigned;
+if those continue failing, investigate provider access and metadata-fetch errors first.
+
 **Access control**
 - `can_access_file?/2` — returns true if a user may access a file; super admins bypass all checks; Everyone grants provide public access; documents with no permission rows are private (admin-only)
 - `list_document_permissions/1` — list all permissions for a document (preloads `:person`, `:team`)

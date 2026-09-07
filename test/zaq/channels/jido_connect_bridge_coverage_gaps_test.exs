@@ -26,8 +26,11 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
   alias StubIntegration, as: BridgeStubIntegration
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoConnectBridge
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Engine.Connect
   alias Zaq.Ingestion.Document
+  alias Zaq.Ingestion.IngestJob
+  alias Zaq.Ingestion.RecordSource
   alias Zaq.Repo
 
   defmodule StubIntegration do
@@ -299,7 +302,22 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
     end
 
     def invoke(_integration, "stub.files.get", %{file_id: "file-1"}, _opts) do
-      {:ok, %{file: %{"id" => "file-1", "name" => "File 1", "mimeType" => "application/pdf"}}}
+      {:ok,
+       %{
+         file: %{
+           "id" => "file-1",
+           "name" => "File 1",
+           "mimeType" => "application/pdf",
+           "permissions" => [
+             %{
+               "id" => "reader-1",
+               "type" => "user",
+               "emailAddress" => "reader@example.test",
+               "role" => "reader"
+             }
+           ]
+         }
+       }}
     end
 
     def triggers(_integration),
@@ -780,6 +798,11 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
 
     config = insert_data_source_config(:google_drive)
 
+    credential = create_credential!()
+    grant = create_active_grant!(credential, to_string(config.id))
+    Process.put(:stub_runtime_grant, grant)
+    Process.put(:stub_runtime_credential, credential)
+
     assert {:ok, %{accepted: true, job_id: _job_id}} =
              JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
 
@@ -791,6 +814,24 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
     assert record.attributes["provider"] == "google_drive"
     assert record.attributes["config_id"] == to_string(config.id)
     assert %DateTime{} = record.deleted_at
+
+    {:ok, _} =
+      Document.insert_new(%{
+        source: "data_source/google_drive/#{config.id}/file-1",
+        watch_status: "watched"
+      })
+
+    Oban.Testing.with_testing_mode(:manual, fn ->
+      assert {:ok, %{jobs: [job]}} = Zaq.Ingestion.process_data_source_changes(request)
+      stored = Repo.get!(IngestJob, job.id).source_record
+      assert {:ok, restored} = RecordSource.from_storage_map(stored)
+      assert restored.provenance_ref == record.provenance_ref
+      assert [permission] = restored.permissions
+      assert permission.id == "reader-1"
+      assert permission.attributes["access_rights"] == ["read"]
+      assert {:ok, claims} = Provenance.verify(permission)
+      assert claims["config_id"] == config.id
+    end)
   end
 
   test "watch_item ensures config-level collection watch and unwatch can stop provider channel" do
@@ -1037,6 +1078,22 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
 
     assert [%{provider_record_id: "changed-file-1"}, %{provider_record_id: "removed-file-1"}] =
              request.signals
+
+    Oban.Testing.with_testing_mode(:manual, fn ->
+      assert {:ok, %{jobs: [job], removed: 0}} =
+               Zaq.Ingestion.process_data_source_changes(request)
+
+      stored = Repo.get!(IngestJob, job.id).source_record
+      assert {:ok, record} = RecordSource.from_storage_map(stored)
+      assert record.id == "changed-file-1"
+      assert record.parent_id == "folder-1"
+      assert record.parent_ids == ["folder-1"]
+      assert record.url == "https://drive.example/changed-file-1"
+      assert record.permissions == nil
+      assert {:ok, claims} = Provenance.verify(record)
+      assert claims["provider"] == "google_drive"
+      assert claims["config_id"] == config.id
+    end)
   end
 
   test "global changes webhook omits nil collection_id when listing changes" do
@@ -1248,6 +1305,7 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
       assert record.change_type == :deleted
       assert record.lifecycle_state == :deleted
       assert is_nil(record.deleted_at)
+      assert is_nil(record.provenance_ref)
     end
 
     test "process_verified_webhook_job handles deleted webhook deliveries with atom keys" do

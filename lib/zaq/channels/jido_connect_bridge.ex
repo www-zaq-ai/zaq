@@ -1750,7 +1750,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
       parent_ids: parent_ids,
       mime_type: mime_type,
       path: read_stringish(raw, ["path", :path]),
-      url: read_stringish(raw, ["web_view_link", :web_view_link]),
+      url: read_stringish(raw, ["web_view_link", :web_view_link, "web_url", :web_url]),
       size: read_integer(raw, ["size", :size]),
       description: read_stringish(raw, ["description", :description]),
       owners: read_owners(raw),
@@ -2632,13 +2632,38 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   defp process_collection_webhook_delivery(config, payload, trigger, delivery_map, watch_channel) do
-    with {:ok, changes} <- list_collection_changes(config, watch_channel) do
+    with {:ok, changes} <- list_collection_changes(config, watch_channel),
+         {:ok, signals} <- normalize_watch_signals(config, changes) do
       dispatch_watch_changes_to_engine(config, payload, trigger, delivery_map, watch_channel, %{
-        signals: read_any(changes, [:signals, "signals"]) || [],
+        signals: signals,
         checkpoint: watch_channel_checkpoint(watch_channel),
         next_checkpoint: read_stringish(changes, [:checkpoint, "checkpoint", :cursor, "cursor"])
       })
     end
+  end
+
+  defp normalize_watch_signals(config, changes) do
+    signals =
+      changes
+      |> read_any([:signals, "signals"])
+      |> List.wrap()
+      |> Enum.map(fn signal ->
+        record = read_any(signal, [:record, "record"])
+
+        if is_map(record) and not deleted_signal?(signal) do
+          record =
+            record
+            |> map_file_record()
+            |> apply_signal_change(signal)
+            |> then(&put_external_record_attrs(config, &1))
+
+          signal |> Map.delete("record") |> Map.put(:record, record)
+        else
+          signal
+        end
+      end)
+
+    DataSourceBridge.seal_response({:ok, signals}, config)
   end
 
   defp resolve_watch_channel(config, delivery_map) do
@@ -2792,7 +2817,14 @@ defmodule Zaq.Channels.JidoConnectBridge do
     case invoke_intent(config, :get_item_metadata, %{file_id: file_id}) do
       {:ok, payload} ->
         raw = read_any(payload, [:file, "file"]) || payload
-        {:ok, map_file_record(raw) |> apply_signal_change(signal)}
+
+        record =
+          raw
+          |> map_file_record()
+          |> apply_signal_change(signal)
+          |> then(&put_external_record_attrs(config, &1))
+
+        DataSourceBridge.seal_response({:ok, record}, config)
 
       _ ->
         {:ok,
@@ -2802,7 +2834,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   defp deleted_signal?(signal) when is_map(signal) do
-    Map.get(signal, :removed) == true or
+    Map.get(signal, :removed?) == true or
+      Map.get(signal, "removed?") == true or
+      Map.get(signal, :removed) == true or
       Map.get(signal, "removed") == true or
       Map.get(signal, :deleted) == true or
       Map.get(signal, "deleted") == true or

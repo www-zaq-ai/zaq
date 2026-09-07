@@ -1186,6 +1186,12 @@ defmodule Zaq.Ingestion do
   defp data_source_signal_record(signal, use_fallback_id?) when is_map(signal) do
     record = read_any(signal, [:record, "record"])
 
+    # Removals carry sparse identity metadata, not signed ingestible Records.
+    record =
+      if data_source_signal_removed?(signal) and is_map(record) and not is_struct(record),
+        do: Map.drop(record, [:provenance_ref, "provenance_ref"]),
+        else: record
+
     provider_record_id =
       if use_fallback_id? do
         read_stringish(signal, [:provider_record_id, "provider_record_id", :id, "id"])
@@ -1202,6 +1208,14 @@ defmodule Zaq.Ingestion do
   defp normalize_data_source_record(record), do: normalize_data_source_record(record, nil)
 
   defp normalize_data_source_record(%Record{} = record, _fallback_id), do: record
+
+  defp normalize_data_source_record(record, _fallback_id)
+       when is_map_key(record, :provenance_ref) or is_map_key(record, "provenance_ref") do
+    case Record.from_map(record) do
+      {:ok, canonical} -> canonical
+      {:error, _reason} -> nil
+    end
+  end
 
   defp normalize_data_source_record(record, fallback_id) when is_map(record) do
     id =
