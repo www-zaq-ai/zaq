@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-b4t"
+  ],
   "created": "2026-09-07T17:53:42Z",
   "description": "Approved limited fix in current checkout; no commit/stash/push/worktree. Add examples and bounded properties in reaction_mapper_test.exs for six aliases, optional five standard tones, paired colons, rejection and provider isolation; add listener-envelope rating identity and ignore regressions in mattermost_reaction_ingress_test.exs using existing capture seam. Tests before mapper implementation. No Telegram edits.",
   "id": "zaq-lam",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-lam] Mattermost skin-tone reaction regression tests",
   "type": "task",
-  "updated_at": "2026-09-07T17:53:56Z"
+  "updated_at": "2026-09-07T17:53:59Z"
 }
