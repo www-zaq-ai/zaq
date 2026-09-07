@@ -10,11 +10,15 @@
     {
       "text": "Regression test via Jido.Exec.run/3 first failed for missing Lua, then passed with runtime lua ~\u003e 1.0.2 (resolved 1.0.2). Jido.Exec schema requires atom globals keys despite LuaEval docs, so test uses %{quantity: 6, price: 7, label: zaq} and asserts exact %{results: [42, ZAQ]}. No mocked or skipped interpreter path; no new property tests for this concrete upstream dependency-wiring scenario. mix format and LuaEval test 1/1 plus registry tests 25/25 passed. Full suite and mix q running.",
       "timestamp": "2026-09-07T08:32:52Z"
+    },
+    {
+      "text": "Validation complete: mix format, new LuaEval runtime test (1/1), registry tests (25/25), mix q, git diff --check passed. Full mix test completed: 48 doctests, 83 properties, 8531 tests, 2 failures, 1 skipped (82 excluded). Failures: agent_test.exs:595 ServerManager timeout (seen before Lua change) and onboarding_scenarios_test.exs:210 render_async 100ms timeout; both passed isolated reruns. Lock diff adds only Lua 1.0.2; no existing dependency versions changed. Exactly mix.exs, mix.lock and new lua_eval_test.exs changed. Left uncommitted pending user instruction.",
+      "timestamp": "2026-09-07T08:45:59Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jwc] Enable LuaEval runtime dependency and execution test",
   "type": "task",
-  "updated_at": "2026-09-07T08:32:52Z"
+  "updated_at": "2026-09-07T08:45:59Z"
 }
