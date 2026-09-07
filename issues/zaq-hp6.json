@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T17:53:41Z",
+  "description": "After tests and implementation run mix format on allowed code files, focused mapper/ingress tests and mix q; review four-file diff and target \u003e=95% mapper coverage. Report environmental blockers without unrelated fixes; no live Mattermost actions, commits or push. DAG: tests --\u003e implementation --\u003e validation.",
+  "id": "zaq-hp6",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Validate limited Mattermost reaction fix",
+  "type": "task",
+  "updated_at": "2026-09-07T17:53:41Z"
+}
