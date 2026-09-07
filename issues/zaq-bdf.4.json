@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-bdf.3"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-bdf",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-bdf] Validate Flow1 and pause for user review",
   "type": "task",
-  "updated_at": "2026-09-07T08:35:56Z"
+  "updated_at": "2026-09-07T09:03:48Z"
 }
