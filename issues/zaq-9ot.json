@@ -6,9 +6,15 @@
   "description": "Extract credential/agent creation and monitored shutdown shared by disk, HTTP, and browser flow tests. Keep route construction, stub startup, assertions, and completion behavior local. Validate with targeted integration tests, mix format and mix q. Work in current worktree as requested.",
   "id": "zaq-9ot",
   "labels": [],
+  "comments": [
+    {
+      "text": "Extracted IntegrationAgent.create!/4 for shared credential/agent creation and monitored shutdown across disk, HTTP, browser tests. Routes, stub startup, scenario assertions and completion semantics unchanged. Added helper test for settings and cleanup without a started runtime; existing disk/HTTP flows exercise running-runtime cleanup. mix format, 3 targeted tests, and mix q pass. Real Chromium flow not rerun for this pure refactor. Initial worktree was clean at 6b0b7c79; no pre-existing changes to commit. Refactor remains uncommitted pending user direction.",
+      "timestamp": "2026-09-07T17:23:31Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[#730] Extract shared integration agent lifecycle setup",
   "type": "task",
-  "updated_at": "2026-09-07T17:21:44Z"
+  "updated_at": "2026-09-07T17:23:31Z"
 }
