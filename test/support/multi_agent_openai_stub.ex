@@ -97,5 +97,110 @@ defmodule Zaq.TestSupport.MultiAgentOpenAIStub do
 
   @doc "True once a prior tool result is being fed back (2nd+ LLM turn)."
   @spec tool_result?(binary()) :: boolean()
-  def tool_result?(body), do: body =~ "function_call_output"
+  def tool_result?(body) do
+    body |> tool_results() |> Enum.any?()
+  rescue
+    ArgumentError -> false
+  end
+
+  @doc "Decode a Responses request; reject unsupported input without exposing request contents."
+  def decode_request!(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, request} ->
+        decode_request!(request)
+
+      _ ->
+        raise ArgumentError,
+              "Unexpected LLM request: invalid JSON (#{byte_size(body)} bytes; contents omitted)"
+    end
+  end
+
+  def decode_request!(%{"input" => input} = request) when is_list(input) do
+    if Enum.all?(input, &is_map/1) do
+      request
+    else
+      raise ArgumentError,
+            "Unexpected LLM request: expected object input items (contents omitted)"
+    end
+  end
+
+  def decode_request!(_),
+    do:
+      raise(
+        ArgumentError,
+        "Unexpected LLM request: expected an object with an input array (contents omitted)"
+      )
+
+  @doc "Latest user text, joining input_text parts; image/file parts do not participate in routing."
+  def latest_user_message(body) do
+    request = decode_request!(body)
+
+    case Enum.find(Enum.reverse(request["input"]), &(&1["role"] == "user")) do
+      %{"content" => content} -> user_text(content)
+      _ -> raise ArgumentError, "Unexpected LLM request: missing user message (contents omitted)"
+    end
+  end
+
+  @doc "Ordered tool outputs with call_id, decoded output, and unchanged raw_output."
+  def tool_results(body) do
+    body
+    |> decode_request!()
+    |> Map.fetch!("input")
+    |> Enum.filter(&(&1["type"] == "function_call_output"))
+    |> Enum.map(&tool_output/1)
+  end
+
+  defp user_text(content) when is_binary(content) and content != "", do: content
+
+  defp user_text(parts) when is_list(parts) do
+    parts
+    |> Enum.map_join(fn
+      %{"type" => "input_text", "text" => text} when is_binary(text) ->
+        text
+
+      %{"type" => type} when type in ["input_image", "input_file"] ->
+        ""
+
+      _ ->
+        raise ArgumentError,
+              "Unexpected LLM request: unsupported user content part (contents omitted)"
+    end)
+    |> user_text()
+  end
+
+  defp user_text(_),
+    do: raise(ArgumentError, "Unexpected LLM request: missing user text (contents omitted)")
+
+  defp tool_output(%{"call_id" => id, "output" => output})
+       when is_binary(id) and id != "" and (is_binary(output) or is_list(output)) do
+    %{call_id: id, output: decode_output(output), raw_output: output}
+  end
+
+  defp tool_output(_),
+    do:
+      raise(
+        ArgumentError,
+        "Unexpected LLM request: malformed function_call_output (contents omitted)"
+      )
+
+  defp decode_output(output) when is_binary(output) do
+    case Jason.decode(output) do
+      {:ok, value} -> value
+      _ -> output
+    end
+  end
+
+  defp decode_output(parts) do
+    if Enum.all?(parts, &output_part?/1) do
+      parts
+    else
+      raise ArgumentError,
+            "Unexpected LLM request: malformed tool output content parts (contents omitted)"
+    end
+  end
+
+  defp output_part?(%{"type" => "input_text", "text" => text}), do: is_binary(text)
+  defp output_part?(%{"type" => "input_image", "image_url" => url}), do: is_binary(url)
+  defp output_part?(%{"type" => "input_file", "file_data" => data}), do: is_binary(data)
+  defp output_part?(_), do: false
 end
