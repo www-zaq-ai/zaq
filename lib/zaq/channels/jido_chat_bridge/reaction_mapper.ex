@@ -4,11 +4,22 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionMapper do
 
   This module normalizes reactions from supported chat providers into
   provider-agnostic numeric ratings before they are dispatched to the engine.
+
+  Mattermost thumb shortcodes accept optional paired colons and one standard
+  skin-tone suffix. Only the existing thumb aliases are normalized; custom
+  names, malformed shortcodes and other providers' representations are unchanged.
   """
+
+  @mattermost_shortcode ~r/\A(:?)(\+1|-1|thumbsup|thumbs_up|thumbsdown|thumbs_down)(?:_(?:light|medium_light|medium|medium_dark|dark)_skin_tone)?\1\z/
 
   @doc """
   Returns `{:ok, rating}` for a recognised emoji, or `:ignored` for
   unmapped reactions.
+
+  Mattermost accepts `+1`, `thumbsup`, `thumbs_up` (5) and `-1`, `thumbsdown`,
+  `thumbs_down` (1), bare or colon-wrapped, optionally suffixed with
+  `_light_skin_tone`, `_medium_light_skin_tone`, `_medium_skin_tone`,
+  `_medium_dark_skin_tone` or `_dark_skin_tone`.
 
   Total by design: callers run inside the bridge state process and pass
   provider-supplied values, so a missing or malformed emoji must be ignored
@@ -52,6 +63,13 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionMapper do
 
   defp emoji_to_rating(:discord, "thumbsdown"), do: {:ok, 1}
   defp emoji_to_rating(:discord, "-1"), do: {:ok, 1}
+
+  defp emoji_to_rating(:mattermost, emoji) do
+    case Regex.run(@mattermost_shortcode, emoji, capture: [2]) do
+      [base] -> emoji_to_rating(:mattermost, base)
+      nil -> nil
+    end
+  end
 
   # Fallback
   defp emoji_to_rating(_provider, _emoji), do: nil
