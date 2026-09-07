@@ -15,11 +15,15 @@
     {
       "text": "Real flow reproduced QUERY transport failure: HttpClient converts QUERY to :query; Finch rejects unsupported atom and requires binary method. User explicitly requested filing GitHub issue, removing QUERY from Flow2 scope and continuing with GET OPTIONS PUT DELETE plus denied/authenticated POST. Do not modify production transport.",
       "timestamp": "2026-09-07T09:41:24Z"
+    },
+    {
+      "text": "Revised six-message real flow passes: GET OPTIONS PUT DELETE -\u003e POST401 without credential -\u003e POST200 with persisted credential_id. Assertions cover literal received method/path, encoded query and JSON body, zero/one secure header count, exact expected key verification at server without echoing secret, raw stored ciphertext, no secret in any LLM request/args/result/final answer. Existing HTTP/policy/credential/tool + Flow1 regressions pass (95 tests +5 properties). Only new test and handbook changed; production untouched. Read-only review found no actionable gaps.",
+      "timestamp": "2026-09-07T09:46:03Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-48o] Implement real HTTP method and credential agent flow",
   "type": "task",
-  "updated_at": "2026-09-07T09:41:24Z"
+  "updated_at": "2026-09-07T09:46:03Z"
 }
