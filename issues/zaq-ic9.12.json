@@ -15,11 +15,15 @@
     {
       "text": "Validation complete: new test 1/1 passed; requested related suites 93/93 passed; mix format and mix q passed (Credo no issues). Full mix test reported 48 doctests, 71 properties, 5667 tests, 1 failure, 1 skipped, 82 excluded: unrelated PortalConsentLiveTest render_async exceeded 100ms at line 20, seed 65786. Suite printed its summary before command hit 240s timeout during shutdown. Isolated rerun of entire portal_consent_live_test.exs with same seed passed 7/7. No production/support changes; only new integration test. No commit/PR requested; work remains uncommitted for user review.",
       "timestamp": "2026-09-07T09:06:41Z"
+    },
+    {
+      "text": "Committed as b3e47c96 and pushed to origin/test/comunication-to-materialization at user request. Pre-commit quality, commit-message, and pre-push format hooks all passed. Awaiting merge; validation caveat remains recorded above.",
+      "timestamp": "2026-09-07T09:09:39Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ic9.12] Add inbound IMAP attachment continuity integration test",
   "type": "task",
-  "updated_at": "2026-09-07T09:06:41Z"
+  "updated_at": "2026-09-07T09:09:39Z"
 }
