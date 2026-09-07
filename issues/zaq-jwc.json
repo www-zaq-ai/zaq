@@ -6,9 +6,15 @@
   "description": "Approved small dependency-wiring change: add async Jido.Exec.run/3 LuaEval regression test, prove missing dependency failure, add lua ~\u003e 1.0.2 matching upstream lock, fetch and verify minimal lockfile diff. Run format, targeted Lua/registry tests, full mix test, mix q. No interpreter implementation or registration changes.",
   "id": "zaq-jwc",
   "labels": [],
+  "comments": [
+    {
+      "text": "Regression test via Jido.Exec.run/3 first failed for missing Lua, then passed with runtime lua ~\u003e 1.0.2 (resolved 1.0.2). Jido.Exec schema requires atom globals keys despite LuaEval docs, so test uses %{quantity: 6, price: 7, label: zaq} and asserts exact %{results: [42, ZAQ]}. No mocked or skipped interpreter path; no new property tests for this concrete upstream dependency-wiring scenario. mix format and LuaEval test 1/1 plus registry tests 25/25 passed. Full suite and mix q running.",
+      "timestamp": "2026-09-07T08:32:52Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jwc] Enable LuaEval runtime dependency and execution test",
   "type": "task",
-  "updated_at": "2026-09-07T08:28:23Z"
+  "updated_at": "2026-09-07T08:32:52Z"
 }
