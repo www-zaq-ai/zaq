@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-07T07:47:41Z",
+  "description": "Add one test in jido_chat_bridge_test.exs normalizing incoming media and redeeming the exact handle through Jido.Exec.run/3 DownloadDocument and real channel dispatch; stub only provider fetch. Validate focused and affected suites, full mix test, mix format and mix q.",
+  "id": "zaq-cdv",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[#613] Test incoming media handle redemption through Jido.Exec",
+  "type": "task",
+  "updated_at": "2026-09-07T07:47:41Z"
+}
