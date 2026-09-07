@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-bdf.3"
+  ],
   "created": "2026-09-07T08:56:39Z",
   "description": "User explicitly approved production bug fix discovered by Flow1 neighbor isolation test: Storage.search_documents ignores optional path and scans all volume roots. Add regression tests before changing Storage, retain configured source and permission semantics, test nested/root/invalid traversal and unknown volume paths; property for directory scope where applicable. Update documentation, mix format and mix q, run Storage/DiskBridge and materialization regressions. This is a real behavior correction, not a production test hook.",
   "id": "zaq-bdf.5",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-bdf] Fix disk search path filtering regression",
   "type": "task",
-  "updated_at": "2026-09-07T08:56:39Z"
+  "updated_at": "2026-09-07T08:56:56Z"
 }

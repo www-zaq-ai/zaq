@@ -1,7 +1,8 @@
 {
   "assignee": "Julien",
   "blocked_by": [
-    "zaq-bdf.2"
+    "zaq-bdf.2",
+    "zaq-bdf.5"
   ],
   "blocks": [
     "zaq-bdf.4"
@@ -15,5 +16,5 @@
   "status": "in_progress",
   "title": "[zaq-bdf] Exercise disk search download create and list",
   "type": "task",
-  "updated_at": "2026-09-07T08:44:45Z"
+  "updated_at": "2026-09-07T08:56:56Z"
 }
