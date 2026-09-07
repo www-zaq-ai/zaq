@@ -9,9 +9,15 @@
   "id": "zaq-48o.1",
   "labels": [],
   "parent": "zaq-48o",
+  "comments": [
+    {
+      "text": "Contracts inspected; shared sandbox needed as Flow1. Target server reuses OpenAIStub with distinct /v1/method paths, LLM on separate server. Persist policy allowing only loopback target port and required methods; real API key header provider restricted to127.0.0.1. Raw ciphertext checked via SQL; LLM sees credential_id only. Potential literal QUERY transport mismatch (HttpClient creates :query, Finch supports custom string); reproduce via flow before proposing production fix.",
+      "timestamp": "2026-09-07T09:35:33Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-48o] Verify HTTP fixture and method contracts",
   "type": "task",
-  "updated_at": "2026-09-07T09:34:35Z"
+  "updated_at": "2026-09-07T09:35:33Z"
 }
