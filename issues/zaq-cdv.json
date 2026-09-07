@@ -10,11 +10,15 @@
     {
       "text": "Implemented single incoming-media normalization-to-materialization integration test via Jido.Exec.run/3 DownloadDocument, real Handle verification/materializer/local NodeRouter/channel dispatch, provider-only fetch stub. Reused observer pattern because Jido.Exec runs in child process; channels application config restored on_exit. No production changes. Example integration test appropriate for single concrete workflow; no normalization or authorization implementation changed requiring new property coverage. mix format passed; bridge suite 170/170 and affected suites 183/183 passed; mix q passed. Full suite: 48 doctests, 83 properties, 8530 tests, 1 failure, 1 skipped (82 excluded); separate agent deletion test ServerManager.ensure_server timeout, isolated rerun pending. Initial deps lock mismatch fixed by mix deps.get without lockfile changes. Work intentionally uncommitted.",
       "timestamp": "2026-09-07T08:03:56Z"
+    },
+    {
+      "text": "Isolated rerun mix test test/zaq/agent/agent_test.exs:595 passed (1 test, 0 failures), consistent with full-suite timing interference. Final diff check clean; only test/zaq/channels/jido_chat_bridge_test.exs changed. Validation complete with full-suite timeout caveat. Left issue open pending requested landing; no commit or PR requested.",
+      "timestamp": "2026-09-07T08:04:19Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-cdv] Test incoming media handle redemption through Jido.Exec",
   "type": "task",
-  "updated_at": "2026-09-07T08:03:56Z"
+  "updated_at": "2026-09-07T08:04:19Z"
 }
