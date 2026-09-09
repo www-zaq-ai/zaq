@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-igg.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-igg.3"
+  ],
   "created": "2026-09-09T14:01:52Z",
   "description": "Add PostgreSQL vector and ParadeDB vector+pg_search setup SQL; migration/runtime checks; preserve native fallback and never drop extensions; no role provisioning.",
   "id": "zaq-igg.2",
