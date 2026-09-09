@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-09T14:29:15Z",
+  "description": "Follow-up before merging operator-managed extension changes: run test-paradedb CI including .github/scripts/extension_installation_test.exs paradedb and ingestion --include paradedb. Local native standalone/full ingestion/scoped E2E passed; Docker unavailable locally. Local ParadeDB module coverage is 77.78% because engine-specific success/index cases are excluded; target \u003e=95% with actual ParadeDB. No PR or commit created in implementation session.",
+  "id": "zaq-wqw",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-igg] Confirm ParadeDB extension provisioning in CI",
+  "type": "task",
+  "updated_at": "2026-09-09T14:29:15Z"
+}
