@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-09T14:01:53Z",
+  "description": "Update deployment/dev/CI prerequisites; mix format, targeted tests, mix q; record environment blockers and non-superuser verification.",
+  "id": "zaq-igg.3",
+  "labels": [],
+  "parent": "zaq-igg",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-igg] Document provisioning and validate",
+  "type": "task",
+  "updated_at": "2026-09-09T14:01:53Z"
+}
