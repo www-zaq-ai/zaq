@@ -9,9 +9,15 @@
   "id": "zaq-igg.1",
   "labels": [],
   "parent": "zaq-igg",
+  "comments": [
+    {
+      "text": "Added real-DB prerequisite/idempotency and chunk reset regressions. Red run confirmed two expected failures (new ExtensionChecks module absent). ParadeDB coverage tagged for its CI job. Native DB available; Docker unavailable locally.",
+      "timestamp": "2026-09-09T14:04:06Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-igg] Add extension prerequisite regression tests",
   "type": "task",
-  "updated_at": "2026-09-09T14:02:37Z"
+  "updated_at": "2026-09-09T14:04:06Z"
 }
