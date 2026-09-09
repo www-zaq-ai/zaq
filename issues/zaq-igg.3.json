@@ -4,6 +4,7 @@
     "zaq-igg.2"
   ],
   "blocks": [],
+  "closed_at": "2026-09-09T14:29:14Z",
   "created": "2026-09-09T14:01:53Z",
   "description": "Update deployment/dev/CI prerequisites; mix format, targeted tests, mix q; record environment blockers and non-superuser verification.",
   "id": "zaq-igg.3",
@@ -20,7 +21,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-igg] Document provisioning and validate",
   "type": "task",
   "updated_at": "2026-09-09T14:29:14Z"
