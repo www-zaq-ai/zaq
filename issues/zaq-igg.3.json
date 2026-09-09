@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-igg.2"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-igg",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-igg] Document provisioning and validate",
   "type": "task",
-  "updated_at": "2026-09-09T14:02:05Z"
+  "updated_at": "2026-09-09T14:12:13Z"
 }
