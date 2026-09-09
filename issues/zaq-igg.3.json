@@ -13,11 +13,15 @@
     {
       "text": "Docs/CI provisioning updated. mix q and git diff --check pass. Ingestion coverage run: 817 tests +16 properties, zero failures, 1 skipped/57 excluded. ExtensionChecks and Chunk 100% line coverage; ParadeDB 77.78% locally because actual backend cases require ParadeDB CI (Docker unavailable). E2E first validated missing-extension diagnostic; provisioned only dedicated zaq_test_e2e_main via native operator script, rerun progressed through onboarding/ingestion before full 438-case suite hit 300-second tool timeout. Running scoped E2E next.",
       "timestamp": "2026-09-09T14:26:52Z"
+    },
+    {
+      "text": "Final scoped Firefox E2E: 28 passed, 1 skipped in 1.9m (ingestion, onboarding, embedding config incl destructive dimension save). Full all-browser/storybook run remains incomplete due tool timeout, not reported as passing. mix q and diff checks pass. Four required scripts now explicitly unignored; local snapshot files remain ignored. No commits, push or PR. ParadeDB tagged/standalone CI runs remain required before merge; no local Docker to run that engine.",
+      "timestamp": "2026-09-09T14:29:14Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-igg] Document provisioning and validate",
   "type": "task",
-  "updated_at": "2026-09-09T14:26:52Z"
+  "updated_at": "2026-09-09T14:29:14Z"
 }
