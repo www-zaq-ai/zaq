@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-igg.2"
   ],
+  "closed_at": "2026-09-09T14:04:07Z",
   "created": "2026-09-09T14:01:52Z",
   "description": "Test SQL prerequisite failures and success, historical optional pg_search and rollback, runtime extension validation, rerunnable scripts; real sandbox DB and isolated DB where available.",
   "id": "zaq-igg.1",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-igg] Add extension prerequisite regression tests",
   "type": "task",
-  "updated_at": "2026-09-09T14:04:06Z"
+  "updated_at": "2026-09-09T14:04:07Z"
 }
