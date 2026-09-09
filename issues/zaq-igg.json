@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-09T14:01:42Z",
+  "description": "Approved scope: two DBA SQL scripts; historical migrations and runtime validate extensions only; retain native fallback and DBA-owned extensions; document and validate non-superuser ownership. Working-tree delivery, no commit/PR. Plan graph: tests -\u003e implementation -\u003e documentation/validation.",
+  "id": "zaq-igg",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Operator-managed database extensions",
+  "type": "epic",
+  "updated_at": "2026-09-09T14:01:42Z"
+}
