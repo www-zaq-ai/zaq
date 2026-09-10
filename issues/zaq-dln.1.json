@@ -6,14 +6,15 @@
   "blocks": [
     "zaq-dln.2"
   ],
+  "closed_at": "2026-09-10T16:14:03Z",
   "created": "2026-09-10T15:16:27Z",
   "description": "Owner: Zaq.Release in lib/zaq/release_migrations.ex and focused Accounts normalization orchestration if needed. Tests before implementation: Unicode canonicalization parity property, lowest-ID multiway selection, singleton/nil/blank separation, dry run no writes, serialized execution, idempotence, rollback. Delegate all merges to People.merge_persons/2, no duplicate policy or new merge_person_group API. Remove unapplied migration and migration-only archive, migrate its meaningful tests. Real sandbox DB, no mocks. Document backup, writer pause across nodes/workers, explicit execution after schema migration before startup, merge summary and restoration semantics.",
   "id": "zaq-dln.1",
   "labels": [],
   "parent": "zaq-dln",
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-dln.1] Replace unapplied migration with release normalization orchestration",
   "type": "task",
-  "updated_at": "2026-09-10T15:16:39Z"
+  "updated_at": "2026-09-10T16:14:03Z"
 }
