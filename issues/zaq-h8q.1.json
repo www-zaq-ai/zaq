@@ -11,9 +11,15 @@
   "id": "zaq-h8q.1",
   "labels": [],
   "parent": "zaq-h8q",
+  "comments": [
+    {
+      "text": "Completed schema aliases + GIN/self exclusion/list JSON checks and thin Ecto data migration. Zaq.Release file has ZERO diff from HEAD, no feature method/alias/command. Real migration Runner integration tests exercise apply/rerun and invalid legacy routing atomic failure. Fresh replay command: MIX_ENV=test MIX_TEST_PARTITION=_person_alias_replay mix run --no-start test/support/person_alias_migration_replay.exs -\u003e PASS fresh schema + real data migration + rerun; Repo-only with ZAQ application not started, disposable DB created/dropped. Tests seed three-way collision between schema and data migrations. BO label/ID/time history verified all browsers; no email history field. Nameless priority-channel and Person #id fallback tested at DB boundary (ordinary BO creation requires a name; no extra legacy-row seeding endpoint added). Docs explain intentional application-code migration dependency, schema-first generic migrate, backup/quiesced writers and deliberate identity deletion including aliases.",
+      "timestamp": "2026-09-10T20:20:36Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-h8q.1] Wire thin data migration and label-only BO history",
   "type": "task",
-  "updated_at": "2026-09-10T19:54:35Z"
+  "updated_at": "2026-09-10T20:20:36Z"
 }
