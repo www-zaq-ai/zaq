@@ -2,24 +2,23 @@ defmodule Zaq.Repo.Migrations.AddPgTextsearchBm25SimpleIndex do
   use Ecto.Migration
 
   @doc """
-  Enables pg_search (ParadeDB), drops the legacy GIN tsvector index, and creates
-  a single BM25 index on chunks(content).
-
-  Wrapped in a DO/EXCEPTION block so deployments without pg_search apply
-  cleanly without breaking. The GIN index is only dropped when the extension
-  is successfully created.
+  Creates a BM25 index only when operator-provisioned pg_search and chunks exist.
+  Native PostgreSQL remains supported without pg_search. A previous migration
+  drops chunks; in that case runtime embedding setup will create the indexes.
+  Unexpected index/permission errors must fail rather than silently succeeding.
   """
   def up do
     execute("""
     DO $$
     BEGIN
-      CREATE EXTENSION IF NOT EXISTS pg_search;
-      DROP INDEX IF EXISTS chunks_content_tsvector_idx;
-      CREATE INDEX IF NOT EXISTS chunks_bm25_idx
-        ON chunks USING bm25(id, content)
-        WITH (key_field='id');
-    EXCEPTION WHEN OTHERS THEN
-      RAISE NOTICE 'pg_search setup skipped (extension unavailable): %', SQLERRM;
+      IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pg_search') THEN
+        RAISE NOTICE 'pg_search absent: keeping native full-text search. For ParadeDB, ask a DBA to run scripts/setup_paradedb_extensions.sql against this same database; PostgreSQL uses scripts/setup_postgres_extensions.sql.';
+      ELSIF to_regclass('public.chunks') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS chunks_bm25_idx
+          ON public.chunks USING bm25(id, content)
+          WITH (key_field='id');
+        DROP INDEX IF EXISTS public.chunks_content_tsvector_idx;
+      END IF;
     END;
     $$
     """)
@@ -29,12 +28,12 @@ defmodule Zaq.Repo.Migrations.AddPgTextsearchBm25SimpleIndex do
     execute("""
     DO $$
     BEGIN
-      DROP INDEX IF EXISTS chunks_bm25_idx;
-      CREATE INDEX IF NOT EXISTS chunks_content_tsvector_idx
-        ON chunks USING gin (to_tsvector('english', content));
-      DROP EXTENSION IF EXISTS pg_search;
-    EXCEPTION WHEN OTHERS THEN
-      RAISE NOTICE 'pg_search rollback skipped: %', SQLERRM;
+      DROP INDEX IF EXISTS public.chunks_bm25_idx;
+      IF to_regclass('public.chunks') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS chunks_content_tsvector_idx
+          ON public.chunks USING gin (to_tsvector('english', content));
+      END IF;
+      -- Extensions are DBA-managed and must survive application rollback.
     END;
     $$
     """)

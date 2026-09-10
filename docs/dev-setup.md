@@ -2,6 +2,12 @@
 
 ## Getting Started
 
+First create the target database and have a DBA provision its extensions using
+one of the [database setup scripts](database-setup.md). Repeat for the separately
+named test and E2E databases before their first migration. `mix setup`, `mix test`
+and E2E bootstrap only verify extensions; they do not install them. After dropping
+a database, recreate and reprovision it before migrating again.
+
 ```bash
 mix setup && mix phx.server   # http://localhost:4000/bo
 ```

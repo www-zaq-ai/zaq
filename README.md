@@ -94,6 +94,16 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 
 ## Running ZAQ
 
+### Prepare database extensions first
+
+A DBA must run one operator script against the target ZAQ database before
+migrations: [`setup_postgres_extensions.sql`](scripts/setup_postgres_extensions.sql)
+for PostgreSQL, or [`setup_paradedb_extensions.sql`](scripts/setup_paradedb_extensions.sql)
+for ParadeDB. Server extension packages must already be available. ZAQ only
+verifies prerequisites; it no longer installs extensions with its own login.
+See [database setup](docs/database-setup.md) for commands, non-superuser ownership
+requirements, upgrades, and separate dev/test/E2E provisioning.
+
 ### Local Auto Installer (recommended first run)
 
 Use the local installer to bootstrap a complete Docker-based ZAQ setup in one command.
@@ -112,6 +122,10 @@ What it does automatically:
 - opens `http://localhost:4000` and tails logs
 
 Use this path when you want the fastest local startup.
+
+On an unprovisioned database, startup migrations will stop with the setup-script
+instructions. Follow the manual Compose provisioning step below, then rerun the
+installer. The installer does not perform DBA extension provisioning.
 
 ### Docker Compose (local Docker image testing)
 
@@ -166,7 +180,20 @@ export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
 
 If the key is missing or invalid, ZAQ blocks saving sensitive SMTP settings (strict mode).
 
-5. Build and start the stack:
+5. Start PostgreSQL and provision extensions before starting ZAQ:
+
+```bash
+docker compose up -d --wait postgres
+docker compose exec -T postgres psql -X --set ON_ERROR_STOP=1 -U postgres -d zaq_prod < scripts/setup_postgres_extensions.sql
+```
+
+For an external database or ParadeDB, use the appropriate DBA script and
+connection from [database setup](docs/database-setup.md). The bundled Compose
+credentials are local-development defaults, not a production role policy.
+Production deployments must configure `DATABASE_URL` with a non-superuser
+database/application-object owner, not the bootstrap administrator.
+
+Build and start the stack:
 
 ```bash
 docker compose up --build

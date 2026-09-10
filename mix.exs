@@ -295,7 +295,7 @@ defmodule Zaq.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "CHANGELOG.md"],
+      extras: ["README.md", "CHANGELOG.md", "docs/database-setup.md"],
       groups_for_modules: [
         Channels: [~r/^Zaq\.Channels(\.|$)/],
         Agent: [~r/^Zaq\.Agent(\.|$)/],

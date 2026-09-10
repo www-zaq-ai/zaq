@@ -131,6 +131,9 @@ jobs:
       - name: Install Playwright browser
         run: npx --prefix test/e2e playwright install --with-deps ${{ matrix.browser }}
 
+      - name: Provision E2E database extensions as DBA
+        run: mix run --no-start .github/scripts/provision-test-database.exs paradedb
+
       # test:ci seeds the DB only — assets are built by the steps above. The
       # developer-facing `test:journeys` still runs the full bootstrap.
       - name: Run E2E suite (${{ matrix.browser }})
