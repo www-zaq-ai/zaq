@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-10T20:24:47Z",
+  "description": "Independent review blocker: assign_team/unassign_team compute replacement arrays before row locking and overwrite concurrent merged memberships. Tests first: deterministic DB-boundary barriers pause team mutation after initial canonical read, complete real merge, resume assign/remove for survivor and loser; reverse order with team row held before merge snapshots where appropriate. Exercise independent PostgreSQL connections READ COMMITTED, no polling/sleeps, retain existing no-global-lock-normal-writes regression. Implement one-canonical-row FOR UPDATE lock inside local transaction, retry original-ID resolution when selected row disappears after wait/deletion; never acquire global merge lock from team update. Preserve system-team/noop/error contracts. Relevant People/team/merge/concurrency tests, mix format, mix q, git diff check. No commit/push/PR.",
+  "id": "zaq-20x",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-h8q] Serialize team read-modify-write with affected person merges",
+  "type": "bug",
+  "updated_at": "2026-09-10T20:24:47Z"
+}
