@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-10T15:16:28Z",
+  "description": "Tests first: preserve PR0 email E2E and add admin-selected survivor merge preserving channels/teams; normal duplicate creation rejection remains. Owners: test/e2e/specs/people.spec.js and existing shared seeding helpers only if needed. Run mix format, focused ExUnit, mandatory mix q, People Playwright per docs/e2e-testing.md and coverage target at least 95 percent new code. Review full staged and unstaged diff, preserve PR0 changes, report exact command results and coverage exceptions. Update engine/release documentation as needed. No commit/push/PR.",
+  "id": "zaq-dln.2",
+  "labels": [],
+  "parent": "zaq-dln",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-dln] Validate canonical merge and People admin journey",
+  "type": "task",
+  "updated_at": "2026-09-10T15:16:28Z"
+}
