@@ -10,11 +10,15 @@
     {
       "text": "Stopped before code edits per user escalation instruction. Semantic decision needed: completed Step.Run results are replay inputs for resumable runs (lib/zaq/engine/workflows/step_runner.ex:102-109); run steps snapshots are explicitly immutable even for in-progress runs (docs/services/workflows.md:367-369). Does historical preservation exclude all execution records belonging to nonterminal runs, allowing narrow typed rewrites there, or must those remain immutable and merging instead reject affected resumable runs? The latter adds a merge policy requiring approval; an alias-resolution layer would expand scope. No source/test/docs files changed; existing PR0 staged/unstaged changes preserved. Planned dependency chain: zaq-dln.3 -\u003e zaq-dln.1 -\u003e zaq-dln.2. Tests and quality checks not run because implementation is blocked before edits.",
       "timestamp": "2026-09-10T15:16:53Z"
+    },
+    {
+      "text": "User decision: workflow execution snapshots and cached results remain unchanged, including resumable runs. Never block merge for these records, remap them, retry them, or introduce failure machinery. Deleted references may fail through existing behavior; retry is a user decision. Preserve actual relational references and narrowly typed live definitions/scheduled jobs only. Continue canonical merge plus thin release normalization.",
+      "timestamp": "2026-09-10T15:19:57Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-dln] Canonical People merge refactor",
   "type": "epic",
-  "updated_at": "2026-09-10T15:16:53Z"
+  "updated_at": "2026-09-10T15:19:57Z"
 }
