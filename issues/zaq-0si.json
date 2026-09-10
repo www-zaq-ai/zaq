@@ -9,9 +9,15 @@
   "description": "Owner: Person schema and People email matching. Tests first: both changesets trim Unicode whitespace/lowercase/blank nil, omitted optional fields unchanged, canonical create/update uniqueness rejection, matching and channel find-or-create, bounded properties. Keep email unique constraint. No external mocks. Update schema docs and Engine People documentation. Step 1 of approved PR 0; current worktree only.",
   "id": "zaq-0si",
   "labels": [],
+  "comments": [
+    {
+      "text": "Completed both Person changesets and shared email matching canonicalizer. Optional email semantics and unique constraint retained. Incoming case-equivalent create/update rejection, channel discovery/backfill, atom/string attrs and malformed email validation covered. Final focused related suite: 221 tests + 2 properties, zero failures. Coverage Person 100%, People 97.0%.",
+      "timestamp": "2026-09-10T14:50:45Z"
+    }
+  ],
   "priority": 2,
   "status": "closed",
   "title": "[zaq-0si] PR 0 normalize Person email storage and matching",
   "type": "task",
-  "updated_at": "2026-09-10T14:32:11Z"
+  "updated_at": "2026-09-10T14:50:45Z"
 }
