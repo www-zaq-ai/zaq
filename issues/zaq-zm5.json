@@ -8,9 +8,15 @@
   "description": "Step 3. Owner: test/e2e/specs/people.spec.js and docs/services/engine.md. Extend browser test mixed-case create/edit/reload and duplicate rejection before final implementation validation. Run relevant ExUnit with coverage, mix format, mandatory mix q, actual People Playwright journey. No mocks. Record exact failures and coverage gaps if environment blocked. No commit/push/PR.",
   "id": "zaq-zm5",
   "labels": [],
+  "comments": [
+    {
+      "text": "Completed docs/services/engine.md canonical email and irreversible merge/deployment documentation; extended test/e2e/specs/people.spec.js create/edit/reload/create-duplicate/update-duplicate journey. Validation: mix format passed; mix q passed format/compile warnings-as-errors/docs warnings-as-errors/strict Credo with no issues; git diff --check passed. Related coverage run: MIX_ENV=test mix coveralls --filter lib/zaq/accounts test/zaq/accounts/people_test.exs test/zaq/accounts/person_email_test.exs test/zaq/accounts/person_email_migration_test.exs test/zaq/engine/people_gateway_test.exs test/zaq_web/live/bo/system/people_live_test.exs test/zaq/agent/tools/people =\u003e 221 tests + 2 properties, zero failures; People 97%, Person 100%. Migration separately instrumented through OTP cover: 99.22%. Actual E2E: npm run test -- specs/people.spec.js --project=journeys-chromium --reporter=line =\u003e bootstrap and 19 tests passed (38.3s Playwright). Initial q test alias warnings fixed; initial red tests were expected TDD; no unresolved blockers. No commit/push/PR, sole implementation owner. Planning chain validated and executed zaq-0si -\u003e zaq-j11 -\u003e zaq-zm5.",
+      "timestamp": "2026-09-10T14:50:46Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-zm5] PR 0 validate People E2E and document merge semantics",
   "type": "task",
-  "updated_at": "2026-09-10T14:43:26Z"
+  "updated_at": "2026-09-10T14:50:46Z"
 }
