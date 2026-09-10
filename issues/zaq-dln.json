@@ -23,11 +23,15 @@
     {
       "text": "Schema + canonical merge + release + BO history implemented. Dependency diamond is intentional: independent release and BO consumers both depend on canonical merge and converge at validation. Identity audit fixed raw Ingestion Person lookup, resource-query discovery and authorization, Record authorization, document permission filters, conversation ownership/history and routing identity. Workflow/Oban JSON and approval audit left unchanged. Initial E2E blocked by missing schema in E2E DB; applied schema-only migration to isolated E2E database. People E2E now 57/57 passing across Firefox/WebKit/Chromium. Focused tests 2 properties + 125 tests passing; broader related regression run exposed resource-query private-descriptor filtering and Record filter N+1, both being corrected. Initial mix q had only alias Credo suggestions, addressed.",
       "timestamp": "2026-09-10T15:56:34Z"
+    },
+    {
+      "text": "Independent review blocker fixed in zaq-25o: explicit missing Person IDs now discard stale teams in both document query builders; explicit nil/team contexts retained. Regressions cover hard-delete merge loser before/after survivor deletion and unrelated missing ID. Relevant suite 125 tests + 5 properties passed; mix format, mix q and diff check passed. No commit.",
+      "timestamp": "2026-09-10T16:22:34Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "[zaq-dln] Canonical People merge refactor",
   "type": "epic",
-  "updated_at": "2026-09-10T16:14:04Z"
+  "updated_at": "2026-09-10T16:22:34Z"
 }
