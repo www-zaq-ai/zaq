@@ -9,9 +9,15 @@
   "id": "zaq-h8q.2",
   "labels": [],
   "parent": "zaq-h8q",
+  "comments": [
+    {
+      "text": "FINAL: mix format passed; mix q passed (format, compile/docs warnings-as-errors, strict Credo 1172 source files no issues). Exact related-suite command: mix coveralls.json test/zaq/accounts test/zaq/permissions test/zaq/contracts/record/authorization_test.exs test/zaq/ingestion/document_access_test.exs test/zaq/ingestion/document_access_filesystem_test.exs test/zaq/ingestion/document_access_skip_permissions_test.exs test/zaq/engine/conversations_test.exs test/zaq/engine/incoming_message_routing_test.exs test/zaq/agent/tools/resources/query_resources_test.exs test/zaq/engine/people_gateway_test.exs test/zaq/engine/notifications/notification_log_test.exs test/zaq_web/live/bo/system/people_live_test.exs --seed 278855 -\u003e 6 properties, 572 tests, 0 failures, exit 0. Coverage cover/excoveralls.json: changed application executable lines vs HEAD incl untracked lib = 239/250 (95.60%); PersonMerger 99.0%, normalization 100%, Person 100%, People 96.9%, BO People 96.6%. Full owner-file legacy coverage gaps remain tracked zaq-c1k. From test/e2e: npx playwright test specs/people.spec.js --reporter=line --max-failures=2 -\u003e 57 passed (Firefox/WebKit/Chromium), 2.6m. Repo-only fresh full schema/data replay passed on final behavioral code; last edit after browser/replay was phone-query formatting only. git diff HEAD --check passed; reviewed tracked staged/unstaged and all new schema/data/merger/tests. Searches confirm no tombstone fields/changesets, merge_person_references methods, or Release.normalize_person_emails in lib; Release diff empty. Prior PR0 staging and missing-actor security fix preserved. No portal/auth changes, commits, pushes, PRs or production data operations. Nonfatal preexisting license_manager configuration warning persists.",
+      "timestamp": "2026-09-10T20:20:36Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-h8q.2] Validate and review alias refactor churn",
   "type": "task",
-  "updated_at": "2026-09-10T19:54:35Z"
+  "updated_at": "2026-09-10T20:20:36Z"
 }
