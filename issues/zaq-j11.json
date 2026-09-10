@@ -11,9 +11,15 @@
   "description": "Step 2. Owner: self-contained Ecto migration. Audit all people/channel FKs, permissions dual targets, notification logical refs and workflow JSON. Tests first: lowest-ID multiway survivor, missing-field/metadata fill, teams/channels/rights union, conversations and notifications repointed, routing uniqueness conflicts deterministic, Unicode parity, blank identities not merged, rollback and irreversible down. Use real sandbox DB, no mocks. Document exact merge policy and irreversible rollout. Depends on normalization step.",
   "id": "zaq-j11",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented and validated self-contained transactional migration. Audit: channels, resource_permissions, incoming_message_routing_rules, conversations FKs; legacy preferred_channel_id FK dynamically discovered; team_ids array union; notification typed refs; step_approvals approved_by; workflow nodes/edges/settings, run events/snapshots, action inputs/results, Oban args named JSON person slots. Lowest Person ID wins, recursive missing-field metadata fill, exact channel union/latest interaction, split dual person+team grants before rights union, survivor routing policy wins conflicts. Archive original collision rows. No mutable application module calls. Default transaction and ordered table locks; deployment must quiesce application nodes for in-memory identities. Focused tests pass including Unicode migration/storage parity property and rollback.",
+      "timestamp": "2026-09-10T14:44:50Z"
+    }
+  ],
   "priority": 2,
   "status": "closed",
   "title": "[zaq-j11] PR 0 merge canonical email collisions transactionally",
   "type": "task",
-  "updated_at": "2026-09-10T14:43:25Z"
+  "updated_at": "2026-09-10T14:44:50Z"
 }
