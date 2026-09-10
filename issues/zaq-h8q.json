@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-10T19:38:08Z",
+  "description": "Approved BUILD replacing tombstones in current uncommitted PR. Steps: tests/schema and PersonMerger owner API design -\u003e migrate canonical merge and lookup -\u003e thin data migration/normalization and BO label history -\u003e validation. Preserve PR0 and missing-actor security fix. No commits/push/PR. Alias arrays + history internal only, inherited aliases retained even under retain_redirect:false, deliberate canonical survivor deletion removes aliases with identity. Snapshots/jobs/approval immutable; generic owner APIs only, no merge logic in owner modules. DAG: schema_and_merger -\u003e migration_and_ui -\u003e validation.",
+  "id": "zaq-h8q",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Survivor-owned identity aliases and focused merger",
+  "type": "epic",
+  "updated_at": "2026-09-10T19:38:08Z"
+}
