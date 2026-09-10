@@ -18,11 +18,15 @@
     {
       "text": "BUILD supersedes prior scope: merge_persons/3 with default opts retains inactive redirects; nullable self FK, timestamp and original name/email; canonical old-ID reads, flat chains, protected deletion, excluded normal discovery. Historical workflow snapshots/results and approvals immutable. Small redirect schema migration replaces duplicate normalization migration; thin release operation defaults redirects. Add approved BO survivor merged-entry history. No other editors, status confirmed PR0-only. Conservative deletion policy: reject deleting a canonical survivor while redirect rows reference it.",
       "timestamp": "2026-09-10T15:28:49Z"
+    },
+    {
+      "text": "Schema + canonical merge + release + BO history implemented. Dependency diamond is intentional: independent release and BO consumers both depend on canonical merge and converge at validation. Identity audit fixed raw Ingestion Person lookup, resource-query discovery and authorization, Record authorization, document permission filters, conversation ownership/history and routing identity. Workflow/Oban JSON and approval audit left unchanged. Initial E2E blocked by missing schema in E2E DB; applied schema-only migration to isolated E2E database. People E2E now 57/57 passing across Firefox/WebKit/Chromium. Focused tests 2 properties + 125 tests passing; broader related regression run exposed resource-query private-descriptor filtering and Record filter N+1, both being corrected. Initial mix q had only alias Credo suggestions, addressed.",
+      "timestamp": "2026-09-10T15:56:34Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-dln] Canonical People merge refactor",
   "type": "epic",
-  "updated_at": "2026-09-10T15:28:49Z"
+  "updated_at": "2026-09-10T15:56:34Z"
 }
