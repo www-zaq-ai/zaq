@@ -9,9 +9,15 @@
   "id": "zaq-h8q.3",
   "labels": [],
   "parent": "zaq-h8q",
+  "comments": [
+    {
+      "text": "Final review fixed additional ordinary alias paths: bulk delete resolves/deduplicates aliases; conversation/routing/channel owner updates accept alias IDs; PersonMerger deletes losers via ordinary People.delete_person. Stable row locks use ID order, channel priority sorting happens after locking. Found/reproduced advisory-lock deadlock with async document-schema fixtures: ordinary person creation waited on global merge lock. Removed inherited tombstone-era locking wrappers from normal profile/channel/delete writes; PersonMerger.resource_transaction only takes merge lock for a merge request, before fields mutate. Added independent-connection regression proving ordinary person creation completes while unrelated merge lock is held. Opposing merges remain serialized with one self-merge rejection. Failing seed 278855 now passes full related coverage suite.",
+      "timestamp": "2026-09-10T20:20:35Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-h8q.3] Implement protected aliases and focused merger with ordinary owner APIs",
   "type": "task",
-  "updated_at": "2026-09-10T19:54:34Z"
+  "updated_at": "2026-09-10T20:20:35Z"
 }
