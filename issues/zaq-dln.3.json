@@ -4,7 +4,8 @@
     "zaq-dln.5"
   ],
   "blocks": [
-    "zaq-dln.1"
+    "zaq-dln.1",
+    "zaq-dln.4"
   ],
   "created": "2026-09-10T15:16:28Z",
   "description": "Owners: Accounts.People; existing permission, routing, conversation, notification, workflow and scheduled-action contexts as justified by inventory. Tests first in canonical merge tests: scalar/list IDs and structs, explicit survivor precedence with original attributes, sorted locking, all losers deleted before canonical email write, channel metadata/latest activity, teams and grants union including separate dual-target team rights, scoped routing conflicts, live typed refs, nested update rollback and mid-failure rollback. Real sandbox DB, no mocks. Document merge contract and owner inventory in engine service docs. BLOCKER before implementation: clarify historical versus live cached workflow results and immutable run snapshots. StepRunner lines 102-109 replays completed result records into downstream steps; leaving losing IDs untouched can break resumable runs, but rewriting changes historical execution data. Broad JSON rewriting and new identity-resolution infrastructure excluded by scope.",
@@ -15,5 +16,5 @@
   "status": "in_progress",
   "title": "[zaq-dln.3] Strengthen canonical group merge and owner reconciliation",
   "type": "task",
-  "updated_at": "2026-09-10T15:29:06Z"
+  "updated_at": "2026-09-10T15:29:07Z"
 }
