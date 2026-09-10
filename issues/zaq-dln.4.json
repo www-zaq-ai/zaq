@@ -6,14 +6,15 @@
   "blocks": [
     "zaq-dln.2"
   ],
+  "closed_at": "2026-09-10T16:14:03Z",
   "created": "2026-09-10T15:28:50Z",
   "description": "Approved UI scope only: existing DS and People detail section showing previous ID, original name/email, merged timestamp via admin-specific People gateway history query and NodeRouter. Tests first admin merge/history journey with channels/teams and original PR0 mixedcase test preserved. No mocks except existing routed boundary patterns. Docs engine. Depends on merge; precedes validation.",
   "id": "zaq-dln.4",
   "labels": [],
   "parent": "zaq-dln",
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-dln.4] Show merged entries in survivor BO detail",
   "type": "task",
-  "updated_at": "2026-09-10T15:56:34Z"
+  "updated_at": "2026-09-10T16:14:03Z"
 }
