@@ -4,6 +4,7 @@
     "zaq-h8q.1"
   ],
   "blocks": [],
+  "closed_at": "2026-09-10T20:20:37Z",
   "created": "2026-09-10T19:39:02Z",
   "description": "Run mix format focused integration/property + migration replay, strict mix q, all-browser People E2E and changed app coverage \u003e=95 or precise followup. Review all staged/unstaged/untracked files; retain PR0 and zaq-25o missing actor fix. Report old churn removed and APIs. No commits/push/PR.",
   "id": "zaq-h8q.2",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-h8q.2] Validate and review alias refactor churn",
   "type": "task",
-  "updated_at": "2026-09-10T20:20:36Z"
+  "updated_at": "2026-09-10T20:20:37Z"
 }
