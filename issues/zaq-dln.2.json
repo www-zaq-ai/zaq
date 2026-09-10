@@ -10,9 +10,15 @@
   "id": "zaq-dln.2",
   "labels": [],
   "parent": "zaq-dln",
+  "comments": [
+    {
+      "text": "FINAL VALIDATION: mix format passed; mix q passed (format check, warnings-as-errors compile/docs, strict Credo 1168 source files, no issues). Exact coverage command: mix coveralls.json test/zaq/accounts test/zaq/permissions test/zaq/contracts/record/authorization_test.exs test/zaq/ingestion/document_access_test.exs test/zaq/engine/conversations_test.exs test/zaq/engine/incoming_message_routing_test.exs test/zaq/agent/tools/resources/query_resources_test.exs test/zaq/engine/people_gateway_test.exs test/zaq/engine/notifications/notification_log_test.exs test/zaq_web/live/bo/system/people_live_test.exs -\u003e 6 properties, 554 tests, 0 failures (seed 505894). Report cover/excoveralls.json: added executable lines versus HEAD including untracked lib source = 234/246 (95.12%). Whole-file exceptions and exact uncovered added paths tracked zaq-c1k. E2E command from test/e2e: npx playwright test specs/people.spec.js --reporter=line --max-failures=2 -\u003e 57/57 passed across all three browsers on final code, 3.8m. Initial E2E lacked new schema; corrected with MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e mix ecto.migrate (only new schema migration on isolated E2E DB). Earlier discovered regressions fixed; no current failed checks. Known existing license_manager unavailable-config warning remains nonfatal. Reviewed tracked staged/unstaged diff and untracked schema/orchestration/tests, git diff HEAD --check clean. Preserved PR0 staging; no commits/push/PR; no production data operations.",
+      "timestamp": "2026-09-10T16:14:02Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-dln.2] Validate canonical merge and People admin journey",
   "type": "task",
-  "updated_at": "2026-09-10T15:29:07Z"
+  "updated_at": "2026-09-10T16:14:02Z"
 }
