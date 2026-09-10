@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-j11"
+  ],
   "blocks": [],
   "created": "2026-09-10T14:29:34Z",
   "description": "Step 3. Owner: test/e2e/specs/people.spec.js and docs/services/engine.md. Extend browser test mixed-case create/edit/reload and duplicate rejection before final implementation validation. Run relevant ExUnit with coverage, mix format, mandatory mix q, actual People Playwright journey. No mocks. Record exact failures and coverage gaps if environment blocked. No commit/push/PR.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-zm5] PR 0 validate People E2E and document merge semantics",
   "type": "task",
-  "updated_at": "2026-09-10T14:29:51Z"
+  "updated_at": "2026-09-10T14:29:58Z"
 }

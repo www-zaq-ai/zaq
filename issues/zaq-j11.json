@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-0si"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-zm5"
+  ],
   "created": "2026-09-10T14:29:34Z",
   "description": "Step 2. Owner: self-contained Ecto migration. Audit all people/channel FKs, permissions dual targets, notification logical refs and workflow JSON. Tests first: lowest-ID multiway survivor, missing-field/metadata fill, teams/channels/rights union, conversations and notifications repointed, routing uniqueness conflicts deterministic, Unicode parity, blank identities not merged, rollback and irreversible down. Use real sandbox DB, no mocks. Document exact merge policy and irreversible rollout. Depends on normalization step.",
   "id": "zaq-j11",
