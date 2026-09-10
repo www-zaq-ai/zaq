@@ -4,14 +4,15 @@
   "blocks": [
     "zaq-dln.3"
   ],
+  "closed_at": "2026-09-10T16:14:03Z",
   "created": "2026-09-10T15:28:50Z",
   "description": "Schema Person dedicated redirect target, original name/email and timestamp; restrictive self FK and self-cycle check. Tests first canonical lookup, discovery exclusion, chains, self/cycle/concurrency and deletion policy. Real sandbox DB, no mocks. Small schema migration replaces unapplied normalization implementation. Docs engine identity contract. Prerequisite to canonical merge implementation.",
   "id": "zaq-dln.5",
   "labels": [],
   "parent": "zaq-dln",
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-dln.5] Add redirect schema and identity contract tests",
   "type": "task",
-  "updated_at": "2026-09-10T15:56:33Z"
+  "updated_at": "2026-09-10T16:14:03Z"
 }
