@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-h8q.1"
+  ],
   "created": "2026-09-10T19:39:02Z",
   "description": "Tests first: adapt redirect tests to alias arrays/history, protected attrs, old-ID query, chains inherited aliases in hard mode, history nameless channel priority/fallback, survivor deletion, validation rollback, generic owner CRUD used independently. Owners: Person schema, People delegate, new PersonMerger all policy/locking/queries; generic Permission CRUD and NotificationLog recipient update only; existing routing upsert/delete and conversation update. Remove all merge wrappers/filter churn. No JSON rewrites. Real DB tests/property/concurrency, no mocks. Schema migration replaces unapplied redirect migration; disposable test DB rollback permitted. Docs identity semantics.",
   "id": "zaq-h8q.3",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-h8q] Implement protected aliases and focused merger with ordinary owner APIs",
   "type": "task",
-  "updated_at": "2026-09-10T19:39:02Z"
+  "updated_at": "2026-09-10T19:39:17Z"
 }
