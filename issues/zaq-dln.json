@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-10T16:14:04Z",
   "created": "2026-09-10T15:16:06Z",
   "description": "Approved current-worktree refactor; preserve existing PR0 changes; no commit/push/PR. Strengthen existing People.merge_persons/2 for scalar or list losers, transactional relationship reconciliation, explicit release-time normalization through canonical merge, tests and E2E. Sequencing: graph LR; merge --\u003e release --\u003e validation. Pending semantic clarification: completed step results in resumable workflow runs are simultaneously historical execution records and live replay inputs.",
   "id": "zaq-dln",
@@ -25,8 +26,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-dln] Canonical People merge refactor",
   "type": "epic",
-  "updated_at": "2026-09-10T15:56:34Z"
+  "updated_at": "2026-09-10T16:14:04Z"
 }
