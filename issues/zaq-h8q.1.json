@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-h8q.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-h8q.2"
+  ],
   "created": "2026-09-10T19:39:01Z",
   "description": "Tests first actual Ecto migration runner + isolated Repo-only fresh schema replay and error rollback; normalization dry/apply/idempotence/Unicode threeway behavior; history BO + all-browser People E2E label/id/time. Remove feature-specific Zaq.Release changes. Small schema then data migration invoking canonical normalization dry_run:false, raises on error. Repo only, no app startup dependencies. Update docs intentional app-code dependency, backups/quiesced writers, generic migration deployment only.",
   "id": "zaq-h8q.1",
