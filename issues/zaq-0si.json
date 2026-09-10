@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-j11"
+  ],
   "created": "2026-09-10T14:29:13Z",
   "description": "Owner: Person schema and People email matching. Tests first: both changesets trim Unicode whitespace/lowercase/blank nil, omitted optional fields unchanged, canonical create/update uniqueness rejection, matching and channel find-or-create, bounded properties. Keep email unique constraint. No external mocks. Update schema docs and Engine People documentation. Step 1 of approved PR 0; current worktree only.",
   "id": "zaq-0si",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-0si] PR 0 normalize Person email storage and matching",
   "type": "task",
-  "updated_at": "2026-09-10T14:29:33Z"
+  "updated_at": "2026-09-10T14:29:58Z"
 }
