@@ -7,14 +7,15 @@
     "zaq-dln.1",
     "zaq-dln.4"
   ],
+  "closed_at": "2026-09-10T16:14:03Z",
   "created": "2026-09-10T15:16:28Z",
   "description": "Implemented approved BUILD: existing merge_persons/2 delegates to /3 with retain_redirect true default; scalar/list structs or IDs; original snapshot, advisory serialization + stable row locking, all loser emails freed before final survivor write. Inactive redirects carry original display identity, flatten chains, prevent self/cycles, restrict deletion, reparent aliases under explicit hard-delete mode. Canonical reads and discovery exclusion audited across People, resource query, Record authorization, permission checks/document filters, ingestion, conversations and routing. Owner APIs preserve channels/team rights/direct grants including dual targets AND person-resource grants, conversations, notification links, scoped routing. Workflow definitions/execution snapshots/results/Oban args/approvals immutable. Tests include group order property, opposing concurrent merges on independent DB connections, old-ID permissions/private-resource access, all references, nested mid-failure rollback. No unresolved semantic blocker; final tests and q pass.",
   "id": "zaq-dln.3",
   "labels": [],
   "parent": "zaq-dln",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-dln.3] Strengthen canonical group merge and owner reconciliation",
   "type": "task",
-  "updated_at": "2026-09-10T16:14:02Z"
+  "updated_at": "2026-09-10T16:14:03Z"
 }
