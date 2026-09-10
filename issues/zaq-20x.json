@@ -6,9 +6,15 @@
   "description": "Independent review blocker: assign_team/unassign_team compute replacement arrays before row locking and overwrite concurrent merged memberships. Tests first: deterministic DB-boundary barriers pause team mutation after initial canonical read, complete real merge, resume assign/remove for survivor and loser; reverse order with team row held before merge snapshots where appropriate. Exercise independent PostgreSQL connections READ COMMITTED, no polling/sleeps, retain existing no-global-lock-normal-writes regression. Implement one-canonical-row FOR UPDATE lock inside local transaction, retry original-ID resolution when selected row disappears after wait/deletion; never acquire global merge lock from team update. Preserve system-team/noop/error contracts. Relevant People/team/merge/concurrency tests, mix format, mix q, git diff check. No commit/push/PR.",
   "id": "zaq-20x",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented in People: assign_team/unassign_team now run the membership read-modify-write in a local Repo transaction. Resolve original ID, FOR UPDATE exactly one canonical Person row, then compute memberships from returned locked version. If row disappeared (including deletion during lock wait under READ COMMITTED), retry original-ID resolution on a fresh statement; missing/forgotten IDs roll back with :not_found. No global merge lock, no other live Person row locked by a team operation, and no later advisory-lock acquisition; existing stable group lock order remains unchanged. System-team rejection/noop assignment behavior preserved. Added 14 deterministic independent-connection tests: assign/remove x survivor/loser/inherited loser alias with merge completing after initial read; reverse ordering with team row held and merger initial snapshot stale; two forgotten-ID failures. Telemetry barriers at actual Repo query boundary, no sleeps/polling/test-only production hooks. Extended ordinary-write concurrency regression to assign and remove teams while unrelated merge advisory lock is held. RED initial six tests all failed with lost memberships. Final exact command: mix test test/zaq/accounts/people_test.exs test/zaq/accounts/person_merge_test.exs test/zaq/accounts/person_merge_concurrency_test.exs test/zaq/accounts/person_team_merge_concurrency_test.exs test/zaq/accounts/person_merge_owner_operations_test.exs test/zaq/accounts/person_email_normalization_test.exs test/zaq/accounts/person_email_data_migration_test.exs test/zaq/engine/people_gateway_test.exs test/zaq_web/live/bo/system/people_live_test.exs -\u003e 2 properties, 208 tests, 0 failures, seed 738022. mix format passed. mix q passed (1173 files, no issues); initial nesting warning fixed. git diff HEAD --check passed. Module/engine docs describe lock/retry contract. No commits/push/PR.",
+      "timestamp": "2026-09-10T20:35:43Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-20x] Serialize team read-modify-write with affected person merges",
   "type": "bug",
-  "updated_at": "2026-09-10T20:24:54Z"
+  "updated_at": "2026-09-10T20:35:43Z"
 }
