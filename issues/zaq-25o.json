@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-10T16:22:35Z",
   "created": "2026-09-10T16:18:29Z",
   "description": "Independent review blocker in DocumentPermission.canonical_subject/2: missing nonnil Person currently retains supplied teams. Tests first through DocumentAccess.list_permitted_document_ids/3 and list_accessible_documents/1: hard-delete merge loser with stale team snapshot, before/after survivor deletion, and unrelated missing ID. Preserve explicit nil + team context as current tests require. Owner DocumentPermission: normalize missing explicit identity to nil/empty teams, dispatch into nil-safe public-only query clauses (never nil == interpolation). Real sandbox DB, no mocks; existing normalization/permission properties retained. Update identity docs and issue decisions. Run focused DocumentAccess/permission/merge tests, mix format, mandatory mix q; no commit/push/PR.",
   "id": "zaq-25o",
@@ -13,8 +14,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-25o] Reject stale team rights for missing document actors",
   "type": "bug",
-  "updated_at": "2026-09-10T16:22:34Z"
+  "updated_at": "2026-09-10T16:22:35Z"
 }
