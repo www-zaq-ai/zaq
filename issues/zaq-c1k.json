@@ -6,9 +6,15 @@
   "description": "Non-blocking coverage follow-up from completed working-tree refactor zaq-dln. Final targeted coverage run: added executable lines 234/246 = 95.12%; People 97.5%, Person 100%, normalization 95.2%, routing 97.1%, resource Query 97.1%, People LiveView 96.6%, gateway 98.2%, DocumentPermission 95.8%. Existing whole-file contexts below 95 in this focused suite: Record.Authorization 85.4%, Permissions 92.6%, Conversations 87.8%, NotificationLog 93.9%, Ingestion 3.5%, Release 36.4%. Rationale: large unrelated legacy surfaces (especially ingestion orchestration and preexisting release migrate/rollback) were not broadened for this scoped refactor; all four new release executable lines covered, notification merge path covered. Re-measure with complete owning-domain suites, then target remaining uncovered branches. Added-line gaps: People email-channel-link error rollback; Query unused public-person get variant; BO gateway error fallback; Record struct filtering/nil paths; Ingestion can_access_file old-ID path; Permission team-only split and unsaved-person path; conversation threading old-ID path; DocumentPermission redirect-team path; normalization failed-apply arm. Preserve production contracts, no test-only seams. This exception is documented because user requested \u003e=95 new code OR explain gaps, not unrelated whole-module expansion.",
   "id": "zaq-c1k",
   "labels": [],
+  "comments": [
+    {
+      "text": "Updated after alias/PersonMerger refactor zaq-h8q: changed app coverage 239/250=95.60% on 572 tests+6 properties. New PersonMerger 99.0% (only team-only split skip line215 missed), normalization100%, Person100%. Remaining whole-file exceptions in scoped suite: Record.Authorization85.4%, Permissions92.2%, Conversations87.8%, NotificationLog94.3%, Ingestion3.5%; no feature-specific Release code remains. Generic new owner CRUD/recipient/routing APIs covered, large preexisting unrelated module surfaces not expanded. Retain followup for full owning-domain coverage and remaining missed new negative/fallback branches.",
+      "timestamp": "2026-09-10T20:20:36Z"
+    }
+  ],
   "priority": 3,
   "status": "open",
   "title": "[zaq-c1k] Follow up whole-file coverage for merge owner contexts",
   "type": "task",
-  "updated_at": "2026-09-10T16:14:02Z"
+  "updated_at": "2026-09-10T20:20:36Z"
 }
