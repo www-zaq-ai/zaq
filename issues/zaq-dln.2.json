@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "zaq-dln.1"
+    "zaq-dln.1",
+    "zaq-dln.4"
   ],
   "blocks": [],
   "created": "2026-09-10T15:16:28Z",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "[zaq-dln.2] Validate canonical merge and People admin journey",
   "type": "task",
-  "updated_at": "2026-09-10T15:16:40Z"
+  "updated_at": "2026-09-10T15:29:07Z"
 }
