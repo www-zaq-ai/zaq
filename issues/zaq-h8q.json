@@ -11,11 +11,15 @@
     {
       "text": "Architecture implemented: PersonMerger owns all locking/group snapshots/dedupe/policy and explicit queries. People.merge_persons remains /2 + /3 public delegate; protected alias bigint[] + JsonArray history, single OR/GIN lookup. Removed tombstone schema/filters/recursive lookup, owner merge methods, all Zaq.Release feature changes (zero diff). Generic reusable operations: Permission CRUD, validated routing update(force:true), typed NotificationLog.update_recipient person/user/clear; existing conversation/channel APIs used. Deliberate canonical survivor deletion deletes identity+aliases; missing-actor public-only security regression retained. retain_redirect:false omits newly merged IDs/history but retains inherited entries unchanged. Repo-only fresh replay passed on isolated _person_alias_replay DB, dropped after test; actual Ecto runner success/idempotence/failure tests pass. Nameless label test verifies primary weight and fallback ID, no history email field. Planning docs already read in prior steps; code-quality/design skills remain loaded.",
       "timestamp": "2026-09-10T19:54:35Z"
+    },
+    {
+      "text": "Final review race fixed in zaq-20x: affected-row-only atomic team mutations with original-ID retry if merge deletes selected row. Canonical team replacement computed after lock; no unrelated-write global lock reinstated. 14 deterministic new regressions plus extended existing no-global-lock test; final 208 tests + 2 properties, format/q/diff checks pass.",
+      "timestamp": "2026-09-10T20:35:43Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "[zaq-h8q] Survivor-owned identity aliases and focused merger",
   "type": "epic",
-  "updated_at": "2026-09-10T20:20:37Z"
+  "updated_at": "2026-09-10T20:35:43Z"
 }
