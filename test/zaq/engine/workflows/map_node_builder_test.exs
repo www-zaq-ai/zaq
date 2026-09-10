@@ -18,7 +18,10 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilderTest do
 
   defp build_spec(params) do
     params = Map.merge(%{"over" => "items", "body" => body()}, params)
-    assert {:ok, spec} = MapNodeBuilder.build_spec("map_contacts", params, 2, nil)
+
+    assert {:ok, spec} =
+             MapNodeBuilder.build_spec("map_contacts", params, 2, Ecto.UUID.generate())
+
     spec
   end
 

@@ -254,40 +254,400 @@ defmodule Zaq.Engine.Workflows.Action do
 
   defp detect_batch_field(module) do
     if function_exported?(module, :schema, 0) do
-      module.schema()
-      |> required_schema_fields()
+      module
+      |> field_specs()
+      |> Enum.filter(&elem(&1, 2))
+      |> Enum.flat_map(&batch_candidate/1)
       |> classify_batch_fields(module)
     else
       {:error, {:no_batch_field, module}}
     end
   end
 
-  defp required_schema_fields(schema) when is_list(schema) do
-    Enum.filter(schema, fn {_field, opts} -> opts[:required] == true end)
+  @doc """
+  Reads one param under either key form, as `{:ok, value}` or `:error`.
+
+  Params reach an action atom-keyed from `DagBuilder` but string-keyed from a direct
+  tool call, so both forms are tried. An atom is only ever looked up, never created,
+  so a string key from an LLM cannot grow the atom table.
+
+  Presence, not truthiness: `nil` and `false` come back as `{:ok, nil}` and
+  `{:ok, false}`, which is what tells "sent as empty" from "not sent".
+  """
+  @spec fetch_param(map(), atom() | String.t()) :: {:ok, term()} | :error
+  def fetch_param(params, key) when is_atom(key) do
+    with :error <- Map.fetch(params, key), do: Map.fetch(params, Atom.to_string(key))
   end
 
-  defp required_schema_fields(%Zoi.Types.Map{fields: fields}) when is_list(fields) do
-    fields
-    |> Enum.filter(fn {_field, schema} -> Meta.required?(schema.meta) end)
-    |> Enum.map(fn {field, schema} -> {field, [type: zoi_batch_type(schema)]} end)
+  def fetch_param(params, key) when is_binary(key) do
+    with :error <- Map.fetch(params, key) do
+      Map.fetch(params, String.to_existing_atom(key))
+    end
+  rescue
+    ArgumentError -> :error
   end
 
-  defp required_schema_fields(_schema), do: []
+  @doc """
+  Every field of an action's input schema as `{name, zoi_schema, required?}`.
 
-  defp zoi_batch_type(%Zoi.Types.Array{}), do: :list
-  defp zoi_batch_type(%Zoi.Types.Map{}), do: :map
+  Both dialects are read into one vocabulary — Zoi — so a value is judged the same way
+  by the contract before a run and by `StepRunner` during one.
 
-  defp zoi_batch_type(%Zoi.Types.Union{schemas: schemas}) do
-    if Enum.any?(schemas, &(zoi_batch_type(&1) == :list)), do: :list, else: :any
+  The translation is **JSON-shaped**, because a payload arrives from a tool call or a
+  JSONB definition:
+
+    * a JSON object is string-keyed, so `:map` becomes a key-agnostic `Zoi.map()`;
+    * JSON has one number type, so a `:float` field takes `4` as readily as `4.0`;
+    * `{:in, [...]}` choices are authored as atoms but sent as strings, so both forms
+      are accepted.
+
+  A type with no faithful translation becomes `Zoi.any()` — it judges nothing rather
+  than judging wrongly.
+  """
+  @spec field_specs(String.t() | module() | nil) :: [{String.t(), term(), boolean()}]
+  def field_specs(module), do: specs_of(module, :schema)
+
+  @doc """
+  Every field of an action's **output** schema, in the same shape `field_specs/1`
+  returns for the input one.
+
+  `InputContract` reads it to decide whether a predecessor already feeds a field.
+  """
+  @spec output_field_specs(String.t() | module() | nil) :: [{String.t(), term(), boolean()}]
+  def output_field_specs(module), do: specs_of(module, :output_schema)
+
+  defp specs_of(module, fun) when is_atom(module) and not is_nil(module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, fun, 0),
+      do: specs_from(apply(module, fun, [])),
+      else: []
   end
 
-  defp zoi_batch_type(_schema), do: :any
+  defp specs_of(module, fun) do
+    case resolve(module || "") do
+      {:ok, mod} -> specs_of(mod, fun)
+      _ -> []
+    end
+  end
 
-  defp classify_batch_fields(required_fields, module) do
-    {list_fields, item_fields} =
-      Enum.split_with(required_fields, fn {_field, opts} -> list_type?(opts[:type]) end)
+  defp specs_from(%Zoi.Types.Map{fields: fields}) when is_list(fields),
+    do: Enum.map(fields, fn {name, sub} -> {to_string(name), sub, required_field?(sub)} end)
 
-    names = fn fields -> Enum.map(fields, fn {f, _} -> f end) end
+  defp specs_from(schema) when is_list(schema) do
+    Enum.map(schema, fn {name, opts} ->
+      {to_string(name), zoi_type(Keyword.get(opts, :type, :any)),
+       Keyword.get(opts, :required) == true}
+    end)
+  end
+
+  defp specs_from(_schema), do: []
+
+  # Whether the payload must carry the field, read the way `Zoi.parse/2` reads it.
+  #
+  # A defaulted field is omittable — `Zoi.parse/2` fills the value in — but it does not
+  # say so through `meta`: `Zoi.default/2` leaves `required` unset, and `Zoi.Types.Map`
+  # stamps `required: true` on every field that arrives that way. So the wrapper is what
+  # answers here, and `meta` only for the fields that carry no default.
+  defp required_field?(%Zoi.Types.Default{}), do: false
+  defp required_field?(field), do: Meta.required?(field.meta)
+
+  @doc """
+  Why `value` fails `spec`, in one line — or `nil` when it does not fail.
+
+  `field_errors/2` rendered for a log or an error reason. Every failure is reported —
+  a caller fixing one at a time round-trips once per rule — joined with `"; "` so the
+  result stays one line.
+
+  Reach for `field_errors/2` instead wherever the caller can act on structure; this is
+  the prose projection of the same verdict.
+  """
+  @spec explain(term(), term()) :: String.t() | nil
+  def explain(spec, value) do
+    case field_errors(spec, value) do
+      [] -> nil
+      errors -> errors |> Zoi.prettify_errors() |> String.replace("\n", "; ")
+    end
+  end
+
+  defp wrong_kind?(%{code: :invalid_type, path: []}), do: true
+  defp wrong_kind?(_error), do: false
+
+  @doc """
+  Why `value` fails `spec`, as `Zoi.Error` structs — or `[]` when it does not fail.
+
+  The structured half, and the one to reach for: each error keeps its `code`
+  (`:required`, `:invalid_type`, `:invalid_length`, …) and its `path` into the value,
+  so a reader can act on it without parsing prose. `explain/2` renders the same verdict
+  as one line.
+
+  Zoi names what a field wanted but never what arrived, so the one case it phrases
+  poorly is rebuilt here: a bare type mismatch *at* the value becomes
+  `"expected integer, got string"`. A rule the value broke, or a failure Zoi located
+  deeper, is already phrased against what the author declared and passes through with
+  its path intact.
+  """
+  @spec field_errors(term(), term()) :: [Zoi.Error.t()]
+  def field_errors(spec, value) do
+    value = json_value(spec, value)
+
+    case Zoi.parse(spec, value) do
+      {:ok, _} ->
+        []
+
+      {:error, errors} ->
+        case Enum.reject(errors, &wrong_kind?/1) do
+          [] -> [kind_mismatch(spec, value)]
+          rest -> rest
+        end
+    end
+  end
+
+  # The JSON-shaped translation, applied to the Zoi dialect as it already is to the
+  # NimbleOptions one. It shapes the *value*, never the spec: widening a spec would
+  # drop the author's refinements on the widened branch — a `Zoi.float() |> Zoi.gt(0)`
+  # union'd with `Zoi.integer()` would accept `0` through the integer side, silently
+  # losing the bound.
+  #
+  # A structured `Zoi.object`
+  # declares atom keys and defaults to `unrecognized_keys: :strip`, so a string-keyed
+  # map — which is every trigger payload, since JSON has no atoms — is stripped to
+  # `%{}` and parses clean against rules that never ran. Widening the spec cannot fix
+  # that: the stripping object accepts the value either way.
+  #
+  # So the keys the schema *declares* are renamed on the value before it is judged.
+  # Only declared names are touched, and only where the value carries the string form,
+  # so an open `Zoi.map()` and any key the author did not declare are left alone. This
+  # is the single place a value is judged, so the contract and `StepRunner` cannot
+  # disagree about it.
+  defp json_value(%Zoi.Types.Default{inner: inner}, value), do: json_value(inner, value)
+
+  defp json_value(%Zoi.Types.Array{inner: inner}, value)
+       when is_list(value) and not is_nil(inner),
+       do: Enum.map(value, &json_value(inner, &1))
+
+  # JSON has one number type, so `3` is what a weight of `3.0` arrives as. Widening to
+  # a float keeps every rule the author declared applying to it.
+  defp json_value(%Zoi.Types.Float{}, value) when is_integer(value), do: value * 1.0
+
+  defp json_value(%Zoi.Types.Map{fields: fields}, value)
+       when is_list(fields) and fields != [] and is_map(value) do
+    Enum.reduce(fields, value, fn {name, sub}, acc ->
+      key = to_string(name)
+
+      case Map.fetch(acc, key) do
+        {:ok, held} -> acc |> Map.delete(key) |> Map.put(name, json_value(sub, held))
+        :error -> acc
+      end
+    end)
+  end
+
+  defp json_value(_spec, value), do: value
+
+  defp kind_mismatch(spec, value) do
+    Zoi.Error.invalid_type(schema_kind(spec),
+      issue: "expected #{schema_kind(spec)}, got #{value_kind(value)}"
+    )
+  end
+
+  @doc """
+  A `Zoi.Error` as a JSON-encodable map: `%{path:, code:, message:}`.
+
+  `Zoi.Error` has no `Jason.Encoder` and its `issue` is a tuple, so it cannot cross a
+  tool boundary. This is the only projection that can, so a refusal reads the same
+  wherever it surfaces.
+
+  `path` stays a list of segments: a reader cannot mistake `["input", "name"]` for a
+  flat key, and a list index (`["rows", 0, "email"]`) has no dotted spelling at all.
+  `issue` is dropped — an unrendered template, noise to everyone but a translator.
+  """
+  @spec error_json(Zoi.Error.t()) :: %{
+          path: [String.t() | integer()],
+          code: atom(),
+          message: String.t()
+        }
+  def error_json(%Zoi.Error{code: code, message: message, path: path}),
+    do: %{path: Enum.map(path, &segment/1), code: code, message: message}
+
+  defp segment(segment) when is_integer(segment) or is_binary(segment), do: segment
+  defp segment(segment), do: to_string(segment)
+
+  @doc """
+  What a field accepts, as a JSON-encodable JSON Schema map.
+
+  Takes the specs a path reaches — the value the contract's expectations hold — and
+  renders them through `Zoi.JSONSchema.encode/1`, so the rules the author declared
+  travel with the refusal rather than only the kind: `minLength`, `maximum`,
+  `pattern`, `enum`, and a nested object's `properties`.
+
+  A path nothing types renders `%{"type" => "any"}` rather than nothing at all. An
+  absent entry reads as a question, and a reader asked what a field accepts answers a
+  question it cannot look up by inventing — which is the failure this exists to
+  prevent.
+
+  A path several nodes read renders `allOf`, because the value has to satisfy each of
+  them: every one of those nodes runs.
+  """
+  @spec schema_json([term()]) :: map()
+  def schema_json([]), do: %{"type" => "any"}
+  def schema_json([spec]), do: json_schema(spec)
+  def schema_json(specs) when is_list(specs), do: %{"allOf" => Enum.map(specs, &json_schema/1)}
+
+  defp json_schema(spec), do: spec |> Zoi.JSONSchema.encode() |> normalise_schema()
+
+  # `Zoi.JSONSchema.encode/1` returns atom keys and atom values, and stamps `$schema`
+  # on every node. A tool result is JSON, so both sides are stringified and the
+  # dialect marker is dropped — twelve copies of it say nothing a reader can use.
+  defp normalise_schema(schema) when is_map(schema) do
+    schema
+    |> Map.drop([:"$schema"])
+    |> Map.new(fn {key, value} -> {to_string(key), schema_value(key, value)} end)
+  end
+
+  # The NimbleOptions `{:in, choices}` translation carries both the atom and the string
+  # form of every choice so either can be sent. That is a fact about the *parser*, not
+  # about what a caller may write — rendered verbatim it reads as twice as many options
+  # as the author declared.
+  defp schema_value(:enum, values), do: values |> Enum.map(&to_string/1) |> Enum.uniq()
+  defp schema_value(:required, names), do: Enum.map(names, &to_string/1)
+
+  defp schema_value(:properties, properties),
+    do: Map.new(properties, fn {name, sub} -> {to_string(name), normalise_schema(sub)} end)
+
+  defp schema_value(:items, sub) when is_map(sub), do: normalise_schema(sub)
+  defp schema_value(_key, value) when is_boolean(value) or is_nil(value), do: value
+  defp schema_value(_key, value) when is_atom(value), do: to_string(value)
+  defp schema_value(_key, value), do: value
+
+  @doc """
+  The kind a schema declares, named the way a caller would say it: `"integer"`.
+
+  The mirror of `value_kind/1`, so a mismatch reads in one vocabulary wherever it is
+  found. Every spec `field_specs/1` returns is a Zoi schema, so one reading covers
+  both dialects.
+
+  A composite is named by what it accepts, not by its own struct — a caller needs to
+  know what to send, and `"union"` tells them nothing. A union names its members
+  (`"map or string"`), an enum its values (`"one of: halt, continue"`), an array its
+  element kind (`"list of string"`). That matters most for translated NimbleOptions
+  types, where the composite is an artefact of the translation: `:float` becomes a
+  `float | integer` union, and `{:in, [...]}` an enum carrying both forms of every
+  choice.
+  """
+  @spec schema_kind(term()) :: String.t()
+  def schema_kind(%Zoi.Types.Union{schemas: schemas}) when is_list(schemas) do
+    case schemas |> Enum.map(&schema_kind/1) |> Enum.uniq() do
+      [] -> "any"
+      [kind] -> kind
+      kinds -> Enum.join(kinds, " or ")
+    end
+  end
+
+  def schema_kind(%Zoi.Types.Enum{values: values}) when is_list(values) do
+    case values |> Enum.map(&enum_choice/1) |> Enum.uniq() do
+      [] -> "enum"
+      choices -> "one of: " <> Enum.join(choices, ", ")
+    end
+  end
+
+  def schema_kind(%Zoi.Types.Array{inner: inner}) when not is_nil(inner),
+    do: "list of " <> schema_kind(inner)
+
+  # A default is a wrapper, not a kind: `Zoi.parse/2` judges the value against the
+  # inner schema, so that is the kind a caller has to satisfy. Naming the wrapper
+  # would report the type of every defaulted field as `"default"`.
+  def schema_kind(%Zoi.Types.Default{inner: inner}) when not is_nil(inner),
+    do: schema_kind(inner)
+
+  def schema_kind(%{__struct__: struct}),
+    do: struct |> Module.split() |> List.last() |> String.downcase()
+
+  def schema_kind(_schema), do: "any"
+
+  # A Zoi enum stores `{key, value}` pairs, and the translation puts both the atom and
+  # the string form of a choice in — so render the value and let `uniq` collapse the
+  # pair back into the one choice an author wrote.
+  defp enum_choice({_key, value}), do: to_string(value)
+  defp enum_choice(value), do: to_string(value)
+
+  @doc """
+  The kind of a runtime value, in the same vocabulary `schema_kind/1` uses.
+
+  A struct is named by its module — `"DateTime"` says more than `"map"` when a step
+  refuses one.
+  """
+  @spec value_kind(term()) :: String.t()
+  def value_kind(value) when is_binary(value), do: "string"
+  def value_kind(value) when is_boolean(value), do: "boolean"
+  def value_kind(value) when is_integer(value), do: "integer"
+  def value_kind(value) when is_float(value), do: "float"
+  def value_kind(value) when is_list(value), do: "list"
+  def value_kind(value) when is_atom(value), do: "atom"
+  def value_kind(value) when is_struct(value), do: inspect(value.__struct__)
+  def value_kind(value) when is_map(value), do: "map"
+  def value_kind(_value), do: "unknown"
+
+  # -- NimbleOptions type -> Zoi ------------------------------------------------
+
+  defp zoi_type(:string), do: Zoi.string()
+  defp zoi_type(:boolean), do: Zoi.boolean()
+  defp zoi_type(:integer), do: Zoi.integer()
+  defp zoi_type(:non_neg_integer), do: Zoi.integer(gte: 0)
+  defp zoi_type(:pos_integer), do: Zoi.integer(gt: 0)
+  defp zoi_type(:atom), do: Zoi.atom()
+
+  # One JSON number type: `4` and `4.0` are the same literal, so refusing the integer
+  # form would refuse every whole-numbered float an agent sends.
+  defp zoi_type(:float), do: Zoi.union([Zoi.float(), Zoi.integer()])
+
+  # A JSON object is string-keyed; `Zoi.map/0` is key-agnostic where NimbleOptions'
+  # `:map` is not.
+  defp zoi_type(:map), do: Zoi.map()
+  defp zoi_type(:keyword_list), do: Zoi.any()
+
+  # A bare `:list` names the container without its element type — still a list, and
+  # judged as one, or a field declared `:list` would accept a string.
+  defp zoi_type(:list), do: Zoi.array(Zoi.any())
+  defp zoi_type({:list, inner}), do: Zoi.array(zoi_type(inner))
+  defp zoi_type({:or, types}), do: Zoi.union(Enum.map(types, &zoi_type/1))
+
+  # An author writes the choices as atoms and an agent sends strings, so both forms
+  # of every choice are in the enum.
+  defp zoi_type({:in, choices}) do
+    choices
+    |> Enum.flat_map(fn
+      choice when is_atom(choice) and not is_nil(choice) -> [choice, to_string(choice)]
+      choice -> [choice]
+    end)
+    |> Zoi.enum()
+  end
+
+  defp zoi_type({:custom, _mod, _fun, _args}), do: Zoi.any()
+  defp zoi_type(_type), do: Zoi.any()
+
+  # A batch candidate is `{field_atom, list?}`. The name comes back from `field_specs/1`
+  # as a string, and the atom it names is always already in the table — it is a key of
+  # the module's own compiled schema — so an unknown one means the module is not a
+  # readable action rather than a field to fan out over.
+  defp batch_candidate({name, spec, _required?}) do
+    [{String.to_existing_atom(name), list_spec?(spec)}]
+  rescue
+    ArgumentError -> []
+  end
+
+  # Whether a spec accepts a list, and so whether the fan-out delivers chunks of the
+  # collection (`:list`) or one item at a time (`:item`). Read off the same Zoi spec
+  # `field_specs/1` returns, so the batch path holds no schema-dialect knowledge of its
+  # own. A union counts as a list if any branch does — `Zoi.union([Zoi.array(...), ...])`
+  # is how an action says "a list, or the one thing".
+  defp list_spec?(%Zoi.Types.Array{}), do: true
+
+  defp list_spec?(%Zoi.Types.Union{schemas: schemas}) when is_list(schemas),
+    do: Enum.any?(schemas, &list_spec?/1)
+
+  defp list_spec?(_spec), do: false
+
+  defp classify_batch_fields(candidates, module) do
+    {list_fields, item_fields} = Enum.split_with(candidates, &elem(&1, 1))
+    names = fn fields -> Enum.map(fields, &elem(&1, 0)) end
 
     case {list_fields, item_fields} do
       {[], []} -> {:error, {:no_batch_field, module}}
@@ -297,10 +657,6 @@ defmodule Zaq.Engine.Workflows.Action do
       {multiple, _} -> {:error, {:ambiguous_batch_field, module, names.(multiple)}}
     end
   end
-
-  defp list_type?(:list), do: true
-  defp list_type?({:list, _}), do: true
-  defp list_type?(_), do: false
 
   @doc """
   Resolves a node's `"module"` string and validates the resulting module against

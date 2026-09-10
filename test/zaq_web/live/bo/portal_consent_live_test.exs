@@ -17,7 +17,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 
       # Portal metadata is fetched asynchronously after connect — await it.
-      html = render_async(view)
+      html = render_async(view, 2_000)
       assert has_element?(view, "#portal-consent button", "Activate")
       assert html =~ "Claim your $2 in free AI credits"
     end
@@ -28,7 +28,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
 
-      html = render_async(view)
+      html = render_async(view, 2_000)
       assert html =~ "ZAQ portal is not reachable in this environment"
       refute html =~ "Activate"
     end
@@ -56,7 +56,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLiveTest do
 
       conn = conn_for_portal_user(conn, "declined")
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
-      render_async(view)
+      render_async(view, 2_000)
 
       assert_receive :portal_fetched, 1_000
     end
@@ -74,7 +74,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLiveTest do
       # render_async settles any pending async work. For an accepted user none is
       # started, so this returns immediately; if the eligibility gate regressed,
       # the fetch task would be awaited here and :portal_fetched would arrive.
-      render_async(view)
+      render_async(view, 2_000)
 
       refute_received :portal_fetched
     end
@@ -92,7 +92,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLiveTest do
 
       conn = conn_for_portal_user(conn, "declined")
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
-      render_async(view)
+      render_async(view, 2_000)
 
       view |> element("#portal-consent button", "Activate") |> render_click()
       html = view |> element("button", "Accept") |> render_click()
@@ -112,7 +112,7 @@ defmodule ZaqWeb.Live.BO.PortalConsentLiveTest do
 
       conn = conn_for_portal_user(conn, "declined")
       {:ok, view, _html} = live(conn, ~p"/bo/dashboard")
-      render_async(view)
+      render_async(view, 2_000)
 
       view |> element("#portal-consent button", "Activate") |> render_click()
       html = view |> element("button", "Accept") |> render_click()

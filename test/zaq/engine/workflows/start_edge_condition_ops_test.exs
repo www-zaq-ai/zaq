@@ -358,7 +358,7 @@ defmodule Zaq.Engine.Workflows.StartEdgeConditionOpsTest do
         ]
       }
 
-      assert {:ok, workflow} = DagBuilder.build(steps)
+      assert {:ok, workflow} = DagBuilder.build(steps, run_id: Ecto.UUID.generate())
 
       edge_nodes =
         workflow.graph.vertices

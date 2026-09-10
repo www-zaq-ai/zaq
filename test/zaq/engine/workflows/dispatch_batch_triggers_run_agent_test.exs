@@ -74,19 +74,24 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
     end
   end
 
-  # Identity step: receives one batch item under `input` and passes it through. Its
+  # Identity step: receives one batch item under `item` and passes it through. Its
   # single required field makes the batch fan-out field unambiguous, and forwarding
-  # `input` lets the downstream `DispatchEvent` send it as the event payload.
+  # `item` lets the downstream `DispatchEvent` send it as the event payload.
+  #
+  # Deliberately *not* named `input`: the dispatched payload becomes the trigger
+  # payload of workflow B, and a payload key overwrites the node param of the same
+  # name — so an `input` here would replace B's authored `run_agent` prompt with this
+  # map, which `RunAgent` declares as a string.
   defmodule PrepareItem do
     @moduledoc false
     use Zaq.Engine.Workflows.Action,
       name: "prepare_item",
-      description: "Pass a single batch item through as `input`.",
-      schema: [input: [type: :map, required: true, doc: "One item from the batch."]],
-      output_schema: [input: [type: :map, required: true, doc: "The item, unchanged."]]
+      description: "Pass a single batch item through as `item`.",
+      schema: [item: [type: :map, required: true, doc: "One item from the batch."]],
+      output_schema: [item: [type: :map, required: true, doc: "The item, unchanged."]]
 
     @impl Jido.Action
-    def run(%{input: input}, _ctx), do: {:ok, %{input: input}}
+    def run(%{item: item}, _ctx), do: {:ok, %{item: item}}
   end
 
   setup do

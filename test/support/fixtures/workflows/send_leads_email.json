@@ -146,7 +146,7 @@
             }
           }
         ],
-        "input": "build_history.metadata",
+        "input": "{{build_history.metadata}}",
         "on_fail": "continue"
       },
       "type": "action"
