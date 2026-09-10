@@ -14,11 +14,15 @@
     {
       "text": "User decision: workflow execution snapshots and cached results remain unchanged, including resumable runs. Never block merge for these records, remap them, retry them, or introduce failure machinery. Deleted references may fail through existing behavior; retry is a user decision. Preserve actual relational references and narrowly typed live definitions/scheduled jobs only. Continue canonical merge plus thin release normalization.",
       "timestamp": "2026-09-10T15:19:57Z"
+    },
+    {
+      "text": "BUILD supersedes prior scope: merge_persons/3 with default opts retains inactive redirects; nullable self FK, timestamp and original name/email; canonical old-ID reads, flat chains, protected deletion, excluded normal discovery. Historical workflow snapshots/results and approvals immutable. Small redirect schema migration replaces duplicate normalization migration; thin release operation defaults redirects. Add approved BO survivor merged-entry history. No other editors, status confirmed PR0-only. Conservative deletion policy: reject deleting a canonical survivor while redirect rows reference it.",
+      "timestamp": "2026-09-10T15:28:49Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-dln] Canonical People merge refactor",
   "type": "epic",
-  "updated_at": "2026-09-10T15:19:57Z"
+  "updated_at": "2026-09-10T15:28:49Z"
 }
