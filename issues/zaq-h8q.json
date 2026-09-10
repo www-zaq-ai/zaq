@@ -6,9 +6,15 @@
   "description": "Approved BUILD replacing tombstones in current uncommitted PR. Steps: tests/schema and PersonMerger owner API design -\u003e migrate canonical merge and lookup -\u003e thin data migration/normalization and BO label history -\u003e validation. Preserve PR0 and missing-actor security fix. No commits/push/PR. Alias arrays + history internal only, inherited aliases retained even under retain_redirect:false, deliberate canonical survivor deletion removes aliases with identity. Snapshots/jobs/approval immutable; generic owner APIs only, no merge logic in owner modules. DAG: schema_and_merger -\u003e migration_and_ui -\u003e validation.",
   "id": "zaq-h8q",
   "labels": [],
+  "comments": [
+    {
+      "text": "Architecture implemented: PersonMerger owns all locking/group snapshots/dedupe/policy and explicit queries. People.merge_persons remains /2 + /3 public delegate; protected alias bigint[] + JsonArray history, single OR/GIN lookup. Removed tombstone schema/filters/recursive lookup, owner merge methods, all Zaq.Release feature changes (zero diff). Generic reusable operations: Permission CRUD, validated routing update(force:true), typed NotificationLog.update_recipient person/user/clear; existing conversation/channel APIs used. Deliberate canonical survivor deletion deletes identity+aliases; missing-actor public-only security regression retained. retain_redirect:false omits newly merged IDs/history but retains inherited entries unchanged. Repo-only fresh replay passed on isolated _person_alias_replay DB, dropped after test; actual Ecto runner success/idempotence/failure tests pass. Nameless label test verifies primary weight and fallback ID, no history email field. Planning docs already read in prior steps; code-quality/design skills remain loaded.",
+      "timestamp": "2026-09-10T19:54:35Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-h8q] Survivor-owned identity aliases and focused merger",
   "type": "epic",
-  "updated_at": "2026-09-10T19:39:01Z"
+  "updated_at": "2026-09-10T19:54:35Z"
 }
