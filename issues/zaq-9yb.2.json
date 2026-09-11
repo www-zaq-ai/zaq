@@ -13,11 +13,15 @@
     {
       "text": "Validation: mix format and mix q PASS (format check, compile warnings-as-errors, docs warnings-as-errors, strict Credo; 1174 source files, no issues). mix coveralls test/zaq/accounts test/zaq/permissions test/zaq/ingestion/document_access_test.exs test/zaq/ingestion/ingestion_test.exs test/zaq/contracts/record/authorization_test.exs test/zaq/engine/incoming_message_router_test.exs test/zaq/engine/incoming_message_routing_test.exs test/zaq/engine/conversations_test.exs test/zaq/engine/notifications test/zaq/engine/people_gateway_test.exs test/zaq/agent/tools/resources test/zaq_web/live/bo/system/people_live_test.exs =\u003e 732 tests, 10 properties, 0 failures, exit0. Includes atomic merge/team concurrency and migration callback tests. Coverage exception updated in zaq-c1k. E2E bootstrap npm run test -- specs/people.spec.js hit tool 120s timeout after33 passes; rerun npx playwright test specs/people.spec.js with300s timeout =\u003e57/57 all three browsers,2.9m. Existing missing license_manager configuration warning persists. Full repository ExUnit suite not run; mix q does not include tests. git diff --check clean. No commits/push/PR; prior staged state preserved.",
       "timestamp": "2026-09-11T07:59:10Z"
+    },
+    {
+      "text": "Repo-only fresh database replay also PASS: MIX_ENV=test MIX_TEST_PARTITION=_person_alias_replay mix run --no-start test/support/person_alias_migration_replay.exs. Applied schema + real data migration, validated flat alias lookup and idempotent rerun without starting ZAQ, dropped disposable DB. Final review: alias state references confined to People getter, Person schema, PersonMerger. Generic owner operations retained. Historical snapshots untouched; raw downstream query APIs explicitly require current context.",
+      "timestamp": "2026-09-11T07:59:26Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-9yb] Validate resolved-context contract and People journeys",
   "type": "task",
-  "updated_at": "2026-09-11T07:59:10Z"
+  "updated_at": "2026-09-11T07:59:26Z"
 }
