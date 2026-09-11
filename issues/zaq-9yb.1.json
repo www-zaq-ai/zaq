@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-9yb.2"
   ],
+  "closed_at": "2026-09-11T07:53:54Z",
   "created": "2026-09-11T07:38:42Z",
   "description": "Restore literal Permissions/Conversations/routing/DocumentPermission/resource query semantics and supplied Person authorization. Trace actual actor loads to carry current Person/id/teams once; missing load fails closed. Test proper contexts and no downstream Person queries. No snapshot rewriting; real boundaries no mocks; document preconditions.",
   "id": "zaq-9yb.1",
@@ -18,7 +19,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-9yb] Remove consumer alias logic and resolve actual actor loads",
   "type": "task",
   "updated_at": "2026-09-11T07:53:54Z"
