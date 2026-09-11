@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-7mr.2"
+  ],
   "blocks": [],
   "created": "2026-09-11T17:51:05Z",
   "description": "After migration: first add LiveView add/edit same/cross-person email and telegram conflicts retaining input; correct succeeds. Existing DS field error rendering only; constraint belongs to channel_identifier. Extend existing People E2E scenarios all browsers. Read DESIGN/Phoenix/BO docs before edit. Real gateway integration; retain existing tests.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-7mr] BO duplicate error regression and People browser scenarios",
   "type": "task",
-  "updated_at": "2026-09-11T17:51:05Z"
+  "updated_at": "2026-09-11T17:51:21Z"
 }
