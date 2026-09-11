@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-m3k.3"
+  ],
   "blocks": [],
   "created": "2026-09-11T16:44:25Z",
   "description": "PersonMerger only: group canonical platform/id; delete redundant rows before winner write; preserve survivor-first original ID weight metadata latest activity profile/history. Tests FIRST person_merge_test raw legacy rows both orientations \u003e2 variants and full rollback; extend existing person_email_data_migration_test proves shared merger. No new migration or owner policy APIs; real sandbox DB. Engine doc update.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-m3k] Canonical merge grouping and migration regression",
   "type": "task",
-  "updated_at": "2026-09-11T16:44:25Z"
+  "updated_at": "2026-09-11T16:44:33Z"
 }
