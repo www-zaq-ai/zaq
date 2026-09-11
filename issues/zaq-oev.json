@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T13:31:57Z",
+  "description": "Approved narrow cleanup: derive BO history from selected Person; remove accessor/gateway operation/fetch/state, update direct-history assertions and selection/reload regression coverage, docs. Preserve all staged/uncommitted work and protected changesets/tests. Validate focused ExUnit, existing People E2E merge scenario, mix format and mix q. No commit/push/PR.",
+  "id": "zaq-oev",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Remove redundant Person merge history retrieval",
+  "type": "task",
+  "updated_at": "2026-09-11T13:31:57Z"
+}
