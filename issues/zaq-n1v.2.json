@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-n1v.1"
+  ],
   "created": "2026-09-11T14:18:24Z",
   "description": "Before deletion, mapping: owner operations coordinate lifecycle -\u003e Permissions grant property (extend person/team, external string coordinates, invalid grant and persisted revoke); notification recipient corrections -\u003e NotificationLogTest; routing validation rollback/winner unchanged timestamp/grant identity/moved winner grant -\u003e PersonMergeTest. Loaded rule CRUD already RoutingTest; remove duplicate ordinary relationship routing subcase. Boundary one-load downstream regression -\u003e PersonMergeTest; missing negative identity property -\u003e DocumentAccessTest existing missing-actor example broadened property retaining explicit nil and public behavior. Migration detailed nested metadata/latest activity, all routing partial indexes, immutable workflow/jobs/audit -\u003e PersonMergeTest. Multiway relationship integration -\u003e merge with grants overlap omitted (existing multi-loser property), retain representative channel+conversation delegation in real migration. Email stays distinct. No new mocks/production edits. Test scenarios preexist; preserve unique assertions before removals. Docs only replay command missing in runbook.",
   "id": "zaq-n1v.2",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-n1v] Map and redistribute owner and merge coverage",
   "type": "task",
-  "updated_at": "2026-09-11T14:18:24Z"
+  "updated_at": "2026-09-11T14:18:52Z"
 }
