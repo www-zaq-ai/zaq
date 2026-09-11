@@ -14,11 +14,15 @@
     {
       "text": "Boundary cleanup zaq-9yb supersedes prior consumer alias coverage requirements: these behaviors were intentionally removed. Final focused run 732 tests + 10 properties, all pass. Whole-file coverage: People96.8%, Person100%, PersonMerger100%, email normalization100%, resource Query97.0%, incoming Router97.1%, Routing96.7%, NotificationLog100%, gateway98.2%, PeopleLive96.5%, DocumentPermission100%. Remaining existing contexts: Permissions92.3% (7 missed lines), Record.Authorization90.4% (4), Conversations89.3% (33), Ingestion75.6% (103). Record.Authorization and Conversations production files are restored exactly to HEAD. Main residual risk is untested preexisting owner behaviors outside scoped suites, not downstream alias support. Follow-up: run full owning-domain suites and cover remaining negative/fallback paths; never restore consumer alias canonicalization or add test-only production seams. Actual Person load and no-repeat actor query regressions pass.",
       "timestamp": "2026-09-11T07:59:09Z"
+    },
+    {
+      "text": "zaq-7mr expanded-scope coverage run (26 properties+1251 tests) measured own added executable app lines101/101=100%, People97.2%, Person100%, PersonChannel100%, PersonMerger100%, PeopleLive96.7%. Existing staged-only whole-file exceptions remain outside own production edits: Query52.6% (broad resource operations not selected), Ingestion87.2% (54 legacy lines), Permissions92.3% (7 legacy lines), IdentityResolver77.0% (14 provider-enrichment/fallback lines), NotificationLog94.2% (2 lines). Use owning-domain suites to cover those existing surfaces; no new consumer alias helpers. Migration .exs is loaded dynamically by actual Ecto.Migrator so not included in standard application JSON instrumentation; real replay validates graph, all-data+old-index+ledger rollback even after index-create failure, retry and no-op rerun; graph property and blank failure tests pass.",
+      "timestamp": "2026-09-11T18:29:16Z"
     }
   ],
   "priority": 3,
   "status": "open",
   "title": "[zaq-c1k] Follow up whole-file coverage for merge owner contexts",
   "type": "task",
-  "updated_at": "2026-09-11T07:59:09Z"
+  "updated_at": "2026-09-11T18:29:16Z"
 }
