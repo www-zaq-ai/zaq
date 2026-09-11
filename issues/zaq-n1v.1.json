@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-n1v.2"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-n1v",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-n1v] Combine independent-connection concurrency regressions",
   "type": "task",
-  "updated_at": "2026-09-11T14:18:52Z"
+  "updated_at": "2026-09-11T14:26:12Z"
 }
