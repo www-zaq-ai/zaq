@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T17:51:06Z",
+  "description": "After UI: mix format, mix q, broad requested accounts/tools/ingestion/permissions/authorization and routing/identity/notification/PeopleLiveView tests; independent-connection races multiple seeds, Repo-only migration replay, People E2E all browsers. Measure coverage target95 and record exact exceptions. Preserve staged index and report own unstaged diff. No commit push PR/reset real dev DB.",
+  "id": "zaq-7mr.4",
+  "labels": [],
+  "parent": "zaq-7mr",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-7mr] Replay broad validation coverage and final contract documentation",
+  "type": "task",
+  "updated_at": "2026-09-11T17:51:06Z"
+}
