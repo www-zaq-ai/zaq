@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T14:09:26Z",
+  "description": "Verify current Person source, migrations and tests; condense engine service docs and move essential deployment/restore guidance to a runbook; validate links, diff and mix q. User approved current worktree, preserve all prior staged/uncommitted work, no commit/push/PR.",
+  "id": "zaq-57u",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Condense Person contract docs and preserve deployment runbook",
+  "type": "task",
+  "updated_at": "2026-09-11T14:09:26Z"
+}
