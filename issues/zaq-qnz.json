@@ -10,11 +10,15 @@
     {
       "text": "Implemented tests-first correction. Initial targeted run: 6 properties, 49 tests, 5 failures (missing tuple API, missing revoker forwarding, plus property fixture name fixed). Green run: 6 properties, 49 tests. mix q passes. No inbound resource_permissions FKs in live test DB or migration references; document deletion uses ephemeral IDs and returns not_found after replacement, provider provenance IDs are separate. Added non-person-resource principal collision regression; final validation pending.",
       "timestamp": "2026-09-11T07:23:38Z"
+    },
+    {
+      "text": "Final validation: scoped coveralls.json including owner operations, merge, permissions, People, merge concurrency and team/merge concurrency: 6 properties + 161 tests, 0 failures. PersonMerger whole-file coverage 97.2%; Permissions 92.2% (below 95% whole-file target; retain existing zaq-c1k coverage follow-up rather than broaden correction). mix q passed all formatting/compile/docs/Credo checks. Backend-only correction, no E2E needed. Only two approved implementation files and three approved test files edited; prior uncommitted changes preserved. No commit, push or PR.",
+      "timestamp": "2026-09-11T07:25:10Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-qnz] Reuse permission grant/revoke for person merge correction",
   "type": "task",
-  "updated_at": "2026-09-11T07:23:38Z"
+  "updated_at": "2026-09-11T07:25:10Z"
 }
