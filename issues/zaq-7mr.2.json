@@ -11,9 +11,15 @@
   "id": "zaq-7mr.2",
   "labels": [],
   "parent": "zaq-7mr",
+  "comments": [
+    {
+      "text": "Migration graph/index and tests implemented: narrow projections, star adjacency O(P+C), complete transitive components, singleton dedup using pure PersonMerger.channel_attributes/1, blanks abort before mutation, cleanup flush then index replacement in same default migration transaction. Tests include mixed cross-field chain, isolated IDs, singleton all-platform policy and graph partition/rerun properties. Existing legacy fixtures use tagged serial sandbox DDL restored on rollback; no shared global schema mutation.",
+      "timestamp": "2026-09-11T18:08:12Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-7mr] Private migration graph cleanup and atomic global index",
   "type": "task",
-  "updated_at": "2026-09-11T17:51:21Z"
+  "updated_at": "2026-09-11T18:08:12Z"
 }
