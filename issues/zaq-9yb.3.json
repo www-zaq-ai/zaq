@@ -9,9 +9,15 @@
   "id": "zaq-9yb.3",
   "labels": [],
   "parent": "zaq-9yb",
+  "comments": [
+    {
+      "text": "Audit confirmed current schema refs: channels.person_id, permissions.person_id plus person resource_id, incoming routing person_id, conversations.person_id, notification typed person recipient. Merger already rewrites all through generic owner APIs. Removed id-only resolution and redundant struct-write fetches; preserved team lock/retry algorithm. Targeted run: 7 properties, 250 tests pass.",
+      "timestamp": "2026-09-11T07:44:29Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-9yb] Keep merge references and People lookup at owner boundary",
   "type": "task",
-  "updated_at": "2026-09-11T07:38:50Z"
+  "updated_at": "2026-09-11T07:44:29Z"
 }
