@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-7mr.2"
   ],
+  "closed_at": "2026-09-11T18:34:55Z",
   "created": "2026-09-11T17:51:05Z",
   "description": "Test FIRST in accounts: global email/telegram duplicate add/update, opaque IDs and cross-platform allowance, person/email auto-link rollback, partial/backfill conflict rollback, discovery winner retry, explicit resource merge precedence. Implement PersonChannel named field constraints and People transactions only. Read moduledocs done. Real DB; no mocks. Document runtime contract in engine.md. Branches: valid/idempotent/conflict/invalid/rollback/concurrent.",
   "id": "zaq-7mr.1",
@@ -20,8 +21,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-7mr] Runtime uniqueness reproductions and atomic channel linking",
   "type": "task",
-  "updated_at": "2026-09-11T18:29:16Z"
+  "updated_at": "2026-09-11T18:34:55Z"
 }
