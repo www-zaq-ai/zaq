@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T13:50:15Z",
+  "description": "User-authorized single boundary correction in current dirty worktree; preserve index, no commit/push/PR. Consolidate existing integration/property scenarios through Ecto.Migrator before implementation; remove runtime orchestrator and dry-run API, privately group by canonical email and lowest ID in migration using existing merger serialization and Person storage. No mocks or merger/permissions edits. Validate failure rollback and ledger in Repo-only fresh replay, relationships/history/immutable snapshots/blanks/Unicode/three-way collisions/idempotence, focused tests, mix format, mix q and diff check. Update engine deployment docs. Single cohesive step, no dependencies.",
+  "id": "zaq-8bf",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Move email normalization orchestration into data migration",
+  "type": "task",
+  "updated_at": "2026-09-11T13:50:15Z"
+}
