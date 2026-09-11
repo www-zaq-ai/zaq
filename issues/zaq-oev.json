@@ -6,9 +6,15 @@
   "description": "Approved narrow cleanup: derive BO history from selected Person; remove accessor/gateway operation/fetch/state, update direct-history assertions and selection/reload regression coverage, docs. Preserve all staged/uncommitted work and protected changesets/tests. Validate focused ExUnit, existing People E2E merge scenario, mix format and mix q. No commit/push/PR.",
   "id": "zaq-oev",
   "labels": [],
+  "comments": [
+    {
+      "text": "Cleanup implemented in current worktree; no staging, commits, push or PR. Removed redundant history accessor/gateway operation/fetch/assigns/template input; presentation reads selected Person history with nil fallback. Existing label/id/timestamp markup and protected changesets/tests retained. Normalization uses already loaded Person. Added nil/empty/stored history presentation and selection/refresh/reload regressions. Focused merge+normalization+gateway+LiveView run: 97 tests, 3 properties, 0 failures. Final edited-test checks: 1 LiveView test and normalization 7 tests+1 property pass. npm run test -- specs/people.spec.js --reporter=line -g 'merge keeps selected survivor': 3 passed (Firefox/WebKit/Chromium). mix format scoped to edited code; final mix q passes (1174 files, no issues); git diff --check passes. No removed-symbol refs remain. Cached raw diff matches initial index exactly. Initial new-test reserved flash assignment failure and Credo alias suggestions corrected. Nonblocking existing license_manager configuration warning only. Implementation complete; left uncommitted per user delivery instructions.",
+      "timestamp": "2026-09-11T13:39:43Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-oev] Remove redundant Person merge history retrieval",
   "type": "task",
-  "updated_at": "2026-09-11T13:32:47Z"
+  "updated_at": "2026-09-11T13:39:43Z"
 }
