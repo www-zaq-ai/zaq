@@ -4,6 +4,7 @@
     "zaq-m3k.2"
   ],
   "blocks": [],
+  "closed_at": "2026-09-11T16:55:35Z",
   "created": "2026-09-11T16:44:24Z",
   "description": "Extend existing People merge Playwright scenario via UI channel normalization and assert single normalized email row. Focused storage People identity ingestion migration tests, \u003e=95 new-line coverage, mix format, mix q, git diff --check and verify staged index unchanged. No DB reset: assess existing E2E reset hook before execution. Record exact blockers and counts.",
   "id": "zaq-m3k.1",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-m3k] Validate canonical channel integration coverage and merge browsers",
   "type": "task",
-  "updated_at": "2026-09-11T16:55:27Z"
+  "updated_at": "2026-09-11T16:55:35Z"
 }
