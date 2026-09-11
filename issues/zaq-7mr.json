@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-11T18:34:56Z",
   "created": "2026-09-11T17:50:47Z",
   "description": "Approved expanded scope in current worktree; preserve staged snapshot; no commit/push/PR or real dev DB reset. Owners: PersonChannel constraints, People atomic linking/resource calls, PersonMerger reconciliation, private existing migration graph/index, existing DS error fields. Tests first, then implementation, isolated legacy fixtures/replay, LiveView/E2E and broad validation. Dependency graph: tests-runtime -\u003e runtime -\u003e migration -\u003e UI -\u003e validation. Blank legacy identifiers conservatively abort. No runtime auto merging or alias consumer helpers.",
   "id": "zaq-7mr",
@@ -17,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-7mr] Global channel identity and connected-component migration",
   "type": "epic",
-  "updated_at": "2026-09-11T18:34:54Z"
+  "updated_at": "2026-09-11T18:34:56Z"
 }
