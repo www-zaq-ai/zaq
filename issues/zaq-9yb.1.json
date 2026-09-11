@@ -11,9 +11,15 @@
   "id": "zaq-9yb.1",
   "labels": [],
   "parent": "zaq-9yb",
+  "comments": [
+    {
+      "text": "Removed all consumer canonical helpers/wrappers and id-only People resolver. Conversations and Record.Authorization restored to HEAD baseline. Ingestion actual Person load now uses current teams; router promotes freshly resolved actor payload over historical snapshot. Tests cover one lookup, no repeated downstream actor loads (existing association/resource queries retained), resolved current IDs, missing-identity fail-closed boundary. 1 property + 81 tests passing. People E2E 57/57 all three browsers.",
+      "timestamp": "2026-09-11T07:53:54Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-9yb] Remove consumer alias logic and resolve actual actor loads",
   "type": "task",
-  "updated_at": "2026-09-11T07:44:30Z"
+  "updated_at": "2026-09-11T07:53:54Z"
 }
