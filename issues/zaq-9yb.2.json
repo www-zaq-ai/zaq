@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-9yb.1"
+  ],
   "blocks": [],
   "created": "2026-09-11T07:38:43Z",
   "description": "Update old-id downstream tests to resolve through People; stored refs survivor, public/nil/admin defaults, missing identity properties. Run format, targeted suites coverage, mix q, People E2E all browsers; record exact outcomes and exceptions.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-9yb] Validate resolved-context contract and People journeys",
   "type": "task",
-  "updated_at": "2026-09-11T07:38:43Z"
+  "updated_at": "2026-09-11T07:38:49Z"
 }
