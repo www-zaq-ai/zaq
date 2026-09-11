@@ -2,13 +2,15 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-11T14:29:28Z",
+  "close_reason": "Approved test organization cleanup complete and validated; prior work preserved, no commits/push/PR.",
   "created": "2026-09-11T14:17:59Z",
   "description": "Approved test-only cleanup in current worktree. Preserve index, production, People LiveView/E2E, replay script. Plan graph LR; mapping--\u003eowners; owners--\u003econcurrency; concurrency--\u003evalidation. Existing related bug regressions zaq-20x and coverage follow-up zaq-c1k reviewed. No commits/push/PR.",
   "id": "zaq-n1v",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-n1v] Organize Person tests by ownership",
   "type": "epic",
-  "updated_at": "2026-09-11T14:18:23Z"
+  "updated_at": "2026-09-11T14:29:28Z"
 }
