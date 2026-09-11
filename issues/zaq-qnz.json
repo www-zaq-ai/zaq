@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-11T07:25:10Z",
   "created": "2026-09-11T07:18:47Z",
   "description": "Approved narrow correction in current worktree. Tests first for coordinate grant/upsert/canonicalization, exact dual revoke, collision rights isolation and rollback; replace added CRUD with grant/revoke and in-memory merge grouping; run format, targeted tests, mix q, diff check. Preserve prior changes; no commit/push/PR.",
   "id": "zaq-qnz",
@@ -17,7 +18,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-qnz] Reuse permission grant/revoke for person merge correction",
   "type": "task",
   "updated_at": "2026-09-11T07:25:10Z"
