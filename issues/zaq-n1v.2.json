@@ -9,9 +9,15 @@
   "id": "zaq-n1v.2",
   "labels": [],
   "parent": "zaq-n1v",
+  "comments": [
+    {
+      "text": "Mapping applied: generic coordinate lifecycle folded into existing property for both principals and integer/external-string resources; missing-actor example broadened to property. Migration kept real runner collision+representative channel/conversation delegation, Unicode/blank/rollback/ledger/reruns. Four detailed migration policies moved to merge; overlapping grants union and default routing conflict use existing stronger merge properties/all-index scenario. Original owner and boundary files removed only after moves. Baseline focused: 549 tests + 9 properties, 0 failures seed 12345; PersonMerger 100%, People 96.3%, Person 100%, DocumentAccess/DocumentPermission 100%, Permissions 92.3%, Authorization 90.4%, Conversations 87.7%, Ingestion 75.6% (existing broad coverage follow-up zaq-c1k).",
+      "timestamp": "2026-09-11T14:24:34Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-n1v] Map and redistribute owner and merge coverage",
   "type": "task",
-  "updated_at": "2026-09-11T14:18:53Z"
+  "updated_at": "2026-09-11T14:24:34Z"
 }
