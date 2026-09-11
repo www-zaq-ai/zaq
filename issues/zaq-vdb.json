@@ -6,9 +6,15 @@
   "description": "User final review: remove People global legacy scan, exact normalized query inputs only; IdentityResolver exact canonical stored channel selection. Tests first: canonical+legacy rows preserve legacy untouched and touch canonical on fast/slow paths; replace runtime legacy discovery test with canonical storage variants. Keep merger/migration mixedcase regression unchanged. Validate focused tests mix format mix q diff check. Preserve prior staged edits; no commits pushes PR DB reset or repair.",
   "id": "zaq-vdb",
   "labels": [],
+  "comments": [
+    {
+      "text": "Narrow corrections complete. People.find_matching_channel now normalizes input and uses one equality query with LIMIT 1; removed Repo.all legacy fallback. IdentityResolver compares canonical input to exact stored identifier only. Regression first failed because canonical last_interaction_at stayed nil when lower-weight legacy row came first; now passes on both complete and incomplete identity paths, keeps legacy row unchanged, and preserves two rows (no repair/dedup). Replaced ordinary legacy discovery test with canonical storage/mixed-case incoming match/link test. Merger and migration legacy regression files unchanged by this correction. Validation: mix format; mix test test/zaq/accounts/people_test.exs test/zaq/accounts/person_email_test.exs test/zaq/accounts/person_merge_test.exs test/zaq/accounts/person_merge_concurrency_test.exs test/zaq/accounts/person_email_data_migration_test.exs test/zaq/people test/zaq/ingestion/external_permissions_test.exs =\u003e 6 properties, 206 tests, zero failures; mix q PASS; working/staged diff checks PASS. No commits/push/PR/reset/migration. Supersedes zaq-m3k legacy runtime fallback decision.",
+      "timestamp": "2026-09-11T17:00:27Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-vdb] Remove runtime legacy email matching and select canonical activity row",
   "type": "task",
-  "updated_at": "2026-09-11T16:58:01Z"
+  "updated_at": "2026-09-11T17:00:27Z"
 }
