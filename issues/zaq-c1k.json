@@ -10,11 +10,15 @@
     {
       "text": "Updated after alias/PersonMerger refactor zaq-h8q: changed app coverage 239/250=95.60% on 572 tests+6 properties. New PersonMerger 99.0% (only team-only split skip line215 missed), normalization100%, Person100%. Remaining whole-file exceptions in scoped suite: Record.Authorization85.4%, Permissions92.2%, Conversations87.8%, NotificationLog94.3%, Ingestion3.5%; no feature-specific Release code remains. Generic new owner CRUD/recipient/routing APIs covered, large preexisting unrelated module surfaces not expanded. Retain followup for full owning-domain coverage and remaining missed new negative/fallback branches.",
       "timestamp": "2026-09-10T20:20:36Z"
+    },
+    {
+      "text": "Boundary cleanup zaq-9yb supersedes prior consumer alias coverage requirements: these behaviors were intentionally removed. Final focused run 732 tests + 10 properties, all pass. Whole-file coverage: People96.8%, Person100%, PersonMerger100%, email normalization100%, resource Query97.0%, incoming Router97.1%, Routing96.7%, NotificationLog100%, gateway98.2%, PeopleLive96.5%, DocumentPermission100%. Remaining existing contexts: Permissions92.3% (7 missed lines), Record.Authorization90.4% (4), Conversations89.3% (33), Ingestion75.6% (103). Record.Authorization and Conversations production files are restored exactly to HEAD. Main residual risk is untested preexisting owner behaviors outside scoped suites, not downstream alias support. Follow-up: run full owning-domain suites and cover remaining negative/fallback paths; never restore consumer alias canonicalization or add test-only production seams. Actual Person load and no-repeat actor query regressions pass.",
+      "timestamp": "2026-09-11T07:59:09Z"
     }
   ],
   "priority": 3,
   "status": "open",
   "title": "[zaq-c1k] Follow up whole-file coverage for merge owner contexts",
   "type": "task",
-  "updated_at": "2026-09-10T20:20:36Z"
+  "updated_at": "2026-09-11T07:59:09Z"
 }
