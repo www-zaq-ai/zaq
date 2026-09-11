@@ -6,9 +6,15 @@
   "description": "User-authorized single boundary correction in current dirty worktree; preserve index, no commit/push/PR. Consolidate existing integration/property scenarios through Ecto.Migrator before implementation; remove runtime orchestrator and dry-run API, privately group by canonical email and lowest ID in migration using existing merger serialization and Person storage. No mocks or merger/permissions edits. Validate failure rollback and ledger in Repo-only fresh replay, relationships/history/immutable snapshots/blanks/Unicode/three-way collisions/idempotence, focused tests, mix format, mix q and diff check. Update engine deployment docs. Single cohesive step, no dependencies.",
   "id": "zaq-8bf",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented in working tree only; index untouched, no commit/push/PR. Removed runtime orchestrator and obsolete tests, migrated retained scenarios to actual Ecto.Migrator, private migration grouping with shared advisory-before-table lock and canonical merge/storage APIs. Repo-only fresh replay proves schema-first ordering, rollback of earlier merge plus data ledger on later validation failure, successful retry and recorded rerun no-op. Focused suite: 142 tests + 5 properties, zero failures. mix format, mix q (1172 source files, no Credo issues), git diff --check passed. Old module/path refs absent in lib/test/docs/priv. E2E not rerun: non-UI boundary correction. Coverage percentage not measured; retained property/integration coverage exercises migration success, no-op, Unicode/blanks, relationship/history/snapshot invariants and merge failure rollback. Existing license_manager configuration warning and retry module-redefinition warning were non-blocking. Replaced old caller-owned outer-transaction test after Ecto.Migrator task caused sandbox connection contention; actual migration failure test now verifies broader rollback contract.",
+      "timestamp": "2026-09-11T13:54:03Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8bf] Move email normalization orchestration into data migration",
   "type": "task",
-  "updated_at": "2026-09-11T13:50:22Z"
+  "updated_at": "2026-09-11T13:54:03Z"
 }
