@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-n1v.1"
+  ],
   "blocks": [],
   "created": "2026-09-11T14:18:25Z",
   "description": "Baseline and final complete focused owner suites+email/merge/migration/concurrency/properties with coverage if available. Repeat concurrency seeds. Run documented isolated Repo-only replay, mix format mandatory scoped to own code edits, mix q, git diff --check. Verify staged patch and prior production/LiveView/E2E bytes preserved. Record runtime counts, dedup changes, coverage differences and blockers. E2E skipped because unchanged by cleanup.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-n1v] Validate organized suites and Repo-only replay",
   "type": "task",
-  "updated_at": "2026-09-11T14:18:25Z"
+  "updated_at": "2026-09-11T14:18:52Z"
 }
