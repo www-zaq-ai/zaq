@@ -9,9 +9,15 @@
   "id": "zaq-n1v.3",
   "labels": [],
   "parent": "zaq-n1v",
+  "comments": [
+    {
+      "text": "Final focused command: MIX_ENV=test mix coveralls test/zaq/accounts test/zaq/permissions test/zaq/engine/notifications/notification_log_test.exs test/zaq/engine/incoming_message_routing_test.exs test/zaq/engine/conversations_test.exs test/zaq/ingestion/document_access_test.exs test/zaq/ingestion/ingestion_test.exs test/zaq/contracts/record/authorization_test.exs --seed 12345. PASS 547 tests + 9 properties, 0 failures (baseline same command 549 + 9). Two fewer examples: standalone coordinate lifecycle subsumed by extended owner property; missing-actor example subsumed by moved boundary property. Four new focused Accounts suites remain: email 4 tests+1 property unchanged; merge 22 tests+2 properties (was 14+2); migration 3 tests+1 property (was 7+1); concurrency 16 tests (was 2+14 across two files). All compared coverage unchanged: PersonMerger/Person/DocumentAccess/DocumentPermission 100%; People 96.3%; Permissions 92.3%; Authorization 90.4%; Conversations 87.7%; Ingestion 75.6%. Final routing 96.7%, NotificationLog 94.2% (baseline output filter did not capture these, no delta claimed). Migration dynamically loaded tests pass but no migration line coverage claimed. Existing below-95 whole-owner coverage remains tracked zaq-c1k; no production development in cleanup. Actual documented replay PASS with disposable DB created/dropped and ZAQ not started. Original index SHA256 unchanged d35315f9d42e532ad6993dab37917df074efcb301e1547185c2dbf0b61689dba; 13 production/UI/E2E/replay content hashes match baseline. Existing license_manager configuration warning and replay migration redefinition warning nonfatal. Initial mix help coveralls.json required MIX_ENV=test; retry worked. No failing tests.",
+      "timestamp": "2026-09-11T14:28:37Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-n1v] Validate organized suites and Repo-only replay",
   "type": "task",
-  "updated_at": "2026-09-11T14:27:09Z"
+  "updated_at": "2026-09-11T14:28:37Z"
 }
