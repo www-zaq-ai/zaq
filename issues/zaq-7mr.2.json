@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T17:51:05Z",
+  "description": "After runtime: test legacy transitive mixed graph including Person.email=email channel, singleton all-platform dedup, metadata/latest/weight, blank abort, ledger/index rollback and idempotence properties. Existing migration owns narrow-projection graph traversal and singleton pass; reuse merger for multi-person groups, small shared reconciliation only if necessary. Isolate legacy schema in test transactions and Repo-only replay. Update runbook. No mocks/app hooks.",
+  "id": "zaq-7mr.2",
+  "labels": [],
+  "parent": "zaq-7mr",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-7mr] Private migration graph cleanup and atomic global index",
+  "type": "task",
+  "updated_at": "2026-09-11T17:51:05Z"
+}
