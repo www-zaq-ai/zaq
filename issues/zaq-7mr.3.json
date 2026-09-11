@@ -11,9 +11,15 @@
   "id": "zaq-7mr.3",
   "labels": [],
   "parent": "zaq-7mr",
+  "comments": [
+    {
+      "text": "Eight new LiveView add/edit x email/telegram x same/cross-person cases pass with existing form markup after constraint field correction; no UI redesign needed. Four E2E scenarios added covering add/edit correction and retained values; existing merge journey now asserts duplicate rejection before explicit merge rather than seeding impossible runtime duplicates.",
+      "timestamp": "2026-09-11T18:08:13Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-7mr] BO duplicate error regression and People browser scenarios",
   "type": "task",
-  "updated_at": "2026-09-11T17:51:21Z"
+  "updated_at": "2026-09-11T18:08:13Z"
 }
