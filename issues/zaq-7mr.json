@@ -10,11 +10,15 @@
     {
       "text": "Execution DAG: \nAll edits delivered unstaged in the approved current worktree. Global-constraint runtime and migration tests were validated together because the database guarantee requires the amended sequence; subsequent gates validated independently. No commit/push/PR or real dev DB reset. Application ownership audit reused PersonMerger and existing People APIs, no consumer alias additions.",
       "timestamp": "2026-09-11T18:33:52Z"
+    },
+    {
+      "text": "Dependency DAG (corrected Markdown quoting): ```mermaid\ngraph LR\nruntime[zaq-7mr.1 runtime] --\u003e migration[zaq-7mr.2 migration]\nmigration --\u003e ui[zaq-7mr.3 BO and E2E]\nui --\u003e validation[zaq-7mr.4 validation]\n```",
+      "timestamp": "2026-09-11T18:34:54Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-7mr] Global channel identity and connected-component migration",
   "type": "epic",
-  "updated_at": "2026-09-11T18:33:52Z"
+  "updated_at": "2026-09-11T18:34:54Z"
 }
