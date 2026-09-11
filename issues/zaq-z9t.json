@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T18:38:07Z",
+  "description": "P1 independent review: distinct loser profile emails disappear when people are connected only by other channels. Migration-only fix: snapshot original canonical nonblank Person emails before merge, then add missing email channels on returned survivor via People.add_channel; propagate errors to atomic rollback, preserve primary email, existing channel rows and nil last activity. Test first: pair and transitive components without profile-email channels, case-equivalent dedup, existing-row preservation, discovery reuse, rollback of added identities. Extend Repo-only replay and concise current docs. Validate focused migration + accounts/tool related tests, replay, format,q,diff. Current staged/unstaged work preserved; no dev DB reset or commits.",
+  "id": "zaq-z9t",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Preserve profile email identities during migration component merges",
+  "type": "bug",
+  "updated_at": "2026-09-11T18:38:07Z"
+}
