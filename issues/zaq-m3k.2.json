@@ -11,9 +11,15 @@
   "id": "zaq-m3k.2",
   "labels": [],
   "parent": "zaq-m3k",
+  "comments": [
+    {
+      "text": "Implemented canonical grouping in existing PersonMerger only; raw legacy regression tests cover both survivor orientations, same-person unique collision, \u003e2 variants, reparenting, metadata/activity, winner ID/weight, original labels and late rollback. Existing migration test now carries email variants. Focused 4 properties + 135 tests pass.",
+      "timestamp": "2026-09-11T16:48:58Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-m3k] Canonical merge grouping and migration regression",
   "type": "task",
-  "updated_at": "2026-09-11T16:48:57Z"
+  "updated_at": "2026-09-11T16:48:58Z"
 }
