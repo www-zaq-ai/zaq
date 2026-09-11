@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-11T11:55:28Z",
   "created": "2026-09-11T11:53:24Z",
   "description": "User-requested narrow revert: restore direct ActorNormalizer.from_incoming behavior and remove only added precedence-specific test. Preserve all other staged/uncommitted work; run scoped format, targeted tests, mix q, and diff checks. No commit/push/PR.",
   "id": "zaq-ln9",
@@ -13,7 +14,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-ln9] Revert IncomingMessageRouter actor precedence override",
   "type": "task",
   "updated_at": "2026-09-11T11:55:28Z"
