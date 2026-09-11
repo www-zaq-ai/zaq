@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T07:38:22Z",
+  "description": "Approved current-worktree cleanup preserving existing work. Plan: merger refs and People lookup -\u003e consumers and actual actor construction -\u003e tests/docs/validation. No commits/push/PR. graph LR; A--\u003eB; B--\u003eC",
+  "id": "zaq-9yb",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Boundary cleanup for Person merge",
+  "type": "epic",
+  "updated_at": "2026-09-11T07:38:22Z"
+}
