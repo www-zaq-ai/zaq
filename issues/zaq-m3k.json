@@ -2,13 +2,14 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-11T16:55:35Z",
   "created": "2026-09-11T16:44:07Z",
   "description": "Approved current-worktree build; preserve all pre-existing staged edits. No commits/push/PR, DB reset, corrective migration or cleanup API. PersonChannel owns email-only canonicalization using Person.normalize_email; People owns matching/linking; PersonMerger owns canonical group merge. Tests first. Graph: storage -\u003e matching -\u003e merge -\u003e validation.",
   "id": "zaq-m3k",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-m3k] Email channel canonical identity",
   "type": "epic",
-  "updated_at": "2026-09-11T16:44:25Z"
+  "updated_at": "2026-09-11T16:55:35Z"
 }
