@@ -9,9 +9,15 @@
   "id": "zaq-m3k.1",
   "labels": [],
   "parent": "zaq-m3k",
+  "comments": [
+    {
+      "text": "Validation complete: red run 4 properties/135 tests/10 expected failures; green expanded coveralls.json run 7 properties/447 tests/0 failures (People, Person email, merge/concurrency/migration, identity resolver/plug, external permissions ingestion and access, UpdatePerson, People LiveView). New executable lines 21/21 covered: People 12/12, PersonChannel 4/4, merger 2/2, IdentityResolver 3/3. Whole-file coverage 97.25%, 100%, 100%, 95.16% respectively. mix format; mix q PASS (format, compile warnings-as-errors, docs, strict Credo); git diff --check and cached --check PASS. E2E command from test/e2e: E2E_PRESERVE_STATE=1 npx playwright test specs/people.spec.js -g 'merge keeps selected survivor' --reporter=line: Chromium/WebKit PASS, Firefox overall timeout under concurrent coverage/lint load; same command --project=journeys-firefox alone PASS in 13.8s without changing timeout/retries. Earlier E2E selector fixed to scope channel row instead of profile email text. No DB reset/bootstrap/cleanup, migration added, commits/push/PR; prior staged changes preserved, edits remain unstaged. Nonblocking pre-existing license_manager config warning. No remaining blockers.",
+      "timestamp": "2026-09-11T16:55:27Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-m3k] Validate canonical channel integration coverage and merge browsers",
   "type": "task",
-  "updated_at": "2026-09-11T16:48:58Z"
+  "updated_at": "2026-09-11T16:55:27Z"
 }
