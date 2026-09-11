@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T12:40:28Z",
+  "description": "Narrow current-worktree correction, preserving prior changes. Tests first in routing and merge owner suites: scope insert/update, loaded identity/grant preservation, invalid and uniqueness errors with rollback, validation-only no writes. Implement first struct upsert clause via change_rule and Repo.insert_or_update; scope delegates; remove update_rule; merger explicitly checks valid? without persistence. Existing named unique constraints audited against migration and match. Update only stale API docs. Real DB tests, no mocks; focused and concurrency tests, mix format, mix q, diff check and targeted coverage. No commit/push/PR. Single concern owned by routing context and existing merger caller.",
+  "id": "zaq-g8i",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Consolidate loaded routing writes and read-only merge validation",
+  "type": "task",
+  "updated_at": "2026-09-11T12:40:28Z"
+}
