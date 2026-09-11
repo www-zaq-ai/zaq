@@ -9,9 +9,15 @@
   "id": "zaq-7mr.4",
   "labels": [],
   "parent": "zaq-7mr",
+  "comments": [
+    {
+      "text": "Validation: mix q passes (after four local Credo depth fixes). Broad mix coveralls.json requested paths plus routing/notification/identity/PeopleLiveView: 26 properties,1248 tests,0 failures,1 skipped,56 excluded (seed625). Core coverage People97.2%,Person100%,PersonChannel100%,PersonMerger94.9%,PeopleLive96.7%. Adding meaningful untested resource-edit branches to exceed95 merger. Concurrency seed625 5/0; seed9321 with existing merge races+external permission:1property,30tests/0. E2E initial direct run needed bootstrap (server wait timed out); isolated npm bootstrap then all People browsers:69/69 passed,3.1min. Repo-only replay passed; extending index creation failure rollback. No dev database resets. Staged stats unchanged33files3119insertions173deletions.",
+      "timestamp": "2026-09-11T18:23:20Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-7mr] Replay broad validation coverage and final contract documentation",
   "type": "task",
-  "updated_at": "2026-09-11T17:51:21Z"
+  "updated_at": "2026-09-11T18:23:20Z"
 }
