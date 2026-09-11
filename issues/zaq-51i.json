@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-11T15:38:31Z",
   "created": "2026-09-11T15:35:25Z",
   "description": "Reproduced exactly 31 tests / 2 failures in update_person_test and access_control_test. Apply approved physical deletion assertion and persisted team fixture plus four focused can_access_file regressions. Existing document_access property coverage retained. Run focused and requested broad suites, scoped mix format, mix q and git diff --check. Preserve all 28 staged files; no production/doc edits, commit, push or PR.",
   "id": "zaq-51i",
@@ -13,7 +14,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-51i] Approved narrow person and access-control test fixes",
   "type": "task",
   "updated_at": "2026-09-11T15:38:31Z"
