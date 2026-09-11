@@ -9,9 +9,15 @@
   "id": "zaq-7mr.1",
   "labels": [],
   "parent": "zaq-7mr",
+  "comments": [
+    {
+      "text": "Red runtime run: 6 tests/5 reproduced failures. Named constraint + atomic create/update/discovery implemented; isolated fresh test partition _channel_identity: combined runtime/email/migration tests 2 properties+16 tests pass. Added explicit resource participant-collision reproduction next. Existing accounts/tool run 5 properties+230 tests: 7 failures, all legacy duplicate fixture/index expectations; adapting only legacy scenarios with sandbox transaction DDL. Expanded migration tests red first: 3 failures, then graph/index implementation green. No dev DB touched.",
+      "timestamp": "2026-09-11T17:57:27Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-7mr] Runtime uniqueness reproductions and atomic channel linking",
   "type": "task",
-  "updated_at": "2026-09-11T17:51:22Z"
+  "updated_at": "2026-09-11T17:57:27Z"
 }
