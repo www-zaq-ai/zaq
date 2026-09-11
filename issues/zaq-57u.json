@@ -6,9 +6,15 @@
   "description": "Verify current Person source, migrations and tests; condense engine service docs and move essential deployment/restore guidance to a runbook; validate links, diff and mix q. User approved current worktree, preserve all prior staged/uncommitted work, no commit/push/PR.",
   "id": "zaq-57u",
   "labels": [],
+  "comments": [
+    {
+      "text": "Completed docs-only cleanup. Engine Person section reduced from 128 to 64 lines; added 37-line docs/operations/person-email-normalization.md (no existing runbook convention found). Verified source, migration comments, Repo-only replay test, boundary/concurrency/history and immutable snapshot coverage; implementation comments already sufficient. Both relative documentation links and target heading verified. mix q passed (format check, warnings-as-errors compile/docs, strict Credo: no issues); git diff --check passed. No code files edited, no unit/E2E runs. Prior staged/uncommitted work preserved; delivery stays uncommitted per user.",
+      "timestamp": "2026-09-11T14:12:25Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-57u] Condense Person contract docs and preserve deployment runbook",
   "type": "task",
-  "updated_at": "2026-09-11T14:09:36Z"
+  "updated_at": "2026-09-11T14:12:25Z"
 }
