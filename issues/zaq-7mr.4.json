@@ -13,11 +13,15 @@
     {
       "text": "Validation: mix q passes (after four local Credo depth fixes). Broad mix coveralls.json requested paths plus routing/notification/identity/PeopleLiveView: 26 properties,1248 tests,0 failures,1 skipped,56 excluded (seed625). Core coverage People97.2%,Person100%,PersonChannel100%,PersonMerger94.9%,PeopleLive96.7%. Adding meaningful untested resource-edit branches to exceed95 merger. Concurrency seed625 5/0; seed9321 with existing merge races+external permission:1property,30tests/0. E2E initial direct run needed bootstrap (server wait timed out); isolated npm bootstrap then all People browsers:69/69 passed,3.1min. Repo-only replay passed; extending index creation failure rollback. No dev database resets. Staged stats unchanged33files3119insertions173deletions.",
       "timestamp": "2026-09-11T18:23:20Z"
+    },
+    {
+      "text": "FINAL: mix format and mix q pass; exact broad mix test command including all requested directories + routing/notification/identity/PeopleLiveView: 26 properties,1252 tests,0 failures,1 skipped,56 excluded,seed625. Final focused coveralls:6 properties,314tests,0failures; own added executable app lines107/107=100%, People97.2%,Person100%,PersonChannel100%,PersonMerger100%,PeopleLive96.7%. Migration test strengthened to assert surviving channel IDs:2properties,6tests/0,seed104729. Final Repo-only replay passes including induced index-create failure restoring old index,data,and ledger. People E2E69/69 across3browsers after required bootstrap; initial startup timeout resolved. Races verified seeds625,9321,104729. Whole-file staged-only exceptions and dynamic-migration coverage rationale recorded on zaq-c1k. 33-file staged snapshot unchanged (3119 insertions,173 deletions);15 own files (13 modified+2new) unstaged. No blockers.",
+      "timestamp": "2026-09-11T18:34:54Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-7mr] Replay broad validation coverage and final contract documentation",
   "type": "task",
-  "updated_at": "2026-09-11T18:23:20Z"
+  "updated_at": "2026-09-11T18:34:54Z"
 }
