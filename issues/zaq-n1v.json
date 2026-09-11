@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T14:17:59Z",
+  "description": "Approved test-only cleanup in current worktree. Preserve index, production, People LiveView/E2E, replay script. Plan graph LR; mapping--\u003eowners; owners--\u003econcurrency; concurrency--\u003evalidation. Existing related bug regressions zaq-20x and coverage follow-up zaq-c1k reviewed. No commits/push/PR.",
+  "id": "zaq-n1v",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Test organization cleanup",
+  "type": "epic",
+  "updated_at": "2026-09-11T14:17:59Z"
+}
