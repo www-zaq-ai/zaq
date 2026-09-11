@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-9yb.1"
   ],
+  "closed_at": "2026-09-11T07:44:29Z",
   "created": "2026-09-11T07:38:43Z",
   "description": "Audit PersonMerger supported live refs; remove redundant People id-only loads while preserving locked team mutations. Tests: merge refs, aliases, team concurrency; real database no mocks. Update engine contract docs.",
   "id": "zaq-9yb.3",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-9yb] Keep merge references and People lookup at owner boundary",
   "type": "task",
   "updated_at": "2026-09-11T07:44:29Z"
