@@ -6,9 +6,15 @@
   "description": "Narrow current-worktree correction, preserving prior changes. Tests first in routing and merge owner suites: scope insert/update, loaded identity/grant preservation, invalid and uniqueness errors with rollback, validation-only no writes. Implement first struct upsert clause via change_rule and Repo.insert_or_update; scope delegates; remove update_rule; merger explicitly checks valid? without persistence. Existing named unique constraints audited against migration and match. Update only stale API docs. Real DB tests, no mocks; focused and concurrency tests, mix format, mix q, diff check and targeted coverage. No commit/push/PR. Single concern owned by routing context and existing merger caller.",
   "id": "zaq-g8i",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented and validated in current worktree; no staging/commit/push/PR. Added 5 regression tests and strengthened legacy-error rollback assertions, migrated all update_rule callers, updated stale API paragraph. Test-first run reproduced struct CastError and forced timestamp writes. Focused routing/merge/owner + both concurrency suites: 67 tests, 2 properties, zero failures. Targeted coverage rerun: 51 tests, 2 properties, zero failures; IncomingMessageRouting 96.7%, PersonMerger 97.2%. mix format, mix q (1174 files, no issues), git diff --check passed. Existing license_manager config warning only. Named unique constraints match migration; no schema fix. No new property needed for concrete Ecto persistence regression; existing merge properties retained. change_rule validity is in-memory; prepare_changes DB checks run on actual winning updates. All existing staged changes preserved. Implementation complete pending user-managed delivery.",
+      "timestamp": "2026-09-11T12:45:05Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-g8i] Consolidate loaded routing writes and read-only merge validation",
   "type": "task",
-  "updated_at": "2026-09-11T12:40:38Z"
+  "updated_at": "2026-09-11T12:45:05Z"
 }
