@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-11T15:35:25Z",
@@ -7,7 +7,7 @@
   "id": "zaq-51i",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-51i] Approved narrow person and access-control test fixes",
   "type": "task",
   "updated_at": "2026-09-11T15:35:32Z"
