@@ -10,11 +10,15 @@
     {
       "text": "Red reproduction: focused migration suite2properties+8tests had2failures (pair2vs3channels;transitive4vs5channels). Migration now snapshots source emails from existing narrow projection, canonicalizes/deduplicates, then adds missing survivor email identities via People.add_channel after merge; existing channel set comes from returned canonical merged channels. No application module edits. Pair/transitive examples now pass; property strengthened to retain every source email in disjoint chains. Rollback assertions compare complete original channel rows after later-group failure; replay also checks channel rollback after index-create failure.",
       "timestamp": "2026-09-11T18:41:41Z"
+    },
+    {
+      "text": "COMPLETE: migration-only retention added after canonical merge using original-email snapshot and existing People.add_channel. Five files changed for this correction: migration, migration tests, Repo-only replay, engine contract, runbook. No application module edits. Red:2profile-identity regressions failed; green focused:2properties,8tests/0. Final accounts+People-tools suite(seed625,_channel_identity):6properties,244tests,0failures, including strengthened all-source-email graph property. Repo-only replay PASS, verifies discovery of retained loser email, unchanged survivor primary, nil new activity, exact channel rollback after later merge failure and after index-create failure, ledger/index atomicity,rerun. mix format,mix q,git diff --check PASS. Staged snapshot unchanged33files3119insertions173deletions; prior unstaged work preserved. No user/dev DB reset,commit,push,PR. Replay only creates/drops its guarded disposable test DB.",
+      "timestamp": "2026-09-11T18:43:30Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-z9t] Preserve profile email identities during migration component merges",
   "type": "bug",
-  "updated_at": "2026-09-11T18:41:41Z"
+  "updated_at": "2026-09-11T18:43:30Z"
 }
