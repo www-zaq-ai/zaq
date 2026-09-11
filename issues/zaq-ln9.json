@@ -6,9 +6,15 @@
   "description": "User-requested narrow revert: restore direct ActorNormalizer.from_incoming behavior and remove only added precedence-specific test. Preserve all other staged/uncommitted work; run scoped format, targeted tests, mix q, and diff checks. No commit/push/PR.",
   "id": "zaq-ln9",
   "labels": [],
+  "comments": [
+    {
+      "text": "Completed exact revert in the two allowed code/test files; both now match HEAD. engine.md has no explicit removed actor-precedence claim and was left intact. Scoped mix format passed; targeted router test: 5 tests, 0 failures (existing license_manager configuration warning). mix q passed: 1174 source files, no Credo issues. git diff --check passed; staged changes preserved. No commit/push/PR per user.",
+      "timestamp": "2026-09-11T11:55:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ln9] Revert IncomingMessageRouter actor precedence override",
   "type": "task",
-  "updated_at": "2026-09-11T11:53:37Z"
+  "updated_at": "2026-09-11T11:55:28Z"
 }
