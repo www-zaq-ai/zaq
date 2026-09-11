@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-n1v.3"
   ],
+  "closed_at": "2026-09-11T14:27:08Z",
+  "close_reason": "All 16 independent-connection scenarios preserved and pass seeds 12345 and 98765; original barriers intact, tagged team fixture and shared scoped cleanup.",
   "created": "2026-09-11T14:18:24Z",
   "description": "Retain all 16 expanded cases: opposing merges, unrelated global-lock independence, 12 assign/unassign x survivor/loser/inherited alias x initial-read/locked-read interleavings, 2 forgotten-ID races. One async:false PersonMergeConcurrencyTest; tagged team fixture setup, shared independent connection and scoped cleanup helpers. Preserve original telemetry barriers, Task results and exact team checks; no sleeps/polling. No production or docs changes.",
   "id": "zaq-n1v.1",
   "labels": [],
   "parent": "zaq-n1v",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-n1v] Combine independent-connection concurrency regressions",
   "type": "task",
-  "updated_at": "2026-09-11T14:26:12Z"
+  "updated_at": "2026-09-11T14:27:08Z"
 }
