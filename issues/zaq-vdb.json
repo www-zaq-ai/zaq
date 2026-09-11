@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-11T17:00:27Z",
   "created": "2026-09-11T16:57:49Z",
   "description": "User final review: remove People global legacy scan, exact normalized query inputs only; IdentityResolver exact canonical stored channel selection. Tests first: canonical+legacy rows preserve legacy untouched and touch canonical on fast/slow paths; replace runtime legacy discovery test with canonical storage variants. Keep merger/migration mixedcase regression unchanged. Validate focused tests mix format mix q diff check. Preserve prior staged edits; no commits pushes PR DB reset or repair.",
   "id": "zaq-vdb",
@@ -13,7 +14,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-vdb] Remove runtime legacy email matching and select canonical activity row",
   "type": "task",
   "updated_at": "2026-09-11T17:00:27Z"
