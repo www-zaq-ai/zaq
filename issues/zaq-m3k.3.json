@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-11T16:44:26Z",
+  "description": "PersonChannel both changesets effective platform normalization delegates Person.normalize_email; People matching/linking and IdentityResolver selection reuse it. Tests FIRST in people_test and identity_resolver_test: Unicode/blank/platform-only/opaque invariants, uniqueness, repeated ingestion and legacy matches. Real sandbox DB, no mocks except existing external routing. Document storage moduledoc and engine behavior. No cleanup API.",
+  "id": "zaq-m3k.3",
+  "labels": [],
+  "parent": "zaq-m3k",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-m3k] Storage and identity matching regressions then implementation",
+  "type": "task",
+  "updated_at": "2026-09-11T16:44:26Z"
+}
