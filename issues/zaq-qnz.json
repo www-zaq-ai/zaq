@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-11T07:18:47Z",
@@ -7,8 +7,8 @@
   "id": "zaq-qnz",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-qnz] Reuse permission grant/revoke for person merge correction",
   "type": "task",
-  "updated_at": "2026-09-11T07:18:57Z"
+  "updated_at": "2026-09-11T07:18:58Z"
 }
