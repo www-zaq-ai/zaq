@@ -11,9 +11,15 @@
   "id": "zaq-s72.2",
   "labels": [],
   "parent": "zaq-s72",
+  "comments": [
+    {
+      "text": "GREEN focused accounts: 151 tests + 5 properties, zero failures seed 637602. Removed legacy declaration; People links only insert/changed email, discovery deduplicates incoming identity/email and backfill writes under existing outer transaction without automatic relink. Removed extract_channel_attrs and downstream atom fallbacks; narrowed retry to two known indexes. Existing old-index migration fixtures all pass without expectation changes.",
+      "timestamp": "2026-09-12T06:26:37Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-s72] Simplify People identity persistence and channel constraint",
   "type": "task",
-  "updated_at": "2026-09-12T06:24:28Z"
+  "updated_at": "2026-09-12T06:26:37Z"
 }
