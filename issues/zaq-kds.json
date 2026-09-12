@@ -6,9 +6,15 @@
   "description": "User-approved narrow working-tree change: tests first, allowed?/2 raw single or nonempty ALL list, canonical casting, fail closed, one grant SELECT/no identity lookup. Remove specialized predicates; only context/test/service doc. Preserve staging checksum 2abfa89775d1ffdaebf21545f9994812a941e4e90848ee499408fcbd26da25aa. Format, focused tests/coverage, mix q; no commit/push/PR.",
   "id": "zaq-kds",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented only approved context/test/service-doc files. Tests-first run: 2 properties + 9 tests, 4 expected list-support failures. Fixed bounded property generator after validation exposed TooManyDuplicatesError. Final focused context/schema/concurrency/gateway/LiveView: 106 tests + 2 properties, zero failures. mix format and mix q passed (1182 files, no Credo issues); git diff --check passed. Coverage context-only: 40/41 relevant lines (97.5% displayed), predicate/casting 9/9 (100%); sole missed line is untouched team matrix branch. Telemetry verifies 6 valid calls each issue exactly one grant SELECT, zero Person SELECT; malformed/empty/nil checks issue zero. No specialized references remain. Test startup warns unavailable license_manager. Staging checksum unchanged. No commits/push/PR; user requested working-tree delivery.",
+      "timestamp": "2026-09-12T17:30:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-kds] Explicit ALL-list People permission predicate",
   "type": "task",
-  "updated_at": "2026-09-12T17:24:16Z"
+  "updated_at": "2026-09-12T17:30:28Z"
 }
