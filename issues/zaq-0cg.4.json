@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-0cg.1"
   ],
+  "closed_at": "2026-09-12T08:40:52Z",
   "created": "2026-09-12T08:38:12Z",
   "description": "Functional specs: person_merge_test, people_test, channel_identity_test, tool update tests. Before production edits attest one complete survivor UPDATE for 3+ people via query telemetry; invalid channel/grant/routing/reference no writes; explicit edits win both modes, retained/discarded channel IDs, nil/omitted/protected fields, nested rollback. Keep existing concurrency/migration immutable tests and real DB constraints, no production hooks. Docs deferred to ownership step.",
   "id": "zaq-0cg.4",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-0cg] Specify merge calculation and merge-then-edit contracts tests first",
   "type": "task",
-  "updated_at": "2026-09-12T08:40:51Z"
+  "updated_at": "2026-09-12T08:40:52Z"
 }
