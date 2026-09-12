@@ -11,9 +11,15 @@
   "id": "zaq-0cg.3",
   "labels": [],
   "parent": "zaq-0cg",
+  "comments": [
+    {
+      "text": "Complete group calculation and validation now precede mutations. Removed resource_edits and public resource transaction dispatch; migration uses private small singleton channel fold. Protected survivor write once through People; People outer merge-then-edit transaction preserves exact retained channel IDs. Focused green 3 properties/192 tests; expanded merge/migration/concurrency seed625 4 properties/64 tests. Broad coverage seed625 27 properties/1593 tests/0 failures/1 existing skipped/56 excluded. Engine docs and API moduledocs updated only for resulting semantics.",
+      "timestamp": "2026-09-12T08:51:42Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-0cg] Refactor private group calculation and People merge-then-edit orchestration",
   "type": "task",
-  "updated_at": "2026-09-12T08:46:10Z"
+  "updated_at": "2026-09-12T08:51:42Z"
 }
