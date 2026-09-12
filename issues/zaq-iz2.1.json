@@ -9,9 +9,15 @@
   "id": "zaq-iz2.1",
   "labels": [],
   "parent": "zaq-iz2",
+  "comments": [
+    {
+      "text": "Helper implemented; two bounded properties and scope/page examples pass. Sequential delivery in one approved feature PR.",
+      "timestamp": "2026-09-12T07:59:35Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-iz2] Selection helper",
   "type": "task",
-  "updated_at": "2026-09-12T07:56:58Z"
+  "updated_at": "2026-09-12T07:59:35Z"
 }
