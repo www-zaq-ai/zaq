@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T08:38:11Z",
+  "description": "PersonMerger locks supplied participants and relations, snapshots original history, computes all final state and validates before writes; owner API apply ordering removes duplicates, transfers references, deletes losers, persists complete survivor once. People outer resource transaction merges first and applies ordinary edits once to returned survivor; remove resource_edits and helper dispatch. Migration discovers/sorts groups, private small singleton fold if needed. Tests precede implementation; preserve contracts/concurrency/immutable migration snapshots. Document only resulting ownership/semantics.",
+  "id": "zaq-0cg.3",
+  "labels": [],
+  "parent": "zaq-0cg",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-0cg] Refactor private group calculation and People merge-then-edit orchestration",
+  "type": "task",
+  "updated_at": "2026-09-12T08:38:11Z"
+}
