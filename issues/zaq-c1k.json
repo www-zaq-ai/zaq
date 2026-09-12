@@ -18,11 +18,15 @@
     {
       "text": "zaq-7mr expanded-scope coverage run (26 properties+1251 tests) measured own added executable app lines101/101=100%, People97.2%, Person100%, PersonChannel100%, PersonMerger100%, PeopleLive96.7%. Existing staged-only whole-file exceptions remain outside own production edits: Query52.6% (broad resource operations not selected), Ingestion87.2% (54 legacy lines), Permissions92.3% (7 legacy lines), IdentityResolver77.0% (14 provider-enrichment/fallback lines), NotificationLog94.2% (2 lines). Use owning-domain suites to cover those existing surfaces; no new consumer alias helpers. Migration .exs is loaded dynamically by actual Ecto.Migrator so not included in standard application JSON instrumentation; real replay validates graph, all-data+old-index+ledger rollback even after index-create failure, retry and no-op rerun; graph property and blank failure tests pass.",
       "timestamp": "2026-09-11T18:29:16Z"
+    },
+    {
+      "text": "zaq-0cg final expanded owner coverage: own changed app modules People97.16%,Person100%,PersonMerger100%,NotificationLog100%; all138 unstaged executable app additions covered, includes preceding People work. Existing other-domain whole-file gaps Permissions92.3%,Ingestion87.2% remain outside this refactor; no new consumer APIs added. Migration .exs validation is actual runner+Repo-only replay rather than app line instrumentation.",
+      "timestamp": "2026-09-12T09:07:20Z"
     }
   ],
   "priority": 3,
   "status": "open",
   "title": "[zaq-c1k] Follow up whole-file coverage for merge owner contexts",
   "type": "task",
-  "updated_at": "2026-09-11T18:29:16Z"
+  "updated_at": "2026-09-12T09:07:20Z"
 }
