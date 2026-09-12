@@ -252,6 +252,7 @@ defmodule Zaq.E2E.Reset do
   end
 
   defp reset_people_tables! do
+    Repo.delete_all(Zaq.Accounts.PeoplePermissionGrant)
     # `channels` holds person↔channel mappings; FK cascades from people.
     Repo.query!("DELETE FROM channels", [])
     Repo.query!("DELETE FROM people", [])
