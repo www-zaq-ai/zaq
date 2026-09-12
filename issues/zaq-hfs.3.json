@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-hfs.4"
   ],
+  "closed_at": "2026-09-12T19:37:13Z",
   "created": "2026-09-12T19:25:59Z",
   "description": "Owner SystemConfigLive and cohesive existing tab pattern. Tests FIRST navigation, default 7 days, edits/errors, save/reload, failed load disable/retry, save failures retain edits, malicious fields safe. Existing router module seam only for failure boundary. Reuse DS Input/Button; no auth changes. Document current config-only behavior.",
   "id": "zaq-hfs.3",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-hfs] People access BO configuration form",
   "type": "task",
-  "updated_at": "2026-09-12T19:37:12Z"
+  "updated_at": "2026-09-12T19:37:13Z"
 }
