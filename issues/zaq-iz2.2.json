@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-iz2.3"
   ],
+  "closed_at": "2026-09-12T08:01:55Z",
   "created": "2026-09-12T07:56:56Z",
   "description": "Step 2: design_system/list_selection.ex owns parent-controlled page/all/clear controls and actions slot; Checkbox mixed native state and Storybook. Test first empty/partial/page/all/exclusions and accessible labels/aria; no mocks. Document component and stories.",
   "id": "zaq-iz2.2",
@@ -18,7 +19,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-iz2] Reusable list selection component",
   "type": "task",
   "updated_at": "2026-09-12T08:01:55Z"
