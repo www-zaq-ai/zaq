@@ -8,7 +8,11 @@
   "created": "2026-09-12T19:25:58Z",
   "description": "Owners PeopleAccessConfig and System. Tests FIRST defaults 604800, strict positive integer property and malicious inputs, one grouped read/no writes, partial preservation, corrupt read and complete repair, transactional rollback with sandbox SQL injection. Real Repo; no mocks/hooks. Document public specs and people-access/System docs.",
   "id": "zaq-hfs.1",
-  "labels": [],
+  "labels": [
+    "people-access",
+    "pr2",
+    "system"
+  ],
   "parent": "zaq-hfs",
   "comments": [
     {
@@ -20,5 +24,5 @@
   "status": "closed",
   "title": "[zaq-hfs.1] Schema and atomic System configuration",
   "type": "task",
-  "updated_at": "2026-09-12T19:48:53Z"
+  "updated_at": "2026-09-12T19:49:22Z"
 }
