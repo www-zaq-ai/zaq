@@ -10,11 +10,15 @@
     {
       "text": "Replaced extension_installation_test.exs assertion that CREATE EXTENSION vector must fail with a read-only assertion that vector remains absent after failed application operations. ParadeDB can permit installation by non-superuser database owners; test now checks ZAQ behavior without mutating fixture. mix format and mix q passed. Native standalone attempted but setup blocked: zaq_test_refactor_move_dba_outside_migrations database absent. Docker unavailable, so ParadeDB validation remains for CI. Working-tree change only; no commit.",
       "timestamp": "2026-09-12T13:09:04Z"
+    },
+    {
+      "text": "Bootstrap expanded with shared SQL, database/role creation and rotation, ledger/owner guards, broad reader ACL/default privileges. Native and local pg_search 0.24.0 standalone suites pass 9 tests each; please verify exact CI ParadeDB 0.23.0 job including restricted owner runtime/rollback. Working-tree changes under zaq-1yh; no commit/PR by agent.",
+      "timestamp": "2026-09-12T13:57:45Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-igg] Confirm ParadeDB extension provisioning in CI",
   "type": "task",
-  "updated_at": "2026-09-12T13:09:04Z"
+  "updated_at": "2026-09-12T13:57:45Z"
 }
