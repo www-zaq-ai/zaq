@@ -6,9 +6,15 @@
   "description": "Follow-up before merging operator-managed extension changes: run test-paradedb CI including .github/scripts/extension_installation_test.exs paradedb and ingestion --include paradedb. Local native standalone/full ingestion/scoped E2E passed; Docker unavailable locally. Local ParadeDB module coverage is 77.78% because engine-specific success/index cases are excluded; target \u003e=95% with actual ParadeDB. No PR or commit created in implementation session.",
   "id": "zaq-wqw",
   "labels": [],
+  "comments": [
+    {
+      "text": "Replaced extension_installation_test.exs assertion that CREATE EXTENSION vector must fail with a read-only assertion that vector remains absent after failed application operations. ParadeDB can permit installation by non-superuser database owners; test now checks ZAQ behavior without mutating fixture. mix format and mix q passed. Native standalone attempted but setup blocked: zaq_test_refactor_move_dba_outside_migrations database absent. Docker unavailable, so ParadeDB validation remains for CI. Working-tree change only; no commit.",
+      "timestamp": "2026-09-12T13:09:04Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-igg] Confirm ParadeDB extension provisioning in CI",
   "type": "task",
-  "updated_at": "2026-09-09T14:29:15Z"
+  "updated_at": "2026-09-12T13:09:04Z"
 }
