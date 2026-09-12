@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T14:28:24Z",
+  "description": "Observed during People permissions PR1 (zaq-6pa) browser validation at 390x844: existing shared BOLayout header controls overflow document width, including on People tab without matrix. Permissions matrix stays inside viewport and adds no overflow; collapsed sidebar leaves \u003e200px scroller. Follow-up should design/approve responsive shared header and test all BO routes, rather than a People-specific shell override. Screenshots under test/e2e/test-results/people-People-permissions--0202f-yboard-and-mobile-scrolling-journeys-chromium/. No implementation in PR1.",
+  "id": "zaq-gyv",
+  "labels": [],
+  "priority": 3,
+  "status": "open",
+  "title": "BO header mobile overflow",
+  "type": "bug",
+  "updated_at": "2026-09-12T14:28:24Z"
+}
