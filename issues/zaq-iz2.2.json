@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-iz2.1"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-iz2",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-iz2] Reusable list selection component",
   "type": "task",
-  "updated_at": "2026-09-12T07:56:57Z"
+  "updated_at": "2026-09-12T07:59:46Z"
 }
