@@ -94,12 +94,15 @@ ZAQ is a single Elixir/OTP application composed of five internal services. Each 
 
 ## Running ZAQ
 
-### Prepare database extensions first
+### Bootstrap the database and credentials first
 
-A DBA must run one operator script against the target ZAQ database before
+A DBA must run one operator script from a maintenance connection before
 migrations: [`setup_postgres_extensions.sql`](scripts/setup_postgres_extensions.sql)
 for PostgreSQL, or [`setup_paradedb_extensions.sql`](scripts/setup_paradedb_extensions.sql)
-for ParadeDB. Server extension packages must already be available. ZAQ only
+for ParadeDB. It creates the target database, owner/reader logins and extensions;
+provide the target name, both usernames, and both passwords as documented below.
+It refuses any database containing `schema_migrations`, even an empty ledger.
+Server extension packages must already be available. ZAQ only
 verifies prerequisites; it no longer installs extensions with its own login.
 See [database setup](docs/database-setup.md) for commands, non-superuser ownership
 requirements, upgrades, and separate dev/test/E2E provisioning.
@@ -123,9 +126,10 @@ What it does automatically:
 
 Use this path when you want the fastest local startup.
 
-On an unprovisioned database, startup migrations will stop with the setup-script
-instructions. Follow the manual Compose provisioning step below, then rerun the
-installer. The installer does not perform DBA extension provisioning.
+The installer does not perform DBA bootstrap. For a fresh database, follow the
+manual Compose provisioning step below **before starting ZAQ**. If startup already
+created `schema_migrations`, bootstrap refuses that database; ask a DBA to repair
+it or deliberately reset the disposable database before retrying.
 
 ### Docker Compose (local Docker image testing)
 
@@ -180,18 +184,27 @@ export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
 
 If the key is missing or invalid, ZAQ blocks saving sensitive SMTP settings (strict mode).
 
-5. Start PostgreSQL and provision extensions before starting ZAQ:
+5. Start PostgreSQL and bootstrap before starting ZAQ. First load
+   `ZAQ_OWNER_PASSWORD` and `ZAQ_READER_PASSWORD` securely into your environment
+   (see [database setup](docs/database-setup.md)). Copy all scripts so relative
+   includes are available:
 
 ```bash
 docker compose up -d --wait postgres
-docker compose exec -T postgres psql -X --set ON_ERROR_STOP=1 -U postgres -d zaq_prod < scripts/setup_postgres_extensions.sql
+docker compose cp scripts postgres:/tmp/zaq-setup
+docker compose exec -T -e ZAQ_OWNER_PASSWORD -e ZAQ_READER_PASSWORD postgres \
+  psql -X -U postgres -d postgres \
+  --set zaq_database=zaq_prod --set zaq_owner=zaq_owner --set zaq_reader=zaq_reader \
+  --file /tmp/zaq-setup/setup_postgres_extensions.sql
 ```
 
 For an external database or ParadeDB, use the appropriate DBA script and
 connection from [database setup](docs/database-setup.md). The bundled Compose
 credentials are local-development defaults, not a production role policy.
-Production deployments must configure `DATABASE_URL` with a non-superuser
-database/application-object owner, not the bootstrap administrator.
+Before starting ZAQ, configure `DATABASE_URL` with the new owner username/password
+(URI-encode both values), not the bootstrap administrator. Store it securely in
+your deployment environment; Compose otherwise falls back to its administrator
+credentials. Keep the separate reader credentials out of ZAQ's runtime config.
 
 Build and start the stack:
 

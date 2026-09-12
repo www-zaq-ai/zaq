@@ -1,109 +1,141 @@
-# Database extension provisioning
+# Database and credential bootstrap
 
-ZAQ does not install, upgrade or remove PostgreSQL extensions. Before the first
-migration, a DBA/provider administrator must provision extensions in **each target
-database**, using exactly one script for the chosen engine:
+ZAQ never installs, upgrades or removes PostgreSQL extensions. Before starting
+ZAQ or running migrations, a **superuser DBA** runs one psql entrypoint:
 
 | Engine | Script | Extensions |
 | --- | --- | --- |
 | PostgreSQL with pgvector | `scripts/setup_postgres_extensions.sql` | `vector` |
 | ParadeDB | `scripts/setup_paradedb_extensions.sql` | `vector`, `pg_search` |
 
-Installing server packages or using an image containing extension binaries is
-not sufficient: extensions must be enabled in the ZAQ database, not merely in
-`postgres` or another maintenance database. The scripts are standalone SQL, safe
-to rerun, and transactional. They intentionally do not create roles/databases,
-change ownership, relocate extensions, or upgrade existing extensions.
+Despite their historical names, these scripts now create the database, provision
+extensions, create/update the application owner and read-only logins, and set ACLs.
+Common logic lives in `setup_database_begin.sql` and `setup_database_finish.sql`,
+included with `\ir`. Keep the scripts together and invoke with `psql -X --file`;
+do not pipe a single script into stdin. Server packages must already be installed:
+PostgreSQL 16+, pgvector >= 0.7.0 (`halfvec`), and optionally ParadeDB with callable
+`paradedb.version_info()`. Use a psql client supporting `\getenv` (PostgreSQL 15+).
 
-## Provisioning order
+## Invocation
 
-1. Have the DBA install compatible server packages: PostgreSQL 16+ and pgvector
-   >= 0.7.0 (`halfvec` support); ParadeDB also needs `pg_search` and a callable
-   `paradedb.version_info()` function. Managed services may require their own
-   extension allowlist or provider-admin procedure.
-2. Create the target database and assign it to ZAQ's non-superuser login. Ensure
-   this login owns its application schemas and existing application objects.
-3. From the repository root, run **one** of the following with a DBA connection
-   URL pointing to that database. Use a secret manager or `.pgpass` for credentials;
-   never give the DBA connection to the application.
+Connect to an existing **maintenance database**, normally `postgres`, not the
+target database. Supply three nonsecret psql variables and two secret environment
+variables. Usernames and passwords are intentionally separate: no URI/colon
+escaping convention is needed for the new credentials.
 
-   PostgreSQL:
+```sh
+# Inject these through your secret manager, or prompt without echo in Bash:
+read -r -s -p 'ZAQ owner password: ' ZAQ_OWNER_PASSWORD; printf '\n'
+read -r -s -p 'ZAQ reader password: ' ZAQ_READER_PASSWORD; printf '\n'
+export ZAQ_OWNER_PASSWORD ZAQ_READER_PASSWORD
 
-   ```sh
-   psql -X --set ON_ERROR_STOP=1 --dbname "$DB_ADMIN_URL" --file scripts/setup_postgres_extensions.sql
-   ```
+# DBA authentication should use .pgpass / PGPASSFILE or an equivalent secret store.
+psql -X --host localhost --username postgres --dbname postgres \
+  --set zaq_database=zaq_prod \
+  --set zaq_owner=zaq_owner \
+  --set zaq_reader=zaq_reader \
+  --file scripts/setup_postgres_extensions.sql
 
-   ParadeDB:
+# For ParadeDB, replace only the --file value with:
+# scripts/setup_paradedb_extensions.sql
+unset ZAQ_OWNER_PASSWORD ZAQ_READER_PASSWORD
+```
 
-   ```sh
-   psql -X --set ON_ERROR_STOP=1 --dbname "$DB_ADMIN_URL" --file scripts/setup_paradedb_extensions.sql
-   ```
+Passwords must be nonempty; use independently generated strong passwords. Names
+must be nonempty, at most 63 bytes, and owner/reader/DBA identities must differ.
+Reserved `pg_` role names and system/maintenance target databases are rejected.
+Identifiers and password literals are SQL-quoted, including embedded quotes and
+backslashes. Passwords are stored as SCRAM-SHA-256 verifiers and **both are reset
+to the supplied values on every successful pre-migration rerun**.
 
-4. Configure ZAQ with its non-superuser connection and run migrations/start the
-   release. Startup migrations, embedding configuration, and embedding resets
-   still perform table/index DDL; a DML-only login is **not** sufficient yet.
+Do not put passwords in `--set`, connection URLs in argv, shell history, or traced
+commands. The scripts disable psql echo and ordinary statement/duration/error
+statement logging for their sessions. Environment variables are still accessible
+to sufficiently privileged local processes; use a trusted execution host, TLS for
+remote connections, and ensure external SQL auditing also redacts credentials.
+Configure `pg_hba.conf`/network access separately to require appropriate SCRAM/TLS
+authentication: SQL bootstrap cannot configure server packages, network policy,
+host authentication, backups, or secret storage.
 
-The scripts put a newly installed vector extension in `public`. ZAQ's search path
-must include `public`. An existing older extension or one installed elsewhere
-requires an explicit DBA upgrade/schema reconciliation; rerunning the scripts
-does not silently modify it. Capability checks verify that the visible `halfvec`
-type belongs to `vector`, rather than trusting only its name or a version string.
+## Guards, reruns and partial failures
 
-## Application role requirements
+- An absent target is created from `template0` as the executing DBA, then assigned
+  to the requested owner after extension provisioning.
+- An existing database is accepted only if owned by the **executing DBA** or the
+  requested owner. Another superuser's ownership is not sufficient.
+- **Any `schema_migrations` relation in a non-temporary schema blocks setup**, even
+  an empty ledger left by a failed first migration. Nothing in an existing rejected
+  database, including role passwords, is changed. Do not delete a real ledger to
+  bypass this protection; request a DBA-managed repair instead.
+- Existing roles must have no administrative flags, role memberships (in either
+  direction), or dependencies in another database. The reader must own no objects.
+  Unsafe/shared roles are rejected rather than silently repurposed. Roles are
+  cluster-wide: use separate role names for separate ZAQ databases.
+- Role/password changes, extensions, target ownership and ACLs share one transaction.
+  `CREATE DATABASE` cannot run inside it: failure can leave a new **DBA-owned empty
+  database**, which can be retried. No automatic destructive cleanup is performed.
+  Cooperating bootstrap runs serialize inside the target; concurrent first-time
+  database creation may fail and need a rerun. Keep ZAQ/migrators stopped throughout.
+- Existing extensions must belong to the executing DBA. No extension upgrade,
+  relocation, or extension-ownership transfer is performed. Compatible `halfvec`
+  must belong to vector in `public`; an identically named domain is insufficient.
 
-Use `LOGIN`, `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOREPLICATION`, and
-`NOBYPASSRLS`. Database ownership supplies database `CONNECT`, `CREATE` and
-`TEMPORARY` rights. Ensure `public` is owned by ZAQ or, on PostgreSQL 15+,
-`pg_database_owner`. Database ownership alone does not transfer existing table,
-sequence, function, type or other object ownership. Reconcile those application
-objects explicitly; do not blanket-transfer DBA-owned extension objects.
+After successful bootstrap, configure ZAQ with the **owner** credentials and run
+migrations. Database ownership supplies the DDL rights ZAQ needs for migrations and
+runtime chunk creation/reset. `public` follows the database owner using
+`pg_database_owner`; existing application-object ownership is not transferred.
+An existing database containing objects owned by another role needs explicit DBA
+reconciliation. Never transfer DBA-owned extension objects to ZAQ.
 
-ZAQ needs schema/type `USAGE` and extension function `EXECUTE` (including the
-`paradedb` schema on ParadeDB). These may need explicit grants on hardened
-databases. Leave extension ownership with the DBA. ZAQ does not need server-file,
-program-execution or cluster-administration privileges. Package-supplied add-on
-migrations require separate review against this same policy.
+## Read-only access
 
-## Migration and runtime behavior
+The reader receives CONNECT, schema USAGE, table/view SELECT and sequence SELECT
+across all non-system schemas. Owner- and executing-DBA-created future schemas,
+tables and sequences receive matching default privileges, including recreated
+chunks. Other object-creating roles require equivalent DBA-managed defaults.
 
-- Missing/incompatible `vector` fails with an error naming both setup scripts,
-  telling the operator to choose the correct engine and use the same database.
-- Missing `pg_search` is valid for native PostgreSQL. The historical BM25 migration
-  emits an explanatory notice and keeps native search rather than failing.
-- When an earlier migration has removed `chunks`, BM25 migration work waits for
-  runtime table creation. Installed-extension index/permission errors are not
-  swallowed. Rollback changes ZAQ indexes only and retains extensions.
-- Direct ParadeDB index setup without `pg_search` fails with its script path.
-- Historical migration edits affect fresh installations only; existing migration
-  versions are not replayed. Existing installations with compatible extensions
-  need no extension changes. Installing ParadeDB later does not automatically
-  backfill BM25 indexes on existing chunks; schedule explicit index maintenance
-  rather than resetting embeddings solely to switch search backends.
+The reader has no schema/database CREATE, TEMPORARY, table writes, sequence
+USAGE/UPDATE, role memberships or administrative flags. Existing PUBLIC/reader
+write grants (including column grants) and permissive defaults are removed.
+PUBLIC/reader routine execution is revoked in application/extension schemas;
+the owner retains execution on existing routines. Future owner-created routines
+are not executable by PUBLIC. This avoids exposing write-capable SECURITY DEFINER
+functions through a nominally read-only account. Add-ons requiring callable reader
+functions must receive a separate security review and explicit grants.
 
-## Development, reset and CI
+**This is broad database read access, not ZAQ application authorization.** It
+includes authentication/configuration tables and encrypted secret values. Protect
+these credentials accordingly; RLS is not bypassed. PostgreSQL system-schema
+defaults remain untouched. Subsequent privileged grants, migrations that override
+ACLs, or dangerous views/routines require DBA review; the script is not a sandbox
+against future privileged schema changes. It does not revoke PUBLIC CONNECT on
+other databases in the cluster.
 
-Provision every development, test, E2E and worktree database separately. Run
-`mix ecto.create` (or `MIX_ENV=test mix ecto.create`) first if needed, provision
-the selected database as DBA, then run `mix setup` / `mix test`. Test database
-names include the branch slug, and E2E uses a separate `zaq_test_e2e_<slug>` name.
-`mix ecto.reset` drops extensions with the database: instead run `mix ecto.drop`,
-`mix ecto.create`, DBA provisioning, then `mix ecto.migrate`.
+## Existing deployments and development/CI
 
-CI has an explicit administrator provisioning step before migrations, running
-the chosen script twice to verify repeatability. Its database name is resolved
-from `Zaq.Repo.config()` so branch and E2E suffixes are respected.
+Already-migrated databases must use explicit DBA maintenance for extension repair,
+password rotation or ACL changes; bootstrap intentionally refuses them. Installing
+ParadeDB later does not backfill BM25 indexes. Existing compatible deployments need
+no extension changes. Historical migrations validate prerequisites; BM25 retains
+native fallback when `pg_search` is absent and rollback preserves extensions.
 
-The standalone administrative integration check creates and cleans up a unique
-database/login, verifies missing prerequisites, runs all migrations under a real
-non-superuser login, and exercises chunk creation/reset and BM25 rollback:
+Bootstrap every dev/test/E2E/worktree database separately **before any migration**.
+Resolve the exact database through `Zaq.Repo.config()` (branch, E2E and partition
+suffixes apply). Do not run `mix ecto.create` first; bootstrap creates the DB.
+After an intentional database reset, bootstrap again before migration; ZAQ's
+restricted owner cannot recreate a dropped database itself.
+
+CI's `.github/scripts/provision-test-database.exs` resolves that name and bootstraps
+twice using generated, database-specific restricted owner/reader credentials.
+The normal suite still uses its existing administrator configuration; the separate
+integration suite verifies the actual restricted login path:
 
 ```sh
 MIX_ENV=test mix run --no-start .github/scripts/extension_installation_test.exs postgres
-# On a ParadeDB test server:
 MIX_ENV=test mix run --no-start .github/scripts/extension_installation_test.exs paradedb
 ```
 
-Run this only with a dedicated test-server administrator configuration. It is
-deliberately not part of ordinary sandbox tests, which need no role/database
-administration. Abruptly terminating it may leave `zaq_ext_test_*` resources for
-manual cleanup.
+Run only against dedicated test servers with administrator credentials. The suite
+connects to `postgres`, creates isolated databases/logins, validates guards,
+password rotation, ACLs, migrations/runtime/rollback, and cleans up. Abrupt
+termination can leave `zaq_ext_test_*` resources requiring manual cleanup.

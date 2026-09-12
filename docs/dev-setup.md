@@ -2,11 +2,14 @@
 
 ## Getting Started
 
-First create the target database and have a DBA provision its extensions using
-one of the [database setup scripts](database-setup.md). Repeat for the separately
+Before running any migrations, have a DBA create the target database, credentials
+and extensions using one of the [database setup scripts](database-setup.md). Repeat for the separately
 named test and E2E databases before their first migration. `mix setup`, `mix test`
 and E2E bootstrap only verify extensions; they do not install them. After dropping
-a database, recreate and reprovision it before migrating again.
+a database, rerun DBA bootstrap before migrating again. Configure `DB_USER` and
+`DB_PASSWORD` with the new owner credentials for local development. Bootstrap
+refuses any existing `schema_migrations`, even an empty ledger; use explicit DBA
+maintenance for already-migrated databases rather than rerunning bootstrap.
 
 ```bash
 mix setup && mix phx.server   # http://localhost:4000/bo

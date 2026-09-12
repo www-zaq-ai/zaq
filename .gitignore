@@ -93,6 +93,8 @@ db_snapshots/
 /scripts/*
 !/scripts/setup_postgres_extensions.sql
 !/scripts/setup_paradedb_extensions.sql
+!/scripts/setup_database_begin.sql
+!/scripts/setup_database_finish.sql
 !/.github/scripts/
 /.github/scripts/*
 !/.github/scripts/provision-test-database.exs
