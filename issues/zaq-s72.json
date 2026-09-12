@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T06:22:23Z",
+  "description": "Current-worktree approved corrections; preserve staged/uncommitted work, no commits/push/PR or user database reset. Sequential DAG: regression tests -\u003e runtime corrections -\u003e migration and merger verification -\u003e docs and comprehensive validation. Real DB tests, no production test hooks.",
+  "id": "zaq-s72",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Approved identity corrections",
+  "type": "epic",
+  "updated_at": "2026-09-12T06:22:23Z"
+}
