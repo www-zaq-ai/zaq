@@ -10,11 +10,15 @@
     {
       "text": "Regression run before implementation: 4 failures reproduced ordinary/gateway reassignment and invalid owner input. After fix: 4 properties, 166 tests pass across People, gateway, merge, merge-result and concurrency suites (includes migration coverage). Migration singleton cleanup passes no person_id and explicit latest/nil timestamp; multi-person migration uses merger. IdentityResolver only updates dm_channel_id. Advisory pair preserved as {20577,1}. Running mandatory mix q and final diff review.",
       "timestamp": "2026-09-12T11:46:29Z"
+    },
+    {
+      "text": "Completed approved working-tree delivery. mix format, mix q (Credo 1172 files, no issues), targeted tests and coverage rerun all pass: 4 properties +166 tests. Final diff/check clean, only five intended files modified. Coverage: every changed executable production line covered; PersonMerger100%, People92.3% in focused suite. Whole-file exception: 19 preexisting missed People lines144-146,154-156,265,321,327-329,332,359-360,379,410,420,462,545 (discovery retry, error/fallback and other owner paths outside this fix). Follow-up under zaq-c1k: remeasure with broader owner suites and cover remaining paths; no new-code coverage gap. Non-blocking existing license_manager unavailable configuration warning. No commit/push/PR per user.",
+      "timestamp": "2026-09-12T11:49:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-i16] Protect channel ownership and document identity merge lock",
   "type": "task",
-  "updated_at": "2026-09-12T11:46:29Z"
+  "updated_at": "2026-09-12T11:49:11Z"
 }
