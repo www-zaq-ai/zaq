@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-0cg.4"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-0cg",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-0cg] Implement protected People result persistence and owner validation",
   "type": "task",
-  "updated_at": "2026-09-12T08:38:22Z"
+  "updated_at": "2026-09-12T08:40:53Z"
 }
