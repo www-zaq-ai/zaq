@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-iz2.4"
   ],
+  "closed_at": "2026-09-12T08:04:27Z",
   "created": "2026-09-12T07:56:56Z",
   "description": "Step 3: Accounts.People extends existing filter query with stable name,id ordering and validated selection resolution; Engine.PeopleGateway routes it. Test first real DB AND/literal filters, exclusions, unfiltered, malformed, snapshot/cascade/rollback; no mocks. Preserve Sage atomic deletion and accurate failures. Update engine docs.",
   "id": "zaq-iz2.3",
@@ -18,7 +19,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-iz2] Routed matching ID snapshots",
   "type": "task",
   "updated_at": "2026-09-12T08:04:27Z"
