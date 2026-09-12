@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T08:38:10Z",
+  "description": "Owner Person/People validates complete result including protected alias/history via narrowly scoped merge_result_changeset and apply_merge_result operation, ordinary casting unchanged. Existing satellite changesets and grant/revoke, routing change_rule/upsert, notification recipient owner op reused; add only necessary validation boundary. Tests first owner contracts and no-write validation telemetry. No generic CRUD framework, no nil permission bypass. Docs API moduledocs and engine ownership.",
+  "id": "zaq-0cg.1",
+  "labels": [],
+  "parent": "zaq-0cg",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-0cg] Implement protected People result persistence and owner validation",
+  "type": "task",
+  "updated_at": "2026-09-12T08:38:10Z"
+}
