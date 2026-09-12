@@ -10,11 +10,15 @@
     {
       "text": "Implemented approved declaration-only correction in PersonChannel: global [:platform, :channel_identifier], transitional [:person_id, :platform, :channel_identifier], both error_key identifier and existing message/name. Existing integration tests cover duplicate add/update and cross-platform reuse. Validation: focused channel identity/concurrency, People and migration tests: 126 tests + 3 properties, 0 failures. Repo-only disposable replay PASS. mix format focused PASS; mix q default environment PASS (1171 files, no issues); MIX_ENV=test mix q could not find dev-only docs task. Warnings: unavailable license_manager; replay migration module redefinitions. No People/migration/test edits, no staging, commit, push or PR.",
       "timestamp": "2026-09-12T06:10:41Z"
+    },
+    {
+      "text": "Superseded by approved complete correction zaq-s72: remove transitional legacy mapping entirely. Original staged checksum 3d49e7eabc33e6010e72831348730453f5f5c932e3285465139ed3b3a1f71da6 preserved.",
+      "timestamp": "2026-09-12T06:22:51Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-fj9] Declare PersonChannel composite unique constraints explicitly",
   "type": "task",
-  "updated_at": "2026-09-12T06:10:41Z"
+  "updated_at": "2026-09-12T06:22:51Z"
 }
