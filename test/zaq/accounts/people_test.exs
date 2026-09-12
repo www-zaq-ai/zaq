@@ -594,11 +594,52 @@ defmodule Zaq.Accounts.PeopleTest do
   end
 
   describe "update_channel/2" do
+    test "atom and string person_id attributes cannot reassign a channel" do
+      owner = create_person(%{email: nil})
+      other = create_person(%{email: nil})
+      channel = add_channel(owner.id)
+      time = ~U[2026-01-01 00:00:00Z]
+
+      for attrs <- [
+            %{person_id: other.id, username: "Updated", last_interaction_at: time},
+            %{"person_id" => other.id, "username" => "Updated", "last_interaction_at" => time}
+          ] do
+        assert {:ok, updated} = People.update_channel(channel, attrs)
+        assert updated.person_id == owner.id
+        assert updated.username == "Updated"
+        assert updated.last_interaction_at == time
+        assert People.get_channel(channel.id).person_id == owner.id
+      end
+    end
+
+    property "ordinary updates ignore ownership input regardless of its value" do
+      owner = create_person(%{email: nil})
+      channel = add_channel(owner.id)
+
+      check all(
+              value <- one_of([integer(), string(:alphanumeric), constant(nil)]),
+              key <- member_of([:person_id, "person_id"]),
+              max_runs: 30
+            ) do
+        assert {:ok, updated} = People.update_channel(channel, %{key => value})
+        assert updated.person_id == owner.id
+        assert People.get_channel(channel.id).person_id == owner.id
+      end
+    end
+
     test "updates channel_identifier" do
       person = create_person()
       channel = add_channel(person.id)
       assert {:ok, updated} = People.update_channel(channel, %{channel_identifier: "@new_jane"})
       assert updated.channel_identifier == "@new_jane"
+      assert updated.last_interaction_at != nil
+    end
+
+    test "preserves an explicit nil interaction timestamp" do
+      person = create_person(%{email: nil})
+      channel = add_channel(person.id)
+      assert {:ok, updated} = People.update_channel(channel, %{"last_interaction_at" => nil})
+      assert updated.last_interaction_at == nil
     end
   end
 

@@ -242,7 +242,7 @@ defmodule Zaq.Accounts.People do
     |> Repo.update()
   end
 
-  @doc "Updates arbitrary fields on a PersonChannel."
+  @doc "Updates editable channel fields without changing ownership; defaults activity to now."
   @spec update_channel(PersonChannel.t(), map()) ::
           {:ok, PersonChannel.t()} | {:error, Ecto.Changeset.t()}
   def update_channel(%PersonChannel{} = channel, attrs) do
@@ -250,8 +250,21 @@ defmodule Zaq.Accounts.People do
       attrs |> stringify_keys() |> Map.put_new("last_interaction_at", DateTime.utc_now())
 
     channel
-    |> PersonChannel.changeset(normalized)
+    |> PersonChannel.update_changeset(normalized)
     |> Repo.update()
+  end
+
+  @doc """
+  Protected owner operation persisting a calculated channel reconciliation result.
+  Only PersonMerger supplies these attributes within its merge transaction,
+  including the survivor's person_id, reconciled fields, and latest interaction
+  timestamp (which may be nil). No activity timestamp is synthesized for a merge.
+  Ordinary requests must use `update_channel/2`, which cannot change ownership.
+  """
+  @spec apply_channel_merge_result(PersonChannel.t(), map()) ::
+          {:ok, PersonChannel.t()} | {:error, Ecto.Changeset.t()}
+  def apply_channel_merge_result(%PersonChannel{} = channel, attrs) do
+    channel |> PersonChannel.changeset(attrs) |> Repo.update()
   end
 
   @doc """

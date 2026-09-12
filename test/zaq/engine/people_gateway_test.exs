@@ -76,6 +76,30 @@ defmodule Zaq.Engine.PeopleGatewayTest do
 
   # ── update_channel happy path ─────────────────────────────────────────────
 
+  test "dispatch(:update_channel) ignores atom and string ownership attributes" do
+    {:ok, owner} = People.create_person(%{full_name: "Owner"})
+    {:ok, other} = People.create_person(%{full_name: "Other"})
+
+    {:ok, channel} =
+      People.add_channel(%{
+        person_id: owner.id,
+        platform: "slack",
+        channel_identifier: "gateway-owner"
+      })
+
+    for attrs <- [
+          %{person_id: other.id, username: "Updated"},
+          %{"person_id" => other.id, "username" => "Updated"}
+        ] do
+      assert {:ok, updated} =
+               PeopleGateway.dispatch(:update_channel, %{id: channel.id, attrs: attrs})
+
+      assert updated.person_id == owner.id
+      assert updated.username == "Updated"
+      assert People.get_channel(channel.id).person_id == owner.id
+    end
+  end
+
   test "dispatch(:update_channel) updates the channel identifier" do
     ts = System.unique_integer([:positive])
 

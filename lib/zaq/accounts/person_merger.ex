@@ -22,11 +22,25 @@ defmodule Zaq.Accounts.PersonMerger do
   alias Zaq.Permissions.ResourcePermission
   alias Zaq.Repo
 
-  @doc "Runs an identity mutation atomically under the same lock as group merges."
+  # Reserved two-key advisory lock namespace for ZAQ identity merges. Keep these
+  # existing values stable so all callers coordinate on the same database lock.
+  @identity_merge_lock_namespace 20_577
+  @identity_merge_lock_key 1
+
+  @doc """
+  Runs an identity mutation atomically under the same lock as group merges.
+  The reserved advisory lock pair {20577, 1} serializes participating identity
+  mutations across connections to the same database, not across databases.
+  PostgreSQL releases it when the enclosing transaction ends.
+  """
   @spec transaction((-> term())) :: {:ok, term()} | {:error, term()}
   def transaction(fun) do
     Repo.transaction(fn ->
-      Repo.query!("SELECT pg_advisory_xact_lock(20577, 1)")
+      Repo.query!("SELECT pg_advisory_xact_lock($1, $2)", [
+        @identity_merge_lock_namespace,
+        @identity_merge_lock_key
+      ])
+
       fun.()
     end)
   end
@@ -406,7 +420,7 @@ defmodule Zaq.Accounts.PersonMerger do
   defp apply_channels(channels, email) do
     Enum.each(channels, fn {row, attrs, rest} ->
       Enum.each(rest, &(People.delete_channel(&1) |> result!()))
-      People.update_channel(row, attrs) |> result!()
+      People.apply_channel_merge_result(row, attrs) |> result!()
     end)
 
     if email, do: People.add_channel(email) |> result!()
