@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-6pa.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-6pa.4"
+  ],
   "created": "2026-09-12T13:29:51Z",
   "description": "Own PeopleLive ex/heex. Tests FIRST extend existing authenticated LiveView suite: explicit desired booleans including false, invalid events, tab allowlist/detail, independent grants, deleted team, failure/reload. Existing Toggle tabs/Table/Switch JS.push; stable unique accessibility labels; scroll containment. Authoritative reload, nil matrix hides stale controls. No auth policy changes. Real Engine boundary; existing dispatch seam for unavailable node only.",
   "id": "zaq-6pa.3",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-6pa] Build approved People permissions matrix tab",
   "type": "task",
-  "updated_at": "2026-09-12T13:30:13Z"
+  "updated_at": "2026-09-12T13:30:14Z"
 }

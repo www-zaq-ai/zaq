@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-6pa.3"
+  ],
   "blocks": [],
   "created": "2026-09-12T13:29:51Z",
   "description": "Tests FIRST extend existing people.spec.js with persistence/independence keyboard/mobile/many-team/zero-team cases. Test-only reset clears grants. Run isolated migrations before E2E all 3 browsers retaining 69 scenarios. Add shipped-only docs/services/people-access.md and AGENTS/engine links. mix format, mix q, focused/relevant suites, coveralls \u003e=95 new modules or record precise exceptions, git diff check and security self-review. No stage/commit/push/PR.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-6pa] Validate People permissions browsers coverage and docs",
   "type": "task",
-  "updated_at": "2026-09-12T13:29:51Z"
+  "updated_at": "2026-09-12T13:30:14Z"
 }
