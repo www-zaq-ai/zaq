@@ -11,6 +11,12 @@
   "id": "zaq-1yh.2",
   "labels": [],
   "parent": "zaq-1yh",
+  "comments": [
+    {
+      "text": "Native standalone currently passes 3 tests (fresh DB/roles, password reruns, missing/migrated/wrong-owner guards, all migrations/runtime and reader denied writes). Maintenance connection now uses postgres so target need not exist. Added shared psql transaction with rollback for roles/extensions/ownership, SCRAM and password environment inputs, all-schema defaults. Expanding role and ACL negative cases before final validation.",
+      "timestamp": "2026-09-12T13:44:18Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-1yh] Implement shared SQL bootstrap and CI callers",
