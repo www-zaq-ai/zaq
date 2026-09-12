@@ -11,9 +11,15 @@
   "id": "zaq-iz2.3",
   "labels": [],
   "parent": "zaq-iz2",
+  "comments": [
+    {
+      "text": "111 database/gateway tests pass, including literal combined filters, strict malformed rejection, stable ordering, frozen snapshots, cascade and rollback. Negative IDs now invalid; missing-ID test uses a deleted valid ID.",
+      "timestamp": "2026-09-12T08:04:27Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-iz2] Routed matching ID snapshots",
   "type": "task",
-  "updated_at": "2026-09-12T08:01:56Z"
+  "updated_at": "2026-09-12T08:04:27Z"
 }
