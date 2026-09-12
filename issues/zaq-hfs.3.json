@@ -11,9 +11,15 @@
   "id": "zaq-hfs.3",
   "labels": [],
   "parent": "zaq-hfs",
+  "comments": [
+    {
+      "text": "Six LiveView scenarios pass: real save/reload, known/unknown tabs, immediate errors, malicious hook values, corruption readonly/retry, transport failures preserve edits. Existing tab-panel pattern reused; existing dispatch_engine now uses Events helper with same router seam. Browser coverage/quality underway.",
+      "timestamp": "2026-09-12T19:37:12Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-hfs] People access BO configuration form",
   "type": "task",
-  "updated_at": "2026-09-12T19:34:34Z"
+  "updated_at": "2026-09-12T19:37:12Z"
 }
