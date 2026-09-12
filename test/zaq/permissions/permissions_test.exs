@@ -30,6 +30,52 @@ defmodule Zaq.PermissionsTest do
   defp fake_document(id \\ System.unique_integer([:positive])), do: %Document{id: id}
 
   describe "grant/3" do
+    test "resolved person coordinates and structs use the supplied resource and principal IDs" do
+      survivor = create_person()
+      old = create_person()
+      assert {:ok, _} = People.merge_persons(survivor, old)
+      person = People.get_person(old.id)
+      assert person.id == survivor.id
+
+      for resource <- [person, {"person", person.id}, {"person", to_string(person.id)}] do
+        assert {:ok, permission} =
+                 Permissions.grant(resource, %{person_id: person.id, access_rights: ["read"]})
+
+        assert permission.resource_id == to_string(survivor.id)
+        assert permission.person_id == survivor.id
+        assert Permissions.can?(person, :read, resource)
+        assert [persisted] = Permissions.list(resource)
+        assert :ok = Permissions.revoke(resource, persisted)
+      end
+    end
+
+    property "coordinate and struct grants share one principal row through replacement and revocation" do
+      check all(id <- integer(1..100_000), max_runs: 10) do
+        for principal <- [%{team_id: create_team().id}, %{person_id: create_person().id}],
+            {resource, coordinate} <- [
+              {fake_document(id), {"document", id}},
+              {{"document", "external-#{id}"}, {"document", "external-#{id}"}}
+            ] do
+          attrs = Map.put(principal, :access_rights, ["read"])
+          assert {:ok, original} = Permissions.grant(resource, attrs)
+
+          assert {:ok, updated} =
+                   Permissions.grant(coordinate, %{attrs | access_rights: ["write"]})
+
+          assert updated.access_rights == ["write"]
+          assert [permission] = Permissions.list(resource)
+          assert permission.id == original.id
+          assert permission.access_rights == ["write"]
+
+          assert {:error, _} =
+                   Permissions.grant(coordinate, %{attrs | access_rights: ["invalid"]})
+
+          assert :ok = Permissions.revoke(coordinate, permission)
+          refute Repo.get(ResourcePermission, permission.id)
+        end
+      end
+    end
+
     test "inserts a person permission row" do
       person = create_person()
       workflow = fake_workflow()
@@ -74,6 +120,29 @@ defmodule Zaq.PermissionsTest do
   end
 
   describe "revoke/3" do
+    test "deletes the exact dual-principal row without touching neighboring grants" do
+      person = create_person()
+      team = create_team()
+      other = create_person()
+      resource = fake_workflow()
+
+      {:ok, dual} =
+        Permissions.grant(resource, %{
+          person_id: person.id,
+          team_id: team.id,
+          access_rights: ["read"]
+        })
+
+      {:ok, neighbor} =
+        Permissions.grant(resource, %{person_id: other.id, access_rights: ["write"]})
+
+      assert :ok = Permissions.revoke(resource, dual)
+      refute Repo.get(ResourcePermission, dual.id)
+      assert [remaining] = Permissions.list(resource)
+      assert remaining.id == neighbor.id
+      assert remaining.access_rights == ["write"]
+    end
+
     test "deletes the permission row" do
       person = create_person()
       workflow = fake_workflow()

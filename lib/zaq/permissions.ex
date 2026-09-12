@@ -4,7 +4,9 @@ defmodule Zaq.Permissions do
 
   Manages who can do what on a given resource (document, workflow, etc.).
   Permission checks are scoped to `resource_type` + `resource_id` pairs —
-  the resource type is derived automatically from the struct module name.
+  the resource type is derived automatically from the struct module name, or
+  supplied as `{resource_type, resource_id}` coordinates. IDs are stringified.
+  Callers supply a resolved Person and current resource/principal IDs.
 
   ## Security contract
 
@@ -24,7 +26,7 @@ defmodule Zaq.Permissions do
       end
 
       # Revoke
-      {:ok, _} = Permissions.revoke(workflow, perm)
+      :ok = Permissions.revoke(workflow, perm)
   """
 
   import Ecto.Query
@@ -33,6 +35,8 @@ defmodule Zaq.Permissions do
   alias Zaq.Permissions.ResourcePermission
   alias Zaq.Repo
 
+  @type resource :: struct() | {String.t(), String.t() | integer()}
+
   @doc """
   Grants access rights to a person or team for the given resource.
 
@@ -40,7 +44,7 @@ defmodule Zaq.Permissions do
   Uses upsert semantics — if a permission row already exists for the same
   (resource_type, resource_id, person_id/team_id), the access_rights are updated.
   """
-  @spec grant(struct(), map(), keyword()) ::
+  @spec grant(resource(), map(), keyword()) ::
           {:ok, ResourcePermission.t()} | {:error, Ecto.Changeset.t()}
   def grant(resource, attrs, _opts \\ []) do
     {resource_type, resource_id} = resource_coords(resource)
@@ -68,7 +72,7 @@ defmodule Zaq.Permissions do
   Revokes the given permission row.
   Returns `:ok` on success, `{:error, changeset}` on DB constraint failure.
   """
-  @spec revoke(struct(), ResourcePermission.t(), keyword()) ::
+  @spec revoke(resource(), ResourcePermission.t(), keyword()) ::
           :ok | {:error, Ecto.Changeset.t()}
   def revoke(_resource, %ResourcePermission{} = permission, opts \\ []) do
     revoker = Keyword.get(opts, :revoker, Zaq.Permissions.PermissionRevoker)
@@ -87,7 +91,7 @@ defmodule Zaq.Permissions do
 
   Pass `skip_permissions: true` in opts for explicit admin bypass.
   """
-  @spec can?(Person.t() | nil, atom(), struct(), keyword()) :: boolean()
+  @spec can?(Person.t() | nil, atom(), resource(), keyword()) :: boolean()
   def can?(person, right, resource, opts \\ [])
 
   def can?(nil, right, resource, opts) do
@@ -104,7 +108,7 @@ defmodule Zaq.Permissions do
   end
 
   @doc "Returns true when the resource is granted to the system Everyone team."
-  @spec public?(struct(), keyword()) :: boolean()
+  @spec public?(resource(), keyword()) :: boolean()
   def public?(resource, opts \\ []) do
     resource
     |> resources_with_ancestors(Keyword.get(opts, :ancestors, []))
@@ -123,13 +127,13 @@ defmodule Zaq.Permissions do
   end
 
   @doc "Grants public read access through the system Everyone team."
-  @spec grant_public(struct(), keyword()) ::
+  @spec grant_public(resource(), keyword()) ::
           {:ok, ResourcePermission.t()} | {:error, Ecto.Changeset.t()}
   def grant_public(resource, opts \\ []),
     do: grant(resource, %{team_id: everyone_team_id(), access_rights: ["read"]}, opts)
 
   @doc "Revokes direct public access from a resource."
-  @spec revoke_public(struct(), keyword()) :: :ok | {:error, term()}
+  @spec revoke_public(resource(), keyword()) :: :ok | {:error, term()}
   def revoke_public(resource, opts \\ []) do
     case direct_public_permission(resource) do
       nil -> :ok
@@ -138,11 +142,11 @@ defmodule Zaq.Permissions do
   end
 
   @doc "Lists permissions directly attached to a resource."
-  @spec list_direct(struct(), keyword()) :: [ResourcePermission.t()]
+  @spec list_direct(resource(), keyword()) :: [ResourcePermission.t()]
   def list_direct(resource, opts \\ []), do: list(resource, opts)
 
   @doc "Counts distinct person and team principals granted to the given resources."
-  @spec count_principals([struct()]) :: non_neg_integer()
+  @spec count_principals([resource()]) :: non_neg_integer()
   def count_principals(resources) when is_list(resources) do
     resources
     |> resource_coords_by_type()
@@ -157,7 +161,7 @@ defmodule Zaq.Permissions do
   end
 
   @doc "Lists direct and inherited grants for a resource and its supplied ancestors."
-  @spec list_effective(struct(), keyword()) :: [map()]
+  @spec list_effective(resource(), keyword()) :: [map()]
   def list_effective(resource, opts \\ []) do
     [{_resource, grants}] =
       list_effective_many([{resource, Keyword.get(opts, :ancestors, [])}], opts)
@@ -166,7 +170,7 @@ defmodule Zaq.Permissions do
   end
 
   @doc "Lists direct and inherited grants for many resources with one permissions query."
-  @spec list_effective_many([{struct(), [struct()]}], keyword()) :: [{struct(), [map()]}]
+  @spec list_effective_many([{resource(), [resource()]}], keyword()) :: [{resource(), [map()]}]
   def list_effective_many(resource_chains, opts \\ []) when is_list(resource_chains) do
     chains =
       Enum.map(resource_chains, fn {resource, ancestors} -> {resource, List.wrap(ancestors)} end)
@@ -196,7 +200,7 @@ defmodule Zaq.Permissions do
   end
 
   @doc "Replaces all direct grants on a resource with the desired grant maps."
-  @spec replace(struct(), [map()], keyword()) ::
+  @spec replace(resource(), [map()], keyword()) ::
           {:ok, [ResourcePermission.t()]} | {:error, term()}
   def replace(resource, desired_grants, opts \\ []) when is_list(desired_grants) do
     Repo.transaction(fn ->
@@ -226,7 +230,7 @@ defmodule Zaq.Permissions do
   @doc """
   Lists all permission rows for the given resource.
   """
-  @spec list(struct(), keyword()) :: [ResourcePermission.t()]
+  @spec list(resource(), keyword()) :: [ResourcePermission.t()]
   def list(resource, _opts \\ []) do
     {resource_type, resource_id} = resource_coords(resource)
 
@@ -379,6 +383,10 @@ defmodule Zaq.Permissions do
 
   # Derives (resource_type, resource_id) from a struct.
   # resource_id is always a string to support both integer and UUID PKs.
+  defp resource_coords({type, id})
+       when is_binary(type) and (is_binary(id) or is_integer(id)),
+       do: {type, to_string(id)}
+
   defp resource_coords(%{__struct__: module, id: id}) do
     resource_type =
       module

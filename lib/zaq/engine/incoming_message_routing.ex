@@ -30,12 +30,24 @@ defmodule Zaq.Engine.IncomingMessageRouting do
           | :default_zaq_agent
   @scope_keys [:person_id, :channel_config_id, :retrieval_channel_id, :topic_id]
 
-  @doc "Returns a changeset for an incoming-message routing rule."
+  @doc """
+  Returns a read-only changeset including current database-backed agent eligibility
+  and channel ownership validation. Persistence rechecks these policies inside its
+  transaction; database constraints remain authoritative for uniqueness.
+  """
   def change_rule(%IncomingMessageRoutingRule{} = rule, attrs \\ %{}) do
-    IncomingMessageRoutingRule.changeset(rule, attrs)
+    rule
+    |> IncomingMessageRoutingRule.changeset(attrs)
+    |> IncomingMessageRoutingRule.validate_policy(Repo)
   end
 
-  @doc "Creates or updates the rule for a scope."
+  @doc "Creates or updates a rule struct, preserving loaded identity, or the rule at a scope."
+  def upsert_rule(%IncomingMessageRoutingRule{} = rule, attrs) do
+    rule
+    |> change_rule(attrs)
+    |> Repo.insert_or_update()
+  end
+
   def upsert_rule(scope_attrs, route_attrs) when is_map(scope_attrs) and is_map(route_attrs) do
     attrs = Map.merge(scope_attrs, route_attrs)
 
@@ -43,8 +55,7 @@ defmodule Zaq.Engine.IncomingMessageRouting do
       nil -> %IncomingMessageRoutingRule{}
       %IncomingMessageRoutingRule{} = rule -> rule
     end
-    |> IncomingMessageRoutingRule.changeset(attrs)
-    |> Repo.insert_or_update()
+    |> upsert_rule(attrs)
   end
 
   @doc "Deletes the rule at the given scope, returning `{:ok, nil}` when absent."

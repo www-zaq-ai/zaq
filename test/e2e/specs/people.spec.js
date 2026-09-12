@@ -4,6 +4,7 @@ const {
   loginToBackOffice,
   pickSearchableSelect,
   resetE2EState,
+  waitForLiveViewSettled,
   waitForServerRoundTrip,
 } = require("../support/bo")
 
@@ -54,6 +55,7 @@ const SEL = {
 
 test.describe("People", () => {
   test.beforeAll(async () => {
+    if (process.env.E2E_PRESERVE_STATE === "1") return
     const req = await apiRequest.newContext()
     await resetE2EState(req)
     await req.dispose()
@@ -194,6 +196,71 @@ test.describe("People", () => {
 
   // ── Merge flow ────────────────────────────────────────────────────────────
 
+  test("normalizes mixed-case email on create and edit, survives reload, and rejects duplicates", async ({ page }) => {
+    const ts = Date.now()
+    const name = `E2E Canonical ${ts}`
+    const otherName = `E2E Other ${ts}`
+    const canonical = `canonical-${ts}@example.com`
+    const edited = `edited-${ts}@example.com`
+    const editPerson = '[phx-click="open_modal"][phx-value-action="edit"][phx-value-entity="person"]'
+
+    await page.locator(SEL.newPersonButton).click()
+    await waitForLiveViewSettled(page)
+    await page.locator(SEL.fullNameInput).fill(name)
+    await page.locator(SEL.emailInput).fill(`Canonical-${ts}@EXAMPLE.COM`)
+    await page.locator(SEL.savePersonButton).click()
+    await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+
+    await gotoBackOfficeLive(page, PEOPLE_PATH)
+    await page.locator(SEL.filterName).fill(name)
+    await expect(page.locator("#people-table tbody tr").filter({ hasText: name })).toHaveCount(1)
+    await waitForServerRoundTrip(page)
+    await selectPerson(page, name)
+    await page.locator(editPerson).first().click()
+    await expect(page.locator(SEL.emailInput)).toHaveValue(canonical)
+    await page.locator(SEL.emailInput).fill(`Edited-${ts}@EXAMPLE.COM`)
+    await page.locator(SEL.savePersonButton).click()
+    await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+
+    await page.reload()
+    await waitForLiveViewSettled(page)
+    await page.locator(SEL.filterName).fill(name)
+    await expect(page.locator("#people-table tbody tr").filter({ hasText: name })).toHaveCount(1)
+    await waitForServerRoundTrip(page)
+    await selectPerson(page, name)
+    await page.locator(editPerson).first().click()
+    await expect(page.locator(SEL.emailInput)).toHaveValue(edited)
+
+    await gotoBackOfficeLive(page, PEOPLE_PATH)
+    await page.locator(SEL.newPersonButton).click()
+    await waitForLiveViewSettled(page)
+    await page.locator(SEL.fullNameInput).fill(otherName)
+    await page.locator(SEL.emailInput).fill(`EDITED-${ts}@Example.com`)
+    await page.locator(SEL.savePersonButton).click()
+    await expect(page.locator(SEL.modalOverlay)).toContainText("has already been taken")
+
+    // Correct the rejected create, then attempt the same collision through edit.
+    await page.locator(SEL.emailInput).fill(`other-${ts}@example.com`)
+    await page.locator(SEL.savePersonButton).click()
+    await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+    await page.locator(SEL.filterName).fill(otherName)
+    await expect(page.locator("#people-table tbody tr").filter({ hasText: otherName })).toHaveCount(1)
+    await waitForServerRoundTrip(page)
+    await selectPerson(page, otherName)
+    await page.locator(editPerson).first().click()
+    await page.locator(SEL.emailInput).fill(`EDITED-${ts}@Example.com`)
+    await page.locator(SEL.savePersonButton).click()
+    await expect(page.locator(SEL.modalOverlay)).toContainText("has already been taken")
+
+    await gotoBackOfficeLive(page, PEOPLE_PATH)
+    await page.locator(SEL.filterName).fill(otherName)
+    await expect(page.locator("#people-table tbody tr").filter({ hasText: otherName })).toHaveCount(1)
+    await waitForServerRoundTrip(page)
+    await selectPerson(page, otherName)
+    await page.locator(editPerson).first().click()
+    await expect(page.locator(SEL.emailInput)).toHaveValue(`other-${ts}@example.com`)
+  })
+
   test("merge modal opens from detail panel Merge button", async ({ page }) => {
     const ts = Date.now()
     const nameA = `E2E MergeA ${ts}`
@@ -223,10 +290,21 @@ test.describe("People", () => {
     await expect(page.locator(SEL.mergeSearchInput)).toBeVisible()
   })
 
-  test("merge: search finds the loser, confirm merges and deletes the loser", async ({ page }) => {
+  test("merge keeps selected survivor, channels and teams and displays merged identity history", async ({ page }) => {
     const ts = Date.now()
     const nameSurvivor = `E2E Survivor ${ts}`
     const nameLoser = `E2E Loser ${ts}`
+    const loserEmail = `merge-loser-${ts}@example.com`
+    const emailChannel = page.locator("#people-detail-pane").getByText("email", { exact: true }).locator("..")
+    const teamName = `Merge team ${ts}`
+
+    await page.locator(SEL.tabTeams).click()
+    await page.locator(SEL.newTeamButton).click()
+    await page.locator(SEL.teamNameInput).fill(teamName)
+    await page.locator(SEL.saveTeamButton).click()
+    await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+    await page.locator(SEL.tabPeople).click()
+    await waitForLiveViewSettled(page)
 
     // Create survivor
     await page.locator(SEL.newPersonButton).click()
@@ -237,6 +315,7 @@ test.describe("People", () => {
     // Create loser
     await page.locator(SEL.newPersonButton).click()
     await page.locator(SEL.fullNameInput).fill(nameLoser)
+    await page.locator(SEL.emailInput).fill(loserEmail)
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
@@ -244,8 +323,28 @@ test.describe("People", () => {
     await filterByName(page, `${ts}`)
     await expect(page.getByText(nameSurvivor)).toBeVisible()
 
+    await selectPerson(page, nameLoser)
+    const loserId = await page.locator('#people-detail-pane [phx-click="open_merge_modal"]').getAttribute("phx-value-id")
+    await pickSearchableSelect(page, `[id^="team-select-${loserId}-"]`, teamName)
+    await waitForLiveViewSettled(page)
+    await page.locator(SEL.addChannelButton).click()
+    await page.locator(SEL.platformSelect).selectOption("telegram")
+    await page.locator(SEL.channelIdentifierInput).fill(`merge-channel-${ts}`)
+    await page.locator(SEL.saveChannelButton).click()
+    await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+
     // Select survivor → open merge modal
     await selectPerson(page, nameSurvivor)
+    await page.locator(SEL.addChannelButton).click()
+    await page.locator(SEL.platformSelect).selectOption("email")
+    await page.locator(SEL.channelIdentifierInput).fill(` MERGE-LOSER-${ts}@EXAMPLE.COM `)
+    await page.locator(SEL.saveChannelButton).click()
+    await expect(page.locator("#channel-modal-form")).toContainText("This channel identifier is already assigned.")
+    await expect(page.locator(SEL.channelIdentifierInput)).toHaveValue(loserEmail)
+    await page.locator("#channel-modal-form").getByRole("button", { name: "Cancel", exact: true }).click()
+    await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+    await expect(emailChannel).toHaveCount(0)
+    await expect(page.locator("#people-detail-pane")).not.toContainText(`MERGE-LOSER-${ts}@EXAMPLE.COM`)
     await page.locator('[phx-click="open_merge_modal"]').first().click()
     await expect(page.locator(SEL.modalOverlay)).toBeVisible()
 
@@ -263,10 +362,69 @@ test.describe("People", () => {
     await expect(page.getByText("Persons merged successfully")).toBeVisible()
 
     // Loser no longer in people list
-    await expect(page.getByText(nameLoser)).not.toBeVisible()
+    await expect(page.locator("#people-table").getByText(nameLoser)).not.toBeVisible()
+    await expect(page.locator("#people-detail-pane")).toContainText(teamName)
+    await expect(page.locator("#people-detail-pane")).toContainText(`merge-channel-${ts}`)
+    await expect(emailChannel.locator("p").first()).toHaveText(loserEmail)
+    await expect(page.locator("#people-detail-pane").getByText("email", { exact: true })).toHaveCount(1)
+    await expect(page.locator("#person-merged-entries")).toContainText(nameLoser)
+    await expect(page.locator("#person-merged-entries")).not.toContainText(loserEmail)
+    await expect(page.locator("#person-merged-entries")).toContainText(loserId)
+    await gotoBackOfficeLive(page, `${PEOPLE_PATH}?person_id=${loserId}`)
+    await expect(page.locator("#people-detail-pane h3").first()).toHaveText(nameSurvivor)
+    await expect(page.locator("#people-detail-pane").getByText("email", { exact: true })).toHaveCount(1)
+    await expect(emailChannel.locator("p").first()).toHaveText(loserEmail)
+    await expect(page.locator("#person-merged-entries")).toContainText(nameLoser)
   })
 
   // ── Channel management ────────────────────────────────────────────────────
+
+  for (const platform of ["email", "telegram"]) {
+    for (const samePerson of [true, false]) {
+      test(`${platform} add/edit duplicate errors retain values (${samePerson ? "same" : "cross"} person)`, async ({ page }) => {
+        const ts = Date.now()
+        const owner = `E2E Owner ${ts}`
+        const target = samePerson ? owner : `E2E Target ${ts}`
+        const identifier = `identity-${ts}@example.com`
+        for (const name of [...new Set([owner, target])]) {
+          await page.locator(SEL.newPersonButton).click()
+          await page.locator(SEL.fullNameInput).fill(name)
+          await page.locator(SEL.savePersonButton).click()
+          await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+        }
+        await filterByName(page, `${ts}`)
+        await selectPerson(page, owner)
+        await page.locator(SEL.addChannelButton).click()
+        await page.locator(SEL.platformSelect).selectOption(platform)
+        await page.locator(SEL.channelIdentifierInput).fill(identifier)
+        await page.locator(SEL.saveChannelButton).click()
+        await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+        await selectPerson(page, target)
+        await page.locator(SEL.addChannelButton).click()
+        await page.locator(SEL.platformSelect).selectOption(platform)
+        const duplicate = platform === "email" ? ` ${identifier.toUpperCase()} ` : identifier
+        await page.locator(SEL.channelIdentifierInput).fill(duplicate)
+        await page.locator(SEL.saveChannelButton).click()
+        await expect(page.locator("#channel-modal-form")).toContainText("This channel identifier is already assigned.")
+        await expect(page.locator(SEL.channelIdentifierInput)).toHaveValue(identifier)
+        await expect(page.locator(SEL.platformSelect)).toHaveValue(platform)
+        const editable = `editable-${ts}@example.com`
+        await page.locator(SEL.channelIdentifierInput).fill(editable)
+        await page.locator(SEL.saveChannelButton).click()
+        await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+        const channelRow = page.locator("#people-detail-pane").getByText(editable, { exact: true }).locator("../..")
+        await channelRow.locator('[phx-click="open_modal"][phx-value-entity="channel"][phx-value-action="edit"]').click()
+        await page.locator(SEL.channelIdentifierInput).fill(duplicate)
+        await page.locator(SEL.saveChannelButton).click()
+        await expect(page.locator("#channel-modal-form")).toContainText("This channel identifier is already assigned.")
+        await expect(page.locator(SEL.channelIdentifierInput)).toHaveValue(identifier)
+        await page.locator(SEL.channelIdentifierInput).fill(`corrected-${ts}@example.com`)
+        await page.locator(SEL.saveChannelButton).click()
+        await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+        await expect(page.locator("#people-detail-pane")).toContainText(`corrected-${ts}@example.com`)
+      })
+    }
+  }
 
   test("platform dropdown includes telegram and discord", async ({ page }) => {
     // Create a person first so the detail panel and Add Channel button are accessible

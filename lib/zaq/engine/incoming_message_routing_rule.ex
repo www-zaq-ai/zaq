@@ -5,6 +5,8 @@ defmodule Zaq.Engine.IncomingMessageRoutingRule do
   Rules describe the scope and destination mode for incoming communication
   messages. Engine routing resolves these rules and translates them into
   executable `%Zaq.Event{}` hops.
+  Database-backed policy validation is shared by read-only context changesets
+  and persistence-time checks, using the rule's repository prefix.
   """
 
   use Ecto.Schema
@@ -46,8 +48,7 @@ defmodule Zaq.Engine.IncomingMessageRoutingRule do
     |> assoc_constraint(:channel_config)
     |> assoc_constraint(:retrieval_channel)
     |> assoc_constraint(:configured_agent)
-    |> prepare_changes(&validate_configured_agent_eligible/1)
-    |> prepare_changes(&validate_retrieval_channel_belongs_to_config/1)
+    |> prepare_changes(&validate_policy(&1, &1.repo))
     |> unique_constraint(:person_id, name: :incoming_message_routing_rules_one_global_index)
     |> unique_constraint(:channel_config_id,
       name: :incoming_message_routing_rules_one_provider_index
@@ -134,15 +135,27 @@ defmodule Zaq.Engine.IncomingMessageRoutingRule do
     end
   end
 
-  defp validate_configured_agent_eligible(changeset) do
+  @doc "Validates current agent eligibility and channel ownership without writing. Persistence rechecks the same policies."
+  @spec validate_policy(Ecto.Changeset.t(), module()) :: Ecto.Changeset.t()
+  def validate_policy(%{valid?: false} = changeset, _repo), do: changeset
+
+  def validate_policy(changeset, repo) do
+    changeset
+    |> validate_configured_agent_eligible(repo)
+    |> validate_retrieval_channel_belongs_to_config(repo)
+  end
+
+  defp validate_configured_agent_eligible(changeset, repo) do
     case {get_field(changeset, :routing_mode), get_field(changeset, :configured_agent_id)} do
       {:agent, agent_id} when not is_nil(agent_id) ->
         exists? =
-          changeset.repo.exists?(
-            from agent in ConfiguredAgent,
+          repo.exists?(
+            from(agent in ConfiguredAgent,
               where:
                 agent.id == ^agent_id and agent.active == true and
                   agent.conversation_enabled == true
+            ),
+            policy_query_opts(changeset)
           )
 
         if exists? do
@@ -156,17 +169,19 @@ defmodule Zaq.Engine.IncomingMessageRoutingRule do
     end
   end
 
-  defp validate_retrieval_channel_belongs_to_config(changeset) do
+  defp validate_retrieval_channel_belongs_to_config(changeset, repo) do
     channel_config_id = get_field(changeset, :channel_config_id)
     retrieval_channel_id = get_field(changeset, :retrieval_channel_id)
 
     if channel_config_id && retrieval_channel_id do
       exists? =
-        changeset.repo.exists?(
-          from channel in RetrievalChannel,
+        repo.exists?(
+          from(channel in RetrievalChannel,
             where:
               channel.id == ^retrieval_channel_id and
                 channel.channel_config_id == ^channel_config_id
+          ),
+          policy_query_opts(changeset)
         )
 
       if exists? do
@@ -176,6 +191,13 @@ defmodule Zaq.Engine.IncomingMessageRoutingRule do
       end
     else
       changeset
+    end
+  end
+
+  defp policy_query_opts(changeset) do
+    case Keyword.get(changeset.repo_opts, :prefix, Ecto.get_meta(changeset.data, :prefix)) do
+      nil -> []
+      prefix -> [prefix: prefix]
     end
   end
 end

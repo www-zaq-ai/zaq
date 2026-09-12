@@ -56,6 +56,26 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
     |> Repo.insert()
   end
 
+  @doc "Updates a log's typed recipient reference without modifying its audit payload or delivery status."
+  @spec update_recipient(%__MODULE__{}, {:person | :user, pos_integer()} | nil) ::
+          {:ok, %__MODULE__{}} | {:error, Ecto.Changeset.t() | :invalid_recipient}
+  def update_recipient(log, reference) do
+    with {:ok, changeset} <- change_recipient(log, reference), do: Repo.update(changeset)
+  end
+
+  @doc "Validates a typed recipient correction without writing or changing audit data."
+  @spec change_recipient(%__MODULE__{}, {:person | :user, pos_integer()} | nil) ::
+          {:ok, Ecto.Changeset.t()} | {:error, :invalid_recipient}
+  def change_recipient(log, {type, id})
+      when type in [:person, :user] and is_integer(id) and id > 0 do
+    {:ok, change(log, recipient_ref_type: to_string(type), recipient_ref_id: id)}
+  end
+
+  def change_recipient(log, nil),
+    do: {:ok, change(log, recipient_ref_type: nil, recipient_ref_id: nil)}
+
+  def change_recipient(_log, _reference), do: {:error, :invalid_recipient}
+
   @doc """
   Atomically appends a channel attempt entry to `channels_tried` using a
   Postgres JSONB concatenation fragment. Safe for concurrent Oban retries.
