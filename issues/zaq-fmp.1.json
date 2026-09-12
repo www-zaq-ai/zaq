@@ -9,9 +9,15 @@
   "id": "zaq-fmp.1",
   "labels": [],
   "parent": "zaq-fmp",
+  "comments": [
+    {
+      "text": "Red browser reproduction confirmed twice in Chromium. After moving permission membership validation to its canonical context boundary, both real failed grant/revoke commands return Permission change failed, authoritative matrix reload succeeds unchanged, and native checked still disagrees with checked/ARIA HTML. Exact toBeChecked assertions failed in both directions.",
+      "timestamp": "2026-09-12T14:37:33Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-fmp] Reproduce rejected permission writes in real browsers",
   "type": "task",
-  "updated_at": "2026-09-12T14:33:33Z"
+  "updated_at": "2026-09-12T14:37:33Z"
 }
