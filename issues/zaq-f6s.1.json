@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T14:46:57Z",
+  "description": "Files scripts/docker_entrypoint.py, scripts/docker_db*.sql, setup_database_finish.sql, Dockerfile and Python tests. Specs: default migrate/start; explicit provisioning input contract; automatic persistent random credentials, lock, atomic DBA-owned receipt, validation-only restart. Tests first: mode dispatch, engine detection errors, credential separation, rollback/receipt crash recovery, missing or conflicting receipt/state, real psql bootstrap/restart and ACL checks. Branches: fresh, retry, already provisioned, foreign migrated DB, lost secrets, changed target. Mock only subprocess boundary for unavailable Docker; real local psql integration where available. Docs database-setup. Coverage target 95%, measure Python orchestration and document Docker/SQL exceptions.",
+  "id": "zaq-f6s.1",
+  "labels": [],
+  "parent": "zaq-f6s",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-f6s] Implement dual-mode entrypoint and atomic bootstrap receipt",
+  "type": "task",
+  "updated_at": "2026-09-12T14:46:57Z"
+}
