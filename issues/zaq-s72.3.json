@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-s72.2"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-s72",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-s72] Verify participant scope and legacy rollback",
   "type": "task",
-  "updated_at": "2026-09-12T06:22:50Z"
+  "updated_at": "2026-09-12T06:26:37Z"
 }
