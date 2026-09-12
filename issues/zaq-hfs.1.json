@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-hfs.2"
+  ],
   "created": "2026-09-12T19:25:58Z",
   "description": "Owners PeopleAccessConfig and System. Tests FIRST defaults 604800, strict positive integer property and malicious inputs, one grouped read/no writes, partial preservation, corrupt read and complete repair, transactional rollback with sandbox SQL injection. Real Repo; no mocks/hooks. Document public specs and people-access/System docs.",
   "id": "zaq-hfs.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-hfs] Schema and atomic System configuration",
   "type": "task",
-  "updated_at": "2026-09-12T19:25:58Z"
+  "updated_at": "2026-09-12T19:26:19Z"
 }

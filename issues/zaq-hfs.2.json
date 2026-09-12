@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-hfs.1"
+  ],
   "blocks": [],
   "created": "2026-09-12T19:25:59Z",
   "description": "Owner Engine.Api. Tests FIRST routed read/save, invalid attributes, invalid envelope and unknown action. Delegate authoritative validation to System; existing Events helper. Real System/Repo. Document boundary ownership.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-hfs] Engine grouped configuration actions",
   "type": "task",
-  "updated_at": "2026-09-12T19:25:59Z"
+  "updated_at": "2026-09-12T19:26:19Z"
 }
