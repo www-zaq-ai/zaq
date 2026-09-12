@@ -13,6 +13,10 @@
     {
       "text": "First full browser run completed: 60 passed/18 failed (78 total; actual baseline contains 75 scenarios, not 69). Three new scenario failures: Playwright clicked covered native input rather than DS label/track. Fixed selector. Fifteen prior identity cases fail because existing E2E DB still carries legacy channels_person_id_platform_channel_identifier_index despite migration recorded applied. Rerun uses new MIX_TEST_PARTITION=_people_pr1 database, no reset of user DB. Initial focused coverage: schema/context 100%, gateway 98.3%, PeopleLive 96.6%.",
       "timestamp": "2026-09-12T13:59:03Z"
+    },
+    {
+      "text": "Relevant ExUnit regression run green: 7 properties, 320 tests. Fresh E2E partition required existing bootstrap.exs (initial empty startup timeout). Full fresh run: 77/78 pass, all 75 pre-existing scenarios green. New Firefox scenario focus assertion investigated using real Tab navigation. Shared BO header baseline mobile overflow exists; matrix is locally bounded with relative positioning for hidden Switch inputs and own horizontal scroller. No header redesign in this slice.",
+      "timestamp": "2026-09-12T14:15:32Z"
     }
   ],
   "priority": 2,
