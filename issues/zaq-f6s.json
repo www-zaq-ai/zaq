@@ -6,9 +6,15 @@
   "description": "User-approved implementation in current working tree. No commits, remote publication or installer changes. Reuse canonical DBA scripts; same image explicit provision-db and automatic provision-db --automatic modes; restricted durable random credentials; receipt committed atomically with bootstrap; validation-only restarts. DAG: entrypoint -\u003e compose -\u003e validation (linear, no diamonds). Docker unavailable locally; record validation limits.",
   "id": "zaq-f6s",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implementation and local validation complete in working tree. Steps .1-.3 closed; .4 remains open for real Docker lifecycle verification before rollout. Same image server/provision-db modes; canonical scripts preserved except optional atomic receipt hook. All local checks passed. zaq-local.sh and live Gist untouched; do not publish installer artifact until a validated compatible image is available.",
+      "timestamp": "2026-09-12T15:09:55Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-f6s] Automatic image database provisioning",
   "type": "epic",
-  "updated_at": "2026-09-12T14:46:57Z"
+  "updated_at": "2026-09-12T15:09:55Z"
 }
