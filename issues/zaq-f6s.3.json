@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-f6s.4"
   ],
+  "closed_at": "2026-09-12T15:09:55Z",
   "created": "2026-09-12T14:46:58Z",
   "description": "Run Python unit/integration tests, canonical DBA tests where possible, mix format, mix q; review security and diff. Test partial failure and post-commit restart; ensure no rerun or password rotation after migrations. Update database docs and report exact command results. Docker unavailable currently; record followup for both PostgreSQL/ParadeDB real image lifecycle and minimum 95 percent coverage exceptions. Publish nothing remotely.",
   "id": "zaq-f6s.3",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-f6s] Validate automatic bootstrap and document rollout",
   "type": "task",
-  "updated_at": "2026-09-12T15:09:54Z"
+  "updated_at": "2026-09-12T15:09:55Z"
 }
