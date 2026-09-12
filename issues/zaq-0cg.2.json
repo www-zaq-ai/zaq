@@ -9,9 +9,15 @@
   "id": "zaq-0cg.2",
   "labels": [],
   "parent": "zaq-0cg",
+  "comments": [
+    {
+      "text": "FINAL validation: MIX_TEST_PARTITION=_channel_identity mix coveralls.json test/zaq/accounts test/zaq/accounts_test.exs test/zaq/agent/tools/people test/zaq/agent/tools/accounts test/zaq/agent/tools/resources test/zaq/ingestion test/zaq/ingestion_test.exs test/zaq/permissions test/zaq/contracts test/zaq/engine/incoming_message_routing_test.exs test/zaq/engine/incoming_message_router_test.exs test/zaq/engine/people_gateway_test.exs test/zaq/engine/conversations_test.exs test/zaq/engine/conversations test/zaq/engine/notifications test/zaq/people test/zaq_web/live/bo/system/people_live_test.exs --seed 625: 30 properties,1782 tests,0 failures,1 skipped,56 excluded. Core People97.16%,Person100%,PersonChannel100%,PersonMerger100%(151/151),NotificationLog100%. All unstaged executable lib additions versus preserved index 138/138=100% (includes prior unstaged People changes; not exclusive authorship). Migration exs dynamically run and not standard app coverage. Actual Ecto.Migrator test suite passed (merge/migration/races combined4properties64tests). Repo-only disposable _person_alias_replay script passed fresh schema, graph, immutable snapshots, constraint/data/index/ledger rollback,retry,rerun and cleaned its own DB. Races23/23 each seeds9321,104729; seed625 included broad run. Final full People Playwright69/69 all3 browsers,2.9min using MIX_TEST_PARTITION=_channel_identity E2E_PRESERVE_STATE=1 after isolated npm bootstrap:db. First browser run54passed15failed solely old E2E DB missing global index; existing DB left intact, new partition initialized with current migrations. mix format,mix q,git diff --check,cached --check PASS. Nonblocking existing license_manager warning and deliberate replay module-redefinition warnings. Full repository ExUnit not run. Staged hash unchanged c95c0d9e6c0f853326bbd53831adf32322ed7436f97e8997b292461eea692416. No commit/push/PR or user DB reset.",
+      "timestamp": "2026-09-12T09:07:20Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-0cg] Validate owners integration migration concurrency coverage and People browsers",
   "type": "task",
-  "updated_at": "2026-09-12T08:51:43Z"
+  "updated_at": "2026-09-12T09:07:20Z"
 }
