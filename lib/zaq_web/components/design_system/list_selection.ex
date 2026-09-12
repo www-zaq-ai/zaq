@@ -25,7 +25,7 @@ defmodule ZaqWeb.Components.DesignSystem.ListSelection do
       |> assign(:selected_count, Selection.count(assigns.selection, assigns.total_count))
 
     ~H"""
-    <div id={@id} class="zaq-layout-stack-tight">
+    <div id={@id} class="zaq-layout-inline flex-wrap">
       <Checkbox.checkbox
         id={@id <> "-page"}
         label="Select current page"
@@ -34,34 +34,37 @@ defmodule ZaqWeb.Components.DesignSystem.ListSelection do
         disabled={@page_ids == []}
         phx-click={@page_event}
       />
-      <div aria-live="polite" class="zaq-layout-stack-tight">
-        <p :if={@selection.mode == :all_matching} class="zaq-text-body-sm">
-          All matching results across pages selected; {MapSet.size(@selection.ids)} excluded.
-        </p>
-        <Table.table_selection_bar selected_count={@selected_count}>
-          <:actions>
-            <Button.button
-              :if={
-                @selection.mode == :explicit && @page_state == :all &&
-                  @total_count > length(@page_ids)
-              }
-              id={@id <> "-all"}
-              variant={:ghost}
-              phx-click={@all_event}
-            >
-              Select all {@total_count} matching results
-            </Button.button>
-            {render_slot(@actions)}
-          </:actions>
-        </Table.table_selection_bar>
-        <Button.button
+      <div aria-live="polite" class="zaq-layout-inline flex-wrap">
+        <div
           :if={@selected_count > 0 || @selection.mode == :all_matching}
-          id={@id <> "-clear"}
-          variant={:ghost}
-          phx-click={@clear_event}
+          class="zaq-layout-inline flex-wrap"
         >
-          Clear selection
-        </Button.button>
+          <Table.table_text label={"#{@selected_count} selected"} tone={:secondary} />
+          <span :if={@selection.mode == :all_matching} class="zaq-text-body-sm">
+            All matching results across pages selected; {MapSet.size(@selection.ids)} excluded.
+          </span>
+          <Button.button
+            id={@id <> "-clear"}
+            variant={:ghost}
+            phx-click={@clear_event}
+          >
+            Clear selection
+          </Button.button>
+        </div>
+        <div :if={@selected_count > 0} class="zaq-layout-inline flex-wrap">
+          <Button.button
+            :if={
+              @selection.mode == :explicit && @page_state == :all &&
+                @total_count > length(@page_ids)
+            }
+            id={@id <> "-all"}
+            variant={:ghost}
+            phx-click={@all_event}
+          >
+            Select all {@total_count} matching results
+          </Button.button>
+          {render_slot(@actions)}
+        </div>
       </div>
     </div>
     """
