@@ -9,9 +9,15 @@
   "id": "zaq-hfs.1",
   "labels": [],
   "parent": "zaq-hfs",
+  "comments": [
+    {
+      "text": "Schema/System test-first complete: 2 properties and 9 tests pass, including sandbox later-row failure rollback. Missing keys do not write; seeded unrelated system keys preserved. Partial attrs preserve current values; complete valid attrs repair corruption. No commits per user.",
+      "timestamp": "2026-09-12T19:34:33Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-hfs] Schema and atomic System configuration",
   "type": "task",
-  "updated_at": "2026-09-12T19:26:20Z"
+  "updated_at": "2026-09-12T19:34:33Z"
 }
