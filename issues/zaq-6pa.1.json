@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-6pa.2"
   ],
+  "closed_at": "2026-09-12T13:59:04Z",
   "created": "2026-09-12T13:29:50Z",
   "description": "Own PeoplePermissionGrant migration/schema and PeoplePermissions context. Tests FIRST in people_permissions_test: real SQL constraints, partial uniqueness/cascade, default deny nil/transient, global/team unions, properties order/dedupe/additivity/compound implications, idempotent writes and invalid input. Real sandbox DB, no mocks. Stable metadata one home schema; matrix explicit scopes/current empty teams. Atomic upsert scoped conflict target returns stored row; error changesets. Docstrings and final people-access.md. Validate focused tests and coverage.",
   "id": "zaq-6pa.1",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-6pa] Persist and resolve People permissions",
   "type": "task",
-  "updated_at": "2026-09-12T13:39:15Z"
+  "updated_at": "2026-09-12T13:59:04Z"
 }
