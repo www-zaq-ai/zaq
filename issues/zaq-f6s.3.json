@@ -9,9 +9,15 @@
   "id": "zaq-f6s.3",
   "labels": [],
   "parent": "zaq-f6s",
+  "comments": [
+    {
+      "text": "Final local validation: 36 Python unit/real-psql/Compose packaging and CI contract tests pass; entrypoint line+branch coverage 99% (175 statements, 66 branches, one defensive post-commit receipt check unhit). Canonical DBA integration: 9 postgres + 9 paradedb tests passed, including non-superuser migrations. Ruff check/format, mix format, git diff --check and final mix q passed. SQL/YAML/Dockerfile cannot use Python line coverage; covered through real DB and parsed contracts; image/Compose lifecycle remains a Docker-runner followup. Wired suite+coverage gate into both existing DB CI jobs. Added exact Git/Docker allowlists for reviewed scripts; no local snapshots copied. No commits or remote Gist edits.",
+      "timestamp": "2026-09-12T15:09:32Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-f6s] Validate automatic bootstrap and document rollout",
   "type": "task",
-  "updated_at": "2026-09-12T15:02:01Z"
+  "updated_at": "2026-09-12T15:09:32Z"
 }
