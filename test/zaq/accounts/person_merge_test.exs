@@ -144,6 +144,53 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert People.get_channel(later.id) == nil
   end
 
+  test "transferred channel persists calculated fields and latest activity from duplicate losers" do
+    survivor = legacy(nil, "Survivor")
+    first = legacy(nil, "First")
+    second = legacy(nil, "Second")
+
+    winner =
+      Repo.insert!(%PersonChannel{
+        person_id: first.id,
+        platform: "email",
+        channel_identifier: " TRANSFER@EXAMPLE.COM ",
+        username: "kept",
+        weight: 8,
+        metadata: %{"keep" => false},
+        last_interaction_at: ~U[2026-01-01 00:00:00Z]
+      })
+
+    duplicate =
+      Repo.insert!(%PersonChannel{
+        person_id: second.id,
+        platform: "email",
+        channel_identifier: "transfer@example.com",
+        username: "discarded",
+        display_name: "Filled",
+        phone: "123",
+        dm_channel_id: "dm-filled",
+        weight: 1,
+        metadata: %{"keep" => true, "fill" => "filled"},
+        last_interaction_at: ~U[2026-03-01 00:00:00Z]
+      })
+
+    assert {:ok, merged} = People.merge_persons(survivor, [second, first])
+    assert [channel] = merged.channels
+    assert channel.id == winner.id
+    assert channel.person_id == survivor.id
+    assert channel.platform == "email"
+    assert channel.channel_identifier == "transfer@example.com"
+    assert channel.username == "kept"
+    assert channel.display_name == "Filled"
+    assert channel.phone == "123"
+    assert channel.dm_channel_id == "dm-filled"
+    assert channel.weight == 8
+    assert channel.metadata == %{"keep" => false, "fill" => "filled"}
+    assert channel.last_interaction_at == ~U[2026-03-01 00:00:00Z]
+    assert People.get_channel(channel.id) == channel
+    assert People.get_channel(duplicate.id) == nil
+  end
+
   test "invalid routing prevents all writes including canonical channel deduplication" do
     survivor = legacy(nil, "Survivor")
     loser = legacy(nil, "Loser")
@@ -426,7 +473,7 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert People.get_person(survivor.id) == nil
   end
 
-  test "ordinary relationship updates use resolved IDs and preserve explicit channel activity" do
+  test "ordinary channel updates preserve ownership and explicit activity after a merge" do
     survivor = legacy(nil, "Current")
     loser = legacy(nil, "Old")
     other = legacy(nil, "Other")
@@ -449,7 +496,7 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert {:ok, updated} =
              People.update_channel(channel, %{person_id: person.id, last_interaction_at: time})
 
-    assert updated.person_id == survivor.id
+    assert updated.person_id == other.id
     assert updated.last_interaction_at == time
   end
 
