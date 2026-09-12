@@ -6,9 +6,9 @@
 >
   <div id="oauth-popup-listener" phx-hook="OAuthPopupListener"></div>
 
-  <div class="flex gap-6 items-start">
+  <div class="flex flex-col lg:flex-row zaq-layout-section-gap items-start">
     <%!-- Sidebar --%>
-    <div class="w-52 shrink-0">
+    <div class="w-full lg:w-52 shrink-0">
       <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
         <div class="px-4 py-3 border-b border-black/[0.06] bg-[#fafafa]">
           <p class="font-mono text-[0.7rem] font-semibold text-black/40 uppercase tracking-wider">
@@ -16,6 +16,17 @@
           </p>
         </div>
         <nav class="p-2 space-y-0.5">
+          <ZaqWeb.Components.DesignSystem.Button.button
+            id="people-access-tab"
+            variant={:tertiary}
+            phx-click="switch_tab"
+            phx-value-tab="people_access"
+            aria-current={if @active_tab == :people_access, do: "page", else: "false"}
+            active={@active_tab == :people_access}
+            class="w-full"
+          >
+            People access
+          </ZaqWeb.Components.DesignSystem.Button.button>
           <button
             phx-click="switch_tab"
             phx-value-tab="ai_credentials"
@@ -151,7 +162,12 @@
     </div>
 
     <%!-- Content --%>
-    <div class="flex-1 min-w-0">
+    <div class="w-full flex-1 min-w-0">
+      <ZaqWeb.Live.BO.System.SystemConfig.PeopleAccessTab.panel
+        :if={@active_tab == :people_access}
+        form={@people_access_form}
+        load_error={@people_access_load_error}
+      />
       <ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab.panel
         :if={@active_tab == :ai_credentials}
         credentials={@ai_credentials}

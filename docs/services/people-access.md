@@ -92,3 +92,55 @@ Administration uses the existing authenticated BO People access policy. These
 grants do not authorize BO administrators or change login/session behavior.
 They are capability APIs and configuration only; this slice adds no public profile,
 message-history, conversation-sharing, or portal routes.
+
+## People access configuration (current)
+
+**BO → System Configuration → People access** (`/bo/system-config?tab=people_access`)
+manages the following configuration-only settings. OTP generation/verification,
+rate limiting, and sessions do **not** consume these settings yet. Existing People
+permission grants and authenticated BO access policy are independent and unchanged.
+OTP length is fixed at eight digits, not configurable.
+
+`Zaq.System.PeopleAccessConfig` is the embedded schema and single source of defaults.
+All fields are strictly positive integers; durations use seconds, limits use counts.
+There are no product maxima or cross-field restrictions.
+
+| Field (key suffix) | Default | Unit / duration |
+| --- | ---: | --- |
+| `otp_validity_seconds` | 300 | seconds / 5 minutes |
+| `otp_max_attempts` | 5 | attempts per OTP |
+| `unknown_email_attempt_limit` | 10 | attempts |
+| `unknown_email_window_seconds` | 600 | seconds / 10 minutes |
+| `unknown_email_cooldown_seconds` | 900 | seconds / 15 minutes |
+| `otp_send_person_limit` | 5 | sends per person |
+| `otp_send_ip_limit` | 20 | sends per IP |
+| `otp_send_window_seconds` | 900 | seconds / 15 minutes |
+| `session_lifetime_seconds` | 604800 | seconds / **7 days** |
+
+Storage uses numeric strings in the existing `system_configs` table, prefixed with
+`people_access.`. No environment settings, additional tables, or migrations apply.
+
+- `Zaq.System.get_people_access_config/0` returns `{:ok, %PeopleAccessConfig{}}`
+  using one grouped SELECT. Missing keys receive schema defaults without writes.
+  Corrupt stored values return `{:error, {:invalid_people_access_config, changeset}}`;
+  invalid values never silently fall back to defaults.
+- `Zaq.System.save_people_access_config(attrs)` validates attributes itself and
+  atomically upserts all nine keys using `Ecto.Multi`. Success returns the typed
+  saved config; invalid input or persistence failure returns `{:error, changeset}`.
+  Partial input preserves current effective values (including for an empty map).
+  Corrupt stored configuration blocks partial saves with the typed read error;
+  a complete valid payload can repair the group. Concurrent editors have
+  last-complete-save-wins behavior, without conflict detection.
+- Known atom/string keys are accepted; atom keys win duplicate representations.
+  Unknown keys are ignored and never written or converted to atoms. Integer strings
+  must parse completely; floats, fractions, trailing junk, blanks, nil, zero,
+  negatives, booleans, maps, and lists are rejected as field values. Client-supplied
+  changesets are rejected, not trusted as validated input.
+- Engine actions `:system_config_get_people_access_config` and
+  `:system_config_save_people_access_config` (request `%{attrs: attrs}`) delegate
+  to System. BO uses the existing Engine Events/NodeRouter boundary.
+
+The form groups OTP, Unknown email protection, OTP sends, and Sessions into one
+Save. Validation errors are inline and failed saves retain edits. Failed/corrupt
+loads show an explicit error and Retry, disable Save, and omit editable defaults;
+the form becomes editable only after an authoritative successful load.
