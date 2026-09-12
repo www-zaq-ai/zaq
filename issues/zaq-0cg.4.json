@@ -9,9 +9,15 @@
   "id": "zaq-0cg.4",
   "labels": [],
   "parent": "zaq-0cg",
+  "comments": [
+    {
+      "text": "Red run seed 902844: 2 properties, 66 tests, 12 expected failures including query telemetry proving writes before invalid routing/grants and two survivor UPDATEs; explicit other precedence/nil/new-channel/discarded-ID defects reproduced. Added protected owner persistence contracts before implementation.",
+      "timestamp": "2026-09-12T08:40:51Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-0cg] Specify merge calculation and merge-then-edit contracts tests first",
   "type": "task",
-  "updated_at": "2026-09-12T08:38:23Z"
+  "updated_at": "2026-09-12T08:40:51Z"
 }
