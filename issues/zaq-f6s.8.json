@@ -7,9 +7,15 @@
   "id": "zaq-f6s.8",
   "labels": [],
   "parent": "zaq-f6s",
+  "comments": [
+    {
+      "text": "Added Kubernetes docs with args-only Deployment example and explicit Secret refs; no volume required because receipt is in PostgreSQL. Covers maintenance versus target DB, raw/URI passwords, automatic retries and exit codes, replacement Pod versus container restarts, per-Pod/concurrency/DBA-access/TLS caveats, and manual DBA option that omits init container and receipt. Only docs/database-setup.md changed in this task; existing staged implementation untouched. YAML parsed and checked for matching images/automatic args/no command/no volumes/app credential separation. git diff --check and mix q passed. No live Kubernetes validation or deployment.",
+      "timestamp": "2026-09-12T17:25:18Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-f6s] Document stateless Kubernetes provisioning init container",
   "type": "task",
-  "updated_at": "2026-09-12T17:22:46Z"
+  "updated_at": "2026-09-12T17:25:18Z"
 }
