@@ -11,9 +11,15 @@
   "id": "zaq-6pa.3",
   "labels": [],
   "parent": "zaq-6pa",
+  "comments": [
+    {
+      "text": "LiveView tests first red missing matrix/event; existing DS Switch JS.push explicit bool, known matrix coordinate validation, tab allowlist and authoritative reload implemented. Failure drops matrix when reload fails. Full suite green. Tasks remain uncommitted per user; no staging.",
+      "timestamp": "2026-09-12T13:39:16Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-6pa] Build approved People permissions matrix tab",
   "type": "task",
-  "updated_at": "2026-09-12T13:30:14Z"
+  "updated_at": "2026-09-12T13:39:16Z"
 }
