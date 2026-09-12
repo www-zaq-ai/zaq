@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-1yh.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-1yh.3"
+  ],
   "created": "2026-09-12T13:39:52Z",
   "description": "Files: shared scripts/setup_database_*.sql, engine entrypoints, provision-test-database.exs. Implement approved guards before roles, SCRAM password rotation, DBA-owned extensions, least-privilege owner/reader ACLs and future schema/table defaults. Validate with preceding real integration scenarios; no mocks. Update docs next step.",
   "id": "zaq-1yh.2",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-1yh] Implement shared SQL bootstrap and CI callers",
   "type": "task",
-  "updated_at": "2026-09-12T13:39:52Z"
+  "updated_at": "2026-09-12T13:39:53Z"
 }
