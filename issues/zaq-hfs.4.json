@@ -7,11 +7,15 @@
   "created": "2026-09-12T19:25:59Z",
   "description": "Tests FIRST extend system_config.spec.js cold defaults, all-field persistence, invalid atomic save, keyboard responsive. Reset only fresh isolated E2E partition. Run focused and related ExUnit coverage, all three SystemConfig browsers, mix format and mix q. Update current service contracts. Review full diff and preserve initial empty staged SHA256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855. No commits/push/PR.",
   "id": "zaq-hfs.4",
-  "labels": [],
+  "labels": [
+    "people-access",
+    "pr2",
+    "validation"
+  ],
   "parent": "zaq-hfs",
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-hfs.4] Browser journeys documentation and quality validation",
   "type": "task",
-  "updated_at": "2026-09-12T19:48:54Z"
+  "updated_at": "2026-09-12T19:49:23Z"
 }
