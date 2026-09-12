@@ -9,9 +9,15 @@
   "id": "zaq-f6s.7",
   "labels": [],
   "parent": "zaq-f6s",
+  "comments": [
+    {
+      "text": "Final simplified implementation validated: 16 administrative ExUnit tests pass for postgres and 16 for paradedb (7 new container-shell scenarios integrated in existing suite, plus quoted-identifier coverage). sh -n, mix format, final mix q and git diff --check pass. No Python bootstrap/test/dependency additions or separate installer artifact remain. Coverage exception: external POSIX shell/psql/Compose not instrumented by ExCoveralls; tested through real psql/Postgrex integration instead; actual default release exec and Compose ordering/image packaging remain Docker-runner followup .4. No claim of prior Python 99% coverage for replacement. No commits or publications.",
+      "timestamp": "2026-09-12T16:53:09Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-f6s] Validate simplified provisioning implementation",
   "type": "task",
-  "updated_at": "2026-09-12T16:52:07Z"
+  "updated_at": "2026-09-12T16:53:09Z"
 }
