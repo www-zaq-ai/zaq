@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-fmp.2"
   ],
+  "closed_at": "2026-09-12T14:37:33Z",
   "created": "2026-09-12T14:33:31Z",
   "description": "Tests first in existing people.spec.js: permission-only tampering on real Switch JS.push, observe native flip; error and unchanged authoritative checked/ARIA after grant/revoke, reload persistence. No server mocks or endpoints. Red run then retain assertions for fix.",
   "id": "zaq-fmp.1",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-fmp] Reproduce rejected permission writes in real browsers",
   "type": "task",
   "updated_at": "2026-09-12T14:37:33Z"
