@@ -111,6 +111,9 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     end
   end
 
+  defp get_authorized_resource(%{key: "person", public?: true}, id, _context),
+    do: People.get_person(id)
+
   defp get_authorized_resource(%{public?: true, module: module}, id, _context),
     do: Repo.get(module, id)
 

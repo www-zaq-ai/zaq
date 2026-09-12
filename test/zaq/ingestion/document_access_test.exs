@@ -1,5 +1,6 @@
 defmodule Zaq.Ingestion.DocumentAccessTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Accounts.People
   alias Zaq.Ingestion
@@ -52,6 +53,88 @@ defmodule Zaq.Ingestion.DocumentAccessTest do
     do: Ingestion.set_document_permission(doc_id, :team, id, ["read"])
 
   defp uid(label), do: "#{label}-#{System.unique_integer([:positive])}.md"
+
+  describe "missing explicit actor identities" do
+    test "actual Person retrieval uses current survivor teams instead of caller snapshots" do
+      old = create_person()
+      survivor = create_person()
+      current_team = create_team()
+      stale_team = create_team()
+      {:ok, survivor} = People.assign_team(survivor, current_team.id)
+      allowed = create_doc(uid("current-team"))
+      denied = create_doc(uid("stale-team"))
+      {:ok, _} = grant(allowed.id, :team, current_team.id)
+      {:ok, _} = grant(denied.id, :team, stale_team.id)
+      assert {:ok, _} = People.merge_persons(survivor, old)
+
+      user = %{person_id: old.id, team_ids: [stale_team.id], role: %{name: "user"}}
+      assert Ingestion.can_access_file?(allowed.source, user)
+      refute Ingestion.can_access_file?(denied.source, user)
+      assert user.person_id == old.id
+    end
+
+    test "hard-deleted merge loser cannot use stale teams, even after survivor deletion" do
+      team = create_team()
+      {:ok, loser} = People.assign_team(create_person(), team.id)
+      survivor = create_person()
+      public = create_doc(uid("merge-public"))
+      private = create_doc(uid("merge-private"))
+      {:ok, _} = Permissions.grant_public(public)
+      {:ok, _} = grant(private.id, :team, team.id)
+
+      assert {:ok, _} = People.merge_persons(survivor, loser, retain_redirect: false)
+      assert People.get_person(loser.id) == nil
+      assert_public_only_after_actor_load(loser.id, loser.team_ids, public, private)
+
+      assert {:ok, _} = People.delete_person(survivor)
+      assert People.get_person(survivor.id) == nil
+      assert_public_only_after_actor_load(loser.id, loser.team_ids, public, private)
+    end
+
+    property "missing identities discard private teams while explicit nil retains its contract" do
+      team = create_team()
+      public = create_doc(uid("missing-public"))
+      private = create_doc(uid("missing-private"))
+      {:ok, _} = Permissions.grant_public(public)
+      {:ok, _} = grant(private.id, :team, team.id)
+
+      check all(id <- integer(-1_000_000..-1), max_runs: 12) do
+        assert_public_only_after_actor_load(id, [team.id], public, private)
+      end
+
+      assert Enum.sort(
+               DocumentAccess.list_permitted_document_ids(nil, [team.id], [public.id, private.id])
+             ) ==
+               Enum.sort([public.id, private.id])
+
+      assert Enum.sort(
+               Enum.map(
+                 DocumentAccess.list_accessible_documents(person_id: nil, team_ids: [team.id]),
+                 & &1.source
+               )
+             ) ==
+               Enum.sort([public.source, private.source])
+    end
+  end
+
+  defp assert_public_only_after_actor_load(person_id, stale_teams, public, private) do
+    user = %{person_id: person_id, team_ids: stale_teams, role: %{name: "user"}}
+    assert Zaq.Ingestion.can_access_file?(public.source, user)
+    refute Zaq.Ingestion.can_access_file?(private.source, user)
+
+    # Raw document queries consume a resolved context; they do not load actors.
+    assert People.get_person(person_id) == nil
+
+    assert DocumentAccess.list_permitted_document_ids(nil, [], [
+             public.id,
+             private.id
+           ]) == [public.id]
+
+    assert DocumentAccess.list_permitted_document_ids(nil, [], [private.id]) == []
+
+    assert DocumentAccess.list_accessible_documents(person_id: nil, team_ids: []) ==
+             [%{source: public.source, title: public.title}]
+  end
 
   # ---------------------------------------------------------------------------
   # list_permitted_document_ids/3

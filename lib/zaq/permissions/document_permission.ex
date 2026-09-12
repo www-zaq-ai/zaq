@@ -11,6 +11,10 @@ defmodule Zaq.Permissions.DocumentPermission do
   - Provides `build_permission_query/3` and `build_perm_join_condition/2` — Ecto query
     helpers used by `Zaq.Ingestion.DocumentAccess` to filter documents by caller identity.
 
+  Callers supply current identity and teams from their trusted actor construction
+  boundary. These predicates use literal IDs and never retrieve people. Explicit
+  nil identity supports team-only contexts and never implies an admin bypass.
+
   For generic, cross-resource permission management (grant, revoke, can?) use
   `Zaq.Permissions` and `Zaq.Permissions.ResourcePermission` instead.
   """
@@ -121,11 +125,6 @@ defmodule Zaq.Permissions.DocumentPermission do
   def build_perm_join_condition(nil, team_ids) do
     team_ids = Permissions.with_everyone_team_ids(team_ids)
     dynamic([perm: p], p.team_id in ^team_ids)
-  end
-
-  def build_perm_join_condition(person_id, team_ids) when team_ids == [] do
-    team_ids = Permissions.with_everyone_team_ids([])
-    dynamic([perm: p], p.person_id == ^person_id or p.team_id in ^team_ids)
   end
 
   def build_perm_join_condition(person_id, team_ids) do

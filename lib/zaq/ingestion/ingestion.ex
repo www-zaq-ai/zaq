@@ -41,6 +41,7 @@ defmodule Zaq.Ingestion do
     RecordSource
   }
 
+  alias Zaq.Accounts.People
   alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.Permissions
@@ -391,11 +392,7 @@ defmodule Zaq.Ingestion do
         super_admin? = current_user.role.name == "super_admin"
         person_id = Map.get(current_user, :person_id)
 
-        person =
-          case person_id && Repo.get(Zaq.Accounts.Person, person_id) do
-            nil -> nil
-            person -> %{person | team_ids: Map.get(current_user, :team_ids) || person.team_ids}
-          end
+        person = person_id && People.get_person(person_id)
 
         Permissions.can?(person, :read, doc, skip_permissions: super_admin?)
     end

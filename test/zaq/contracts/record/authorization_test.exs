@@ -6,6 +6,30 @@ defmodule Zaq.Contracts.Record.AuthorizationTest do
   alias Zaq.Contracts.Record.Authorization
 
   describe "can?/3" do
+    test "historical actor lookup uses the survivor and supplied Person is not reloaded" do
+      old = create_person()
+      survivor = create_person()
+      assert {:ok, _} = People.merge_persons(survivor, old)
+      records = [record(permissions: [permission_for(survivor.email, ["read"])])]
+
+      {allowed, queries} =
+        capture_person_lookup_queries(fn ->
+          Authorization.filter(actor(old), records, :read)
+        end)
+
+      assert allowed == records
+      assert Enum.frequencies_by(queries, & &1.source) == %{"people" => 1, "channels" => 1}
+
+      person = People.get_person_with_channels(old.id)
+      assert person.id == survivor.id
+
+      assert {^records, []} =
+               capture_person_lookup_queries(fn ->
+                 assert Authorization.can?(person, hd(records), :read)
+                 Authorization.filter(person, records, :read)
+               end)
+    end
+
     test "returns false when permissions are not a list" do
       person = create_person()
 
