@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T14:46:34Z",
+  "description": "User-approved implementation in current working tree. No commits, remote publication or installer changes. Reuse canonical DBA scripts; same image explicit provision-db and automatic provision-db --automatic modes; restricted durable random credentials; receipt committed atomically with bootstrap; validation-only restarts. DAG: entrypoint -\u003e compose -\u003e validation (linear, no diamonds). Docker unavailable locally; record validation limits.",
+  "id": "zaq-f6s",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[docker-bootstrap] Automatic image database provisioning",
+  "type": "epic",
+  "updated_at": "2026-09-12T14:46:34Z"
+}
