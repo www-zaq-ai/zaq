@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T13:39:30Z",
+  "description": "Approved working-tree scope: shared psql bootstrap; DB creation; refuse any schema_migrations and unexpected owner; rotate supplied owner/reader passwords; all application schemas read access including future owner objects. Passwords via environment not argv. Tests -\u003e implementation/callers -\u003e docs/validation. No commit or PR requested.",
+  "id": "zaq-1yh",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[bootstrap] Provision ZAQ database and restricted credentials",
+  "type": "epic",
+  "updated_at": "2026-09-12T13:39:30Z"
+}
