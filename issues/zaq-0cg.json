@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T08:37:41Z",
+  "description": "User-approved current-worktree implementation. Preserve staged diff c95c0d9e6c0f853326bbd53831adf32322ed7436f97e8997b292461eea692416; no commit/push/PR or user database reset. Sequence graph LR; tests--\u003eowners; owners--\u003eorchestration; orchestration--\u003evalidation. Explicit merge-then-edit semantics supersede earlier edit-precedence decisions. Existing related work zaq-7mr, zaq-g8i, zaq-h8q.",
+  "id": "zaq-0cg",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Calculate complete Person merges before owner persistence",
+  "type": "epic",
+  "updated_at": "2026-09-12T08:37:41Z"
+}
