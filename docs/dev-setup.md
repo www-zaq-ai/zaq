@@ -136,6 +136,14 @@ Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 
 ## Docker Storage Defaults
 
+Docker Compose automatically provisions a fresh bundled database before starting
+ZAQ, using a one-shot invocation of the ZAQ image. Subsequent Compose starts validate
+the installation rather than replaying DBA setup. ZAQ uses the existing owner
+`DATABASE_URL` environment variable; provisioning uses separate DBA credentials and
+the supplied owner/reader passwords. There are no generated credential files or
+credential volumes. See [database bootstrap](database-setup.md#docker-image-and-automatic-compose-bootstrap)
+for required environment variables, restart behavior and legacy database handling.
+
 For containerized runs, ZAQ defaults to:
 
 - `STORAGE_VOLUMES=` (one-time import input for Disk data-source volume declarations)

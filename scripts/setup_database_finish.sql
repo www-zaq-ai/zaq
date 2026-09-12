@@ -76,5 +76,11 @@ BEGIN
 END;
 $$;
 
+-- Only the Docker automatic wrapper opts into a durable, DBA-owned receipt.
+-- Commit it with credentials/extensions/ACLs, never after a separate transaction.
+\if :{?zaq_write_bootstrap_receipt}
+  \ir docker_database_receipt.sql
+\endif
+
 COMMIT;
 \echo 'ZAQ database provisioned. Configure ZAQ with the owner login, then run migrations.'
