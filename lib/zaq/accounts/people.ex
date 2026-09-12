@@ -51,6 +51,60 @@ defmodule Zaq.Accounts.People do
     {people, total}
   end
 
+  @doc """
+  Resolves a filter-scoped selection to a frozen list of IDs, without pagination.
+  In explicit mode `ids` are inclusions; in all-matching mode they are exclusions.
+  Filters are required (an explicit empty map means unfiltered). Malformed input
+  is rejected rather than silently widening a destructive action's scope.
+  """
+  @spec resolve_selection(map()) :: {:ok, [pos_integer()]} | {:error, :invalid_selection}
+  def resolve_selection(%{mode: mode, filters: filters, ids: ids})
+      when mode in [:explicit, :all_matching] do
+    if valid_selection_filters?(filters) and valid_person_ids?(ids) do
+      query = build_filter_query(filters)
+
+      query =
+        if mode == :explicit,
+          do: from(p in query, where: p.id in ^ids),
+          else: from(p in query, where: p.id not in ^ids)
+
+      {:ok, Repo.all(from(p in query, select: p.id))}
+    else
+      {:error, :invalid_selection}
+    end
+  end
+
+  def resolve_selection(_), do: {:error, :invalid_selection}
+
+  defp valid_selection_filters?(filters) when is_map(filters) and not is_struct(filters) do
+    Enum.all?(filters, fn
+      {key, value} when key in ["name", "email", "phone"] ->
+        is_binary(value)
+
+      {"complete", value} ->
+        value in ["all", "complete", "incomplete"]
+
+      {"team_id", ""} ->
+        true
+
+      {"team_id", value} when is_binary(value) ->
+        case Integer.parse(value) do
+          {id, ""} when id > 0 and id <= 9_223_372_036_854_775_807 -> true
+          _ -> false
+        end
+
+      _ ->
+        false
+    end)
+  end
+
+  defp valid_selection_filters?(_), do: false
+
+  defp valid_person_ids?(ids) when is_list(ids),
+    do: Enum.all?(ids, &(is_integer(&1) and &1 > 0 and &1 <= 9_223_372_036_854_775_807))
+
+  defp valid_person_ids?(_), do: false
+
   defp build_filter_query(filters) do
     name = Map.get(filters, "name", "")
     email = Map.get(filters, "email", "")
@@ -58,7 +112,7 @@ defmodule Zaq.Accounts.People do
     complete = Map.get(filters, "complete", "all")
     team_id = Map.get(filters, "team_id", "")
 
-    query = from(p in Person, order_by: p.full_name)
+    query = from(p in Person, order_by: [p.full_name, p.id])
 
     query =
       if name != "",
@@ -316,13 +370,14 @@ defmodule Zaq.Accounts.People do
   is rolled back. Associated channels are removed via DB cascade.
   """
   @spec bulk_delete_people([integer()]) ::
-          {:ok, %{deleted_count: non_neg_integer(), failed_ids: [integer()]}}
-  def bulk_delete_people(person_ids) when is_list(person_ids) do
-    ids =
-      person_ids
-      |> Enum.filter(&is_integer/1)
-      |> Enum.uniq()
+          {:ok, %{deleted_count: non_neg_integer(), failed_ids: [integer()]}} | {:error, term()}
+  def bulk_delete_people(person_ids) do
+    if valid_person_ids?(person_ids),
+      do: delete_people_atomically(Enum.uniq(person_ids)),
+      else: {:error, :invalid_person_ids}
+  end
 
+  defp delete_people_atomically(ids) do
     if ids == [] do
       {:ok, %{deleted_count: 0, failed_ids: []}}
     else
@@ -332,7 +387,7 @@ defmodule Zaq.Accounts.People do
         {:ok, _, _} -> {:ok, %{deleted_count: length(ids), failed_ids: []}}
         {:error, {:not_found, id}} -> {:ok, %{deleted_count: 0, failed_ids: [id]}}
         {:error, {:delete_failed, id}} -> {:ok, %{deleted_count: 0, failed_ids: [id]}}
-        {:error, _} -> {:ok, %{deleted_count: 0, failed_ids: []}}
+        {:error, reason} -> {:error, reason}
       end
     end
   end

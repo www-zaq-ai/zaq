@@ -244,6 +244,103 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
 
   # ── Filtering ─────────────────────────────────────────────────────────────
 
+  test "page-first selection persists, excludes matches and freezes confirmation", %{conn: conn} do
+    people =
+      for n <- 1..23,
+          do:
+            person_fixture(%{
+              "full_name" => "CrossPage #{String.pad_leading(to_string(n), 2, "0")}"
+            })
+
+    other = person_fixture(%{"full_name" => "Unrelated"})
+    {:ok, view, _} = live(conn, ~p"/bo/people")
+    render_change(view, "filter_people", %{"filter_name" => "CrossPage"})
+    refute has_element?(view, "#people-selection-all")
+    view |> element("#people-selection-page") |> render_click()
+    assert render(view) =~ "20 selected"
+    render_click(view, "change_page", %{"page" => "2"})
+    assert render(view) =~ "20 selected"
+    refute has_element?(view, "#people-selection-page[checked]")
+    render_click(view, "change_page", %{"page" => "1"})
+    view |> element("#people-selection-all") |> render_click()
+    assert render(view) =~ "23 selected"
+    render_click(view, "change_page", %{"page" => "2"})
+    excluded = List.last(people)
+    view |> element("#person-select-#{excluded.id}") |> render_click()
+    assert has_element?(view, "#people-selection-page[aria-checked='mixed']")
+    refute has_element?(view, "[phx-click='deselect_person']")
+    view |> element("#bulk-delete-button") |> render_click()
+    assert render(view) =~ "Delete 22 selected people?"
+    later = person_fixture(%{"full_name" => "CrossPage Later"})
+    view |> element("[phx-click='confirm_bulk_delete']") |> render_click()
+    assert render(view) =~ "Deleted 22 people."
+    assert People.get_person(excluded.id)
+    assert People.get_person(other.id)
+    assert People.get_person(later.id)
+    assert has_element?(view, "#person-row-#{excluded.id}")
+    refute has_element?(view, "#bulk-delete-button")
+    render_click(view, "confirm_bulk_delete")
+    assert People.get_person(later.id)
+  end
+
+  test "filters and selection changes invalidate pending confirmation", %{conn: conn} do
+    person = person_fixture(%{"full_name" => "Pending"})
+    {:ok, view, _} = live(conn, ~p"/bo/people")
+    render_click(view, "confirm_bulk_delete")
+    render_click(view, "toggle_person_selection", %{"id" => "bad"})
+    render_click(view, "toggle_person_selection", %{"id" => "999999999"})
+    refute has_element?(view, "#bulk-delete-button")
+    view |> element("#person-select-#{person.id}") |> render_click()
+    view |> element("#bulk-delete-button") |> render_click()
+    view |> element("#people-selection-clear") |> render_click()
+    refute has_element?(view, "[phx-click='confirm_bulk_delete']")
+    render_click(view, "confirm_bulk_delete")
+    assert People.get_person(person.id)
+    view |> element("#person-select-#{person.id}") |> render_click()
+    view |> element("#bulk-delete-button") |> render_click()
+    render_change(view, "filter_people", %{"filter_name" => "Pending"})
+    refute has_element?(view, "#bulk-delete-button")
+    refute has_element?(view, "[phx-click='confirm_bulk_delete']")
+    render_click(view, "confirm_bulk_delete")
+    assert People.get_person(person.id)
+  end
+
+  test "stale frozen targets report rollback and retain selection for retry", %{conn: conn} do
+    first = person_fixture(%{"full_name" => "Rollback A"})
+    second = person_fixture(%{"full_name" => "Rollback B"})
+    {:ok, view, _} = live(conn, ~p"/bo/people")
+
+    for person <- [first, second],
+        do: render_click(view, "toggle_person_selection", %{"id" => to_string(person.id)})
+
+    view |> element("#bulk-delete-button") |> render_click()
+    {:ok, _} = People.delete_person(second)
+    view |> element("[phx-click='confirm_bulk_delete']") |> render_click()
+    assert render(view) =~ "No people were deleted"
+    assert People.get_person(first.id)
+    refute has_element?(view, "[phx-click='confirm_bulk_delete']")
+    assert has_element?(view, "#bulk-delete-button")
+  end
+
+  test "invalid scope cannot open deletion confirmation and all requires a selected page", %{
+    conn: conn
+  } do
+    person = person_fixture()
+    {:ok, view, _} = live(conn, ~p"/bo/people")
+    render_click(view, "select_all_matching_people")
+    refute has_element?(view, "#bulk-delete-button")
+    render_click(view, "change_page", %{"page" => "bad"})
+    render_click(view, "change_page", %{"page" => "0"})
+    assert has_element?(view, "#person-row-#{person.id}")
+    render_change(view, "filter_people", %{"filter_complete" => "invalid"})
+    view |> element("#person-select-#{person.id}") |> render_click()
+    view |> element("#bulk-delete-button") |> render_click()
+    assert has_element?(view, "#flash-error", "Could not resolve selected people")
+    refute has_element?(view, "#people-bulk-delete-dialog")
+    render_click(view, "confirm_bulk_delete")
+    assert People.get_person(person.id)
+  end
+
   test "filter by name shows only matching people", %{conn: conn} do
     unique = "FilterTarget#{System.unique_integer([:positive])}"
     person_fixture(%{"full_name" => unique})
@@ -1091,13 +1188,13 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     view |> element("#bulk-delete-button") |> render_click()
     assert has_element?(view, "[phx-click='confirm_bulk_delete']")
 
-    view |> element("[phx-click='cancel_bulk_delete']") |> render_click()
+    view |> element("#cancel-people-bulk-delete") |> render_click()
     refute has_element?(view, "[phx-click='confirm_bulk_delete']")
   end
 
   # ── bulk delete with partial failures ────────────────────────────────────
 
-  test "confirm_bulk_delete shows partial failure message when some IDs are already gone",
+  test "opening confirmation reports when all selected IDs are already gone",
        %{conn: conn} do
     person = person_fixture()
     {:ok, view, _html} = live(conn, ~p"/bo/people")
@@ -1106,13 +1203,12 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     |> element("[phx-click='toggle_person_selection'][phx-value-id='#{person.id}']")
     |> render_click()
 
-    # Delete externally so bulk_delete reports it in failed_ids
+    # Resolution happens when opening confirmation, so there is no target left.
     {:ok, _} = People.delete_person(People.get_person(person.id))
 
     view |> element("#bulk-delete-button") |> render_click()
-    view |> element("[phx-click='confirm_bulk_delete']") |> render_click()
-
-    assert render(view) =~ "Failed:"
+    refute has_element?(view, "[phx-click='confirm_bulk_delete']")
+    assert render(view) =~ "No selected people still match these filters."
   end
 
   # ── validate channel in edit mode ─────────────────────────────────────────

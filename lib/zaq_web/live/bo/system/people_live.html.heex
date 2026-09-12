@@ -5,7 +5,38 @@
   flash={@flash}
   features_version={@features_version}
 >
-  <.delete_confirm_bar :if={@confirm_delete} confirm_delete={@confirm_delete} />
+  <.delete_confirm_bar
+    :if={@confirm_delete && !Map.has_key?(@confirm_delete, :person_ids)}
+    confirm_delete={@confirm_delete}
+  />
+  <ZaqWeb.Components.BOModal.form_dialog
+    :if={@confirm_delete && Map.has_key?(@confirm_delete, :person_ids)}
+    id="people-bulk-delete-dialog"
+    phx-hook="DialogOverlay"
+    data-return-focus-id="bulk-delete-button"
+    title="Delete selected people"
+    cancel_event="cancel_bulk_delete"
+    max_width_class="zaq-modal--width-sm"
+  >
+    <p class="zaq-text-body">{@confirm_delete.message}</p>
+    <:actions>
+      <DSButton.button
+        id="cancel-people-bulk-delete"
+        variant={:secondary}
+        phx-click="cancel_bulk_delete"
+      >
+        Cancel
+      </DSButton.button>
+      <DSButton.button
+        id="confirm-people-bulk-delete"
+        variant={:tertiary}
+        danger
+        phx-click="confirm_bulk_delete"
+      >
+        Delete
+      </DSButton.button>
+    </:actions>
+  </ZaqWeb.Components.BOModal.form_dialog>
 
   <ZaqWeb.Components.MasterDetailLayout.master_detail
     show_detail={not is_nil(@selected_person)}

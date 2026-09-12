@@ -318,7 +318,9 @@ defmodule Zaq.Accounts.PeopleTest do
 
   describe "bulk_delete_people/1" do
     test "reports a missing person" do
-      missing_id = -1
+      person = create_person()
+      {:ok, _} = People.delete_person(person)
+      missing_id = person.id
 
       assert {:ok, %{deleted_count: 0, failed_ids: [^missing_id]}} =
                People.bulk_delete_people([missing_id])

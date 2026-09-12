@@ -1,19 +1,20 @@
 defmodule ZaqWeb.Live.BO.System.PeopleLive do
+  @moduledoc "BO People directory orchestration, filter-scoped selection and confirmed actions."
   use ZaqWeb, :live_view
 
-  import ZaqWeb.Components.DesignSystem.Table, only: [table_selection_bar: 1]
   import ZaqWeb.Components.SearchableSelect
 
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Accounts.Team
-  alias Zaq.Event
+  alias Zaq.Engine.Events
   alias Zaq.Ingestion
-  alias Zaq.NodeRouter
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
   alias ZaqWeb.Components.DesignSystem.EmptyState
+  alias ZaqWeb.Components.DesignSystem.ListSelection
   alias ZaqWeb.Components.DesignSystem.SimplePagination
   alias ZaqWeb.Components.DesignSystem.Toggle, as: DSToggle
+  alias ZaqWeb.Helpers.Selection
   alias ZaqWeb.Helpers.Timezone
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
   alias ZaqWeb.Live.BO.System.PeopleTable
@@ -37,7 +38,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> assign(:modal_changeset, nil)
       |> assign(:modal_errors, [])
       |> assign(:confirm_delete, nil)
-      |> assign(:selected_people, MapSet.new())
+      |> assign(:selected_people, Selection.new(nil))
       |> assign(:merge_survivor, nil)
       |> assign(:merge_loser, nil)
       |> assign(:merge_search, "")
@@ -83,7 +84,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:selected_person, nil)
      |> assign(:person_channels, [])
      |> assign(:confirm_delete, nil)
-     |> assign(:selected_people, MapSet.new())
+     |> assign(:selected_people, Selection.clear(socket.assigns.selected_people))
      |> assign(:merge_survivor, nil)
      |> assign(:merge_loser, nil)
      |> assign(:merge_search, "")
@@ -198,31 +199,71 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   end
 
   def handle_event("toggle_person_selection", %{"id" => id}, socket) do
-    person_id = String.to_integer(id)
+    case Enum.find(socket.assigns.people, &(to_string(&1.id) == id)) do
+      nil ->
+        {:noreply, socket}
 
-    selected_people =
-      if MapSet.member?(socket.assigns.selected_people, person_id) do
-        MapSet.delete(socket.assigns.selected_people, person_id)
-      else
-        MapSet.put(socket.assigns.selected_people, person_id)
-      end
+      person ->
+        {:noreply,
+         put_selection(socket, Selection.toggle(socket.assigns.selected_people, person.id))}
+    end
+  end
 
-    {:noreply, assign(socket, :selected_people, selected_people)}
+  def handle_event("toggle_people_page", _params, socket) do
+    selection =
+      Selection.toggle_page(
+        socket.assigns.selected_people,
+        Enum.map(socket.assigns.people, & &1.id)
+      )
+
+    {:noreply, put_selection(socket, selection)}
+  end
+
+  def handle_event("select_all_matching_people", _params, socket) do
+    ids = Enum.map(socket.assigns.people, & &1.id)
+
+    if Selection.page_state(socket.assigns.selected_people, ids) == :all do
+      {:noreply, put_selection(socket, Selection.all_matching(socket.assigns.selected_people))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("clear_people_selection", _params, socket) do
+    {:noreply, put_selection(socket, Selection.clear(socket.assigns.selected_people))}
   end
 
   def handle_event("open_bulk_delete_modal", _params, socket) do
-    n = MapSet.size(socket.assigns.selected_people)
+    selection = socket.assigns.selected_people
 
-    if n == 0 do
-      {:noreply, socket}
-    else
-      confirm = %{
-        message: "Delete #{n} selected people? This cannot be undone.",
-        event: "confirm_bulk_delete",
-        cancel_event: "cancel_bulk_delete"
-      }
+    request = %{
+      mode: selection.mode,
+      filters: selection.scope,
+      ids: MapSet.to_list(selection.ids)
+    }
 
-      {:noreply, assign(socket, :confirm_delete, confirm)}
+    case people_command(:resolve_selection, request) do
+      {:ok, []} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(:info, "No selected people still match these filters.")}
+
+      {:ok, ids} when is_list(ids) ->
+        confirm = %{
+          message: "Delete #{length(ids)} selected people? This cannot be undone.",
+          event: "confirm_bulk_delete",
+          cancel_event: "cancel_bulk_delete",
+          person_ids: ids
+        }
+
+        {:noreply, assign(socket, :confirm_delete, confirm)}
+
+      _ ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(:error, "Could not resolve selected people. Please try again.")}
     end
   end
 
@@ -230,11 +271,14 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     {:noreply, assign(socket, :confirm_delete, nil)}
   end
 
-  def handle_event("confirm_bulk_delete", _params, socket) do
-    person_ids = MapSet.to_list(socket.assigns.selected_people)
-
+  def handle_event(
+        "confirm_bulk_delete",
+        _params,
+        %{assigns: %{confirm_delete: %{event: "confirm_bulk_delete", person_ids: person_ids}}} =
+          socket
+      ) do
     case people_command(:bulk_delete, %{person_ids: person_ids}) do
-      {:ok, %{deleted_count: deleted_count, failed_ids: failed_ids}} ->
+      {:ok, %{deleted_count: deleted_count, failed_ids: []}} ->
         selected_person = socket.assigns.selected_person
 
         selected_person =
@@ -244,13 +288,6 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             selected_person
           end
 
-        message =
-          if failed_ids == [] do
-            "Deleted #{deleted_count} people."
-          else
-            "Deleted #{deleted_count} people. Failed: #{Enum.join(failed_ids, ", ")}."
-          end
-
         {:noreply,
          socket
          |> assign(:selected_person, selected_person)
@@ -258,10 +295,23 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
            :person_channels,
            if(selected_person, do: socket.assigns.person_channels, else: [])
          )
-         |> assign(:selected_people, MapSet.new())
+         |> assign(
+           :person_documents,
+           if(selected_person, do: socket.assigns.person_documents, else: [])
+         )
+         |> assign(:selected_people, Selection.clear(socket.assigns.selected_people))
          |> assign(:confirm_delete, nil)
          |> refresh_people()
-         |> put_flash(:info, message)}
+         |> put_flash(:info, "Deleted #{deleted_count} people.")}
+
+      {:ok, %{failed_ids: failed_ids}} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(
+           :error,
+           "No people were deleted. Could not delete IDs: #{Enum.join(failed_ids, ", ")}. Please review the selection and retry."
+         )}
 
       {:error, reason} ->
         {:noreply,
@@ -270,6 +320,8 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
          |> put_flash(:error, "Bulk delete failed: #{inspect(reason)}")}
     end
   end
+
+  def handle_event("confirm_bulk_delete", _params, socket), do: {:noreply, socket}
 
   def handle_event("deselect_person", _params, socket) do
     {:noreply,
@@ -696,10 +748,10 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   end
 
   def handle_event("change_page", %{"page" => page}, socket) do
-    {:noreply,
-     socket
-     |> assign(:page, String.to_integer(page))
-     |> refresh_people()}
+    case Integer.parse(page) do
+      {page, ""} when page > 0 -> {:noreply, socket |> assign(:page, page) |> refresh_people()}
+      _ -> {:noreply, socket}
+    end
   end
 
   # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -739,13 +791,24 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
         _ -> {[], 0}
       end
 
-    visible_ids = MapSet.new(Enum.map(people, & &1.id))
-    selected_people = MapSet.intersection(socket.assigns.selected_people, visible_ids)
+    selected_people = Selection.scope(socket.assigns.selected_people, filters)
 
-    socket
-    |> assign(:people, people)
-    |> assign(:selected_people, selected_people)
-    |> assign(:total_count, total)
+    socket =
+      if selected_people == socket.assigns.selected_people,
+        do: socket,
+        else: put_selection(socket, selected_people)
+
+    last_page = max(ceil(total / socket.assigns.per_page), 1)
+
+    if socket.assigns.page > last_page do
+      socket |> assign(:page, last_page) |> refresh_people()
+    else
+      socket |> assign(:people, people) |> assign(:total_count, total)
+    end
+  end
+
+  defp put_selection(socket, selection) do
+    socket |> assign(:selected_people, selection) |> assign(:confirm_delete, nil)
   end
 
   defp refresh_teams(socket) do
@@ -759,8 +822,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   end
 
   defp people_command(op, params) when is_atom(op) and is_map(params) do
-    Event.new(%{op: op, params: params}, :engine, opts: [action: :people_command])
-    |> NodeRouter.dispatch()
+    Events.build_and_dispatch_invoke_event(%{op: op, params: params}, :people_command)
     |> Map.get(:response)
   end
 
@@ -883,7 +945,15 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           />
         </div>
       </form>
-      <.table_selection_bar selected_count={MapSet.size(@selected_people)}>
+      <ListSelection.list_selection
+        id="people-selection"
+        selection={@selected_people}
+        page_ids={Enum.map(@people, & &1.id)}
+        total_count={@total_count}
+        page_event="toggle_people_page"
+        all_event="select_all_matching_people"
+        clear_event="clear_people_selection"
+      >
         <:actions>
           <DSButton.button
             id="bulk-delete-button"
@@ -894,7 +964,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             Delete selected
           </DSButton.button>
         </:actions>
-      </.table_selection_bar>
+      </ListSelection.list_selection>
       <EmptyState.empty_state
         :if={@people == []}
         title="No people yet."
