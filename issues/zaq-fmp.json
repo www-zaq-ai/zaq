@@ -10,11 +10,15 @@
     {
       "text": "DAG graph LR: reproduction--\u003ereconciliation--\u003evalidation. Existing docs/WORKFLOW_AGENT, PLAN_STRATEGY, DESIGN, Phoenix, testing handbook and E2E instructions retained in session context. Relevant source inspected. Only test root ready; implementation/validation blocked sequentially. User explicitly authorizes extending preexisting uncommitted PR1, preserve all other work.",
       "timestamp": "2026-09-12T14:33:32Z"
+    },
+    {
+      "text": "Review blocker fixed and verified in real browsers. Shipped mechanism uses stable wrapper generation + explicitly registered 9-line PeoplePermissions DOM reconciliation hook, not remounting. All evidence and exact commands in zaq-fmp.3. Delivered uncommitted per user, preserving prior slice and staging.",
+      "timestamp": "2026-09-12T14:52:44Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-fmp] Reconcile native People permission switches after rejected writes",
   "type": "bug",
-  "updated_at": "2026-09-12T14:33:32Z"
+  "updated_at": "2026-09-12T14:52:44Z"
 }
