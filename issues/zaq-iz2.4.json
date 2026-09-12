@@ -17,11 +17,15 @@
     {
       "text": "Resumed from existing implementation commit b2799d57. Latest user supersedes prior PR authorization: local branch zaq-iz2/people-selection-validation, COMMIT ONLY, no push/PR/merge. Reusing existing helper -\u003e component -\u003e backend -\u003e integration plan; auditing and independently rerunning validation, adding reusable usage documentation.",
       "timestamp": "2026-09-12T08:38:19Z"
+    },
+    {
+      "text": "Independent completion validation on local branch: mix format and mandatory mix q pass; focused ExCoveralls JSON run passes 3 properties + 187 tests. Coverage People 96.1%, gateway 98.2%, PeopleLive 96.8%, helper and PeopleTable 100%. Chromium/Firefox/WebKit cross-page keyboard/native mixed/exclusion/focus-return/deletion journey all pass. Initial E2E run blocked by new branch database missing; npm run bootstrap:db resolved it. Existing license_manager configuration warning is non-fatal. Added docs/list-selection.md usage contract and LiveView regression for off-page rejection, explicit per-page deselection, same-filter preservation, frozen confirmation across paging and clamping. JS line coverage uninstrumented (three-engine behavior tested); Storybook/docs excluded from ExCoveralls; no full-suite claim. Final delivery local commit only, per latest user.",
+      "timestamp": "2026-09-12T08:46:09Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-iz2.4] People integration and validation",
   "type": "task",
-  "updated_at": "2026-09-12T08:38:19Z"
+  "updated_at": "2026-09-12T08:46:09Z"
 }
