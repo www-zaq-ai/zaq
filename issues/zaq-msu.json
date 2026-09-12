@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-12T11:22:41Z",
   "created": "2026-09-12T10:25:33Z",
   "description": "Approved narrow correction on current zaq-iz2/people-selection-validation branch; commit only, no push/PR/worktree. Restore pre-b2799d57 shared hook registration and explicitly activate only MixedCheckbox. Audit full app and Storybook registry, add runtime registration regression and desktop/mobile selection coverage, validate system_config browser spec, mix format and mix q. File separate GitHub timezone bug for later inspection; do not change timezone behavior.",
   "id": "zaq-msu",
@@ -21,8 +22,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-msu] Isolate People checkbox hook registration",
   "type": "task",
-  "updated_at": "2026-09-12T11:22:40Z"
+  "updated_at": "2026-09-12T11:22:41Z"
 }
