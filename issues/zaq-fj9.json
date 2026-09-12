@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-12T06:43:24Z",
   "created": "2026-09-12T06:08:14Z",
   "description": "Approved point 1 only: global platform/identifier pair and transitional person/platform/identifier triple, identifier error_key on both. Preserve index and all existing work. Validate isolated channel identity, People, migration tests and mix q; no commit/push/PR.",
   "id": "zaq-fj9",
@@ -21,7 +22,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-fj9] Declare PersonChannel composite unique constraints explicitly",
   "type": "task",
   "updated_at": "2026-09-12T06:43:24Z"
