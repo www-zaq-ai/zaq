@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-6pa.1"
+  ],
   "blocks": [],
   "created": "2026-09-12T13:29:50Z",
   "description": "Own PeopleGateway matrix/grant/revoke operations. Tests FIRST extend gateway suite real dispatch valid/invalid scope and permission. Context owns validation, no list wrapper. Existing people_command event boundary. No mocks. Document operations in people-access.md.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-6pa] Route People permission commands through Engine",
   "type": "task",
-  "updated_at": "2026-09-12T13:29:50Z"
+  "updated_at": "2026-09-12T13:30:13Z"
 }
