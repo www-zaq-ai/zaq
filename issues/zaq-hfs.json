@@ -5,10 +5,14 @@
   "created": "2026-09-12T19:25:41Z",
   "description": "Approved config-only slice in current worktree. Session default 604800 seconds. No commit/push/PR or user database reset. Steps schema+System -\u003e Engine -\u003e BO -\u003e E2E/docs/quality. graph LR; schema--\u003eengine; engine--\u003ebo; bo--\u003evalidation",
   "id": "zaq-hfs",
-  "labels": [],
+  "labels": [
+    "config-only",
+    "people-access",
+    "pr2"
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-hfs] People access configuration PR2",
   "type": "epic",
-  "updated_at": "2026-09-12T19:25:58Z"
+  "updated_at": "2026-09-12T19:49:22Z"
 }
