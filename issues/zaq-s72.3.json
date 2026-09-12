@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-s72.4"
   ],
+  "closed_at": "2026-09-12T06:31:39Z",
   "created": "2026-09-12T06:22:39Z",
   "description": "Retain PersonMerger snapshot edits and participant-bounded grouping. Add precise external-owner atomic rollback and precedence/history tests as missing. Legacy tests use actual Ecto migrator; remove mapped legacy expectation, verify exception rollback data/index/ledger and guarded disposable replay. No global runtime discovery.",
   "id": "zaq-s72.3",
@@ -18,7 +19,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-s72] Verify participant scope and legacy rollback",
   "type": "task",
   "updated_at": "2026-09-12T06:31:39Z"
