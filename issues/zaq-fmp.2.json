@@ -15,11 +15,15 @@
     {
       "text": "Keyed-wrapper attempt explicitly failed real browsers: stable keyed children retained stale properties and focus regressed. Replaced with stable DOM wrapper + data-generation assign, incremented on each refresh, and a tiny explicitly registered PeoplePermissions updated hook restoring native input.checked from server aria-checked. No remount, no persistence metadata, no mocks/test endpoints. Real failed grant/revoke plus existing keyboard/mobile scenario now PASS all 3 engines (9 tests). Added malformed-state/scope and successful no-op browser cases for both initial ON/OFF states.",
       "timestamp": "2026-09-12T14:44:50Z"
+    },
+    {
+      "text": "Stable wrapper+generation hook passes actual failed write cases in Firefox/WebKit/Chromium; native flip is captured before response, mutation-error flash asserted, property and ARIA restored before reload. Existing Space/focus/mobile test passes. Added malformed desired/scope + no-op coverage both ON/OFF. Follow-up focused run had 8/9 pass, one post-page.reload tab click happened before LiveView reconnect (control absent, reconciliation checks already passed); added existing waitForServerRoundTrip after reload, no retries/time sleeps.",
+      "timestamp": "2026-09-12T14:47:05Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-fmp] Reconcile each completed permission attempt",
   "type": "task",
-  "updated_at": "2026-09-12T14:44:50Z"
+  "updated_at": "2026-09-12T14:47:05Z"
 }
