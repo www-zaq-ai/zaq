@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-12T10:25:33Z",
@@ -7,7 +7,7 @@
   "id": "zaq-msu",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-msu] Isolate People checkbox hook registration",
   "type": "task",
   "updated_at": "2026-09-12T10:27:09Z"
