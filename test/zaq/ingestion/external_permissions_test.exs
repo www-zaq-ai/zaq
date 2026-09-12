@@ -2,7 +2,7 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
   use Zaq.DataCase, async: true
   use ExUnitProperties
 
-  alias Zaq.Accounts.{PersonChannel, Team}
+  alias Zaq.Accounts.{Person, PersonChannel, Team}
   alias Zaq.Contracts.Record
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
@@ -41,7 +41,7 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
     record = %Record{
       id: "file-1",
       kind: :file,
-      attributes: %{provider: "google_drive"},
+      attributes: %{provider: "slack"},
       permissions: [
         %{id: "provider-user-1", display_name: "Provider User", role: "custom_role"}
       ]
@@ -49,21 +49,7 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
 
     assert :ok = ExternalPermissions.apply(record, [doc])
 
-    [permission] = permissions_for(doc)
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
-    Repo.insert_all(PersonChannel, [
-      %{
-        person_id: permission.person_id,
-        platform: "google_drive",
-        channel_identifier: "provider-user-1",
-        display_name: "Provider User",
-        inserted_at: now,
-        updated_at: now
-      }
-    ])
-
-    permission = permission_by_channel(doc, "google_drive", "provider-user-1")
+    permission = permission_by_channel(doc, "slack", "provider-user-1")
     assert permission
     assert permission.access_rights == ["read"]
     assert permission.person.full_name == "Provider User"
@@ -112,7 +98,7 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
     assert permissions_for(doc) == []
   end
 
-  test "uses data_source provider fallback when record attributes are not a map" do
+  test "unsupported data_source fallback leaves no orphan Person or permission" do
     doc = create_document()
 
     record = %Record{
@@ -122,26 +108,28 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
       permissions: [%{"id" => "fallback-user", "display_name" => "Fallback User"}]
     }
 
-    assert :ok = ExternalPermissions.apply(record, [doc])
+    log = capture_log(fn -> assert :ok = ExternalPermissions.apply(record, [doc]) end)
+    assert log =~ "from data_source"
+    assert log =~ "Skipped external permission principal"
+    assert permissions_for(doc) == []
+    refute Repo.exists?(from p in Person, where: p.full_name == "Fallback User")
+    refute Repo.exists?(from c in PersonChannel, where: c.channel_identifier == "fallback-user")
+  end
 
-    [permission] = permissions_for(doc)
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
+  test "unsupported provider ID without email is rejected atomically" do
+    doc = create_document()
 
-    Repo.insert_all(PersonChannel, [
-      %{
-        person_id: permission.person_id,
-        platform: "data_source",
-        channel_identifier: "fallback-user",
-        display_name: "Fallback User",
-        inserted_at: now,
-        updated_at: now
-      }
-    ])
+    record = %Record{
+      id: "unsupported",
+      kind: :file,
+      attributes: %{provider: "google_drive"},
+      permissions: [%{id: "unsupported-id", display_name: "Unsupported"}]
+    }
 
-    permission = permission_by_channel(doc, "data_source", "fallback-user")
-    assert permission
-    assert permission.access_rights == ["read"]
-    assert permission.person.full_name == "Fallback User"
+    log = capture_log(fn -> assert :ok = ExternalPermissions.apply(record, [doc]) end)
+    assert log =~ "from google_drive"
+    assert permissions_for(doc) == []
+    refute Repo.exists?(from p in Person, where: p.full_name == "Unsupported")
   end
 
   test "imports Record permission using raw email_address fallback" do

@@ -11,6 +11,7 @@ defmodule Zaq.People.IdentityResolver do
   """
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.PersonChannel
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.NodeRouter
   alias Zaq.People.Resolver
@@ -163,6 +164,8 @@ defmodule Zaq.People.IdentityResolver do
 
   defp find_channel(person, platform, channel_id)
        when is_binary(channel_id) and channel_id != "" do
+    channel_id = PersonChannel.normalize_identifier(platform, channel_id)
+
     Enum.find(person.channels || [], fn c ->
       c.platform == platform and c.channel_identifier == channel_id
     end)

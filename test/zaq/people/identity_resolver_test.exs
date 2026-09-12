@@ -2,6 +2,7 @@ defmodule Zaq.People.IdentityResolverTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.PersonChannel
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.People.IdentityResolver
 
@@ -40,6 +41,39 @@ defmodule Zaq.People.IdentityResolverTest do
   end
 
   describe "resolve/2" do
+    test "email variants touch the canonical row even when a legacy variant sorts first" do
+      for phone <- [nil, "+15550123"] do
+        email = if phone, do: "fast@example.com", else: "slow@example.com"
+        {:ok, person} = People.create_person(%{full_name: "Email", email: email, phone: phone})
+        [canonical] = People.list_person_channels(person.id)
+
+        {:ok, canonical} =
+          People.update_channel(canonical, %{weight: 1, last_interaction_at: nil})
+
+        # Arrange legacy storage independently of the canonical changesets.
+        legacy =
+          Repo.insert!(%PersonChannel{
+            person_id: person.id,
+            platform: "email",
+            channel_identifier: " " <> String.upcase(email) <> " ",
+            weight: 0
+          })
+
+        msg = incoming(%{provider: :"email:imap", author_id: String.upcase(email), is_dm: true})
+        assert {:ok, resolved} = IdentityResolver.resolve(msg, channels_router: ErrorRouter)
+        assert resolved.id == person.id
+        assert [untouched, touched] = People.list_person_channels(person.id)
+        assert untouched == legacy
+        assert touched.id == canonical.id
+        assert touched.channel_identifier == email
+        assert touched.last_interaction_at != nil
+        assert {:ok, repeated} = IdentityResolver.resolve(msg, channels_router: ErrorRouter)
+        assert repeated.id == person.id
+        assert length(People.list_person_channels(person.id)) == 2
+        assert People.get_channel(legacy.id) == legacy
+      end
+    end
+
     test "returns People error when slow path cannot create from an empty author id" do
       msg = incoming(%{author_id: "", author_name: nil})
 
