@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-hfs.3"
   ],
+  "closed_at": "2026-09-12T19:34:34Z",
   "created": "2026-09-12T19:25:59Z",
   "description": "Owner Engine.Api. Tests FIRST routed read/save, invalid attributes, invalid envelope and unknown action. Delegate authoritative validation to System; existing Events helper. Real System/Repo. Document boundary ownership.",
   "id": "zaq-hfs.2",
@@ -18,7 +19,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-hfs] Engine grouped configuration actions",
   "type": "task",
   "updated_at": "2026-09-12T19:34:34Z"
