@@ -9,9 +9,15 @@
   "id": "zaq-1yh.1",
   "labels": [],
   "parent": "zaq-1yh",
+  "comments": [
+    {
+      "text": "Added test-first scenarios to standalone suite (fresh creation, password rotation, guard failures, future-schema SELECT and write/DDL denials). Existing missing-prerequisite scenario now explicitly verifies empty ledger refusal then removes its test-only empty ledger. Integration execution follows implementation; no mocks.",
+      "timestamp": "2026-09-12T13:42:57Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-1yh] Add bootstrap integration scenarios",
   "type": "task",
-  "updated_at": "2026-09-12T13:39:53Z"
+  "updated_at": "2026-09-12T13:42:57Z"
 }
