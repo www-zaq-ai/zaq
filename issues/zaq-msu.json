@@ -10,11 +10,15 @@
     {
       "text": "Runtime Playwright regression reproduced red in Chromium: DetectTimezone and generic DialogOverlay registered by broad spread. Approved correction also aliases DialogOverlay as PeopleBulkDeleteDialog for only the People bulk-delete consumer, preserving focus restoration. Storybook shared registry stays intact.",
       "timestamp": "2026-09-12T11:04:20Z"
+    },
+    {
+      "text": "Filed timezone follow-up https://github.com/www-zaq-ai/zaq/issues/738 after duplicate search (related feature #569). Full desktop run: 218/219 passed; all 159 System Config cases passed. Existing People cross-page journey raced pagination in Firefox and mobile WebKit; added explicit 21–23 range assertion before the row click. Revalidating People desktop/mobile. mix q passed; JS/HEEx integration covered by real browser registry and keyboard journey rather than new property tests because there is no broad input-space change. JS coverage percentage not instrumented.",
+      "timestamp": "2026-09-12T11:17:29Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-msu] Isolate People checkbox hook registration",
   "type": "task",
-  "updated_at": "2026-09-12T11:04:20Z"
+  "updated_at": "2026-09-12T11:17:29Z"
 }
