@@ -5,7 +5,7 @@
   ],
   "blocks": [],
   "created": "2026-09-12T15:09:33Z",
-  "description": "Docker executable unavailable in implementation environment. Before publishing image/Gist, run matrix in test/docker/README.md: build final image, Compose config validation, fresh local/installer volumes, successful provision gating before migrations, down/up and recreated one-shot job, owner read-only volume UID/modes, private secret isolation, failures and mismatched volumes block app. Test pgvector/pg18 and paradedb:0.23.0 with candidate image. Confirm ordinary restart retains DB credentials and data. Source tests (36) and 99% Python coverage pass locally plus canonical DBA suites for both engines. Publishing requires user approval and image-before-Gist order. Do not change zaq-local.sh. Test-first matrix already documented; no mocks; update docs only if actual Docker behavior requires correction.",
+  "description": "Updated after user-approved simplification: validate final same-image shell entrypoint on Docker-capable runner. Docker CLI unavailable locally. Run compose config with supplied DATABASE_URL owner URL, ZAQ_OWNER_PASSWORD, ZAQ_READER_PASSWORD and DBA credentials. Build image; fresh up provisions before migrations; down/up/recreated provision job validates without password rotation; failed bootstrap/invalid URL/receipt mismatch blocks app. Assert no credential files or volumes, no DBA/reader env in app, default server startup still migrates/execs. No separate installer Compose or Python suite. Existing administrative ExUnit tests cover shell and PostgreSQL/ParadeDB paths. Live Gist/image publication remains separate, image first, requires user request.",
   "id": "zaq-f6s.4",
   "labels": [],
   "parent": "zaq-f6s",
@@ -13,5 +13,5 @@
   "status": "open",
   "title": "[zaq-f6s] Verify image lifecycle on Docker-capable runner before rollout",
   "type": "task",
-  "updated_at": "2026-09-12T15:09:54Z"
+  "updated_at": "2026-09-12T16:52:07Z"
 }
