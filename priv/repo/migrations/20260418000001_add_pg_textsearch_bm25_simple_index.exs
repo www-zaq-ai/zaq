@@ -12,7 +12,7 @@ defmodule Zaq.Repo.Migrations.AddPgTextsearchBm25SimpleIndex do
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pg_search') THEN
-        RAISE NOTICE 'pg_search absent: keeping native full-text search. For ParadeDB, ask a DBA to run scripts/setup_paradedb_extensions.sql against this same database; PostgreSQL uses scripts/setup_postgres_extensions.sql.';
+        RAISE NOTICE 'pg_search absent: keeping native full-text search. For fresh databases use scripts/setup_paradedb_extensions.sql before migrations (PostgreSQL: scripts/setup_postgres_extensions.sql). This database now has schema_migrations, so adding ParadeDB requires manual DBA provisioning.';
       ELSIF to_regclass('public.chunks') IS NOT NULL THEN
         CREATE INDEX IF NOT EXISTS chunks_bm25_idx
           ON public.chunks USING bm25(id, content)

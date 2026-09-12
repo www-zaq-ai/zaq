@@ -10,20 +10,43 @@ script =
     _ -> raise "Expected postgres or paradedb"
   end
 
-Mix.Task.run("ecto.create", ["--quiet"])
 config = Zaq.Repo.config()
+
+# CI's normal suite still uses its configured administrator connection. Dedicated
+# owner/reader roles exercise bootstrap without repurposing that cluster-wide role.
+suffix =
+  :crypto.hash(:sha256, config[:database]) |> Base.encode16(case: :lower) |> binary_part(0, 16)
+
+owner = "zaq_ci_#{suffix}"
+reader = owner <> "_reader"
 
 env = [
   {"PGHOST", config[:hostname] || "localhost"},
   {"PGPORT", to_string(config[:port] || 5432)},
   {"PGUSER", config[:username]},
   {"PGPASSWORD", config[:password] || ""},
-  {"PGDATABASE", config[:database]}
+  {"PGDATABASE", "postgres"},
+  {"ZAQ_OWNER_PASSWORD", Base.encode16(:crypto.strong_rand_bytes(32))},
+  {"ZAQ_READER_PASSWORD", Base.encode16(:crypto.strong_rand_bytes(32))}
 ]
 
 # Running twice also checks operator-script repeatability on both CI engines.
 for _ <- 1..2 do
-  case System.cmd("psql", ["-X", "--set", "ON_ERROR_STOP=1", "--file", script],
+  case System.cmd(
+         "psql",
+         [
+           "-X",
+           "--set",
+           "ON_ERROR_STOP=1",
+           "--set",
+           "zaq_database=#{config[:database]}",
+           "--set",
+           "zaq_owner=#{owner}",
+           "--set",
+           "zaq_reader=#{reader}",
+           "--file",
+           script
+         ],
          env: env,
          stderr_to_stdout: true
        ) do
@@ -32,4 +55,6 @@ for _ <- 1..2 do
   end
 end
 
-IO.puts("Provisioned #{engine} extensions in #{config[:database]} (twice).")
+IO.puts(
+  "Bootstrapped #{engine} database, credentials and extensions in #{config[:database]} (twice)."
+)

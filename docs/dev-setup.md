@@ -20,13 +20,17 @@ git clone https://github.com/www-zaq-ai/zaq.git
 cd zaq
 ```
 
-Before setup, check the PostgreSQL connection in [`config/dev.exs`](../config/dev.exs). Change the username, password, or hostname there if your local database differs. The development database name is derived from your branch.
+Before setup, check the PostgreSQL connection in [`config/dev.exs`](../config/dev.exs).
+The development database name is derived from your branch. Configure `DB_USER` and
+`DB_PASSWORD` with the new owner credentials.
 
-Before `mix setup`, create the target database and have a DBA provision its extensions
-using the appropriate [database setup script](database-setup.md). Provision the
-separately named test and E2E databases before their first migration, too. `mix setup`,
-`mix test`, and E2E bootstrap do not install extensions. After dropping a database,
-recreate and reprovision it before migrating again.
+Before running any migrations, have a DBA bootstrap the target database, restricted
+credentials and extensions with the [database setup script](database-setup.md).
+Repeat for the separately named test and E2E databases before their first migration.
+`mix setup`, `mix test` and E2E bootstrap do not install extensions. After dropping
+a database, rerun DBA bootstrap before migrating again. Bootstrap refuses any
+existing `schema_migrations`, even an empty ledger; use explicit DBA maintenance
+for already-migrated databases rather than rerunning bootstrap.
 
 ```bash
 mix setup && mix phx.server   # http://localhost:4000/bo

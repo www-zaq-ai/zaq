@@ -30,7 +30,7 @@ defmodule Zaq.Repo.ExtensionChecks do
         WHERE e.extname = 'vector' AND d.objid = pg_catalog.to_regtype('halfvec')
       ) THEN
         RAISE EXCEPTION 'ZAQ requires vector >= 0.7.0 with halfvec visible on search_path'
-          USING HINT = 'Ask a DBA to run scripts/setup_postgres_extensions.sql (PostgreSQL) or scripts/setup_paradedb_extensions.sql (ParadeDB) against this same database, then retry. Existing older extensions require a DBA-managed upgrade; also check search_path.';
+          USING HINT = 'Before any migration, a DBA must bootstrap this database using scripts/setup_postgres_extensions.sql (PostgreSQL) or scripts/setup_paradedb_extensions.sql (ParadeDB). If schema_migrations already exists, bootstrap refuses: ask a DBA to provision or repair extensions manually in this same database, then retry. Older extensions require a DBA-managed upgrade; also check search_path.';
       END IF;
     END;
     $$
@@ -43,7 +43,7 @@ defmodule Zaq.Repo.ExtensionChecks do
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pg_search') THEN
         RAISE EXCEPTION 'ZAQ ParadeDB backend requires the pg_search extension'
-          USING HINT = 'Ask a DBA to run scripts/setup_paradedb_extensions.sql against this same database, then retry. Plain PostgreSQL uses native full-text search and scripts/setup_postgres_extensions.sql instead.';
+          USING HINT = 'Before any migration, a DBA must bootstrap this database using scripts/setup_paradedb_extensions.sql. If schema_migrations already exists, ask a DBA to provision pg_search manually in this same database, then retry. Plain PostgreSQL uses native full-text search and scripts/setup_postgres_extensions.sql instead.';
       END IF;
     END;
     $$
