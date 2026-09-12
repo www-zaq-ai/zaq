@@ -4,6 +4,7 @@
     "zaq-iz2.3"
   ],
   "blocks": [],
+  "closed_at": "2026-09-12T08:46:57Z",
   "created": "2026-09-12T07:56:56Z",
   "description": "Step 4: PeopleLive/PeopleTable wire generic state, page-first all matching, exclusions, reset on filters, frozen server-side confirmation invalidation, clamp page. Test first LiveView multipage/filter/exclusion/confirmation/error contracts; browser keyboard and row-checkbox isolation. Run focused tests, format, mix q and coverage; document exact limitations. Commit and PR authorized.",
   "id": "zaq-iz2.4",
@@ -24,8 +25,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-iz2.4] People integration and validation",
   "type": "task",
-  "updated_at": "2026-09-12T08:46:09Z"
+  "updated_at": "2026-09-12T08:46:57Z"
 }
