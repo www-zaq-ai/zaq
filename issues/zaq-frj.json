@@ -6,9 +6,15 @@
   "description": "Narrow reviewer blocker follow-up. Tests first: inactive/non-conversation agent and retrieval/config mismatch produce no merge writes by Repo telemetry; generic change_rule read validation; prepared persistence rechecks changed DB policy; discarded policies do not reject valid final winners. Owners IncomingMessageRoutingRule single policy helper, IncomingMessageRouting.change_rule read-only use; retain prepare validation with repo/prefix. Preserve index no commits. Validate focused+broad tests, concurrency, actual migration replay, format/q.",
   "id": "zaq-frj",
   "labels": [],
+  "comments": [
+    {
+      "text": "Red tests seed420610:41 tests,3 failures explicitly observing channel UPDATE before rejection for inactive agent, non-conversation agent, and retrieval/config mismatch. Implemented schema-owner validate_policy/2 shared by existing change_rule/2 read preflight and prepare callback; query options honor loaded prefix and persistence repo_opts. Discarded rows retain structural-only validation, winning final rows get full policies. Focused green seed625:4properties82tests. Added generic policy-change-between-preflight-and-insert tests and explicit prefix read/prepare assertions.",
+      "timestamp": "2026-09-12T09:14:52Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-0cg] Preflight routing database policies before merge writes",
   "type": "bug",
-  "updated_at": "2026-09-12T09:11:19Z"
+  "updated_at": "2026-09-12T09:14:52Z"
 }
