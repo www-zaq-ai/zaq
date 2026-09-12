@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-1yh.2"
   ],
+  "closed_at": "2026-09-12T13:44:18Z",
   "created": "2026-09-12T13:39:51Z",
   "description": "Files: standalone extension installation test. Tests first: fresh creation, pre-migration repeat/password rotation, unexpected owner and migration ledger rejection without credential mutation, role safety, all-schema current/future table reader SELECT and denied writes/DDL, extension ownership and runtime recreation. Real PostgreSQL/ParadeDB; no mocks. SQL coverage via scenario matrix rather than BEAM coverage.",
   "id": "zaq-1yh.1",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-1yh] Add bootstrap integration scenarios",
   "type": "task",
-  "updated_at": "2026-09-12T13:42:57Z"
+  "updated_at": "2026-09-12T13:44:18Z"
 }
