@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T09:07:27Z",
+  "description": "Approved layout feedback on current branch; horizontal wrapping checkbox, recap, Clear and actions; preserve all-excluded behavior. Component tests, Storybook, browser verification, format and mix q. Commit only; no push or PR.",
+  "id": "zaq-4v4",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Compact shared list selection layout",
+  "type": "task",
+  "updated_at": "2026-09-12T09:07:27Z"
+}
