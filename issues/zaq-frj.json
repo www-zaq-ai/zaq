@@ -10,11 +10,15 @@
     {
       "text": "Red tests seed420610:41 tests,3 failures explicitly observing channel UPDATE before rejection for inactive agent, non-conversation agent, and retrieval/config mismatch. Implemented schema-owner validate_policy/2 shared by existing change_rule/2 read preflight and prepare callback; query options honor loaded prefix and persistence repo_opts. Discarded rows retain structural-only validation, winning final rows get full policies. Focused green seed625:4properties82tests. Added generic policy-change-between-preflight-and-insert tests and explicit prefix read/prepare assertions.",
       "timestamp": "2026-09-12T09:14:52Z"
+    },
+    {
+      "text": "FINAL: generic schema validate_policy/2 is single home for read-only change_rule/2 and prepared persistence checks; effective repo prefix honored. Winning final rules get DB-backed checks, discarded rows structural only. 10 deterministic new tests cover 3 invalid policy classes with zero-write telemetry, 3 discarded-rule cases, 3 persistence-time policy changes, and loaded/explicit prefix. Broad coveralls seed625:30properties1792tests0failures1existing skip56excluded. New routing added executable lines7/7 covered; all unstaged app additions145/145 including prior work. Whole routing context96.8%,schema94.1% with3preexisting uncovered defensive lines80,88,132; PersonMerger100%. Concurrency seed9321 included routing65/65, seed104729 races23/23. Actual migration tests included broad pass; disposable Repo-only replay PASS and cleaned its own DB, ZAQ app not started. Final format/q and both diff checks pass after resolving test alias Credo suggestions. Existing license_manager and deliberate migration module-redefinition warnings remain. No E2E rerun for this routing-only correction, no unrelated fixes/commit/push/PR or user DB reset. Index hash unchanged c95c0d9e6c0f853326bbd53831adf32322ed7436f97e8997b292461eea692416.",
+      "timestamp": "2026-09-12T09:19:15Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-0cg] Preflight routing database policies before merge writes",
   "type": "bug",
-  "updated_at": "2026-09-12T09:14:52Z"
+  "updated_at": "2026-09-12T09:19:15Z"
 }
