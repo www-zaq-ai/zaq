@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-12T09:19:15Z",
   "created": "2026-09-12T09:10:23Z",
   "description": "Narrow reviewer blocker follow-up. Tests first: inactive/non-conversation agent and retrieval/config mismatch produce no merge writes by Repo telemetry; generic change_rule read validation; prepared persistence rechecks changed DB policy; discarded policies do not reject valid final winners. Owners IncomingMessageRoutingRule single policy helper, IncomingMessageRouting.change_rule read-only use; retain prepare validation with repo/prefix. Preserve index no commits. Validate focused+broad tests, concurrency, actual migration replay, format/q.",
   "id": "zaq-frj",
@@ -17,7 +18,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-0cg] Preflight routing database policies before merge writes",
   "type": "bug",
   "updated_at": "2026-09-12T09:19:15Z"
