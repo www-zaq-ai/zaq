@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-12T09:10:23Z",
@@ -7,8 +7,8 @@
   "id": "zaq-frj",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-0cg] Preflight routing database policies before merge writes",
   "type": "bug",
-  "updated_at": "2026-09-12T09:10:23Z"
+  "updated_at": "2026-09-12T09:11:19Z"
 }
