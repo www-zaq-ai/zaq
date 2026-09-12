@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-f6s.5"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-f6s.7"
+  ],
   "created": "2026-09-12T16:43:45Z",
   "description": "Specs/files Dockerfile/docker-compose.yml/docs/ignore rules/CI: require owner DATABASE_URL, supply provisioning env separately, app has no DBA or reader env; single image and single compose. Delete previous Python scripts/tests/deps/CI steps and dedicated installer compose. Replace CI steps with existing ExUnit admin suite extensions. Tests before wiring assert no credential mounts/files and required environment; check shell syntax and diff. Document environment contract and legacy/remote operation plus Gist remains untouched.",
   "id": "zaq-f6s.6",
