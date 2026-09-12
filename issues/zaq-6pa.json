@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-12T14:28:41Z",
   "created": "2026-09-12T13:29:28Z",
   "description": "Approved implementation in current clean feat/people-access-to-bo at ffa0ba0e. Delivery uncommitted; no staging/commit/push/PR. Steps: persistence/context tests first -\u003e Engine gateway tests first -\u003e approved existing DS matrix LiveView tests first -\u003e People E2E/reset/docs/validation. Raw additive permissions accept current resolved persisted Person, no identity requery/status gating/resource-rights changes. No grants seeded. DAG is a linear chain; each step records evidence.",
   "id": "zaq-6pa",
@@ -17,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-6pa] People permissions PR1",
   "type": "epic",
-  "updated_at": "2026-09-12T14:28:40Z"
+  "updated_at": "2026-09-12T14:28:41Z"
 }
