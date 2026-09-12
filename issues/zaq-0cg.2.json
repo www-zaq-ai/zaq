@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T08:38:11Z",
+  "description": "Run MIX_TEST_PARTITION=_channel_identity focused/full owners tools accounts ingestion permissions contracts routing resolver LiveView coverage (prior broad 1266 suite); concurrency multiple seeds; actual migration runner and disposable Repo-only replay; People Playwright all three browsers timeout 600000; mix format, mandatory mix q, diff checks and staged hash unchanged. Target \u003e=95 new app lines measure actual scope. No user DB reset or unrelated fixes. Record exact counts warnings limitations.",
+  "id": "zaq-0cg.2",
+  "labels": [],
+  "parent": "zaq-0cg",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-0cg] Validate owners integration migration concurrency coverage and People browsers",
+  "type": "task",
+  "updated_at": "2026-09-12T08:38:11Z"
+}
