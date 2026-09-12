@@ -9,9 +9,15 @@
   "id": "zaq-f6s.1",
   "labels": [],
   "parent": "zaq-f6s",
+  "comments": [
+    {
+      "text": "Implemented entrypoint, private random credential state with filesystem lock, atomic DBA-owned transaction receipt, read-only restart validation and owner-only credential publication. Tests use real local PostgreSQL 18 with pg_search available; PostgreSQL and ParadeDB paths exercised. No Docker binary available. No application imports. Canonical finish script has optional receipt hook before COMMIT; ordinary DBA usage unchanged.",
+      "timestamp": "2026-09-12T14:57:07Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-f6s] Implement dual-mode entrypoint and atomic bootstrap receipt",
   "type": "task",
-  "updated_at": "2026-09-12T14:47:24Z"
+  "updated_at": "2026-09-12T14:57:07Z"
 }
