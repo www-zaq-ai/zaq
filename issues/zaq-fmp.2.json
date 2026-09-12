@@ -11,9 +11,15 @@
   "id": "zaq-fmp.2",
   "labels": [],
   "parent": "zaq-fmp",
+  "comments": [
+    {
+      "text": "Keyed-wrapper attempt explicitly failed real browsers: stable keyed children retained stale properties and focus regressed. Replaced with stable DOM wrapper + data-generation assign, incremented on each refresh, and a tiny explicitly registered PeoplePermissions updated hook restoring native input.checked from server aria-checked. No remount, no persistence metadata, no mocks/test endpoints. Real failed grant/revoke plus existing keyboard/mobile scenario now PASS all 3 engines (9 tests). Added malformed-state/scope and successful no-op browser cases for both initial ON/OFF states.",
+      "timestamp": "2026-09-12T14:44:50Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-fmp] Reconcile each completed permission attempt",
   "type": "task",
-  "updated_at": "2026-09-12T14:37:34Z"
+  "updated_at": "2026-09-12T14:44:50Z"
 }
