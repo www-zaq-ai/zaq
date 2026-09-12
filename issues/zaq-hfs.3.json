@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-hfs.2"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-hfs",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-hfs] People access BO configuration form",
   "type": "task",
-  "updated_at": "2026-09-12T19:26:19Z"
+  "updated_at": "2026-09-12T19:34:34Z"
 }
