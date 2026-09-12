@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleTable do
   use Phoenix.Component
 
   import ZaqWeb.Components.DesignSystem.StatusDot, only: [status_dot: 1]
+  alias ZaqWeb.Helpers.Selection
 
   import ZaqWeb.Components.DesignSystem.Table,
     only: [
@@ -52,7 +53,9 @@ defmodule ZaqWeb.Live.BO.System.PeopleTable do
         >
           <.table_cell width="w-10">
             <.table_checkbox
-              checked={MapSet.member?(@selected_people, person.id)}
+              id={"person-select-#{person.id}"}
+              aria-label={"Select #{person.full_name}"}
+              checked={Selection.member?(@selected_people, person.id)}
               phx-click="toggle_person_selection"
               phx-value-id={person.id}
             />

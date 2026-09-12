@@ -9,6 +9,8 @@ defmodule Zaq.Engine.PeopleGateway do
   def dispatch(:filter, %{filters: filters, opts: opts}) when is_map(filters) and is_list(opts),
     do: People.filter_people(filters, opts)
 
+  def dispatch(:resolve_selection, params), do: People.resolve_selection(params)
+
   def dispatch(:get_with_channels, %{id: id}) do
     case People.get_person_with_channels(normalize_id(id)) do
       nil -> {:error, :not_found}

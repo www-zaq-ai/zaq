@@ -168,6 +168,17 @@ rejected rather than ignored, since it would silently override the message resol
   `Zaq.Engine.PeopleGateway.dispatch/2`.
 - Gateway maps operations (`:filter`, `:create`, `:update`, `:delete`, `:bulk_delete`,
   team/channel operations, etc.) to `Zaq.Accounts.People` domain calls.
+- `:resolve_selection` accepts `%{mode: :explicit | :all_matching, filters: map,
+  ids: [positive_integer]}`. IDs are inclusions in explicit mode, exclusions in
+  all-matching mode. Filters are required; `%{}` explicitly means unfiltered.
+  It reuses the listing's literal AND filters and stable `full_name, id` ordering,
+  returning `{:ok, ids}` without pagination; malformed selections are rejected.
+- People BO keeps compact filter-scoped selection across pages, resetting on filter
+  changes. Opening bulk-delete confirmation resolves and freezes IDs server-side;
+  confirmation consumes only that snapshot. Selection/filter changes or cancellation
+  invalidate it. Later arrivals cannot join the deletion. `:bulk_delete` remains
+  atomic (including cascades); invalid IDs reject the entire request and missing
+  records roll back all deletes. The UI reports rollback as an error and clamps pages.
 
 ### Conversation Title Generator (`Zaq.Engine.Conversations.TitleGenerator`)
 - Generates a 6-word-max title from the first user message via LLM.

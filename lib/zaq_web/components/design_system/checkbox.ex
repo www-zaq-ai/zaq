@@ -38,6 +38,7 @@ defmodule ZaqWeb.Components.DesignSystem.Checkbox do
 
   attr :errors, :list, default: []
   attr :checked, :boolean, doc: "the checked flag; derived from value when omitted"
+  attr :indeterminate, :boolean, default: false, doc: "mixed selection; requires an id"
 
   attr :class, :any, default: nil, doc: "classes for the checkbox input"
 
@@ -79,6 +80,9 @@ defmodule ZaqWeb.Components.DesignSystem.Checkbox do
             name={@name}
             value="true"
             checked={@checked}
+            aria-checked={if(@indeterminate, do: "mixed", else: to_string(@checked))}
+            data-indeterminate={to_string(@indeterminate)}
+            phx-hook={@id && "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox"}
             class={@checkbox_class}
             {@rest}
           />
@@ -101,6 +105,9 @@ defmodule ZaqWeb.Components.DesignSystem.Checkbox do
           name={@name}
           value="true"
           checked={@checked}
+          aria-checked={if(@indeterminate, do: "mixed", else: to_string(@checked))}
+          data-indeterminate={to_string(@indeterminate)}
+          phx-hook={@id && "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox"}
           class={@checkbox_class}
           {@rest}
         />
@@ -112,11 +119,21 @@ defmodule ZaqWeb.Components.DesignSystem.Checkbox do
         name={@name}
         value="true"
         checked={@checked}
+        aria-checked={if(@indeterminate, do: "mixed", else: to_string(@checked))}
+        data-indeterminate={to_string(@indeterminate)}
+        phx-hook={@id && "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox"}
         class={@checkbox_class}
         {@rest}
       />
       <.field_error :for={msg <- @errors}>{msg}</.field_error>
     <% end %>
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".MixedCheckbox">
+      export default {
+        mounted() { this.syncMixed() },
+        updated() { this.syncMixed() },
+        syncMixed() { this.el.indeterminate = this.el.dataset.indeterminate === "true" }
+      }
+    </script>
     """
   end
 

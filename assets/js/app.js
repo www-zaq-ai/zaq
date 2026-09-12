@@ -40,7 +40,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {
     OntologyTree,
     ChartTooltip,
-    liveViewHooks,
+    ...liveViewHooks,
     ContentFilter,
     FolderDrop,
     WorkflowExport,
