@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-f6s.6"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-f6s",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-f6s] Simplify entrypoint to environment-only shell provisioning",
   "type": "task",
-  "updated_at": "2026-09-12T16:43:46Z"
+  "updated_at": "2026-09-12T16:43:47Z"
 }
