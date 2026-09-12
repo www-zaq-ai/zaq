@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-s72.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-s72.3"
+  ],
   "created": "2026-09-12T06:22:39Z",
   "description": "People private helpers only: link email on insert or actual change; distinct incoming/stored required discovery identities once, centralized attrs normalization, known-index-only retry after outer rollback. PersonChannel only global constraint. Module docs inspected. Tests from prior step; docs engine contract in final step.",
   "id": "zaq-s72.2",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-s72] Simplify People identity persistence and channel constraint",
   "type": "task",
-  "updated_at": "2026-09-12T06:22:49Z"
+  "updated_at": "2026-09-12T06:22:50Z"
 }
