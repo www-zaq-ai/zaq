@@ -6,9 +6,15 @@
   "description": "Approved narrow correction on current zaq-iz2/people-selection-validation branch; commit only, no push/PR/worktree. Restore pre-b2799d57 shared hook registration and explicitly activate only MixedCheckbox. Audit full app and Storybook registry, add runtime registration regression and desktop/mobile selection coverage, validate system_config browser spec, mix format and mix q. File separate GitHub timezone bug for later inspection; do not change timezone behavior.",
   "id": "zaq-msu",
   "labels": [],
+  "comments": [
+    {
+      "text": "Runtime Playwright regression reproduced red in Chromium: DetectTimezone and generic DialogOverlay registered by broad spread. Approved correction also aliases DialogOverlay as PeopleBulkDeleteDialog for only the People bulk-delete consumer, preserving focus restoration. Storybook shared registry stays intact.",
+      "timestamp": "2026-09-12T11:04:20Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-msu] Isolate People checkbox hook registration",
   "type": "task",
-  "updated_at": "2026-09-12T10:27:09Z"
+  "updated_at": "2026-09-12T11:04:20Z"
 }
