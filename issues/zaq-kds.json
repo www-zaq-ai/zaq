@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-12T17:30:29Z",
   "created": "2026-09-12T17:24:11Z",
   "description": "User-approved narrow working-tree change: tests first, allowed?/2 raw single or nonempty ALL list, canonical casting, fail closed, one grant SELECT/no identity lookup. Remove specialized predicates; only context/test/service doc. Preserve staging checksum 2abfa89775d1ffdaebf21545f9994812a941e4e90848ee499408fcbd26da25aa. Format, focused tests/coverage, mix q; no commit/push/PR.",
   "id": "zaq-kds",
@@ -13,8 +14,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-kds] Explicit ALL-list People permission predicate",
   "type": "task",
-  "updated_at": "2026-09-12T17:30:28Z"
+  "updated_at": "2026-09-12T17:30:29Z"
 }
