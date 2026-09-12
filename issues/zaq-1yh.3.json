@@ -4,6 +4,7 @@
     "zaq-1yh.2"
   ],
   "blocks": [],
+  "closed_at": "2026-09-12T13:57:46Z",
   "created": "2026-09-12T13:39:52Z",
   "description": "Update README and database/dev setup documentation and invocation examples. Run native/ParadeDB standalone where available, mix format, mix q, diff checks. Document unavailable backend/SQL coverage limitations. Tests from first step validate CLI documentation contract; no mocks.",
   "id": "zaq-1yh.3",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-1yh] Document bootstrap contract and validate",
   "type": "task",
-  "updated_at": "2026-09-12T13:57:03Z"
+  "updated_at": "2026-09-12T13:57:46Z"
 }
