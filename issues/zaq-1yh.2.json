@@ -15,11 +15,15 @@
     {
       "text": "Native standalone currently passes 3 tests (fresh DB/roles, password reruns, missing/migrated/wrong-owner guards, all migrations/runtime and reader denied writes). Maintenance connection now uses postgres so target need not exist. Added shared psql transaction with rollback for roles/extensions/ownership, SCRAM and password environment inputs, all-schema defaults. Expanding role and ACL negative cases before final validation.",
       "timestamp": "2026-09-12T13:44:18Z"
+    },
+    {
+      "text": "Native standalone now passes all 8 scenarios and CI provisioning helper successfully created/configured the branch test DB. Security tests exposed psql nested include failure propagation: ON_ERROR_STOP must be set at entrypoint before include (now regression tested without CLI flag). Added rollback, missing input, unsafe role, old column/default ACL cases. mix q passed. Runtime hints updated to distinguish fresh bootstrap from manual repair after schema_migrations exists.",
+      "timestamp": "2026-09-12T13:52:05Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-1yh] Implement shared SQL bootstrap and CI callers",
   "type": "task",
-  "updated_at": "2026-09-12T13:44:18Z"
+  "updated_at": "2026-09-12T13:52:05Z"
 }
