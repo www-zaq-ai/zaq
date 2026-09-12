@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-s72.2"
+  ],
   "created": "2026-09-12T06:22:39Z",
   "description": "Tests first in channel_identity suites: unrelated profile edits must not repair email links or check conflicts, unchanged canonical email and nil/clear, distinct discovery links telemetry, unrelated unique failures and nested rollback. Real persistence no mocks/hooks. Existing concurrency retained.",
   "id": "zaq-s72.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-s72] Reproduce People link and retry gaps",
   "type": "task",
-  "updated_at": "2026-09-12T06:22:39Z"
+  "updated_at": "2026-09-12T06:22:49Z"
 }
