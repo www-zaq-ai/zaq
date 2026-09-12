@@ -1297,6 +1297,7 @@ defmodule Zaq.IngestionTest do
       doc = create_doc_with_source(source)
       person = create_person()
       team = create_team()
+      {:ok, person} = People.assign_team(person, team.id)
       role = %Zaq.Accounts.Role{name: "staff"}
       user = %{role: role, person_id: person.id, team_ids: [team.id]}
 

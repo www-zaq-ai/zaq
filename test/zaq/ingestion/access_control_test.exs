@@ -12,8 +12,8 @@ defmodule Zaq.Ingestion.AccessControlTest do
     :ok
   end
 
-  # Builds a minimal current_user-like map satisfying can_access_file?/2:
-  # requires role.name, person_id (integer pointing to a people row), team_ids.
+  # Builds a current_user-like map with role.name and a persisted person_id.
+  # Caller team_ids are snapshots; can_access_file?/2 loads persisted membership.
   defp make_current_user(role_name, person_id, team_ids \\ []) do
     %{role: %{name: role_name}, person_id: person_id, team_ids: team_ids}
   end
@@ -188,6 +188,7 @@ defmodule Zaq.Ingestion.AccessControlTest do
       team = create_team()
 
       {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
+      {:ok, staff_person} = People.assign_team(staff_person, team.id)
 
       staff_with_team = make_current_user("staff", staff_person.id, [team.id])
 
@@ -202,6 +203,58 @@ defmodule Zaq.Ingestion.AccessControlTest do
       {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
 
       refute Ingestion.can_access_file?(source, staff)
+    end
+
+    test "caller-supplied team membership cannot grant access", %{staff_person: staff_person} do
+      source = unique_source()
+      {:ok, doc} = Document.upsert(%{source: source})
+      team = create_team()
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
+
+      forged_staff = make_current_user("staff", staff_person.id, [team.id])
+
+      refute Ingestion.can_access_file?(source, forged_staff)
+    end
+
+    test "stale caller membership cannot retain access after persisted removal", %{
+      staff_person: staff_person
+    } do
+      source = unique_source()
+      {:ok, doc} = Document.upsert(%{source: source})
+      team = create_team()
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
+      {:ok, staff_person} = People.assign_team(staff_person, team.id)
+      staff_snapshot = make_current_user("staff", staff_person.id, staff_person.team_ids)
+
+      assert Ingestion.can_access_file?(source, staff_snapshot)
+
+      {:ok, _} = People.unassign_team(staff_person, team.id)
+
+      refute Ingestion.can_access_file?(source, staff_snapshot)
+    end
+
+    test "empty or missing caller team_ids do not suppress persisted team access", %{
+      staff: staff,
+      staff_person: staff_person
+    } do
+      source = unique_source()
+      {:ok, doc} = Document.upsert(%{source: source})
+      team = create_team()
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
+      {:ok, _} = People.assign_team(staff_person, team.id)
+
+      assert Ingestion.can_access_file?(source, staff)
+      assert Ingestion.can_access_file?(source, Map.delete(staff, :team_ids))
+    end
+
+    test "nonexistent person cannot access private file using supplied permitted teams" do
+      source = unique_source()
+      {:ok, doc} = Document.upsert(%{source: source})
+      team = create_team()
+      {:ok, _} = Ingestion.set_document_permission(doc.id, :team, team.id, ["read"])
+      missing_person = make_current_user("staff", -1, [team.id])
+
+      refute Ingestion.can_access_file?(source, missing_person)
     end
   end
 
