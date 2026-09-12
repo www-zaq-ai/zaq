@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-hfs.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-hfs.3"
+  ],
   "created": "2026-09-12T19:25:59Z",
   "description": "Owner Engine.Api. Tests FIRST routed read/save, invalid attributes, invalid envelope and unknown action. Delegate authoritative validation to System; existing Events helper. Real System/Repo. Document boundary ownership.",
   "id": "zaq-hfs.2",
