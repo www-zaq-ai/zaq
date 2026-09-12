@@ -6,9 +6,15 @@
   "description": "Approved current-checkout review fixes. People owns calculated merge persistence. Add direct and gateway atom/string ownership regressions and property coverage; verify transfer/calculated fields and timestamps through real merges and migration tests, no mocks. Restore update_changeset, add documented merge-only channel operation, name existing database advisory lock pair. Run format, targeted tests, mix q and review diff. No commit/push/PR.",
   "id": "zaq-i16",
   "labels": [],
+  "comments": [
+    {
+      "text": "Regression run before implementation: 4 failures reproduced ordinary/gateway reassignment and invalid owner input. After fix: 4 properties, 166 tests pass across People, gateway, merge, merge-result and concurrency suites (includes migration coverage). Migration singleton cleanup passes no person_id and explicit latest/nil timestamp; multi-person migration uses merger. IdentityResolver only updates dm_channel_id. Advisory pair preserved as {20577,1}. Running mandatory mix q and final diff review.",
+      "timestamp": "2026-09-12T11:46:29Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-i16] Protect channel ownership and document identity merge lock",
   "type": "task",
-  "updated_at": "2026-09-12T11:43:11Z"
+  "updated_at": "2026-09-12T11:46:29Z"
 }
