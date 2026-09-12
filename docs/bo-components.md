@@ -112,6 +112,10 @@ For generic KPI tiles without telemetry chrome, prefer **`DesignSystem.MetricCar
 
 ### Other shared modules under `lib/zaq_web/components/`
 
+For reusable page-first bulk selection, see [Filter-scoped list selection](list-selection.md).
+It covers the pure state helper, DS component, parent event contract, accessibility,
+and server-side frozen confirmation pattern used by People.
+
 | Module | When to use |
 |---|---|
 | `MasterDetailLayout` | Two-pane list + detail layout |
