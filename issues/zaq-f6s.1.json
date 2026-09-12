@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-f6s.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-f6s",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-f6s] Implement dual-mode entrypoint and atomic bootstrap receipt",
   "type": "task",
-  "updated_at": "2026-09-12T14:47:23Z"
+  "updated_at": "2026-09-12T14:47:24Z"
 }
