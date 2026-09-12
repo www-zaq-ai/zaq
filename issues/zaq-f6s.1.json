@@ -13,11 +13,15 @@
     {
       "text": "Implemented entrypoint, private random credential state with filesystem lock, atomic DBA-owned transaction receipt, read-only restart validation and owner-only credential publication. Tests use real local PostgreSQL 18 with pg_search available; PostgreSQL and ParadeDB paths exercised. No Docker binary available. No application imports. Canonical finish script has optional receipt hook before COMMIT; ordinary DBA usage unchanged.",
       "timestamp": "2026-09-12T14:57:07Z"
+    },
+    {
+      "text": "23 unit and real psql integration tests pass, including SQL rollback and post-COMMIT publication recovery, after correcting literal PGDATABASE authentication and verifying application owner cannot drop DBA receipt schema. Step implementation locally validated; no commit per user request.",
+      "timestamp": "2026-09-12T14:59:15Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-f6s] Implement dual-mode entrypoint and atomic bootstrap receipt",
   "type": "task",
-  "updated_at": "2026-09-12T14:57:07Z"
+  "updated_at": "2026-09-12T14:59:15Z"
 }
