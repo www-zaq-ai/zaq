@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-f6s.2"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-f6s",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-f6s] Validate automatic bootstrap and document rollout",
   "type": "task",
-  "updated_at": "2026-09-12T14:47:24Z"
+  "updated_at": "2026-09-12T15:02:01Z"
 }
