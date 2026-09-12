@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-12T14:52:45Z",
   "created": "2026-09-12T14:33:11Z",
   "description": "Independent review blocker follow-up to zaq-6pa. Preserve existing uncommitted slice and empty index at ffa0ba0e. Test FIRST: real browser native checked change with tampered permission-only JS.push payload, both rejected grant and rejected revoke; assert write-error branch, authoritative native checked/ARIA restored and persists after reload on all browsers. Implementation: PeopleLive presentation generation increments on authoritative refresh and keyed matrix wrapper reconciles unchanged HTML (verify actual morphdom behavior); canonical context remains permission whitelist owner, malformed desired/scope events also reload authority. No test-only production seams. Tests/failure path then focused/full People browsers, ExUnit coverage, format/q/diff review. Document DOM reconciliation only in shipped People access doc.",
   "id": "zaq-fmp",
@@ -17,8 +18,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-fmp] Reconcile native People permission switches after rejected writes",
   "type": "bug",
-  "updated_at": "2026-09-12T14:52:44Z"
+  "updated_at": "2026-09-12T14:52:45Z"
 }
