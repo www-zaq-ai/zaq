@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-f6s.3"
   ],
+  "closed_at": "2026-09-12T15:02:01Z",
   "created": "2026-09-12T14:46:57Z",
   "description": "Files docker-compose.yml, docker-compose.install.yml and docs database-setup/dev-setup. Tests first: matching app/provision image, health and completed-successfully dependencies, read-only owner-only app volume, private provisioning secrets, no DATABASE_URL override ambiguity, installer artifact is standalone and preserves service names. No zaq-local.sh edits or live Gist publication. Real Docker lifecycle tests when available; no internal mocks. Cover fresh up, down/up, recreated service, volume mismatch, failures blocking app. Document external DB/manual maintenance and Gist publication sequencing.",
   "id": "zaq-f6s.2",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-f6s] Wire local and installer Compose lifecycle",
   "type": "task",
-  "updated_at": "2026-09-12T15:02:00Z"
+  "updated_at": "2026-09-12T15:02:01Z"
 }
