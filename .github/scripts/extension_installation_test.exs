@@ -81,7 +81,12 @@ defmodule Zaq.ExtensionInstallationTest do
     :code.delete(Zaq.Repo.Migrations.CreateChunks)
 
     assert_raise Postgrex.Error, fn -> Chunk.create_table(384) end
-    assert_raise Postgrex.Error, fn -> Repo.query!("CREATE EXTENSION vector") end
+
+    # Some servers allow non-superuser owners to install vector. The contract is
+    # that ZAQ leaves provisioning to the DBA, not that the server forbids it.
+    assert %{rows: [[false]]} =
+             Repo.query!("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')")
+
     error = assert_raise Postgrex.Error, fn -> ExtensionChecks.require!(Repo, :pg_search) end
     assert error.postgres.hint =~ "scripts/setup_paradedb_extensions.sql"
 
