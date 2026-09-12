@@ -9,9 +9,15 @@
   "id": "zaq-s72.1",
   "labels": [],
   "parent": "zaq-s72",
+  "comments": [
+    {
+      "text": "RED verified: 17 channel identity tests, 3 failures reproducing unwanted profile repair, duplicate email link lookup, and lost distinct incoming email on email-platform discovery. Existing nested/channel conflict tests pass. Retry arbitrary unrecognized index is not publicly mapped by existing schemas; verify exception propagation using DB-only fixture rather than exposing private helper.",
+      "timestamp": "2026-09-12T06:24:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-s72] Reproduce People link and retry gaps",
   "type": "task",
-  "updated_at": "2026-09-12T06:22:50Z"
+  "updated_at": "2026-09-12T06:24:28Z"
 }
