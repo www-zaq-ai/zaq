@@ -11,9 +11,15 @@
   "id": "zaq-0cg.1",
   "labels": [],
   "parent": "zaq-0cg",
+  "comments": [
+    {
+      "text": "Protected People.apply_merge_result/2 and Person.merge_result_changeset/2 implemented; ordinary casting remains unchanged. Generic NotificationLog.change_recipient/2 shares the existing recipient guard with update_recipient/2 and is covered without writes. First green focused run seed 557632: 3 properties, 192 tests, zero failures. Merger now validates complete fresh-schema field values to catch unchanged legacy invalid values.",
+      "timestamp": "2026-09-12T08:46:09Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-0cg] Implement protected People result persistence and owner validation",
   "type": "task",
-  "updated_at": "2026-09-12T08:40:53Z"
+  "updated_at": "2026-09-12T08:46:09Z"
 }
