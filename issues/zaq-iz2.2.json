@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-iz2.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-iz2.3"
+  ],
   "created": "2026-09-12T07:56:56Z",
   "description": "Step 2: design_system/list_selection.ex owns parent-controlled page/all/clear controls and actions slot; Checkbox mixed native state and Storybook. Test first empty/partial/page/all/exclusions and accessible labels/aria; no mocks. Document component and stories.",
   "id": "zaq-iz2.2",

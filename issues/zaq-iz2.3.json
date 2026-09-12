@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-iz2.2"
+  ],
   "blocks": [],
   "created": "2026-09-12T07:56:56Z",
   "description": "Step 3: Accounts.People extends existing filter query with stable name,id ordering and validated selection resolution; Engine.PeopleGateway routes it. Test first real DB AND/literal filters, exclusions, unfiltered, malformed, snapshot/cascade/rollback; no mocks. Preserve Sage atomic deletion and accurate failures. Update engine docs.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-iz2] Routed matching ID snapshots",
   "type": "task",
-  "updated_at": "2026-09-12T07:56:56Z"
+  "updated_at": "2026-09-12T07:56:57Z"
 }
