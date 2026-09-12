@@ -4,6 +4,7 @@
     "zaq-f6s.6"
   ],
   "blocks": [],
+  "closed_at": "2026-09-12T16:53:10Z",
   "created": "2026-09-12T16:43:46Z",
   "description": "Run real DBA integration suites postgres/paradedb plus shell syntax, mix format, mix q, review changed paths. Test scripts using parameter quoting, supplied URL, post-migration restart, receipt/security errors and no credential files. Document declarative/shell coverage exception and Docker CLI limitation; update .4 to simplified actual-container lifecycle. No publish/commit.",
   "id": "zaq-f6s.7",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-f6s] Validate simplified provisioning implementation",
   "type": "task",
-  "updated_at": "2026-09-12T16:53:09Z"
+  "updated_at": "2026-09-12T16:53:10Z"
 }
