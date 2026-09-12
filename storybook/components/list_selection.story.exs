@@ -16,7 +16,8 @@ defmodule Storybook.Components.ListSelection do
           {:partial, Selection.toggle(empty, 1), [1, 2], 40},
           {:page, page, [1, 2], 40},
           {:all_matching, all, [1, 2], 40},
-          {:exclusions, Selection.toggle(all, 1), [1, 2], 40}
+          {:exclusions, Selection.toggle(all, 1), [1, 2], 40},
+          {:all_excluded, Selection.toggle_page(all, [1, 2]), [1, 2], 2}
         ] do
       %Variation{
         id: id,
@@ -28,7 +29,16 @@ defmodule Storybook.Components.ListSelection do
           page_event: "select_page",
           all_event: "select_all",
           clear_event: "clear"
-        }
+        },
+        slots: [
+          """
+          <:actions>
+            <ZaqWeb.Components.DesignSystem.Button.button variant={:secondary}>
+              Bulk action
+            </ZaqWeb.Components.DesignSystem.Button.button>
+          </:actions>
+          """
+        ]
       }
     end
   end
