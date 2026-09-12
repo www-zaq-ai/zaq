@@ -9,9 +9,15 @@
   "id": "zaq-1yh.3",
   "labels": [],
   "parent": "zaq-1yh",
+  "comments": [
+    {
+      "text": "Updated README Compose flow (copy full script directory; env passwords; explicit owner runtime credentials), database bootstrap/security/rotation/refusal/read-only contracts, dev workflow, and runtime/migration prerequisite guidance. mix format, mix q, diff check passed. Native and pg_search 0.24.0: 9/9 standalone tests each. Focused ingestion: 1 property, 6 tests, 0 failures (1 excluded). CI helper also validated native fresh DB + rerun. No E2E: no UI/runtime pipeline logic change; no commits or PR requested. Exact ParadeDB 0.23.0 CI remains tracked by zaq-wqw; SQL/standalone coverage measured by scenarios, not BEAM percentage.",
+      "timestamp": "2026-09-12T13:57:03Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-1yh] Document bootstrap contract and validate",
   "type": "task",
-  "updated_at": "2026-09-12T13:55:57Z"
+  "updated_at": "2026-09-12T13:57:03Z"
 }
