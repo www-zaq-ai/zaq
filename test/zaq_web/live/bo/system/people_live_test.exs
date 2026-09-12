@@ -283,6 +283,44 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     assert People.get_person(later.id)
   end
 
+  test "explicit selection rejects off-page events and survives identical filters and paging", %{
+    conn: conn
+  } do
+    people =
+      for n <- 1..21 do
+        person_fixture(%{
+          "full_name" => "ExplicitPage #{String.pad_leading(to_string(n), 2, "0")}"
+        })
+      end
+
+    first = hd(people)
+    last = List.last(people)
+    {:ok, view, _} = live(conn, ~p"/bo/people")
+    filters = %{"filter_name" => "ExplicitPage"}
+    render_change(view, "filter_people", filters)
+    render_click(view, "toggle_person_selection", %{"id" => to_string(last.id)})
+    refute has_element?(view, "#bulk-delete-button")
+
+    view |> element("#person-select-#{first.id}") |> render_click()
+    render_click(view, "change_page", %{"page" => "2"})
+    view |> element("#people-selection-page") |> render_click()
+    assert render(view) =~ "2 selected"
+    view |> element("#people-selection-page") |> render_click()
+    assert render(view) =~ "1 selected"
+    render_change(view, "filter_people", filters)
+    assert has_element?(view, "#person-select-#{first.id}[checked]")
+
+    view |> element("#bulk-delete-button") |> render_click()
+    render_click(view, "change_page", %{"page" => "2"})
+    render_click(view, "toggle_person_selection", %{"id" => to_string(first.id)})
+    assert has_element?(view, "#people-bulk-delete-dialog", "Delete 1 selected people?")
+    view |> element("[phx-click='confirm_bulk_delete']") |> render_click()
+    refute People.get_person(first.id)
+    assert People.get_person(last.id)
+    assert has_element?(view, "#person-row-#{last.id}")
+    refute has_element?(view, "[phx-click='deselect_person']")
+  end
+
   test "filters and selection changes invalidate pending confirmation", %{conn: conn} do
     person = person_fixture(%{"full_name" => "Pending"})
     {:ok, view, _} = live(conn, ~p"/bo/people")
