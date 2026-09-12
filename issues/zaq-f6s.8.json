@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-12T17:25:18Z",
   "created": "2026-09-12T17:22:46Z",
   "description": "Documentation-only addition to docs/database-setup.md on top of user-staged implementation. Show Deployment args/env and Secret refs using same image; omit command override example. Explain database receipt requires no init-container volume, exit 0/nonzero, retries/replacement Pods versus application restarts, concurrency/DBA/TLS limitations, manual DBA provisioning can omit init container and receipt. Validate doc diff and mix q; no cluster changes or runtime edits.",
   "id": "zaq-f6s.8",
@@ -14,7 +15,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-f6s] Document stateless Kubernetes provisioning init container",
   "type": "task",
   "updated_at": "2026-09-12T17:25:18Z"
