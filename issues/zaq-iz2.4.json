@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-iz2.3"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-iz2",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-iz2] People integration and validation",
   "type": "task",
-  "updated_at": "2026-09-12T07:56:58Z"
+  "updated_at": "2026-09-12T08:04:27Z"
 }
