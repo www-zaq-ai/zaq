@@ -11,9 +11,15 @@
   "id": "zaq-hfs.2",
   "labels": [],
   "parent": "zaq-hfs",
+  "comments": [
+    {
+      "text": "Three Engine tests pass through real Events/NodeRouter and direct boundary validation; unknown and malformed actions controlled. No commits per user.",
+      "timestamp": "2026-09-12T19:34:34Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-hfs] Engine grouped configuration actions",
   "type": "task",
-  "updated_at": "2026-09-12T19:34:33Z"
+  "updated_at": "2026-09-12T19:34:34Z"
 }
