@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-12T11:49:11Z",
   "created": "2026-09-12T11:43:05Z",
   "description": "Approved current-checkout review fixes. People owns calculated merge persistence. Add direct and gateway atom/string ownership regressions and property coverage; verify transfer/calculated fields and timestamps through real merges and migration tests, no mocks. Restore update_changeset, add documented merge-only channel operation, name existing database advisory lock pair. Run format, targeted tests, mix q and review diff. No commit/push/PR.",
   "id": "zaq-i16",
@@ -17,7 +18,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-i16] Protect channel ownership and document identity merge lock",
   "type": "task",
   "updated_at": "2026-09-12T11:49:11Z"
