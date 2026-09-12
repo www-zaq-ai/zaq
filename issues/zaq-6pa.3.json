@@ -15,11 +15,15 @@
     {
       "text": "LiveView tests first red missing matrix/event; existing DS Switch JS.push explicit bool, known matrix coordinate validation, tab allowlist and authoritative reload implemented. Failure drops matrix when reload fails. Full suite green. Tasks remain uncommitted per user; no staging.",
       "timestamp": "2026-09-12T13:39:16Z"
+    },
+    {
+      "text": "Real unavailable-Engine LiveView test passes: failed write + failed reload removes controls; forged subsequent event cannot write; restoring Engine + reload restores authoritative OFF state. Separate async:false suite isolates global process-name mutation, no production test seam. Added zero-team LiveView test. Independent-connection concurrency test passes for global/team upserts and opposing grant/revoke operations.",
+      "timestamp": "2026-09-12T14:15:31Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-6pa] Build approved People permissions matrix tab",
   "type": "task",
-  "updated_at": "2026-09-12T13:59:05Z"
+  "updated_at": "2026-09-12T14:15:31Z"
 }
