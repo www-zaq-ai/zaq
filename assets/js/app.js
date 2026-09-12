@@ -40,7 +40,11 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {
     OntologyTree,
     ChartTooltip,
-    ...liveViewHooks,
+    liveViewHooks,
+    // Opt in only the People feature hooks; spreading the registry activates dormant hooks.
+    "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox":
+      liveViewHooks["ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox"],
+    PeopleBulkDeleteDialog: liveViewHooks.DialogOverlay,
     ContentFilter,
     FolderDrop,
     WorkflowExport,

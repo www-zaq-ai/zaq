@@ -12,7 +12,7 @@
   <ZaqWeb.Components.BOModal.form_dialog
     :if={@confirm_delete && Map.has_key?(@confirm_delete, :person_ids)}
     id="people-bulk-delete-dialog"
-    phx-hook="DialogOverlay"
+    phx-hook="PeopleBulkDeleteDialog"
     data-return-focus-id="bulk-delete-button"
     title="Delete selected people"
     cancel_event="cancel_bulk_delete"

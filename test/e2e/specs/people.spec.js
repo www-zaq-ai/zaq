@@ -66,6 +66,21 @@ test.describe("People", () => {
 
   // ── Navigation ────────────────────────────────────────────────────────────
 
+  test("registers only the People opt-ins alongside existing app hooks", async ({ page }) => {
+    const registered = await page.evaluate(() => Object.keys(window.liveSocket.hooks))
+
+    expect(registered.sort()).toEqual([
+      "AutoExpand", "ChartTooltip", "ContentFilter", "CopyToClipboard",
+      "CronCountdown", "DetailsKeepOpen", "DownloadFile", "FlashAutoDismiss",
+      "FocusAndSelect", "FocusInput", "FolderDrop", "JsonTree",
+      "LoadingActionButton", "MarkdownHighlight", "OAuthPopupListener", "OntologyTree",
+      "PeopleBulkDeleteDialog", "ScrollBottom", "ScrollToFirstError", "SearchableSelect",
+      "WorkflowExport", "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox", "liveViewHooks",
+    ].sort())
+    expect(registered).not.toContain("DetectTimezone")
+    expect(registered).not.toContain("DialogOverlay")
+  })
+
   test("cross-page selection supports keyboard, mixed state and scoped deletion", async ({ page }) => {
     test.setTimeout(120_000)
     const prefix = `Selection ${Date.now()}`
@@ -99,6 +114,7 @@ test.describe("People", () => {
     await page.locator("#people-selection-all").click()
     await expect(selection).toContainText("23 selected")
     await page.locator(SEL.nextPage).click()
+    await expect(page.locator(SEL.paginationInfo)).toHaveText("21–23 of 23")
     await page.locator("#people-table input[type=checkbox]").last().click()
     await expect(selection).toContainText("22 selected")
     await expect(pageCheckbox).toHaveJSProperty("indeterminate", true)
