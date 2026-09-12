@@ -6,9 +6,15 @@
   "description": "Approved layout feedback on current branch; horizontal wrapping checkbox, recap, Clear and actions; preserve all-excluded behavior. Component tests, Storybook, browser verification, format and mix q. Commit only; no push or PR.",
   "id": "zaq-4v4",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented with existing DS Checkbox, Table.table_text, Button and zaq-layout-inline/flex-wrap; avoided extending table_selection_bar API or changing other consumers. Component scenarios cover none, mixed, page, all-matching, exclusions and all-excluded with Clear/action visibility. mix format, focused 5 tests and mix q pass. Real Chromium Storybook screenshots/geometry verified 1440px horizontal and 390px wrapping with no horizontal overflow, including all-excluded. OpenChamber capture failed UnknownVizError; agent-browser screenshots succeeded in temporary opencode directory. Layout-only change; no state invariants modified, so example DOM regression tests rather than additional property tests. Existing license_manager configuration warning observed during tests.",
+      "timestamp": "2026-09-12T09:13:53Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-4v4] Compact shared list selection layout",
   "type": "task",
-  "updated_at": "2026-09-12T09:08:09Z"
+  "updated_at": "2026-09-12T09:13:53Z"
 }
