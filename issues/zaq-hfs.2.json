@@ -10,7 +10,11 @@
   "created": "2026-09-12T19:25:59Z",
   "description": "Owner Engine.Api. Tests FIRST routed read/save, invalid attributes, invalid envelope and unknown action. Delegate authoritative validation to System; existing Events helper. Real System/Repo. Document boundary ownership.",
   "id": "zaq-hfs.2",
-  "labels": [],
+  "labels": [
+    "engine",
+    "people-access",
+    "pr2"
+  ],
   "parent": "zaq-hfs",
   "comments": [
     {
@@ -22,5 +26,5 @@
   "status": "closed",
   "title": "[zaq-hfs.2] Engine grouped configuration actions",
   "type": "task",
-  "updated_at": "2026-09-12T19:48:54Z"
+  "updated_at": "2026-09-12T19:49:22Z"
 }
