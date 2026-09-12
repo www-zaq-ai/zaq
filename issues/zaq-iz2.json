@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T07:56:36Z",
+  "description": "Approved branch+PR, no worktree. Generic filter-scoped selection and DS component, routed matching-ID resolution, frozen deletion confirmation. Sequential graph: helper --\u003e component --\u003e backend --\u003e integration. Tests first in each child; mix format and mix q final; target 95% changed-scope coverage.",
+  "id": "zaq-iz2",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "People cross-page selection",
+  "type": "epic",
+  "updated_at": "2026-09-12T07:56:36Z"
+}
