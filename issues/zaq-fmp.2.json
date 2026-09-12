@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T14:33:31Z",
+  "description": "Own PeopleLive presentation generation and keyed matrix wrapper. Canonical PeoplePermissions validates membership at write boundary rather than duplicated UI membership gate; scope/desired validation remains and rejected client input reloads. Test-first browser regression and existing forged-event LiveView tests. No production test hooks. Update shipped people-access doc.",
+  "id": "zaq-fmp.2",
+  "labels": [],
+  "parent": "zaq-fmp",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-fmp] Reconcile each completed permission attempt",
+  "type": "task",
+  "updated_at": "2026-09-12T14:33:31Z"
+}
