@@ -14,11 +14,15 @@
     {
       "text": "Superseded by approved complete correction zaq-s72: remove transitional legacy mapping entirely. Original staged checksum 3d49e7eabc33e6010e72831348730453f5f5c932e3285465139ed3b3a1f71da6 preserved.",
       "timestamp": "2026-09-12T06:22:51Z"
+    },
+    {
+      "text": "Completed superseding correction zaq-s72. Removed transitional old-index mapping entirely; actual migrator/replay exception rollback tested. Staged index preserved.",
+      "timestamp": "2026-09-12T06:43:24Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-fj9] Declare PersonChannel composite unique constraints explicitly",
   "type": "task",
-  "updated_at": "2026-09-12T06:22:51Z"
+  "updated_at": "2026-09-12T06:43:24Z"
 }
