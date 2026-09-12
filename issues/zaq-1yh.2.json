@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-1yh.1"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-1yh",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-1yh] Implement shared SQL bootstrap and CI callers",
   "type": "task",
-  "updated_at": "2026-09-12T13:39:53Z"
+  "updated_at": "2026-09-12T13:44:18Z"
 }
