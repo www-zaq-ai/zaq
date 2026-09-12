@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T07:56:56Z",
+  "description": "Step 1: helpers/selection.ex owns pure explicit/all-matching state scoped to filters; page selection preserves off-page IDs, exclusions, counts. Test first property invariants: double toggle, page preservation, scope reset, count bounds; no mocks. Document public API.",
+  "id": "zaq-iz2.1",
+  "labels": [],
+  "parent": "zaq-iz2",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-iz2] Selection helper",
+  "type": "task",
+  "updated_at": "2026-09-12T07:56:56Z"
+}
