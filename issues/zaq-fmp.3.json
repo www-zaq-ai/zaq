@@ -9,6 +9,12 @@
   "id": "zaq-fmp.3",
   "labels": [],
   "parent": "zaq-fmp",
+  "comments": [
+    {
+      "text": "FINAL GREEN: MIX_TEST_PARTITION=_people_pr1 npx playwright test specs/people.spec.js --reporter=line (workdir test/e2e): 87 passed across Firefox/WebKit/Chromium in 4.1m, including all 9 new rejection/malformed/no-op browser scenarios. Genuine mutation rejection is permission-only JS.push tampering sent through real PeopleGateway/PeoplePermissions whitelist, not mocked DB or browser-only validation; error branch asserted before native property reconciliation, unchanged state verified again after page.reload. Native click listener confirms attempted property flips both directions. Prior keyed-parent experiment rejected because browsers retained child properties and lost focus. Final stable wrapper/data-generation hook restores checked from aria-checked without remounts. Explicit app hook opt-in only. Existing keyboard focus and mobile scroll E2E pass. MIX_ENV=test mix coveralls.json test/zaq/accounts/people_permissions_test.exs test/zaq/accounts/people_permissions_concurrency_test.exs test/zaq/engine/people_gateway_test.exs test/zaq_web/live/bo/system/people_live_test.exs test/zaq_web/live/bo/system/people_permissions_unavailable_test.exs --output-dir cover/people-permissions: 103 tests +1 property PASS; schema/context 100%, gateway 98.3%, PeopleLive 97.0%. Report cover/people-permissions/excoveralls.json. mix format, mix assets.build, final mix q (strict compile/docs/Credo), git diff --check and empty-index diff PASS. Self-review: permissions remain context-whitelisted, scope/desired guards intact, malformed attempts refresh too; no production testing seam, new auth policy, DB changes or secrets. Existing uncommitted slice preserved. HEAD ffa0ba0e and empty index unchanged; 7 files touched by this follow-up including 1 new JS hook, 19 total uncommitted slice files.",
+      "timestamp": "2026-09-12T14:52:44Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-fmp.3] Validate reconciliation and preserve delivery state",
