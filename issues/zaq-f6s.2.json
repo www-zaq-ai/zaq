@@ -11,9 +11,15 @@
   "id": "zaq-f6s.2",
   "labels": [],
   "parent": "zaq-f6s",
+  "comments": [
+    {
+      "text": "Both Compose files now gate app on same-image provision-db --automatic; private state volume and read-only owner-only app volume. Installer artifact preserves original paradedb/image/volume/service settings and requires later image-first Gist publication. 24 tests pass, including parsed YAML trust-boundary contracts; Docker runtime ordering/volume copy-up remain unverified because Docker CLI is unavailable. Lifecycle/recovery/legacy/external DB documentation added.",
+      "timestamp": "2026-09-12T15:02:00Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-f6s] Wire local and installer Compose lifecycle",
   "type": "task",
-  "updated_at": "2026-09-12T14:59:16Z"
+  "updated_at": "2026-09-12T15:02:00Z"
 }
