@@ -387,6 +387,8 @@ defmodule Zaq.ExtensionInstallationTest do
     try do
       provision_twice(quoted)
       assert_logins(quoted)
+      {output, status} = docker_provision(quoted)
+      assert status == 0, output
     after
       for {template, identifier} <- [
             {"DROP DATABASE IF EXISTS %I WITH (FORCE)", name},
@@ -401,6 +403,160 @@ defmodule Zaq.ExtensionInstallationTest do
 
       GenServer.stop(admin)
     end
+  end
+
+  test "automatic image provisioning uses supplied credentials and validates migrated restarts",
+       context do
+    {output, status} = docker_provision(context)
+    assert status == 0, output
+    assert_logins(context)
+    start_supervised!(Repo)
+    Repo.query!("CREATE TABLE schema_migrations(version bigint)")
+    {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+    try do
+      before = password_hash(admin, context.owner)
+      {output, status} = docker_provision(context)
+      assert status == 0, output
+      assert password_hash(admin, context.owner) == before
+      {output, status} = docker_provision(%{context | password: "wrong-supplied-password"})
+      assert status != 0
+      refute output =~ "wrong-supplied-password"
+      assert password_hash(admin, context.owner) == before
+      {_output, status} = docker_provision(context, [])
+      assert status != 0
+
+      error =
+        assert_raise Postgrex.Error, fn -> Repo.query!("SELECT * FROM zaq_bootstrap.receipt") end
+
+      assert error.postgres.code == :insufficient_privilege
+    after
+      GenServer.stop(admin)
+    end
+  end
+
+  test "automatic image provisioning rejects a mismatched owner URL and receipt", context do
+    {output, status} = docker_provision(context)
+    assert status == 0, output
+
+    {_output, status} =
+      docker_provision(context, ["--automatic"], [{"DATABASE_URL", "invalid://secret-value"}])
+
+    assert status != 0
+    {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+    try do
+      Postgrex.query!(admin, "UPDATE zaq_bootstrap.receipt SET version = 99", [])
+      {_output, status} = docker_provision(context)
+      assert status != 0
+    after
+      GenServer.stop(admin)
+    end
+  end
+
+  test "automatic image provisioning detects the engine and rejects missing inputs", context do
+    {output, status} = docker_provision(context, ["--automatic", "--engine", "auto"])
+    assert status == 0, output
+
+    for name <- ["DATABASE_URL", "ZAQ_OWNER_PASSWORD", "ZAQ_READER_PASSWORD"] do
+      {output, status} = docker_provision(context, ["--automatic"], [{name, ""}])
+      assert status != 0
+      refute output =~ context.password
+    end
+  end
+
+  test "image provisioning accepts quoted passwords without echoing them", context do
+    quoted = %{
+      context
+      | password: "owner'\\\"@:/% secret",
+        reader_password: "reader'\\\"@:/% secret"
+    }
+
+    for _ <- 1..2 do
+      {output, status} = docker_provision(quoted)
+      assert status == 0, output
+      refute output =~ quoted.password
+      refute output =~ quoted.reader_password
+    end
+
+    {output, status} = docker_provision(%{quoted | reader_password: "incorrect-reader"})
+    assert status != 0
+    refute output =~ "incorrect-reader"
+    assert_logins(quoted)
+  end
+
+  test "image entrypoint rejects invalid options and preserves custom commands", context do
+    for args <- [["--engine", "unknown"], ["--database"], ["--unknown"]] do
+      {_output, status} = docker_provision(context, args)
+      assert status != 0
+    end
+
+    assert {"custom-command", 0} =
+             System.cmd("sh", [
+               "scripts/docker_entrypoint.sh",
+               "sh",
+               "-c",
+               "printf custom-command"
+             ])
+
+    {_output, status} =
+      System.cmd("sh", ["scripts/docker_entrypoint.sh", "server", "unexpected"],
+        stderr_to_stdout: true
+      )
+
+    assert status != 0
+  end
+
+  test "automatic image bootstrap retries a transactional failure without a receipt", context do
+    start_supervised!(Repo)
+    Repo.query!("CREATE DOMAIN halfvec AS text")
+    {_output, status} = docker_provision(context)
+    assert status != 0
+    assert %{rows: [[nil]]} = Repo.query!("SELECT to_regnamespace('zaq_bootstrap')::text")
+    Repo.query!("DROP DOMAIN halfvec")
+    {output, status} = docker_provision(context)
+    assert status == 0, output
+  end
+
+  test "automatic image bootstrap refuses a migrated database without its receipt", context do
+    start_supervised!(Repo)
+    Repo.query!("CREATE TABLE schema_migrations(version bigint)")
+    {_output, status} = docker_provision(context)
+    assert status != 0
+    assert %{rows: [[nil]]} = Repo.query!("SELECT to_regnamespace('zaq_bootstrap')::text")
+  end
+
+  defp docker_provision(context, args \\ ["--automatic"], overrides \\ []) do
+    config = context.admin_config
+    encode = &URI.encode(&1, fn char -> URI.char_unreserved?(char) end)
+
+    url =
+      "ecto://#{encode.(context.owner)}:#{encode.(context.password)}@#{config[:hostname] || "localhost"}:#{config[:port] || 5432}/#{encode.(config[:database])}"
+
+    env =
+      Map.merge(
+        Map.new([
+          {"PGHOST", config[:hostname] || "localhost"},
+          {"PGPORT", to_string(config[:port] || 5432)},
+          {"PGUSER", config[:username]},
+          {"PGPASSWORD", config[:password] || ""},
+          {"PGDATABASE", "postgres"},
+          {"ZAQ_DATABASE", config[:database]},
+          {"ZAQ_OWNER", context.owner},
+          {"ZAQ_READER", context.reader},
+          {"ZAQ_OWNER_PASSWORD", context.password},
+          {"ZAQ_READER_PASSWORD", context.reader_password},
+          {"DATABASE_URL", url}
+        ]),
+        Map.new(overrides)
+      )
+
+    System.cmd(
+      "sh",
+      ["scripts/docker_entrypoint.sh", "provision-db", "--engine", context.engine | args],
+      env: Map.to_list(env),
+      stderr_to_stdout: true
+    )
   end
 
   defp password_hash(admin, username) do

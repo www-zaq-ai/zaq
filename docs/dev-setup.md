@@ -184,6 +184,14 @@ supporting memories follow [documentation hygiene](documentation.md).
 
 See [persistent storage](operations/deployment.md#persistent-storage) for the Docker bind mount and the separate Back Office Disk volume declaration. Creating a host folder does not automatically expose it as a data source.
 
+Docker Compose automatically provisions a fresh bundled database before starting
+ZAQ, using a one-shot invocation of the ZAQ image. Subsequent Compose starts validate
+the installation rather than replaying DBA setup. ZAQ uses the existing owner
+`DATABASE_URL` environment variable; provisioning uses separate DBA credentials and
+the supplied owner/reader passwords. There are no generated credential files or
+credential volumes. See [database bootstrap](database-setup.md#docker-image-and-automatic-compose-bootstrap)
+for required environment variables, restart behavior and legacy database handling.
+
 ---
 
 ## Environment Variables

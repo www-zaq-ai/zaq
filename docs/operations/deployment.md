@@ -16,12 +16,11 @@ The [installer](../../zaq-local.sh) checks its command prerequisites, downloads 
 
 The downloaded Compose file is separate from the repository's source-build configuration. Run the installer in a dedicated checkout/directory: its setup writes `docker-compose.yml` and `.env`. Preserve existing configuration and secrets before reinstalling. Subsequent runs offer management options for an existing installation.
 
-The installer does not bootstrap database credentials or extensions. Before the
-first migration, follow [database setup](../database-setup.md) with a DBA connection.
-If startup already created `schema_migrations`, bootstrap refuses the database;
-ask a DBA for explicit repair rather than bypassing the guard. Check the downloaded
-Compose file for its database name and credentials; the repository example below
-may not match it.
+The installer downloads a separate Compose file from a live Gist; it does not
+generate database credentials or necessarily include the repository's automatic
+provisioning job. Check that file and follow [database setup](../database-setup.md)
+before its first migration. If startup already created `schema_migrations`, bootstrap
+refuses the database; ask a DBA for explicit repair rather than bypassing the guard.
 
 Complete [first-run setup](#first-run-setup), including saving the Disk volume declaration. The installer creates the folder, not the data-source declaration or a local model server.
 
@@ -37,32 +36,18 @@ From the repository root:
 mkdir -p ingestion-volumes/documents
 export SECRET_KEY_BASE="$(openssl rand -hex 64)"
 export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-docker compose up -d --wait postgres
-```
-
-With `ZAQ_OWNER_PASSWORD` and `ZAQ_READER_PASSWORD` supplied securely as described
-in [database setup](../database-setup.md), bootstrap from the host using a psql
-client and DBA authentication via `.pgpass`/`PGPASSFILE`:
-
-```bash
-psql -X --host localhost --username postgres --dbname postgres \
-  --set zaq_database=zaq_prod --set zaq_owner=zaq_owner --set zaq_reader=zaq_reader \
-  --file scripts/setup_postgres_extensions.sql
-```
-
-The database and restricted roles are created by the bootstrap. Set `DATABASE_URL`
-for the application owner (URI-encode credentials) before starting ZAQ. Do not put
-the DBA login in `DATABASE_URL`; the repository Compose default is for local testing
-and is not the restricted owner. Then start the stack:
-
-```bash
 docker compose up --build
 ```
 
-For an external database or ParadeDB, choose the appropriate script and DBA
-connection from the same guide. The scripts use relative psql includes (`\ir`):
-run them with `--file` from the repository, not by piping one SQL file to stdin.
-Server extension packages must already be available.
+Before `docker compose up --build`, supply `DATABASE_URL` for the restricted owner
+and `ZAQ_OWNER_PASSWORD` and `ZAQ_READER_PASSWORD` as independently managed secrets.
+The owner password in the URL must match the raw owner password supplied to the
+provisioning job. For the bundled database, point the URL to `postgres:5432` and
+the selected database; provide `POSTGRES_PASSWORD` for the DBA login. See
+[automatic Compose bootstrap](../database-setup.md#docker-image-and-automatic-compose-bootstrap)
+for all variables, restart behavior and legacy-database handling. The Compose job
+bootstraps before ZAQ migrations; on later starts it validates instead of rotating
+passwords. For an external database, follow the explicit DBA path in that guide.
 
 **Keep these keys stable across restarts.** Store them securely in your deployment environment or a protected, untracked `.env` file. Do not regenerate the encryption key on an existing installation: previously encrypted credentials require their original key. The key must represent exactly 32 bytes; Base64 is recommended. Raw 32-byte and 64-character hex values are also accepted. Production startup requires a valid encryption key, not just SMTP configuration. See [secret configuration](../services/system-config.md#smtp-password-encryption).
 
@@ -110,7 +95,7 @@ Defaults below refer to the repository Compose file and [production runtime conf
 
 | Variable | Default / requirement | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Required in production; Compose supplies `ecto://postgres:postgres@postgres:5432/zaq_prod` | PostgreSQL connection; replace example credentials for production |
+| `DATABASE_URL` | Required in production and Compose | Restricted application-owner connection; must match the provisioning target |
 | `SECRET_KEY_BASE` | Required | Phoenix signing/encryption secret |
 | `SYSTEM_CONFIG_ENCRYPTION_KEY` | Required in production | Encryption key for stored credentials and other sensitive fields |
 | `SYSTEM_CONFIG_ENCRYPTION_KEY_ID` | Runtime default `v1` | Key metadata; add explicit Compose passthrough if overriding |
@@ -171,7 +156,7 @@ Caddy handles TLS, forwarded headers, and WebSockets. Public certificate issuanc
 
 For the host-based Caddy example, replace ZAQ's `"4000:4000"` mapping with `"127.0.0.1:4000:4000"`. A containerized proxy should use a private Docker network without publishing ZAQ's port publicly.
 
-Do not let untrusted clients reach the backend directly: forwarded scheme headers are trusted, and loopback request hosts are exempt from SSL enforcement. The supplied Compose file is for local testing; also remove public PostgreSQL port exposure and replace its example database credentials for production.
+Do not let untrusted clients reach the backend directly: forwarded scheme headers are trusted, and loopback request hosts are exempt from SSL enforcement. The supplied Compose file is for local testing; also remove public PostgreSQL port exposure and replace its example DBA credentials for production.
 
 ### 4. Verify access and callbacks
 
