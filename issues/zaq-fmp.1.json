@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-12T14:33:31Z",
+  "description": "Tests first in existing people.spec.js: permission-only tampering on real Switch JS.push, observe native flip; error and unchanged authoritative checked/ARIA after grant/revoke, reload persistence. No server mocks or endpoints. Red run then retain assertions for fix.",
+  "id": "zaq-fmp.1",
+  "labels": [],
+  "parent": "zaq-fmp",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-fmp] Reproduce rejected permission writes in real browsers",
+  "type": "task",
+  "updated_at": "2026-09-12T14:33:31Z"
+}
