@@ -4,6 +4,7 @@
     "zaq-fmp.2"
   ],
   "blocks": [],
+  "closed_at": "2026-09-12T14:52:44Z",
   "created": "2026-09-12T14:33:31Z",
   "description": "Run focused browser failure cases all three engines then full People suite, ExUnit focused plus unavailable cases, coveralls target\u003e=95 touched modules, mix format/q, own diff/security review. Record exact commands/counts and close uncommitted, no staging/commit/push/PR.",
   "id": "zaq-fmp.3",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-fmp.3] Validate reconciliation and preserve delivery state",
   "type": "task",
   "updated_at": "2026-09-12T14:52:44Z"
