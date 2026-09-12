@@ -13,11 +13,15 @@
     {
       "text": "Concurrency seeds 17 and 625: 22 tests each, zero failures. People full E2E: first command timeout at 120s killed server/browser (34 pass, 3 termination/ECONNREFUSED failures, 32 not run); repeated with adequate 300s timeout, all 69 pass across Firefox/WebKit/Chromium. mix q first flagged one introduced nested expression in persist_person; flattening local email_link result, rerunning quality. No unrelated app semantics changed.",
       "timestamp": "2026-09-12T06:37:21Z"
+    },
+    {
+      "text": "Final coverage broad command via MIX_ENV=test mix coveralls.detail --filter lib/zaq/accounts: 1266 tests +26 properties, zero failures, 1 skipped/56 excluded, seed 369838. People 238/245 executable lines (97.1%), PersonChannel 8/8 (100%), PersonMerger 163/163 (100%), Person 15/15 (100%). Full-project 16.9% is a scoped-suite report, not full-suite coverage; no changed-application coverage exception required. Added deterministic concurrent profile-email discovery race to exercise people_email_index retry and retain both incoming channels. Latest seed17 identity+both concurrency suites:45 tests pass; seed625 both concurrency suites:23 pass. Preserved previous skip of nonbinary optional discovery email after new regression caught FunctionClauseError in simplification; stored-email discovery test now explicitly exercises name backfill. No new public API or test-only production seam. No existing mapped legacy-violation expectation needed editing: existing preindex tests already passed; new actual old-index failure test and replay ensure exception semantics.",
+      "timestamp": "2026-09-12T06:42:39Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-s72] Document and validate approved identity correction",
   "type": "task",
-  "updated_at": "2026-09-12T06:37:21Z"
+  "updated_at": "2026-09-12T06:42:39Z"
 }
