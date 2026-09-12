@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-6pa.3"
   ],
+  "closed_at": "2026-09-12T13:59:05Z",
   "created": "2026-09-12T13:29:50Z",
   "description": "Own PeopleGateway matrix/grant/revoke operations. Tests FIRST extend gateway suite real dispatch valid/invalid scope and permission. Context owns validation, no list wrapper. Existing people_command event boundary. No mocks. Document operations in people-access.md.",
   "id": "zaq-6pa.2",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-6pa] Route People permission commands through Engine",
   "type": "task",
-  "updated_at": "2026-09-12T13:59:04Z"
+  "updated_at": "2026-09-12T13:59:05Z"
 }
