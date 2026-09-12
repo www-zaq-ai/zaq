@@ -58,6 +58,17 @@ These keys are no longer configured through `LLM_*`, `EMBEDDING_*`, or
 Connection fields (`provider`, `endpoint`, `api_key`) are sourced from
 `ai_provider_credentials` referenced by each `*.credential_id`.
 
+## People Access
+
+People access settings are managed at `/bo/system-config?tab=people_access` and
+stored as numeric strings under `people_access.*`. `Zaq.System.PeopleAccessConfig`
+owns typed defaults (including a seven-day session lifetime) and strict positive
+integer validation. System exposes one grouped read and an atomic group save via
+Engine events. Missing keys use defaults without writes; corrupt values return an
+explicit error. These are configuration only, not yet consumed by OTP/session flows.
+See [People access configuration](people-access.md#people-access-configuration-current)
+for all nine fields, units, and read/write contracts.
+
 ## Outbound HTTP
 
 Outbound HTTP for agents/workflows is controlled from `/bo/system-config?tab=outbound_http`.

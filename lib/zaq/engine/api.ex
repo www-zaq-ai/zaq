@@ -408,6 +408,16 @@ defmodule Zaq.Engine.Api do
   def handle_event(%Event{} = event, :system_config_get_telemetry_config, _context),
     do: %{event | response: System.get_telemetry_config()}
 
+  def handle_event(%Event{} = event, :system_config_get_people_access_config, _context),
+    do: %{event | response: System.get_people_access_config()}
+
+  def handle_event(%Event{} = event, :system_config_save_people_access_config, _context) do
+    case event.request do
+      %{attrs: attrs} -> %{event | response: System.save_people_access_config(attrs)}
+      other -> %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :system_config_save_telemetry_config, _context) do
     case event.request do
       %{changeset: changeset} -> %{event | response: System.save_telemetry_config(changeset)}

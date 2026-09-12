@@ -40,6 +40,7 @@ const SEL = {
   tabAICredentials: '[phx-value-tab="ai_credentials"]',
   tabAuthCredentials: '[phx-value-tab="auth_credentials"]',
   tabGlobal: '[phx-value-tab="global"]',
+  tabPeopleAccess: '[phx-value-tab="people_access"]',
 
   llmForm: "#llm-config-form",
   embeddingForm: "#embedding-config-form",
@@ -172,6 +173,74 @@ test.describe("System Config", () => {
   })
 
   // ── LLM tab ────────────────────────────────────────────────────────────
+
+  test("People access cold defaults, atomic save, reload, validation and keyboard layout", async ({ page }, testInfo) => {
+    await switchSystemConfigTab(page, SEL.tabPeopleAccess, /tab=people_access/, page.locator("#people-access-config-form"))
+    const defaults = {
+      otp_validity_seconds: "300",
+      otp_max_attempts: "5",
+      unknown_email_attempt_limit: "10",
+      unknown_email_window_seconds: "600",
+      unknown_email_cooldown_seconds: "900",
+      otp_send_person_limit: "5",
+      otp_send_ip_limit: "20",
+      otp_send_window_seconds: "900",
+      session_lifetime_seconds: "604800",
+    }
+    const input = (field) => page.locator(`#people_access_config_${field}`)
+    for (const [field, value] of Object.entries(defaults)) {
+      await expect(input(field)).toHaveValue(value)
+      await expect(input(field)).toHaveAttribute("step", "1")
+    }
+    await expect(page.locator("#session-lifetime-hint")).toHaveText("Default: 7 days.")
+    await page.locator("#people-access-panel").screenshot({ path: testInfo.outputPath("people-access-desktop.png") })
+
+    await input("otp_validity_seconds").focus()
+    await page.keyboard.press("Tab")
+    await expect(input("otp_max_attempts")).toBeFocused()
+
+    const updated = {
+      otp_validity_seconds: "420", otp_max_attempts: "7",
+      unknown_email_attempt_limit: "12", unknown_email_window_seconds: "720",
+      unknown_email_cooldown_seconds: "1200", otp_send_person_limit: "8",
+      otp_send_ip_limit: "25", otp_send_window_seconds: "1800",
+      session_lifetime_seconds: "864000",
+    }
+    for (const [field, value] of Object.entries(updated)) await input(field).fill(value)
+    await waitForLiveViewSettled(page)
+    await page.locator("#people-access-save").click()
+    await expect(page.getByText("People access settings saved", { exact: true })).toBeVisible()
+    await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=people_access`)
+    for (const [field, value] of Object.entries(updated)) await expect(input(field)).toHaveValue(value)
+
+    await input("otp_max_attempts").fill("0")
+    await input("otp_send_ip_limit").fill("99")
+    await waitForLiveViewSettled(page)
+    await expect(page.locator("#people-access-config-form .zaq-field-error")).toContainText("must be greater than 0")
+    // Bypass native min validation to exercise authoritative server validation.
+    await page.locator("#people-access-config-form").evaluate((form) => { form.noValidate = true })
+    await page.locator("#people-access-save").click()
+    await waitForLiveViewSettled(page)
+    await expect(input("otp_send_ip_limit")).toHaveValue("99")
+    await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=people_access`)
+    for (const [field, value] of Object.entries(updated)) await expect(input(field)).toHaveValue(value)
+
+    await page.locator(SEL.tabGlobal).click()
+    await expect(page).toHaveURL(/tab=global/)
+    await page.goBack()
+    await expect(page.locator("#people-access-config-form")).toBeVisible()
+    await expect(input("session_lifetime_seconds")).toHaveValue("864000")
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator("#sidebar-toggle").click()
+    await expect(page.locator("#bo-sidebar")).toHaveClass(/collapsed/)
+    await page.locator("#people-access-panel").scrollIntoViewIfNeeded()
+    await expect(input("session_lifetime_seconds")).toBeVisible()
+    const panel = await page.locator("#people-access-panel").boundingBox()
+    expect(panel.width).toBeGreaterThan(200)
+    expect(panel.x + panel.width).toBeLessThanOrEqual(390)
+    await page.locator("#people-access-panel").screenshot({ path: testInfo.outputPath("people-access-mobile.png") })
+  })
 
   test.describe("LLM tab", () => {
     test.beforeEach(async ({ page }) => {
