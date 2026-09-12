@@ -17,11 +17,15 @@
     {
       "text": "Final coverage broad command via MIX_ENV=test mix coveralls.detail --filter lib/zaq/accounts: 1266 tests +26 properties, zero failures, 1 skipped/56 excluded, seed 369838. People 238/245 executable lines (97.1%), PersonChannel 8/8 (100%), PersonMerger 163/163 (100%), Person 15/15 (100%). Full-project 16.9% is a scoped-suite report, not full-suite coverage; no changed-application coverage exception required. Added deterministic concurrent profile-email discovery race to exercise people_email_index retry and retain both incoming channels. Latest seed17 identity+both concurrency suites:45 tests pass; seed625 both concurrency suites:23 pass. Preserved previous skip of nonbinary optional discovery email after new regression caught FunctionClauseError in simplification; stored-email discovery test now explicitly exercises name backfill. No new public API or test-only production seam. No existing mapped legacy-violation expectation needed editing: existing preindex tests already passed; new actual old-index failure test and replay ensure exception semantics.",
       "timestamp": "2026-09-12T06:42:39Z"
+    },
+    {
+      "text": "Final mix format PASS; mix q PASS (1171 files, 94 checks, no issues); git diff --check and cached --check PASS. Cached binary diff SHA256 unchanged: 3d49e7eabc33e6010e72831348730453f5f5c932e3285465139ed3b3a1f71da6. Same preexisting staged/unstaged/untracked path set; own edits limited to People, PersonChannel, two current-contract docs, two channel_identity suites, migration test and replay script. No staging, commits, push, PR, or user DB reset. Existing warnings: unavailable configured license_manager, expected replay migration-module redefinitions. All final validations pass; failed development checks and initial E2E command timeout recorded above.",
+      "timestamp": "2026-09-12T06:43:23Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-s72] Document and validate approved identity correction",
   "type": "task",
-  "updated_at": "2026-09-12T06:42:39Z"
+  "updated_at": "2026-09-12T06:43:23Z"
 }
