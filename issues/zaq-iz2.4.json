@@ -13,11 +13,15 @@
     {
       "text": "Implemented and validated. mix format and mix q pass. Focused coverage run: 3 properties, 186 tests pass. Changed Elixir file coverage: People 95.7%, gateway 98.2%, PeopleLive 96.8%, helper/ListSelection/Checkbox/PeopleTable 100%. Additional malformed struct and out-of-range ID guards passed focused DB test after coverage run. Chromium, Firefox, WebKit cross-page keyboard/mixed/exclusions/deletion journeys all pass. Browser uncovered and fixed existing app.js shared hooks registration (spread instead of nested map). No whole-suite claim; JS line coverage not instrumented, behavior validated in three real engines; Storybook/docs excluded from ExCoveralls. One feature PR per user approval, no worktree.",
       "timestamp": "2026-09-12T08:20:11Z"
+    },
+    {
+      "text": "Resumed from existing implementation commit b2799d57. Latest user supersedes prior PR authorization: local branch zaq-iz2/people-selection-validation, COMMIT ONLY, no push/PR/merge. Reusing existing helper -\u003e component -\u003e backend -\u003e integration plan; auditing and independently rerunning validation, adding reusable usage documentation.",
+      "timestamp": "2026-09-12T08:38:19Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-iz2.4] People integration and validation",
   "type": "task",
-  "updated_at": "2026-09-12T08:20:11Z"
+  "updated_at": "2026-09-12T08:38:19Z"
 }
