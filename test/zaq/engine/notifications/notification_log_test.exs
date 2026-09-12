@@ -12,6 +12,29 @@ defmodule Zaq.Engine.Notifications.NotificationLogTest do
     payload: %{"subject" => "Hello", "body" => "World"}
   }
 
+  test "recipient correction accepts user/person/clear and rejects invalid refs" do
+    {:ok, log} = NotificationLog.create_log(@valid_attrs)
+
+    Enum.reduce([{:user, 12}, {:person, 34}, nil], log, fn ref, current ->
+      assert {:ok, planned} = NotificationLog.change_recipient(current, ref)
+      assert Repo.get!(NotificationLog, log.id) == current
+      assert {:ok, updated} = NotificationLog.update_recipient(current, ref)
+      assert Ecto.Changeset.apply_changes(planned) == updated
+      assert updated.payload == log.payload
+      assert updated.status == log.status
+
+      assert {updated.recipient_ref_type, updated.recipient_ref_id} ==
+               if(ref, do: {ref |> elem(0) |> to_string(), elem(ref, 1)}, else: {nil, nil})
+
+      assert Repo.get!(NotificationLog, log.id) == updated
+      updated
+    end)
+
+    assert {:error, :invalid_recipient} = NotificationLog.update_recipient(log, {:person, -1})
+    assert {:error, :invalid_recipient} = NotificationLog.update_recipient(log, {:team, 12})
+    assert {:error, :invalid_recipient} = NotificationLog.change_recipient(log, {:team, 12})
+  end
+
   # ---------------------------------------------------------------------------
   # create_log/1
   # ---------------------------------------------------------------------------

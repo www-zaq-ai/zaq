@@ -3,7 +3,7 @@ defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
 
   alias Jido.Action.Runtime
   alias Jido.Action.Schema
-  alias Zaq.Accounts.People
+  alias Zaq.Accounts.{People, Person}
   alias Zaq.Agent.Tools.People.UpdatePerson
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Api
@@ -206,6 +206,7 @@ defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
                %{
                  person_id: person.id,
                  channels: [%{platform: "telegram", channel_identifier: "@loser"}],
+                 attrs: %{full_name: "Explicit name"},
                  merge_with_person_id: other.id,
                  merge_precedence: "other"
                },
@@ -213,8 +214,8 @@ defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
              )
 
     assert payload.id == other.id
-    assert payload.full_name == "Winner"
+    assert payload.full_name == "Explicit name"
     assert Enum.any?(payload.channels, &(&1.channel_identifier == "@loser"))
-    assert is_nil(People.get_person(person.id))
+    assert is_nil(Repo.get(Person, person.id))
   end
 end

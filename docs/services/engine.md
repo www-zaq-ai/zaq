@@ -180,6 +180,135 @@ rejected rather than ignored, since it would silently override the message resol
   atomic (including cascades); invalid IDs reject the entire request and missing
   records roll back all deletes. The UI reports rollback as an error and clamps pages.
 
+#### Canonical Person email
+
+`Person` create/update changesets and `People.match_person/1` share
+`Person.normalize_email/1`: trim, Unicode lowercase, and store blank email as `nil`.
+Email is optional; omitting it on update preserves the stored value. Channel discovery
+and backfill use the same canonical form. Duplicate creates/updates return an email
+uniqueness changeset error rather than merging. Normalization does not validate syntax.
+
+`PersonChannel` create/update changesets use `normalize_identifier/2` with the effective
+platform, including platform-only updates. Only stored platform `email` uses the same
+trim/Unicode-lowercase policy; its identifier is required. Other platform IDs retain
+their case and whitespace. Ingress maps `email:imap` to `email`. People matching/linking
+and identity channel selection normalize incoming identifiers and match stored values
+exactly; runtime discovery does not scan or repair legacy variants. The global unique
+index `channels_platform_channel_identifier_index` enforces one owner for each
+`(platform, channel_identifier)` across all people. The same identifier on different
+platforms is allowed. Both channel changesets attach conflicts to `channel_identifier`
+with **This channel identifier is already assigned.**; BO renders its existing field
+error without disclosing the owner.
+
+Person create/update, partial discovery, linking and backfill are atomic. Email
+channels are linked on creation or an actual email change; unrelated profile edits
+and unchanged canonical emails do not repair missing channels or check their ownership.
+Clearing email stores `nil` and preserves prior channel identities. Failed
+email linking rolls back the Person edit and reports the error on the Person
+form's `email` field. Failed channel discovery leaves no orphan Person or partial
+backfill. Discovery links each distinct incoming channel/email identity once, including
+the email used to create or backfill a profile. After a conflict on `people_email_index`
+or `channels_platform_channel_identifier_index`, discovery retries once outside its
+rolled-back transaction and rereads the committed winner. When called inside an
+existing transaction it propagates the error instead of querying aborted SQL.
+Contradictory email/phone and channel owners return a conflict, never reassign or
+automatically merge. Unsupported channel platforms likewise fail atomically;
+external permission import skips such unresolved principals without granting rights.
+
+#### Person merges and historical identities
+
+`People.merge_persons(survivor, single_or_list, opts \\ [])` accepts IDs or Person
+structs and delegates atomic merge orchestration to `Zaq.Accounts.PersonMerger`.
+The merger reconciles only supplied participants. The caller chooses the survivor;
+email normalization migration alone discovers global components and chooses the lowest ID
+in each connected identity component. Migration keys equate nonblank `Person.email`
+with canonical email-channel identifiers; other channel keys use exact platform and
+identifier. Transitive mixed-platform connections merge once. Blank Person emails
+add no edges; blank legacy channel identifiers abort explicitly. Single-person
+duplicate channels are cleaned separately, preserving the lowest channel ID/weight,
+missing metadata and latest interaction in the migration's private singleton cleanup.
+The migration also snapshots every source profile email and, after each component
+merge, adds missing canonical email channels to the survivor. Losing profile emails
+therefore remain discoverable even when no email-channel row existed originally.
+This migration-only preservation keeps primary-email precedence and existing channel
+metadata/activity; newly added identity channels have no recorded interaction.
+
+- Survivor profile values win; missing fields and metadata leaves are filled from
+  original records in ascending loser-ID order. Channel-seeded names count as missing.
+  Teams are unioned and profile completeness recalculated.
+- Channels are unioned by platform/canonical identifier, preferring the survivor's row,
+  then original person/channel ID. Missing fields are filled and latest interaction
+  wins; winner IDs and priority weights are preserved. Redundant rows are deleted before
+  normalizing/reparenting the winner, within the merge transaction. Display history uses
+  the original channel snapshot.
+- Person rights are unioned per resource, independently of team rights. Grants on
+  Person resources are reassigned and unioned per principal. Routing scopes are unioned,
+  with survivor policy winning conflicts, otherwise lowest original person ID.
+- Conversation ownership and typed notification recipient links move to the survivor;
+  notification payloads remain unchanged. The merger uses ordinary owner APIs for
+  channels, generic permission coordinates, routing, conversations and recipients;
+  merge decisions belong to `PersonMerger`, validation/persistence to the owners.
+
+The merger resolves and locks the complete supplied group in stable order, then loads
+and locks its relationships. From these original snapshots it privately calculates
+the complete profile, teams, aliases/history, channel reconciliation, permission unions,
+routing winners and reference transfers before any write. Planned field values are
+validated through owning changesets and APIs without no-op persistence. Database
+constraints remain authoritative when applying mutations. Duplicate rows are deleted
+before reassignment, references move before loser deletion, and all losers are deleted
+before the final survivor email is written. `People.apply_merge_result/2` persists the
+complete survivor, including protected aliases/history, in a single update through
+`Person.merge_result_changeset/2`. This protected operation is not an ordinary resource
+attribute API. The final Person and channels are reloaded inside the transaction and
+returned only when it succeeds; nested callers retain control of their outer commit.
+
+Merges serialize and reject self-merges, including aliases of the same identity.
+Validation failures return controlled errors and roll back the whole merge, including
+nested admin profile/channel edits. Team assignment/removal is transactional and
+resolves and locks the current Person, preserving memberships across concurrent merges;
+missing or forgotten identities return `:not_found`.
+
+`People.update_person_resource/4` owns the outer transaction for combined requests:
+merge persisted participants first, then apply ordinary profile/channel edits once to
+the returned survivor. Explicit fields override merged values under both `"person"`
+and `"other"` precedence; omitted fields retain the selected survivor's merge precedence.
+Explicit `nil` values follow ordinary update semantics, including clearing optional
+fields. Protected aliases/history cannot be cast from request attributes. Historical
+labels always use original persisted snapshots. Existing channel edits must name the
+same retained survivor channel ID, including transferred channels. A discarded ID
+returns `:channel_not_found`, without retargeting. New channels use ordinary insert
+uniqueness; collisions with retained channels or unrelated owners fail. Any edit failure
+rolls back the entire request, including the preceding merge.
+
+Losers are deleted. With default `retain_redirect: true`, their IDs and display history
+are retained in the survivor's protected `merged_person_ids` and `merge_history` fields.
+Ordinary create/update attributes cannot change these fields. Aliases are flattened
+across successive merges. `retain_redirect: false` omits only new loser IDs/history;
+inherited aliases/history from all merged people survive. Deleting the survivor also
+deletes its aliases/history. Person IDs must not be manually recycled.
+
+`People.get_person/1` is the alias-aware retrieval boundary. Build authorization
+contexts from the returned survivor's ID and current teams. Downstream conversation,
+routing, channel, permission and resource queries/writes use literal current IDs;
+permission predicates do not reload supplied Person structs, and document query
+predicates do not check Person existence. A failed retrieval must discard stale private
+teams. `Ingestion.can_access_file?/2` retrieves the Person and uses current teams,
+falling back to public access when missing. Explicit team-only query contexts keep
+their contract; a nil Person is not an implicit permission grant and admin bypass is explicit.
+
+BO detail shows **Merged entries** from the loaded Person's history: previous ID,
+timestamp and original nonblank name, falling back to the primary channel identifier
+(lowest weight, then ID), then `Person #<id>`. Inherited labels/timestamps are preserved.
+
+Merges leave workflow definitions, run events/snapshots, cached inputs/results, approval
+audit records and Oban arguments unchanged, including resumable runs. Historical names,
+teams and approval attribution stay as recorded. Scheduled Person actions resolve IDs
+through People lookup; notification and workflow recovery jobs use log and run IDs.
+Unresolvable references follow the existing action's failure behavior.
+
+For schema-first normalization, writer quiescence, backup and restore requirements, see
+the [Person email normalization runbook](../operations/person-email-normalization.md).
+
 ### Conversation Title Generator (`Zaq.Engine.Conversations.TitleGenerator`)
 - Generates a 6-word-max title from the first user message via LLM.
 - Uses `Zaq.Agent.LLM.chat_config/1` and `Zaq.Agent.LLMRunner`.

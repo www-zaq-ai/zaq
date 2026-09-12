@@ -13,6 +13,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   alias ZaqWeb.Components.DesignSystem.EmptyState
   alias ZaqWeb.Components.DesignSystem.ListSelection
   alias ZaqWeb.Components.DesignSystem.SimplePagination
+  alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
   alias ZaqWeb.Components.DesignSystem.Toggle, as: DSToggle
   alias ZaqWeb.Helpers.Selection
   alias ZaqWeb.Helpers.Timezone
@@ -1104,6 +1105,38 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
             </p>
           </div>
         </div>
+        <section
+          :if={(@selected_person.merge_history || []) != []}
+          class="zaq-layout-stack p-4"
+          aria-label="Merged entries"
+        >
+          <h4 class="zaq-text-h4">Merged entries</h4>
+          <DSTable.table id="person-merged-entries">
+            <:head>
+              <DSTable.table_head_row>
+                <DSTable.table_cell
+                  :for={label <- ["Previous ID", "Label", "Merged at (UTC)"]}
+                  element={:th}
+                >
+                  <DSTable.table_text label={label} tone={:tertiary} />
+                </DSTable.table_cell>
+              </DSTable.table_head_row>
+            </:head>
+            <:body>
+              <DSTable.table_row :for={entry <- @selected_person.merge_history || []}>
+                <DSTable.table_cell>
+                  <DSTable.table_text label={to_string(entry["id"])} />
+                </DSTable.table_cell>
+                <DSTable.table_cell>
+                  <DSTable.table_text label={entry["label"]} />
+                </DSTable.table_cell>
+                <DSTable.table_cell>
+                  <DSTable.table_text label={entry["merged_at"]} />
+                </DSTable.table_cell>
+              </DSTable.table_row>
+            </:body>
+          </DSTable.table>
+        </section>
         <%!-- Teams section --%>
         <div class="px-6 py-4 border-b border-black/6">
           <p class="font-mono text-[0.62rem] text-black/35 uppercase tracking-wider mb-3">Teams</p>

@@ -1,9 +1,194 @@
 defmodule Zaq.Accounts.PeopleTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Repo
+
+  setup context do
+    if context[:legacy_channels] do
+      # Legacy merge fixtures run under transactional DDL, never shared schema changes.
+      Repo.query!("DROP INDEX IF EXISTS channels_platform_channel_identifier_index")
+
+      Repo.query!(
+        "CREATE UNIQUE INDEX IF NOT EXISTS channels_person_id_platform_channel_identifier_index ON channels (person_id, platform, channel_identifier)"
+      )
+    end
+
+    :ok
+  end
+
+  describe "canonical channel identity" do
+    test "both changesets normalize email with the effective platform, including platform-only updates" do
+      person = create_person(%{email: nil})
+
+      for changeset <- [&PersonChannel.changeset/2, &PersonChannel.update_changeset/2] do
+        channel = %PersonChannel{person_id: person.id, platform: "email"}
+
+        assert {:ok, stored} =
+                 channel
+                 |> changeset.(%{channel_identifier: "\u2003ÄLİCE@EXAMPLE.COM\u00A0"})
+                 |> Repo.insert()
+
+        assert stored.channel_identifier == "äli̇ce@example.com"
+
+        assert {:ok, updated} =
+                 stored
+                 |> changeset.(%{channel_identifier: " Other@EXAMPLE.COM "})
+                 |> Repo.update()
+
+        assert updated.channel_identifier == "other@example.com"
+        assert {:ok, unchanged} = updated |> changeset.(%{username: "Other"}) |> Repo.update()
+        assert unchanged.channel_identifier == updated.channel_identifier
+        Repo.delete!(unchanged)
+
+        opaque = %PersonChannel{
+          person_id: person.id,
+          platform: "slack",
+          channel_identifier: " MIXED@EXAMPLE.COM "
+        }
+
+        assert get_field(changeset.(opaque, %{platform: "email"}), :channel_identifier) ==
+                 "mixed@example.com"
+
+        assert get_field(changeset.(opaque, %{platform: "discord"}), :channel_identifier) ==
+                 opaque.channel_identifier
+
+        assert get_field(
+                 changeset.(%{opaque | platform: "email"}, %{platform: "slack"}),
+                 :channel_identifier
+               ) == opaque.channel_identifier
+
+        for blank <- [nil, "", " \t\u2003"] do
+          invalid = changeset.(channel, %{channel_identifier: blank})
+          assert errors_on(invalid).channel_identifier == ["can't be blank"]
+          invalid_update = changeset.(updated, %{channel_identifier: blank})
+          assert errors_on(invalid_update).channel_identifier == ["can't be blank"]
+        end
+      end
+    end
+
+    test "canonical creates and both update changesets report identifier uniqueness" do
+      person = create_person()
+      attrs = %{person_id: person.id, platform: "email", channel_identifier: " JANE@EXAMPLE.COM "}
+      assert {:error, duplicate} = People.add_channel(attrs)
+
+      assert errors_on(duplicate).channel_identifier == [
+               "This channel identifier is already assigned."
+             ]
+
+      other =
+        add_channel(person.id, %{
+          "platform" => "email",
+          "channel_identifier" => "other@example.com"
+        })
+
+      for changeset <- [&PersonChannel.changeset/2, &PersonChannel.update_changeset/2] do
+        assert {:error, duplicate} =
+                 other |> changeset.(%{channel_identifier: " JANE@Example.com "}) |> Repo.update()
+
+        assert errors_on(duplicate).channel_identifier == [
+                 "This channel identifier is already assigned."
+               ]
+      end
+
+      assert People.get_channel(other.id).channel_identifier == "other@example.com"
+    end
+
+    property "email normalization is idempotent and other platform identifiers remain opaque" do
+      check all(
+              local <-
+                list_of(member_of(["A", "Ä", "İ", "Σ", "ẞ", "é", "É"]),
+                  min_length: 1,
+                  max_length: 8
+                ),
+              padding <- member_of([" ", "\u00A0", "\u2003", "\r\n"]),
+              platform <-
+                member_of(~w(slack mattermost microsoft_teams whatsapp telegram discord))
+            ) do
+        value = padding <> Enum.join(local) <> "@EXAMPLE.COM" <> padding
+        canonical = PersonChannel.normalize_identifier("email", value)
+        assert canonical == Person.normalize_email(value)
+        assert PersonChannel.normalize_identifier("email", canonical) == canonical
+        assert PersonChannel.normalize_identifier(platform, value) == value
+
+        for changeset <- [&PersonChannel.changeset/2, &PersonChannel.update_changeset/2] do
+          result =
+            changeset.(%PersonChannel{person_id: 1}, %{
+              platform: platform,
+              channel_identifier: value
+            })
+
+          assert get_field(result, :channel_identifier) == value
+        end
+      end
+    end
+
+    test "channel-only discovery and repeated variants reuse one identity and link" do
+      assert {:ok, person} =
+               People.find_or_create_from_channel(:"email:imap", %{
+                 channel_id: " ÄLİCE@EXAMPLE.COM "
+               })
+
+      assert [channel] = person.channels
+      assert channel.channel_identifier == "äli̇ce@example.com"
+
+      for variant <- ["äli̇ce@example.com", "\u2003ÄLİCE@EXAMPLE.COM\u00A0"] do
+        assert {:ok, matched} = People.match_person(%{platform: "email", channel_id: variant})
+        assert matched.id == person.id
+        assert {:ok, matched} = People.match_by_channel("email", variant)
+        assert matched.id == person.id
+
+        assert {:ok, repeated} =
+                 People.find_or_create_from_channel(:"email:imap", %{channel_id: variant})
+
+        assert repeated.id == person.id
+        assert Enum.map(repeated.channels, & &1.id) == [channel.id]
+      end
+
+      assert {:error, :not_found} = People.match_by_channel("email", " \u2003")
+    end
+
+    test "mixed-case incoming email matches and links canonical storage" do
+      person = create_person(%{email: nil})
+
+      {:ok, channel} =
+        People.add_channel(%{
+          person_id: person.id,
+          platform: "email",
+          channel_identifier: "\u2003ÄLİCE@EXAMPLE.COM "
+        })
+
+      assert channel.channel_identifier == "äli̇ce@example.com"
+
+      assert {:ok, matched} =
+               People.match_person(%{platform: "email", channel_id: " ÄLİCE@EXAMPLE.COM "})
+
+      assert matched.id == person.id
+
+      assert {:ok, repeated} =
+               People.find_or_create_from_channel(:"email:imap", %{
+                 channel_id: "ÄLİCE@example.com",
+                 email: "äli̇ce@example.com"
+               })
+
+      assert repeated.id == person.id
+      assert Enum.map(People.list_person_channels(person.id), & &1.id) == [channel.id]
+      assert People.get_channel(channel.id) == channel
+      assert {:error, :not_found} = People.match_by_channel("email", "absent@example.com")
+    end
+
+    test "non-email channel matching keeps whitespace and case significant" do
+      person = create_person(%{email: nil})
+      add_channel(person.id, %{"channel_identifier" => " OpaqueID "})
+      assert {:ok, matched} = People.match_by_channel("slack", " OpaqueID ")
+      assert matched.id == person.id
+      assert {:error, :not_found} = People.match_by_channel("slack", "opaqueid")
+      assert {:error, :not_found} = People.match_by_channel("slack", "OpaqueID")
+    end
+  end
 
   # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -253,7 +438,7 @@ defmodule Zaq.Accounts.PeopleTest do
                )
 
       assert updated.id == survivor.id
-      assert People.get_person(loser.id) == nil
+      assert People.get_person(loser.id).id == survivor.id
     end
 
     test "merges with other precedence" do
@@ -269,7 +454,7 @@ defmodule Zaq.Accounts.PeopleTest do
                )
 
       assert updated.id == loser.id
-      assert People.get_person(survivor.id) == nil
+      assert People.get_person(survivor.id).id == loser.id
     end
 
     test "updates fields, adds channels, and merges in one transaction" do
@@ -286,7 +471,7 @@ defmodule Zaq.Accounts.PeopleTest do
 
       assert updated.id == person.id
       assert updated.full_name == "Updated"
-      assert People.get_person(other.id) == nil
+      assert People.get_person(other.id).id == person.id
 
       persisted = People.get_person_with_channels!(updated.id)
 
@@ -727,7 +912,7 @@ defmodule Zaq.Accounts.PeopleTest do
       assert loser_chan.id in chan_ids
     end
 
-    test "deletes the loser after merge" do
+    test "resolves the retained loser after merge" do
       survivor = create_person(%{full_name: "Surv2", email: "surv2@example.com"})
       loser = create_person(%{full_name: "Loser2", email: "loser2@example.com"})
 
@@ -736,7 +921,7 @@ defmodule Zaq.Accounts.PeopleTest do
       loser_id = loser.id
 
       assert {:ok, _} = People.merge_persons(survivor, loser)
-      assert_raise Ecto.NoResultsError, fn -> People.get_person!(loser_id) end
+      assert People.get_person!(loser_id).id == survivor.id
     end
 
     test "unions team_ids from both persons" do
@@ -784,6 +969,7 @@ defmodule Zaq.Accounts.PeopleTest do
       assert updated.email == "hazemail@example.com"
     end
 
+    @tag :legacy_channels
     test "keeps survivor channel when both people have the same platform identifier" do
       survivor = create_person(%{full_name: "Channel Surv", email: "channel-surv@example.com"})
       loser = create_person(%{full_name: "Channel Loser", email: "channel-loser@example.com"})
@@ -809,6 +995,7 @@ defmodule Zaq.Accounts.PeopleTest do
       refute Enum.any?(updated.channels, &(&1.id == loser_channel.id))
     end
 
+    @tag :legacy_channels
     test "deletes loser duplicate channel rows when survivor already has same identifier" do
       survivor =
         create_person(%{full_name: "Delete Channel Surv", email: "delete-surv@example.com"})

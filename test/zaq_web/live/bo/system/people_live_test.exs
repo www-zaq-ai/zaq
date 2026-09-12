@@ -14,6 +14,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
+  alias ZaqWeb.Live.BO.System.PeopleLive
 
   setup %{conn: conn} do
     user = admin_fixture(%{username: "people_live_admin_#{System.unique_integer([:positive])}"})
@@ -61,6 +62,98 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
   end
 
   # ── Mount ─────────────────────────────────────────────────────────────────
+
+  for platform <- ["email", "telegram"],
+      same_person <- [true, false],
+      action <- ["new", "edit"] do
+    test "#{action} #{platform} duplicate error retains fields, same person #{same_person}", %{
+      conn: conn
+    } do
+      target = person_fixture(%{"email" => nil})
+      owner = if unquote(same_person), do: target, else: person_fixture(%{"email" => nil})
+      identifier = "duplicate-#{target.id}@example.com"
+
+      channel_fixture(owner, %{
+        "platform" => unquote(platform),
+        "channel_identifier" => identifier
+      })
+
+      editable =
+        channel_fixture(target, %{
+          "platform" => unquote(platform),
+          "channel_identifier" => "editable-#{target.id}"
+        })
+
+      {:ok, view, _} = live(conn, ~p"/bo/people")
+
+      view
+      |> element("[phx-click='select_person'][phx-value-id='#{target.id}']")
+      |> render_click()
+
+      if unquote(action) == "new" do
+        view |> element("#add-channel-button") |> render_click()
+      else
+        view
+        |> element(
+          "[phx-click='open_modal'][phx-value-entity='channel'][phx-value-action='edit'][phx-value-id='#{editable.id}']"
+        )
+        |> render_click()
+      end
+
+      duplicate =
+        if unquote(platform) == "email",
+          do: " " <> String.upcase(identifier) <> " ",
+          else: identifier
+
+      params = %{
+        "channel" => %{"platform" => unquote(platform), "channel_identifier" => duplicate}
+      }
+
+      view |> form("#channel-modal-form", params) |> render_submit()
+
+      assert has_element?(
+               view,
+               "#channel-modal-form",
+               "This channel identifier is already assigned."
+             )
+
+      assert has_element?(
+               view,
+               "input[name='channel[channel_identifier]'][value='#{identifier}']"
+             )
+
+      # Resubmitting the retained canonical value reports the same error as the
+      # original case/whitespace variant, on both add and edit.
+      view
+      |> form("#channel-modal-form", %{
+        "channel" => %{"platform" => unquote(platform), "channel_identifier" => identifier}
+      })
+      |> render_submit()
+
+      assert has_element?(
+               view,
+               "#channel-modal-form",
+               "This channel identifier is already assigned."
+             )
+
+      assert People.get_channel(editable.id).channel_identifier == editable.channel_identifier
+
+      corrected = "corrected-#{target.id}@example.com"
+
+      view
+      |> form("#channel-modal-form", %{
+        "channel" => %{"platform" => unquote(platform), "channel_identifier" => corrected}
+      })
+      |> render_submit()
+
+      refute has_element?(view, "#channel-modal-form")
+
+      assert Enum.any?(
+               People.list_person_channels(target.id),
+               &(&1.channel_identifier == corrected)
+             )
+    end
+  end
 
   test "mounts and renders the people tab by default", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/bo/people")
@@ -728,6 +821,67 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
 
   # ── Merge ─────────────────────────────────────────────────────────────────
 
+  test "detail renders nil, empty and stored history from the supplied Person", %{user: user} do
+    person = person_fixture()
+
+    socket =
+      %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, flash: %{}}}
+      |> Phoenix.Component.assign(current_user: user, features_version: 0)
+
+    {:ok, socket} = PeopleLive.mount(%{}, %{}, socket)
+
+    for history <- [nil, []] do
+      assigns = Map.put(socket.assigns, :selected_person, %{person | merge_history: history})
+      html = render_component(&PeopleLive.render/1, assigns)
+      refute html =~ "person-merged-entries"
+    end
+
+    history = [
+      %{"id" => 123, "label" => "Original display label", "merged_at" => "2026-01-01T00:00:00Z"}
+    ]
+
+    assigns = Map.put(socket.assigns, :selected_person, %{person | merge_history: history})
+    html = render_component(&PeopleLive.render/1, assigns)
+    assert html =~ "person-merged-entries"
+    assert html =~ "123"
+    assert html =~ "Original display label"
+    assert html =~ "2026-01-01T00:00:00Z"
+  end
+
+  test "history follows Person selection, refresh and page reload", %{conn: conn} do
+    survivor = person_fixture()
+    loser = person_fixture(%{"full_name" => "Historical label"})
+    other = person_fixture()
+    next_loser = person_fixture(%{"full_name" => "Newly merged label"})
+    team = team_fixture()
+    {:ok, _} = People.merge_persons(survivor, loser)
+
+    {:ok, view, _} = live(conn, ~p"/bo/people?person_id=#{survivor.id}")
+    assert has_element?(view, "#person-merged-entries", loser.full_name)
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{other.id}']")
+    |> render_click()
+
+    refute has_element?(view, "#person-merged-entries")
+
+    view
+    |> element("[phx-click='select_person'][phx-value-id='#{survivor.id}']")
+    |> render_click()
+
+    assert has_element?(view, "#person-merged-entries", loser.full_name)
+    {:ok, _} = People.merge_persons(survivor, next_loser)
+
+    # Team updates reload the selected Person, including newly persisted history.
+    render_hook(view, "toggle_team", %{"team_id" => to_string(team.id)})
+    assert has_element?(view, "#person-merged-entries", next_loser.full_name)
+    assert has_element?(view, "#person-merged-entries", loser.full_name)
+
+    {:ok, reloaded_view, _} = live(conn, ~p"/bo/people?person_id=#{survivor.id}")
+    assert has_element?(reloaded_view, "#person-merged-entries", next_loser.full_name)
+    assert has_element?(reloaded_view, "#person-merged-entries", loser.full_name)
+  end
+
   test "merge flow: open modal, search, select loser, confirm", %{conn: conn} do
     survivor = person_fixture(%{"full_name" => "Survivor#{System.unique_integer([:positive])}"})
     loser = person_fixture(%{"full_name" => "Loser#{System.unique_integer([:positive])}"})
@@ -766,7 +920,13 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     refute has_element?(view, "#people-modal-overlay")
     assert render(view) =~ "Persons merged successfully"
 
-    assert_raise Ecto.NoResultsError, fn -> People.get_person!(loser.id) end
+    assert People.get_person!(loser.id).id == survivor.id
+    assert has_element?(view, "#person-merged-entries", loser.full_name)
+    refute has_element?(view, "#person-merged-entries", loser.email)
+    refute has_element?(view, "#people-table [phx-value-id='#{loser.id}']")
+    {:ok, old_id_view, _} = live(conn, ~p"/bo/people?person_id=#{loser.id}")
+    assert has_element?(old_id_view, "#people-detail-pane", survivor.full_name)
+    assert has_element?(old_id_view, "#person-merged-entries", to_string(loser.id))
   end
 
   test "merge carries team_ids from loser to survivor", %{conn: _conn} do

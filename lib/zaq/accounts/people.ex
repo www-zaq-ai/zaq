@@ -1,14 +1,16 @@
 defmodule Zaq.Accounts.People do
   @moduledoc """
   Context for managing people, their communication channels, and teams.
+  Owns profile and protected merge-result persistence. Combined resource requests
+  merge persisted participants first, then apply ordinary edits to the returned
+  survivor within one outer transaction; explicit edits override merge precedence.
   """
-
-  require Logger
 
   import Ecto.Query
 
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
+  alias Zaq.Accounts.PersonMerger
   alias Zaq.Accounts.Team
   alias Zaq.Repo
 
@@ -148,14 +150,9 @@ defmodule Zaq.Accounts.People do
   @spec match_by_channel(String.t(), String.t()) :: {:ok, Person.t()} | {:error, :not_found}
   def match_by_channel(platform, channel_identifier)
       when is_binary(platform) and is_binary(channel_identifier) and channel_identifier != "" do
-    case Repo.one(
-           from c in PersonChannel,
-             where: c.platform == ^platform and c.channel_identifier == ^channel_identifier,
-             preload: [person: []],
-             limit: 1
-         ) do
+    case find_matching_channel(PersonChannel, platform, channel_identifier) do
       nil -> {:error, :not_found}
-      channel -> {:ok, Repo.preload(channel.person, channels: channels_ordered())}
+      channel -> {:ok, get_person_with_channels!(channel.person_id)}
     end
   end
 
@@ -167,6 +164,10 @@ defmodule Zaq.Accounts.People do
   """
   @spec match_person(map()) :: {:ok, Person.t()} | {:error, :not_found}
   def match_person(attrs) do
+    attrs |> stringify_keys() |> match_normalized_person()
+  end
+
+  defp match_normalized_person(attrs) do
     match_by_email(attrs)
     |> or_match(fn -> match_by_phone(attrs) end)
     |> or_match(fn -> match_by_channel(attrs) end)
@@ -176,26 +177,62 @@ defmodule Zaq.Accounts.People do
   Finds or creates a person from an incoming channel message.
   On match: back-fills canonical fields if they were missing.
   On miss: creates a partial entry with incomplete: true.
-  Returns `{:ok, person}`.
+  Returns `{:ok, person}` or a controlled error; failed links roll back all writes.
   """
   @spec find_or_create_from_channel(atom() | String.t(), map()) ::
           {:ok, Person.t()} | {:error, term()}
   def find_or_create_from_channel(platform, attrs) do
+    retry? = not Repo.in_transaction?()
     platform_str = platform |> to_string() |> canonical_platform()
-    attrs_with_platform = Map.put_new(attrs, "platform", platform_str)
 
-    case match_person(attrs_with_platform) do
-      {:ok, person} ->
-        ensure_channel_linked(person, platform_str, attrs_with_platform)
-        # ensure_channel_linked is idempotent — safe to call again for the email channel
-        maybe_link_email_channel(person, platform_str, attrs_with_platform)
-        person = backfill_person(person, attrs_with_platform)
-        {:ok, Repo.preload(person, channels: channels_ordered())}
+    attrs_with_platform =
+      attrs
+      |> stringify_keys()
+      |> Map.put_new("platform", platform_str)
 
-      {:error, :not_found} ->
-        create_partial_person(platform_str, attrs_with_platform)
+    case discover_person(platform_str, attrs_with_platform) do
+      {:error, %Ecto.Changeset{} = changeset} = error ->
+        # Retry only after the failed transaction has rolled back. A concurrent
+        # discoverer may now own the unique identity; contradictory owners still
+        # fail the ordinary linking path, without reassignment or automatic merge.
+        if retry? and unique_error?(changeset),
+          do: discover_person(platform_str, attrs_with_platform),
+          else: error
+
+      result ->
+        result
     end
   end
+
+  defp unique_error?(changeset) do
+    Enum.any?(changeset.errors, fn {_field, {_message, opts}} ->
+      opts[:constraint] == :unique and
+        opts[:constraint_name] in [
+          "people_email_index",
+          "channels_platform_channel_identifier_index"
+        ]
+    end)
+  end
+
+  defp discover_person(platform, attrs) do
+    Repo.transaction(fn ->
+      person =
+        case match_normalized_person(attrs) do
+          {:ok, person} ->
+            person
+
+          {:error, :not_found} ->
+            attrs |> insert_partial_person() |> linked!()
+        end
+
+      link_discovery_channels(person, platform, attrs)
+      person = backfill_person(person, attrs) |> linked!()
+      Repo.preload(person, [channels: channels_ordered()], force: true)
+    end)
+  end
+
+  defp linked!({:ok, value}), do: value
+  defp linked!({:error, reason}), do: Repo.rollback(reason)
 
   @doc "Updates last_interaction_at on a PersonChannel to now."
   @spec record_interaction(PersonChannel.t()) :: {:ok, PersonChannel.t()}
@@ -209,89 +246,37 @@ defmodule Zaq.Accounts.People do
   @spec update_channel(PersonChannel.t(), map()) ::
           {:ok, PersonChannel.t()} | {:error, Ecto.Changeset.t()}
   def update_channel(%PersonChannel{} = channel, attrs) do
-    normalized = attrs |> stringify_keys() |> Map.put("last_interaction_at", DateTime.utc_now())
+    normalized =
+      attrs |> stringify_keys() |> Map.put_new("last_interaction_at", DateTime.utc_now())
 
     channel
-    |> PersonChannel.update_changeset(normalized)
+    |> PersonChannel.changeset(normalized)
     |> Repo.update()
   end
 
   @doc """
-  Re-assigns all channels from `loser` to `survivor` in a transaction,
-  then deletes the loser. Re-evaluates survivor's incomplete flag.
+  Merges one or many people into the explicit survivor atomically. IDs and structs
+  share the same policy. Survivor values win; missing values are filled in loser
+  ID order from an original snapshot. Teams and direct rights are unioned.
 
-  Accepts either Person structs or integer IDs. Records are re-fetched
-  inside the transaction to guard against stale data.
+  Losers are deleted. By default their IDs and display history are retained on the
+  survivor. `retain_redirect: false` forgets new loser IDs, preserving inherited aliases.
+  Workflow snapshots/results and approval audit records are never rewritten.
   """
-  @spec merge_persons(Person.t() | integer(), Person.t() | integer()) ::
+  @spec merge_persons(Person.t() | integer(), Person.t() | integer() | list(), keyword()) ::
           {:ok, Person.t()} | {:error, term()}
-  def merge_persons(survivor_or_id, loser_or_id) do
-    survivor_id = if is_struct(survivor_or_id), do: survivor_or_id.id, else: survivor_or_id
-    loser_id = if is_struct(loser_or_id), do: loser_or_id.id, else: loser_or_id
-
-    Repo.transaction(fn ->
-      # Re-fetch inside the transaction so we work with current data, not stale assigns.
-      survivor = Repo.get!(Person, survivor_id)
-      loser = Repo.get!(Person, loser_id)
-
-      delete_duplicate_loser_channels(survivor.id, loser.id)
-
-      from(c in PersonChannel, where: c.person_id == ^loser.id)
-      |> Repo.update_all(set: [person_id: survivor.id])
-
-      # A partial person's full_name may have been seeded from the channel_identifier
-      # (e.g. an email address) as a fallback. Treat it as empty for both sides so a
-      # real name always wins over an auto-generated one.
-      survivor_channel_ids =
-        Repo.all(
-          from c in PersonChannel,
-            where: c.person_id == ^survivor.id,
-            select: c.channel_identifier
-        )
-
-      effective_name =
-        if survivor.full_name in survivor_channel_ids, do: nil, else: survivor.full_name
-
-      effective_loser_name =
-        if loser.full_name in survivor_channel_ids, do: nil, else: loser.full_name
-
-      merged_team_ids = (survivor.team_ids ++ loser.team_ids) |> Enum.uniq()
-
-      backfill =
-        %{team_ids: merged_team_ids}
-        |> maybe_backfill(:full_name, effective_name, effective_loser_name)
-        |> maybe_backfill(:email, survivor.email, loser.email)
-        |> maybe_backfill(:phone, survivor.phone, loser.phone)
-
-      Repo.delete!(loser)
-
-      survivor = Repo.get!(Person, survivor.id) |> Repo.preload(channels: channels_ordered())
-
-      {:ok, survivor} =
-        survivor
-        |> Person.update_changeset(backfill)
-        |> Repo.update()
-
-      case maybe_link_email_channel(survivor) do
-        {:error, reason} ->
-          Logger.warning(
-            "Failed to link email channel after merge for person #{survivor.id}: #{inspect(reason)}"
-          )
-
-        _ ->
-          :ok
-      end
-
-      survivor
-    end)
+  def merge_persons(survivor_or_id, losers, opts \\ []) do
+    PersonMerger.merge(survivor_or_id, losers, opts)
   end
 
   @doc """
-  Updates a person, upserts channels, and optionally merges with another person.
+  Optionally merges persisted people, then updates the returned survivor and its
+  channels in one transaction. Explicit edits override merged values.
 
   Merge precedence is expressed by `merge_precedence`: `"person"` keeps the
-  updated person as the survivor, while `"other"` keeps `merge_with_person_id`.
-  The survivor's existing person fields and duplicate channels take precedence.
+  requested person as the survivor, while `"other"` keeps `merge_with_person_id`.
+  Omitted fields retain merge precedence. Channel edits must name a retained ID;
+  discarded IDs return `:channel_not_found` and roll back the entire request.
   """
   @spec update_person_resource(Person.t() | integer(), map(), [map()], map()) ::
           {:ok, Person.t()} | {:error, term()}
@@ -299,10 +284,8 @@ defmodule Zaq.Accounts.People do
     person_id = if is_struct(person_or_id), do: person_or_id.id, else: person_or_id
 
     Repo.transaction(fn ->
-      with %Person{} = person <- Repo.get(Person, person_id),
-           {:ok, updated} <- maybe_update_person_fields(person, attrs),
-           {:ok, _channels} <- upsert_person_channels(updated.id, channels),
-           {:ok, final_person} <- maybe_merge_updated_person(updated.id, merge_opts) do
+      with %Person{} = person <- get_person(person_id),
+           {:ok, final_person} <- update_resource(person, attrs, channels, merge_opts) do
         final_person
       else
         nil -> Repo.rollback(:not_found)
@@ -311,27 +294,32 @@ defmodule Zaq.Accounts.People do
     end)
   end
 
-  defp maybe_backfill(acc, _field, current, _from_loser)
-       when is_binary(current) and current != "",
-       do: acc
-
-  defp maybe_backfill(acc, field, _current, from_loser)
-       when is_binary(from_loser) and from_loser != "",
-       do: Map.put(acc, field, from_loser)
-
-  defp maybe_backfill(acc, _field, _current, _from_loser), do: acc
-
+  @doc "Retrieves a current Person by its ID or retained historical ID in one query."
+  @spec get_person(integer() | String.t() | nil) :: Person.t() | nil
   def get_person(id) when is_nil(id), do: nil
-  def get_person(id), do: Repo.get(Person, id)
 
-  def get_person!(id), do: Repo.get!(Person, id)
+  def get_person(id) do
+    id =
+      Ecto.Type.cast(:integer, id)
+      |> case do
+        {:ok, id} -> id
+        :error -> -1
+      end
+
+    Repo.one(
+      from p in Person,
+        where: p.id == ^id or fragment("? @> ARRAY[?]::bigint[]", p.merged_person_ids, ^id)
+    )
+  end
+
+  def get_person!(id), do: get_person(id) || raise(Ecto.NoResultsError, queryable: Person)
 
   def get_person_with_channels!(id) do
-    Repo.get!(Person, id) |> Repo.preload(channels: channels_ordered())
+    get_person!(id) |> Repo.preload(channels: channels_ordered())
   end
 
   def get_person_with_channels(id) do
-    case Repo.get(Person, id) do
+    case get_person(id) do
       nil -> nil
       person -> Repo.preload(person, channels: channels_ordered())
     end
@@ -339,26 +327,50 @@ defmodule Zaq.Accounts.People do
 
   def create_person(attrs) do
     attrs = Map.put_new(stringify_keys(attrs), "incomplete", true)
-
-    case %Person{} |> Person.changeset(attrs) |> Repo.insert() do
-      {:ok, person} ->
-        maybe_link_email_channel(person)
-        {:ok, person}
-
-      error ->
-        error
-    end
+    persist_person(Person.changeset(%Person{}, attrs), :insert)
   end
 
   def update_person(%Person{} = person, attrs) do
-    case person |> Person.update_changeset(attrs) |> Repo.update() do
-      {:ok, updated} ->
-        if updated.email != person.email, do: maybe_link_email_channel(updated)
-        {:ok, updated}
+    persist_person(Person.update_changeset(person, stringify_keys(attrs)), :update)
+  end
 
-      error ->
-        error
-    end
+  @doc """
+  Protected owner operation persisting a calculated identity consolidation result
+  in one update. Only the merger supplies these attributes, including aliases and
+  history; ordinary requests must use `update_person/2`. Channel reconciliation is
+  already planned and applied by the merger within the same transaction.
+  """
+  @spec apply_merge_result(Person.t(), map()) :: {:ok, Person.t()} | {:error, Ecto.Changeset.t()}
+  def apply_merge_result(%Person{} = person, attrs) do
+    person |> Person.merge_result_changeset(attrs) |> Repo.update()
+  end
+
+  defp persist_person(changeset, operation) do
+    link_email? = operation == :insert or Ecto.Changeset.changed?(changeset, :email)
+
+    Repo.transaction(fn ->
+      person = apply(Repo, operation, [changeset]) |> linked!()
+      email_link = if link_email?, do: maybe_link_email_channel(person), else: {:ok, nil}
+
+      case email_link do
+        {:ok, _} ->
+          person
+
+        {:error, error} ->
+          # Person forms render email, while channel forms render identifier.
+          # Keep the original Person changes and never expose another owner.
+          Repo.rollback(email_link_error(changeset, error, operation))
+      end
+    end)
+  end
+
+  defp email_link_error(changeset, error, operation) do
+    changeset =
+      Enum.reduce(error.errors, changeset, fn {_field, {message, opts}}, acc ->
+        Ecto.Changeset.add_error(acc, :email, message, opts)
+      end)
+
+    %{changeset | action: operation}
   end
 
   def delete_person(%Person{} = person), do: Repo.delete(person)
@@ -397,14 +409,14 @@ defmodule Zaq.Accounts.People do
   end
 
   defp delete_person_step(id) do
-    case Repo.get(Person, id) do
+    case get_person(id) do
       nil -> {:error, {:not_found, id}}
       person -> delete_or_error(person, id)
     end
   end
 
   defp delete_or_error(person, id) do
-    case Repo.delete(person) do
+    case delete_person(person) do
       {:ok, _} -> {:ok, :deleted}
       {:error, _} -> {:error, {:delete_failed, id}}
     end
@@ -465,18 +477,48 @@ defmodule Zaq.Accounts.People do
   end
 
   def assign_team(%Person{} = person, team_id) when is_integer(team_id) do
-    cond do
-      system_team_id?(team_id) -> {:error, :system_team}
-      team_id in person.team_ids -> {:ok, person}
-      true -> update_person(person, %{team_ids: person.team_ids ++ [team_id]})
-    end
+    update_team_membership(person.id, team_id, fn locked ->
+      if team_id in locked.team_ids,
+        do: {:ok, locked},
+        else: update_person(locked, %{team_ids: locked.team_ids ++ [team_id]})
+    end)
   end
 
   def unassign_team(%Person{} = person, team_id) when is_integer(team_id) do
+    update_team_membership(person.id, team_id, fn locked ->
+      update_person(locked, %{team_ids: List.delete(locked.team_ids, team_id)})
+    end)
+  end
+
+  defp update_team_membership(person_id, team_id, change) do
     if system_team_id?(team_id) do
       {:error, :system_team}
     else
-      update_person(person, %{team_ids: List.delete(person.team_ids, team_id)})
+      Repo.transaction(fn -> change_teams!(person_id, change) end)
+    end
+  end
+
+  defp change_teams!(person_id, change) do
+    case person_id |> lock_current_person!() |> change.() do
+      {:ok, updated} -> updated
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_current_person!(original_id) do
+    case get_person(original_id) do
+      nil ->
+        Repo.rollback(:not_found)
+
+      person ->
+        # Lock only this canonical row, never the global merge lock or another
+        # live Person row. A merge can delete it while FOR UPDATE waits. Under
+        # READ COMMITTED, retry original-ID resolution on a fresh snapshot so
+        # an inherited alias follows the survivor rather than using stale teams.
+        case Repo.one(from p in Person, where: p.id == ^person.id, lock: "FOR UPDATE") do
+          nil -> lock_current_person!(original_id)
+          locked -> locked
+        end
     end
   end
 
@@ -518,7 +560,9 @@ defmodule Zaq.Accounts.People do
   # ── Private ──────────────────────────────────────────────────────────────
 
   defp match_by_email(%{"email" => email}) when is_binary(email) and email != "" do
-    case Repo.get_by(Person, email: email) do
+    email = Person.normalize_email(email)
+
+    case email && Repo.get_by(Person, email: email) do
       nil -> {:error, :not_found}
       person -> {:ok, person}
     end
@@ -537,28 +581,32 @@ defmodule Zaq.Accounts.People do
 
   defp match_by_channel(%{"platform" => platform, "channel_id" => channel_id})
        when is_binary(platform) and is_binary(channel_id) and channel_id != "" do
-    case Repo.one(
-           from c in PersonChannel,
-             where: c.platform == ^platform and c.channel_identifier == ^channel_id,
-             preload: :person,
-             limit: 1
-         ) do
-      nil -> {:error, :not_found}
-      channel -> {:ok, channel.person}
-    end
+    match_by_channel(platform, channel_id)
   end
 
   defp match_by_channel(_), do: {:error, :not_found}
 
+  defp find_matching_channel(query, platform, identifier) do
+    identifier = PersonChannel.normalize_identifier(platform, identifier)
+
+    if identifier do
+      Repo.one(
+        from c in query,
+          where: c.platform == ^platform and c.channel_identifier == ^identifier,
+          order_by: c.id,
+          limit: 1
+      )
+    end
+  end
+
   defp ensure_channel_linked(person, platform, attrs) do
-    channel_id = Map.get(attrs, "channel_id") || Map.get(attrs, :channel_id)
+    channel_id = Map.get(attrs, "channel_id")
 
     existing =
-      Repo.one(
-        from c in PersonChannel,
-          where:
-            c.person_id == ^person.id and c.platform == ^platform and
-              c.channel_identifier == ^channel_id
+      find_matching_channel(
+        from(c in PersonChannel, where: c.person_id == ^person.id),
+        platform,
+        channel_id
       )
 
     if existing do
@@ -568,10 +616,10 @@ defmodule Zaq.Accounts.People do
         person_id: person.id,
         platform: platform,
         channel_identifier: channel_id,
-        username: Map.get(attrs, "username") || Map.get(attrs, :username),
-        display_name: Map.get(attrs, "display_name") || Map.get(attrs, :display_name),
-        phone: Map.get(attrs, "phone") || Map.get(attrs, :phone),
-        dm_channel_id: Map.get(attrs, "dm_channel_id") || Map.get(attrs, :dm_channel_id)
+        username: Map.get(attrs, "username"),
+        display_name: Map.get(attrs, "display_name"),
+        phone: Map.get(attrs, "phone"),
+        dm_channel_id: Map.get(attrs, "dm_channel_id")
       })
     end
   end
@@ -622,46 +670,37 @@ defmodule Zaq.Accounts.People do
 
   defp upsert_person_channel(_person_id, _attrs), do: {:error, :invalid_channel}
 
-  defp maybe_merge_updated_person(person_id, nil) do
-    {:ok, get_person_with_channels!(person_id)}
-  end
-
-  defp maybe_merge_updated_person(person_id, merge_opts) when merge_opts == %{} do
-    {:ok, get_person_with_channels!(person_id)}
-  end
-
-  defp maybe_merge_updated_person(person_id, merge_opts) when is_map(merge_opts) do
+  defp update_resource(person, attrs, channels, merge_opts) when is_map(merge_opts) do
     merge_with_person_id =
       Map.get(merge_opts, :merge_with_person_id) || Map.get(merge_opts, "merge_with_person_id")
 
     if is_nil(merge_with_person_id) do
-      {:ok, get_person_with_channels!(person_id)}
+      update_resource(person, attrs, channels, nil)
     else
-      case Map.get(merge_opts, :merge_precedence) || Map.get(merge_opts, "merge_precedence") ||
-             "person" do
-        "person" -> merge_persons(person_id, merge_with_person_id)
-        "other" -> merge_persons(merge_with_person_id, person_id)
-        _ -> {:error, :invalid_merge_precedence}
+      precedence =
+        Map.get(merge_opts, :merge_precedence) || Map.get(merge_opts, "merge_precedence") ||
+          "person"
+
+      with {:ok, merged} <- merge_resource_people(person, merge_with_person_id, precedence) do
+        update_resource(merged, attrs, channels, nil)
       end
     end
   end
 
-  defp maybe_merge_updated_person(_person_id, _merge_opts), do: {:error, :invalid_merge}
-
-  defp delete_duplicate_loser_channels(survivor_id, loser_id) do
-    duplicate_ids_query =
-      from loser_channel in PersonChannel,
-        join: survivor_channel in PersonChannel,
-        on:
-          survivor_channel.person_id == ^survivor_id and
-            survivor_channel.platform == loser_channel.platform and
-            survivor_channel.channel_identifier == loser_channel.channel_identifier,
-        where: loser_channel.person_id == ^loser_id,
-        select: loser_channel.id
-
-    from(c in PersonChannel, where: c.id in subquery(duplicate_ids_query))
-    |> Repo.delete_all()
+  defp update_resource(person, attrs, channels, nil) do
+    with {:ok, updated} <- maybe_update_person_fields(person, attrs),
+         {:ok, _channels} <- upsert_person_channels(updated.id, channels) do
+      {:ok, get_person_with_channels!(updated.id)}
+    end
   end
+
+  defp update_resource(_person, _attrs, _channels, _merge_opts), do: {:error, :invalid_merge}
+
+  defp merge_resource_people(person, other_id, "person"), do: merge_persons(person.id, other_id)
+  defp merge_resource_people(person, other_id, "other"), do: merge_persons(other_id, person.id)
+
+  defp merge_resource_people(_person, _other_id, _precedence),
+    do: {:error, :invalid_merge_precedence}
 
   defp canonical_platform("email:imap"), do: "email"
   defp canonical_platform(platform), do: platform
@@ -676,20 +715,20 @@ defmodule Zaq.Accounts.People do
     })
   end
 
-  defp maybe_link_email_channel(_person), do: :ok
+  defp maybe_link_email_channel(_person), do: {:ok, nil}
 
-  # Called from find_or_create_from_channel / create_partial_person where we
-  # have a platform and attrs map rather than a resolved Person struct.
-  defp maybe_link_email_channel(person, platform, attrs) do
-    email = Map.get(attrs, "email") || Map.get(attrs, :email)
+  defp link_discovery_channels(person, platform, attrs) do
+    email = if is_binary(attrs["email"]), do: Person.normalize_email(attrs["email"])
+    email_attrs = %{"channel_id" => email, "display_name" => attrs["display_name"]}
+    links = [{platform, attrs}] ++ if(email, do: [{"email", email_attrs}], else: [])
 
-    if is_binary(email) and email != "" and platform != "email" do
-      ensure_channel_linked(person, "email", %{
-        "channel_id" => email,
-        "email" => email,
-        "display_name" => Map.get(attrs, "display_name") || Map.get(attrs, :display_name)
-      })
-    end
+    links
+    |> Enum.uniq_by(fn {platform, attrs} ->
+      {platform, PersonChannel.normalize_identifier(platform, attrs["channel_id"])}
+    end)
+    |> Enum.each(fn {platform, attrs} ->
+      ensure_channel_linked(person, platform, attrs) |> linked!()
+    end)
   end
 
   defp backfill_person(person, attrs) do
@@ -707,16 +746,15 @@ defmodule Zaq.Accounts.People do
       |> maybe_put_if_nil(:full_name, effective_name, attrs, "display_name")
 
     if map_size(updates) > 0 do
-      {:ok, updated} = update_person(person, updates)
-      updated
+      person |> Person.update_changeset(updates) |> Repo.update()
     else
-      person
+      {:ok, person}
     end
   end
 
   defp maybe_put_if_nil(acc, field, current_val, attrs, attr_key \\ nil) do
     key = if attr_key, do: attr_key, else: to_string(field)
-    incoming = Map.get(attrs, key) || Map.get(attrs, String.to_atom(key))
+    incoming = Map.get(attrs, key)
 
     if is_nil(current_val) and is_binary(incoming) and incoming != "" do
       Map.put(acc, field, incoming)
@@ -725,51 +763,14 @@ defmodule Zaq.Accounts.People do
     end
   end
 
-  defp create_partial_person(platform, attrs) do
-    channel_attrs = extract_channel_attrs(attrs)
-
-    Repo.transaction(fn ->
-      case insert_partial_person(channel_attrs) do
-        {:ok, person} ->
-          add_channel(%{
-            person_id: person.id,
-            platform: platform,
-            channel_identifier: channel_attrs.channel_id,
-            username: channel_attrs.username,
-            display_name: channel_attrs.display_name,
-            phone: channel_attrs.phone,
-            dm_channel_id: channel_attrs.dm_channel_id
-          })
-
-          maybe_link_email_channel(person, platform, channel_attrs)
-
-          Repo.preload(person, channels: channels_ordered())
-
-        {:error, changeset} ->
-          Repo.rollback(changeset)
-      end
-    end)
-  end
-
-  defp extract_channel_attrs(attrs) do
-    %{
-      channel_id: Map.get(attrs, "channel_id") || Map.get(attrs, :channel_id),
-      display_name: Map.get(attrs, "display_name") || Map.get(attrs, :display_name),
-      username: Map.get(attrs, "username") || Map.get(attrs, :username),
-      email: Map.get(attrs, "email") || Map.get(attrs, :email),
-      phone: Map.get(attrs, "phone") || Map.get(attrs, :phone),
-      dm_channel_id: Map.get(attrs, "dm_channel_id") || Map.get(attrs, :dm_channel_id)
-    }
-  end
-
   defp insert_partial_person(channel_attrs) do
-    full_name = channel_attrs.display_name || channel_attrs.channel_id || "Unknown"
+    full_name = channel_attrs["display_name"] || channel_attrs["channel_id"] || "Unknown"
 
     %Person{}
     |> Person.changeset(%{
       full_name: full_name,
-      email: channel_attrs.email,
-      phone: channel_attrs.phone,
+      email: channel_attrs["email"],
+      phone: channel_attrs["phone"],
       incomplete: true
     })
     |> Repo.insert()
