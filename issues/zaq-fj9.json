@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-12T06:08:14Z",
@@ -7,7 +7,7 @@
   "id": "zaq-fj9",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-fj9] Declare PersonChannel composite unique constraints explicitly",
   "type": "task",
   "updated_at": "2026-09-12T06:08:19Z"
