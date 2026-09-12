@@ -9,9 +9,15 @@
   "id": "zaq-6pa.1",
   "labels": [],
   "parent": "zaq-6pa",
+  "comments": [
+    {
+      "text": "Tests first red: 6 missing-module failures. Green: SQL bypass checks/cascade, scopes/errors, raw unions and property tests. Scoped no-op ON CONFLICT UPDATE returns winner atomically rather than DO NOTHING+SELECT deletion race; preserves timestamps. No redundant scope index beyond team partial prefix.",
+      "timestamp": "2026-09-12T13:39:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-6pa] Persist and resolve People permissions",
   "type": "task",
-  "updated_at": "2026-09-12T13:30:15Z"
+  "updated_at": "2026-09-12T13:39:15Z"
 }
