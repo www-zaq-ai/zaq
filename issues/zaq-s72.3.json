@@ -11,9 +11,15 @@
   "id": "zaq-s72.3",
   "labels": [],
   "parent": "zaq-s72",
+  "comments": [
+    {
+      "text": "Verified both resource precedence modes (edited loser backfill, selected survivor wins, original history), external channel owners and all participant snapshots unchanged on failure. Migration fixture first needed a normalized email update to actually trigger SQL (opaque unchanged row correctly emitted none); corrected fixture. Actual Ecto runner + Repo-only replay now prove unexpected old-index Ecto.ConstraintError rolls back cleanup/index/ledger. Broad requested command passes 1264 tests +26 properties, zero failures, 1 skipped/56 excluded seed 989779. No PersonMerger or migration production changes needed.",
+      "timestamp": "2026-09-12T06:31:39Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-s72] Verify participant scope and legacy rollback",
   "type": "task",
-  "updated_at": "2026-09-12T06:26:37Z"
+  "updated_at": "2026-09-12T06:31:39Z"
 }
