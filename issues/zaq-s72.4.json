@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-s72.3"
+  ],
   "blocks": [],
   "created": "2026-09-12T06:22:40Z",
   "description": "Concise current engine contract and runbook legacy exception semantics. Focused/broad requested suites, multi-seed concurrency, disposable replay, all-browser People E2E, 95 percent changed application coverage or accurate exception, mix format and mix q. Compare git worktree and cached checks/checksum. No delivery git mutations.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-s72] Document and validate approved identity correction",
   "type": "task",
-  "updated_at": "2026-09-12T06:22:40Z"
+  "updated_at": "2026-09-12T06:22:50Z"
 }
