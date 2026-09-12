@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-f6s.3"
+  ],
   "blocks": [],
   "created": "2026-09-12T15:09:33Z",
   "description": "Docker executable unavailable in implementation environment. Before publishing image/Gist, run matrix in test/docker/README.md: build final image, Compose config validation, fresh local/installer volumes, successful provision gating before migrations, down/up and recreated one-shot job, owner read-only volume UID/modes, private secret isolation, failures and mismatched volumes block app. Test pgvector/pg18 and paradedb:0.23.0 with candidate image. Confirm ordinary restart retains DB credentials and data. Source tests (36) and 99% Python coverage pass locally plus canonical DBA suites for both engines. Publishing requires user approval and image-before-Gist order. Do not change zaq-local.sh. Test-first matrix already documented; no mocks; update docs only if actual Docker behavior requires correction.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-f6s] Verify image lifecycle on Docker-capable runner before rollout",
   "type": "task",
-  "updated_at": "2026-09-12T15:09:33Z"
+  "updated_at": "2026-09-12T15:09:54Z"
 }
