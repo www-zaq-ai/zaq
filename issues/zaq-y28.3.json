@@ -9,9 +9,15 @@
   "id": "zaq-y28.3",
   "labels": [],
   "parent": "zaq-y28",
+  "comments": [
+    {
+      "text": "FINAL VALIDATION: mix format; MIX_TEST_PARTITION=pr3 mix coveralls.json test/zaq/accounts test/zaq/people test/zaq/permissions test/zaq/system test/zaq/agent/tools/accounts test/zaq/engine/people_access_config_api_test.exs test/zaq/engine/supervisor_test.exs test/zaq/application_test.exs test/zaq/node_roles_test.exs test/zaq_web/live/bo/system/people_access_config_live_test.exs -\u003e 21 properties, 644 tests, 0 failures. Includes real independent-connection auth/merge races and actual two-peer PubSub convergence. mix q -\u003e format/compile/docs/Credo all pass, no issues. E2E initial attempt lacked new partition database; then MIX_TEST_PARTITION=pr3 npm run bootstrap succeeded, including fresh migration replay. From test/e2e: CI=1 MIX_TEST_PARTITION=pr3 npx playwright test specs/system_config.spec.js -g \"People access cold defaults\" --reporter=line -\u003e 3 passed (Firefox, WebKit, Chromium). Only isolated pr3 test/E2E databases used, no user DB reset. Coverage cover/excoveralls.json: PeopleAuth 100% (113 relevant), challenge/session schemas 100%, merger 100% (165), rate wrapper 97.14% (34/35; uncovered ArgumentError shutdown race rescue at line115), listener100%, macro-only Local no relevant lines, Engine supervisor100%, PeopleAccessConfig100%, config panel100%, System96.88%. Whole-application aggregate11.1% is this scoped run, not full-suite coverage. No new-development exception needed. git diff --check and cached diff checks pass; staged tree unchanged c81dcd579e7832572a37f9b3d7df6e45e4b416cf. 30 changed/untracked intended files, no commit/push/PR. Exact lifecycle/rate/error/key/migration contracts in docs/services/people-access.md; current service/config docs updated. Raw credential Repo telemetry absence tested. Logs in approved temporary opencode directory: pr3-coverage-final.log, pr3-quality-final.log, pr3-e2e-final.log, pr3-e2e-bootstrap.log. Final strengthened expired-challenge and active UI-copy assertions included in this run.",
+      "timestamp": "2026-09-13T09:29:13Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-y28] Validate PR3 backend and document shipped contracts",
   "type": "task",
-  "updated_at": "2026-09-13T09:15:51Z"
+  "updated_at": "2026-09-13T09:29:13Z"
 }
