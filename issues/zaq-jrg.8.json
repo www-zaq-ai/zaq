@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.7"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.9"
+  ],
   "created": "2026-09-13T10:09:28Z",
   "description": "Functional specifications covered with associated files to edit/add: lib/zaq/accounts/people.ex, person_merger.ex, Connect-owned transactional transfer/cleanup helpers and Person grant/attempt schema constraints; test/zaq/accounts/* existing merge/deletion tests plus Connect concurrency cases. Accounts orchestrates identity lifecycle; Connect owns grant queries, collision rules, encrypted material handling and mutation jobs. Extend existing PersonMerger transaction/advisory-lock convention; do not create a second merge transaction. For each credential, transfer loser-only current grant to survivor; survivor-only unchanged; when both have rows retain survivor regardless of active/revoked/expired status and remove loser secret. Never overwrite survivor secret; retaining revoked survivor preserves explicit opt-out. Update constrained owner_id/person_id atomically and avoid decrypt/re-encrypt unless required. Revoke/cancel pending OAuth attempts for merged/deleted initiators rather than allowing callback to write survivor credentials implicitly. Permanently deleting Person deletes owned grants/secrets and pending attempts transactionally, including bulk deletion; produce safe events for former owner and survivor/credential dependencies as relevant before IDs disappear. Account for active executions using global fallback when a transferred grant becomes available: notify survivor even when no survivor grant existed.\n\nTests to add before implementation: loser-only, survivor-only, both rows for each status class; multiple credentials and multiple losers; survivor revoked versus loser active; no secret overwrite; delete and bulk delete; failed merge rollback preserves grants and emits no job; concurrent grant issue/refresh/OAuth callback against merge/delete; FK and unique constraints remain satisfied; transferred grant cannot be resolved for deleted loser. Test stale authenticated alias/session cannot gain survivor grant management by normalization alone.\n\nBranches/paths validated: missing Person, merged aliases, duplicate merge request, collision across legacy and canonical grants. Decide legacy person-owned resource rows are prohibited in this slice so no unhandled orphan ownership lane. Use same deterministic lock order across canonical mutation and PersonMerger paths; explicitly test deadlock-sensitive interleavings. No People module query of token payloads; no secret values passed into lifecycle notifications. FK cascade is defense in depth, not replacement for application notifications.\n\nMocking plan: no internal mocks; real Repo/merge orchestration/Oban; independent transaction concurrency harness. Documentations to update: Accounts and Connect moduledocs, docs/services/engine.md Person lifetime ownership and stale-session rule, relevant identity documentation located during implementation. Coordinate existing merge coverage debt zaq-c1k without silently expanding unrelated work. \u003e=95% touched-file coverage or measured explicit exception and follow-up.",
   "id": "zaq-jrg.8",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-jrg] 8. Integrate Person grant cleanup and deterministic merge",
   "type": "task",
-  "updated_at": "2026-09-13T10:09:49Z"
+  "updated_at": "2026-09-13T10:09:50Z"
 }
