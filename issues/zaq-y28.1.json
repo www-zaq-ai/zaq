@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-y28.5"
+  ],
   "blocks": [],
   "created": "2026-09-13T08:36:10Z",
   "description": "Conditional on approved rate topology. Owner: new Zaq.Accounts.PersonLoginChallenge and PersonSession schemas and generated migrations. Before coding inspect adjacent schema moduledocs/patterns. Tests FIRST: real foreign keys/cascades, active challenge partial uniqueness, session digest uniqueness, nonnegative attempts, lifecycle/timestamp checks, digest-only persistence. Use DataCase real SQL, no internal mocks. Person FK, opaque challenge id, fixed expirations, consumed/invalidated and revoked/last_seen timestamps. Update people-access storage docs. mix format and focused tests; target 95 percent new-file coverage.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-y28] Specify and implement challenge and session persistence",
   "type": "task",
-  "updated_at": "2026-09-13T08:36:10Z"
+  "updated_at": "2026-09-13T08:36:29Z"
 }
