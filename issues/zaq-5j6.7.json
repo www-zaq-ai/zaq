@@ -9,9 +9,15 @@
   "id": "zaq-5j6.7",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Completed diagnostic assertion before mailbox checks; removed environment-dependent hardcoded browser budget from integration test. Validation: mix format and mix q PASS (fixed alias ordering flagged on first run). Targeted Factory/ServerManager/RuntimeSync suite and coverage rerun: 1 property, 159 tests, 0 failures; Factory whole-file coverage 95.6% (88/92). git diff --check PASS. Real-browser test attempted but setup rejects local agent-browser 0.12.0 versus pinned 0.19.0. No global installation changed; container acceptance remains pending under zaq-5j6.5. No commits/push/PR. Keep validation issue open until pinned-browser acceptance succeeds.",
+      "timestamp": "2026-09-13T07:06:47Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Improve browser failure diagnostics and validate timeout fix",
   "type": "task",
-  "updated_at": "2026-09-13T07:00:28Z"
+  "updated_at": "2026-09-13T07:06:47Z"
 }
