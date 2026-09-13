@@ -14,11 +14,15 @@
     {
       "text": "Dependency validation completed: exact blocked_by/blocks edges verified for all nine issues, all five required planning sections present, serial DAG acyclic with no diamonds. Open epics hide children in bw ready; epic activated for plan tracking, then bw ready confirmed zaq-jrg.1 as sole ready child. All implementation children remain open and no application changes have started.",
       "timestamp": "2026-09-13T10:11:06Z"
+    },
+    {
+      "text": "Planning closeout: mix q completed with exit 0 (docs generation and Credo: 1177 source files, no issues). git status --short clean afterward. No application code changed, no commits or PR created. This check is baseline validation, not evidence that planned feature tests exist or pass.",
+      "timestamp": "2026-09-13T10:11:53Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg] Person-scoped Connect foundation implementation plan",
   "type": "epic",
-  "updated_at": "2026-09-13T10:11:06Z"
+  "updated_at": "2026-09-13T10:11:53Z"
 }
