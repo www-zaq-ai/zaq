@@ -3,7 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-13T08:35:18Z",
-  "description": "Current worktree feat/person-secure-auth. User authorizes backend People authentication persistence, lifecycle, all-participant merge revocation and eventually consistent Hammer ETS/PubSub rate limiting; no commit, push, PR or user database reset. Preserve index and worktree. Blocked before production changes: Hammer 7.5.0 official distributed guide is an application-owned increment-only PubSub example. Independent non-extending cooldown plus fresh budget after expiry requires a ZAQ-owned synchronization extension not yet explicitly approved. Existing secret_key_base must derive OTP HMAC key with versioned domain separation; no new key API. Implementation remains pending topology decision.",
+  "description": "PR3 People authentication backend implemented in current feat/person-secure-auth worktree; final validation in zaq-y28.3. Approved V1 uses Hammer 7.5 native retry_after/fixed-window expiry with official increment-only ETS/PubSub pattern, no custom cooldown/reset synchronization. Eight active People access fields; deprecated cooldown DB key ignored/preserved. Digest-only OTP challenges and bearer sessions; OTP HMAC key derives existing endpoint secret_key_base with versioned label. All merge participants auth revoked transactionally without credential transfer. Schema migration ordered before historical normalization for fresh replay. No public routes/cookies/notification delivery/Engine auth events. No commit/push/PR or user database reset. Preserve initial clean staged tree c81dcd579e7832572a37f9b3d7df6e45e4b416cf.",
   "id": "zaq-y28",
   "labels": [],
   "comments": [
@@ -16,5 +16,5 @@
   "status": "open",
   "title": "[zaq-y28] PR3 People authentication backend",
   "type": "epic",
-  "updated_at": "2026-09-13T08:36:31Z"
+  "updated_at": "2026-09-13T09:25:37Z"
 }
