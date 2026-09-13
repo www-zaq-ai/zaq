@@ -13,11 +13,15 @@
     {
       "text": "Regression red confirmed: effective worker config was 15000 vs declared 90000 in all three new scenarios. After Factory pre-start strategy update: 1 property + 158 tests pass (Factory, ServerManager, RuntimeSync). Live registered tool config is authoritative for budget; cached runtime_config.tools is stale after hot registration. Adding deterministic gated real tool continuation for warm add/remove, no sleeps.",
       "timestamp": "2026-09-13T07:00:04Z"
+    },
+    {
+      "text": "Real Factory/Jido gated tool integration passed: three complete LLM/tool/LLM loops with effective budgets 45000 -\u003e 90000 -\u003e 45000 across ServerManager.sync_runtime add/remove of browser. No browser execution mocked. Implementation complete in working tree; final quality/coverage validation tracked in zaq-5j6.7.",
+      "timestamp": "2026-09-13T07:00:28Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Apply declared tool budgets at the Factory strategy boundary",
   "type": "task",
-  "updated_at": "2026-09-13T07:00:04Z"
+  "updated_at": "2026-09-13T07:00:28Z"
 }
