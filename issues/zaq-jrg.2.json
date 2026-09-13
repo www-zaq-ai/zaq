@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.3"
+  ],
   "created": "2026-09-13T10:07:21Z",
   "description": "Functional specifications covered with associated files to edit/add: lib/zaq/engine/connect.ex and focused Connect mutation module if context responsibility would otherwise broaden; credential/grant changesets; test/zaq/engine/connect/* mutation tests. Define canonical create/update credential with global grant transaction boundary and grant replace/revoke/remove helpers. Validate disabled/optional require a usable canonical global grant at completed configuration save; required permits none. Do not impose completeness on legacy resource-bound credentials or OAuth setup drafts: use an explicit incomplete draft path not eligible for Person management/runtime resolution, and an atomic finalize operation. Document how OAuth required-to-optional transitions fail until usable global authorization exists. Mutating or removing an existing global grant remains possible for revocation/security even if it makes a saved configuration unusable; resolver subsequently fails closed. Person grant provider/scopes/request format come from configuration. Strict encrypted writes; no plaintext fallback. Canonical mutations serialize on credential/current-grant row with deterministic lock order; expose transaction-composable helpers for future OAuth/PersonMerger use. Revocation retains status and may clear secret payload without requiring fresh authentication fields; deletion explicitly restores absence semantics. New secure output DTOs must not expose decrypted structs or submitted changeset secrets.\n\nTests to add before implementation: atomic save rollback; policy completeness matrix for API/OAuth/JWT; existing grant retained on blank secret submission where update semantics explicitly permit it; malformed nonblank replacement rejected; required with no grant; inactive personal grants retained across transitions; concurrent replace/revoke/remove; encryption missing/invalid key and corrupt ciphertext; sentinel secrets absent from inspect/errors/DTOs and persisted metadata. Preserve legacy internal return contracts where consumers rely on them, but never route those through new public management APIs.\n\nBranches/paths validated: create/update/no-op/revoke/remove, all status transitions, stale struct input reload, auth-kind change with incompatible grants must produce credential-unavailable rather than interpreting old material under new kind. No network token validation during ordinary API-key save; usable means structural/status/local expiry validation.\n\nMocking plan: no internal mocks; use real Repo and configured encryption test support. External authentication validation, if needed, mocked only at provider HTTP edge. Documentations to update: context/moduledocs, docs/services/engine.md canonical API contracts and draft/finalize semantics, docs/services/system-config.md write-only redaction. \u003e=95% changed-file coverage; depends on storage.",
   "id": "zaq-jrg.2",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-jrg] 2. Centralize canonical grant writes and safe configuration validation",
   "type": "task",
-  "updated_at": "2026-09-13T10:09:47Z"
+  "updated_at": "2026-09-13T10:09:48Z"
 }
