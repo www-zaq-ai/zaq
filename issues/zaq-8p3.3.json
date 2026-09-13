@@ -9,9 +9,15 @@
   "id": "zaq-8p3.3",
   "labels": [],
   "parent": "zaq-8p3",
+  "comments": [
+    {
+      "text": "FINAL: mix format; MIX_ENV=test mix coveralls test/zaq/accounts test/zaq/people test/zaq/channels/people_auth_rate_limiter_test.exs test/zaq/permissions test/zaq/system test/zaq/agent/tools/accounts test/zaq/engine/people_access_config_api_test.exs test/zaq/engine/supervisor_test.exs test/zaq/application_test.exs test/zaq/node_roles_test.exs test/zaq_web/live/bo/system/people_access_config_live_test.exs --seed625 =\u003e22properties656tests0failures. Prior narrower seed2026 run6properties120tests0failures exposed teardown startup-cache SQL race; added sys barrier on restarted cache, final broad run clean. Coverage: Channels API100%(12/12),Config95.2%(20/21; uncovered exit catch),shared mechanics97.2%(36/37),Listener100%(3/3),Application100%(32/32),Engine.Supervisor100%(3/3),PeopleAuth100%(113/113),merger100%(165/165),System96.8%,PeopleAccessConfig100%. Hammer macro-only modules zero relevant lines. Scoped aggregate11.2% is not whole-suite coverage. Real peers cover both role replication groups and Engine-only/Channels-only runtimes; Channels-only has no Repo and refreshes remotely. MIX_ENV=test MIX_TEST_PARTITION=_person_alias_replay mix run --no-start test/support/person_alias_migration_replay.exs PASS, disposable DB created/dropped only. Final mix q PASS1206files no issues; git diff --check PASS; cached SHA256 unchanged698ff595767e76153e4dc4d29bf37a9c09f2132b3008e9c705a2dad46fba81b3. Nonfatal existing license_manager config warning; replay expected migration redefinition warnings. No UI changes in this split, no new E2E run. No commit,push,PR,user/dev DB reset. Docs current ownership/cache semantics/PR4 boundary updated. Remaining PR4 explicitly deferred: local precheck -\u003eone Engine resolve/eligible/issue request -\u003erecord only unknown/ineligible same response; no auth event or public login implemented.",
+      "timestamp": "2026-09-13T10:36:45Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8p3] Validate split topology replication and backend regressions",
   "type": "task",
-  "updated_at": "2026-09-13T10:29:50Z"
+  "updated_at": "2026-09-13T10:36:45Z"
 }
