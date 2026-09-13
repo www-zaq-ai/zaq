@@ -9,9 +9,15 @@
   "id": "zaq-jrg.1",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented storage-only schema/migration and encrypted change_credential_grant/3 entry point; no canonical mutation API, resolver, AI or Person management changes. Decisions: explicit secret_binding enum defaults configuration; grant mode relaxes only configuration JWT private_key requirement, retaining issuer/key_id/profile/subject checks. Canonical grant auth fields/scopes derive from trusted Credential and secrets never copy from configuration. Legacy listing/resolution/scheduled refresh filter resource lane. Person FK restricts deletion pending zaq-jrg.8. Rollback locks tables and refuses canonical grants or nondefault config. Initial TDD run: 9 expected failures; DB upgrade/down/up, constraints and independent committed race tests implemented. Rollback test moved to committed fixtures because SQL Sandbox auto-rolls back on DDL error; real Migrator test now passes with migration_lock:false (avoids sandbox single-connection lock checkout deadlock). Validation and coverage in progress; issue stays in progress.",
+      "timestamp": "2026-09-13T10:35:29Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.1] 1. Add canonical credential-bound grant storage",
   "type": "task",
-  "updated_at": "2026-09-13T10:21:07Z"
+  "updated_at": "2026-09-13T10:35:29Z"
 }
