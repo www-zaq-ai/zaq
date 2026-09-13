@@ -10,11 +10,15 @@
     {
       "text": "Plan expanded into nine independently reviewable steps: approved step 2 split into canonical mutations and durable events; approved step 5 split into OAuth authorization and refresh. Serial delivery is intentional to avoid exposing unsafe partial personal flows. Mermaid sequence: graph LR; S1[Storage] --\u003e S2[Mutations]; S2 --\u003e S3[Events]; S3 --\u003e S4[Resolver]; S4 --\u003e S5[Person API]; S5 --\u003e S6[OAuth]; S6 --\u003e S7[Refresh]; S7 --\u003e S8[Person lifecycle]; S8 --\u003e S9[Validation]. Planning only: application files unchanged; implementation tasks remain open. Existing Beadwork searches for person grant, credential policy and Connect foundation found no matching active plan.",
       "timestamp": "2026-09-13T10:09:29Z"
+    },
+    {
+      "text": "Dependency validation completed: exact blocked_by/blocks edges verified for all nine issues, all five required planning sections present, serial DAG acyclic with no diamonds. Open epics hide children in bw ready; epic activated for plan tracking, then bw ready confirmed zaq-jrg.1 as sole ready child. All implementation children remain open and no application changes have started.",
+      "timestamp": "2026-09-13T10:11:06Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg] Person-scoped Connect foundation implementation plan",
   "type": "epic",
-  "updated_at": "2026-09-13T10:10:55Z"
+  "updated_at": "2026-09-13T10:11:06Z"
 }
