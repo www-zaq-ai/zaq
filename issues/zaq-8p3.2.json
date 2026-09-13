@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-8p3.1"
+  ],
   "created": "2026-09-13T10:20:48Z",
   "description": "Owner People.AuthRateLimiter and Listener: role-specific static names/table/topic; Engine issuance stays existing API. Tests first: issuance limits, missing infrastructure, simultaneous namespaces and increments not rebroadcast. Preserve native semantics; two tiny Hammer macro modules required by fixed table naming. No mocks. Update engine/architecture ownership docs.",
   "id": "zaq-8p3.2",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8p3] Share Hammer mechanics across isolated role runtimes",
   "type": "task",
-  "updated_at": "2026-09-13T10:20:48Z"
+  "updated_at": "2026-09-13T10:20:54Z"
 }

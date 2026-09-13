@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-8p3.2"
+  ],
   "blocks": [],
   "created": "2026-09-13T10:20:47Z",
   "description": "Owner Channels.PeopleAuthRateLimiter plus Config cache; Application role-gated sibling of adapter supervisor. Tests first: nonconsuming precheck, failure threshold, invalid IP/property, background real Engine config refresh, cold/corrupt/stale fail closed, no request SQL/dispatch, issuance independent. 30s periodic refresh, snapshot valid max120s from fetch start; explicit refresh failures immediately unavailable. No new config keys or auth gateway, PR4 single-request contract documented. No mocks/test dispatcher seams.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8p3] Channels failure budget and background typed config cache",
   "type": "task",
-  "updated_at": "2026-09-13T10:20:47Z"
+  "updated_at": "2026-09-13T10:20:54Z"
 }
