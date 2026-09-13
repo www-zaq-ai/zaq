@@ -4,6 +4,7 @@
     "zaq-y28.2"
   ],
   "blocks": [],
+  "closed_at": "2026-09-13T09:29:13Z",
   "created": "2026-09-13T08:36:14Z",
   "description": "After implementation, review complete diff and exact API contracts; run mix format, mandatory mix q, focused plus broad accounts/tools/merger/permissions/config/Engine startup suites and real peer tests. Measure \u003e=95 percent new development coverage; record exact gaps and failures, never imply unrun checks passed. Backend-only no UI E2E required. Update actual shipped tables, expiry/key derivation/config consumer/topology docs only. Confirm git status and original staged tree c81dcd579e7832572a37f9b3d7df6e45e4b416cf preserved (initial worktree clean). No commit/push/PR/database reset. Report exact changed paths and test results. Tests defined before code in predecessor issues; no mock-only validation.",
   "id": "zaq-y28.3",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-y28] Validate PR3 backend and document shipped contracts",
   "type": "task",
   "updated_at": "2026-09-13T09:29:13Z"
