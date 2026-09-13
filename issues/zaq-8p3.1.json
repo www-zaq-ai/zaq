@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-8p3.2"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-8p3",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-8p3] Channels failure budget and background typed config cache",
   "type": "task",
-  "updated_at": "2026-09-13T10:20:55Z"
+  "updated_at": "2026-09-13T10:26:44Z"
 }
