@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-13T10:07:22Z",
+  "description": "Functional specifications covered with associated files to edit/add: Connect mutation boundary from step 2, new lib/zaq/engine/connect/mutation_events.ex, Oban worker in existing worker namespace, Engine Events/API only where existing event conventions require, tests for worker and transactional composition. Add durable delivery job in the same Repo transaction as committed credential/grant changes, including existing issue/revoke/delete/token-cache/refresh paths that affect grants. Reuse Oban rather than building a separate outbox subsystem. Payload is versioned allowlist: event_id, credential_id, grant_id when known, owner_type, person_id/owner_id when relevant, kind, revision, occurred_at. Capture identity before deletion. Configuration events cover all credential scopes; personal events include credential/person even if server previously used global fallback. No secret-bearing attrs or raw structs in Oban args. Rollback prevents notification; retry after committed mutation does not roll data back. Establish reusable Connect-domain notification topic/event boundary; Connect knows no Agent IDs or ServerManager APIs. Specify at-least-once delivery, duplicate identity, out-of-order behavior and retention; future consumers read current state rather than replay secrets. Broadcast via existing distributed PubSub/event infrastructure when appropriate, not a single arbitrarily routed Agent node. Delivery with no current consumer is allowed and does not imply future historical replay guarantees.\n\nTests to add before implementation: transaction/nested transaction rollback no jobs; successful commit produces exact safe payload; deletion still emits IDs; worker retry; duplicate delivery; stale event after new revision; all legacy/canonical mutation entry points covered; provider secrets absent from job/event/logs. Use real Oban test mode, real PubSub subscribers and actual Engine boundaries. Test multiple subscribers; defer actual Agent-node integration explicitly.\n\nBranches/paths validated: configuration/policy/global/person create/update/revoke/delete/refresh, unchanged mutation no spurious invalidation where safely detectable, failed encryption/DB insert, listener unavailable. Do not claim durable subscriber acknowledgment from PubSub; document how later consumers reconcile missed invalidations.\n\nMocking plan: no internal mocks; external edge only. Runtime config via Zaq.Config.get/4 and existing opts boundary if needed. Documentations to update: event module schema/moduledoc, docs/services/engine.md event transaction contract, docs/architecture.md delivery guarantees and future subscriber responsibilities. \u003e=95% changed-file coverage.",
+  "id": "zaq-jrg.3",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-jrg] 3. Publish durable secret-free credential mutation events",
+  "type": "task",
+  "updated_at": "2026-09-13T10:07:22Z"
+}
