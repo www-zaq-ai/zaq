@@ -11,9 +11,15 @@
   "id": "zaq-8p3.1",
   "labels": [],
   "parent": "zaq-8p3",
+  "comments": [
+    {
+      "text": "Implemented Channels static sibling supervision and ETS typed cache: startup +30s after completed fetch,120s age from fetch start,immediate invalidation on errors. No request DB/Engine call. Confirmed actual PeopleAuth API is Person/ID; no email auth event added,PR4 one-request orchestration deferred explicitly. Focused auth/rate/config/supervisor/merge run --seed625 passes6properties113tests; both real-peer groups converge; local APIs tested no SQL/no NodeRouter events. Cache restart/outage recovery retain counters.",
+      "timestamp": "2026-09-13T10:29:50Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8p3] Channels failure budget and background typed config cache",
   "type": "task",
-  "updated_at": "2026-09-13T10:26:44Z"
+  "updated_at": "2026-09-13T10:29:50Z"
 }
