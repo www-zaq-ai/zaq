@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-y28.4"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-y28.3"
+  ],
   "created": "2026-09-13T08:36:13Z",
   "description": "Owner PersonMerger coordinating ordinary PeopleAuth lifecycle APIs. Read moduledoc and preserve snapshot/calculate/validate-before-write architecture. Tests FIRST: survivor and every loser challenges/sessions invalidated/revoked, no transfer, deleted-loser cascades and alias tokens deny, failed outer merge restores all auth rows, revocation works with invalid config/signing configuration, concurrent issuance follows stable Person lock order. Real DB/owner contexts no internal mocks. Planned auth resources loaded with original snapshots and applied after validation inside same transaction before loser deletion; validate precise row-lock behavior from implementation. Update Engine merge and people-access docs; format, merge/accounts/permission regression tests and coverage.",
   "id": "zaq-y28.2",
