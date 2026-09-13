@@ -9,9 +9,15 @@
   "id": "zaq-y28.5",
   "labels": [],
   "parent": "zaq-y28",
+  "comments": [
+    {
+      "text": "RESOLVED by user: V1 uses native Hammer retry_after and normal fixed-window expiry; no independent cooldown deadlines/reset replication. Remove unknown_email_cooldown_seconds from active typed config/UI/tests/docs, retain legacy stored key unused. Official increment-only ETS/PubSub pattern approved; document new-node/split limitations.",
+      "timestamp": "2026-09-13T08:45:47Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-y28] Resolve Hammer cooldown synchronization approval",
   "type": "task",
-  "updated_at": "2026-09-13T08:36:29Z"
+  "updated_at": "2026-09-13T08:45:47Z"
 }
