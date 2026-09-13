@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-y28.1"
+  ],
   "blocks": [],
   "created": "2026-09-13T08:36:16Z",
   "description": "Conditional on explicit cooldown synchronization approval and architecture review. Owner Zaq.People.AuthRateLimiter and Engine supervisor; read moduledocs before editing. Tests FIRST through real Hammer and PubSub: distinct person/IP send budgets, failed-identification-only IP accounting, tagged fail-closed typed config reads every operation, independent cooldown not extended while blocked, fresh budget after expiry, config changes, actual peer convergence and Engine-only startup. No email keys or SQL counters. Trusted canonical IP tuples only. Dependency candidate hammer 7.5.0 built-in ETS plus official application-owned PubSub pattern; no dependency added yet. No library mocks; controllable supported clock or minimal justified elapsed-time tests. Document topology, accepted overshoot and restart/partition limits honestly. Update people-access and Engine docs; format, tests, coverage.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-y28] Implement approved distributed authentication limiter",
   "type": "task",
-  "updated_at": "2026-09-13T08:36:16Z"
+  "updated_at": "2026-09-13T08:36:29Z"
 }
