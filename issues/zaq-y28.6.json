@@ -11,6 +11,12 @@
   "id": "zaq-y28.6",
   "labels": [],
   "parent": "zaq-y28",
+  "comments": [
+    {
+      "text": "Approved V1: use Hammer 7.5 fixed windows and native retry_after, no independent cooldown state. Remove deprecated cooldown schema/UI control, preserve old DB key ignored. Include scale in namespaced keys to avoid collisions when runtime windows change. Tests first for non-consuming IP precheck, invalid-only accounting, separate send budgets, current config and backend unavailable. New migration 20260910160000 intentionally precedes normalization replay; existing applied migrations unchanged. Schema red phase missing module, green 3 tests.",
+      "timestamp": "2026-09-13T08:48:58Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-y28] Implement approved distributed authentication limiter",
