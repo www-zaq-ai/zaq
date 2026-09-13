@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-jrg.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jrg.1] 1. Add canonical credential-bound grant storage",
   "type": "task",
-  "updated_at": "2026-09-13T10:10:08Z"
+  "updated_at": "2026-09-13T10:21:07Z"
 }
