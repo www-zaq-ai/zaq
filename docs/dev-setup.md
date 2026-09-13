@@ -2,6 +2,15 @@
 
 ## Getting Started
 
+Before running any migrations, have a DBA create the target database, credentials
+and extensions using one of the [database setup scripts](database-setup.md). Repeat for the separately
+named test and E2E databases before their first migration. `mix setup`, `mix test`
+and E2E bootstrap only verify extensions; they do not install them. After dropping
+a database, rerun DBA bootstrap before migrating again. Configure `DB_USER` and
+`DB_PASSWORD` with the new owner credentials for local development. Bootstrap
+refuses any existing `schema_migrations`, even an empty ledger; use explicit DBA
+maintenance for already-migrated databases rather than rerunning bootstrap.
+
 ```bash
 mix setup && mix phx.server   # http://localhost:4000/bo
 ```
@@ -126,6 +135,14 @@ Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
 ---
 
 ## Docker Storage Defaults
+
+Docker Compose automatically provisions a fresh bundled database before starting
+ZAQ, using a one-shot invocation of the ZAQ image. Subsequent Compose starts validate
+the installation rather than replaying DBA setup. ZAQ uses the existing owner
+`DATABASE_URL` environment variable; provisioning uses separate DBA credentials and
+the supplied owner/reader passwords. There are no generated credential files or
+credential volumes. See [database bootstrap](database-setup.md#docker-image-and-automatic-compose-bootstrap)
+for required environment variables, restart behavior and legacy database handling.
 
 For containerized runs, ZAQ defaults to:
 

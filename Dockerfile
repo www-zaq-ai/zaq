@@ -89,8 +89,18 @@ RUN agent-browser --version && chromium --version
 # Keep app last: an ordinary docker build still produces the production release.
 FROM browser-runtime AS app
 
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends postgresql-client && \
+    rm -rf /var/lib/apt/lists/*
+
 ENV MIX_ENV=prod PHX_SERVER=true
 COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/zaq ./
+COPY scripts/setup_postgres_extensions.sql scripts/setup_paradedb_extensions.sql \
+     scripts/setup_database_begin.sql scripts/setup_database_finish.sql \
+     scripts/docker_database_receipt.sql scripts/docker_database_status.sql \
+     scripts/docker_database_validate.sql scripts/docker_database_setup.sql \
+     scripts/docker_database_authenticate.sql scripts/docker_entrypoint.sh \
+     scripts/provision_database.sh /app/db-bootstrap/
 
 RUN python3 -m venv /app/.venv && \
     /app/.venv/bin/pip install --no-cache-dir -r /app/lib/zaq-*/priv/python/crawler-ingest/requirements.txt && \
@@ -98,4 +108,5 @@ RUN python3 -m venv /app/.venv && \
 
 USER appuser
 
-CMD ["/bin/sh", "-c", "/app/bin/zaq eval \"Zaq.Release.migrate()\" && exec /app/bin/zaq start"]
+ENTRYPOINT ["/bin/sh", "/app/db-bootstrap/docker_entrypoint.sh"]
+CMD ["server"]

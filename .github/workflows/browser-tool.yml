@@ -69,6 +69,9 @@ jobs:
       - name: Install test dependencies
         run: mix deps.get
 
+      - name: Provision database extensions as DBA
+        run: mix run --no-start .github/scripts/provision-test-database.exs paradedb
+
       - name: Exercise the real browser tool through the agent
         run: mix test test/zaq/agent/browser_flow_integration_test.exs --include real_browser
 

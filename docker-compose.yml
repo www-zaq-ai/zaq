@@ -1,36 +1,58 @@
+x-zaq-image: &zaq-image
+  image: zaq-local:dev
+  build:
+    context: .
+    dockerfile: Dockerfile
+
 services:
   postgres:
     image: pgvector/pgvector:pg18
     container_name: zaq-postgres
     environment:
-      POSTGRES_DB: zaq_prod
+      POSTGRES_DB: postgres
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d zaq_prod"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 20
     restart: unless-stopped
-  zaq:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: zaq-app
+  db-provision:
+    <<: *zaq-image
+    command: ["provision-db", "--automatic"]
     depends_on:
       postgres:
         condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+      PGDATABASE: postgres
+      PGPASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      ZAQ_DATABASE: "${ZAQ_DATABASE:-zaq_prod}"
+      ZAQ_OWNER: "${ZAQ_OWNER:-zaq_owner}"
+      ZAQ_READER: "${ZAQ_READER:-zaq_reader}"
+      ZAQ_OWNER_PASSWORD: "${ZAQ_OWNER_PASSWORD:?Set the password used by DATABASE_URL}"
+      ZAQ_READER_PASSWORD: "${ZAQ_READER_PASSWORD:?Set the read-only database password}"
+      DATABASE_URL: "${DATABASE_URL:?Set the application-owner database URL}"
+    restart: "no"
+  zaq:
+    <<: *zaq-image
+    container_name: zaq-app
+    depends_on:
+      db-provision:
+        condition: service_completed_successfully
     ports:
       - "4000:4000"
     environment:
       PHX_SERVER: "true"
       PORT: "4000"
       PHX_HOST: "localhost"
-      DATABASE_URL: "${DATABASE_URL:-ecto://postgres:postgres@postgres:5432/zaq_prod}"
+      DATABASE_URL: "${DATABASE_URL:?Set the application-owner database URL}"
       SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
       # LLM, Embedding, and Image-to-Text settings are configured
       # via the back-office UI at /bo/system-config (persisted in the database).
