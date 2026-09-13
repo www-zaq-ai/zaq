@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-13T08:36:13Z",
+  "description": "Owner PersonMerger coordinating ordinary PeopleAuth lifecycle APIs. Read moduledoc and preserve snapshot/calculate/validate-before-write architecture. Tests FIRST: survivor and every loser challenges/sessions invalidated/revoked, no transfer, deleted-loser cascades and alias tokens deny, failed outer merge restores all auth rows, revocation works with invalid config/signing configuration, concurrent issuance follows stable Person lock order. Real DB/owner contexts no internal mocks. Planned auth resources loaded with original snapshots and applied after validation inside same transaction before loser deletion; validate precise row-lock behavior from implementation. Update Engine merge and people-access docs; format, merge/accounts/permission regression tests and coverage.",
+  "id": "zaq-y28.2",
+  "labels": [],
+  "parent": "zaq-y28",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-y28] Revoke all merge participants authentication atomically",
+  "type": "task",
+  "updated_at": "2026-09-13T08:36:13Z"
+}
