@@ -7,6 +7,8 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.PeoplePermissionGrant
+  alias Zaq.Accounts.PeoplePermissions
   alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
@@ -62,6 +64,98 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
   end
 
   # ── Mount ─────────────────────────────────────────────────────────────────
+
+  test "permissions tab writes independent desired states and reloads explicit grants", %{
+    conn: conn
+  } do
+    Repo.delete_all(PeoplePermissionGrant)
+    team = team_fixture()
+    person = person_fixture()
+    {:ok, view, _} = live(conn, ~p"/bo/people?person_id=#{person.id}")
+    render_click(view, "switch_tab", %{"tab" => "permissions"})
+    assert has_element?(view, "#people-permissions-table")
+    refute has_element?(view, "#people-detail-pane")
+    selector = "#permission-team-#{team.id}-share_conversations"
+    view |> element(selector) |> render_click()
+    assert has_element?(view, selector <> "[checked]")
+    refute has_element?(view, "#permission-team-#{team.id}-access_message_history[checked]")
+    params = %{"scope" => "all_people", "permission" => "access_profile", "enabled" => true}
+    render_click(view, "set_permission", params)
+    render_click(view, "set_permission", params)
+    assert has_element?(view, "#permission-all_people-access_profile[checked]")
+    render_click(view, "set_permission", %{params | "enabled" => false})
+    refute has_element?(view, "#permission-all_people-access_profile[checked]")
+    render_click(view, "switch_tab", %{"tab" => "teams"})
+    render_click(view, "switch_tab", %{"tab" => "permissions"})
+    assert has_element?(view, selector <> "[checked]")
+  end
+
+  test "permissions rejects forged input and survives a deleted matrix team", %{conn: conn} do
+    Repo.delete_all(PeoplePermissionGrant)
+    team = team_fixture()
+    {:ok, view, _} = live(conn, ~p"/bo/people")
+    render_click(view, "switch_tab", %{"tab" => "permissions"})
+
+    for params <- [
+          %{},
+          %{"scope" => "all_people", "permission" => "access_profile"},
+          %{"scope" => "all_people", "permission" => "access_profile", "enabled" => "false"},
+          %{"scope" => "person-1", "permission" => "access_profile", "enabled" => true},
+          %{"scope" => "all_people", "permission" => %{}, "enabled" => true}
+        ] do
+      assert render_click(view, "set_permission", params) =~ "Invalid permission change"
+      assert PeoplePermissions.list_grants() == []
+    end
+
+    for enabled <- [true, false] do
+      assert render_click(view, "set_permission", %{
+               "scope" => "all_people",
+               "permission" => "unknown",
+               "enabled" => enabled
+             }) =~ "Permission change failed"
+
+      assert PeoplePermissions.list_grants() == []
+      assert has_element?(view, "#people-permissions-table")
+    end
+
+    {:ok, _} = People.delete_team(team)
+
+    assert view |> element("#permission-team-#{team.id}-access_profile") |> render_click() =~
+             "Permission change failed"
+
+    refute has_element?(view, "#permission-team-#{team.id}-access_profile")
+    render_click(view, "switch_tab", %{"tab" => "never-an-atom-people"})
+    assert has_element?(view, "#people-permissions-table")
+    render_click(view, "switch_tab", %{})
+    assert has_element?(view, "#people-permissions-table")
+  end
+
+  test "permissions matrix works with no teams and person selection returns to People", %{
+    conn: conn
+  } do
+    Repo.delete_all(PeoplePermissionGrant)
+    Repo.delete_all(Zaq.Accounts.Team)
+    person = person_fixture()
+    {:ok, view, _} = live(conn, ~p"/bo/people")
+    render_click(view, "switch_tab", %{"tab" => "permissions"})
+
+    assert has_element?(view, "#people-permissions-table thead tr th:nth-child(2)", "All People")
+    refute has_element?(view, "#people-permissions-table thead tr th:nth-child(3)")
+
+    for permission <- ~w(access_profile access_message_history share_conversations) do
+      assert has_element?(view, "#permission-all_people-#{permission}")
+    end
+
+    view |> element("#permission-all_people-share_conversations") |> render_click()
+    assert has_element?(view, "#permission-all_people-share_conversations[checked]")
+    render_click(view, "switch_tab", %{"tab" => "people"})
+    render_click(view, "select_person", %{"id" => to_string(person.id)})
+    assert has_element?(view, "#people-detail-pane")
+    render_click(view, "switch_tab", %{"tab" => "permissions"})
+    render_patch(view, ~p"/bo/people?person_id=#{person.id}")
+    assert has_element?(view, "#people-detail-pane")
+    refute has_element?(view, "#people-permissions-table")
+  end
 
   for platform <- ["email", "telegram"],
       same_person <- [true, false],

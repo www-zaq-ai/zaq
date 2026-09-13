@@ -39,19 +39,21 @@
   </ZaqWeb.Components.BOModal.form_dialog>
 
   <ZaqWeb.Components.MasterDetailLayout.master_detail
-    show_detail={not is_nil(@selected_person)}
+    show_detail={@active_tab == :people and not is_nil(@selected_person)}
     master_id="people-master-pane"
+    master_when_no_detail_class="w-full min-w-0"
     detail_id="people-detail-pane"
   >
     <:master>
-      <div class="zaq-master-pane-toolbar">
+      <div class="zaq-master-pane-toolbar flex-wrap">
         <DSToggle.toggle
           value={Atom.to_string(@active_tab)}
           event="switch_tab"
           value_param="tab"
           choices={[
             %{value: "people", label: "People"},
-            %{value: "teams", label: "Teams"}
+            %{value: "teams", label: "Teams"},
+            %{value: "permissions", label: "Permissions"}
           ]}
         />
         <DSButton.button
@@ -95,6 +97,62 @@
         total_count={@total_count}
       />
       <.teams_tab :if={@active_tab == :teams} teams={@teams} />
+      <div :if={@active_tab == :permissions} id="people-permissions" class="min-w-0 max-w-full">
+        <%= if @permissions_matrix do %>
+          <div
+            id="people-permissions-state"
+            phx-hook="PeoplePermissions"
+            data-generation={@permissions_generation}
+          >
+            <DSTable.table
+              id="people-permissions-table"
+              min_width="640px"
+              wrapper_class="relative overflow-x-auto max-w-full"
+            >
+              <:head>
+                <DSTable.table_head_row>
+                  <DSTable.table_cell element={:th} nowrap>Permission</DSTable.table_cell>
+                  <DSTable.table_cell :for={column <- @permissions_matrix.scopes} element={:th}>
+                    <span class="block min-w-32 max-w-64 break-words">{column.label}</span>
+                  </DSTable.table_cell>
+                </DSTable.table_head_row>
+              </:head>
+              <:body>
+                <DSTable.table_row :for={row <- @permissions_matrix.rows}>
+                  <DSTable.table_cell element={:th} nowrap>{row.label}</DSTable.table_cell>
+                  <DSTable.table_cell :for={column <- @permissions_matrix.scopes}>
+                    <DSSwitch.switch
+                      id={"permission-#{permission_scope_key(column.scope)}-#{row.permission}"}
+                      label={"#{row.label} — #{column.label} (#{permission_scope_key(column.scope)})"}
+                      class="zaq-permission-switch relative [&_.zaq-switch-text]:sr-only"
+                      checked={MapSet.member?(row.grants, column.scope)}
+                      form_hidden={false}
+                      phx-click={
+                        JS.push("set_permission",
+                          value: %{
+                            scope: permission_scope_key(column.scope),
+                            permission: Atom.to_string(row.permission),
+                            enabled: not MapSet.member?(row.grants, column.scope)
+                          }
+                        )
+                      }
+                    />
+                  </DSTable.table_cell>
+                </DSTable.table_row>
+              </:body>
+            </DSTable.table>
+          </div>
+        <% else %>
+          <p class="zaq-text-body">Permissions need to be reloaded before making changes.</p>
+          <DSButton.button
+            id="reload-people-permissions"
+            variant={:secondary}
+            phx-click="reload_permissions"
+          >
+            Reload permissions
+          </DSButton.button>
+        <% end %>
+      </div>
     </:master>
 
     <:detail>

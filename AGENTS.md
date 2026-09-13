@@ -58,6 +58,7 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 | BO authentication & authorization              | `docs/services/bo-auth.md`       |
 | Channels, adapters, Mattermost                 | `docs/services/channels.md`      |
 | Engine, conversations, notifications, dispatch | `docs/services/engine.md`        |
+| People capability grants, resolution, BO matrix | `docs/services/people-access.md` |
 | Ingestion pipeline, chunking, embedding        | `docs/services/ingestion.md`     |
 | Onboarding, portal provisioning, consent       | `docs/services/onboarding.md`    |
 | Add-ons loading & feature gating               | `docs/services/addons.md`       |

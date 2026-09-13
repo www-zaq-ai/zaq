@@ -68,6 +68,148 @@ test.describe("People", () => {
 
   // ── Navigation ────────────────────────────────────────────────────────────
 
+  test("permissions persist independent global and team grants with keyboard and mobile scrolling", async ({ page }, testInfo) => {
+    test.setTimeout(120_000)
+    await page.locator('[phx-value-tab="permissions"]').click()
+    // Reset leaves no user-created teams; the existing Everyone system team remains.
+    await expect(page.locator("#people-permissions-table thead th")).toHaveText(["Permission", "All People", "Everyone"])
+    await expect(page.locator('#people-permissions-table input[aria-checked="true"]')).toHaveCount(0)
+    await page.locator(SEL.tabTeams).click()
+    const teamNames = Array.from({ length: 5 }, (_, n) => `Permissions ${Date.now()} ${n} very long team name for responsive layout`)
+    for (const name of teamNames) {
+      await page.locator(SEL.newTeamButton).click()
+      await page.locator(SEL.teamNameInput).fill(name)
+      await page.locator(SEL.saveTeamButton).click()
+      await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
+    }
+    await page.locator('[phx-value-tab="permissions"]').click()
+    const globalProfile = page.locator("#permission-all_people-access_profile")
+    const globalHistory = page.locator("#permission-all_people-access_message_history")
+    const teamShare = page.getByRole("switch", { name: new RegExp(`Share conversations — ${teamNames[0]}`) })
+    await expect(globalProfile).not.toBeChecked()
+    await globalProfile.focus()
+    await expect(globalProfile).toBeFocused()
+    await page.keyboard.press("Space")
+    await expect(globalProfile).toHaveAttribute("aria-checked", "true")
+    await expect(globalProfile).toBeChecked()
+    expect(await globalProfile.evaluate(input => getComputedStyle(input.nextElementSibling).outlineStyle)).toBe("solid")
+    await teamShare.locator("..").click()
+    await expect(teamShare).toHaveAttribute("aria-checked", "true")
+    await expect(globalHistory).not.toBeChecked()
+    const teamHistory = page.getByRole("switch", { name: new RegExp(`Access message history — ${teamNames[0]}`) })
+    await expect(teamHistory).not.toBeChecked()
+    await page.reload()
+    await waitForServerRoundTrip(page)
+    await page.locator('[phx-value-tab="permissions"]').click()
+    await expect(globalProfile).toBeChecked()
+    await expect(teamShare).toBeChecked()
+    await expect(teamHistory).not.toBeChecked()
+    await globalProfile.locator("..").click()
+    await expect(globalProfile).toHaveAttribute("aria-checked", "false")
+    await expect(teamShare).toBeChecked()
+    await page.screenshot({ path: testInfo.outputPath("people-permissions-desktop.png") })
+
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.locator("#sidebar-toggle").click()
+    await expect(page.locator("#bo-sidebar")).toHaveClass(/collapsed/)
+    await expect.poll(() => page.locator("#bo-sidebar").evaluate(sidebar => Math.round(sidebar.getBoundingClientRect().width))).toBe(60)
+    await page.evaluate(() => window.scrollTo(0, 0))
+    // The existing BO header has its own minimum width. The matrix must remain
+    // inside the viewport and must not add to that existing shell overflow.
+    const shellWidth = await page.locator("#bo-main > header").evaluate(header => Math.ceil(header.getBoundingClientRect().left + window.scrollX + header.scrollWidth))
+    const dimensions = await page.locator("#people-permissions-table").evaluate(table => ({
+      scroll: table.parentElement.scrollWidth,
+      width: table.parentElement.clientWidth,
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      right: table.parentElement.getBoundingClientRect().right,
+      left: table.parentElement.getBoundingClientRect().left,
+    }))
+    expect(dimensions.scroll).toBeGreaterThan(dimensions.width)
+    expect(dimensions.right).toBeLessThanOrEqual(dimensions.viewport)
+    expect(dimensions.left).toBeGreaterThanOrEqual(0)
+    expect(dimensions.width).toBeGreaterThan(200)
+    expect(dimensions.document).toBeLessThanOrEqual(shellWidth)
+    await page.locator("#people-permissions-table").evaluate(table => { table.parentElement.scrollLeft = table.parentElement.scrollWidth })
+    await expect.poll(() => page.locator("#people-permissions-table").evaluate(table => table.parentElement.scrollLeft)).toBeGreaterThan(0)
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await expect(page.locator("#people-permissions-table")).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath("people-permissions-mobile.png") })
+    await globalHistory.focus()
+    await page.keyboard.press("Space")
+    await expect(globalHistory).toHaveAttribute("aria-checked", "true")
+  })
+
+  for (const granted of [true, false]) {
+    test(`reconciles native permission checkbox after rejected ${granted ? "revoke" : "grant"} with unchanged authority`, async ({ page }) => {
+      await page.locator('[phx-value-tab="permissions"]').click()
+      const control = page.locator("#permission-all_people-access_profile")
+      if (await control.isChecked() !== granted) {
+        await control.locator("..").click()
+        await expect(control).toHaveAttribute("aria-checked", String(granted))
+      }
+
+      // Change only the outgoing permission. Keep the real native click, valid
+      // scope and desired boolean; the canonical write boundary must reject it.
+      await control.evaluate(input => {
+        const commands = JSON.parse(input.getAttribute("phx-click"))
+        commands.find(([command]) => command === "push")[1].value.permission = "unknown_permission"
+        input.setAttribute("phx-click", JSON.stringify(commands))
+        input.addEventListener("click", () => { window.permissionNativeChecked = input.checked }, { once: true })
+      })
+      await control.locator("..").click()
+      expect(await page.evaluate(() => window.permissionNativeChecked)).toBe(!granted)
+      // This is the mutation error branch, not the malformed browser-state branch.
+      await expect(page.locator("#flash-error")).toContainText("Permission change failed")
+      await expect(control).toBeChecked({ checked: granted })
+      await expect(control).toHaveAttribute("aria-checked", String(granted))
+
+      await page.reload()
+      await waitForServerRoundTrip(page)
+      await page.locator('[phx-value-tab="permissions"]').click()
+      await expect(control).toBeChecked({ checked: granted })
+      await expect(control).toHaveAttribute("aria-checked", String(granted))
+      if (granted) {
+        await control.locator("..").click()
+        await expect(control).toHaveAttribute("aria-checked", "false")
+      }
+    })
+  }
+
+  test("reconciles native permission checkbox after malformed and no-op attempts", async ({ page }) => {
+    await page.locator('[phx-value-tab="permissions"]').click()
+    const control = page.locator("#permission-all_people-access_profile")
+    for (const granted of [false, true]) {
+      if (await control.isChecked() !== granted) {
+        await control.locator("..").click()
+        await expect(control).toHaveAttribute("aria-checked", String(granted))
+      }
+      const original = await control.getAttribute("phx-click")
+      for (const payload of [{ enabled: granted }, { enabled: "false" }, { scope: "person-1" }]) {
+        await control.evaluate((input, { original, payload }) => {
+          const commands = JSON.parse(original)
+          Object.assign(commands.find(([command]) => command === "push")[1].value, payload)
+          input.setAttribute("phx-click", JSON.stringify(commands))
+          input.addEventListener("click", () => { window.permissionNativeChecked = input.checked }, { once: true })
+        }, { original, payload })
+        await control.locator("..").click()
+        expect(await page.evaluate(() => window.permissionNativeChecked)).toBe(!granted)
+        await waitForServerRoundTrip(page)
+        await expect(control).toBeChecked({ checked: granted })
+        await expect(control).toHaveAttribute("aria-checked", String(granted))
+        if (typeof payload.enabled === "string" || payload.scope) {
+          await expect(page.locator("#flash-error")).toContainText("Invalid permission change")
+        }
+      }
+      await page.reload()
+      await waitForServerRoundTrip(page)
+      await page.locator('[phx-value-tab="permissions"]').click()
+      await expect(control).toBeChecked({ checked: granted })
+    }
+    await control.locator("..").click()
+    await expect(control).toHaveAttribute("aria-checked", "false")
+  })
+
   test("registers only the People opt-ins alongside existing app hooks", async ({ page }) => {
     const registered = await page.evaluate(() => Object.keys(window.liveSocket.hooks))
 
@@ -76,7 +218,7 @@ test.describe("People", () => {
       "CronCountdown", "DetailsKeepOpen", "DownloadFile", "FlashAutoDismiss",
       "FocusAndSelect", "FocusInput", "FolderDrop", "JsonTree",
       "LoadingActionButton", "MarkdownHighlight", "OAuthPopupListener", "OntologyTree",
-      "PeopleBulkDeleteDialog", "ScrollBottom", "ScrollToFirstError", "SearchableSelect",
+      "PeopleBulkDeleteDialog", "PeoplePermissions", "ScrollBottom", "ScrollToFirstError", "SearchableSelect",
       "WorkflowExport", "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox", "liveViewHooks",
     ].sort())
     expect(registered).not.toContain("DetectTimezone")
