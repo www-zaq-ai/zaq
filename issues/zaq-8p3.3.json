@@ -4,6 +4,8 @@
     "zaq-8p3.1"
   ],
   "blocks": [],
+  "closed_at": "2026-09-13T10:36:46Z",
+  "close_reason": "Validated uncommitted split; all gates pass, scoped new code \u003e=95%.",
   "created": "2026-09-13T10:20:48Z",
   "description": "Tests first additions to real two-BEAM peer helper: both role replication groups and role-only runtimes no collisions or contamination. Run auth/concurrency/merge/config/supervisor tests, scoped coverage \u003e=95 or record exact exception/follow-up, mix format and mix q, staged digest preservation. Update current ownership/API docs with PR4 deferred precheck -\u003e one Engine resolve/eligible/issue -\u003e record only unknown/ineligible response, no public login implemented. No migrations changed; no user database reset.",
   "id": "zaq-8p3.3",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8p3] Validate split topology replication and backend regressions",
   "type": "task",
-  "updated_at": "2026-09-13T10:36:45Z"
+  "updated_at": "2026-09-13T10:36:46Z"
 }
