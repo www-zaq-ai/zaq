@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-13T08:36:15Z",
+  "description": "BLOCKER: https://hexdocs.pm/hammer/7.5.0/distributed-ets.html documents an application-owned Phoenix.PubSub listener receiving only {:inc,key,scale,increment} and invoking Local.inc. Hammer.ETS itself is local; no separate hammer_backend_ets dependency. v7.5.0 lib/hammer/ets/fix_window.ex and fix_window_per_key.ex expose local set/get/expires_at, without synchronized cooldown/reset. Guide explicitly leaves new-node empty counters and net-split recovery uncovered. Need user decision whether to authorize ZAQ-owned replication extension for independent non-extending cooldown and fresh post-cooldown budget, including delayed increments/reset ordering, or adjust cooldown semantics to documented increment-only behavior. No claim that basic distributed ETS/PubSub is unsupported. Before implementation, validate concrete scenarios: cooldown shorter/longer than failure window, cross-node threshold, reset with delayed hits, configuration changes, restart/partition semantics. No production edits while blocked; sources checked read-only; no mocks or automated tests needed for this research. Record decision and pinned dependency in this issue.",
+  "id": "zaq-y28.5",
+  "labels": [],
+  "parent": "zaq-y28",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-y28] Resolve Hammer cooldown synchronization approval",
+  "type": "task",
+  "updated_at": "2026-09-13T08:36:15Z"
+}
