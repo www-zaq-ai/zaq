@@ -43,6 +43,7 @@ defmodule Zaq.Agent.Factory do
     ],
     tools: []
 
+  alias Jido.Agent.Strategy.State, as: StrategyState
   alias Jido.AI.Context, as: AIContext
   alias Jido.AI.Skill.AgentIntegration
 
@@ -63,6 +64,24 @@ defmodule Zaq.Agent.Factory do
     super()
     |> Keyword.delete(:model)
   end
+
+  @impl true
+  def on_before_cmd(agent, {:ai_react_start, _params} = action) do
+    # Jido builds worker budgets from strategy config, not ask options. Resolve
+    # from the live registry so hot-added/removed tools affect the next run only.
+    config = Jido.AI.get_strategy_config(agent)
+    default_timeout = Keyword.fetch!(strategy_opts(), :tool_timeout_ms)
+    timeout = max(tool_timeout_ms(config.tools) || default_timeout, default_timeout)
+
+    agent =
+      StrategyState.update(agent, fn state ->
+        put_in(state, [:config, :tool_timeout_ms], timeout)
+      end)
+
+    super(agent, action)
+  end
+
+  def on_before_cmd(agent, action), do: super(agent, action)
 
   @impl Jido.AI.ToolInterceptor
   def before_tool_call(tool_call, context) do
@@ -248,19 +267,8 @@ defmodule Zaq.Agent.Factory do
         |> Keyword.put_new(:timeout, 300_000)
         |> put_runtime_tool_context(skill_integration)
         |> put_context_window(config)
-        |> maybe_put_tool_timeout(config)
 
       ask_stream(server, query, ask_opts)
-    end
-  end
-
-  # Raise the run's per-tool react timeout when an enabled tool needs more than
-  # jido_ai's 15s default. Factory holds no per-tool knowledge — each tool
-  # declares its own minimum (see `tool_timeout_ms/1`).
-  defp maybe_put_tool_timeout(opts, config) do
-    case config |> Map.get(:tools, []) |> tool_timeout_ms() do
-      nil -> opts
-      ms -> Keyword.put_new(opts, :tool_timeout_ms, ms)
     end
   end
 
@@ -308,6 +316,10 @@ defmodule Zaq.Agent.Factory do
   it requires via an optional `tool_timeout_ms/0` on its module. This maps
   generically over the enabled tool modules and takes the maximum — Factory holds
   no per-tool knowledge; tools that declare nothing keep the responsive default.
+
+  Before each request, Factory applies this minimum to Jido's strategy config
+  using the live registered tools. Removing the last declaring tool restores the
+  inherited strategy default; ask options do not configure execution budgets.
   """
   @spec tool_timeout_ms([module()]) :: pos_integer() | nil
   def tool_timeout_ms(tools) when is_list(tools) do
