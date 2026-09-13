@@ -15,11 +15,15 @@
     {
       "text": "Approved V1: use Hammer 7.5 fixed windows and native retry_after, no independent cooldown state. Remove deprecated cooldown schema/UI control, preserve old DB key ignored. Include scale in namespaced keys to avoid collisions when runtime windows change. Tests first for non-consuming IP precheck, invalid-only accounting, separate send budgets, current config and backend unavailable. New migration 20260910160000 intentionally precedes normalization replay; existing applied migrations unchanged. Schema red phase missing module, green 3 tests.",
       "timestamp": "2026-09-13T08:48:58Z"
+    },
+    {
+      "text": "Limiter/config tests green: 2 properties, 14 tests; native fixed-window retry documented; active config eight fields, legacy key preserved. Installed hammer 7.5.0; adapter broadcast uses current Phoenix.PubSub broadcast/4 API. Peer and unavailable/window-expiry validation pending in final validation step.",
+      "timestamp": "2026-09-13T08:58:49Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-y28] Implement approved distributed authentication limiter",
   "type": "task",
-  "updated_at": "2026-09-13T08:48:58Z"
+  "updated_at": "2026-09-13T08:58:49Z"
 }
