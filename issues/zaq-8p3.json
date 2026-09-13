@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-13T10:20:30Z",
+  "description": "Approved follow-up to zaq-y28 in current worktree. Preserve staging and existing changes; no commit/push/PR/reset. Shared Hammer mechanics with role-local ETS/listener namespaces. Channels owns failed identification only with cached typed config; Engine keeps issuance and persisted verification. PR4 owns future single resolve/eligible/issue request and delivery. Linear DAG graph LR; mechanics--\u003echannels--\u003evalidation. Tests first per child; real boundaries, no dispatcher injection.",
+  "id": "zaq-8p3",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-y28] Minimal V1 authentication rate ownership split",
+  "type": "epic",
+  "updated_at": "2026-09-13T10:20:30Z"
+}
