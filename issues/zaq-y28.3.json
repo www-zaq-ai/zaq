@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-y28.2"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-y28",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-y28] Validate PR3 backend and document shipped contracts",
   "type": "task",
-  "updated_at": "2026-09-13T08:36:30Z"
+  "updated_at": "2026-09-13T09:15:51Z"
 }
