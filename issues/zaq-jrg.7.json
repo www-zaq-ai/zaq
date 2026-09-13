@@ -13,7 +13,7 @@
   "parent": "zaq-jrg",
   "priority": 2,
   "status": "open",
-  "title": "[zaq-jrg] 7. Make OAuth refresh safe against grant replacement and revocation",
+  "title": "[zaq-jrg.7] 7. Make OAuth refresh safe against grant replacement and revocation",
   "type": "task",
-  "updated_at": "2026-09-13T10:09:49Z"
+  "updated_at": "2026-09-13T10:10:11Z"
 }
