@@ -11,6 +11,12 @@
   "id": "zaq-y28.2",
   "labels": [],
   "parent": "zaq-y28",
+  "comments": [
+    {
+      "text": "Test-first merge red: three assertions showed survivor sessions not revoked. Implemented auth snapshots, planned changeset validation and generic invalidate/revoke-all before merge writes; green auth/merge/concurrency/historical normalization run: 3 properties, 31 tests. Loser cascade and no transfer verified; outer rollback restores both sides, corrupt config cannot block revocation.",
+      "timestamp": "2026-09-13T09:15:50Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-y28] Revoke all merge participants authentication atomically",
