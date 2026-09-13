@@ -6,9 +6,15 @@
   "description": "Approved follow-up to zaq-y28 in current worktree. Preserve staging and existing changes; no commit/push/PR/reset. Shared Hammer mechanics with role-local ETS/listener namespaces. Channels owns failed identification only with cached typed config; Engine keeps issuance and persisted verification. PR4 owns future single resolve/eligible/issue request and delivery. Linear DAG graph LR; mechanics--\u003echannels--\u003evalidation. Tests first per child; real boundaries, no dispatcher injection.",
   "id": "zaq-8p3",
   "labels": [],
+  "comments": [
+    {
+      "text": "Delivered approved minimal split in existing worktree. Production paths changed for this split: lib/zaq/people/auth_rate_limiter.ex and auth_rate_limiter/listener.ex; lib/zaq/channels/people_auth_rate_limiter.ex plus people_auth_rate_limiter/config.ex and local.ex; lib/zaq/application.ex; Engine supervisor moduledoc. Tests: test/zaq/channels/people_auth_rate_limiter_test.exs, test/zaq/people/auth_rate_limiter_test.exs and auth_rate_limiter_peer_test.exs, test/support/people_auth_peer.ex, test/zaq/accounts/people_auth_test.exs, test/zaq/application_test.exs. Docs: architecture and services channels/engine/people-access/system-config. Original staged snapshot exact and preexisting PR3 work preserved. Final evidence in zaq-8p3.3. No blockers; public orchestration intentionally PR4.",
+      "timestamp": "2026-09-13T10:36:46Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-y28] Minimal V1 authentication rate ownership split",
   "type": "epic",
-  "updated_at": "2026-09-13T10:20:30Z"
+  "updated_at": "2026-09-13T10:36:46Z"
 }
