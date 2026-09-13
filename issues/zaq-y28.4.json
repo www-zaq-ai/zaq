@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-y28.6"
+  ],
   "blocks": [],
   "created": "2026-09-13T08:36:14Z",
   "description": "Owner new Zaq.Accounts.PeopleAuth; inspect People/PeoplePermissions/config and existing credential conventions before API finalization. Tests FIRST: issue/supersede, opaque id/code verification, malformed real challenge attempts commit, current max attempts/config/active/access_profile checks, fixed expiry, single-use consume plus session insert rollback, concurrent issuance/verification/revoke-all using independent connections, missing/deleted Person deny, key rotation and no plaintext persistence/logging. Cryptographic eight ASCII digits rejection sampling; whitespace/hyphen normalization property; challenge-bound HMAC key derived Plug.Crypto.KeyGenerator from existing effective secret_key_base with explicit versioned purpose label. 32 random-byte urlsafe session token returned once, SHA256 digest only. Generic invalidate challenges/revoke-all sessions, authenticate/list/touch/revoke contracts; revocation independent of config/eligibility. Real internal boundaries, no production testhooks, no gateway/events/notification/UI. Document exact final APIs in people-access/system-config docs; format, focused tests, 95 percent coverage.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-y28] Implement atomic People authentication lifecycle",
   "type": "task",
-  "updated_at": "2026-09-13T08:36:14Z"
+  "updated_at": "2026-09-13T08:36:30Z"
 }
