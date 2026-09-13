@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.18.0](https://github.com/www-zaq-ai/zaq/compare/v0.17.0...v0.18.0) (2026-09-13)
+
+
+### Features
+
+* **people:** add filter-scoped cross-page selection (zaq-iz2) ([aeea987](https://github.com/www-zaq-ai/zaq/commit/aeea987bc759164000c2c9650fbcf72dda4be593))
+
+
+### Bug Fixes
+
+* **authorization:** resolve current people and reject stale team access ([e6ad2ca](https://github.com/www-zaq-ai/zaq/commit/e6ad2ca758e7b837cc49168e4b85cd3f60f9e9d7))
+* **identity:** normalize channel identities and enforce uniqueness ([0dcb03b](https://github.com/www-zaq-ai/zaq/commit/0dcb03bb1b49038568c57e2f2f26c7404234417d))
+* **merge:** consolidate people atomically and preserve identity history ([f96b811](https://github.com/www-zaq-ai/zaq/commit/f96b8114befb7b26ea7cbbd83ac46d3c9478322e))
+* **migration:** normalize legacy identities with rollback and replay coverage ([66d0aa6](https://github.com/www-zaq-ai/zaq/commit/66d0aa610b2ed365850e6334019e84bc0324d793))
+* **people:** isolate feature hook registration (zaq-msu) ([ca80e0a](https://github.com/www-zaq-ai/zaq/commit/ca80e0ac815736d1e0b7630658268f5d32a71156))
+* **ui:** compact list selection controls (zaq-4v4) ([eeae929](https://github.com/www-zaq-ai/zaq/commit/eeae929e25277ced7463a2a2232e5b3aa6ee4ccd))
+
+
+### Refactoring
+
+* **People:** Document merge locks and dedicate changeset for merge updates ([ffa0ba0](https://github.com/www-zaq-ai/zaq/commit/ffa0ba0e44bf9928c6fb4e40509246f5c84182a9))
+
 ## [0.17.0](https://github.com/www-zaq-ai/zaq/compare/v0.16.0...v0.17.0) (2026-09-07)
 
 
