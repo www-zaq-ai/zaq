@@ -15,11 +15,15 @@
     {
       "text": "Test-first basic lifecycle green: 1 property (100 normalized codes), 13 tests including schema tests. Advanced expiry, concurrency, rollback and telemetry assertions now being added before merge implementation. No Engine auth events or delivery gateway added.",
       "timestamp": "2026-09-13T08:58:51Z"
+    },
+    {
+      "text": "Atomic lifecycle integration passed, including real session-insert constraint failure rollback and attempts commit. Independent-connection races verify exactly-one token, capped failed attempts, supersession and revoke/merge ordering. Large positive duration regression exposed DateTime.add pathological work; changed runtime conversion to bounded DateTime.from_unix (config still has no product maximum). Final rerun/coverage pending.",
+      "timestamp": "2026-09-13T09:15:49Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-y28] Implement atomic People authentication lifecycle",
   "type": "task",
-  "updated_at": "2026-09-13T08:58:51Z"
+  "updated_at": "2026-09-13T09:15:49Z"
 }
