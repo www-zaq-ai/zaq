@@ -98,6 +98,9 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
     outgoing =
       Executor.run(incoming, agent_id: to_string(context.agent.id), scope: context.session)
 
+    assert outgoing.metadata.error == false,
+           "Executor failed for #{arguments.command}: #{inspect(outgoing)}"
+
     assert_received {:llm_tool_call, "web_browsing", actual_arguments}
 
     assert actual_arguments ==
@@ -107,7 +110,6 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
     assert result["ok"] == true, inspect(result)
     assert result["result"]["command"] == arguments.command
     assert is_binary(result["result"]["output"])
-    assert outgoing.metadata.error == false
     assert outgoing.body == "Completed #{arguments.command}."
     pid = runtime_pid(context.agent, context.session)
 

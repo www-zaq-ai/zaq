@@ -226,8 +226,13 @@ disclosure exists to preserve.
 
 **Runtime config boundary:** server state owns structural runtime config. The `runtime_config`
 stored in `Jido.AgentServer.status/1` is authoritative during asks for model/provider,
-credentials, LLM options, context-window settings, registered ordinary tools, and tool timeout
-derivation. `Factory.ask_with_config/4` falls back to `Factory.runtime_config/1` only when a
+credentials, LLM options, and context-window settings. Registered tools live in Jido's
+strategy config; Factory's pre-request hook derives the tool execution budget from those
+live modules' optional `tool_timeout_ms/0` declarations, with the inherited strategy
+default as a floor. It writes strategy config before Jido builds the worker runtime
+config: ask options are not a supported timeout override. Hot registration/removal
+affects the next request, and removing the last declaration restores the default.
+`Factory.ask_with_config/4` falls back to `Factory.runtime_config/1` only when a
 server has no stored runtime config, and propagates fallback errors.
 
 **Dynamic skill refresh:** skill content is the only per-request refresh. On each ask, Factory
