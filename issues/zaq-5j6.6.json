@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-5j6.7"
+  ],
   "created": "2026-09-13T06:57:08Z",
   "description": "Functional specifications covered with associated files to edit/add: Factory owns generic Jido request bridging; remove ignored ask timeout option and set supported strategy config in pre-start hook from live registered tools, retaining inherited default when no declaration and resetting after removal. No ServerManager browser knowledge or deps edits. Tests to add before implementation: real Factory.cmd strategy runtime directive budget with browser, ordinary defaults, tool register/remove transitions; deterministic real Factory/Jido tool-result continuation using existing HTTP LLM stub if feasible. Branches/paths validated: declared, undeclared, empty, warm reconfiguration, inherited request hooks. Mocking plan: only local LLM HTTP boundary; real Jido and tools. Documentations to update for both code and docs/ related content: Factory timeout doc and docs/services/agent.md runtime boundary. Decisions: strategy build_config consumes static strategy opts, runtime worker consumes config; use public lifecycle hook and Strategy.State update rather than server mutation or reinitialization.",
   "id": "zaq-5j6.6",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-5j6] Apply declared tool budgets at the Factory strategy boundary",
   "type": "task",
-  "updated_at": "2026-09-13T06:57:08Z"
+  "updated_at": "2026-09-13T06:57:20Z"
 }

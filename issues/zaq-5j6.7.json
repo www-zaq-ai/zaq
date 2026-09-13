@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-5j6.6"
+  ],
   "blocks": [],
   "created": "2026-09-13T06:57:09Z",
   "description": "Functional specifications covered with associated files to edit/add: browser_flow_integration_test ask checks outgoing.metadata.error with diagnostic before mailbox tool result. Tests to add before implementation: existing opt-in flow is acceptance test; Factory regression prerequisite proves timeout. Branches/paths validated: real browser navigation/form/submission and error diagnostic ordering. Mocking plan: existing local website/LLM only; browser real. Documentations to update for both code and docs/ related content: record exact checks/blockers/coverage in Beadwork. Run mix format, targeted Factory and runtime tests, real browser when available, mix q and diff review. Graph: timeout implementation --\u003e diagnostics and validation. No commit push PR or worktree.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-5j6] Improve browser failure diagnostics and validate timeout fix",
   "type": "task",
-  "updated_at": "2026-09-13T06:57:09Z"
+  "updated_at": "2026-09-13T06:57:20Z"
 }
