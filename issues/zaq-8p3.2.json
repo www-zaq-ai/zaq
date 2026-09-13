@@ -9,9 +9,15 @@
   "id": "zaq-8p3.2",
   "labels": [],
   "parent": "zaq-8p3",
+  "comments": [
+    {
+      "text": "Shared mechanics now support static Engine/Channels runtimes with distinct Hammer tables/listeners/topics; Engine reserve API unchanged. Tiny generated Hammer modules required because Hammer fixes table at compile time. Initial Channels tests RED 5 missing-runtime failures; GREEN 1 property+4 tests. Existing staged diff SHA256 698ff595767e76153e4dc4d29bf37a9c09f2132b3008e9c705a2dad46fba81b3. Current integration/replication validation in progress.",
+      "timestamp": "2026-09-13T10:26:08Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8p3] Share Hammer mechanics across isolated role runtimes",
   "type": "task",
-  "updated_at": "2026-09-13T10:20:55Z"
+  "updated_at": "2026-09-13T10:26:08Z"
 }
