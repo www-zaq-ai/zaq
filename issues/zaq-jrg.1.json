@@ -13,11 +13,15 @@
     {
       "text": "Implemented storage-only schema/migration and encrypted change_credential_grant/3 entry point; no canonical mutation API, resolver, AI or Person management changes. Decisions: explicit secret_binding enum defaults configuration; grant mode relaxes only configuration JWT private_key requirement, retaining issuer/key_id/profile/subject checks. Canonical grant auth fields/scopes derive from trusted Credential and secrets never copy from configuration. Legacy listing/resolution/scheduled refresh filter resource lane. Person FK restricts deletion pending zaq-jrg.8. Rollback locks tables and refuses canonical grants or nondefault config. Initial TDD run: 9 expected failures; DB upgrade/down/up, constraints and independent committed race tests implemented. Rollback test moved to committed fixtures because SQL Sandbox auto-rolls back on DDL error; real Migrator test now passes with migration_lock:false (avoids sandbox single-connection lock checkout deadlock). Validation and coverage in progress; issue stays in progress.",
       "timestamp": "2026-09-13T10:35:29Z"
+    },
+    {
+      "text": "Validation complete for working-tree implementation: final mix format and mix q exit 0; Credo checks 1181 source files with no issues. Final focused MIX_ENV=test mix coveralls.json test/zaq/engine/connect test/zaq/engine/connect_test.exs test/zaq/engine/connect_token_edge_cases_test.exs test/zaq/engine/connect_encryption_error_test.exs exit 0: 129 tests + 1 property, 0 failures. Changed application-file coverage: Connect 95.3% (184/193 relevant lines), Credential 100% (20/20), Grant 100% (24/24). Real PostgreSQL validation includes legacy upgrade/down/up and migration retry, DB defaults/CHECKs/FKs, org NULL uniqueness and Person slots across all statuses, distinct committed backend connection races, failed real down migration retaining revoked Person ciphertext, and config rollback guard. Canonical encryption missing/invalid-key errors, in-place reconnect and resource-lane compatibility verified. docs/services/engine.md and system-config.md document storage decisions and later issue boundaries. No implementation environment blocker; existing missing license_manager configuration notice is nonfatal. No commits/push/PR/worktree creation. Keep issue in_progress for user review/uncommitted delivery per request; no later issue started.",
+      "timestamp": "2026-09-13T10:39:17Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.1] 1. Add canonical credential-bound grant storage",
   "type": "task",
-  "updated_at": "2026-09-13T10:35:29Z"
+  "updated_at": "2026-09-13T10:39:17Z"
 }
