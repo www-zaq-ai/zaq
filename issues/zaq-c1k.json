@@ -26,11 +26,15 @@
     {
       "text": "zaq-i16 focused review-fix suite: 166 tests+4 properties pass; all changed executable production lines covered; PersonMerger100%, People92.3%. Existing missed People lines144-146,154-156,265,321,327-329,332,359-360,379,410,420,462,545 remain outside focused channel ownership scope. Remeasure using broader owning-domain suites before adding tests; current change introduces no uncovered executable lines.",
       "timestamp": "2026-09-12T11:49:11Z"
+    },
+    {
+      "text": "zaq-jrg.8 lifecycle integration final owning-suite measurement: 707 tests +19 properties across test/zaq/accounts, test/zaq/engine/connect, Connect context and DynamicCron. People266/274=97.08%, PersonMerger152/152=100%; all .8 touched app files \u003e=95%. No additional Accounts whole-file coverage exception required and unrelated existing debt untouched. Changes remain uncommitted/in_progress per user.",
+      "timestamp": "2026-09-14T13:25:56Z"
     }
   ],
   "priority": 3,
   "status": "open",
   "title": "[zaq-c1k] Follow up whole-file coverage for merge owner contexts",
   "type": "task",
-  "updated_at": "2026-09-12T11:49:11Z"
+  "updated_at": "2026-09-14T13:25:56Z"
 }
