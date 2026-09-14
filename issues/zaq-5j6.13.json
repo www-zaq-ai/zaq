@@ -9,9 +9,15 @@
   "id": "zaq-5j6.13",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Added negative localhost-hostname navigation through real Browsing.run immediately after successful initial Executor open on existing fixture; assert exact domain-denial text, no root request notification, then continue full session form flow. No new server/warmup/timeouts/security weakening. Validation passes: mix format, mix q, git diff --check; focused suite 1 property, 10 tests, 0 failures (real_browser excluded). New real-browser check compiled but not executed locally; Docker absent and candidate local release build timed out. CI must build pinned source and pass complete browser flow before upgrade acceptance. No commit/push.",
+      "timestamp": "2026-09-14T12:44:11Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Verify browser allowlist after dependency upgrade",
   "type": "task",
-  "updated_at": "2026-09-14T12:44:10Z"
+  "updated_at": "2026-09-14T12:44:11Z"
 }
