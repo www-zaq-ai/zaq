@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-5j6.13"
+  ],
   "created": "2026-09-14T11:57:21Z",
   "description": "Published Cargo 0.19.0 confirmed to drain Fetch events at command boundaries; v0.22.0 not published. User explicitly approved switching Cargo build source to immutable upstream v0.22.0 commit ce1f1f5f8123b97f16aa08e9375659fcdf9c47ab with --locked. Files Dockerfile, priv/browser version+revision, docs/e2e-testing.md. Verify source command surface and local build if feasible; keep shared runtime and current timeouts. Test definition before changes: existing opt-in flow verifies exact CLI version and full form flow; negative allowlist scenario follows next. No new server, no allowlist weakening, no commit/push.",
   "id": "zaq-5j6.12",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-5j6] Pin upstream browser Fetch-handler fix",
   "type": "task",
-  "updated_at": "2026-09-14T11:57:21Z"
+  "updated_at": "2026-09-14T11:57:31Z"
 }
