@@ -6,9 +6,15 @@
   "description": "Measured during .9 focused Connect+Accounts+Channels+router/controller suite: lib/zaq/channels/api.ex 204/227 relevant lines (89.87%), 23 missed. OAuth forwarding lines are covered by real OAuth-\u003eNodeRouter-\u003eChannels-\u003eDataSourceBridge-\u003eJido bridge A/B regression. Remaining branches: list_source_scopes/list_files routing (298,299,308,312), watch renew/cancel (440,444), default OAuth scopes (598,599), conversation identity (633,637,642,652,653), capability /2 (665), HTTP transport/errors/shape rejects (736,738,739,749,752), invalid upsert/fallback module/typed ingress config/normalization (780,804,806,913). Use existing real boundary suites and deterministic external collaborators; do not add test-only production hooks. Target \u003e=95%. .9 records measured exception rather than expanding OAuth hardening into unrelated routing behavior.",
   "id": "zaq-lmv",
   "labels": [],
+  "comments": [
+    {
+      "text": "Latest provider-boundary focused measurement:Channels.Api206/229=89.96%,23missed. Both new secret-free OAuth endpoint dispatch lines covered; previous untested unrelated list/watch/identity/HTTP/fallback branches remain. Source-line shifts reflected in cover/jrg9-provider/excoveralls.json and current report. Full9099tests seed812387 green; whole-file exception still pending explicit acceptance.",
+      "timestamp": "2026-09-14T15:54:05Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.9] Cover remaining Channels API whole-file branches",
   "type": "task",
-  "updated_at": "2026-09-14T13:56:47Z"
+  "updated_at": "2026-09-14T15:54:05Z"
 }
