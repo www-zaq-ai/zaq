@@ -27,11 +27,15 @@
     {
       "text": "Cross-slice .9 fixed reviewed canonical OAuth fallback: explicit oauth_credentials context makes bound client settings authoritative including nil secret/empty scopes, preserving legacy channel fallback. Real OAuth-\u003eNodeRouter-\u003eChannels-\u003eJido bridge distinct A/B regression passes. expires_in now evaluates shared DateUtils clock; advancing function-clock callback regression passes. Review evidence and full coverage: docs/services/connect-foundation-validation.md. No issue closure; parent review pending.",
       "timestamp": "2026-09-14T14:00:39Z"
+    },
+    {
+      "text": "Final far-end correction: dependency Google exchange ignored code_verifier despite bridge kwargs. Canonical OAuth.exchange_attempt now uses EXISTING generic_exchange_code after resolving absent token_url from existing Channels profile via new secret-free metadata action. Actual trusted Person start-\u003ecallback HTTP test hashes submitted verifier against S256 challenge and asserts bound client/redirect. Catalog nil-secret code exchange fails closed with nonempty ambient GOOGLE_CLIENT_SECRET set; configured generic public-client callback omits secret and succeeds. Direct explicit Jido token delegates reject; legacy exchange/env fallback retained. Full9099tests seed812387/E2E56 passed. No deps patch or alternate auth infrastructure.",
+      "timestamp": "2026-09-14T15:54:01Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.6] 6. Bind Person OAuth authorization to one-use trusted attempts",
   "type": "task",
-  "updated_at": "2026-09-14T14:00:39Z"
+  "updated_at": "2026-09-14T15:54:01Z"
 }
