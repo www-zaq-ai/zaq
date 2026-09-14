@@ -11,9 +11,15 @@
   "id": "zaq-zlx.1",
   "labels": [],
   "parent": "zaq-zlx",
+  "comments": [
+    {
+      "text": "HTTP controller + local Channels ingress + independent PersonAuth/hook implemented. BO logout/invalid-user cleanup delete only user_id. Cookie HttpOnly/Lax, Secure in prod, 60-day transport lifetime with DB seven-day authority. Tests underway.",
+      "timestamp": "2026-09-14T10:41:20Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-zlx] Add Channels ingress and independent HTTP sessions",
   "type": "task",
-  "updated_at": "2026-09-14T10:26:56Z"
+  "updated_at": "2026-09-14T10:41:20Z"
 }
