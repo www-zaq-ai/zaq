@@ -6,9 +6,15 @@
   "description": "Discovered by real gateway-\u003eNotifyPerson-\u003eEmailBridge-\u003eSwoosh Test adapter test. Email is delivered but NotifyPerson output validation rejects thread_metadata string key threading (expected atom map key); gateway invalidates code and returns delivery_failed. Preexisting independent receipt contract bug, outside approved OTP polish schema scope. Reproduce with email_html_delivery fixtures and actual gateway; fix generic contract without auth/channel-specific branching, then assert sent descriptor plus HTML strong/em and usable OTP.",
   "id": "zaq-5r5",
   "labels": [],
+  "comments": [
+    {
+      "text": "Red regression: isolated MIX_TEST_PARTITION=_zaq_5r5, 1 property + 10 tests, 7 expected failures. Real Swoosh email received before Jido InvalidInputError (thread_metadata threading key expected atom); gateway challenge invalidated after delivery. Installed Jido.Action.Schema.validate_nimble calls NimbleOptions directly; NimbleOptions :map aliases {:map,:atom,:any}, supported {:map,:any,:any} preserves opaque maps and rejects nonmaps. Narrow fix changes only NotifyPerson metadata output annotation; no shared DSL, adapter, gateway or normalization changes.",
+      "timestamp": "2026-09-14T17:15:25Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-rd0] Fix NotifyPerson validation of email threading receipts",
   "type": "bug",
-  "updated_at": "2026-09-14T17:12:41Z"
+  "updated_at": "2026-09-14T17:15:25Z"
 }
