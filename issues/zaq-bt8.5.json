@@ -9,9 +9,15 @@
   "id": "zaq-bt8.5",
   "labels": [],
   "parent": "zaq-bt8",
+  "comments": [
+    {
+      "text": "Final validation: mix format; mix assets.build; mix q PASS (1237 source files, no issues); git diff --check PASS. Coverage/regression command: MIX_ENV=test mix coveralls.json test/zaq/accounts test/zaq/accounts_test.exs test/zaq/engine/people_auth_gateway_test.exs test/zaq/engine/people_profile_gateway_test.exs test/zaq/engine/people_gateway_test.exs test/zaq/engine/people_access_config_api_test.exs test/zaq_web/controllers/person_session_controller_test.exs test/zaq_web/controllers/bo_session_controller_test.exs test/zaq_web/plugs test/zaq_web/live/people test/zaq_web/live/bo/system/people_live_test.exs test/zaq_web/live/bo/system/people_permissions_unavailable_test.exs test/zaq_web/live/bo/auth_hook_test.exs test/zaq_web/router_test.exs test/zaq_web/production_session_options_test.exs test/zaq_web/people_browser_test.exs --include real_browser --timeout 180000. Result: 13 properties, 499 tests, zero failures, 119.6s. All 3 browser engines passed at 390/1280 including BO fourth-row grant persistence/revocation, edits, ordering, readonly and independent logouts. Screenshots test/e2e/test-results/people-profile-{engine}-{width}.png; actual Chromium mobile/desktop images inspected and no overflow. BO permissions E2E exercised through isolated browser harness; standalone people.spec.js suite not run. Migration sandbox up/down preserves old rows, accepts new grant, refuses unsafe downgrade; concurrent revoke/merge priority edits denied. Coverage cover/excoveralls.json: changed executable lines 114/114 (100%); People 266/273 (97.44%); gateway 46/47 (97.87%, missing preexisting delivery exception rescue); all other modified application modules 100%; PeopleProfile has zero executable lines. No coverage exceptions required. Known pre-existing optional license_manager app configuration warning persists; no validation blocker. First Firefox attempt failed in third login input timing; fixed by waiting for LiveView connection before filling/relogin, two subsequent all-engine runs passed. Tests first also reproduced oversized SQL integer encoding and malformed nested form values; storage bound validation/shared weight validation and safe scalar error forms now reject without crashes.",
+      "timestamp": "2026-09-14T16:03:24Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-bt8] Validate browsers coverage migration and quality documentation",
   "type": "task",
-  "updated_at": "2026-09-14T15:30:50Z"
+  "updated_at": "2026-09-14T16:03:24Z"
 }
