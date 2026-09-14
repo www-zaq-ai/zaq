@@ -6,9 +6,15 @@
   "description": "User-approved narrow worktree fix. Reproduce string notification provider through real Thread and Mattermost HTTP transport; reuse existing provider normalization at constructors; validate bridge/auth/browser suites and mix q. Preserve all staged changes; no commit, staging, push, PR or database reset.",
   "id": "zaq-uij",
   "labels": [],
+  "comments": [
+    {
+      "text": "Red/green confirmed: new real Mattermost HTTP suite initially 1 property + 9 tests, 5 failures: string outbound/root and incoming constructor Validation errors; full auth delivery failed before HTTP. Two constructor field normalizations via existing provider_to_atom now pass all 10. Real Jido Exec -\u003e Engine -\u003e Notifications -\u003e Channels -\u003e Thread -\u003e Mattermost ReqClient exercised with localhost HTTP only.",
+      "timestamp": "2026-09-14T14:43:19Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-uij] Fix canonical provider at Jido Thread boundary",
   "type": "bug",
-  "updated_at": "2026-09-14T14:39:12Z"
+  "updated_at": "2026-09-14T14:43:19Z"
 }
