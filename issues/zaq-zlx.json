@@ -10,11 +10,15 @@
     {
       "text": "Dependency DAG validated: .2 -\u003e .5 -\u003e .1 -\u003e .3 -\u003e .4. First red/green tests: confidential event property and targeted challenge invalidation passed (21 tests/properties). Engine skipped-delivery regression caught a :skipped success leak and fixed. HTTP tests authored red before routes/UI. Conventional POST/redirect forms chosen as user-approved option; no async LiveView requests or generation state. Baseline git status was empty. No commits or resets.",
       "timestamp": "2026-09-14T10:35:42Z"
+    },
+    {
+      "text": "Execution DAG (validated before coding): ```mermaid graph LR; confidentiality[.2] --\u003e delivery[.5] --\u003e http[.1] --\u003e ui[.3] --\u003e validation[.4]; ``` Decisions: conventional POST/redirect forms avoid async LV generations; backend denies stale descriptors from concurrent HTTP responses. Public login intentionally enumerable on actual delivery only; direct peer IP; no forwarded policy; notification body persistence accepted V1; seven-day DB auth within shared 60-day cookie. Full implementation remains uncommitted working tree as requested.",
+      "timestamp": "2026-09-14T11:02:43Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[PR4] Public People authentication",
   "type": "epic",
-  "updated_at": "2026-09-14T10:35:42Z"
+  "updated_at": "2026-09-14T11:02:43Z"
 }
