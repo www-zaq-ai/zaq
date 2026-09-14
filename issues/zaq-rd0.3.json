@@ -9,9 +9,15 @@
   "id": "zaq-rd0.3",
   "labels": [],
   "parent": "zaq-rd0",
+  "comments": [
+    {
+      "text": "Final validation: mix format, mix q (1238files,noissues), assets.build, git diff --check PASS. Expanded focused coveralls run seed372470:210tests5properties0failures; includes PeopleAuth concurrency/merge, gateway/profile, controller, Channels ingress/limiter and peer, NotifyPerson/threading, EmailBridge/HTML and real Mattermost HTTP. Coverage PeopleAuth141/141=100%; Gateway47/48=97.9%; Controller29/29=100%; LoginLive30/30=100%. Hook node tests4pass; actual hook source V8 line100%,branch91.30%,functions100% (file URL VM attribution). Final browsers seed683859 all3pass390/1280, zero pageerrors, full existing profile/BO lifecycle preserved. Last accessibility description addition checked by21controller tests0failures and mix q. Expected initial red28cases3failures; first browser hold-navigation assertions failed due Playwright auto-wait and corrected without production bypass. Nonblocking warnings: existing missing license_manager, one build mtime correction, Node experimental coverage glob. Email end-to-end preexisting receipt validation blocker tracked zaq-5r5; real HTML renderer and source/message tests pass. Staged baseline SHA256 unchanged3ec9ae025d674b9857be3ea1ee24e2d7b27c7b3c2653b0687ecfe7cf3173d8f4. Own changes unstaged; no commit/push/PR/reset.",
+      "timestamp": "2026-09-14T17:02:03Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-rd0] Validate OTP polish and update service documentation",
   "type": "task",
-  "updated_at": "2026-09-14T16:56:34Z"
+  "updated_at": "2026-09-14T17:02:03Z"
 }
