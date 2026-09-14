@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-zlx.3"
   ],
+  "closed_at": "2026-09-14T11:04:31Z",
+  "close_reason": "Implemented and validated: local ingress zero-dispatch precheck, CSRF cookie bridge, revalidation and BO isolation.",
   "created": "2026-09-14T10:26:34Z",
   "description": "Spec: local failed-identification precheck before confidential Engine request; trusted conn.remote_ip only; CSRF verify/logout controller cookie existing session; BO cleanup only BO keys; PersonAuth and live hook fresh authority. Tests first: zero dispatch blocked, counted only failed identification, verify errors retain descriptor, no bearer DOM, BO/person isolation and revoke/expiry. Real router/auth/DB, transport mock only. Docs bo-auth/channels/system-config.",
   "id": "zaq-zlx.1",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-zlx] Add Channels ingress and independent HTTP sessions",
   "type": "task",
-  "updated_at": "2026-09-14T10:41:20Z"
+  "updated_at": "2026-09-14T11:04:31Z"
 }
