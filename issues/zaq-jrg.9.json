@@ -53,11 +53,15 @@
     {
       "text": "FINAL IMPLEMENTATION/VALIDATION GREEN. Corrected six FOUNDATION-INTRODUCED compatibility failures in same delivery, not waived as baseline: narrowly scoped inline ingestion calls; meaningful real-HTTP legacy refresh safe-error/raw-ciphertext/event rollback tests plus malicious enc two-round regression. Reproduced remaining onboarding100ms failure under full seed812387 (9092tests,1failure,566.2s) with temporary process diagnostics, then fixed explicit async-task/navigation deadlines and added metadata-response barrier test; removed diagnostics. Final exact same-seed full repository:48doctests,114properties,9093tests,0failures,1existing skip,83standard excluded,724.0s within900s bound. Affected141tests green. mix format/q/diff-check pass; prior56E2E passes unchanged (final edits test-only). docs/services/connect-foundation-validation.md supersedes all earlier red/baseline wording with complete evidence. zaq-jf6/zaq-q1v/zaq-zih implemented+verified comments, remain unlanded per no commit/merge. .9 in_progress only for parent independent residual review/requirements signoff and explicit user coverage-exception acceptance (zaq-fja/zaq-lmv). No approvals or independent review claimed; no commits/push/worktree/close.",
       "timestamp": "2026-09-14T15:18:07Z"
+    },
+    {
+      "text": "Far-end RED reproduced before edits:10tests/4failures seed259295. Actual trusted Person Google fallback callback HTTP omitted code_verifier; nil client_secret borrowed nonempty GOOGLE_CLIENT_SECRET and succeeded. Org+Person canonical refresh also succeeded with ambient secret. Plan: expose existing private OAuth profile token URL via secret-free Channels/bridge metadata action, then reuse EXISTING Connect generic exchange/refresh transport (no duplicate OAuth client). Catalog canonical nil-secret fails closed; configured generic public clients retain nil omission. Direct explicit dependency token delegation rejects; legacy remains unchanged. No deps edits or production env changes.",
+      "timestamp": "2026-09-14T15:26:39Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T15:18:07Z"
+  "updated_at": "2026-09-14T15:26:39Z"
 }
