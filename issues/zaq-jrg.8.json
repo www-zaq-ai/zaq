@@ -23,11 +23,15 @@
     {
       "text": "Implemented ONLY .8 uncommitted, preserving preceding .3/.5/.6/.7/.4. Test-first baseline: 1 property + 5 tests failed on absent cleanup/transfer/reconciliation, then implemented Connect.PersonLifecycle, Grant owner-only changeset, MutationEvents captured dependency enqueue, Accounts single/bulk/merge orchestration. Existing single/bulk return contracts retained, including two alias IDs resolving to same Person (regression caught/fixed). Bulk resolves group once and takes credential locks once, protected People.delete_merge_loser avoids second out-of-order cleanup scan. Survivor wins any status; otherwise lowest persisted loser ID transfers without decrypt/re-encrypt/secret overwrite. Identity projections only; all participant attempts including survivor/claimed deleted. OAuthAttempts now checks persisted attempt under credential lock before HTTP and completion, stopping canceled in-memory claims. Events capture old/new dependencies (old grant_deleted/new grant_created; unchanged collision survivor grant_replaced) with existing .3 UUID/8-key allowlist, same transaction rollback. No migration/FK/column/trigger/guard row, no actual Agent/UI/auth/session changes.",
       "timestamp": "2026-09-14T13:25:23Z"
+    },
+    {
+      "text": "FINAL validation: mix format passes. mix coveralls.json test/zaq/accounts test/zaq/engine/connect test/zaq/engine/connect_test.exs test/zaq/oban/dynamic_cron_test.exs passes with 707 tests + 19 properties, seed566232. Whole-file touched application coverage: People266/274=97.08%, PersonMerger152/152=100%, Connect210/219=95.89% (moduledoc-only .8 edit), Grant32/32=100%, MutationEvents45/46=97.83%, OAuthAttempts112/115=97.39%, PersonLifecycle62/64=96.875%, SecretReconciliationWorker9/9=100%. No \u003c95 coverage exception needed; existing unrelated zaq-c1k debt not expanded. Added tests include actual post-merge resource failure rollback, raw ciphertext transfer, owner shape/unique constraints, inactive retained material, multi-loser ordering, pending/claimed/expired admin+Person attempt cleanup, safe worker telemetry/uniqueness/configuration, real Oban insertion failure rollback/safe errors, race rechecks and no Person-lock inversion. Final mix q: 1221 source files, no issues; git diff --check passes. Initial q identified alias/nesting suggestions, fixed locally; final pass clean. Existing license_manager-unavailable configuration warning remains during tests. No E2E needed for backend-only scope; comprehensive foundation compatibility/security and cross-slice handoff validation remains .9. Remain in_progress/uncommitted per user; no commits/push/worktree/issue closure.",
+      "timestamp": "2026-09-14T13:25:57Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.8] 8. Integrate Person grant cleanup and deterministic merge",
   "type": "task",
-  "updated_at": "2026-09-14T13:25:23Z"
+  "updated_at": "2026-09-14T13:25:57Z"
 }
