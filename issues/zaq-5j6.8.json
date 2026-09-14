@@ -9,9 +9,15 @@
   "id": "zaq-5j6.8",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Added test-first smoke orchestration checks; initial missing-script failures then 8 tests pass including wrapper. Shared image sets AGENT_BROWSER_NATIVE=1. Smoke separates raw Chromium, diagnostic default-backend comparison, inherited image backend open/URL/close. Commands run under in-container GNU timeout (20s +5s kill), isolated sessions, scoped cleanup. Docker command absent locally, so no claim that native selection alone resolves CI hang; exact binary comparison runs in CI. No commits.",
+      "timestamp": "2026-09-14T08:01:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Verify and select native browser runtime",
   "type": "task",
-  "updated_at": "2026-09-14T07:57:49Z"
+  "updated_at": "2026-09-14T08:01:15Z"
 }
