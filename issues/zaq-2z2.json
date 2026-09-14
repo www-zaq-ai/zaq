@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T07:00:17Z",
+  "description": "User-approved worktree-only correction; preserve all preexisting work and index; no commits/push/PR/database resets. Static Channels.Supervisor owns limiter then dynamic BridgeSupervisor; retain public runtime facade and bootstrap in dynamic child. Plan: graph LR; tests--\u003eimplementation--\u003evalidation. Integration restart/role tests first; move existing runtime implementation; update current topology docs and run focused/broad regression, coverage, mix format and mix q.",
+  "id": "zaq-2z2",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-y28] Correct Channels supervision ownership",
+  "type": "epic",
+  "updated_at": "2026-09-14T07:00:17Z"
+}
