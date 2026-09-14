@@ -2,13 +2,14 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-14T14:18:26Z",
   "created": "2026-09-14T13:55:48Z",
   "description": "User-approved narrow working-tree change. Preserve existing changes and index; no commit/push/PR or DB reset. Steps: action confidentiality and safe original-error diagnostics; gateway Jido.Exec reuse and fail-closed tests; focused/browser/quality/coverage validation and concise docs. DAG: action --\u003e gateway --\u003e validation.",
   "id": "zaq-7ep",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-7ep] Reuse NotifyPerson for confidential OTP delivery",
   "type": "epic",
-  "updated_at": "2026-09-14T13:56:15Z"
+  "updated_at": "2026-09-14T14:18:26Z"
 }
