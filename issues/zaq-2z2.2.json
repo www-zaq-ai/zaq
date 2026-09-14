@@ -9,9 +9,15 @@
   "id": "zaq-2z2.2",
   "labels": [],
   "parent": "zaq-2z2",
+  "comments": [
+    {
+      "text": "FINAL: MIX_TEST_PARTITION=pr3 mix coveralls.json test/zaq/channels test/zaq/people test/zaq/application_test.exs test/zaq/engine/supervisor_test.exs test/zaq/node_router_test.exs test/zaq/node_roles_test.exs =\u003e 13 properties, 1408 tests, 0 failures (80.8s). Includes full Email/Jido/Bridge overrides, actual role startup and two-node replication. mix format and mix q passed (1209 files, no Credo issues). Coverage: Channels.Supervisor 8/8=100%; BridgeSupervisor 94/98=95.92% (missed default declaration line68, inherited unreachable nil arm235, inherited termination rescue252, missing-table delete race281); Application32/32=100%; Engine supervisor3/3=100%. New wrapper fully covered; no below95 exception. Backend-only: no UI E2E. Existing license_manager config warning and expected MCP refusal/timeout negative-scenario logs, no failed checks. Peer isolation uses test cookie, stops each full-application peer between roles, 60s cold-start bound; first 30s timeout investigated with standalone successful real Channels startup. Restart evidence separates monitored forced-kill teardown (parent held until all registered descendants stop) from unpaused abnormal OTP supervisor recovery. No new production limiter/auth/Engine semantics, registry, or framework. Current README/architecture/channels/people-access topology docs updated. Logs and scoped coverage/hash analysis script in approved temp directory channels-*. Staged SHA256 unchanged 698ff595767e76153e4dc4d29bf37a9c09f2132b3008e9c705a2dad46fba81b3; all24 out-of-scope preexisting unstaged/untracked file hashes match baseline. Only intended overlays on initial docs/Application/test/peer work. No commits/push/PR/user database reset.",
+      "timestamp": "2026-09-14T07:24:30Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-2z2] Validate supervision split and update current topology docs",
   "type": "task",
-  "updated_at": "2026-09-14T07:18:59Z"
+  "updated_at": "2026-09-14T07:24:30Z"
 }
