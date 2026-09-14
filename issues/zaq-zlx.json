@@ -2,6 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-14T11:04:32Z",
+  "close_reason": "PR4 full approved implementation delivered in current worktree without commits/push/PR/reset, as requested.",
   "created": "2026-09-14T10:26:07Z",
   "description": "User approved full PR4 in current worktree; no commits/push/PR or user database reset. Minimal protected profile/logout; confidential auth events; trusted direct peer IP. Sequential DAG: confidentiality -\u003e challenge lifecycle and delivery -\u003e Channels/HTTP auth isolation -\u003e DS People UI -\u003e integration/E2E/docs and mix q. Preserve initial clean tracked state (git status --short empty).",
   "id": "zaq-zlx",
@@ -17,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[PR4] Public People authentication",
   "type": "epic",
-  "updated_at": "2026-09-14T11:02:43Z"
+  "updated_at": "2026-09-14T11:04:32Z"
 }
