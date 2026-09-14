@@ -9,9 +9,15 @@
   "id": "zaq-7ep.1",
   "labels": [],
   "parent": "zaq-7ep",
+  "comments": [
+    {
+      "text": "Real Jido tests reproduced an existing output-schema mismatch: sent/skipped payloads include nil optional routing/thread fields, rejected by required:false nonnullable types. Kept payload shape and made those declared optional output values nullable. Confidential failures are diagnosed at action dispatch before Jido logging, returned as safe structured execution errors; ordinary errors retain binary contract. Action and full focused suites passed (4 properties, 215 tests).",
+      "timestamp": "2026-09-14T14:04:16Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-7ep] Action confidentiality and original-error diagnostics",
   "type": "task",
-  "updated_at": "2026-09-14T13:56:39Z"
+  "updated_at": "2026-09-14T14:04:16Z"
 }
