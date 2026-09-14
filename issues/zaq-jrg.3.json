@@ -19,11 +19,15 @@
     {
       "text": "Claimed via update: bw start refuses because .2 remains in_progress awaiting merge. User explicitly approved proceeding from implemented/reviewed .1/.2 without closing them. Initial workspace clean at d0c0df9b. DAG verified acyclic in both directions with external dependencies preserved.",
       "timestamp": "2026-09-14T09:28:53Z"
+    },
+    {
+      "text": "Completed-uncommitted implementation; remains in_progress pending independent review and merge. Production files: new Connect.MutationEvents (persist/2, delete/1, validate/1, deliver/2), new MutationEventWorker; Connect and Mutations route both lanes through transactional persistence. Fixed v1 JSON allowlist: UUID event_id; integer credential_id; nullable grant_id/owner_type/owner_id; fixed kind; UTC occurred_at. No revision, metadata, secrets, Agent receiver/stub, direct PubSub or ServerManager. Credential deletion event covers all cascaded scopes; grant deletion reloads/locks persisted owner identity. Shared token-cache/refresh path enqueues once. Delegated configuration saves do not duplicate credential events. Empty updates/absent cleanup silent, replacements/forced erasure observable. Dedicated connect_credential_notifications queue absent across dev/prod/all role configs; enqueue unconditional. Synchronous existing Agent.Events helper -\u003e NodeRouter; only response :ok completes. Unsupported/unavailable/RPC/unexpected/exception/exit/throw map to safe fixed retry error. Three attempts/default Oban backoff; exhausted jobs retained. Activation deferred to real receiver/fanout plus explicit retention/replay/discarded-job policy; no consumer acknowledgment/fanout/historical replay guarantee. Docs: engine.md and architecture.md. Test config manual; E2E=1 uses real asynchronous queues with notification queue absent. Existing workflow recovery/token aggregation/webhook tests now explicitly scope their intended inline operation after credential fixtures; committed concurrency fixtures clean only their own new jobs.",
+      "timestamp": "2026-09-14T10:14:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.3] 3. Publish durable secret-free credential mutation events",
   "type": "task",
-  "updated_at": "2026-09-14T09:28:53Z"
+  "updated_at": "2026-09-14T10:14:11Z"
 }
