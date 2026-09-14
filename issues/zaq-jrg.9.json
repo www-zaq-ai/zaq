@@ -61,11 +61,15 @@
     {
       "text": "Provider boundary fixes GREEN new37tests seed523333; mix q no issues. Broad focused coverage includes existing Connect token-edge suite now:29properties/2043tests,0failures seed297937,81s. Real HTTP observations assert PKCE hash and bound secret outside caught provider callback assertions. Nonempty ambient env exercised for canonical nil-secret exchange/refresh, configured public exchange+refresh, and positive legacy ambient fallback. Added direct explicit-token delegate guards and unsupported endpoint case. Preparing same-seed full+E2E reruns; no final readiness claim.",
       "timestamp": "2026-09-14T15:35:26Z"
+    },
+    {
+      "text": "LATEST far-end provider fixes validated on actual app code: full mix test --seed812387 completed623.7s within900s:48doctests/114properties/9099tests,0failures,1existing skip,83standardexcluded. Fresh E2E system_config+channels Chromium56passed/1.2m/zero retries. Broad coverage29properties/2043tests passed; isolated196bridge tests passed. OAuth158/15999.37%;DataSourceBridge266/27497.08%;Channels.Api206/22989.96%;isolatedJido916/118477.36%. Latest report section supersedes previous claims: both ambient-secret AND dropped-PKCE findings reproduced red (10tests4failures) then fixed by reusing existing generic transport plus secret-free Channels endpoint lookup; no deps/env production patches. Catalog absent secret fails closed; configured public client omits absent secret; direct explicit dep token delegates reject; legacy ambient/channel behavior positively tested. Independent parent far-end recheck and explicit coverage-exception acceptance remain; no readiness approval/commits/close claimed.",
+      "timestamp": "2026-09-14T15:54:02Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T15:35:26Z"
+  "updated_at": "2026-09-14T15:54:02Z"
 }
