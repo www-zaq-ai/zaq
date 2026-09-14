@@ -11,9 +11,15 @@
   "id": "zaq-bt8.4",
   "labels": [],
   "parent": "zaq-bt8",
+  "comments": [
+    {
+      "text": "Portal implemented via existing DS Input/Button and People shell. Focused suite 104 passing before new config-error regression; that test reproduced silent unavailable redirect and generic auth-only Hook/Plug feedback now handles it. No profile domain events added to AuthHook. Credential only socket.private.",
+      "timestamp": "2026-09-14T15:43:51Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-bt8] Build permission-aware People profile UI",
   "type": "task",
-  "updated_at": "2026-09-14T15:30:50Z"
+  "updated_at": "2026-09-14T15:43:51Z"
 }
