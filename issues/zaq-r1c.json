@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T11:08:07Z",
+  "description": "Preserve existing worktree. User requests baseline cookie persistence proof/revert, all three browser coexistence journeys, real two-node confidential verification, production Secure and real HTTP log filtering tests, broader relevant suites/coverage and mix q. No commits, PR, user DB reset or new report artifacts. Sequential DAG: cookie/security -\u003e browser/distributed -\u003e broad validation. Existing docs/skills and module contracts read in prior implementation remain applicable.",
+  "id": "zaq-r1c",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[PR4-validation] Finish cookie, browser and distributed authentication validation",
+  "type": "epic",
+  "updated_at": "2026-09-14T11:08:07Z"
+}
