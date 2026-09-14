@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-bt8.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-bt8",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-bt8] Add edit_profile vocabulary and forward constraint migration",
   "type": "task",
-  "updated_at": "2026-09-14T15:30:49Z"
+  "updated_at": "2026-09-14T15:30:52Z"
 }
