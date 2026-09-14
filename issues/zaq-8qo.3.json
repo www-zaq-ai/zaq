@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-8qo.2"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-8qo",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-8qo] Repair demonstrated fake IMAP protocol and cleanup defects",
   "type": "task",
-  "updated_at": "2026-09-14T08:25:22Z"
+  "updated_at": "2026-09-14T08:27:09Z"
 }
