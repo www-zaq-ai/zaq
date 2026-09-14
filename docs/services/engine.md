@@ -95,6 +95,53 @@ Adapter inbound path:
 
 ## Modules
 
+### Connect storage (`Zaq.Engine.Connect`)
+
+#### Canonical credential-bound storage (`zaq-jrg.1`)
+
+- `Credential.personal_credential_policy` is `:disabled` (default), `:optional`,
+  or `:required`, with database NOT NULL and CHECK constraints. It is independent
+  of legacy `user_level`; this storage slice does not enforce runtime policy.
+- Canonical grants reuse `resource_type = "connect_credential"` and
+  `resource_id = credential_id::text`, derived server-side with explicit non-null
+  and equality CHECKs plus the existing credential FK. Native CHECKs validate
+  resource types and owner shape. Legacy resource-bound org/user IDs are preserved.
+- Person ownership uses only `owner_type = "person"` and non-null `owner_id`;
+  canonical org ownership requires NULL `owner_id`. No duplicate identity columns,
+  Person FK, conditional-reference triggers or guard rows exist. Credential deletion
+  retains its existing cascade.
+- Partial unique indexes reserve one canonical slot per credential/Person and
+  one per credential/org (org has NULL owner ID), across active, expired and revoked
+  statuses. Reconnection updates the retained row. Uniqueness is not provider-wide.
+- `Grant.credential_changeset/3` derives credential ID, provider, auth kind, request
+  format, scopes, JWT issuer/key ID/subject and resource pair from trusted configuration.
+  The Engine entry point
+  `Connect.change_credential_grant/3` also strictly encrypts changed secrets before
+  persistence and checks the literal Person ID currently exists with active status
+  on creation/update. It never follows merged aliases. These are internal storage
+  changesets, not authenticated Person APIs
+  or atomic policy/configuration management operations (`zaq-jrg.2` and `.5`).
+- Legacy issue/list/resolve and scheduled refresh stay resource-bound. Canonical
+  rows do not enter existing AI, data-source or MCP consumers. No secret backfill
+  or fallback from configuration to canonical grants is performed.
+- Migration rollback locks the tables and refuses while canonical grants (including
+  revoked/expired rows) or nondefault policy/secret-binding configuration exist.
+  Operators must explicitly reconcile that data before rollback; it never silently
+  drops Person identity or grant-owned secrets.
+
+**Accepted lifetime limitation:** the current-record check does not coordinate
+concurrent Person deletion/merge. Orphan grants and encrypted secrets can remain;
+synchronous erasure is not guaranteed. Person IDs must not be reused operationally.
+See [the final storage decision](connect-person-storage-decision.md).
+
+**Required later work, unimplemented here:** the resolver must check Person existence
+and eligibility BEFORE policy selection, including disabled policy. A stale/deleted
+Person must return an error, never global fallback or silent reidentification through
+an alias. Authenticated creation/update and OAuth/refresh must recheck current identity.
+`zaq-jrg.8` must explicitly clean up/transfer grants during deletion/merge and implement
+deterministic, bounded, idempotent orphan-secret reconciliation with safe telemetry.
+Distributed server invalidation remains a later consumer integration.
+
 ### Supervisor (`Zaq.Engine.Supervisor`)
 
 - Top-level supervisor for the `:engine` role.

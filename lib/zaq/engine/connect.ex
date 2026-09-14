@@ -1,5 +1,11 @@
 defmodule Zaq.Engine.Connect do
-  @moduledoc "Engine context for reusable provider credentials and resource-bound grants."
+  @moduledoc """
+  Engine context for reusable provider credentials and resource-bound grants.
+
+  `change_credential_grant/3` prepares encrypted canonical storage changesets for
+  trusted Engine callers. It does not authorize Person management. Legacy grant
+  listing, resolution and scheduled refresh select only resource-bound rows.
+  """
 
   import Ecto.Query
   import Zaq.Helpers, only: [blank?: 1]
@@ -71,7 +77,11 @@ defmodule Zaq.Engine.Connect do
 
   @spec list_grants(keyword()) :: [Grant.t()]
   def list_grants(opts \\ []) do
-    query = from(g in Grant, order_by: [desc: g.inserted_at])
+    query =
+      from(g in Grant,
+        where: g.resource_type != "connect_credential",
+        order_by: [desc: g.inserted_at]
+      )
 
     query
     |> maybe_filter_by(opts, :credential_id)
@@ -83,6 +93,33 @@ defmodule Zaq.Engine.Connect do
     |> maybe_filter_by(opts, :status)
     |> Repo.all()
   end
+
+  @doc "Prepares a credential-bound grant storage changeset with strictly encrypted secrets."
+  @spec change_credential_grant(Grant.t(), Credential.t(), map()) :: Changeset.t()
+  def change_credential_grant(%Grant{} = grant, %Credential{} = credential, attrs) do
+    grant
+    |> Grant.credential_changeset(credential, attrs)
+    |> validate_current_grant_owner()
+    |> encrypt_secret_fields(@secret_fields)
+  end
+
+  # This checks current storage identity, not caller authentication. Concurrent
+  # deletion can still orphan a grant; lifecycle reconciliation is a later slice.
+  defp validate_current_grant_owner(%Changeset{valid?: true} = changeset) do
+    if Changeset.get_field(changeset, :owner_type) == "person" do
+      owner_id = Changeset.get_field(changeset, :owner_id)
+
+      if Repo.exists?(
+           from p in Zaq.Accounts.Person, where: p.id == ^owner_id and p.status == "active"
+         ),
+         do: changeset,
+         else: Changeset.add_error(changeset, :owner_id, "must reference a current active Person")
+    else
+      changeset
+    end
+  end
+
+  defp validate_current_grant_owner(changeset), do: changeset
 
   @spec issue_grant(map()) :: {:ok, Grant.t()} | {:error, Changeset.t()}
   def issue_grant(attrs) do
@@ -166,6 +203,7 @@ defmodule Zaq.Engine.Connect do
     now = DateTime.utc_now()
 
     Grant
+    |> where([g], g.resource_type != "connect_credential")
     |> where([g], g.status == "active")
     |> where([g], is_nil(g.expires_at) or g.expires_at > ^now or g.auth_kind == "jwt_bearer")
     |> maybe_where_credential_id(Map.get(filters, :credential_id))
@@ -198,6 +236,7 @@ defmodule Zaq.Engine.Connect do
     threshold = DateTime.add(now, window_seconds, :second)
 
     Grant
+    |> where([g], g.resource_type != "connect_credential")
     |> where([g], g.status == "active" and g.auth_kind == "oauth2")
     |> where([g], not is_nil(g.refresh_token))
     |> where([g], not is_nil(g.expires_at) and g.expires_at <= ^threshold)
@@ -256,6 +295,7 @@ defmodule Zaq.Engine.Connect do
 
   defp get_latest_active_grant(filters) do
     Grant
+    |> where([g], g.resource_type != "connect_credential")
     |> where([g], g.status == "active")
     |> maybe_where_credential_id(Map.get(filters, :credential_id))
     |> maybe_where_filter(:provider, Map.get(filters, :provider))
