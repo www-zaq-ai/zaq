@@ -11,6 +11,12 @@
   "id": "zaq-jrg.7",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "User explicitly proceeds over completed-uncommitted .6; preserve dependency and do not close predecessor. RED: 8 independent DB concurrency tests fail (missing perform/2 opts and refresh HTTP opts ignored). Existing refresh attempted example DNS rather than injected HTTP; fix seam before further runs. Shared lease/CAS plan per approved .7; no resolver/lifecycle.",
+      "timestamp": "2026-09-14T12:00:51Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.7] 7. Make OAuth refresh safe against grant replacement and revocation",
