@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-zlx.1"
   ],
+  "closed_at": "2026-09-14T11:04:31Z",
+  "close_reason": "Implemented and validated: single Engine match/issue/notify, targeted invalidation, send races/fallback/exception tests; 100% PeopleAuth/gateway.",
   "created": "2026-09-14T10:26:38Z",
   "description": "Spec: PeopleAuth targeted idempotent literal-owner invalidation and post-delivery active status; fixed PeopleAuthGateway single match/issue/notify request; :sent only; cleanup on failure/exception. Tests first: A failure after B preserves B, consumed/missing, eligibility expiry, notification fallback and skipped, safe descriptors. Real DB/auth/notifications; mock transport edge only. Docs people-access/engine.",
   "id": "zaq-zlx.5",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-zlx] Compose Engine challenge delivery and lifecycle",
   "type": "task",
-  "updated_at": "2026-09-14T10:41:20Z"
+  "updated_at": "2026-09-14T11:04:31Z"
 }
