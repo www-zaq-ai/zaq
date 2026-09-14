@@ -11,9 +11,15 @@
   "id": "zaq-jrg.3",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Superseding storage decision: grants use polymorphic owner_type/owner_id and canonical resource_type=connect_credential with server-derived resource_id=credential_id::text; no duplicate grant person_id or binding_type. A semantic person_id in an allowlisted event, if retained, derives from owner_type=person plus owner_id, not a schema field. Event detail and delivery plan otherwise retained. Storage implementation is blocked on repeatable-read referential integrity; see zaq-jrg.1 and docs/services/connect-person-trigger-blocker.md.",
+      "timestamp": "2026-09-14T06:29:09Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.3] 3. Publish durable secret-free credential mutation events",
   "type": "task",
-  "updated_at": "2026-09-13T10:10:09Z"
+  "updated_at": "2026-09-14T06:29:09Z"
 }
