@@ -14,11 +14,15 @@
     {
       "text": "zaq-jrg.9 measurement: isolated existing jido_connect_bridge_test.exs + jido_connect_bridge_coverage_gaps_test.exs, 183 tests passed; JidoConnectBridge 909/1180 (77.03%), 271 missed. New explicit OAuth context clause executed 6 times, explicit scope branch twice (read/empty); legacy fallback exercised 27 times. Whole focused suite omitted main bridge from coverage output; isolated measurement is authoritative for this file. JSON: cover/jrg9-bridge/excoveralls.json. Remaining pre-existing watch/sheets/provider/error surface remains this issue's follow-up; .9 adds no coverage exclusion.",
       "timestamp": "2026-09-14T13:56:48Z"
+    },
+    {
+      "text": "Refresh residual re-review update: existing two bridge suites + new real refresh_bridge_test.exs: 190 tests pass seed109546. JidoConnectBridge isolated whole-file 913/1184=77.11%,271 missed. No missed relevant lines in refresh execution/explicit+legacy credential helper region; new missing-ID guard covered. JSON cover/jrg9-refresh-bridge/excoveralls.json. Keep existing whole-file coverage exception follow-up.",
+      "timestamp": "2026-09-14T14:37:33Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5gy] Improve existing JidoConnectBridge coverage",
   "type": "task",
-  "updated_at": "2026-09-14T13:56:48Z"
+  "updated_at": "2026-09-14T14:37:33Z"
 }
