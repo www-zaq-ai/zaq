@@ -15,11 +15,15 @@
     {
       "text": "Superseding storage decision: canonical queries identify resource_type=connect_credential and DB-enforced resource_id=credential_id::text, with Person identity in owner_type/owner_id. No binding_type or grant person_id. The canonical discriminator is not a fallback to legacy resource grants; existing precedence and all 96-case validation detail remain. Storage implementation awaits the isolation-integrity gate in zaq-jrg.1.",
       "timestamp": "2026-09-14T06:29:10Z"
+    },
+    {
+      "text": "User explicitly approves implementing only .4 after completed-uncommitted .7, preserving .3/.5/.6/.7 and all dependencies with no closures/commits/push/worktree. bw start refuses because .7 remains intentionally in_progress. Proceed under this approval. Test-first scope: explicit 96-state matrix plus actor/identity, material/JWT/OAuth, concurrency, safe result/error and isolation properties; use existing prepare_grant_for_use only, final credential-first locked snapshot and raw config comparison, no consumer integration.",
+      "timestamp": "2026-09-14T12:39:35Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.4] 4. Resolve effective credential independently of consumers",
   "type": "task",
-  "updated_at": "2026-09-14T09:27:25Z"
+  "updated_at": "2026-09-14T12:39:35Z"
 }
