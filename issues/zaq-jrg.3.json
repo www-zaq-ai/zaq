@@ -27,11 +27,15 @@
     {
       "text": "Validation evidence: initial test-first run mix test test/zaq/engine/connect/mutation_events_test.exs test/zaq/engine/connect/mutation_event_worker_test.exs reproduced missing implementation (11 failures including one fixture owner omission, corrected). Final focused command: MIX_ENV=test mix coveralls.json test/zaq/engine/connect test/zaq/engine/connect_test.exs test/zaq/engine/connect_token_edge_cases_test.exs test/zaq/engine/connect_encryption_error_test.exs passed: 179 tests + 3 properties, 0 failures, seed 968077. Touched application coverage: MutationEvents 100% (43/43), MutationEventWorker 100% (1/1), Connect 96.0% (196/204), Mutations 98.4% (123/125); no coverage exclusions added. Tests include actual Oban CHECK failure/rollback across writes, nested rollback, canonical org/Person and legacy CRUD, captured stale deletion identity, OAuth/JWT cache and real loopback OAuth refresh, exact secret allowlist property, synchronous routing/Mox outcome boundaries, default actual Agent unsupported response and safe workflow stream, stable UUID duplicate/retry/exhaustion with real Oban, isolated VM config evaluation for dev/prod roles and E2E. Final config-only test passed after adding real asynchronous E2E mode; subsequent source changes only public error types, not executable logic. mix format, mix q (1191 files/94 checks, no issues) and git diff --check all pass. First q found nesting/alias suggestions, fixed. No global config mutation introduced in new tests; isolated subprocess config checks do not alter test VM env.",
       "timestamp": "2026-09-14T10:14:11Z"
+    },
+    {
+      "text": "Broader regression: mix test test/zaq/engine test/zaq/channels test/zaq/system_test.exs test/zaq_web/controllers/channels_controller_test.exs test/zaq_web/live/bo/system/system_config_live_test.exs passed 3192 tests + 31 properties, zero failures, seed 523838 (215.8s). Initial broad run exposed 17 old global-inline assumptions and timed out during shutdown; corrected via narrowly scoped inline test calls, successful rerun supersedes it. Broader passing run logged existing asynchronous ServerManager/sandbox teardown errors; no test failure. Existing missing license_manager notice persists. E2E command from test/e2e: npm run test -- specs/ingestion.spec.js specs/system_config.spec.js --project=journeys-chromium passed 56, one pre-existing skipped; fresh E2E build/bootstrap verified real queue processing. Full repository ExUnit suite and all-browser/all-spec E2E not run. No live provider contacted by new tests; OAuth uses existing loopback HTTP test server. No commits, staging, push, PR or new worktree. .1/.2 not repeated or closed. Parent next: .5 authenticated Person facade uses canonical delegates; .6/.7 OAuth finalization/refresh must preserve this shared transactional enqueue; .8 lifecycle extends safe dependency notifications for former/surviving owners. Actual Agent fanout/invalidation and creation races remain separate later integration.",
+      "timestamp": "2026-09-14T10:14:12Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.3] 3. Publish durable secret-free credential mutation events",
   "type": "task",
-  "updated_at": "2026-09-14T10:14:11Z"
+  "updated_at": "2026-09-14T10:14:12Z"
 }
