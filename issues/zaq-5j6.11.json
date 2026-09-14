@@ -9,9 +9,15 @@
   "id": "zaq-5j6.11",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Implemented first-open diagnostics in existing integration module only: same Executor request/base URL/session, original page assertions, no new server or extra CLI navigation. Failure appends root notification observed and bounded docker inspect/top process names before on_exit; diagnostic failures cannot replace original assertion. Workflow raw-launch naming and docs corrected, removed unsupported default backend inference. Validation: focused output 1 property, 10 tests, 0 failures (1 real_browser excluded); integration module compiled. mix format, mix q, sh -n, YAML parse, git diff --check pass. Docker/pinned CLI acceptance still requires CI; failure diagnostic branch not executed by local focused run. No commits/push/dispatch. User requested reuse of existing fixture; plan delivered with less orchestration.",
+      "timestamp": "2026-09-14T08:37:00Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Diagnose opening through existing BrowserFlowSite",
   "type": "task",
-  "updated_at": "2026-09-14T08:34:22Z"
+  "updated_at": "2026-09-14T08:37:00Z"
 }
