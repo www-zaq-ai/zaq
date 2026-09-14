@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-8qo.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-8qo.3"
+  ],
   "created": "2026-09-14T08:24:54Z",
   "description": "Edit people_auth_test only: whole Channels.Supervisor stop/restore in try-after, stable Engine supervisor/limiter assertions, successful verification and existing persisted attempt denial. Real processes/DB; no mocks or production hooks. Existing failing test regression first. No docs required.",
   "id": "zaq-8qo.2",
