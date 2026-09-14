@@ -11,9 +11,15 @@
   "id": "zaq-jrg.4",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Superseding storage decision: canonical queries identify resource_type=connect_credential and DB-enforced resource_id=credential_id::text, with Person identity in owner_type/owner_id. No binding_type or grant person_id. The canonical discriminator is not a fallback to legacy resource grants; existing precedence and all 96-case validation detail remain. Storage implementation awaits the isolation-integrity gate in zaq-jrg.1.",
+      "timestamp": "2026-09-14T06:29:10Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.4] 4. Resolve effective credential independently of consumers",
   "type": "task",
-  "updated_at": "2026-09-13T10:10:10Z"
+  "updated_at": "2026-09-14T06:29:10Z"
 }
