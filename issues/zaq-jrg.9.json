@@ -17,11 +17,15 @@
     {
       "text": "Claimed per user authorization via status update (bw start blocked on unclosed .8). Sole edit owner; preserve foundation; no commit/push/close. RED evidence: 62 cases, 5 failures for stale canonical revoke, expires_in clock, resolver clocks and scheduled maintenance live claim; real OAuth-\u003eChannels-\u003eJido bridge A/B regression separately failed broad vs read. Hardening uses explicit OAuth event/context ownership, shared date clock evaluation, expiry-only claim reconciliation, and owner-bound canonical revoke. Remaining acceptance and measured coverage gates retained.",
       "timestamp": "2026-09-14T13:41:21Z"
+    },
+    {
+      "text": "All FIVE fixes implemented with failing regressions first; added foundation lifecycle acceptance and shared clock tests. Focused coverage: 29 properties + 2019 tests, zero failures. mix q passes after alias corrections. Exact .9 edited application files and coverage are in docs/services/connect-foundation-validation.md. 9/11 .9 files \u003e=95%; exceptions Channels.Api 204/227=89.87% (zaq-lmv) and isolated JidoConnectBridge 909/1180=77.03% (zaq-fja, 183 tests pass), all edited OAuth branches exercised. Broad report omitted main bridge, so isolated coverage used honestly. Retain in_progress for parent recheck/coverage exception acceptance and parent-coordinated final large suite/requirements signoff. No commits/push/worktree/close.",
+      "timestamp": "2026-09-14T14:00:39Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T13:41:21Z"
+  "updated_at": "2026-09-14T14:00:39Z"
 }
