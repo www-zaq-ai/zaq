@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T08:05:30Z",
+  "description": "User approved current-worktree bugfix. Preserve all staged/unstaged changes; no commit/push/PR or user database reset. Original failing command: mix coveralls.json (ExUnit seed 86320, max_cases 16; excludes integration, paradedb, real_browser). Full baseline/final reproduction: mix coveralls.json --seed 86320 --max-cases 16. Initial staged diff SHA256 2a0d278f4bec7037284da446defb4cacd84cf2a0bb01984fa829133965af414f; no initial unstaged diff. Test database migrations verified all up, including person authentication. Plan: baseline -\u003e stale Channels lifecycle test -\u003e evidenced fake IMAP protocol/cleanup repair -\u003e focused repeated coverage and full coverage plus mix format/mix q. No production ownership changes. Mermaid: graph LR; baseline--\u003eauth--\u003eimap--\u003evalidation",
+  "id": "zaq-8qo",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Coverage seed 86320 test lifecycle regressions",
+  "type": "bug",
+  "updated_at": "2026-09-14T08:05:30Z"
+}
