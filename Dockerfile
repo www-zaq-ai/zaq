@@ -39,7 +39,7 @@ RUN mix release
 RUN cp /app/_build/prod/rel/zaq/lib/zaq-*/priv/python/crawler-ingest/requirements.txt /app/release-requirements.txt
 
 # -- agent-browser CLI (native Rust binary for the web_browsing action) --
-# Compiled from crates.io into a single self-contained binary that is copied
+# Compiled from pinned upstream source into a self-contained binary that is copied
 # into the runtime image. The browser itself is the system Chromium installed
 # in the shared browser-runtime stage, so we do not run
 # `agent-browser install` (which would download ~684MB of Chrome for Testing).
@@ -49,10 +49,15 @@ RUN apt-get update -y && \
     apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Pin the version for reproducible builds — an unpinned install would compile
-# whatever is latest on crates.io at build time, risking silent CLI regressions.
+# crates.io stops at 0.19.0, whose native Fetch interception stalls navigation.
+# Pin the upstream fix by immutable revision and retain its dependency lockfile.
 COPY priv/browser/agent-browser.version /tmp/agent-browser.version
-RUN cargo install agent-browser --version "=$(cat /tmp/agent-browser.version)" --locked --root /opt/agent-browser
+COPY priv/browser/agent-browser.revision /tmp/agent-browser.revision
+RUN cargo install agent-browser \
+      --git https://github.com/vercel-labs/agent-browser.git \
+      --rev "$(cat /tmp/agent-browser.revision)" \
+      --locked --root /opt/agent-browser && \
+    test "$(/opt/agent-browser/bin/agent-browser --version)" = "agent-browser $(cat /tmp/agent-browser.version)"
 
 # Production and the opt-in browser-tool CI job use this exact browser setup.
 # Chromium follows Debian security updates; its resolved version is logged below.

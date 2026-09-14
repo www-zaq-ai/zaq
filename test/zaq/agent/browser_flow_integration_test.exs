@@ -6,6 +6,7 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.Executor
+  alias Zaq.Agent.Tools.Web.Browsing
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.System.Command
   alias Zaq.TestSupport.{BrowserFlowSite, IntegrationAgent, ToolCallingLLMStub}
@@ -41,6 +42,15 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
 
   test "open, follow a link, fill and submit a real browser form", context do
     open_presentation(context)
+
+    # Same server and browser session, but a hostname outside the allowlist.
+    # Require a policy denial rather than accepting a DNS/connection failure.
+    blocked_url = context.base |> URI.parse() |> Map.put(:host, "localhost") |> URI.to_string()
+    blocked_params = Map.merge(common(context), %{command: "open", url: blocked_url})
+
+    assert {:error, denial} = Browsing.run(blocked_params, %{})
+    assert denial =~ "Domain 'localhost' is not in the allowed domains list"
+    refute_received {:browser_page, "/"}
 
     assert ask(context, "Read the presentation", %{command: "text", selector: "#intro"}) ==
              "A small team building useful software."

@@ -32,7 +32,7 @@ silently skip, when the pinned CLI or a usable Chromium is unavailable.
 Prerequisites:
 - Normal Mix test dependencies and PostgreSQL, using `config/test.exs` sandbox settings.
 - `agent-browser` matching `priv/browser/agent-browser.version` (the same file
-  Docker uses for its Cargo install). Set `AGENT_BROWSER_BIN` to that executable
+  Docker verifies after its Cargo install). Set `AGENT_BROWSER_BIN` to that executable
   when it is not the default on PATH. A global older CLI need not be replaced.
 - For the Cargo-only installation, set `AGENT_BROWSER_NATIVE=1` to select the
   intended self-contained Rust/CDP backend explicitly. Do not infer the installed
@@ -55,7 +55,11 @@ Do not set `E2E=1`; no Phoenix server, frontend build, Node, or Playwright packa
 is needed for this test. It starts its own loopback HTML site and mocked LLM,
 then calls the real configured agent and `web_browsing` tool for every command.
 The test checks presentation text, navigation URL, form input via a live preview,
-the exact POST nonce/value, and a confirmation page. Each incoming message waits
+the exact POST nonce/value, and a confirmation page. After the first successful
+navigation, it also calls the real browsing tool against `localhost` on the same
+fixture port while only `127.0.0.1` is allowed. It requires an explicit policy
+denial and no new fixture request, then completes the flow in the same session.
+Each incoming message waits
 for Jido's actual terminal state before the next one. Selector waits replace
 timed sleeps. A unique browser session is closed on success and again during
 cleanup so failed assertions do not leave that session running.
@@ -102,7 +106,28 @@ names, not full argv/environment or daemon log files. Raw smoke output is from a
 trusted blank page only; first-open diagnostics appear in the Mix test failure.
 Ordinary tool timeouts still report a generic error to the LLM.
 
-The CLI is exact-version pinned and installed with Cargo `--locked`. Chromium
+The CLI is built with Cargo `--locked` from the immutable upstream commit in
+`priv/browser/agent-browser.revision`; the build verifies its reported version
+against `priv/browser/agent-browser.version`. Both production and CI inherit this
+same build. The current pin is v0.22.0, commit
+`ce1f1f5f8123b97f16aa08e9375659fcdf9c47ab`.
+
+The published crates.io 0.19.0 package processes `Fetch.requestPaused` only at
+command boundaries: allowlisted navigation can wait for a paused request that
+cannot be resumed while the navigation command is running. The pinned source
+starts a background Fetch handler before installing interception. v0.22.0 was
+not available through crates.io when this pin was selected, so changing only
+the version argument of the old registry install would fail. Do not remove
+the allowlist or raise timeouts to work around this dependency defect.
+
+To install the same source locally without replacing a global CLI:
+
+```sh
+cargo install agent-browser --git https://github.com/vercel-labs/agent-browser.git \
+  --rev "$(cat priv/browser/agent-browser.revision)" --locked --root /your/isolated/install
+```
+
+Use that install's `bin/agent-browser` as `AGENT_BROWSER_BIN`. Chromium
 and the Debian base currently follow their existing rolling package/image tags;
 they are **not** exact-version/digest pinned. Sharing the stage prevents divergent
 installation logic, not package drift across builds on different dates. Review
