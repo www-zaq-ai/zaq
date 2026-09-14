@@ -9,9 +9,15 @@
   "id": "zaq-rd0.1",
   "labels": [],
   "parent": "zaq-rd0",
+  "comments": [
+    {
+      "text": "Red run:2 properties26tests3failures reproduced missing deadline, immediate issue, concurrent multiple issues. Backend now passes focused 3properties86tests including gateway/controller/channels/current UI. Generic email receipt bug recorded separately zaq-5r5; real formatter/EmailBridge HTML strong/em passes. No production test bypass.",
+      "timestamp": "2026-09-14T16:46:57Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-rd0] Enforce issuance cooldown and notification contract",
   "type": "task",
-  "updated_at": "2026-09-14T16:37:38Z"
+  "updated_at": "2026-09-14T16:46:57Z"
 }
