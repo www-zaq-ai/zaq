@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T15:30:28Z",
+  "description": "Spec: Person.self_profile_changeset casts fullname only and recalculates completeness, People.update_self_profile persists; PersonChannel.weight_changeset casts only weight using shared validation; People.update_self_channel_weight scopes literal channel id/person before read, no activity/identity/metadata changes; stable weight,id ordering. Tests first: whitelist property, blank/types, valid/invalid weights, foreign/missing/nil, sorting and activity preservation. Real sandbox no mocks. Public specs/moduledocs; docs edit scope.",
+  "id": "zaq-bt8.2",
+  "labels": [],
+  "parent": "zaq-bt8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-bt8] Implement restricted self-service persistence",
+  "type": "task",
+  "updated_at": "2026-09-14T15:30:28Z"
+}
