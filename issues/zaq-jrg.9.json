@@ -21,11 +21,15 @@
     {
       "text": "All FIVE fixes implemented with failing regressions first; added foundation lifecycle acceptance and shared clock tests. Focused coverage: 29 properties + 2019 tests, zero failures. mix q passes after alias corrections. Exact .9 edited application files and coverage are in docs/services/connect-foundation-validation.md. 9/11 .9 files \u003e=95%; exceptions Channels.Api 204/227=89.87% (zaq-lmv) and isolated JidoConnectBridge 909/1180=77.03% (zaq-fja, 183 tests pass), all edited OAuth branches exercised. Broad report omitted main bridge, so isolated coverage used honestly. Retain in_progress for parent recheck/coverage exception acceptance and parent-coordinated final large suite/requirements signoff. No commits/push/worktree/close.",
       "timestamp": "2026-09-14T14:00:39Z"
+    },
+    {
+      "text": "Final restored/refined resolver validation: 3 properties + 158 tests pass (resolver matrix/concurrency, foundation acceptance, DateUtils). Combined format/tests/q invocation hit tool 120s timeout during q after tests passed; rerunning q alone with 240s allowance. Earlier standalone q passed. Review record preserves final large-suite and coverage-acceptance gates.",
+      "timestamp": "2026-09-14T14:03:37Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T14:00:39Z"
+  "updated_at": "2026-09-14T14:03:37Z"
 }
