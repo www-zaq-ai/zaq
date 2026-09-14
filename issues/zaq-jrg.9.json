@@ -57,11 +57,15 @@
     {
       "text": "Far-end RED reproduced before edits:10tests/4failures seed259295. Actual trusted Person Google fallback callback HTTP omitted code_verifier; nil client_secret borrowed nonempty GOOGLE_CLIENT_SECRET and succeeded. Org+Person canonical refresh also succeeded with ambient secret. Plan: expose existing private OAuth profile token URL via secret-free Channels/bridge metadata action, then reuse EXISTING Connect generic exchange/refresh transport (no duplicate OAuth client). Catalog canonical nil-secret fails closed; configured generic public clients retain nil omission. Direct explicit dependency token delegation rejects; legacy remains unchanged. No deps edits or production env changes.",
       "timestamp": "2026-09-14T15:26:39Z"
+    },
+    {
+      "text": "Provider boundary fixes GREEN new37tests seed523333; mix q no issues. Broad focused coverage includes existing Connect token-edge suite now:29properties/2043tests,0failures seed297937,81s. Real HTTP observations assert PKCE hash and bound secret outside caught provider callback assertions. Nonempty ambient env exercised for canonical nil-secret exchange/refresh, configured public exchange+refresh, and positive legacy ambient fallback. Added direct explicit-token delegate guards and unsupported endpoint case. Preparing same-seed full+E2E reruns; no final readiness claim.",
+      "timestamp": "2026-09-14T15:35:26Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T15:26:39Z"
+  "updated_at": "2026-09-14T15:35:26Z"
 }
