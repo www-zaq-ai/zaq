@@ -11,9 +11,15 @@
   "id": "zaq-zlx.3",
   "labels": [],
   "parent": "zaq-zlx",
+  "comments": [
+    {
+      "text": "DS email/OTP screen and minimal PersonLayout/ProfileLive added with existing Input/Button and Storybook contracts. Hook imported once in assets app.js, formats eight ASCII digits and timestamp countdown. No LiveView credential events or bearer assigns. assets.build passed. Browser validation next.",
+      "timestamp": "2026-09-14T10:43:59Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-zlx] Build approved DS People login and profile scaffold",
   "type": "task",
-  "updated_at": "2026-09-14T10:26:56Z"
+  "updated_at": "2026-09-14T10:43:59Z"
 }
