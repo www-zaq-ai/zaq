@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T16:46:04Z",
+  "description": "Discovered by real gateway-\u003eNotifyPerson-\u003eEmailBridge-\u003eSwoosh Test adapter test. Email is delivered but NotifyPerson output validation rejects thread_metadata string key threading (expected atom map key); gateway invalidates code and returns delivery_failed. Preexisting independent receipt contract bug, outside approved OTP polish schema scope. Reproduce with email_html_delivery fixtures and actual gateway; fix generic contract without auth/channel-specific branching, then assert sent descriptor plus HTML strong/em and usable OTP.",
+  "id": "zaq-5r5",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-rd0] Fix NotifyPerson validation of email threading receipts",
+  "type": "bug",
+  "updated_at": "2026-09-14T16:46:04Z"
+}
