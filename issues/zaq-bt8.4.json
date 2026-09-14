@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-bt8.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-bt8.5"
+  ],
   "created": "2026-09-14T15:30:29Z",
   "description": "Spec: replace scaffold with full profile read and fullname edit plus per-channel numeric priority form, DS Input/Button existing PersonLayout info flash; token private; gateway each write; errors preserve edits; forbidden refresh readonly; unavailable fails closed. Tests first: render/edit/forged submits/revocation/config/empty fields/no data leakage and BO isolation. Real routed LiveView sandbox. Docs current portal behavior.",
   "id": "zaq-bt8.4",

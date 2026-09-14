@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-bt8.4"
+  ],
   "blocks": [],
   "created": "2026-09-14T15:30:30Z",
   "description": "Spec: extend existing real 3-engine browser harness at 390/1280 for profile edits/priorities/read-only and BO matrix fourth-row toggles; screenshot visual inspection; migrations verified sandbox without user DB reset. Tests before runner additions; all existing auth/permission relevant suites, mix format/mix q, \u003e=95 changed application scope coverage or exact exception issue. No mock browser/internal boundaries. Update service/e2e docs, review diff and verify cached hash unchanged.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-bt8] Validate browsers coverage migration and quality documentation",
   "type": "task",
-  "updated_at": "2026-09-14T15:30:30Z"
+  "updated_at": "2026-09-14T15:30:50Z"
 }
