@@ -9,9 +9,15 @@
   "id": "zaq-5j6.9",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Implementation ready, uncommitted. Workflow adds four-minute launch/backend smoke step with pipefail, seven-day diagnostic artifact, always container/process-name inspection before removal. Docs explain native Cargo backend and smoke semantics. Validation: 11 tests +1 property pass; shell syntax and YAML parsing pass; mix format and mix q pass; git diff --check pass. Test double controls only external docker transport and covers launch failure, URL mismatch, backend mismatch, default-backend success/failure, cleanup failure and required container. Shell orchestration has no ExCoveralls instrumentation; no Elixir production changes in this step. Real image build and browser acceptance remain BLOCKED locally: docker not installed. Must rerun Browser Tool Integration on this branch after user lands changes; no push/commit/dispatch performed, and timeout root cause not claimed resolved until that run.",
+      "timestamp": "2026-09-14T08:03:48Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Wire browser launch diagnostics and validate CI fix",
   "type": "task",
-  "updated_at": "2026-09-14T08:01:21Z"
+  "updated_at": "2026-09-14T08:03:48Z"
 }
