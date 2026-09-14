@@ -6,9 +6,15 @@
   "description": "Full repository mix test seed812387 exposes four failures already present before the refresh-context residual fix: IngestWorkerTest uses chunk child-job pipeline (ingest_worker_test.exs:612; ingested_chunks 0 vs2), requeues failed final chunk jobs (:765; pending vs completed); IngestionTest retries failed job (ingestion_test.exs:770; processor mock never called), retries completed_with_errors (:790; pending vs processing/completed). Controlled pre-residual/current comparison both 129 tests/6 failures reproduces same four. Foundation config/test.exs switched Oban inline to manual to keep notifications transactional; these cases still depend on implicit inline child execution. Review explicit worker draining/scoped inline execution without activating Connect notifications precommit. No ingestion production changes made in .9 residual fix. Full readiness blocked pending resolution/validation.",
   "id": "zaq-jf6",
   "labels": [],
+  "comments": [
+    {
+      "text": "IMPLEMENTED+VERIFIED in same .9 delivery. Four exact formerly failing ingestion tests now scope Oban.Testing.with_testing_mode(:inline, fn -\u003e triggering operation end) around worker/ retry calls that require child execution; all original assertions and Mox expectations retained. Global Oban manual mode preserved. Focused affected141 tests green; full repository seed812387:48doctests/114properties/9093tests zero failures,1skipped,83excluded,724s within900s bound. No ingestion production changes. Kept in_progress/unlanded per no-commit/no-merge convention; parent review pending.",
+      "timestamp": "2026-09-14T15:15:12Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] Reconcile ingestion tests with manual Oban foundation mode",
   "type": "task",
-  "updated_at": "2026-09-14T14:41:06Z"
+  "updated_at": "2026-09-14T15:15:12Z"
 }
