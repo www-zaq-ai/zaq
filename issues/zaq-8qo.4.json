@@ -9,6 +9,12 @@
   "id": "zaq-8qo.4",
   "labels": [],
   "parent": "zaq-8qo",
+  "comments": [
+    {
+      "text": "Broad focused coverage passed all three seeds 86320, 42, 20260914 with max_cases 16; 6 properties and 288 tests each. Includes all email_bridge directory tests, email_bridge_test, people_auth_test and channels/supervision_test. Log /Users/julien/.local/share/opencode/tool-output/tool_09f0fa51b001NHEENsCB1S8NYX. mix q passed before last adjacent test edit; rerun gate after final full.",
+      "timestamp": "2026-09-14T08:37:31Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8qo] Validate lifecycle fixes under coverage load",
