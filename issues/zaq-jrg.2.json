@@ -19,11 +19,15 @@
     {
       "text": "TDD first run: mix format \u0026\u0026 mix test test/zaq/engine/connect/mutations_test.exs test/zaq/engine/connect/mutation_concurrency_test.exs exited 2: 12 tests + 1 property, 13 expected undefined API failures. First implementation rerun: 12 passed/1 test fixture name collision (required config already inserted), corrected fixture name. Added before further changes real encryption-config error rollback, exact expiry clock matrix, malformed retained-slot replacement, config secret omission/prefix, missing identity and nested failure tests. Decisions: explicit owners :org or {:person,id}; complete replacement clears omitted optional material; config omitted values retain, blank secrets reject; metadata only config auth_profile_id/subject, grant metadata unsupported. Auth-config changes reject all remaining active canonical slots except global being atomically replaced; inactive rows retain original auth fields. New API errors fixed atoms, replies IDs/status/policy only. SecretConfig encryption gets additive opts via Zaq.Config; nonce/tag lengths validated to prevent corrupt ciphertext crypto exceptions, no encryption-system rewrite.",
       "timestamp": "2026-09-14T08:06:34Z"
+    },
+    {
+      "text": "Validation checkpoint: focused Connect + SecretConfig coverage run initially exceeded 120s after tests passed; harness timeout shutdown logged unrelated UpdateBadgeWorker sandbox ownership error. Unchanged rerun with 600s timeout exited 0: 166 tests + 2 properties, zero failures. Measured app coverage before final PEM refinement: Connect 195/204 (95.5%), Credential 20/20, Grant 25/25, Mutations 115/116 (99.1%), SecretConfig 44/44. mix q exited 0, 1185 files/94 checks/no issues. Extra security review found nonblank JWT garbage would count structurally usable: added malformed-PEM regression first, confirmed 1 failure, then added local private PEM decoding (RSA/EC) with fixed safe errors. Valid JWT fixtures now use generated real private keys. This is local material validation only, no provider auth. Docs updated with actual APIs, deferred OAuth draft/finalization, composition and legacy-locking limitations; removed missing decision-document link in favor of durable epic/.1 reference.",
+      "timestamp": "2026-09-14T08:15:49Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.2] 2. Centralize canonical grant writes and safe configuration validation",
   "type": "task",
-  "updated_at": "2026-09-14T08:06:34Z"
+  "updated_at": "2026-09-14T08:15:49Z"
 }
