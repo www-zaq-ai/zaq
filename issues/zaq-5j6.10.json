@@ -9,9 +9,15 @@
   "id": "zaq-5j6.10",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Regression red confirmed: old script rejected test environment before raw launch and violated no-CLI contract. Simplified raw-only script now passes all 3 tests including failure/timeout status preservation and no CLI/server creation.",
+      "timestamp": "2026-09-14T08:34:21Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Remove duplicate CLI smoke probes",
   "type": "task",
-  "updated_at": "2026-09-14T08:32:16Z"
+  "updated_at": "2026-09-14T08:34:21Z"
 }
