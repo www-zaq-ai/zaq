@@ -11,9 +11,15 @@
   "id": "zaq-bt8.2",
   "labels": [],
   "parent": "zaq-bt8",
+  "comments": [
+    {
+      "text": "Scoped persistence TDD passed: whitelist properties, ownership, priority types/order and activity preservation. Found existing optional changeset versus NOT NULL full_name mismatch; self-service clearing stores empty string and recalculates completeness, adds no required rule. Gateway retains caller lock.",
+      "timestamp": "2026-09-14T15:38:38Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-bt8] Implement restricted self-service persistence",
   "type": "task",
-  "updated_at": "2026-09-14T15:30:49Z"
+  "updated_at": "2026-09-14T15:38:38Z"
 }
