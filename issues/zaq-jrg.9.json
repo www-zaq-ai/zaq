@@ -9,9 +9,15 @@
   "id": "zaq-jrg.9",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Superseding acceptance architecture: no grant binding_type/person_id or duplicate owner equality. Canonical resource_type=connect_credential and resource_id=credential_id::text are derived server-side and DB checked; owner_type/owner_id identify Person. Expand acceptance to real independent transaction isolation schedules, both parent/grant orders, owner reference updates, parent PK updates, rollback, canonical equality/null bypass, and all-status uniqueness. Proposed key-share plus reverse RESTRICT SQL triggers demonstrably orphan under REPEATABLE READ; see docs/services/connect-person-trigger-blocker.md. Existing successful FK-based tests do not validate the revision. Retain every other acceptance/security/handoff requirement; lifecycle remains later and secret_binding independent.",
+      "timestamp": "2026-09-14T06:29:08Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-13T10:10:12Z"
+  "updated_at": "2026-09-14T06:29:08Z"
 }
