@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T08:32:07Z",
+  "description": "Use existing first Executor ask against Bandit BrowserFlowSite. On first-open assertion failure report root HTTP notification observed and bounded docker state/process names before existing on_exit cleanup; preserve exception and successful path. No pre-navigation, no extra server. Tests: existing site HTTP notification contract and opt-in full browser acceptance, unavailable locally without pinned CLI/Docker; compile check failure diagnostics. Update workflow step name and docs to remove unsupported backend inference. Run focused tests, mix format, mix q, YAML/shell checks. Predecessor removes duplicated smoke orchestration. Keep uncommitted unless requested.",
+  "id": "zaq-5j6.11",
+  "labels": [],
+  "parent": "zaq-5j6",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5j6] Diagnose opening through existing BrowserFlowSite",
+  "type": "task",
+  "updated_at": "2026-09-14T08:32:07Z"
+}
