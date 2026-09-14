@@ -6,9 +6,15 @@
   "description": "Unrelated full baseline failure before bugfix edits: mix coveralls.json --seed 86320 --max-cases 16, onboarding_scenarios_integration_test.exs:110 expected dashboard redirect within 1000ms; portal econnrefused logged. Baseline 8819 tests 2 failures (other is zaq-8qo auth). Track independently; do not silently expand lifecycle bugfix scope.",
   "id": "zaq-zih",
   "labels": [],
+  "comments": [
+    {
+      "text": "Onboarding timeout did not recur in final full seed86320 (8823 tests, 0 failures, 638.3s). No onboarding changes made. Keep as intermittent baseline finding, not claimed fixed by lifecycle changes.",
+      "timestamp": "2026-09-14T08:49:09Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Onboarding coverage bootstrap redirect timeout seed 86320",
   "type": "bug",
-  "updated_at": "2026-09-14T08:25:23Z"
+  "updated_at": "2026-09-14T08:49:09Z"
 }
