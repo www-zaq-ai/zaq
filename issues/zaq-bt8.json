@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T15:30:04Z",
+  "description": "Approved expanded scope in current worktree. Delivery: working tree only; preserve index; no commit/push/PR or user DB reset. Canonical edit_profile grant, forward CHECK migration, fullname-only profile and owned weight-only channel writes, transactional bearer-authoritative Engine gateway, DS portal UI, regression/property/concurrency/browser tests and docs. Sequence graph: permissions -\u003e scoped persistence -\u003e gateway -\u003e portal -\u003e browser/coverage/docs. No implicit grants or prerequisite map; literal authenticated owner only; nil denies. Each step tests first, real sandbox internal boundaries, no internal mocks except existing transport fixtures.",
+  "id": "zaq-bt8",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[PR5] Permission-gated self profile and channel priority editing",
+  "type": "epic",
+  "updated_at": "2026-09-14T15:30:04Z"
+}
