@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T16:37:31Z",
+  "description": "Run focused accounts/gateway/controller/channel/notification/bridge and concurrency tests; real browsers all3 include real_browser timeout180000; mix format assets.build mix q; scoped coverage95 and exact exceptions. Review own unstaged diff and unchanged staged checksum, document concise current people-access behavior.",
+  "id": "zaq-rd0.3",
+  "labels": [],
+  "parent": "zaq-rd0",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-rd0] Validate OTP polish and update service documentation",
+  "type": "task",
+  "updated_at": "2026-09-14T16:37:31Z"
+}
