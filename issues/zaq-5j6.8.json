@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T07:57:41Z",
+  "description": "Functional specification: shared Docker browser-runtime selects Rust/CDP backend for Cargo-only install; add bounded CI smoke transport script covering raw Chromium launch, explicit default backend comparison, inherited native backend open/url/close in unique sessions. Tests before implementation: shell transport contract tests success, backend mismatch, browser failure, URL mismatch and cleanup; real image acceptance only in Docker CI (docker unavailable locally). Paths: Dockerfile, test/support/bin/browser-runtime-smoke, test/support/browser_runtime_smoke_test.exs. Mock only external docker command in contract tests, never browser integration. Documentation: e2e prerequisites and diagnostics. No changes to application timeouts, allowlists or Jido routing. Root prerequisite; no dependencies.",
+  "id": "zaq-5j6.8",
+  "labels": [],
+  "parent": "zaq-5j6",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5j6] Verify and select native browser runtime",
+  "type": "task",
+  "updated_at": "2026-09-14T07:57:41Z"
+}
