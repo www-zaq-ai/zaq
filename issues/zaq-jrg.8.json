@@ -1,8 +1,6 @@
 {
   "assignee": "",
-  "blocked_by": [
-    "zaq-jrg.7"
-  ],
+  "blocked_by": [],
   "blocks": [
     "zaq-jrg.9"
   ],
@@ -15,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg.8] 8. Integrate Person grant cleanup and deterministic merge",
   "type": "task",
-  "updated_at": "2026-09-14T07:08:55Z"
+  "updated_at": "2026-09-14T09:27:24Z"
 }
