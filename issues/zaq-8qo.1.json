@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T08:24:54Z",
+  "description": "Run original reproduction before edits; inspect read-only migrations. Baseline complete: mix coveralls.json --seed 86320 --max-cases 16: 1098.8s, 48 doctests, 109 properties, 8819 tests, 2 failures, 1 skipped, 83 excluded; coverage 97.2%. Auth obsolete child failure confirmed; IMAP did not reproduce. Additional unrelated onboarding redirect timeout at onboarding_scenarios_integration_test.exs:110. Full log /Users/julien/.local/share/opencode/tool-output/tool_09f046ad0001JT91YU8sLjZpH1. No DB migration needed.",
+  "id": "zaq-8qo.1",
+  "labels": [],
+  "parent": "zaq-8qo",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8qo] Record full coverage baseline",
+  "type": "task",
+  "updated_at": "2026-09-14T08:24:54Z"
+}
