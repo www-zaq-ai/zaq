@@ -13,11 +13,15 @@
     {
       "text": "Broad focused coverage passed all three seeds 86320, 42, 20260914 with max_cases 16; 6 properties and 288 tests each. Includes all email_bridge directory tests, email_bridge_test, people_auth_test and channels/supervision_test. Log /Users/julien/.local/share/opencode/tool-output/tool_09f0fa51b001NHEENsCB1S8NYX. mix q passed before last adjacent test edit; rerun gate after final full.",
       "timestamp": "2026-09-14T08:37:31Z"
+    },
+    {
+      "text": "Final required full reproduction PASS: mix coveralls.json --seed 86320 --max-cases 16; 638.3s (88.3 async, 550.0 sync); 48 doctests, 109 properties, 8823 tests, 0 failures, 1 skipped, 83 excluded integration/paradedb/real_browser. Coverage 97.2%; report cover/excoveralls.json. Full log /Users/julien/.local/share/opencode/tool-output/tool_09f1ab010001oluBPsPSDRpWob. No IMAP timeout in baseline/final full or three focused covered seeds; demonstrated fake defects repaired but no definitive original sink timeout causality claim. No DB causality evidence: sink only sends message, Mailroom fetch callback runs in listener/caller then performs body section FETCHes. No production changes.",
+      "timestamp": "2026-09-14T08:49:08Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8qo] Validate lifecycle fixes under coverage load",
   "type": "task",
-  "updated_at": "2026-09-14T08:37:31Z"
+  "updated_at": "2026-09-14T08:49:08Z"
 }
