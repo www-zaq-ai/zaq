@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T11:08:27Z",
+  "description": "Extend existing sandbox browser runner once with Chromium/Firefox/WebKit and BO login/logout coexistence both orders, mobile/desktop. Reuse PeopleAuthPeer real BEAM bootstrap for origin+Engine observers and actual verify/authenticate/revoke RPC; keep raw credentials peer-local and return boolean summaries. Tests own isolated state, no DB reset. Docs commands/evidence.",
+  "id": "zaq-r1c.2",
+  "labels": [],
+  "parent": "zaq-r1c",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-r1c] Exercise three browsers and real remote confidential verification",
+  "type": "task",
+  "updated_at": "2026-09-14T11:08:27Z"
+}
