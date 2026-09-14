@@ -11,9 +11,15 @@
   "id": "zaq-7ep.2",
   "labels": [],
   "parent": "zaq-7ep",
+  "comments": [
+    {
+      "text": "Real Jido/Engine/transport integration now passes including returned errors, raised UndefinedFunctionError source diagnostics, output validation failure, skipped sends, stale A/B and descriptor-only success. Focused coverage run: 4 properties, 219 tests, 0 failures. NotifyPerson whole-file coverage 100% (38/38); gateway 87.5% (28/32), exception candidate: documented 3-element Jido envelopes not emitted by this action plus outer rescue/catch guards. Avoid action stubs or production-only seams to force unreachable result envelopes. Engine.Api whole-file 79.6% includes unrelated actions; notify_person changed lines exercised. Existing zaq-n82 tracks full API coverage.",
+      "timestamp": "2026-09-14T14:11:49Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-7ep] Gateway Jido execution and fail-closed regression tests",
   "type": "task",
-  "updated_at": "2026-09-14T14:04:17Z"
+  "updated_at": "2026-09-14T14:11:49Z"
 }
