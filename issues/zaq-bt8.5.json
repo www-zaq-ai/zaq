@@ -4,6 +4,8 @@
     "zaq-bt8.4"
   ],
   "blocks": [],
+  "closed_at": "2026-09-14T16:03:25Z",
+  "close_reason": "499 tests + 13 properties, all3 browsers, mix q, coverage \u003e=95%, screenshots and index verification complete.",
   "created": "2026-09-14T15:30:30Z",
   "description": "Spec: extend existing real 3-engine browser harness at 390/1280 for profile edits/priorities/read-only and BO matrix fourth-row toggles; screenshot visual inspection; migrations verified sandbox without user DB reset. Tests before runner additions; all existing auth/permission relevant suites, mix format/mix q, \u003e=95 changed application scope coverage or exact exception issue. No mock browser/internal boundaries. Update service/e2e docs, review diff and verify cached hash unchanged.",
   "id": "zaq-bt8.5",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-bt8] Validate browsers coverage migration and quality documentation",
   "type": "task",
-  "updated_at": "2026-09-14T16:03:24Z"
+  "updated_at": "2026-09-14T16:03:25Z"
 }
