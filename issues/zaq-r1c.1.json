@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-r1c.2"
   ],
+  "closed_at": "2026-09-14T12:09:07Z",
+  "close_reason": "Cookie baseline and security assertions green; documentation updated in validation step.",
   "created": "2026-09-14T11:08:27Z",
   "description": "Tests first: baseline cookie lacks Max-Age/Expires; isolated Config.Reader prod Secure configuration assertion with actual compiled Plug.Session options; HTTP logging unique code/session token filtered. Owners Endpoint/tests/docs. No production hooks/new transport. Existing test config / sandbox; capture actual Phoenix HTTP logs. Update prior lifetime claims.",
   "id": "zaq-r1c.1",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-r1c] Restore baseline cookie persistence and prove Secure/log filtering",
   "type": "task",
-  "updated_at": "2026-09-14T12:09:06Z"
+  "updated_at": "2026-09-14T12:09:07Z"
 }
