@@ -49,11 +49,15 @@
     {
       "text": "Final quality checks PASS after residual docs: mix format, mix q (1224source files/15643mods-funs, no issues), git diff --check. Full-suite failing baseline and coverage exceptions are still explicit gates; .9 remains in_progress for parent final residual verification. Foundation work preserved, no commits/push/worktree/close.",
       "timestamp": "2026-09-14T14:38:54Z"
+    },
+    {
+      "text": "FINAL IMPLEMENTATION/VALIDATION GREEN. Corrected six FOUNDATION-INTRODUCED compatibility failures in same delivery, not waived as baseline: narrowly scoped inline ingestion calls; meaningful real-HTTP legacy refresh safe-error/raw-ciphertext/event rollback tests plus malicious enc two-round regression. Reproduced remaining onboarding100ms failure under full seed812387 (9092tests,1failure,566.2s) with temporary process diagnostics, then fixed explicit async-task/navigation deadlines and added metadata-response barrier test; removed diagnostics. Final exact same-seed full repository:48doctests,114properties,9093tests,0failures,1existing skip,83standard excluded,724.0s within900s bound. Affected141tests green. mix format/q/diff-check pass; prior56E2E passes unchanged (final edits test-only). docs/services/connect-foundation-validation.md supersedes all earlier red/baseline wording with complete evidence. zaq-jf6/zaq-q1v/zaq-zih implemented+verified comments, remain unlanded per no commit/merge. .9 in_progress only for parent independent residual review/requirements signoff and explicit user coverage-exception acceptance (zaq-fja/zaq-lmv). No approvals or independent review claimed; no commits/push/worktree/close.",
+      "timestamp": "2026-09-14T15:18:07Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T14:38:54Z"
+  "updated_at": "2026-09-14T15:18:07Z"
 }
