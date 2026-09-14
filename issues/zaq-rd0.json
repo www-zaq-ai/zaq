@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T16:37:07Z",
+  "description": "Approved current-worktree scope. Preserve staged baseline SHA256 3ec9ae025d674b9857be3ea1ee24e2d7b27c7b3c2653b0687ecfe7cf3173d8f4. Sequence graph LR; backend--\u003epresentation; presentation--\u003evalidation. Existing PeopleAuth lock/clock, HTTP signed session, NotifyPerson and formatter remain owners. No commit/push/PR/database reset.",
+  "id": "zaq-rd0",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "OTP sign-in polish",
+  "type": "epic",
+  "updated_at": "2026-09-14T16:37:07Z"
+}
