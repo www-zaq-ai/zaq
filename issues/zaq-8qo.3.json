@@ -19,11 +19,15 @@
     {
       "text": "Minimal test-only repair: fake owns acceptor and connections under Task.Supervisor and waits for supervised shutdown; connection monitors remove stale entries including immediate close; DONE always completes current IDLE. Kept polling and trigger ACK semantics unchanged (no evidence justifying rewrite). Listener stop uses default ExUnit child ID Listener, asserting listener/client DOWN shutdown and child removal; direct callback client cleanup try-after. Focused 1 property + 46 tests pass seed 86320. Original failing fake regressions passed after repair.",
       "timestamp": "2026-09-14T08:30:14Z"
+    },
+    {
+      "text": "Broader covered IMAP suite exposed two adjacent tests relying on broken fake behavior: server shutdown now genuinely closes tcp (Mailroom linked client exits), and cancel_idle returns before tagged IDLE completion. Local test fixes in imap_adapter_test.exs: unlink/monitor expected client death and stop fake through ExUnit; await existing :idle_notify completion before entering next IDLE. This preserves actual protocol rather than suppressing DONE. Prior broader run: 6 properties, 288 tests, 2 failures; loop stopped before alternate seeds.",
+      "timestamp": "2026-09-14T08:34:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8qo] Repair demonstrated fake IMAP protocol and cleanup defects",
   "type": "task",
-  "updated_at": "2026-09-14T08:30:14Z"
+  "updated_at": "2026-09-14T08:34:11Z"
 }
