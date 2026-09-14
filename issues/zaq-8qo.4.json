@@ -17,11 +17,15 @@
     {
       "text": "Final required full reproduction PASS: mix coveralls.json --seed 86320 --max-cases 16; 638.3s (88.3 async, 550.0 sync); 48 doctests, 109 properties, 8823 tests, 0 failures, 1 skipped, 83 excluded integration/paradedb/real_browser. Coverage 97.2%; report cover/excoveralls.json. Full log /Users/julien/.local/share/opencode/tool-output/tool_09f1ab010001oluBPsPSDRpWob. No IMAP timeout in baseline/final full or three focused covered seeds; demonstrated fake defects repaired but no definitive original sink timeout causality claim. No DB causality evidence: sink only sends message, Mailroom fetch callback runs in listener/caller then performs body section FETCHes. No production changes.",
       "timestamp": "2026-09-14T08:49:08Z"
+    },
+    {
+      "text": "Final mix q PASS (format check, compile warnings-as-errors, docs warnings-as-errors, strict Credo; 1210 source files, no issues). All five changed test/support files formatted. git diff --check PASS. Staged diff SHA256 unchanged: 2a0d278f4bec7037284da446defb4cacd84cf2a0bb01984fa829133965af414f. Original 43 staged files preserved; four unstaged tracked changes and one new untracked regression file are this task. No production edits, no reset/migration needed, no commit/push/PR. New tests are concrete bounded protocol/lifecycle regressions rather than broad-input invariants, so example tests suffice; existing properties retained. Full coverage 97.2%, PeopleAuth 100%, Listener 98.8%. Test support excluded from production coverage report. Final logs still show configured unavailable license_manager warning and deliberate corrupt LicenseManager.Paid.LoadFail fixture log; no sandbox/checkout warning in captured full output. E2E not needed for test-only lifecycle repairs.",
+      "timestamp": "2026-09-14T08:49:49Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8qo] Validate lifecycle fixes under coverage load",
   "type": "task",
-  "updated_at": "2026-09-14T08:49:08Z"
+  "updated_at": "2026-09-14T08:49:49Z"
 }
