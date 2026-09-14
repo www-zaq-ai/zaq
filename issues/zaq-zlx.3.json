@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-zlx.4"
   ],
+  "closed_at": "2026-09-14T11:04:31Z",
+  "close_reason": "Approved DS login/profile scaffold and hooks implemented; real browser mobile/desktop journey passed.",
   "created": "2026-09-14T10:26:37Z",
   "description": "Spec: Channels role routes independent live sessions; DS email/OTP forms conventional CSRF HTTP submissions, timestamp countdown hook and formatting; minimal Person layout profile nav/logout. Tests first: labels, wrong code retained stage, expired resend, only sent OTP stage, protected mount/reconnect/event. Storybook existing primitives, no UI clone. Docs phoenix routes and People scope.",
   "id": "zaq-zlx.3",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-zlx] Build approved DS People login and profile scaffold",
   "type": "task",
-  "updated_at": "2026-09-14T10:43:59Z"
+  "updated_at": "2026-09-14T11:04:31Z"
 }
