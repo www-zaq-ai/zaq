@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-8qo.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-8qo.4"
+  ],
   "created": "2026-09-14T08:24:55Z",
   "description": "Inspect Mailroom protocol and listener cleanup. Add failing fake protocol/lifecycle regressions before repair. Own changes in test/support/fake_imap_server.ex and listener_test.exs plus focused fake regression test. Keep async/concurrency and 1500ms bound. Validate DONE and supervised shutdown, including failure teardown. No production hooks or docs changes.",
   "id": "zaq-8qo.3",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-8qo] Repair demonstrated fake IMAP protocol and cleanup defects",
   "type": "task",
-  "updated_at": "2026-09-14T08:25:21Z"
+  "updated_at": "2026-09-14T08:25:22Z"
 }
