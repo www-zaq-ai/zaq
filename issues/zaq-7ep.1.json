@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T13:56:15Z",
+  "description": "NotifyPerson owns trusted event_opts confidential-only forwarding and safe diagnostics before existing binary error conversion; Engine.Api forwards confidential-only channels_event_opts. Tests first: real Jido.Exec validation/sent/skipped/errors, trusted-option property, unchanged workflow payload/defaults. Router boundary mocks only; gateway step supplies full real Engine/transport integration. Document action contract.",
+  "id": "zaq-7ep.1",
+  "labels": [],
+  "parent": "zaq-7ep",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-7ep] Action confidentiality and original-error diagnostics",
+  "type": "task",
+  "updated_at": "2026-09-14T13:56:15Z"
+}
