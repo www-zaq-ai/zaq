@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-r1c.2"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-r1c",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-r1c] Run broad regressions coverage and final quality gate",
   "type": "task",
-  "updated_at": "2026-09-14T11:08:55Z"
+  "updated_at": "2026-09-14T12:10:23Z"
 }
