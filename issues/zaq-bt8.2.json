@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-bt8.3"
   ],
+  "closed_at": "2026-09-14T16:03:24Z",
+  "close_reason": "Restricted owner persistence and properties passing; fullname blank storage policy documented.",
   "created": "2026-09-14T15:30:28Z",
   "description": "Spec: Person.self_profile_changeset casts fullname only and recalculates completeness, People.update_self_profile persists; PersonChannel.weight_changeset casts only weight using shared validation; People.update_self_channel_weight scopes literal channel id/person before read, no activity/identity/metadata changes; stable weight,id ordering. Tests first: whitelist property, blank/types, valid/invalid weights, foreign/missing/nil, sorting and activity preservation. Real sandbox no mocks. Public specs/moduledocs; docs edit scope.",
   "id": "zaq-bt8.2",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-bt8] Implement restricted self-service persistence",
   "type": "task",
-  "updated_at": "2026-09-14T15:38:38Z"
+  "updated_at": "2026-09-14T16:03:24Z"
 }
