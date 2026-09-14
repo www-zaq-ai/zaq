@@ -15,11 +15,15 @@
     {
       "text": "User explicitly approved .8 atop implemented-uncommitted .4/.3/.5/.6/.7; prerequisite remains in_progress intentionally. Preserve all work, no commit/push/worktree/close. Implement test-first under existing .8 plan. Accounts orchestrates single/bulk/merge transaction; Connect owns identity-only locking/projections, ciphertext-preserving transfer, attempt cancellation, transactional dependency events, bounded reconciliation. Existing DynamicCron leader election is the scheduler; dedicated consumed maintenance queue independent of channels/disabled notification queue. Validate exact touched coverage with Accounts owning suites and coordinate zaq-c1k.",
       "timestamp": "2026-09-14T13:06:40Z"
+    },
+    {
+      "text": "Reconciliation: one stable ID-keyset page, default 100 grants plus 100 attempts, hard per-kind cap500, trusted after cursor/now cutoff; rechecks literal missing Person after credential locks, preserves inactive current owners and legacy org/user grants. Deletes expired/claimed attempts including NULL-credential encrypted admin candidates, missing-owner pending attempts; preserves live nonexpired pending candidates. Returns counts + internal continuation only; worker telemetry counts/duration/fixed outcome, safe error atoms. Dedicated connect_maintenance:1 consumed independently from channels and unconsumed notifications in all real dev/prod role configurations. Existing DynamicCron DB leader schedules once/5min, outstanding worker uniqueness across pending/executing/retry states, max3 attempts, exactly one page per job with no recursive queue continuation; next schedule restarts earliest eligible IDs, so backlog drains without infinite queue chain. ID nonreuse and no synchronous/bounded-wall-clock erasure guarantee documented; claimed cleanup may cancel an in-flight flow requiring fresh start. Actual independent races cover late raw-storage orphan after merge/delete rejected by disabled-policy resolver and removed next pass, issuance identity rechecks, credential-vs-merger Person lock ordering, cleanup concurrency/recheck, refresh and actual provider HTTP callback cancellation including survivor.",
+      "timestamp": "2026-09-14T13:25:23Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.8] 8. Integrate Person grant cleanup and deterministic merge",
   "type": "task",
-  "updated_at": "2026-09-14T13:06:40Z"
+  "updated_at": "2026-09-14T13:25:23Z"
 }
