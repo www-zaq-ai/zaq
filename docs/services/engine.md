@@ -119,8 +119,8 @@ Adapter inbound path:
   `Connect.change_credential_grant/3` also strictly encrypts changed secrets before
   persistence and checks the literal Person ID currently exists with active status
   on creation/update. It never follows merged aliases. These are internal storage
-  changesets, not authenticated Person APIs
-  or atomic policy/configuration management operations (`zaq-jrg.2` and `.5`).
+  changesets, not authenticated Person APIs. Atomic management uses the separate
+  mutation boundary below; authenticated Person transport remains `zaq-jrg.5`.
 - Legacy issue/list/resolve and scheduled refresh stay resource-bound. Canonical
   rows do not enter existing AI, data-source or MCP consumers. No secret backfill
   or fallback from configuration to canonical grants is performed.
@@ -132,7 +132,60 @@ Adapter inbound path:
 **Accepted lifetime limitation:** the current-record check does not coordinate
 concurrent Person deletion/merge. Orphan grants and encrypted secrets can remain;
 synchronous erasure is not guaranteed. Person IDs must not be reused operationally.
-See [the final storage decision](connect-person-storage-decision.md).
+The authoritative approved storage decision is recorded in Beadwork epic `zaq-jrg`
+and prerequisite `zaq-jrg.1` (2026-09-14).
+
+#### Canonical mutations (`zaq-jrg.2`)
+
+`Zaq.Engine.Connect.Mutations` owns the transaction boundary. `Connect` delegates:
+
+- `save_credential_configuration(credential_or_id_or_nil, attrs, global \\ :keep, opts \\ [])`
+  creates (`nil`) or reloads/updates configuration atomically with its global slot.
+  `global` is `:keep` or `{:replace, material}`. Disabled/optional policies require a
+  locally usable canonical global grant; required permits absence or an unusable
+  retained slot. Failure rolls back configuration and grant writes together.
+- `replace_credential_grant(credential_or_id, owner, material, opts \\ [])` replaces
+  the complete material, retains an existing slot ID and reactivates it. Optional
+  material omitted from replacement is cleared, not inherited. Config fields omitted
+  from save retain their values; explicit blank/nil/masked secret submissions reject.
+  Non-null configuration fields `user_level` and `scopes` reject explicit nil before
+  persistence; `false` and an empty scope list remain valid.
+- `revoke_credential_grant(credential_or_id, owner)` clears secrets, cached expiry
+  and metadata while retaining the revoked row. It does not require usable auth.
+- `remove_credential_grant(credential_or_id, owner)` deletes the row, restoring
+  absence semantics. Repeated cleanup of an absent slot succeeds.
+
+Owners are explicit `:org` or `{:person, positive_integer_id}`. These are **trusted
+internal APIs**, not browser-authenticated operations. Replacement checks the literal
+current active Person without aliases. Cleanup permits missing/inactive People.
+The accepted concurrent Person deletion/orphan risk above remains.
+
+Every mutation reloads and locks the credential before locking the canonical owner
+slot; the credential lock serializes absent slots too. Existing partial uniqueness
+constraints remain the final defense. Policy-only changes preserve Person rows.
+Changes to provider/auth kind/request format/scopes/JWT settings/OAuth client settings
+or metadata reject while active canonical grants remain, except a global slot being
+atomically replaced. Revoke/remove incompatible Person grants first. Inactive rows
+retain their original auth fields and are never reinterpreted under the new kind.
+Legacy APIs retain their contracts and do not participate in this locking protocol.
+
+Usability checks active status, derived configuration compatibility, required decrypted
+material and local grant expiry (strictly later than `opts[:now]`, default UTC now).
+API keys/access tokens must be nonblank; JWT material must decode as an RSA or EC
+private PEM key with issuer/key ID. This does not verify provider acceptance. Corrupt
+required ciphertext is unusable. OAuth accepts pre-obtained access material only;
+**drafts and finalization are deferred to OAuth slice `zaq-jrg.6`**, without new
+setup-state columns. Required-to-optional fails until global material is supplied.
+
+Replies are `{:ok, map}` with only credential ID, policy and optional global grant
+summary for saves; grant summaries contain credential ID, grant ID and status.
+Cleanup uses `"absent"` and a nil grant ID if already absent. Errors are fixed atoms
+(`:invalid_configuration`, `:invalid_material`, `:invalid_instruction`, `:invalid_owner`,
+`:person_unavailable`, `:not_found`, `:global_grant_unusable`,
+`:incompatible_live_grants`, `:encryption_failed`, `:cleanup_failed`). No decrypted
+schema, changeset or submitted params leave this boundary. Nested Repo transactions
+compose: outer rollback undoes successful mutations; an inner failure aborts the outer
+transaction. No events are emitted before or after commit yet (`zaq-jrg.3`).
 
 **Required later work, unimplemented here:** the resolver must check Person existence
 and eligibility BEFORE policy selection, including disabled policy. A stale/deleted

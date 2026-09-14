@@ -5,6 +5,9 @@ defmodule Zaq.Engine.Connect do
   `change_credential_grant/3` prepares encrypted canonical storage changesets for
   trusted Engine callers. It does not authorize Person management. Legacy grant
   listing, resolution and scheduled refresh select only resource-bound rows.
+
+  Canonical mutation delegates use `Mutations` for atomic policy saves and trusted
+  credential/owner-bound replacement and cleanup. They return safe DTOs, not schemas.
   """
 
   import Ecto.Query
@@ -24,6 +27,40 @@ defmodule Zaq.Engine.Connect do
   alias Zaq.Utils.Map, as: MapUtils
 
   @secret_fields ~w(client_secret api_key access_token refresh_token private_key)a
+
+  @doc "Trusted atomic canonical configuration save; global defaults to :keep."
+  @spec save_credential_configuration(
+          Zaq.Engine.Connect.Mutations.credential_ref() | nil,
+          map(),
+          :keep | {:replace, map()},
+          keyword()
+        ) :: Zaq.Engine.Connect.Mutations.result()
+  defdelegate save_credential_configuration(credential, attrs, global \\ :keep, opts \\ []),
+    to: Zaq.Engine.Connect.Mutations
+
+  @doc "Trusted complete replacement in an explicit canonical owner slot."
+  @spec replace_credential_grant(
+          Zaq.Engine.Connect.Mutations.credential_ref(),
+          Zaq.Engine.Connect.Mutations.owner(),
+          map(),
+          keyword()
+        ) :: Zaq.Engine.Connect.Mutations.result()
+  defdelegate replace_credential_grant(credential, owner, material, opts \\ []),
+    to: Zaq.Engine.Connect.Mutations
+
+  @doc "Trusted secret-clearing revocation retaining the canonical owner slot."
+  @spec revoke_credential_grant(
+          Zaq.Engine.Connect.Mutations.credential_ref(),
+          Zaq.Engine.Connect.Mutations.owner()
+        ) :: Zaq.Engine.Connect.Mutations.result()
+  defdelegate revoke_credential_grant(credential, owner), to: Zaq.Engine.Connect.Mutations
+
+  @doc "Trusted idempotent removal of the canonical owner slot."
+  @spec remove_credential_grant(
+          Zaq.Engine.Connect.Mutations.credential_ref(),
+          Zaq.Engine.Connect.Mutations.owner()
+        ) :: Zaq.Engine.Connect.Mutations.result()
+  defdelegate remove_credential_grant(credential, owner), to: Zaq.Engine.Connect.Mutations
 
   @spec list_credentials() :: [Credential.t()]
   def list_credentials do

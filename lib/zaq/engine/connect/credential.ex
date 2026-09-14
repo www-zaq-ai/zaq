@@ -29,16 +29,16 @@ defmodule Zaq.Engine.Connect.Credential do
 
     field :secret_binding, Ecto.Enum, values: [:configuration, :grant], default: :configuration
     field :request_format, :string, default: "bearer"
-    field :metadata, :map, default: %{}
+    field :metadata, :map, default: %{}, redact: true
 
     field :client_id, :string
-    field :client_secret, Zaq.Types.EncryptedString
+    field :client_secret, Zaq.Types.EncryptedString, redact: true
     field :scopes, {:array, :string}, default: []
     field :issuer, :string
-    field :private_key, Zaq.Types.EncryptedString
+    field :private_key, Zaq.Types.EncryptedString, redact: true
     field :key_id, :string
 
-    field :api_key, Zaq.Types.EncryptedString
+    field :api_key, Zaq.Types.EncryptedString, redact: true
     field :expires_at, :utc_datetime
 
     has_many :grants, Zaq.Engine.Connect.Grant, foreign_key: :credential_id
