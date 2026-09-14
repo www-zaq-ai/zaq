@@ -166,7 +166,13 @@ rejected rather than ignored, since it would silently override the message resol
   [People authentication backend](people-access.md#people-authentication-backend).
   Engine supervises OTP Person/IP issuance budgets and retains persisted verification
   attempts. Channels separately owns only unsuccessful-identification IP protection.
-  No authentication gateway/events are exposed yet.
+  Public callers use the fixed confidential `:people_auth` action and
+  `PeopleAuthGateway`. Its single challenge request resolves a read-only match,
+   issues and executes `NotifyPerson` through `Jido.Exec.run/3`, reusing the existing
+   Notifications preferred/fallback delivery path through a confidential Engine event.
+  Only `:sent` returns a safe challenge descriptor; failed sends invalidate only
+  their own challenge. Verify/authenticate/revoke use bearer proof, never a
+  client-supplied Person id. No LLM or workflow participates in delivery.
 - Capability matrix/grant/revoke commands and their separate permission domain are
   documented in [People permissions](people-access.md).
 - BO People operations are routed through `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`

@@ -7,6 +7,15 @@
 # General application configuration
 import Config
 
+config :phoenix, :filter_parameters, ["password", "secret", "token", "code"]
+
+# LiveView's mount logger inspects the entire shared cookie session without
+# Phoenix parameter filtering. Keep other diagnostics, but never compile this
+# raw-session dump into a release (including BO mounts carrying a People token).
+config :logger, :compile_time_purge_matching, [
+  [module: Phoenix.LiveView.Logger, function: "lv_mount_start/4"]
+]
+
 config :zaq, :channels, %{
   mattermost: %{
     bridge: Zaq.Channels.JidoChatBridge,
@@ -135,6 +144,15 @@ config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   metadata: [
     :request_id,
+    :event_id,
+    :challenge_id,
+    :phase,
+    :category,
+    :error_type,
+    :exception_type,
+    :source_module,
+    :source_function,
+    :source_arity,
     :workflow_id,
     :run_id,
     :trigger_type,

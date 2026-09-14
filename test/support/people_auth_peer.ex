@@ -25,7 +25,7 @@ defmodule Zaq.TestSupport.PeopleAuthPeer do
     :ok
   end
 
-  def start(repo_config, roles \\ [:engine, :channels]) do
+  def start(repo_config, roles \\ [:engine, :channels], opts \\ []) do
     {:ok, _} = Application.ensure_all_started(:logger)
     Logger.configure(level: :warning)
     {:ok, _} = Application.ensure_all_started(:ecto_sql)
@@ -35,7 +35,7 @@ defmodule Zaq.TestSupport.PeopleAuthPeer do
     Application.put_env(
       :zaq,
       Zaq.Repo,
-      Keyword.put(repo_config, :pool, DBConnection.ConnectionPool)
+      Keyword.put(repo_config, :pool, Keyword.get(opts, :pool, DBConnection.ConnectionPool))
     )
 
     role_children =

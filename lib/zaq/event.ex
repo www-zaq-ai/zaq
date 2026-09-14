@@ -12,6 +12,9 @@ defmodule Zaq.Event do
   - `hops` records consumed hops in execution order.
   - `assigns` carries side-channel routing metadata across hops.
   - `opts` carries action-specific routing options.
+  - Trusted `opts[:confidential] == true` excludes the entire envelope from
+    observer/workflow broadcasts and payload-bearing async diagnostics. Routing
+    still executes normally. Callers must propagate this option to child events.
   """
 
   alias Zaq.EventHop

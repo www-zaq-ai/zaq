@@ -5,11 +5,16 @@ defmodule ZaqWeb.Endpoint do
   # this means its contents can be read but not tampered with.
   # Set :encryption_salt if you would also like to encrypt it.
   @session_options [
-    store: :cookie,
-    key: "_zaq_key",
-    signing_salt: "DzhRrJN1",
-    same_site: "Lax"
-  ]
+                     store: :cookie,
+                     key: "_zaq_key",
+                     signing_salt: "DzhRrJN1",
+                     same_site: "Lax",
+                     http_only: true
+                   ] ++
+                     if(Application.compile_env(:zaq, :secure_session_cookie, false),
+                       do: [secure: true],
+                       else: []
+                     )
 
   socket "/live", Phoenix.LiveView.Socket,
     websocket: [connect_info: [session: @session_options]],

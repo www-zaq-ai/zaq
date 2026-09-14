@@ -26,6 +26,22 @@ defmodule Zaq.Accounts.PeopleAuthTest do
     %{person: person, ip: {127, 0, div(rem(person.id, 65_536), 256), rem(person.id, 256)}}
   end
 
+  test "failed delivery invalidates only its challenge, never a newer replacement", %{
+    person: person,
+    ip: ip
+  } do
+    {:ok, first} = PeopleAuth.issue_challenge(person, ip)
+    {:ok, second} = PeopleAuth.issue_challenge(person, ip)
+    assert {:ok, 0} = PeopleAuth.invalidate_challenge(first.challenge_id)
+    assert {:error, :invalid_challenge} = PeopleAuth.challenge_status(first.challenge_id)
+    assert {:ok, descriptor} = PeopleAuth.challenge_status(second.challenge_id)
+    assert descriptor == Map.take(second, [:challenge_id, :expires_at])
+    assert {:ok, 1} = PeopleAuth.invalidate_challenge(second.challenge_id)
+    assert {:ok, 0} = PeopleAuth.invalidate_challenge(second.challenge_id)
+    assert {:ok, 0} = PeopleAuth.invalidate_challenge(Ecto.UUID.generate())
+    assert {:error, :invalid_challenge} = PeopleAuth.challenge_status(second.challenge_id)
+  end
+
   test "issue returns only opaque challenge metadata and a trusted delivery code; verify mints one digest-only session",
        %{person: person, ip: ip} do
     assert {:ok, issued} = PeopleAuth.issue_challenge(person, ip)

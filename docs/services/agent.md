@@ -404,6 +404,17 @@ the provider delete succeeds. Runtime resource listing never scans directories.
   passes derived `ctx[:person_id]`); the `person_id` parameter is honored only on `skip_permissions` runs
 - Doubles as a workflow action (`use Zaq.Engine.Workflows.Action`)
 
+### Person Notification Action (`Zaq.Agent.Tools.People.NotifyPerson`)
+- Executes through `Jido.Exec.run/3`, including the private People authentication gateway.
+- Trusted context `event_opts: [confidential: true]` suppresses Engine notification and
+  Channels delivery events from NodeRouter observers. Only this boolean is forwarded;
+  action parameters cannot supply event options or override the fixed action.
+- Sent/skipped workflow payloads retain their shape, including nullable delivery/thread
+  fields and echoed message/content. The authentication gateway returns only live challenge descriptors.
+- Confidential errors are diagnosed at dispatch before Jido logging using safe phase,
+  exception module and source module/function/arity; raw reasons and arguments are omitted.
+  They return safe, non-retryable structured execution errors. Ordinary error strings remain compatible.
+
 ### BO User Notification Tool (`Zaq.Agent.Tools.Accounts.NotifyUsers`, key `accounts.notify_users`)
 - Sends one subject/body to BO users selected with `resources.query` by dispatching a `:notify_users` event to the Engine node.
 - The tool accepts the `resources` list from `resources.query` with `resource_type: "user"`; only each user's `id` is trusted, and Engine resolves canonical account emails before Channels delivery.
