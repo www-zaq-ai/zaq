@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-2z2.3"
+  ],
   "created": "2026-09-14T07:00:42Z",
   "description": "Tests first: Application root contains only Channels parent; static ordered limiter/dynamic children; monitor-based sibling and parent restart/bootstrap/ETS cleanup tests through facade; actual role startup on isolated peers. Retain existing runtime API and external adapter doubles only. No property generator needed: finite OTP topology/lifecycle cases, no input normalization changes.",
   "id": "zaq-2z2.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-2z2] Specify Channels topology and restart regressions",
   "type": "task",
-  "updated_at": "2026-09-14T07:00:42Z"
+  "updated_at": "2026-09-14T07:00:58Z"
 }
