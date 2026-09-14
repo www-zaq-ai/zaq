@@ -18,11 +18,15 @@
     {
       "text": "Planning closeout: mix q completed with exit 0 (docs generation and Credo: 1177 source files, no issues). git status --short clean afterward. No application code changed, no commits or PR created. This check is baseline validation, not evidence that planned feature tests exist or pass.",
       "timestamp": "2026-09-13T10:11:53Z"
+    },
+    {
+      "text": ".3 completed-uncommitted and validated; remains in_progress pending review/merge, as do prior .1/.2. Final exact serial dependency graph verified both directions and full graph acyclic: .1 -\u003e .2 -\u003e .3 -\u003e .5 -\u003e .6 -\u003e .7 -\u003e .4 -\u003e .8 -\u003e .9; external dependencies preserved. Only .3 implemented in this task. Detailed APIs/coverage/exact commands/limits in .3 comments. Parent proceeds with .5 under user-approved sequence; queue activation remains deferred to actual Agent receiver/fanout.",
+      "timestamp": "2026-09-14T10:14:34Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg] Person-scoped Connect foundation implementation plan",
   "type": "epic",
-  "updated_at": "2026-09-14T09:28:33Z"
+  "updated_at": "2026-09-14T10:14:34Z"
 }
