@@ -18,11 +18,15 @@
     {
       "text": "Refresh residual re-review update: existing two bridge suites + new real refresh_bridge_test.exs: 190 tests pass seed109546. JidoConnectBridge isolated whole-file 913/1184=77.11%,271 missed. No missed relevant lines in refresh execution/explicit+legacy credential helper region; new missing-ID guard covered. JSON cover/jrg9-refresh-bridge/excoveralls.json. Keep existing whole-file coverage exception follow-up.",
       "timestamp": "2026-09-14T14:37:33Z"
+    },
+    {
+      "text": "Latest provider-boundary validation:196existing+new bridge tests green seed273349; JidoConnectBridge916/1184=77.36%,268missed. New secret-free token endpoint callback and explicit exchange/refresh reject guards exercised. Canonical token HTTP moved to EXISTING generic Connect transport; no duplicate transport. Broad report still omits main bridge, isolated cover/jrg9-provider-bridge/excoveralls.json authoritative. Coverage exception remains unapproved pending user/parent.",
+      "timestamp": "2026-09-14T15:54:04Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5gy] Improve existing JidoConnectBridge coverage",
   "type": "task",
-  "updated_at": "2026-09-14T14:37:33Z"
+  "updated_at": "2026-09-14T15:54:04Z"
 }
