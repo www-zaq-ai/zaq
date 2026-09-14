@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-zlx.5"
+  ],
   "blocks": [],
   "created": "2026-09-14T10:26:34Z",
   "description": "Spec: local failed-identification precheck before confidential Engine request; trusted conn.remote_ip only; CSRF verify/logout controller cookie existing session; BO cleanup only BO keys; PersonAuth and live hook fresh authority. Tests first: zero dispatch blocked, counted only failed identification, verify errors retain descriptor, no bearer DOM, BO/person isolation and revoke/expiry. Real router/auth/DB, transport mock only. Docs bo-auth/channels/system-config.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-zlx] Add Channels ingress and independent HTTP sessions",
   "type": "task",
-  "updated_at": "2026-09-14T10:26:34Z"
+  "updated_at": "2026-09-14T10:26:56Z"
 }

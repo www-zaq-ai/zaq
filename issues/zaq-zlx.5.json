@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-zlx.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-zlx.1"
+  ],
   "created": "2026-09-14T10:26:38Z",
   "description": "Spec: PeopleAuth targeted idempotent literal-owner invalidation and post-delivery active status; fixed PeopleAuthGateway single match/issue/notify request; :sent only; cleanup on failure/exception. Tests first: A failure after B preserves B, consumed/missing, eligibility expiry, notification fallback and skipped, safe descriptors. Real DB/auth/notifications; mock transport edge only. Docs people-access/engine.",
   "id": "zaq-zlx.5",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-zlx] Compose Engine challenge delivery and lifecycle",
   "type": "task",
-  "updated_at": "2026-09-14T10:26:55Z"
+  "updated_at": "2026-09-14T10:26:56Z"
 }
