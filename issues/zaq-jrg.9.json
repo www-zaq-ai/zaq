@@ -37,11 +37,15 @@
     {
       "text": "Refresh residual RED reproduced through actual Google provider bridge: canonical org and Person A(nil secret) unexpectedly refreshed using channel B; corrected fixture baseline 6 tests/2 expected failures, seed 470245. Applied existing context to canonical refresh only; refresh-specific credential validation has no callback redirect dependency. GREEN: all 6 new tests pass seed 744276 (org/person nil-secret, empty/read scopes with A secret, legacy org/user fallback). No provider or URL framework changes.",
       "timestamp": "2026-09-14T14:12:39Z"
+    },
+    {
+      "text": "Full repository mix test completed (900s runner bound, actual 580.0s): seed812387, 48 doctests/114 properties/9090 tests, 8 failures,1 skipped,83 excluded. Controlled failed-file comparison: same 129 tests on current and temporarily pre-refresh-fix code both give identical 6 failures (four ingestion inline-worker assumptions; two Connect legacy refresh error-contract expectations). Residual fix restored immediately. Password/onboarding two full-run failures pass in both isolated comparisons; suite load/order remains unresolved, not certified environment-only. Full log jrg9-full-repository.log and comparison logs in approved opencode temp dir. No unrelated fixes.",
+      "timestamp": "2026-09-14T14:27:53Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T14:12:39Z"
+  "updated_at": "2026-09-14T14:27:53Z"
 }
