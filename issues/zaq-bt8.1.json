@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-bt8.2"
   ],
+  "closed_at": "2026-09-14T16:03:24Z",
+  "close_reason": "Implemented and validated in working tree per user delivery instruction; forward migration preserves grants.",
   "created": "2026-09-14T15:30:28Z",
   "description": "Spec: PeoplePermissionGrant owns four ordered atoms/labels and known type, static new CHECK migration preserves existing grants; downgrade refuses while edit grants exist. Tests first: matrix four rows, independent edit grant both scopes, raw SQL accepted/rejected known constraint, uniqueness, enum-growth properties. Real Repo, no mocks. Docs people-access vocabulary. Validate focused permissions tests.",
   "id": "zaq-bt8.1",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-bt8] Add edit_profile vocabulary and forward constraint migration",
   "type": "task",
-  "updated_at": "2026-09-14T15:38:38Z"
+  "updated_at": "2026-09-14T16:03:24Z"
 }
