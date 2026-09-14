@@ -11,9 +11,15 @@
   "id": "zaq-zlx.5",
   "labels": [],
   "parent": "zaq-zlx",
+  "comments": [
+    {
+      "text": "Implemented literal-owner targeted invalidation and current challenge status. Gateway composes read-only People.match_person, issue and Notifications.notify_person with confidential delivery event. No lock during I/O. Transport-only Mox tests now cover sent, skipped, delivery exception and A/B replacement races.",
+      "timestamp": "2026-09-14T10:41:20Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-zlx] Compose Engine challenge delivery and lifecycle",
   "type": "task",
-  "updated_at": "2026-09-14T10:26:56Z"
+  "updated_at": "2026-09-14T10:41:20Z"
 }
