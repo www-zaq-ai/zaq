@@ -13,11 +13,15 @@
     {
       "text": "Real Chromium browser journey passed using an ephemeral Bandit server inside SQL Sandbox and only the delivery transport mocked. Tested email -\u003e wrong code -\u003e retained stage -\u003e timestamp expiry/resend -\u003e formatted code -\u003e protected profile -\u003e HttpOnly/Lax cookie -\u003e logout/re-entry denial, at mobile and desktop widths. No E2E reset/bootstrap or user DB touched.",
       "timestamp": "2026-09-14T10:53:27Z"
+    },
+    {
+      "text": "Final validation: mix format, mix q (no issues), assets.build, git diff --check all pass. Coverage run: 99 tests + 2 properties, zero failures, including real Chromium journey. PeopleAuth + all newly added People modules100%; NodeRouter98.8%; BO SessionController/Auth100%. Broad existing Engine API/router whole-file coverage exception/follow-up zaq-n82. Unrelated existing Engine Collector restart defect tracked zaq-jwb. Self-review completed. Initial tracked tree clean; all current staged/unstaged status consists of intended PR4 files; nothing staged, committed, pushed, or PR-created. Sandbox browser server uses no user DB reset.",
+      "timestamp": "2026-09-14T11:04:30Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-zlx] Validate PR4 security journeys and document V1",
   "type": "task",
-  "updated_at": "2026-09-14T10:53:27Z"
+  "updated_at": "2026-09-14T11:04:30Z"
 }
