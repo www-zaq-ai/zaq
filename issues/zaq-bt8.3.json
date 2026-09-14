@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-bt8.4"
   ],
+  "closed_at": "2026-09-14T16:03:25Z",
+  "close_reason": "Transactional bearer-authoritative gateway, scoped fields, revocation/merge/rollback tests passing.",
   "created": "2026-09-14T15:30:29Z",
   "description": "Spec: fixed profile/update_self_profile/update_self_channel_weight confidential Engine operations, outer Repo transaction spans PeopleAuth.authenticate Person/session locks, generic allowed both requirements each write, safe typed profile response. Tests first: access-only/read and forged denial; edit-only denied; split scopes; revoke edit/access/session, merge token, unknown attrs/ids, rollback and concurrency. Real boundaries/config fixtures no internal mocks. Document lock guarantee without claiming grant mutation serialization.",
   "id": "zaq-bt8.3",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-bt8] Add transactional authenticated profile gateway operations",
   "type": "task",
-  "updated_at": "2026-09-14T15:38:39Z"
+  "updated_at": "2026-09-14T16:03:25Z"
 }
