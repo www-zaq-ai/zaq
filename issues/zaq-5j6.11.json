@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-5j6.10"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-5j6",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-5j6] Diagnose opening through existing BrowserFlowSite",
   "type": "task",
-  "updated_at": "2026-09-14T08:32:15Z"
+  "updated_at": "2026-09-14T08:34:22Z"
 }
