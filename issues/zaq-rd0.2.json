@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-rd0.3"
   ],
+  "closed_at": "2026-09-14T16:56:33Z",
   "created": "2026-09-14T16:37:30Z",
   "description": "Controller signed descriptor, LoginLive layout and PeopleOTP own presentation. Tests first: retention same/mismatched id, old descriptors, separate CSRF forms and association, row width, countdown/reload/reset/submitting races. Reuse DS Input/Button. Test-only synchronized backend/browser time, no production clock hooks. Update existing browser harness.",
   "id": "zaq-rd0.2",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-rd0] Present signed resend deadline and compact independent forms",
   "type": "task",
-  "updated_at": "2026-09-14T16:56:32Z"
+  "updated_at": "2026-09-14T16:56:33Z"
 }
