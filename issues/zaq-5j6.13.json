@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T11:57:22Z",
+  "description": "Reuse BrowserFlowSite and successful Executor navigation as positive control; attempt forbidden localhost hostname against same port with only 127.0.0.1 allowed, assert explicit denial, no fixture root request, then complete real form flow to prove session remains usable. Use real Browsing tool for negative boundary check without adding LLM stub route complexity. Validate pinned build and real flow where environment permits, focused tests/mix format/mix q, document blockers. Dependency pin step precedes this regression and validation. No new webserver or warmup session.",
+  "id": "zaq-5j6.13",
+  "labels": [],
+  "parent": "zaq-5j6",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5j6] Verify browser allowlist after dependency upgrade",
+  "type": "task",
+  "updated_at": "2026-09-14T11:57:22Z"
+}
