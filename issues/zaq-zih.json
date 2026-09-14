@@ -14,11 +14,15 @@
     {
       "text": "zaq-jrg.9 full repository test seed812387: ChangePasswordLiveTest :55 render_async exceeded default100ms; :232 expected dashboard redirect within1000ms but got none. Full run 580s/8 failures. Both tests pass when four failing files are isolated (129 cases) on current and pre-refresh-residual foundation. This is suite-load/order-sensitive evidence, not proof of environment-only fault. Investigate consent async work/default waits; no sleep/timeout weakening applied.",
       "timestamp": "2026-09-14T14:33:16Z"
+    },
+    {
+      "text": "Investigated under actual full suite same seed812387 after six foundation fixes:9092tests still reproduced ChangePasswordLive short-password render_async100ms failure (1failure total,566.2s). Temporary diagnostic captured LiveView waiting in gen_server loop with empty mailbox during unfinished async work; no auth expiry branch or provider error. Removed diagnostic. Tests now explicitly await actual portal task/redirect completion with bounded5s integration deadline rather than default100ms/1s latency assumption; no sleeps/retries/global timeout changes. render_async before automatic navigation was tested and rejected because it races LiveView teardown; final navigation wait is the completion signal. Added message-barrier regression proving registration/consent remains pending until external metadata response, then completes. Same full seed812387 final:9093tests,0failures,724s; focused141tests green. No auth production or sandbox/global config changes; source unique ZAQ Router/system config keys noted, not claimed proven root. Kept unlanded/in_progress for review.",
+      "timestamp": "2026-09-14T15:15:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Onboarding coverage bootstrap redirect timeout seed 86320",
   "type": "bug",
-  "updated_at": "2026-09-14T14:41:07Z"
+  "updated_at": "2026-09-14T15:15:11Z"
 }
