@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-jrg.3"
+  ],
   "blocks": [
     "zaq-jrg.6"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-jrg.5] 5. Add authorized write-only Person credential management functions",
   "type": "task",
-  "updated_at": "2026-09-14T09:27:23Z"
+  "updated_at": "2026-09-14T09:27:24Z"
 }
