@@ -30,11 +30,15 @@
     {
       "text": "Only .6 is now completed-uncommitted atop preserved .3/.5; remains in_progress for review, with no issue closure/commit/push/worktree. Final API/schema/setup/security decisions and exact validation recorded in .6 final comment and engine/system-config docs. 441 tests + 6 properties passed; every .6-touched application file \u003e=97.7% coverage; real migration round-trip/constraints/cascade verified; mix format, mix q and diff check passed. Existing callback/provider NodeRouter dispatch stays intact with a narrowly scoped tested sensitive:true workflow-broadcast opt-out, sanitized same-origin callback status and parameter filtering. Admin OAuth setup uses only encrypted transient candidate attempts until canonical complete config/global-grant save. Parent can proceed .7 refresh using existing grant replacement and .3 transaction boundary; no .7 implementation started. Person authenticated start transport and .8 expired-attempt cleanup remain explicit later gates; notifications remain unconsumed.",
       "timestamp": "2026-09-14T11:56:06Z"
+    },
+    {
+      "text": "Only .7 now implemented-uncommitted atop preserved .3/.5/.6, kept in_progress for review. APIs/migration/security/recovery contracts and exact validation recorded in .7 and service docs. 452 tests + 7 properties passed with all .7 touched app files \u003e=96.7%; subsequent 12-case concurrency suite also passes including actual .6 OAuth reauth beating refresh. Final mix format/mix q/diff check pass. No commit/push/worktree/issue closure; approved next slice remains .4, then .8/.9, none started.",
+      "timestamp": "2026-09-14T12:36:44Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg] Person-scoped Connect foundation implementation plan",
   "type": "epic",
-  "updated_at": "2026-09-14T11:56:06Z"
+  "updated_at": "2026-09-14T12:36:44Z"
 }
