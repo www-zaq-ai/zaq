@@ -181,6 +181,33 @@ growth in long-lived nodes.
 
 ## Secret Persistence Standard (Strict, Global)
 
+### Connect configuration versus grant secrets
+
+Connect credentials retain legacy configuration-owned API keys and JWT keys.
+The explicit `secret_binding` enum defaults to `:configuration`; in that mode
+JWT configuration still requires issuer, private key, key ID and a valid auth
+profile. Opt-in `:grant` mode relaxes only the configuration private-key requirement,
+allowing a JWT key to live on a credential-bound grant. Issuer, key ID, profile and
+delegation-subject validation remain unchanged. This mode is independent of
+`personal_credential_policy` and `user_level`; it does not enable runtime resolution.
+
+Canonical grants require their own API key, OAuth access token or JWT private-key
+material. Their changeset never copies secrets from configuration. OAuth client
+settings remain configuration-owned. `Connect.change_credential_grant/3` encrypts
+grant secrets using the existing strict `EncryptedString` path and reports encryption
+failures as changeset errors. Atomic configuration management and authenticated
+Person writes are subsequent foundation issues, not part of this storage boundary.
+
+Canonical ownership uses the existing `owner_type/owner_id`; its resource pair is
+server-derived as `connect_credential` and the credential ID string. The trusted
+Engine changeset checks a literal current active Person but does not authenticate
+callers. There is no Person FK or trigger: concurrent deletion can leave orphan
+encrypted secrets, and synchronous erasure is not guaranteed. IDs must not be reused.
+Later lifecycle reconciliation (`zaq-jrg.8`) must remove orphan secrets in bounded,
+deterministic, idempotent batches with secret-free telemetry. Later resolver and
+OAuth/refresh work must reject stale/ineligible Person identities before policy
+selection or secret use, without global fallback or alias-based reidentification.
+
 All sensitive values (API keys, tokens, passwords) must follow one strict write path:
 
 1. Validate form changeset
