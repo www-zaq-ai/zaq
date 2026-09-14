@@ -11,9 +11,15 @@
   "id": "zaq-jrg.6",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "User explicitly authorizes .6 atop uncommitted .3/.5, preserving both; no close/commit/push/worktree. Dependency remains .5 -\u003e .6 -\u003e .7; start blocked by intentionally unclosed prerequisite, status updated under explicit approval. Implementation decision: one-use encrypted persisted attempts; Person start/reconnect plus explicit trusted admin start_global_configuration(ref-or-nil, attrs). Admin setup stores an immutable encrypted candidate only in the transient attempt and commits completed config/global grant through canonical save after exchange, preserving disabled/optional completeness. No incomplete credential marker/framework. Claim commits before IO; failures require restart; finalize transaction rechecks original config fingerprint, current Person/policy and server redirect. Reuse OAuth provider preparation/dispatch and existing state signer; tests first, HTTP-only seam via Zaq.Config. Cleanup/retention integration remains .8; refresh .7.",
+      "timestamp": "2026-09-14T10:36:59Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.6] 6. Bind Person OAuth authorization to one-use trusted attempts",
   "type": "task",
-  "updated_at": "2026-09-14T07:08:53Z"
+  "updated_at": "2026-09-14T10:36:59Z"
 }
