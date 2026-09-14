@@ -11,9 +11,15 @@
   "id": "zaq-bt8.3",
   "labels": [],
   "parent": "zaq-bt8",
+  "comments": [
+    {
+      "text": "Gateway TDD passed for literal bearer ownership, read-only access, split scopes, edit/access revocation, invalid/foreign inputs, merge revocation and enclosing rollback. Combined focused run: 4 properties + 18 tests passing. Continuing UI and concurrency validation.",
+      "timestamp": "2026-09-14T15:38:39Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-bt8] Add transactional authenticated profile gateway operations",
   "type": "task",
-  "updated_at": "2026-09-14T15:30:50Z"
+  "updated_at": "2026-09-14T15:38:39Z"
 }
