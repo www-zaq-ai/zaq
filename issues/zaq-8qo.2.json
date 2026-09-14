@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T08:24:54Z",
+  "description": "Edit people_auth_test only: whole Channels.Supervisor stop/restore in try-after, stable Engine supervisor/limiter assertions, successful verification and existing persisted attempt denial. Real processes/DB; no mocks or production hooks. Existing failing test regression first. No docs required.",
+  "id": "zaq-8qo.2",
+  "labels": [],
+  "parent": "zaq-8qo",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8qo] Correct Channels-absent auth lifecycle regression",
+  "type": "task",
+  "updated_at": "2026-09-14T08:24:54Z"
+}
