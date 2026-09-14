@@ -6,9 +6,15 @@
   "description": "Narrow approved current-worktree fix: test first unknown/inactive/missing access_profile identical safe start message; existing delivery_failed gets verification-code send message; request_unavailable and limiter errors retain generic retry. Shared request/resend mapping only, preserve pending descriptor, verification, backend tags/invalidation and rate budgets. Update targeted browser expectation/docs; run focused controller/channels/gateway tests, mix format, mix q and diff check. Preserve all prior work; no commit/push/PR/DB reset. Remain in_progress pending review.",
   "id": "zaq-ja5",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented uncommitted in existing worktree, pending review. Only this task's edits: controller request_error_message/1 maps existing failed_identification and delivery_failed tags with fallback; controller regressions; one paragraph in people-access docs. Backend tags already distinct: request_unavailable covers issuance/config/limits; delivery_failed also includes existing post-send descriptor validation failures; no backend semantics changed. Request/resend preserve pending session descriptor and verification remains separate. Tests first: corrected test-only missing Repo alias and compile-time category fixture warnings, then 19 controller tests reproduced exactly 5 old-message failures before production edit. Final focused MIX_ENV=test mix coveralls controller + Channels auth + Engine gateway + Channels limiter: 41 tests + 1 property, 0 failures, including new rate-limited HTTP retry assertion. All three new message branches exercised; targeted whole-file coverage percentage not retained by output filter (3.6% reported is repository-wide partial-suite coverage, not touched-file coverage). No new property needed for finite presentation-only mapping; existing limiter property passes. mix format targeted files, mix q (1227 files/94 checks/no issues), git diff --check pass. Existing browser runner contains no old-message expectation: unchanged isolated People browser suite passes 3 tests across Chromium/Firefox/WebKit, each at 390px and 1280px. Existing license_manager notice nonfatal. Prior staged/unstaged/untracked work preserved; index tree remains 4ffc1989bab920e9d936d43742b3019a7d58fe79, no staging/commit/push/PR/DB reset. Issue remains in_progress for user review.",
+      "timestamp": "2026-09-14T13:15:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ja5] Clarify public People authentication failure stage",
   "type": "bug",
-  "updated_at": "2026-09-14T13:08:19Z"
+  "updated_at": "2026-09-14T13:15:15Z"
 }
