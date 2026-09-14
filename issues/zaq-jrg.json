@@ -38,11 +38,15 @@
     {
       "text": "Only .4 now implemented-uncommitted atop preserved .3/.5/.6/.7; remains in_progress for review, with no issue closures/commits/push/worktree. .4 comments and engine/system-config docs contain final API, generic auth/error/identity/selection/concurrency contracts and exact validation. 615 tests + 10 properties pass; new resolver scope 162 tests + 3 properties, including explicit 96 matrix and 15 usability cases plus JWT/OAuth and 15 independent DB race tests. All executable .4-touched app files \u003e=96.8%; struct-only ResolvedCredential has no coverable lines and behavior/redaction/nonserialization tests pass. Final mix format, mix q, git diff --check pass. Approved next slice .8, then comprehensive foundation review/validation (.9); neither started.",
       "timestamp": "2026-09-14T13:03:01Z"
+    },
+    {
+      "text": "Only .8 now implemented-uncommitted atop preserved .3/.5/.6/.7/.4. Kept in_progress, no issue closures/commits/push/new worktree. Lifecycle transfer/delete/bulk, canceled OAuth finalization recheck and bounded scheduled reconciliation contracts, decisions, exact validation recorded in .8 comments and engine/system-config docs. 707 tests+19 properties pass, all .8 touched application files \u003e=95%; mix format/mix q/diff check pass. Existing Oban leader scheduler and separate consumed connect_maintenance queue are configured once in every dev/prod role; credential notification consumption remains deferred. .9 comprehensive foundation validation is next and not started. Later actual Agent invalidation/fanout/replay activation and trusted Person transport/session adapter remain explicit delivery gates.",
+      "timestamp": "2026-09-14T13:25:57Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg] Person-scoped Connect foundation implementation plan",
   "type": "epic",
-  "updated_at": "2026-09-14T13:03:01Z"
+  "updated_at": "2026-09-14T13:25:57Z"
 }
