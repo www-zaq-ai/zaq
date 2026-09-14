@@ -19,11 +19,15 @@
     {
       "text": "User explicitly approves implementing only .4 after completed-uncommitted .7, preserving .3/.5/.6/.7 and all dependencies with no closures/commits/push/worktree. bw start refuses because .7 remains intentionally in_progress. Proceed under this approval. Test-first scope: explicit 96-state matrix plus actor/identity, material/JWT/OAuth, concurrency, safe result/error and isolation properties; use existing prepare_grant_for_use only, final credential-first locked snapshot and raw config comparison, no consumer integration.",
       "timestamp": "2026-09-14T12:39:35Z"
+    },
+    {
+      "text": "IMPLEMENTED-UNCOMMITTED; keep in_progress for review, no closure/commit/push/new worktree. Added Connect.CredentialResolver and runtime-only Inspect-redacted/non-JSON/non-Ecto ResolvedCredential plus Connect.resolve_credential/3 facade. Exact canonical owner/resource selection, fresh credential reload, ActorNormalizer canonical/flat compatibility with every non-null claim validated/agreed, literal current active Person checked before policy even disabled and after OAuth; no aliases or malformed-actor global fallback. NonPerson/nil intentionally org only in privileged runtime API; no public Engine action. Optional selects personal ROW in every status, required missing personal ignores all org state, disabled ignores personal only after identity. Selected failure never falls back; no legacy config key/private-key source. API key literal, OAuth access_token only, JWT RSA/EC PEM + issuer/key_id/subject/scopes/auth_profile_id; bearer/raw generic semantics, no ReqLLM/Agent/provider formatting. Account metadata whitelist selected account_id/account_name strings \u003c=255 bytes, config secret projection omitted. Errors exactly credential_id + fixed reason: person_unavailable, personal_credential_required, global_credential_missing, credential_revoked/expired/unavailable/refresh_busy/refresh_failed. Engine/system-config/module docs record full contracts and final-read linearization; later consumer server-create/invalidation race remains outside scope.",
+      "timestamp": "2026-09-14T13:03:02Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.4] 4. Resolve effective credential independently of consumers",
   "type": "task",
-  "updated_at": "2026-09-14T13:00:19Z"
+  "updated_at": "2026-09-14T13:03:02Z"
 }
