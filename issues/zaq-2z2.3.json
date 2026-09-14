@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-2z2.1"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-2z2",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-2z2] Split static Channels parent from dynamic bridge owner",
   "type": "task",
-  "updated_at": "2026-09-14T07:00:59Z"
+  "updated_at": "2026-09-14T07:06:30Z"
 }
