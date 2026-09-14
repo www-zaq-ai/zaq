@@ -11,9 +11,15 @@
   "id": "zaq-rd0.2",
   "labels": [],
   "parent": "zaq-rd0",
+  "comments": [
+    {
+      "text": "Controller regression red reproduced missing deadline/form layout; fixture IP isolated to avoid preexisting20-send shared-IP test leak. All3 browsers pass390/1280 with width/assertions, reload00:45,59/60, independent form submit, timer disable and new issuance reset. Browser navigation-hold assertion approach failed because Playwright locators wait on navigation; replaced with one canceled native submit and actual subsequent POST. Hook unit tests cover updated attributes/reconnect/cleanup and patch during submission.",
+      "timestamp": "2026-09-14T16:56:32Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-rd0] Present signed resend deadline and compact independent forms",
   "type": "task",
-  "updated_at": "2026-09-14T16:46:58Z"
+  "updated_at": "2026-09-14T16:56:32Z"
 }
