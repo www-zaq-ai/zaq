@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-7ep.2"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-7ep",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-7ep] Validate OTP action reuse and concise documentation",
   "type": "task",
-  "updated_at": "2026-09-14T13:56:39Z"
+  "updated_at": "2026-09-14T14:11:50Z"
 }
