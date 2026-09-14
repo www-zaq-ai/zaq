@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jrg.8] 8. Integrate Person grant cleanup and deterministic merge",
   "type": "task",
-  "updated_at": "2026-09-14T09:27:25Z"
+  "updated_at": "2026-09-14T13:06:39Z"
 }
