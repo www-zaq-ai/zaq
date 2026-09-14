@@ -11,9 +11,15 @@
   "id": "zaq-jrg.2",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Prerequisite .1 reviewed in current checkout: implemented storage is present at baseline 4474261a; git status --short clean. .1 remains in_progress pending review, not falsely closed. bw start refused open prerequisite; user explicitly approved .2, so claimed through bw update --status in_progress --assignee opencode without removing dependency. Available tools lack context-mode/Serena; using dedicated read/search/apply_patch and shell checks.",
+      "timestamp": "2026-09-14T07:59:48Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.2] 2. Centralize canonical grant writes and safe configuration validation",
   "type": "task",
-  "updated_at": "2026-09-14T07:59:47Z"
+  "updated_at": "2026-09-14T07:59:48Z"
 }
