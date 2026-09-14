@@ -17,11 +17,15 @@
     {
       "text": "Validation complete for working-tree implementation: final mix format and mix q exit 0; Credo checks 1181 source files with no issues. Final focused MIX_ENV=test mix coveralls.json test/zaq/engine/connect test/zaq/engine/connect_test.exs test/zaq/engine/connect_token_edge_cases_test.exs test/zaq/engine/connect_encryption_error_test.exs exit 0: 129 tests + 1 property, 0 failures. Changed application-file coverage: Connect 95.3% (184/193 relevant lines), Credential 100% (20/20), Grant 100% (24/24). Real PostgreSQL validation includes legacy upgrade/down/up and migration retry, DB defaults/CHECKs/FKs, org NULL uniqueness and Person slots across all statuses, distinct committed backend connection races, failed real down migration retaining revoked Person ciphertext, and config rollback guard. Canonical encryption missing/invalid-key errors, in-place reconnect and resource-lane compatibility verified. docs/services/engine.md and system-config.md document storage decisions and later issue boundaries. No implementation environment blocker; existing missing license_manager configuration notice is nonfatal. No commits/push/PR/worktree creation. Keep issue in_progress for user review/uncommitted delivery per request; no later issue started.",
       "timestamp": "2026-09-13T10:39:17Z"
+    },
+    {
+      "text": "Revision paused at user-requested integrity blocker gate. Documentation now records superseded architecture and reproducible PostgreSQL 18.4 results; precise descriptions updated for epic, storage and lifecycle, with downstream event/resolver/acceptance comments. No application/schema/migration/test replacement was made: duplicate columns remain in the prior uncommitted implementation pending a safe design. Temporary probe used independent backends 34494/34493/34492 and cleaned its disposable schema; it never touched application tables or migration metadata. Validation after documentation edits: mix format exit 0; focused MIX_ENV=test mix coveralls.json test/zaq/engine/connect test/zaq/engine/connect_test.exs test/zaq/engine/connect_token_edge_cases_test.exs test/zaq/engine/connect_encryption_error_test.exs exit 0 (129 tests + 1 property, 0 failures; includes existing migration/concurrency/encryption tests). Existing Connect coverage 95.3% (184/193), Credential 100% (20/20), Grant 100% (24/24). These are baseline FK implementation results, NOT evidence of polymorphic trigger correctness. mix q exit 0 (1181 source files, no issues); git diff --check exit 0. No commits/push/worktree or lifecycle implementation. Keep in_progress awaiting integrity-strategy decision and review.",
+      "timestamp": "2026-09-14T06:30:41Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.1] 1. Add canonical credential-bound grant storage",
   "type": "task",
-  "updated_at": "2026-09-14T06:28:48Z"
+  "updated_at": "2026-09-14T06:30:41Z"
 }
