@@ -41,11 +41,15 @@
     {
       "text": "Full repository mix test completed (900s runner bound, actual 580.0s): seed812387, 48 doctests/114 properties/9090 tests, 8 failures,1 skipped,83 excluded. Controlled failed-file comparison: same 129 tests on current and temporarily pre-refresh-fix code both give identical 6 failures (four ingestion inline-worker assumptions; two Connect legacy refresh error-contract expectations). Residual fix restored immediately. Password/onboarding two full-run failures pass in both isolated comparisons; suite load/order remains unresolved, not certified environment-only. Full log jrg9-full-repository.log and comparison logs in approved opencode temp dir. No unrelated fixes.",
       "timestamp": "2026-09-14T14:27:53Z"
+    },
+    {
+      "text": "Final refresh follow-up coverage: 29 properties/2026 tests pass seed368444,96.6s; isolated bridge190tests pass seed109546. Coverage Connect96.83%,DataSourceBridge97.04%,JidoConnectBridge77.11% isolated (zaq-fja),Channels.Api89.87% (zaq-lmv). E2E npm test -- --project=journeys-chromium specs/system_config.spec.js specs/channels.spec.js completed bootstrap and56passed/1.2m/zero retries. No dedicated callback Playwright spec exists; focused controller tests pass. Global full suite remains red8failures: deterministic6pre-residual tracked zaq-jf6+zaq-q1v; suite-only2onboarding tracked zaq-zih. docs/services/connect-foundation-validation.md now records all exact failures, controlled comparison, commands, logs, coverage and remaining gates. No unrelated test fixes/commits.",
+      "timestamp": "2026-09-14T14:37:34Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T14:27:53Z"
+  "updated_at": "2026-09-14T14:37:34Z"
 }
