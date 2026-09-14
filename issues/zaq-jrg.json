@@ -26,11 +26,15 @@
     {
       "text": "Only .5 now implemented-uncommitted in the existing workspace atop completed-uncommitted .3; both remain in_progress for review/merge. APIs and trust provenance, safe DTO contracts, legacy issuance/OAuth guards, exact validation/coverage and limitations recorded in .5 comments and engine/system-config docs. Final 194 tests + 5 properties passed, touched application coverage \u003e=95%, mix q and diff check passed. No Person public transport/session, OAuth lifecycle, resolver, subscriber or identity cleanup added. User-approved next slice remains .6, then .7, .4, .8, .9; no later slice started. No commits/push/worktree, all other changes preserved.",
       "timestamp": "2026-09-14T10:33:57Z"
+    },
+    {
+      "text": "Only .6 is now completed-uncommitted atop preserved .3/.5; remains in_progress for review, with no issue closure/commit/push/worktree. Final API/schema/setup/security decisions and exact validation recorded in .6 final comment and engine/system-config docs. 441 tests + 6 properties passed; every .6-touched application file \u003e=97.7% coverage; real migration round-trip/constraints/cascade verified; mix format, mix q and diff check passed. Existing callback/provider NodeRouter dispatch stays intact with a narrowly scoped tested sensitive:true workflow-broadcast opt-out, sanitized same-origin callback status and parameter filtering. Admin OAuth setup uses only encrypted transient candidate attempts until canonical complete config/global-grant save. Parent can proceed .7 refresh using existing grant replacement and .3 transaction boundary; no .7 implementation started. Person authenticated start transport and .8 expired-attempt cleanup remain explicit later gates; notifications remain unconsumed.",
+      "timestamp": "2026-09-14T11:56:06Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg] Person-scoped Connect foundation implementation plan",
   "type": "epic",
-  "updated_at": "2026-09-14T10:33:57Z"
+  "updated_at": "2026-09-14T11:56:06Z"
 }
