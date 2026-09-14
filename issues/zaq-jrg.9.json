@@ -29,11 +29,15 @@
     {
       "text": "Final standalone mix q PASS: docs generated, 1223 source files, 15638 modules/functions, no issues (39.5s analysis). git diff --check PASS. Format and final resolver/foundation/clock tests pass. Timeout was tool budget only, resolved by standalone rerun. All five fixes ready for parent static recheck; .9 intentionally stays in_progress with documented coverage exceptions and parent final-suite/requirements gates.",
       "timestamp": "2026-09-14T14:04:46Z"
+    },
+    {
+      "text": "Parent re-review confirmed prior fixes but found same binding bug in canonical provider refresh: Connect refresh event and DataSourceBridge omit explicit context; existing explicit helper incorrectly requires callback redirect. Continuing .9 with real A/B refresh RED, canonical-only existing context propagation and refresh-specific no-redirect validation; legacy fallback retained. Will rerun 2k focused coverage, full repository mix test, q and feasible callback/system-config E2E. No commits.",
+      "timestamp": "2026-09-14T14:08:05Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T14:04:46Z"
+  "updated_at": "2026-09-14T14:08:05Z"
 }
