@@ -21,6 +21,7 @@ defmodule Zaq.Ingestion.Chunk do
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.FTSBackend
   alias Zaq.Repo
+  alias Zaq.Repo.ExtensionChecks
 
   schema "chunks" do
     belongs_to :document, Document
@@ -202,7 +203,7 @@ defmodule Zaq.Ingestion.Chunk do
 
   @doc "Creates the chunks table with the given dimension. No-op if the table already exists."
   def create_table(dimension) when is_integer(dimension) do
-    EctoSQL.query!(Repo, "CREATE EXTENSION IF NOT EXISTS vector", [])
+    ExtensionChecks.require!(Repo, :vector)
 
     EctoSQL.query!(
       Repo,
@@ -264,6 +265,8 @@ defmodule Zaq.Ingestion.Chunk do
   table with the new dimension.
   """
   def reset_table(new_dimension) when is_integer(new_dimension) do
+    # Check before destructive DDL, not only during recreation.
+    ExtensionChecks.require!(Repo, :vector)
     drop_table()
     create_table(new_dimension)
     Hooks.dispatch_async(:embedding_reset, %{new_dimension: new_dimension}, %{})

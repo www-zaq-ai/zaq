@@ -388,3 +388,10 @@ If a change touches one of these areas and no property test is added, document t
 - [ ] Implement HTML parsing in `DocumentChunker`
 - [ ] Batch embedding requests to reduce LLM roundtrips
 - [ ] Outbound ingestion-completion notifications for external systems
+## Database prerequisites
+
+Embedding table creation/reset verifies operator-provisioned `vector` with
+`halfvec` support; it never installs extensions. ParadeDB index setup similarly
+requires preinstalled `pg_search`, while native PostgreSQL does not. See
+[database setup](../database-setup.md) for the two DBA scripts and the
+non-superuser application-object ownership requirements.

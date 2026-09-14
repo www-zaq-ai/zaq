@@ -86,3 +86,23 @@ CLAUDE.local.md
 # Local DB snapshots (may contain real test data / secrets)
 scripts/
 db_snapshots/
+
+# Only these reviewed operator/CI scripts are versioned; local snapshots and
+# other files under scripts remain ignored.
+!/scripts/
+/scripts/*
+!/scripts/setup_postgres_extensions.sql
+!/scripts/setup_paradedb_extensions.sql
+!/scripts/setup_database_begin.sql
+!/scripts/setup_database_finish.sql
+!/scripts/docker_entrypoint.sh
+!/scripts/provision_database.sh
+!/scripts/docker_database_setup.sql
+!/scripts/docker_database_authenticate.sql
+!/scripts/docker_database_receipt.sql
+!/scripts/docker_database_status.sql
+!/scripts/docker_database_validate.sql
+!/.github/scripts/
+/.github/scripts/*
+!/.github/scripts/provision-test-database.exs
+!/.github/scripts/extension_installation_test.exs
