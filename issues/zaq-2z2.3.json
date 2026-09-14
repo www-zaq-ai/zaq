@@ -11,9 +11,15 @@
   "id": "zaq-2z2.3",
   "labels": [],
   "parent": "zaq-2z2",
+  "comments": [
+    {
+      "text": "Implemented static parent + facade, moved dynamic implementation to BridgeSupervisor (same ETS atom/self targets/bootstrap), removed only root limiter entry. Missing ETS/stopped-state lookup handling confined to runtime owner; stale entries cleared on dynamic restart. Focused 89 tests/1 property pass; expanded lifecycle+actual role peers 13 tests pass. Forced-kill tests monitor all descendants before resuming parent (kill bypasses OTP teardown); separate unpaused abnormal OTP termination proves sibling isolation. No extra registry/framework or production limiter/Engine changes.",
+      "timestamp": "2026-09-14T07:18:59Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-2z2] Split static Channels parent from dynamic bridge owner",
   "type": "task",
-  "updated_at": "2026-09-14T07:06:30Z"
+  "updated_at": "2026-09-14T07:18:59Z"
 }
