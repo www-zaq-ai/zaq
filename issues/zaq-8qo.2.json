@@ -11,9 +11,15 @@
   "id": "zaq-8qo.2",
   "labels": [],
   "parent": "zaq-8qo",
+  "comments": [
+    {
+      "text": "Focused auth tests pass after whole Channels supervisor stop/restore and stable Engine/limiter assertions; successful session authentication plus persisted attempt/rate denial exercised.",
+      "timestamp": "2026-09-14T08:27:08Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8qo] Correct Channels-absent auth lifecycle regression",
   "type": "task",
-  "updated_at": "2026-09-14T08:25:23Z"
+  "updated_at": "2026-09-14T08:27:08Z"
 }
