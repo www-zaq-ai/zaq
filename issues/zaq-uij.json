@@ -10,11 +10,15 @@
     {
       "text": "Red/green confirmed: new real Mattermost HTTP suite initially 1 property + 9 tests, 5 failures: string outbound/root and incoming constructor Validation errors; full auth delivery failed before HTTP. Two constructor field normalizations via existing provider_to_atom now pass all 10. Real Jido Exec -\u003e Engine -\u003e Notifications -\u003e Channels -\u003e Thread -\u003e Mattermost ReqClient exercised with localhost HTTP only.",
       "timestamp": "2026-09-14T14:43:19Z"
+    },
+    {
+      "text": "Validated: mix format; mix q PASS (1228 files, no Credo issues); focused coveralls run 628 tests + 6 properties, 0 failures; browser Chromium/Firefox/WebKit each at 390px and 1280px: 3 tests, 0 failures. Bridge whole-file 580/590 executable lines (98.305%); two edited map-value lines have compiler null coverage, enclosing Thread.new expressions measured separately. Existing license_manager warning and MCP timeout/sandbox teardown logs in broad suite, no test failures. All preexisting staged files preserved; cached SHA256 ccbe56407edae3435eecc69efd24e222f7653e02712c662869491c6ea4192745 unchanged. Only bridge source and new jido_chat_delivery_test.exs changed, unstaged. No dependencies/config modifications, DB reset, commit/push/PR. Local HTTP regression establishes request delivery, not live user Mattermost delivery.",
+      "timestamp": "2026-09-14T14:48:07Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-uij] Fix canonical provider at Jido Thread boundary",
   "type": "bug",
-  "updated_at": "2026-09-14T14:43:19Z"
+  "updated_at": "2026-09-14T14:48:07Z"
 }
