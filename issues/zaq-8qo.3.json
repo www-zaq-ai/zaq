@@ -15,11 +15,15 @@
     {
       "text": "Test-first evidence: new fake tests fail on DONE without EXISTS (recv timeout) and normal fake shutdown (acceptor still alive after 1000ms). With EXISTS and supervised shutdown pass. Full baseline did not reproduce sink timeout, so neither confirmed fake defect is claimed as definitive original timeout cause. Mailroom completes IDLE via tagged response and invokes callback; cancel_idle sends DONE without waiting. Current listener test GenServer.stop restarts permanent child.",
       "timestamp": "2026-09-14T08:27:10Z"
+    },
+    {
+      "text": "Minimal test-only repair: fake owns acceptor and connections under Task.Supervisor and waits for supervised shutdown; connection monitors remove stale entries including immediate close; DONE always completes current IDLE. Kept polling and trigger ACK semantics unchanged (no evidence justifying rewrite). Listener stop uses default ExUnit child ID Listener, asserting listener/client DOWN shutdown and child removal; direct callback client cleanup try-after. Focused 1 property + 46 tests pass seed 86320. Original failing fake regressions passed after repair.",
+      "timestamp": "2026-09-14T08:30:14Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8qo] Repair demonstrated fake IMAP protocol and cleanup defects",
   "type": "task",
-  "updated_at": "2026-09-14T08:27:10Z"
+  "updated_at": "2026-09-14T08:30:14Z"
 }
