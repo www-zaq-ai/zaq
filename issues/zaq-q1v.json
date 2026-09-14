@@ -6,9 +6,15 @@
   "description": "Full repository seed812387 and controlled pre-residual/current comparison both fail ConnectTokenEdgeCasesTest refresh cases at test/zaq/engine/connect_token_edge_cases_test.exs:129 and :157. Missing provider access token now returns :invalid_refresh_response vs old nested missing_access_token; invalid encryption key makes reloaded configured secret unreadable so refresh stops :authentication_required before HTTP, rather than returning a persistence changeset. Both failures predate residual canonical refresh context patch but are outstanding foundation compatibility tests, not an all-green baseline. Review expected public error contract and keep meaningful persistence-error coverage via runtime config seam; avoid only weakening assertions. No test or production workaround applied.",
   "id": "zaq-q1v",
   "labels": [],
+  "comments": [
+    {
+      "text": "IMPLEMENTED+VERIFIED in same .9 delivery. Replaced old NodeRouter code-reload stubs with existing HTTP/config seams; actual valid provider response reaches postHTTP encryption failure via invalid write-only per-call key while read key stays valid. Assert exact safe atom, unchanged raw access/refresh ciphertext, active status, no new event jobs. Missing access token likewise cannot rotate provider refresh material or events. Added two-successive-refresh test with valid enc ciphertext-shaped response: stored doubly wrapped, loaded tokens remain literal enc string and next HTTP receives same literal, never other decrypted secret. Focused + full9093tests seed812387 pass. No production change or weakened assertions. Kept in_progress until landing/parent review, no commit.",
+      "timestamp": "2026-09-14T15:15:12Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] Reconcile legacy refresh edge tests with safe claimed-refresh errors",
   "type": "task",
-  "updated_at": "2026-09-14T14:41:07Z"
+  "updated_at": "2026-09-14T15:15:12Z"
 }
