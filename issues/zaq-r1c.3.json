@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T11:08:28Z",
+  "description": "Run relevant Accounts People auth/merge/concurrency, NodeRouter, Notifications, BO auth controllers/plugs/hooks plus new browser/peer/security checks. Measure coverage without new tracked report artifacts. mix format/mix q and diff preservation review. Record exact results and baseline/API/router exceptions in Beadwork.",
+  "id": "zaq-r1c.3",
+  "labels": [],
+  "parent": "zaq-r1c",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-r1c] Run broad regressions coverage and final quality gate",
+  "type": "task",
+  "updated_at": "2026-09-14T11:08:28Z"
+}
