@@ -4,6 +4,7 @@
     "zaq-7ep.2"
   ],
   "blocks": [],
+  "closed_at": "2026-09-14T14:18:25Z",
   "created": "2026-09-14T13:56:16Z",
   "description": "Run specified focused suites, notification and confidential peer tests, PeopleAuth and three browser journeys if feasible; mix format and mix q. Measure scoped coverage and document exceptions. Update people-access/agent docs current path and safe diagnostics. Verify index checksum and preserve pre-existing changes; no commits/push/PR/reset.",
   "id": "zaq-7ep.3",
@@ -20,7 +21,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-7ep] Validate OTP action reuse and concise documentation",
   "type": "task",
   "updated_at": "2026-09-14T14:18:25Z"
