@@ -2,6 +2,8 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-14T14:48:18Z",
+  "close_reason": "Implemented and validated in current worktree as requested; uncommitted delivery, staged changes preserved.",
   "created": "2026-09-14T14:38:50Z",
   "description": "User-approved narrow worktree fix. Reproduce string notification provider through real Thread and Mattermost HTTP transport; reuse existing provider normalization at constructors; validate bridge/auth/browser suites and mix q. Preserve all staged changes; no commit, staging, push, PR or database reset.",
   "id": "zaq-uij",
@@ -17,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-uij] Fix canonical provider at Jido Thread boundary",
   "type": "bug",
-  "updated_at": "2026-09-14T14:48:07Z"
+  "updated_at": "2026-09-14T14:48:18Z"
 }
