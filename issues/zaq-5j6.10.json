@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-5j6.11"
   ],
+  "closed_at": "2026-09-14T08:34:22Z",
   "created": "2026-09-14T08:32:07Z",
   "description": "Simplify existing smoke script to raw Chromium only; no CLI about:blank calls, backend comparison sessions or new webserver. Tests first: raw launch, timeout propagation, scoped profile cleanup, required container, absence of agent-browser calls. Existing Docker transport fake only at external command boundary. Files test/support/bin/browser-runtime-smoke and its test. Documentation and workflow wiring in next step. User-approved correction; initial CI probe failure is hostname validation under allowlisting, not evidence of missing Node daemon.",
   "id": "zaq-5j6.10",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-5j6] Remove duplicate CLI smoke probes",
   "type": "task",
-  "updated_at": "2026-09-14T08:34:21Z"
+  "updated_at": "2026-09-14T08:34:22Z"
 }
