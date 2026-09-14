@@ -129,14 +129,23 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
           )
 
         assert {:ok, descriptor} = event.response
-        assert Enum.sort(Map.keys(descriptor)) == [:challenge_id, :expires_at]
+
+        assert Enum.sort(Map.keys(descriptor)) == [
+                 :challenge_id,
+                 :expires_at,
+                 :resend_available_at
+               ]
+
         assert {:ok, ^descriptor} = PeopleAuth.challenge_status(descriptor.challenge_id)
         assert_received {:openai_request, "POST", "/api/v4/posts", "", body}
         payload = Jason.decode!(body)
         assert payload["channel_id"] == "private-room"
         refute Map.has_key?(payload, "root_id")
-        [code] = Regex.run(~r/[0-9]{4}-[0-9]{4}/, payload["message"])
-        assert payload["message"] == "Your ZAQ sign-in code is #{code}. Do not share this code."
+        [_, code] = Regex.run(~r/\*\*([0-9]{4}-[0-9]{4})\*\*/, payload["message"])
+
+        assert payload["message"] ==
+                 "Your ZAQ sign-in code is\n\n**#{code}**\n\nDo not share this code.\n\n*Input this code in the current Sign-in page*"
+
         send(self(), {:delivered_code, code})
 
         row = Repo.one!(from n in NotificationLog, where: n.recipient_ref_id == ^person.id)

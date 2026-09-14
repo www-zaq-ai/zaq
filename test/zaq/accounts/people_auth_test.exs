@@ -2,6 +2,7 @@ defmodule Zaq.Accounts.PeopleAuthTest do
   use Zaq.DataCase, async: false
   use ExUnitProperties
   alias Plug.Crypto.KeyGenerator
+  alias Zaq.TestSupport.PeopleAuthClock
 
   alias Zaq.Accounts.{
     People,
@@ -26,16 +27,71 @@ defmodule Zaq.Accounts.PeopleAuthTest do
     %{person: person, ip: {127, 0, div(rem(person.id, 65_536), 256), rem(person.id, 256)}}
   end
 
+  test "resend boundary is fixed at 60 seconds and denial preserves quota and verification", %{
+    person: person,
+    ip: ip
+  } do
+    now = ~U[2026-09-14 12:00:00Z]
+    PeopleAuthClock.put(now)
+    opts = [clock: PeopleAuthClock]
+
+    {:ok, _} =
+      Zaq.System.save_people_access_config(%{otp_send_person_limit: 2, otp_send_ip_limit: 2})
+
+    {:ok, first} = PeopleAuth.issue_challenge(person, ip, opts)
+    assert first.resend_available_at == ~U[2026-09-14 12:01:00Z]
+    row = Repo.get!(PersonLoginChallenge, first.challenge_id)
+    assert {:error, {:resend_limited, 60}} = PeopleAuth.issue_challenge(person, ip, opts)
+    PeopleAuthClock.put(DateTime.add(now, 59))
+    assert {:error, {:resend_limited, 1}} = PeopleAuth.issue_challenge(person, ip, opts)
+    assert Repo.get!(PersonLoginChallenge, first.challenge_id) == row
+
+    assert {:error, :invalid_challenge} =
+             PeopleAuth.verify_challenge(first.challenge_id, "wrong", opts)
+
+    assert {:ok, _} = PeopleAuth.challenge_status(first.challenge_id, opts)
+    PeopleAuthClock.put(DateTime.add(now, 60))
+    assert {:ok, second} = PeopleAuth.issue_challenge(person, ip, opts)
+    assert second.resend_available_at == ~U[2026-09-14 12:02:00Z]
+    assert Repo.get!(PersonLoginChallenge, first.challenge_id).invalidated_at
+    assert {:error, {:resend_limited, 60}} = PeopleAuth.issue_challenge(person, ip, opts)
+    assert {:ok, _} = PeopleAuth.verify_challenge(second.challenge_id, second.code, opts)
+  end
+
+  property "unfinished challenges deny throughout the first minute regardless of validity", %{
+    person: person,
+    ip: ip
+  } do
+    check all(elapsed <- integer(0..59), validity <- member_of([1, 30, 300, 600]), max_runs: 20) do
+      now = ~U[2026-09-14 12:00:00Z]
+      PeopleAuthClock.put(now)
+      opts = [clock: PeopleAuthClock]
+      {:ok, _} = Zaq.System.save_people_access_config(%{otp_validity_seconds: validity})
+      {:ok, first} = PeopleAuth.issue_challenge(person, ip, opts)
+      {:ok, _} = Zaq.System.save_people_access_config(%{otp_validity_seconds: 900})
+      PeopleAuthClock.put(DateTime.add(now, elapsed))
+      assert {:error, {:resend_limited, retry}} = PeopleAuth.issue_challenge(person, ip, opts)
+      assert retry == 60 - elapsed
+      assert first.resend_available_at == ~U[2026-09-14 12:01:00Z]
+      assert {:ok, 1} = PeopleAuth.invalidate_challenge(first.challenge_id)
+    end
+  end
+
   test "failed delivery invalidates only its challenge, never a newer replacement", %{
     person: person,
     ip: ip
   } do
     {:ok, first} = PeopleAuth.issue_challenge(person, ip)
-    {:ok, second} = PeopleAuth.issue_challenge(person, ip)
+
+    PeopleAuthClock.put(
+      DateTime.add(Repo.get!(PersonLoginChallenge, first.challenge_id).inserted_at, 60)
+    )
+
+    {:ok, second} = PeopleAuth.issue_challenge(person, ip, clock: PeopleAuthClock)
     assert {:ok, 0} = PeopleAuth.invalidate_challenge(first.challenge_id)
     assert {:error, :invalid_challenge} = PeopleAuth.challenge_status(first.challenge_id)
     assert {:ok, descriptor} = PeopleAuth.challenge_status(second.challenge_id)
-    assert descriptor == Map.take(second, [:challenge_id, :expires_at])
+    assert descriptor == Map.take(second, [:challenge_id, :expires_at, :resend_available_at])
     assert {:ok, 1} = PeopleAuth.invalidate_challenge(second.challenge_id)
     assert {:ok, 0} = PeopleAuth.invalidate_challenge(second.challenge_id)
     assert {:ok, 0} = PeopleAuth.invalidate_challenge(Ecto.UUID.generate())
@@ -45,7 +101,14 @@ defmodule Zaq.Accounts.PeopleAuthTest do
   test "issue returns only opaque challenge metadata and a trusted delivery code; verify mints one digest-only session",
        %{person: person, ip: ip} do
     assert {:ok, issued} = PeopleAuth.issue_challenge(person, ip)
-    assert Enum.sort(Map.keys(issued)) == [:challenge_id, :code, :expires_at]
+
+    assert Enum.sort(Map.keys(issued)) == [
+             :challenge_id,
+             :code,
+             :expires_at,
+             :resend_available_at
+           ]
+
     assert issued.code =~ ~r/\A[0-9]{8}\z/
     row = Repo.get!(PersonLoginChallenge, issued.challenge_id)
     assert byte_size(row.token_digest) == 32
@@ -98,7 +161,13 @@ defmodule Zaq.Accounts.PeopleAuthTest do
                })
 
       assert {:ok, issued} = PeopleAuth.issue_challenge(person, ip)
-      assert {:error, {:rate_limited, _}} = PeopleAuth.issue_challenge(person, ip)
+
+      PeopleAuthClock.put(
+        DateTime.add(Repo.get!(PersonLoginChallenge, issued.challenge_id).inserted_at, 60)
+      )
+
+      assert {:error, {:rate_limited, _}} =
+               PeopleAuth.issue_challenge(person, ip, clock: PeopleAuthClock)
 
       assert {:error, :invalid_challenge} =
                PeopleAuth.verify_challenge(issued.challenge_id, "bad")
@@ -125,8 +194,13 @@ defmodule Zaq.Accounts.PeopleAuthTest do
     {:ok, _} = Zaq.System.save_people_access_config(%{unknown_email_attempt_limit: 1})
     send(Zaq.Channels.PeopleAuthRateLimiter.Config, :refresh)
     _ = :sys.get_state(Zaq.Channels.PeopleAuthRateLimiter.Config)
-    assert {:ok, _} = PeopleAuth.issue_challenge(person, ip)
-    assert {:ok, _} = PeopleAuth.issue_challenge(person, ip)
+    assert {:ok, first} = PeopleAuth.issue_challenge(person, ip)
+
+    PeopleAuthClock.put(
+      DateTime.add(Repo.get!(PersonLoginChallenge, first.challenge_id).inserted_at, 60)
+    )
+
+    assert {:ok, _} = PeopleAuth.issue_challenge(person, ip, clock: PeopleAuthClock)
     assert :ok = ingress.check_identification(ip)
   end
 
@@ -354,7 +428,14 @@ defmodule Zaq.Accounts.PeopleAuthTest do
   } do
     {:ok, _} = Zaq.System.save_people_access_config(%{otp_send_person_limit: 1})
     {:ok, issued} = PeopleAuth.issue_challenge(person, ip)
-    assert {:error, {:rate_limited, _}} = PeopleAuth.issue_challenge(person, ip)
+
+    PeopleAuthClock.put(
+      DateTime.add(Repo.get!(PersonLoginChallenge, issued.challenge_id).inserted_at, 60)
+    )
+
+    assert {:error, {:rate_limited, _}} =
+             PeopleAuth.issue_challenge(person, ip, clock: PeopleAuthClock)
+
     refute Repo.get!(PersonLoginChallenge, issued.challenge_id).invalidated_at
     assert {:ok, _} = PeopleAuth.verify_challenge(issued.challenge_id, issued.code)
   end

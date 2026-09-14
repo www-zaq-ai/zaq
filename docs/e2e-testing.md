@@ -172,8 +172,21 @@ HttpOnly/Lax browser-session cookies, logout and protected-route denial. BO-firs
 and People-first login, People logout preserving BO, and BO logout preserving
 People run in every engine. The supporting browser runner is
 `test/e2e/support/people-auth-browser.cjs`, using the shared BO connection/settling
-helpers. Countdown testing changes only client wall time, not socket heartbeat
-timers. This uses Playwright, not the agent-browser CLI from the separate test above.
+helpers. Countdown testing controls browser wall time without advancing socket
+heartbeat timers. A private stdout/stdin checkpoint asks the sandbox owner to age
+only the issued challenge's `inserted_at` by 60 seconds before the real resend POST;
+its server expiry stays valid. After issuance, browser time aligns to the new
+signed deadline. No minute-long sleeps or production clock hooks are used. The
+journey also checks row widths, reload persistence and submission/timer races.
+This uses Playwright, not the agent-browser CLI from the separate test above.
+
+The same journey checks an access-only profile, enables the fourth **Edit profile**
+matrix row through BO and verifies persistence, saves full name and channel priority,
+reloads the sorted channels, then revokes edit in a second BO tab while the profile
+is mounted. The next save is denied and becomes read-only. Each engine captures
+`test/e2e/test-results/people-profile-<engine>-<width>.png`; viewport overflow is
+checked at both widths. Name and channel forms save separately. No database reset
+or production test hook is used.
 
 ### Distributed confidentiality and cookie/logging regression tests
 

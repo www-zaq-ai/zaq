@@ -75,7 +75,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
         doc: "Thread pointer the message belongs to (email thread root, chat root_id)."
       ],
       thread_metadata: [
-        type: :map,
+        type: {:map, :any, :any},
         required: false,
         doc: "Opaque channel-specific threading residue, forwarded verbatim to persistence."
       ]

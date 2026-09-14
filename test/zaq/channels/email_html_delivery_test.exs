@@ -34,6 +34,24 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
   """
 
   describe "agent reply delivered as HTML email" do
+    test "sign-in notification uses the real email formatter for bold code and italic instructions" do
+      upsert_smtp_channel()
+
+      message =
+        "Your ZAQ sign-in code is\n\n**1234-5678**\n\nDo not share this code.\n\n*Input this code in the current Sign-in page*"
+
+      assert {:ok, _} = deliver(message, %{"subject" => "Your ZAQ sign-in code"})
+
+      assert_receive {:email, email}
+      assert email.subject == "Your ZAQ sign-in code"
+      assert email.to == [{"", "ops@example.com"}]
+      [_, code] = Regex.run(~r/<strong>([0-9]{4}-[0-9]{4})<\/strong>/, email.html_body)
+      assert email.html_body =~ "<em>Input this code in the current Sign-in page</em>"
+      assert email.text_body =~ code
+      assert email.text_body =~ "Do not share this code."
+      assert code == "1234-5678"
+    end
+
     test "email provider is configured to format outbound bodies as html" do
       # Guards the premise of every other test in this file. MessageFormatter is
       # a no-op unless the provider declares :message_format, so a config
