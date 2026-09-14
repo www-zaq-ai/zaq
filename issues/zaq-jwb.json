@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T10:59:35Z",
+  "description": "Observed in PR4 logout outage test: Supervisor.terminate_child(Zaq.Supervisor, Zaq.Engine.Supervisor) succeeds, restart fails Engine.Telemetry.Collector.init/1 line47 with {:badmatch, {:error, :already_exists}} while attaching telemetry. Preexisting unrelated lifecycle bug. PR4 test now exercises real unavailable role discovery by temporarily unregistering and restoring role name, preserving subsystem processes. Investigate Collector telemetry handler detach/restart lifecycle with regression test separately.",
+  "id": "zaq-jwb",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[PR4-discovery] Engine Collector cannot restart after supervisor shutdown",
+  "type": "bug",
+  "updated_at": "2026-09-14T10:59:35Z"
+}
