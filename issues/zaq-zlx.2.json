@@ -9,9 +9,15 @@
   "id": "zaq-zlx.2",
   "labels": [],
   "parent": "zaq-zlx",
+  "comments": [
+    {
+      "text": "Implemented trusted confidential Event option; sync dispatch/fire property and ordinary observer control green. Async diagnostics sanitized. Pending expanded remote/async coverage in final validation.",
+      "timestamp": "2026-09-14T10:41:19Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-zlx] Suppress confidential event observation",
   "type": "task",
-  "updated_at": "2026-09-14T10:26:57Z"
+  "updated_at": "2026-09-14T10:41:19Z"
 }
