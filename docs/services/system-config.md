@@ -195,8 +195,32 @@ Canonical grants require their own API key, OAuth access token or JWT private-ke
 material. Their changeset never copies secrets from configuration. OAuth client
 settings remain configuration-owned. `Connect.change_credential_grant/3` encrypts
 grant secrets using the existing strict `EncryptedString` path and reports encryption
-failures as changeset errors. Atomic configuration management and authenticated
-Person writes are subsequent foundation issues, not part of this storage boundary.
+failures as changeset errors. Atomic configuration management now uses
+`Connect.save_credential_configuration/2..4` and the canonical mutation delegates;
+authenticated Person transport remains a subsequent foundation issue.
+
+The new mutation boundary never returns changesets or decrypted schemas. Results are
+allowlisted IDs/status/policy and errors are fixed atoms; encryption failure is
+`:encryption_failed`. Config omission retains secrets, explicit blank/nil/masked
+values reject, and complete grant replacement clears omitted optional material.
+Replacement and revocation force every cleared secret column to SQL NULL through
+changesets, even when corrupt or unavailable-key ciphertext already loads as nil.
+All supplied secrets are freshly encrypted, even client strings beginning `enc:`.
+That prefix is not proof of trusted ciphertext. Schema inspection redacts secret
+fields and metadata; legacy APIs still return their original schema/changeset shapes.
+
+Grant mutations accept only auth-kind-specific secret fields plus expiry, with no
+client metadata or ownership/auth-field overrides. Configuration metadata is restricted
+to `auth_profile_id` and `subject`; arbitrary token payloads/nested metadata reject.
+OAuth client settings remain credential-owned and are not Person-editable. The new
+boundary accepts pre-obtained OAuth material; OAuth drafts/finalization are deferred
+to `zaq-jrg.6`, with no setup-state framework in this slice.
+
+`SecretConfig.encrypt/2` accepts the established `config:` override via `Zaq.Config`
+for per-call encryption configuration; existing `encrypt/1` behavior is retained.
+Ciphertext decoding validates AES-GCM nonce/tag lengths before invoking crypto, so
+malformed payloads load as unavailable rather than raising. Usability performs only
+local checks, never provider network authentication.
 
 Canonical ownership uses the existing `owner_type/owner_id`; its resource pair is
 server-derived as `connect_credential` and the credential ID string. The trusted
