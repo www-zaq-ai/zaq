@@ -4,6 +4,7 @@
     "zaq-8qo.3"
   ],
   "blocks": [],
+  "closed_at": "2026-09-14T08:49:50Z",
   "created": "2026-09-14T08:24:55Z",
   "description": "Focused repeated seeds under coverage, final full mix coveralls.json --seed 86320 --max-cases 16, mix format modified files and mix q; review diff and staged SHA256. Report baseline unrelated onboarding failure separately. Test-only fixes: production coverage threshold not new-development applicable; full coverage report retained.",
   "id": "zaq-8qo.4",
@@ -24,8 +25,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-8qo] Validate lifecycle fixes under coverage load",
   "type": "task",
-  "updated_at": "2026-09-14T08:49:49Z"
+  "updated_at": "2026-09-14T08:49:50Z"
 }
