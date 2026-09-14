@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T16:37:30Z",
+  "description": "PeopleAuth owns fixed60 deadline from inserted_at, checked after eligibility under Person lock before quota/supersession. Gateway propagates tagged numeric retry and Markdown via existing NotifyPerson. Tests first: 0/59/60, expired unfinished, changed validity, unchanged quota/rows, verify after denial, concurrent replacement, delivery failure retry, exact descriptor/source and real email HTML. Existing clock opts and transport mocks only; update people-access docs.",
+  "id": "zaq-rd0.1",
+  "labels": [],
+  "parent": "zaq-rd0",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-rd0] Enforce issuance cooldown and notification contract",
+  "type": "task",
+  "updated_at": "2026-09-14T16:37:30Z"
+}
