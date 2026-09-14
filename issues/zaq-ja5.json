@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T13:08:07Z",
+  "description": "Narrow approved current-worktree fix: test first unknown/inactive/missing access_profile identical safe start message; existing delivery_failed gets verification-code send message; request_unavailable and limiter errors retain generic retry. Shared request/resend mapping only, preserve pending descriptor, verification, backend tags/invalidation and rate budgets. Update targeted browser expectation/docs; run focused controller/channels/gateway tests, mix format, mix q and diff check. Preserve all prior work; no commit/push/PR/DB reset. Remain in_progress pending review.",
+  "id": "zaq-ja5",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Clarify public People authentication failure stage",
+  "type": "bug",
+  "updated_at": "2026-09-14T13:08:07Z"
+}
