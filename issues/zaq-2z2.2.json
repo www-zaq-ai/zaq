@@ -4,6 +4,7 @@
     "zaq-2z2.3"
   ],
   "blocks": [],
+  "closed_at": "2026-09-14T07:24:30Z",
   "created": "2026-09-14T07:00:43Z",
   "description": "After implementation, focused Application/supervisor/runtime/NodeRouter/limiter/Engine and full Channels regressions, real two-node/role startup, scoped coverage \u003e=95% or precise exception. Run mix format and mix q; no user DB reset; inspect test partition schema first. Update architecture/channels/people-access/current README or ingestion references where inaccurate. Confirm initial staged binary diff SHA256 698ff595767e76153e4dc4d29bf37a9c09f2132b3008e9c705a2dad46fba81b3 unchanged; preserve other initial work.",
   "id": "zaq-2z2.2",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-2z2] Validate supervision split and update current topology docs",
   "type": "task",
   "updated_at": "2026-09-14T07:24:30Z"
