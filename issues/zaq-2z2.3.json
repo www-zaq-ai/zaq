@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-2z2.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-2z2.2"
+  ],
   "created": "2026-09-14T07:00:44Z",
   "description": "After red tests, move current dynamic implementation to BridgeSupervisor with self targets and existing ETS atom/bootstrap. Channels.Supervisor regular one_for_one starts limiter then BridgeSupervisor and delegates all APIs/defaults. Remove only Application root limiter entry. Handle absent/stale ETS lookup contract narrowly. Existing Bridge/custom supervisor override remains unchanged. Update current moduledocs.",
   "id": "zaq-2z2.3",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-2z2] Split static Channels parent from dynamic bridge owner",
   "type": "task",
-  "updated_at": "2026-09-14T07:00:58Z"
+  "updated_at": "2026-09-14T07:00:59Z"
 }
