@@ -19,11 +19,15 @@
     {
       "text": "Progress: implemented 120s persisted per-grant claim + raw grant/config snapshot fingerprint; existing OAuth/Channels provider reuse with sensitive dispatch, no HTTP transaction; canonical tokens via Mutations/MutationEvents, direct canonical cache rejects. prepare_grant_for_use/2 is selected-OAuth runtime handoff for later .4 (no policy selection/fallback). Real independent DB races, crash/late-holder recovery and real Oban insertion rollback tested. Final current coverage run: 448 tests + 7 properties pass; Connect 96.7%, Refresh 97.5%, Mutations 98.7%, OAuth 99.3%, Grant/Worker 100%. mix q initially flagged local lint issues, corrected; final rerun pending. No commits/push/worktree/closures; prior work preserved.",
       "timestamp": "2026-09-14T12:26:11Z"
+    },
+    {
+      "text": "IMPLEMENTED-UNCOMMITTED; keep in_progress for review, no closure/commit/push/new worktree. Prior .3/.5/.6 changes preserved. New migration priv/repo/migrations/20260914120057_add_connect_grant_refresh_claim.exs adds UUID refresh_claim + UTC refresh_claim_until only; real down/up round-trip preserves legacy token ciphertext/status. Connect.Refresh coordinates canonical Person/org + legacy org/user with 120s DB lease/cooldown, credential-before-grant locks only for local work, raw ciphertext-inclusive config/grant fingerprint before external and before persistence, literal current active Person checks, TTL reclaim and rejection of old holders. Connect.refresh_grant/2 explicitly refreshes; Connect.prepare_grant_for_use/2 is secret-bearing selected-OAuth runtime handoff for later .4, with opts now/config/refresh_window_seconds, no policy selection or fallback. Legacy direct cache rejects canonical rows and stale/revoked/deleted grants. Existing OAuth provider infra reused; HTTP automatic retries off, generic receive/connect timeouts 15s/5s; NodeRouter sensitive true. Canonical persistence remains Mutations + same-transaction MutationEvents. Omitted refresh retained from checked current row, provided rotated; loaded enc-prefixed token is literal (removed second-decryption hazard). Recoverable expired status restored active in canonical and legacy lanes, revoked terminal. Worker scheduling now uses worker.new (3 attempts), backoff adds 120s to normal Oban backoff. Engine/system-config/module docs current. Accepted residual: Person deletion after last identity check, and provider rotation followed by crash may require reauth; no .4 resolver, .8 cleanup or notification activation.",
+      "timestamp": "2026-09-14T12:36:43Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.7] 7. Make OAuth refresh safe against grant replacement and revocation",
   "type": "task",
-  "updated_at": "2026-09-14T12:26:11Z"
+  "updated_at": "2026-09-14T12:36:43Z"
 }
