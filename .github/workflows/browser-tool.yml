@@ -66,17 +66,36 @@ jobs:
           docker exec "$ZAQ_BROWSER_CONTAINER" /usr/bin/chromium --version
           docker image inspect zaq-browser-flow:ci --format '{{.Id}}'
 
+      - name: Verify real browser launch and backend selection
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          set -o pipefail
+          sh test/support/bin/browser-runtime-smoke 2>&1 | tee "$RUNNER_TEMP/browser-runtime-smoke.log"
+
       - name: Install test dependencies
         run: mix deps.get
 
       - name: Exercise the real browser tool through the agent
         run: mix test test/zaq/agent/browser_flow_integration_test.exs --include real_browser
 
-      # Browser command stdout/stderr is captured by the Mix test process,
-      # not docker logs (the container's main process is sleep).
-      - name: Browser container state
+      # docker logs only sees sleep, not exec'd CLI/daemon output. Smoke probe
+      # stdout/stderr is retained separately; process names avoid logging argv.
+      - name: Browser container and process state
         if: always()
-        run: docker inspect --format '{{json .State}}' "$ZAQ_BROWSER_CONTAINER" || true
+        timeout-minutes: 1
+        run: |
+          docker inspect --format '{{json .State}}' "$ZAQ_BROWSER_CONTAINER" || true
+          docker top "$ZAQ_BROWSER_CONTAINER" -eo pid,ppid,user,stat,comm || true
+
+      - name: Retain browser launch diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-runtime-smoke-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/browser-runtime-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Remove browser runtime and all its sessions
         if: always()

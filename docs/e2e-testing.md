@@ -34,12 +34,17 @@ Prerequisites:
 - `agent-browser` matching `priv/browser/agent-browser.version` (the same file
   Docker uses for its Cargo install). Set `AGENT_BROWSER_BIN` to that executable
   when it is not the default on PATH. A global older CLI need not be replaced.
+- For the Cargo-only installation, set `AGENT_BROWSER_NATIVE=1` to select the
+  self-contained Rust/CDP backend. Upstream 0.19.0 otherwise defaults to the
+  Node/Playwright daemon, which is not included in our runtime image. A successful
+  `--version` check does not verify backend availability or browser launch.
 - Chromium/Chrome executable; set `AGENT_BROWSER_EXECUTABLE_PATH` to its absolute
   path. The Docker runtime uses `/usr/bin/chromium`, `fonts-liberation`, writable
   `/app` as HOME, and `--no-sandbox,--disable-dev-shm-usage` container flags.
 
 ```sh
 AGENT_BROWSER_BIN=/absolute/path/to/agent-browser \
+AGENT_BROWSER_NATIVE=1 \
 AGENT_BROWSER_EXECUTABLE_PATH=/absolute/path/to/chromium \
 mix test test/zaq/agent/browser_flow_integration_test.exs --include real_browser
 ```
@@ -66,12 +71,33 @@ Actions UI once it exists on the default branch.
 `test/support/bin/agent-browser-container` forwards argv with `docker exec` to
 the **real** CLI in that container. It is not a fake executable and does not
 fabricate tool output. The production `app` image inherits the same browser
-runtime stage, including the CLI, Chromium, libraries, fonts and launch flags.
-The workflow logs the CLI version, Chromium version and local image ID. An
+runtime stage, including the CLI, Chromium, native backend selection, libraries,
+fonts and launch flags. The workflow logs the CLI version, Chromium version and
+local image ID, then runs `sh test/support/bin/browser-runtime-smoke`:
+
+1. Launch raw headless Chromium on `about:blank`, independently of the CLI daemon.
+2. Probe the installed CLI with native mode disabled and record its output/exit
+   status. This comparison is diagnostic, not a required success: Cargo builds
+   may differ from the upstream source tag.
+3. With the image's inherited settings, open `about:blank`, verify the URL and
+   close the session. These steps must succeed. The domain allowlist stays enabled.
+
+Each command has a 20-second deadline plus a 5-second kill grace **inside the
+container**, so timing out does not merely kill the host's `docker exec` client.
+The workflow also bounds the whole probe step. Probe sessions and Chromium profile
+are separate from the real flow; it still exercises a fresh session. Scoped cleanup
+is attempted even after failure. The diagnostic default-backend probe need not
+succeed, but raw Chromium and the image-selected backend must work before Mix runs.
+
+Smoke stdout/stderr is retained as a seven-day workflow artifact. Failed smoke
+checks also capture process names before session cleanup. An
 `always()` cleanup step attempts to remove the container and its daemon sessions
 after success or failure, and reports removal failures; forced runner termination
-can prevent cleanup. CLI stdout/stderr appears in Mix test failures. The final
-diagnostics step reports container state, not daemon logs.
+can prevent cleanup. The final diagnostics step reports container state and process
+names, not full argv/environment or daemon log files. Smoke output is from trusted
+blank-page probes only. Ordinary tool timeouts still report a generic error; the
+smoke artifact helps distinguish browser launch, backend startup and transport
+failures without exposing arbitrary browsing output to the LLM.
 
 The CLI is exact-version pinned and installed with Cargo `--locked`. Chromium
 and the Debian base currently follow their existing rolling package/image tags;

@@ -71,6 +71,9 @@ ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US:en \
     LC_ALL=en_US.UTF-8 \
     HOME=/app \
+    # Cargo installs only the Rust binary, not the Node/Playwright daemon.
+    # Select its self-contained Rust/CDP backend explicitly.
+    AGENT_BROWSER_NATIVE=1 \
     AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium \
     # --no-sandbox: Chromium's setuid sandbox can't run unprivileged in a
     # container; --disable-dev-shm-usage avoids crashes from the small default
