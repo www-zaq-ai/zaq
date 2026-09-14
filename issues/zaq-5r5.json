@@ -10,11 +10,15 @@
     {
       "text": "Red regression: isolated MIX_TEST_PARTITION=_zaq_5r5, 1 property + 10 tests, 7 expected failures. Real Swoosh email received before Jido InvalidInputError (thread_metadata threading key expected atom); gateway challenge invalidated after delivery. Installed Jido.Action.Schema.validate_nimble calls NimbleOptions directly; NimbleOptions :map aliases {:map,:atom,:any}, supported {:map,:any,:any} preserves opaque maps and rejects nonmaps. Narrow fix changes only NotifyPerson metadata output annotation; no shared DSL, adapter, gateway or normalization changes.",
       "timestamp": "2026-09-14T17:15:25Z"
+    },
+    {
+      "text": "Completed narrow working-tree fix. Files: lib/zaq/agent/tools/people/notify_person.ex (one field type), test/zaq/agent/tools/people/notify_person_threading_test.exs (real Jido.Exec plus nested map property, Mattermost and nonmap rejection), new notify_person_email_delivery_test.exs (real Notifications/EmailBridge/Swoosh capture, exact receipt, successful gateway descriptor, emailed HTML OTP verifies/authenticates once; malformed metadata invalidates safely without code/body logs), docs/services/engine.md (opaque output contract). Green: mix format; mix q no issues; focused 2 properties/25 tests; broad nonbrowser 11 properties/446 tests zero failures, seed 394634, MIX_TEST_PARTITION=_zaq_5r5. NotifyPerson 100% coverage 38/38 executable lines; declaration-only production change adds no executable branches. Existing browsers Chromium/Firefox/WebKit all pass at 390/1280 twice. Combined browser+controller run has one order-dependent controller failure tracked zaq-iik; controller alone 21/21 and broad nonbrowser pass. Existing license_manager unavailable configuration warning remains. git diff and cached checks clean. Staged diff SHA256 unchanged 3ec9ae025d674b9857be3ea1ee24e2d7b27c7b3c2653b0687ecfe7cf3173d8f4; preexisting files preserved. No commit/push/PR/reset, per user.",
+      "timestamp": "2026-09-14T17:24:26Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-rd0] Fix NotifyPerson validation of email threading receipts",
   "type": "bug",
-  "updated_at": "2026-09-14T17:15:25Z"
+  "updated_at": "2026-09-14T17:24:26Z"
 }
