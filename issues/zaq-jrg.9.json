@@ -33,11 +33,15 @@
     {
       "text": "Parent re-review confirmed prior fixes but found same binding bug in canonical provider refresh: Connect refresh event and DataSourceBridge omit explicit context; existing explicit helper incorrectly requires callback redirect. Continuing .9 with real A/B refresh RED, canonical-only existing context propagation and refresh-specific no-redirect validation; legacy fallback retained. Will rerun 2k focused coverage, full repository mix test, q and feasible callback/system-config E2E. No commits.",
       "timestamp": "2026-09-14T14:08:05Z"
+    },
+    {
+      "text": "Refresh residual RED reproduced through actual Google provider bridge: canonical org and Person A(nil secret) unexpectedly refreshed using channel B; corrected fixture baseline 6 tests/2 expected failures, seed 470245. Applied existing context to canonical refresh only; refresh-specific credential validation has no callback redirect dependency. GREEN: all 6 new tests pass seed 744276 (org/person nil-secret, empty/read scopes with A secret, legacy org/user fallback). No provider or URL framework changes.",
+      "timestamp": "2026-09-14T14:12:39Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.9] 9. Validate foundation compatibility security and handoff contracts",
   "type": "task",
-  "updated_at": "2026-09-14T14:08:05Z"
+  "updated_at": "2026-09-14T14:12:39Z"
 }
