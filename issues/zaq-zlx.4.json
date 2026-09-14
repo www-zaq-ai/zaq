@@ -9,9 +9,15 @@
   "id": "zaq-zlx.4",
   "labels": [],
   "parent": "zaq-zlx",
+  "comments": [
+    {
+      "text": "Real Chromium browser journey passed using an ephemeral Bandit server inside SQL Sandbox and only the delivery transport mocked. Tested email -\u003e wrong code -\u003e retained stage -\u003e timestamp expiry/resend -\u003e formatted code -\u003e protected profile -\u003e HttpOnly/Lax cookie -\u003e logout/re-entry denial, at mobile and desktop widths. No E2E reset/bootstrap or user DB touched.",
+      "timestamp": "2026-09-14T10:53:27Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-zlx] Validate PR4 security journeys and document V1",
   "type": "task",
-  "updated_at": "2026-09-14T10:26:56Z"
+  "updated_at": "2026-09-14T10:53:27Z"
 }
