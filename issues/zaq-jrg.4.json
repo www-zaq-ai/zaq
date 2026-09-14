@@ -1,8 +1,6 @@
 {
   "assignee": "",
-  "blocked_by": [
-    "zaq-jrg.3"
-  ],
+  "blocked_by": [],
   "blocks": [
     "zaq-jrg.5"
   ],
@@ -21,5 +19,5 @@
   "status": "open",
   "title": "[zaq-jrg.4] 4. Resolve effective credential independently of consumers",
   "type": "task",
-  "updated_at": "2026-09-14T07:08:50Z"
+  "updated_at": "2026-09-14T09:27:22Z"
 }
