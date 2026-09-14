@@ -22,11 +22,15 @@
     {
       "text": ".3 completed-uncommitted and validated; remains in_progress pending review/merge, as do prior .1/.2. Final exact serial dependency graph verified both directions and full graph acyclic: .1 -\u003e .2 -\u003e .3 -\u003e .5 -\u003e .6 -\u003e .7 -\u003e .4 -\u003e .8 -\u003e .9; external dependencies preserved. Only .3 implemented in this task. Detailed APIs/coverage/exact commands/limits in .3 comments. Parent proceeds with .5 under user-approved sequence; queue activation remains deferred to actual Agent receiver/fanout.",
       "timestamp": "2026-09-14T10:14:34Z"
+    },
+    {
+      "text": "Only .5 now implemented-uncommitted in the existing workspace atop completed-uncommitted .3; both remain in_progress for review/merge. APIs and trust provenance, safe DTO contracts, legacy issuance/OAuth guards, exact validation/coverage and limitations recorded in .5 comments and engine/system-config docs. Final 194 tests + 5 properties passed, touched application coverage \u003e=95%, mix q and diff check passed. No Person public transport/session, OAuth lifecycle, resolver, subscriber or identity cleanup added. User-approved next slice remains .6, then .7, .4, .8, .9; no later slice started. No commits/push/worktree, all other changes preserved.",
+      "timestamp": "2026-09-14T10:33:57Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg] Person-scoped Connect foundation implementation plan",
   "type": "epic",
-  "updated_at": "2026-09-14T10:14:34Z"
+  "updated_at": "2026-09-14T10:33:57Z"
 }
