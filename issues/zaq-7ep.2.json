@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-7ep.1"
+  ],
   "blocks": [],
   "created": "2026-09-14T13:56:16Z",
   "description": "PeopleAuthGateway invokes Jido.Exec.run/3 with id map, subject, message and trusted action context. Accept only sent/notified true in documented 2/3 tuples and recheck live challenge. Tests first real action and Engine with existing transport mock; verify safe diagnostics, observer suppression, skipped/raised/returned errors, stale resend and descriptor-only results. Keep challenge invalidation scoped. No fallback policy changes.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-7ep] Gateway Jido execution and fail-closed regression tests",
   "type": "task",
-  "updated_at": "2026-09-14T13:56:16Z"
+  "updated_at": "2026-09-14T13:56:38Z"
 }
