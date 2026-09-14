@@ -15,11 +15,15 @@
     {
       "text": "User explicitly proceeds over completed-uncommitted .6; preserve dependency and do not close predecessor. RED: 8 independent DB concurrency tests fail (missing perform/2 opts and refresh HTTP opts ignored). Existing refresh attempted example DNS rather than injected HTTP; fix seam before further runs. Shared lease/CAS plan per approved .7; no resolver/lifecycle.",
       "timestamp": "2026-09-14T12:00:51Z"
+    },
+    {
+      "text": "Progress: implemented 120s persisted per-grant claim + raw grant/config snapshot fingerprint; existing OAuth/Channels provider reuse with sensitive dispatch, no HTTP transaction; canonical tokens via Mutations/MutationEvents, direct canonical cache rejects. prepare_grant_for_use/2 is selected-OAuth runtime handoff for later .4 (no policy selection/fallback). Real independent DB races, crash/late-holder recovery and real Oban insertion rollback tested. Final current coverage run: 448 tests + 7 properties pass; Connect 96.7%, Refresh 97.5%, Mutations 98.7%, OAuth 99.3%, Grant/Worker 100%. mix q initially flagged local lint issues, corrected; final rerun pending. No commits/push/worktree/closures; prior work preserved.",
+      "timestamp": "2026-09-14T12:26:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.7] 7. Make OAuth refresh safe against grant replacement and revocation",
   "type": "task",
-  "updated_at": "2026-09-14T12:00:51Z"
+  "updated_at": "2026-09-14T12:26:11Z"
 }
