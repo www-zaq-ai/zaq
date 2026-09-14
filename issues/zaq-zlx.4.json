@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-zlx.3"
+  ],
   "blocks": [],
   "created": "2026-09-14T10:26:37Z",
   "description": "Spec: complete targeted integration and browser journeys, coverage \u003e=95 or exact recorded gaps, mix format and mix q, self review. Tests: delivery failure races, cookies CSRF and isolation, role routing, raw secrets excluded observers. No user DB reset; isolated test DB only after config inspection. Docs defaults retry timing direct-peer deployment and accepted notification persistence. Remain working tree only.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-zlx] Validate PR4 security journeys and document V1",
   "type": "task",
-  "updated_at": "2026-09-14T10:26:37Z"
+  "updated_at": "2026-09-14T10:26:56Z"
 }
