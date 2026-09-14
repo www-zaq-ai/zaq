@@ -6,9 +6,15 @@
   "description": "Preserve existing worktree. User requests baseline cookie persistence proof/revert, all three browser coexistence journeys, real two-node confidential verification, production Secure and real HTTP log filtering tests, broader relevant suites/coverage and mix q. No commits, PR, user DB reset or new report artifacts. Sequential DAG: cookie/security -\u003e browser/distributed -\u003e broad validation. Existing docs/skills and module contracts read in prior implementation remain applicable.",
   "id": "zaq-r1c",
   "labels": [],
+  "comments": [
+    {
+      "text": "Final preservation evidence: staged diff SHA256 remains e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 (empty before/after). git diff --check passes. No staging, commits, pushes, PR, user DB reset, or tracked generated artifacts. All requested validation complete; known shared-file coverage exception zaq-n82 and preexisting license_manager warning explicitly recorded. Logging release requirement: rebuild cached phoenix_live_view with compile-time purge config; done for local dev/test and documented for prod.",
+      "timestamp": "2026-09-14T12:21:10Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[PR4-validation] Finish cookie, browser and distributed authentication validation",
   "type": "epic",
-  "updated_at": "2026-09-14T11:08:07Z"
+  "updated_at": "2026-09-14T12:21:10Z"
 }
