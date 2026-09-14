@@ -9,9 +9,15 @@
   "id": "zaq-5j6.12",
   "labels": [],
   "parent": "zaq-5j6",
+  "comments": [
+    {
+      "text": "Confirmed actual published Cargo 0.19.0 source has boundary-only Fetch draining and no start_fetch_handler. cargo info 0.22.0 fails (not published); user approved immutable Git source. Pinned v0.22.0 commit downloaded successfully via cargo --git --rev --locked; its command parser retains open/snapshot/get text/get url/fill/click/wait/scrollintoview/close. Docker now builds from revision file and asserts version matches separate version file. Local release install exceeded 540s execution budget while compiling, so build success not claimed. Source and dependency acquisition verified; Linux image build remains CI acceptance.",
+      "timestamp": "2026-09-14T12:44:09Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5j6] Pin upstream browser Fetch-handler fix",
   "type": "task",
-  "updated_at": "2026-09-14T11:57:31Z"
+  "updated_at": "2026-09-14T12:44:09Z"
 }
