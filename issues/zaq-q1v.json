@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-14T14:33:17Z",
@@ -7,8 +7,8 @@
   "id": "zaq-q1v",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jrg.9] Reconcile legacy refresh edge tests with safe claimed-refresh errors",
   "type": "task",
-  "updated_at": "2026-09-14T14:33:17Z"
+  "updated_at": "2026-09-14T14:41:07Z"
 }
