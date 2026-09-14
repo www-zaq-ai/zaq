@@ -31,11 +31,15 @@
     {
       "text": "Final git diff --check exited 0. git status --short confirms exactly 10 intended .2 paths (six modified tracked files and four new files); no pre-existing uncommitted .1 changes were present at start or overwritten. No code changes after the final passing quality/coverage runs.",
       "timestamp": "2026-09-14T08:20:45Z"
+    },
+    {
+      "text": "Independent review follow-up: accepted HIGH hidden raw ciphertext retention during revoke/complete replacement and MEDIUM explicit nil user_level/scopes reaching DB NOT NULL exceptions. User authorized continuing existing uncommitted .2 work; preserved all paths. Added eight regressions FIRST (replace/revoke x corrupt/unavailable-key ciphertext, create/update x user_level/scopes nil). mix format \u0026\u0026 mix test test/zaq/engine/connect/mutations_test.exs exited 2: 23 tests + 1 property, exactly eight failures reproducing both findings. Ciphertext tests inspect all four raw secret columns and confirm Ecto loads nil; unavailable-key fixture uses real encryption through per-call config, no global mutation. Fix: one helper forces all secret columns via Ecto changesets for replacement/revoke, including omitted material; configuration boundary explicitly rejects nil effective user_level/scopes before persistence, permits false/empty scopes, no broad DB rescue. Strengthened all six races to observe holder membership in real pg_blocking_pids(contender) before releasing holder. Observation uses test-only bounded lock-graph queries, no sleeps or production hooks; client ready signal alone is no longer sufficient.",
+      "timestamp": "2026-09-14T08:27:29Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.2] 2. Centralize canonical grant writes and safe configuration validation",
   "type": "task",
-  "updated_at": "2026-09-14T08:20:45Z"
+  "updated_at": "2026-09-14T08:27:29Z"
 }
