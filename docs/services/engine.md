@@ -162,6 +162,11 @@ rejected rather than ignored, since it would silently override the message resol
 - `get_conversation_by_token/1` — resolves a conversation from an unexpired share token.
 
 ### People Command Gateway (`Zaq.Engine.PeopleGateway`)
+- The separate PeopleAuth lifecycle and Hammer ETS/PubSub limiter are documented in
+  [People authentication backend](people-access.md#people-authentication-backend).
+  Engine supervises OTP Person/IP issuance budgets and retains persisted verification
+  attempts. Channels separately owns only unsuccessful-identification IP protection.
+  No authentication gateway/events are exposed yet.
 - Capability matrix/grant/revoke commands and their separate permission domain are
   documented in [People permissions](people-access.md).
 - BO People operations are routed through `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
@@ -250,6 +255,12 @@ metadata/activity; newly added identity channels have no recorded interaction.
   notification payloads remain unchanged. The merger uses ordinary owner APIs for
   channels, generic permission coordinates, routing, conversations and recipients;
   merge decisions belong to `PersonMerger`, validation/persistence to the owners.
+- Authentication challenges and sessions are revoked for **every participant**, including
+  the survivor, through ordinary PeopleAuth APIs in the same transaction. Credentials
+  never transfer; loser auth rows cascade on deletion, survivor revocations persist.
+  This remains available with corrupt auth configuration and rolls back with the merge.
+  The authentication schema migration precedes historical email normalization so fresh
+  replay can invoke the current merger without querying absent tables.
 
 The merger resolves and locks the complete supplied group in stable order, then loads
 and locks its relationships. From these original snapshots it privately calculates

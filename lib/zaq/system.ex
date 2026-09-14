@@ -251,7 +251,7 @@ defmodule Zaq.System do
   end
 
   @doc """
-  Authoritatively validates attributes and atomically saves all nine numeric keys.
+  Authoritatively validates attributes and atomically saves all eight numeric keys.
   Partial attributes preserve current effective values. A corrupt group blocks
   partial saves; a complete valid payload can repair it. Unknown keys are ignored.
   Returns the typed saved config or a validation/persistence changeset (or the

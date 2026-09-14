@@ -123,6 +123,20 @@ Role mapping:
 
 ## Engine Subsystems
 
+People authentication rate ownership is split: Engine supervises OTP Person/IP
+issuance counters and owns persisted challenge verification attempts; Channels
+supervises only unsuccessful-identification IP counters. Shared Hammer ETS/PubSub
+mechanics have distinct role-local tables, listeners and replication topics.
+Channels prechecks use a bounded, background-refreshed typed config snapshot with
+no request-time database or Engine call. Public login orchestration remains PR4;
+see [People authentication](services/people-access.md#rate-topology-and-retry-behavior).
+
+`Zaq.Channels.Supervisor` is a static `:one_for_one` parent: it starts
+`Zaq.Channels.PeopleAuthRateLimiter` first, then the dynamic
+`Zaq.Channels.BridgeSupervisor`. The children restart independently. The parent
+retains the Channels role-discovery name and delegates the existing runtime API;
+the dynamic child reloads enabled bridge configs on every startup.
+
 Engine is the largest service. It owns several internal subsystems:
 
 ### Conversations (`lib/zaq/engine/conversations/`)

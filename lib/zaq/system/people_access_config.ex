@@ -16,7 +16,6 @@ defmodule Zaq.System.PeopleAccessConfig do
     field :otp_max_attempts, :integer, default: 5
     field :unknown_email_attempt_limit, :integer, default: 10
     field :unknown_email_window_seconds, :integer, default: 600
-    field :unknown_email_cooldown_seconds, :integer, default: 900
     field :otp_send_person_limit, :integer, default: 5
     field :otp_send_ip_limit, :integer, default: 20
     field :otp_send_window_seconds, :integer, default: 900

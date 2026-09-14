@@ -431,7 +431,11 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapterTest do
     config = FakeImapServer.config(fake)
     assert {:ok, client} = ImapAdapter.connect(config, "INBOX")
 
-    GenServer.stop(fake)
+    # Mailroom exits on tcp_closed; the caller must survive to exercise disconnect's catch.
+    Process.unlink(client)
+    ref = Process.monitor(client)
+    stop_supervised!(FakeImapServer)
+    assert_receive {:DOWN, ^ref, :process, ^client, _reason}, 1_000
 
     assert :ok = ImapAdapter.disconnect(client)
   end
@@ -447,6 +451,7 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapterTest do
     assert is_integer(Process.read_timer(client_state.idle_timer))
 
     _ = IMAP.cancel_idle(client)
+    assert_receive :idle_notify, 1_000
 
     assert :ok = ImapAdapter.enter_idle(client, 35_000)
     client_state = :sys.get_state(client)

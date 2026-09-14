@@ -15,7 +15,6 @@ defmodule Zaq.System.PeopleAccessConfigTest do
              otp_max_attempts: 5,
              unknown_email_attempt_limit: 10,
              unknown_email_window_seconds: 600,
-             unknown_email_cooldown_seconds: 900,
              otp_send_person_limit: 5,
              otp_send_ip_limit: 20,
              otp_send_window_seconds: 900,

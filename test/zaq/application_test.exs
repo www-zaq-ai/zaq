@@ -28,6 +28,27 @@ defmodule Zaq.ApplicationTest do
     assert :ok = Zaq.Application.config_change(%{}, %{}, [])
   end
 
+  test "combined roles supervise ingress under Channels and issuance under Engine" do
+    children = Supervisor.which_children(Zaq.Supervisor)
+
+    refute List.keymember?(children, Zaq.Channels.PeopleAuthRateLimiter, 0)
+
+    assert {Zaq.Channels.PeopleAuthRateLimiter, _, :supervisor, _} =
+             Zaq.Channels.Supervisor
+             |> Supervisor.which_children()
+             |> List.keyfind(Zaq.Channels.PeopleAuthRateLimiter, 0)
+
+    assert {Zaq.Channels.Supervisor, _, :supervisor, _} =
+             List.keyfind(children, Zaq.Channels.Supervisor, 0)
+
+    assert {Zaq.People.AuthRateLimiter, _, :supervisor, _} =
+             Zaq.Engine.Supervisor
+             |> Supervisor.which_children()
+             |> List.keyfind(Zaq.People.AuthRateLimiter, 0)
+
+    refute List.keymember?(children, Zaq.People.AuthRateLimiter, 0)
+  end
+
   test "prep_stop/1 returns same state" do
     state = %{foo: :bar}
     assert Zaq.Application.prep_stop(state) == state
