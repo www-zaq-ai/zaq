@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-rd0.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-rd0",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-rd0] Enforce issuance cooldown and notification contract",
   "type": "task",
-  "updated_at": "2026-09-14T16:37:36Z"
+  "updated_at": "2026-09-14T16:37:38Z"
 }
