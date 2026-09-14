@@ -10,11 +10,15 @@
     {
       "text": "Onboarding timeout did not recur in final full seed86320 (8823 tests, 0 failures, 638.3s). No onboarding changes made. Keep as intermittent baseline finding, not claimed fixed by lifecycle changes.",
       "timestamp": "2026-09-14T08:49:09Z"
+    },
+    {
+      "text": "zaq-jrg.9 full repository test seed812387: ChangePasswordLiveTest :55 render_async exceeded default100ms; :232 expected dashboard redirect within1000ms but got none. Full run 580s/8 failures. Both tests pass when four failing files are isolated (129 cases) on current and pre-refresh-residual foundation. This is suite-load/order-sensitive evidence, not proof of environment-only fault. Investigate consent async work/default waits; no sleep/timeout weakening applied.",
+      "timestamp": "2026-09-14T14:33:16Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "Onboarding coverage bootstrap redirect timeout seed 86320",
   "type": "bug",
-  "updated_at": "2026-09-14T08:49:09Z"
+  "updated_at": "2026-09-14T14:33:16Z"
 }
