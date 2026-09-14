@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-zlx.5"
   ],
+  "closed_at": "2026-09-14T11:04:31Z",
+  "close_reason": "Implemented and validated in working tree; confidential sync/async/remote/observer contracts tested.",
   "created": "2026-09-14T10:26:36Z",
   "description": "Spec: Event confidential trusted opts suppress NodeRouter observer streams and sanitize async diagnostics, preserving dispatch and hops. Tests first: fire/sync/async and remote/hops no secret emissions, ordinary event still observable. Real router runtime seam; no internal mocks. Docs Event moduledoc and architecture.",
   "id": "zaq-zlx.2",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-zlx] Suppress confidential event observation",
   "type": "task",
-  "updated_at": "2026-09-14T10:41:19Z"
+  "updated_at": "2026-09-14T11:04:31Z"
 }
