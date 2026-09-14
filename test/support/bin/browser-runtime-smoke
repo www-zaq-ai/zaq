@@ -4,11 +4,7 @@ set -eu
 # Run via sh on the Linux CI host. Deadlines are enforced INSIDE the container,
 # so killing a docker client is not mistaken for cancelling its browser command.
 : "${ZAQ_BROWSER_CONTAINER:?Set ZAQ_BROWSER_CONTAINER to the running browser-runtime container}"
-native_session="zaq-smoke-native-$$"
-default_session="zaq-smoke-default-$$"
 profile="/tmp/zaq-smoke-chromium-$$"
-native_started=0
-default_started=0
 
 bounded() {
   docker exec "$ZAQ_BROWSER_CONTAINER" timeout --kill-after=5s 20s "$@"
@@ -17,50 +13,18 @@ bounded() {
 cleanup() {
   status=$?
   if [ "$status" != 0 ]; then
-    # Capture process names before attempting to close a failed session. Do not
+    # Capture process names before cleanup. Do not
     # print arbitrary process arguments or the container's entire environment.
     docker top "$ZAQ_BROWSER_CONTAINER" -eo pid,ppid,user,stat,comm || true
   fi
-  # Preserve the original probe status; the workflow removes the whole container
-  # after collecting diagnostics, including any daemon surviving these deadlines.
-  if [ "$native_started" = 1 ]; then
-    bounded /usr/local/bin/agent-browser close --session "$native_session" || true
-  fi
-  if [ "$default_started" = 1 ]; then
-    bounded env AGENT_BROWSER_NATIVE=0 /usr/local/bin/agent-browser close --session "$default_session" || true
-  fi
+  # The workflow also removes the whole container after collecting diagnostics.
   bounded rm -rf "$profile" || true
   return "$status"
 }
 trap cleanup EXIT
 
-if [ "$(bounded printenv AGENT_BROWSER_NATIVE)" != 1 ]; then
-  printf '%s\n' 'Expected AGENT_BROWSER_NATIVE=1 in the shared browser-runtime image' >&2
-  exit 1
-fi
-
+# CLI navigation is exercised only by BrowserFlowIntegrationTest against its
+# existing HTTP fixture. about:blank has no hostname for the CLI's allowlist.
 printf '%s\n' 'Raw Chromium launch (no agent-browser daemon)'
 bounded /usr/bin/chromium --headless --no-sandbox --disable-dev-shm-usage \
   --user-data-dir="$profile" --dump-dom about:blank
-
-# Diagnostic comparison only: some Cargo distributions may differ from the
-# upstream tag. Record the actual binary behavior instead of assuming it.
-printf '%s\n' 'Default backend probe (AGENT_BROWSER_NATIVE=0; failure is diagnostic)'
-default_status=0
-default_started=1
-bounded env AGENT_BROWSER_NATIVE=0 /usr/local/bin/agent-browser \
-  open about:blank --session "$default_session" --debug || default_status=$?
-printf 'Default backend probe exit: %s\n' "$default_status"
-
-# Intentionally inherit the image settings, just as the real integration wrapper
-# does. Do not force --native here or disable the domain allowlist.
-printf '%s\n' 'Image-selected native backend: open, verify URL, close'
-native_started=1
-bounded /usr/local/bin/agent-browser open about:blank --session "$native_session" --debug
-url=$(bounded /usr/local/bin/agent-browser get url --session "$native_session")
-if [ "$url" != about:blank ]; then
-  printf 'Expected about:blank, got: %s\n' "$url" >&2
-  exit 1
-fi
-bounded /usr/local/bin/agent-browser close --session "$native_session"
-native_started=0

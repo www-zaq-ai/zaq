@@ -40,9 +40,7 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
   end
 
   test "open, follow a link, fill and submit a real browser form", context do
-    opened = ask(context, "Open the presentation", %{command: "open", url: context.base})
-    assert opened =~ "ZAQ browser fixture"
-    assert_received {:browser_page, "/"}
+    open_presentation(context)
 
     assert ask(context, "Read the presentation", %{command: "text", selector: "#intro"}) ==
              "A small team building useful software."
@@ -90,6 +88,48 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
     refute_received {:llm_tool_call, _, _}
     refute_received {:llm_tool_result, _, _}
     refute_received {:openai_request, _, _, _, _}
+  end
+
+  defp open_presentation(context) do
+    opened = ask(context, "Open the presentation", %{command: "open", url: context.base})
+    assert opened =~ "ZAQ browser fixture"
+    assert_received {:browser_page, "/"}
+  rescue
+    error in ExUnit.AssertionError ->
+      # Inspect before on_exit closes the only browser session. Do not navigate
+      # again: the first real Executor request is also our cold-start diagnostic.
+      {:messages, messages} = Process.info(self(), :messages)
+      reached_site = {:browser_page, "/"} in messages
+
+      message = """
+      #{Exception.message(error)}
+
+      First open of #{context.base} failed.
+      BrowserFlowSite GET / notification observed at failure: #{reached_site}
+      #{browser_container_diagnostics()}
+      """
+
+      reraise %{error | message: message}, __STACKTRACE__
+  end
+
+  defp browser_container_diagnostics do
+    case System.get_env("ZAQ_BROWSER_CONTAINER") do
+      container when is_binary(container) and container != "" ->
+        for args <- [
+              ["inspect", "--format", "{{json .State}}", container],
+              ["top", container, "-eo", "pid,ppid,user,stat,comm"]
+            ],
+            into: "" do
+          result = Command.run("docker", args, timeout_ms: 3_000)
+
+          "docker #{hd(args)} before session cleanup: #{inspect(result, printable_limit: 8_000)}\n"
+        end
+
+      _ ->
+        "Container diagnostics unavailable: ZAQ_BROWSER_CONTAINER is not set."
+    end
+  rescue
+    error -> "Container diagnostics failed: #{Exception.message(error)}"
   end
 
   defp ask(context, message, arguments) do

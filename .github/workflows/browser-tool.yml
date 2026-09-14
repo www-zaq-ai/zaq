@@ -66,8 +66,8 @@ jobs:
           docker exec "$ZAQ_BROWSER_CONTAINER" /usr/bin/chromium --version
           docker image inspect zaq-browser-flow:ci --format '{{.Id}}'
 
-      - name: Verify real browser launch and backend selection
-        timeout-minutes: 4
+      - name: Verify raw Chromium launch
+        timeout-minutes: 2
         shell: bash
         run: |
           set -o pipefail
@@ -79,8 +79,8 @@ jobs:
       - name: Exercise the real browser tool through the agent
         run: mix test test/zaq/agent/browser_flow_integration_test.exs --include real_browser
 
-      # docker logs only sees sleep, not exec'd CLI/daemon output. Smoke probe
-      # stdout/stderr is retained separately; process names avoid logging argv.
+      # The first integration open captures state before session cleanup on
+      # failure. Also inspect remaining processes before container removal.
       - name: Browser container and process state
         if: always()
         timeout-minutes: 1
