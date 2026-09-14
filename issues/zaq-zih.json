@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-14T08:25:23Z",
@@ -17,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Onboarding coverage bootstrap redirect timeout seed 86320",
   "type": "bug",
-  "updated_at": "2026-09-14T14:33:16Z"
+  "updated_at": "2026-09-14T14:41:07Z"
 }
