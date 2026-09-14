@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-14T07:57:42Z",
+  "description": "Functional specification: workflow executes bounded smoke before Mix in existing image/non-root context, always collects process/container diagnostics before removal; update docs. Tests before implementation: smoke transport regression is prerequisite; original real-browser flow remains cold-session acceptance. Branches: successful smoke, failed probes, always cleanup. Mocking only external docker in script contract tests; CI browser real. Files: .github/workflows/browser-tool.yml, docs/e2e-testing.md. Run shell syntax, targeted tests, mix format, mix q, diff review; record Docker execution blocker. Dependency: native runtime and smoke implementation blocks this step. No commit/push/dispatch.",
+  "id": "zaq-5j6.9",
+  "labels": [],
+  "parent": "zaq-5j6",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5j6] Wire browser launch diagnostics and validate CI fix",
+  "type": "task",
+  "updated_at": "2026-09-14T07:57:42Z"
+}
