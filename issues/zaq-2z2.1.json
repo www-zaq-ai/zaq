@@ -9,9 +9,15 @@
   "id": "zaq-2z2.1",
   "labels": [],
   "parent": "zaq-2z2",
+  "comments": [
+    {
+      "text": "Red evidence: channels-topology-red.log confirms root limiter and dynamic-parent shape fail both local and actual Channels-only Application startup. Full restart red run cascades as expected without new topology; Hammer Local is ETS name (monitor its owner, not Process.whereis). Existing peer convergence also hit 5s startup timeout; allow bounded peer startup time, preserve real behavior. Tests use finite OTP lifecycle examples and external adapter stub, no production test seams.",
+      "timestamp": "2026-09-14T07:06:30Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-2z2] Specify Channels topology and restart regressions",
   "type": "task",
-  "updated_at": "2026-09-14T07:00:59Z"
+  "updated_at": "2026-09-14T07:06:30Z"
 }
