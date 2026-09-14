@@ -15,11 +15,15 @@
     {
       "text": "Claimed via update because bw start is blocked by completed-uncommitted .3; user explicitly approved proceeding without closing prerequisite. .3 and all existing uncommitted edits preserved. Only .5, no commits/push/worktree. Contract refinement: trusted internal adapter passes its authenticated persisted Accounts.Person directly (not arbitrary ActorNormalizer maps or flat IDs); this is a trusted-code precondition, not authentication by struct or a cryptographic capability. No transport/action registration. Reload literal active Person per call and after credential lock at write boundary. No account metadata approved in this slice; omit all metadata. Tests first for full documented matrix plus legacy Person issuance/OAuth rejection before network. Reuse canonical mutations and transactional events.",
       "timestamp": "2026-09-14T10:17:02Z"
+    },
+    {
+      "text": "Implementation now in working tree: new PersonCredentials backend-only context with list_available/1, get_own_status/2, put_own_authentication/3,4, revoke_own_grant/2, remove_own_grant/2. Auth provenance is a trusted-code precondition: adapter authenticates independently then supplies persisted Accounts.Person; loaded struct is not an auth token/capability. Reject all actor/flat ID maps, nil, BO User, skip_permissions, malformed/missing/inactive/deleted identities; literal reload, no alias resolution, second active check after credential lock (real DB concurrency tests for put/revoke/remove). Optional/required grant-binding eligibility; disabled retained own status/cleanup allowed, repeated cleanup absent succeeds. Reads select seven safe fields only: credential_id/name/provider/auth_kind/personal_credential_policy/status/expires_at; no metadata approved, no global availability. Writes return only credential_id/status with fixed atom errors, deriving owner server-side. Canonical Mutations material allowlists and .3 transactional events used. Legacy issuance and OAuth URL/callback explicitly reject Person ownership before changeset/signing/token exchange; existing Engine actions inherit guards, no new actions. OAuth API input unsupported until .6. No public transport/session, resolver, refresh lifecycle, subscriber or identity cleanup implemented. Engine/system-config docs updated with exact contract and limitations. Initial focused tests failed for absent implementation as expected; current focused authorization/concurrency tests pass, broader coverage validation in progress.",
+      "timestamp": "2026-09-14T10:27:40Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.5] 5. Add authorized write-only Person credential management functions",
   "type": "task",
-  "updated_at": "2026-09-14T10:17:02Z"
+  "updated_at": "2026-09-14T10:27:40Z"
 }
