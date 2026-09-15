@@ -6,9 +6,15 @@
   "description": "User-approved narrow correction in current worktree. Engine gates current session, ownership and stored reference membership; Channels invokes existing GetDocument current Record ACL and fresh materialization. Remove Ingestion DocumentContent. Preserve profile work. No commit/push/PR/reset. Steps: regression tests -\u003e implementation -\u003e validation/docs (linear DAG). Existing three People real_browser journeys retain assertions.",
   "id": "zaq-8ku",
   "labels": [],
+  "comments": [
+    {
+      "text": "Regression runs before implementation: Engine/controller 15 tests, 5 expected failures; real Records integration 3 tests, 2 expected failures (unindexed source + signed artifact). Implemented fixed Engine descriptors, fresh GetDocument in controller and removal of Ingestion DocumentContent. Initial focused+unchanged BoundaryTest run: 19 tests, 0 failures. Context-mode tools/resources unavailable; precommit mandated context-mode gate blocked. Continuing expanded regression/browser/quality validation. Linear DAG: zaq-8ku.1 -\u003e zaq-8ku.2 -\u003e zaq-8ku.3. No issues closed until full gates pass.",
+      "timestamp": "2026-09-15T19:08:54Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-8ku] Correct People source resource boundary",
   "type": "epic",
-  "updated_at": "2026-09-15T19:01:52Z"
+  "updated_at": "2026-09-15T19:08:54Z"
 }
