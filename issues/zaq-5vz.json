@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T12:54:45Z",
+  "description": "Approved full implementation in current worktree before admin sessions PR6. Preserve HEAD 44dc33d2da685cf378e2acc012ff4dc858309ffb and index a130e3e9ce20f5ce1aa852896568cd072740e1c9 (initially clean). No commit, push, PR or database reset. User explicitly approves existing BO history/detail extraction, reuse wiring and E2E. People list includes active and archived literal-owned conversations by default. Ratings survivor-first on merge. Fixed confidential Engine gateway derives identity from bearer for every operation; never trusts browser ownership. Plan DAG: persistence -\u003e gateway -\u003e shared presentation -\u003e People routes/events -\u003e approval -\u003e E2E -\u003e quality. Tests first per step; real internal boundaries and sandbox, external transport mocks only. Keep prior enhanced PersonHeader/profile and auth behavior.",
+  "id": "zaq-5vz",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[PR7] People owned conversation history and shared BO presentation",
+  "type": "epic",
+  "updated_at": "2026-09-15T12:54:45Z"
+}
