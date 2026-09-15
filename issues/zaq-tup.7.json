@@ -15,11 +15,15 @@
     {
       "text": "All production components and pure helper meet scoped \u003e=95%: ProfileLive 96.8% (92/95), PeopleAuthGateway 98% (49/50), PersonProfile42/42, ChannelOrder13/13, AccountMenu21/21, PersonHeader9/9, PageHeader25/25, ChannelPriorityList23/23, PersonLayout16/16. Legacy exceptions: whole People254/293 (selection/discovery/resource/team branches), BOLayout118/140 (legacy helpers), CoreComponents11/162 (legacy forms/modal/table). New atomic function lines covered. Full scoped suite was 10 properties/249 tests; added late rollback test also passed. Production saves catch database/transport exceptions without logging bearer; real DB failure/retry test passes. Remaining real-browser keyboard/drag/focus requires verification; final UX .3 and consolidated E2E .4 remain open.",
       "timestamp": "2026-09-15T11:10:22Z"
+    },
+    {
+      "text": "FINAL: mix format; mix q (1255 sources, no issues); mix assets.build; git diff --check passed. Complete affected scoped coveralls.json run: 10 properties, 250 tests, 0 failures. Includes People full context, merge/auth concurrency, new order concurrency+late rollback+real failed save retry, profile/auth/admin gateways and confidential API dispatch, production/preview LiveViews, pure properties, all shared components/BO header and full PersonSessionController login/auth regression suite. Existing license_manager warning unchanged. Exact legacy coverage exceptions tracked zaq-tup.10. Storybook duplicate-ID issue fixed with iframe isolation and reinspection shows no duplicate errors. Read-only real desktop/mobile data inspection completed; no real name/order mutation or logout. Remaining manual drag/keyboard/focus lives in .2; final UX .3 and behavior-changing existing E2E consolidation .4 remain gated.",
+      "timestamp": "2026-09-15T11:13:46Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Validate production promotion and record final approval gate",
   "type": "task",
-  "updated_at": "2026-09-15T11:10:22Z"
+  "updated_at": "2026-09-15T11:13:46Z"
 }
