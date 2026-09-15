@@ -7,9 +7,15 @@
   "id": "zaq-tup.10",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Post-cleanup main scoped coverage remeasured in .12: People90.1%,BOLayout86.4%,CoreComponents6.7%. Existing legacy context/selection/discovery/resource/team and layout/core helper gaps remain outside cleanup scope. ProfileLive96.8%,PeopleAuthGateway98%, new pure/presentational modules100%. Keep follow-up open; no whole-repository or JS coverage claim.",
+      "timestamp": "2026-09-15T12:18:06Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-tup] Follow up scoped legacy People and header coverage gaps",
   "type": "task",
-  "updated_at": "2026-09-15T11:11:33Z"
+  "updated_at": "2026-09-15T12:18:06Z"
 }
