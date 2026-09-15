@@ -11,9 +11,15 @@
   "id": "zaq-yws.2",
   "labels": [],
   "parent": "zaq-yws",
+  "comments": [
+    {
+      "text": "Implemented strict ensure_server/4; legacy arities/raw tuples reject missing actors. Validate before touch/replacement; immutable execution_actor checked via live Jido status including already_started path. Core API/Factory/ServerManager/nested suite passed 159 tests. No commits per user request.",
+      "timestamp": "2026-09-15T14:53:38Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-yws] Enforce actor-bound server lifecycle",
   "type": "task",
-  "updated_at": "2026-09-15T13:40:04Z"
+  "updated_at": "2026-09-15T14:53:38Z"
 }
