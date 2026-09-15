@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-tup.8"
+  ],
   "created": "2026-09-15T10:39:49Z",
   "description": "Functional scope: People.update_self_channel_order and confidential PeopleAuthGateway operation; expected ordered id/weight snapshot, full current-owned permutation, Person then channel row locks, dense bounded weights, atomic changesets. Tests BEFORE implementation: context rollback, foreign/duplicate/incomplete/malformed/stale membership and weights, gateway current grants/session/nil identity and confidential API envelopes. Real database/internal boundaries, no mocks. Paths: success, denial, stale, validation, rollback. Update people-access and UX/handoff contract. Existing single-weight API retained.",
   "id": "zaq-tup.9",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-tup] Atomic authenticated profile channel ordering",
   "type": "task",
-  "updated_at": "2026-09-15T10:39:49Z"
+  "updated_at": "2026-09-15T10:40:03Z"
 }
