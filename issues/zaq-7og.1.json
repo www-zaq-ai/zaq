@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-7og.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-7og",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-7og] Document Action reuse gate and align instruction entry points",
   "type": "task",
-  "updated_at": "2026-09-15T19:18:03Z"
+  "updated_at": "2026-09-15T19:18:04Z"
 }
