@@ -6,9 +6,15 @@
   "description": "User approved cropping Slack SVG whitespace in shared ChannelIcons; preserve CSS sizes and artwork, add component regression test, run mix format and mix q, inspect browser if available. No new E2E needed: static SVG correction covered at component level.",
   "id": "zaq-kv7",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented shared Slack viewport crop to 73.6 73.6 122.8 122.8; paths/CSS unchanged. Added two component tests; reproduced failure before fix, both pass after. mix format and mix q passed. Browser inspection attempted via localhost:4000 Storybook but page unreachable; visual review remains pending. Changes left uncommitted as working-tree fix.",
+      "timestamp": "2026-09-15T10:04:30Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-kv7] Normalize Slack channel icon viewport",
   "type": "task",
-  "updated_at": "2026-09-15T10:00:48Z"
+  "updated_at": "2026-09-15T10:04:30Z"
 }
