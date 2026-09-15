@@ -1,39 +1,128 @@
 defmodule ZaqWeb.Live.People.ProfileLive do
-  @moduledoc "Authenticated self-service profile and channel priorities through the confidential Engine boundary."
+  @moduledoc "Authenticated self-service profile and atomic channel priorities through the confidential Engine boundary."
   use ZaqWeb, :live_view
   alias Zaq.Engine.{Events, PeopleProfile}
-  alias ZaqWeb.Components.DesignSystem.{Button, Input}
+  alias ZaqWeb.ChannelOrder
+  alias ZaqWeb.Components.DesignSystem.{Button, PersonHeader, PersonProfile}
   alias ZaqWeb.Components.PersonLayout
 
   @impl true
   def mount(_params, session, socket) do
-    socket =
-      socket
-      |> put_private(:person_profile_token, session["person_session_token"])
-      |> assign(page_title: "Profile", profile: nil, editable: false)
-      |> load_profile()
-
-    {:ok, socket}
+    {:ok,
+     socket
+     |> put_private(:person_profile_token, session["person_session_token"])
+     |> assign(page_title: "Profile", profile: nil, editable: false, mode: :read)
+     |> load_profile()}
   end
 
   @impl true
-  def handle_event("save_profile", %{"profile" => attrs}, socket) when is_map(attrs) do
-    result = command(socket, :update_self_profile, %{attrs: attrs})
-    {:noreply, save_result(socket, result, :profile, "Profile saved.")}
+  def handle_event(event, params, socket) do
+    # The route hook has just refreshed these grants. Remove stale affordances on
+    # any event, including delayed drag/change events, rather than only on Save.
+    permissions = socket.assigns[:person_permissions]
+
+    if permissions && !editable?(permissions) && socket.assigns.editable do
+      {:noreply, revoked(socket)}
+    else
+      edit_event(event, params, socket)
+    end
   end
 
-  def handle_event("save_channel", %{"channel_id" => id, "channel" => attrs}, socket)
-      when is_map(attrs) and (is_binary(id) or is_integer(id)) do
-    result = command(socket, :update_self_channel_weight, %{channel_id: id, attrs: attrs})
-    {:noreply, save_result(socket, result, {:channel, to_string(id)}, "Priority saved.")}
+  defp edit_event("retry", _, socket), do: {:noreply, load_profile(socket)}
+
+  defp edit_event(event, _, %{assigns: %{mode: :read}} = socket)
+       when event in ["edit_name", "edit_order"] do
+    socket = load_profile(socket)
+
+    cond do
+      !socket.assigns.editable ->
+        {:noreply, socket}
+
+      event == "edit_name" ->
+        {:noreply, socket |> assign(mode: :name) |> focus("profile-name")}
+
+      length(socket.assigns.profile.channels) > 1 ->
+        {:noreply, socket |> assign(mode: :order) |> focus("order-instructions")}
+
+      true ->
+        {:noreply, socket}
+    end
   end
 
-  def handle_event("retry", _, socket), do: {:noreply, load_profile(socket)}
+  defp edit_event("cancel", _, socket) do
+    target = if socket.assigns.mode == :name, do: "edit-name", else: "edit-order"
+    {:noreply, socket |> clear_flash() |> load_profile() |> focus(target)}
+  end
 
-  def handle_event(_, _, socket),
+  defp edit_event(
+         "validate_name",
+         %{"profile" => %{"full_name" => name}},
+         %{assigns: %{mode: :name}} = socket
+       )
+       when is_binary(name) do
+    {:noreply,
+     assign(socket, name_form: to_form(%{"full_name" => name}, as: :profile), name_errors: [])}
+  end
+
+  defp edit_event(
+         "save_profile",
+         %{"profile" => attrs},
+         %{assigns: %{mode: :name, editable: true}} = socket
+       )
+       when is_map(attrs) do
+    socket =
+      if is_binary(attrs["full_name"]),
+        do:
+          assign(socket, name_form: to_form(%{"full_name" => attrs["full_name"]}, as: :profile)),
+        else: socket
+
+    result = command(socket, :update_self_profile, %{attrs: Map.take(attrs, ["full_name"])})
+    {:noreply, save_result(socket, result, "Profile saved.", "edit-name")}
+  end
+
+  defp edit_event(
+         "move_channel",
+         %{"id" => id} = params,
+         %{assigns: %{mode: :order, editable: true}} = socket
+       ) do
+    channels =
+      ChannelOrder.move(socket.assigns.draft_channels, id, params["action"] || params["target"])
+
+    if channels == socket.assigns.draft_channels do
+      {:noreply, socket}
+    else
+      {:noreply,
+       socket
+       |> assign(
+         draft_channels: channels,
+         announcement: ChannelOrder.announcement(channels, id)
+       )
+       |> focus("channel-priority-#{id}")}
+    end
+  end
+
+  defp edit_event("save_order", _, %{assigns: %{mode: :order, editable: true}} = socket) do
+    # IDs come only from the server-owned draft; the original snapshot is never
+    # replaced with current data before the gateway compares it under locks.
+    params = %{
+      ids: Enum.map(socket.assigns.draft_channels, & &1.channel_id),
+      expected: snapshot(socket.assigns.profile)
+    }
+
+    result = command(socket, :update_self_channel_order, params)
+    {:noreply, save_result(socket, result, "Channel order saved.", "edit-order")}
+  end
+
+  defp edit_event(event, _, socket)
+       when event in ["move_channel", "save_order", "edit_name", "edit_order", "validate_name"],
+       do: {:noreply, socket}
+
+  defp edit_event(_, _, socket),
     do:
       {:noreply,
-       socket |> load_profile() |> put_flash(:error, "Unable to save. Please try again.")}
+       socket
+       |> load_profile()
+       |> put_flash(:error, "Unable to save. Please review your edit permission and try again.")}
 
   defp command(socket, op, params \\ %{}) do
     Events.build_and_dispatch_invoke_event(
@@ -41,6 +130,12 @@ defmodule ZaqWeb.Live.People.ProfileLive do
       :people_auth,
       event_opts: [confidential: true]
     ).response
+  rescue
+    # Database/transport exceptions can contain request data. Never log or render
+    # their payload; use the same authoritative reload as tagged unavailability.
+    _ -> {:error, :unavailable}
+  catch
+    :exit, _ -> {:error, :unavailable}
   end
 
   defp load_profile(socket) do
@@ -51,170 +146,150 @@ defmodule ZaqWeb.Live.People.ProfileLive do
   end
 
   defp assign_profile(socket, profile) do
-    channel_forms =
-      Map.new(profile.channels, fn channel ->
-        {to_string(channel.id),
-         to_form(%{"weight" => channel.weight}, as: :channel, id: "channel_#{channel.id}")}
-      end)
-
     assign(socket,
       profile: profile,
-      editable:
-        Enum.all?([:access_profile, :edit_profile], &MapSet.member?(profile.permissions, &1)),
-      profile_form: to_form(%{"full_name" => profile.person.full_name}, as: :profile),
-      channel_forms: channel_forms
+      editable: editable?(profile.permissions),
+      mode: :read,
+      name_form: to_form(%{"full_name" => profile.person.full_name || ""}, as: :profile),
+      name_errors: [],
+      draft_channels: display_channels(profile.channels),
+      announcement: ""
     )
   end
 
-  defp save_result(socket, {:ok, %PeopleProfile{} = profile}, _, message),
-    do: socket |> clear_flash() |> assign_profile(profile) |> put_flash(:info, message)
+  defp editable?(permissions),
+    do: Enum.all?([:access_profile, :edit_profile], &MapSet.member?(permissions, &1))
 
-  defp save_result(socket, {:error, %Ecto.Changeset{} = changeset}, target, _) do
-    socket = clear_flash(socket)
-
-    case target do
-      :profile ->
-        assign(socket, :profile_form, error_form(changeset, :full_name, as: :profile))
-
-      {:channel, id} ->
-        assign(
-          socket,
-          :channel_forms,
-          Map.put(
-            socket.assigns.channel_forms,
-            id,
-            error_form(changeset, :weight, as: :channel, id: "channel_#{id}")
-          )
-        )
-    end
-  end
-
-  defp save_result(socket, {:error, :forbidden}, _, _),
+  defp save_result(socket, {:ok, %PeopleProfile{} = profile}, message, target),
     do:
       socket
       |> clear_flash()
-      |> load_profile()
-      |> put_flash(:error, "You no longer have permission to edit this profile.")
+      |> assign_profile(profile)
+      |> put_flash(:info, message)
+      |> focus(target)
 
-  defp save_result(socket, {:error, :not_found}, _, _),
-    do:
-      socket
-      |> clear_flash()
-      |> load_profile()
-      |> put_flash(:error, "Channel not found. Please review your current channels.")
-
-  defp save_result(socket, error, _, _), do: load_error(socket, error)
-
-  defp error_form(changeset, field, opts) do
-    key = Atom.to_string(field)
-    submitted = Map.get(changeset.params || %{}, key)
+  defp save_result(socket, {:error, %Ecto.Changeset{} = changeset}, _, _) do
+    submitted = Map.get(changeset.params || %{}, "full_name")
 
     value =
       if is_binary(submitted) or is_number(submitted),
         do: submitted,
-        else: Ecto.Changeset.get_field(changeset, field)
+        else: socket.assigns.name_form[:full_name].value
 
-    to_form(%{key => value}, Keyword.put(opts, :errors, changeset.errors))
+    socket
+    |> clear_flash()
+    |> assign(
+      name_form: to_form(%{"full_name" => value}, as: :profile),
+      name_errors:
+        Enum.map(
+          Keyword.get_values(changeset.errors, :full_name),
+          &ZaqWeb.CoreComponents.translate_error/1
+        )
+    )
+    |> focus("profile-name")
   end
 
-  defp load_error(socket, {:error, :invalid_session}),
-    do: redirect(socket, to: "/people/login")
+  defp save_result(socket, {:error, :forbidden}, _, _), do: revoked(socket)
+
+  defp save_result(socket, {:error, reason}, _, _) when reason in [:stale_order, :not_found],
+    do: stale(socket)
+
+  defp save_result(socket, {:error, :invalid_session} = error, _, _),
+    do: load_error(socket, error)
+
+  defp save_result(socket, _, _, _) do
+    case command(socket, :profile) do
+      {:ok, profile} -> recover_draft(socket, profile)
+      error -> load_error(socket, error)
+    end
+  end
+
+  defp recover_draft(socket, profile) do
+    cond do
+      !editable?(profile.permissions) ->
+        revoked(socket)
+
+      socket.assigns.mode == :order && snapshot(profile) != snapshot(socket.assigns.profile) ->
+        stale(socket)
+
+      true ->
+        socket
+        |> assign(profile: profile)
+        |> put_flash(:error, "Unable to save. Your draft is kept. Please try again or cancel.")
+    end
+  end
+
+  defp revoked(socket),
+    do:
+      socket
+      |> load_profile()
+      |> put_flash(:error, "You no longer have permission to edit this profile.")
+
+  defp stale(socket),
+    do:
+      socket
+      |> load_profile()
+      |> put_flash(
+        :error,
+        "Your channels changed since you started editing. Review the current order and try again."
+      )
+      |> focus("edit-order")
+
+  defp snapshot(profile), do: Enum.map(profile.channels, &Map.take(&1, [:id, :weight]))
+  defp focus(socket, id), do: push_event(socket, "profile-focus", %{id: id})
+
+  defp load_error(socket, {:error, :invalid_session}), do: redirect(socket, to: "/people/login")
 
   defp load_error(socket, _) do
     socket
-    |> assign(profile: nil, editable: false)
+    |> assign(profile: nil, editable: false, mode: :read, draft_channels: [], name_errors: [])
     |> put_flash(:error, "Your profile is unavailable. Please try again.")
   end
 
-  defp display(value) when value in [nil, ""], do: "Not provided"
-  defp display(value), do: value
+  defp display_channels(channels) do
+    Enum.map(channels, fn channel ->
+      %{
+        id: to_string(channel.id),
+        channel_id: channel.id,
+        provider: if(channel.platform == "microsoft_teams", do: "teams", else: channel.platform),
+        platform: channel.platform,
+        identifier: channel.channel_identifier
+      }
+    end)
+  end
+
+  defp presentation(profile, editable) do
+    %{
+      person: profile.person,
+      editable: editable,
+      teams: profile.teams |> Enum.map(& &1.name) |> Enum.sort_by(&String.downcase/1),
+      channels: display_channels(profile.channels)
+    }
+  end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <PersonLayout.person_layout flash={@flash} authenticated>
-      <section :if={@profile} class="zaq-card-default zaq-layout-stack">
-        <h1 class="zaq-text-h1">Profile</h1>
-        <p class="zaq-text-body">Welcome, {display(@profile.person.full_name)}.</p>
-        <.form
-          :if={@editable}
-          for={@profile_form}
-          id="self-profile-form"
-          phx-submit="save_profile"
-          class="zaq-layout-stack"
-        >
-          <Input.input field={@profile_form[:full_name]} label="Full name" autocomplete="name" />
-          <Button.button type="submit" phx-disable-with="Saving…">Save profile</Button.button>
-        </.form>
-        <dl class="zaq-layout-stack">
-          <div :if={!@editable}>
-            <dt class="zaq-text-h4">Full name</dt>
-            <dd class="zaq-text-body break-words">{display(@profile.person.full_name)}</dd>
-          </div>
-          <div :for={
-            {field, label} <- [email: "Email", phone: "Phone", role: "Role", status: "Status"]
-          }>
-            <dt class="zaq-text-h4">{label}</dt>
-            <dd class="zaq-text-body break-words">{display(Map.fetch!(@profile.person, field))}</dd>
-          </div>
-          <div>
-            <dt class="zaq-text-h4">Teams</dt>
-            <dd :if={@profile.teams == []} class="zaq-text-body">No teams</dd>
-            <dd :for={team <- @profile.teams} class="zaq-text-body break-words">{team.name}</dd>
-          </div>
-        </dl>
-        <p :if={!@editable} class="zaq-text-body-sm">
-          This profile is read-only. Contact your administrator to request edit permission.
-        </p>
-      </section>
-      <section
+    <PersonLayout.person_layout flash={@flash} authenticated content_width={:wide}>
+      <:header>
+        <PersonHeader.person_header
+          display_name={@profile && @profile.person.full_name}
+          title="Profile"
+          description="Your information and how we contact you."
+        />
+      </:header>
+      <p :if={@profile && !@editable} class="zaq-text-body" role="status">
+        This profile is read-only. Contact your administrator to request edit permission.
+      </p>
+      <PersonProfile.person_profile
         :if={@profile}
-        class="zaq-card-default zaq-layout-stack"
-        aria-labelledby="channels-heading"
-      >
-        <h2 id="channels-heading" class="zaq-text-h2">Channels</h2>
-        <p id="priority-help" class="zaq-text-body-sm">
-          Lower numbers are tried first. Equal priorities keep channel ID order.
-        </p>
-        <p :if={@profile.channels == []} class="zaq-text-body">No channels</p>
-        <div
-          :for={channel <- @profile.channels}
-          id={"profile-channel-#{channel.id}"}
-          class="zaq-layout-stack"
-        >
-          <h3 class="zaq-text-h3">{channel.platform}</h3>
-          <p class="zaq-text-body break-words">{channel.channel_identifier}</p>
-          <.form
-            :if={@editable}
-            for={@channel_forms[to_string(channel.id)]}
-            id={"channel-form-#{channel.id}"}
-            phx-submit="save_channel"
-            class="zaq-layout-stack-tight"
-          >
-            <Input.input
-              type="hidden"
-              name="channel_id"
-              id={"channel-id-#{channel.id}"}
-              value={channel.id}
-            />
-            <Input.input
-              field={@channel_forms[to_string(channel.id)][:weight]}
-              type="number"
-              min="0"
-              step="1"
-              label={"Priority for #{channel.platform} / #{channel.channel_identifier}"}
-              aria-describedby="priority-help"
-            />
-            <Button.button
-              type="submit"
-              variant={:secondary}
-              phx-disable-with="Saving…"
-              aria-label={"Save priority for #{channel.platform} / #{channel.channel_identifier}"}
-            >Save priority</Button.button>
-          </.form>
-          <p :if={!@editable} class="zaq-text-body">Priority: {channel.weight}</p>
-        </div>
-      </section>
+        profile={presentation(@profile, @editable)}
+        mode={@mode}
+        name_form={@name_form}
+        name_errors={@name_errors}
+        draft_channels={@draft_channels}
+        announcement={@announcement}
+      />
       <Button.button :if={!@profile} variant={:secondary} phx-click="retry">Retry</Button.button>
     </PersonLayout.person_layout>
     """

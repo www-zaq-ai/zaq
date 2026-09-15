@@ -46,6 +46,12 @@ const liveSocket = new LiveSocket("/live", Socket, {
     // Opt in only the People feature hooks; spreading the registry activates dormant hooks.
     "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox":
       liveViewHooks["ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox"],
+    "ZaqWeb.Components.DesignSystem.ChannelPriorityList.PriorityDrag":
+      liveViewHooks["ZaqWeb.Components.DesignSystem.ChannelPriorityList.PriorityDrag"],
+    "ZaqWeb.Components.DesignSystem.PersonProfile.ProfileFocus":
+      liveViewHooks["ZaqWeb.Components.DesignSystem.PersonProfile.ProfileFocus"],
+    "ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure":
+      liveViewHooks["ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure"],
     PeopleBulkDeleteDialog: liveViewHooks.DialogOverlay,
     PeoplePermissions,
     PeopleAuthForm,

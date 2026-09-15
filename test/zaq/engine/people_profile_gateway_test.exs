@@ -1,7 +1,7 @@
 defmodule Zaq.Engine.PeopleProfileGatewayTest do
   use Zaq.DataCase, async: true
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissionGrant, PeoplePermissions}
-  alias Zaq.Engine.PeopleAuthGateway
+  alias Zaq.Engine.{Api, Events, PeopleAuthGateway}
 
   setup do
     Repo.delete_all(PeoplePermissionGrant)
@@ -180,4 +180,67 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
 
   defp dispatch(op, token, params \\ %{}),
     do: PeopleAuthGateway.dispatch(Map.merge(params, %{op: op, token: token}), [])
+
+  test "order command derives authority from bearer and rejects stale state", %{
+    person: p,
+    token: token,
+    channel: c
+  } do
+    params = %{ids: [c.id], expected: [%{id: c.id, weight: c.weight}], person_id: -1}
+    assert {:error, :forbidden} = dispatch(:update_self_channel_order, token, params)
+    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    assert {:ok, profile} = dispatch(:update_self_channel_order, token, params)
+    refute inspect(profile) =~ token
+    assert hd(profile.channels).id == c.id
+    {:ok, _} = People.update_self_channel_weight(p, c.id, %{weight: 10})
+    assert {:error, :stale_order} = dispatch(:update_self_channel_order, token, params)
+
+    assert {:error, :invalid_order} =
+             dispatch(:update_self_channel_order, token, %{ids: nil, expected: nil})
+
+    {:ok, _} = PeoplePermissions.revoke(:all_people, :edit_profile)
+    assert {:error, :forbidden} = dispatch(:update_self_channel_order, token, params)
+    assert {:error, :invalid_session} = dispatch(:update_self_channel_order, nil, params)
+    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = People.update_person(p, %{status: "inactive"})
+    assert {:error, :invalid_session} = dispatch(:update_self_channel_order, token, params)
+    assert People.get_channel(c.id).weight == 10
+  end
+
+  test "order API requires confidential envelope and excludes bearer from diagnostics", %{
+    token: token,
+    channel: c
+  } do
+    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+
+    request = %{
+      op: :update_self_channel_order,
+      token: token,
+      ids: [c.id],
+      expected: [%{id: c.id, weight: c.weight}]
+    }
+
+    event = Events.build_invoke_event(request, :people_auth)
+
+    assert %{response: {:error, :confidential_event_required}} =
+             Api.handle_event(event, :people_auth, %{})
+
+    Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        event =
+          Events.build_and_dispatch_invoke_event(request, :people_auth,
+            event_opts: [confidential: true],
+            node_router: Zaq.NodeRouter
+          )
+
+        assert event.opts[:confidential]
+        assert {:ok, profile} = event.response
+        refute inspect(profile) =~ token
+      end)
+
+    refute log =~ token
+    refute_received {:node_router_event, %{request: %{op: :update_self_channel_order}}}
+  end
 end

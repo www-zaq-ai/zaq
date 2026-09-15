@@ -522,6 +522,11 @@ Shell classes consume semantic tokens and adapt in dark mode automatically.
 | Status pill | `ZaqWeb.Components.DesignSystem.StatusPill` | `status_pill_classes/1` | pill class helper for status labels |
 | Status badge | `ZaqWeb.Components.DesignSystem.StatusBadge` | `status_badge/1` | connection/diagnostic chip |
 | Empty state | `ZaqWeb.Components.DesignSystem.EmptyState` | `empty_state/1` | zero-data placeholder |
+| Page header / heading | `ZaqWeb.Components.DesignSystem.PageHeader` | `page_header/1`, `page_heading/1` | caller-owned brand, heading, context and actions; shared BO/People chrome |
+| Account menu | `ZaqWeb.Components.DesignSystem.AccountMenu` | `account_menu/1` | avatar/name with caller-owned routes, logout and DOM IDs |
+| People header | `ZaqWeb.Components.DesignSystem.PersonHeader` | `person_header/1` | People-only account destinations; no-settings placeholder; see PersonHeader story |
+| Profile content | `ZaqWeb.Components.DesignSystem.PersonProfile` | `person_profile/1` | parent-owned name/order drafts, read-only memberships; see PersonProfile story |
+| Channel priority list | `ZaqWeb.Components.DesignSystem.ChannelPriorityList` | `channel_priority_list/1` | ordered branded rows, drag and move alternatives; exercised in PersonProfile order story |
 
 #### Layouts
 

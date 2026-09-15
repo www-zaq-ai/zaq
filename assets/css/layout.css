@@ -45,3 +45,111 @@
   padding-inline: var(--zaq-layout-content-inset);
   padding-block: var(--zaq-layout-content-inset);
 }
+
+/* Shared BO/People header chrome; destinations remain caller-owned. */
+.zaq-page-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--zaq-layout-stack-gap);
+  min-height: var(--zaq-scale-64);
+  padding: var(--zaq-layout-stack-gap-tight) var(--zaq-layout-page-inset);
+  background: var(--zaq-surface-color-raised);
+  border-bottom: var(--zaq-scale-1) solid var(--zaq-border-color-default);
+}
+
+.zaq-page-header-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--zaq-layout-stack-gap);
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.zaq-page-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--zaq-layout-inline-gap);
+  margin-inline-start: auto;
+  max-width: 100%;
+}
+
+.zaq-header-brand {
+  width: var(--zaq-scale-40);
+  height: var(--zaq-scale-40);
+  object-fit: contain;
+}
+
+.zaq-header-menu-trigger {
+  list-style: none;
+  cursor: pointer;
+}
+
+.zaq-header-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.zaq-header-menu-panel {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 100%;
+  margin-top: var(--zaq-layout-inline-gap);
+  width: calc(var(--zaq-scale-120) * 2);
+  max-width: calc(100vw - var(--zaq-layout-page-inset) * 2);
+  z-index: 50;
+}
+
+/* Account disclosure retains the BO initial/name trigger in either header. */
+.zaq-account-menu { position: relative; min-width: 0; max-width: 100%; }
+.zaq-account-trigger { padding: var(--zaq-scale-8); max-width: 100%; }
+.zaq-account-avatar {
+  width: var(--zaq-scale-32);
+  height: var(--zaq-scale-32);
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-weight: bold;
+  border: var(--zaq-scale-1) solid var(--zaq-border-color-accent);
+  border-radius: var(--zaq-scale-8);
+  color: var(--zaq-text-color-body-accent);
+}
+.zaq-account-name {
+  color: var(--zaq-text-color-body-default);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: calc(var(--zaq-scale-120) * 2);
+  min-width: 0;
+}
+.zaq-account-panel {
+  position: fixed;
+  right: var(--zaq-scale-8);
+  width: calc(var(--zaq-scale-56) * 4);
+  max-width: calc(100vw - var(--zaq-scale-16));
+  max-height: calc(100dvh - var(--zaq-scale-16));
+  overflow: auto;
+  padding: var(--zaq-scale-8);
+  border-radius: var(--zaq-scale-16);
+  border: var(--zaq-scale-1) solid var(--zaq-border-color-default);
+  background: var(--zaq-surface-color-raised);
+  z-index: 50;
+}
+.zaq-account-item {
+  display: block;
+  width: 100%;
+  text-align: start;
+  padding: var(--zaq-scale-8) var(--zaq-scale-16);
+  border-radius: var(--zaq-scale-8);
+  color: var(--zaq-text-color-body-default);
+  cursor: pointer;
+}
+.zaq-account-logout { color: var(--zaq-text-color-body-danger); }
+.zaq-account-divider {
+  height: var(--zaq-scale-1);
+  margin-block: var(--zaq-scale-4);
+  background: var(--zaq-border-color-default);
+}
+#people-header-menus { min-width: 0; max-width: 100%; }
