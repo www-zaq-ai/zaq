@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-5vz.2"
+  ],
   "blocks": [],
   "created": "2026-09-15T12:55:30Z",
   "description": "Specifications/files: reuse SQL Sandbox People browser harness, new history/detail flows with regular sign-in; 390 and desktop, existing header name edits/order intent preserved, settings navigation profile/list/detail, paging active+archive/channel, info/trace/attachments, ratings, share expiry/revoke, forbidden ownership and permission revocation. Tests authored after implementation and recorded explicit user approval gate. No reset or public test hook. Mock only external notification transport. Docs: e2e-testing commands and results.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-5vz] Consolidated no-reset People history browser journeys",
   "type": "task",
-  "updated_at": "2026-09-15T12:55:30Z"
+  "updated_at": "2026-09-15T12:55:54Z"
 }
