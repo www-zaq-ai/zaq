@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T09:20:46Z",
+  "description": "Approved self-service redesign: keep PersonLayout, existing fields and permissions; teams read-only, channel logos, draft priority with Save/Cancel, responsive width. Deliver working-tree changes only. Production persistence and final UX approval remain separate.",
+  "id": "zaq-tup",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "People profile UX and fixture prototype",
+  "type": "epic",
+  "updated_at": "2026-09-15T09:20:46Z"
+}
