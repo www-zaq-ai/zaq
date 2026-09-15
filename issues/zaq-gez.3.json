@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-gez.2"
+  ],
   "blocks": [],
   "created": "2026-09-15T06:11:08Z",
   "description": "Review full diff for contradictions, persistent issue/dependency lifecycle, non-weakening repairs and feature completion criteria. Run mandatory mix q; record any environment blockers without claiming success. No new code coverage applies to documentation-only changes.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-gez] Validate approval-gated E2E documentation",
   "type": "task",
-  "updated_at": "2026-09-15T06:11:08Z"
+  "updated_at": "2026-09-15T06:11:15Z"
 }
