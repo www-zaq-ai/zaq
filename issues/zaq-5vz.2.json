@@ -15,11 +15,15 @@
     {
       "text": "Explicit approval source is the user task in this session: BUILD approved full next slice, human approved reuse UI scope extraction wiring approved, E2E approval this explicit Go UI reuse yes track. The implemented routes use enhanced People header with settings Conversations and shared BO fullpage browser/detail, matching that approved reuse scope. Consolidated browser authoring now proceeds under this explicit approval; final validation and fidelity review remain prerequisites to closing the feature.",
       "timestamp": "2026-09-15T13:24:01Z"
+    },
+    {
+      "text": "Approval satisfied by explicit human instructions in original task and continuation on 2026-09-15: approved full slice, approved existing BO extraction/reuse/wiring, explicit Go for E2E. Final implemented shared layouts/navigation remain within that approved reuse scope. This records the supplied approval rather than inferring it from passing tests.",
+      "timestamp": "2026-09-15T15:38:45Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5vz] Record approved People history UI E2E gate",
   "type": "task",
-  "updated_at": "2026-09-15T13:24:01Z"
+  "updated_at": "2026-09-15T15:38:45Z"
 }
