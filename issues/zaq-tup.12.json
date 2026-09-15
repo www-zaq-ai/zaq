@@ -9,6 +9,12 @@
   "id": "zaq-tup.12",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Reference audit: only preview simulation suite and ChannelPriorityList component suite depend on fixture module. Existing ChannelOrder property strictly subsumes fixture membership/target invariant and adds unaffected-relative-order checks; direct boundary tests cover up/down/empty. No duplicate properties needed. Plan: .12 cleanup -\u003e .3 final human UX approval -\u003e .4 E2E. Available tools lack context-mode/Serena; dedicated read/search/apply_patch fallback. User explicitly resolved dirty-tree delivery: preserve production edits, no commits.",
+      "timestamp": "2026-09-15T12:10:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Remove approved profile staging machinery and validate production",
