@@ -17,11 +17,15 @@
     {
       "text": "Fresh Repo-only migration replay passed in newly created guarded partition zaq_test_feat_people_profile_pages_people_history_replay_1789482079; no database reset/drop. Verified auth/rating schema before normalization, forced legacy failure rollback, survivor-first/transfer ratings, ownership transfer, session revocation and rerun with ZAQ app not started. Later dedicated activity-index migration added without rewriting an applied ledger; final fresh replay to repeat after completion.",
       "timestamp": "2026-09-15T14:35:31Z"
+    },
+    {
+      "text": "Complete: nullable Person rating FK/partial uniqueness and actor exclusivity; literal parent queries/count and deterministic SQL paging; activity index; generic resolved-message upsert avoids global reread; merge coordinator owns snapshot/calculation/validation and survivor-first conflicts, ordinary owner writes only. PersonMerger and MessageRating 100% whole-file, Conversations 97.35%; rollback/concurrency tests pass. Final fresh Repo-only replay passed in new guarded database zaq_test_feat_people_profile_pages_people_history_replay_b0a688 with schema prerequisites, rollback, ownership/rating transfers, session revocation, activity index and idempotence. No reset/drop; oversized names now rejected before PostgreSQL truncation can alias an existing partition.",
+      "timestamp": "2026-09-15T15:38:48Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5vz] Scoped persistence and Person ratings with merge preservation",
   "type": "task",
-  "updated_at": "2026-09-15T14:35:31Z"
+  "updated_at": "2026-09-15T15:38:48Z"
 }
