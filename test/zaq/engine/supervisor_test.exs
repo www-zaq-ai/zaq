@@ -12,6 +12,7 @@ defmodule Zaq.Engine.SupervisorTest do
     assert Enum.map(children, & &1.id) == [
              Zaq.Engine.Workflows.RunRegistry,
              Zaq.Engine.Telemetry.Supervisor,
+             Zaq.People.AuthRateLimiter,
              Zaq.Engine.IngestionSupervisor,
              Zaq.Engine.RetrievalSupervisor,
              Zaq.Engine.EventRegistry,

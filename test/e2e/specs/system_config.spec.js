@@ -181,13 +181,13 @@ test.describe("System Config", () => {
       otp_max_attempts: "5",
       unknown_email_attempt_limit: "10",
       unknown_email_window_seconds: "600",
-      unknown_email_cooldown_seconds: "900",
       otp_send_person_limit: "5",
       otp_send_ip_limit: "20",
       otp_send_window_seconds: "900",
       session_lifetime_seconds: "604800",
     }
     const input = (field) => page.locator(`#people_access_config_${field}`)
+    await expect(input("unknown_email_cooldown_seconds")).toHaveCount(0)
     for (const [field, value] of Object.entries(defaults)) {
       await expect(input(field)).toHaveValue(value)
       await expect(input(field)).toHaveAttribute("step", "1")
@@ -202,7 +202,7 @@ test.describe("System Config", () => {
     const updated = {
       otp_validity_seconds: "420", otp_max_attempts: "7",
       unknown_email_attempt_limit: "12", unknown_email_window_seconds: "720",
-      unknown_email_cooldown_seconds: "1200", otp_send_person_limit: "8",
+      otp_send_person_limit: "8",
       otp_send_ip_limit: "25", otp_send_window_seconds: "1800",
       session_lifetime_seconds: "864000",
     }

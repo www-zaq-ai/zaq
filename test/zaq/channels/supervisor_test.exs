@@ -3,6 +3,7 @@ defmodule Zaq.Channels.SupervisorTest do
   import ExUnit.CaptureLog
 
   alias Jido.Chat.Incoming, as: ChatIncoming
+  alias Zaq.Channels.BridgeSupervisor
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.CommunicationBridge
   alias Zaq.Channels.DataSourceBridge
@@ -153,25 +154,17 @@ defmodule Zaq.Channels.SupervisorTest do
     end
   end
 
-  defp with_stopped_channel_supervisor(fun) do
-    _ = Elixir.Supervisor.terminate_child(Zaq.Supervisor, Zaq.Channels.Supervisor)
+  defp with_stopped_bridge_supervisor(fun) do
+    :ok = Elixir.Supervisor.terminate_child(Supervisor, BridgeSupervisor)
 
     try do
       fun.()
     after
-      if pid = Process.whereis(Zaq.Channels.Supervisor) do
-        ref = Process.monitor(pid)
-        Process.unlink(pid)
-        Process.exit(pid, :shutdown)
-
-        receive do
-          {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
-        after
-          1_000 -> :ok
-        end
+      if pid = Process.whereis(BridgeSupervisor) do
+        Elixir.Supervisor.stop(pid)
       end
 
-      _ = Elixir.Supervisor.restart_child(Zaq.Supervisor, Zaq.Channels.Supervisor)
+      {:ok, _} = Elixir.Supervisor.restart_child(Supervisor, BridgeSupervisor)
     end
   end
 
@@ -318,9 +311,10 @@ defmodule Zaq.Channels.SupervisorTest do
   test "start_runtime/3 treats stale ETS runtime as not running and starts again" do
     bridge_id = "bridge_stale_runtime"
 
-    dead_state = spawn(fn -> :ok end)
-    dead_listener = spawn(fn -> :ok end)
-    Process.sleep(10)
+    {dead_state, state_ref} = spawn_monitor(fn -> :ok end)
+    {dead_listener, listener_ref} = spawn_monitor(fn -> :ok end)
+    assert_receive {:DOWN, ^state_ref, :process, ^dead_state, :normal}
+    assert_receive {:DOWN, ^listener_ref, :process, ^dead_listener, :normal}
 
     :ets.insert(
       :zaq_channels_listeners,
@@ -356,8 +350,8 @@ defmodule Zaq.Channels.SupervisorTest do
 
     log =
       capture_log([level: :info], fn ->
-        with_stopped_channel_supervisor(fn ->
-          assert {:ok, _pid} = Supervisor.start_link([])
+        with_stopped_bridge_supervisor(fn ->
+          assert {:ok, _pid} = BridgeSupervisor.start_link([])
         end)
       end)
 
@@ -405,8 +399,8 @@ defmodule Zaq.Channels.SupervisorTest do
       google_drive: %{bridge: BootstrapSyncBridge, adapter: StubAdapter}
     })
 
-    with_stopped_channel_supervisor(fn ->
-      assert {:ok, _pid} = Supervisor.start_link([])
+    with_stopped_bridge_supervisor(fn ->
+      assert {:ok, _pid} = BridgeSupervisor.start_link([])
     end)
 
     assert_receive {:bootstrap_sync, "retrieval", "mattermost", ^retrieval_id}
@@ -448,8 +442,8 @@ defmodule Zaq.Channels.SupervisorTest do
       email: %{bridge: BootstrapSyncBridge, adapter: StubAdapter}
     })
 
-    with_stopped_channel_supervisor(fn ->
-      assert {:ok, _pid} = Supervisor.start_link([])
+    with_stopped_bridge_supervisor(fn ->
+      assert {:ok, _pid} = BridgeSupervisor.start_link([])
     end)
 
     assert_receive {:bootstrap_sync, "retrieval", "email:imap", ^imap_id}
@@ -483,8 +477,8 @@ defmodule Zaq.Channels.SupervisorTest do
       mattermost: %{bridge: BootstrapSyncBridge, adapter: StubAdapter}
     })
 
-    with_stopped_channel_supervisor(fn ->
-      assert {:ok, _pid} = Supervisor.start_link([])
+    with_stopped_bridge_supervisor(fn ->
+      assert {:ok, _pid} = BridgeSupervisor.start_link([])
     end)
 
     refute_received {:bootstrap_sync, _, "email:imap", _}
@@ -621,22 +615,18 @@ defmodule Zaq.Channels.SupervisorTest do
 
   test "stop_bridge_runtime/2 removes ETS entry when child termination exits" do
     bridge_id = "bridge_stop_runtime_missing_supervisor"
-    state_pid = spawn(fn -> Process.sleep(:infinity) end)
+    state_pid = start_supervised!(ListenerProc)
 
     :ets.insert(
       :zaq_channels_listeners,
       {bridge_id, %{listener_pids: [state_pid], state_pid: nil}}
     )
 
-    with_stopped_channel_supervisor(fn ->
+    with_stopped_bridge_supervisor(fn ->
       assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
     end)
 
     assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
-
-    if Process.alive?(state_pid) do
-      Process.exit(state_pid, :kill)
-    end
   end
 
   test "lookup_runtime/1 and lookup_state_pid/1 return not_running for unknown bridge id" do
@@ -922,7 +912,7 @@ defmodule Zaq.Channels.SupervisorTest do
 
     assert :ok = CommunicationBridge.sync_config_runtime(nil, channel_config)
 
-    assert {:ok, runtime} = wait_for_runtime(bridge_id)
+    assert {:ok, runtime} = Supervisor.lookup_runtime(bridge_id)
     assert is_pid(runtime.state_pid)
   end
 
@@ -971,7 +961,7 @@ defmodule Zaq.Channels.SupervisorTest do
     _ = Supervisor.stop_bridge_runtime(%{}, bridge_id)
 
     assert :ok = DataSourceBridge.sync_config_runtime(nil, channel_config)
-    assert {:ok, runtime} = wait_for_runtime(bridge_id)
+    assert {:ok, runtime} = Supervisor.lookup_runtime(bridge_id)
     assert is_pid(runtime.state_pid)
   end
 
@@ -1043,11 +1033,11 @@ defmodule Zaq.Channels.SupervisorTest do
     _ = Supervisor.stop_bridge_runtime(%{}, ds_bridge_id)
 
     assert :ok = CommunicationBridge.sync_config_runtime(nil, retrieval_config)
-    assert {:ok, retrieval_runtime} = wait_for_runtime(retrieval_bridge_id)
+    assert {:ok, retrieval_runtime} = Supervisor.lookup_runtime(retrieval_bridge_id)
     assert is_pid(retrieval_runtime.state_pid)
 
     assert :ok = DataSourceBridge.sync_config_runtime(nil, ds_config)
-    assert {:ok, ds_runtime} = wait_for_runtime(ds_bridge_id)
+    assert {:ok, ds_runtime} = Supervisor.lookup_runtime(ds_bridge_id)
     assert is_pid(ds_runtime.state_pid)
 
     # Cleanup the ETS entries we created
@@ -1087,20 +1077,5 @@ defmodule Zaq.Channels.SupervisorTest do
 
     assert length(entries) == length(before_entries),
            "Expected bootstrap to avoid creating new mattermost runtime entries. before=#{inspect(before_entries)} after=#{inspect(entries)}"
-  end
-
-  defp wait_for_runtime(bridge_id, attempts \\ 40)
-
-  defp wait_for_runtime(_bridge_id, 0), do: {:error, :not_running}
-
-  defp wait_for_runtime(bridge_id, attempts) do
-    case Supervisor.lookup_runtime(bridge_id) do
-      {:ok, _runtime} = ok ->
-        ok
-
-      {:error, :not_running} ->
-        Process.sleep(25)
-        wait_for_runtime(bridge_id, attempts - 1)
-    end
   end
 end

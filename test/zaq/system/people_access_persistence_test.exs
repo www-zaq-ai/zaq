@@ -43,9 +43,22 @@ defmodule Zaq.System.PeopleAccessPersistenceTest do
     assert config.session_lifetime_seconds == 864_000
     assert {:ok, ^config} = System.save_people_access_config(%{})
     assert {:ok, ^config} = System.get_people_access_config()
-    assert Repo.aggregate(from(c in Config, where: like(c.key, "people_access.%")), :count) == 9
+    assert Repo.aggregate(from(c in Config, where: like(c.key, "people_access.%")), :count) == 8
     assert System.get_config("people_access.unknown") == nil
     assert System.get_config("people_access.session_lifetime_seconds") == "864000"
+  end
+
+  test "legacy cooldown is ignored and preserved even when malformed" do
+    assert {:ok, _} =
+             System.set_config("people_access.unknown_email_cooldown_seconds", "obsolete")
+
+    assert {:ok, config} = System.get_people_access_config()
+    refute Map.has_key?(config, :unknown_email_cooldown_seconds)
+
+    assert {:ok, ^config} =
+             System.save_people_access_config(%{"unknown_email_cooldown_seconds" => "123"})
+
+    assert System.get_config("people_access.unknown_email_cooldown_seconds") == "obsolete"
   end
 
   test "corrupt persisted values error explicitly; partial save cannot hide corruption; full valid save repairs" do

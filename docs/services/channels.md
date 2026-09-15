@@ -10,6 +10,23 @@ The Channels service provides transport and runtime infrastructure for communica
 
 All channel delivery flows through canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types. For channel event creation/dispatch, use `Zaq.Channels.Events` helpers; these helpers emit `%Zaq.Event{}` envelopes for cross-node routing.
 
+### People authentication rate ownership (V1)
+
+`Zaq.Channels.PeopleAuthRateLimiter` is the first child of the static
+`Zaq.Channels.Supervisor`, beside `Zaq.Channels.BridgeSupervisor`. It owns only unsuccessful-identification IP
+protection via `check_identification/1` (non-consuming) and
+`record_failed_identification/1`. Both use local counters and a background-refreshed
+typed config snapshot; neither queries Repo nor dispatches to Engine. Missing,
+expired or failed config denies locally. Engine retains OTP Person/IP issuance
+budgets and persisted verification attempts. Shared Hammer mechanics use separate
+role tables/listeners/topics, including on combined-role nodes.
+
+Public authentication orchestration remains PR4: precheck before one Engine
+resolve/eligible/issue request, then record only its unknown/ineligible response.
+There is no broad ingress ceiling or separate eligibility lookup call. See
+[rate topology and retry behavior](people-access.md#rate-topology-and-retry-behavior)
+for cache refresh/expiry and eventual-consistency limitations.
+
 ---
 
 ## Module Map
@@ -27,7 +44,8 @@ All channel delivery flows through canonical message payload structs (`Incoming`
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email IMAP ingress, SMTP delivery, and attachment materialization |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
-| `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | DynamicSupervisor — process lifecycle           |
+| `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | Static role parent and public runtime facade    |
+| `Zaq.Channels.BridgeSupervisor`     | `lib/zaq/channels/bridge_supervisor.ex`      | Dynamic bridge runtime lifecycle and bootstrap  |
 | `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs                 |
 | `Zaq.Engine.Connect`                | `lib/zaq/engine/connect.ex`                  | Credential/grant lifecycle for Data Source auth |
 | `Zaq.Channels.RetrievalChannel`     | `lib/zaq/channels/retrieval_channel.ex`      | Ecto schema — per-channel subscriptions         |
@@ -739,7 +757,15 @@ Internal utility module used by the email bridge. Not part of the public API.
 
 ## Supervisor
 
-`Zaq.Channels.Supervisor` is a `DynamicSupervisor` that manages bridge runtime processes.
+`Zaq.Channels.Supervisor` is the single Channels supervisor child of the application.
+It uses `Supervisor` with `:one_for_one` and starts these children in order:
+
+1. `Zaq.Channels.PeopleAuthRateLimiter` — failed-identification counters and config cache.
+2. `Zaq.Channels.BridgeSupervisor` — `DynamicSupervisor` for bridge state and listener processes.
+
+Each child restarts independently. A bridge-supervisor restart preserves limiter
+counters and cache; a limiter-supervisor restart resets its local counters/cache
+without restarting bridge runtimes. Stopping the parent stops both subtrees.
 
 ### Process tracking
 
@@ -749,11 +775,20 @@ Runtime state is tracked per `bridge_id` in an ETS table (`:zaq_channels_listene
 bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
 ```
 
+The static parent owns the table, created when it calls the dynamic child's
+`start_link/1`. A dynamic-child restart clears old entries before bootstrap; a
+parent restart destroys and recreates the table. Lookups return
+`{:error, :not_running}` when the table is absent or the runtime has stopped.
+
 ### Public API
+
+All functions remain on `Zaq.Channels.Supervisor` and delegate directly to
+`BridgeSupervisor`. Bridge defaults and `:chat_bridge_supervisor_module` overrides
+keep the same interface; runtime calls do not message the static parent.
 
 | Function                | Description                                                              |
 | ----------------------- | ------------------------------------------------------------------------ |
-| `start_runtime/3`       | Starts State + listener children for a bridge ID                         |
+| `start_runtime/2,3`     | Starts State + listener children for a bridge ID; listeners default to `[]` |
 | `stop_bridge_runtime/2` | Stops all children and removes ETS entry for a bridge ID                 |
 | `lookup_runtime/1`      | Returns `{:ok, %{listener_pids, state_pid}}` or `{:error, :not_running}` |
 | `lookup_state_pid/1`    | Returns `{:ok, pid}` or `{:error, :not_running}`                         |
@@ -762,9 +797,16 @@ bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
 
 ### Bootstrap
 
-On startup, `load_initial_listeners/0` queries `ChannelConfig.list_enabled_by_kind(:retrieval, providers)` for all providers that have a configured `:adapter` in app config, and calls `CommunicationBridge.sync_config_runtime/2` for each.
+On every `BridgeSupervisor.start_link/1`, `load_initial_runtimes/0` queries
+`ChannelConfig.list_enabled_by_kind/2` for retrieval and data-source configs whose
+providers have a configured `:adapter`. It calls `CommunicationBridge.sync_config_runtime/2`
+or `DataSourceBridge.sync_config_runtime/2` respectively. Base provider keys match
+sub-providers such as `email:imap`.
 
 `Zaq.NodeRouter` locates the channels node by calling `Process.whereis(Zaq.Channels.Supervisor)`.
+This registration identifies the role, not child readiness. The limiter's config
+fetch runs in its background worker and can dispatch to Engine while the parent
+continues starting bridge infrastructure.
 
 ---
 

@@ -8,12 +8,24 @@ defmodule Zaq.Accounts.PersonMerger do
 
   IDs and history come only from persisted participants. Resource request editing
   belongs to People; workflow execution/audit JSON is never rewritten. No
-  application processes are required.
+  application processes are required. Authentication is revoked for every
+  participant, including the survivor, inside the merge transaction; credentials
+  are never transferred. Authentication tables precede email normalization in
+  migration order because that historical migration invokes this coordinator.
   """
 
   import Ecto.Query
   alias Ecto.Changeset
-  alias Zaq.Accounts.{People, Person, PersonChannel}
+
+  alias Zaq.Accounts.{
+    People,
+    PeopleAuth,
+    Person,
+    PersonChannel,
+    PersonLoginChallenge,
+    PersonSession
+  }
+
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.Conversation
   alias Zaq.Engine.{IncomingMessageRouting, IncomingMessageRoutingRule}
@@ -77,6 +89,7 @@ defmodule Zaq.Accounts.PersonMerger do
       grants = permission_results(survivor.id, ids, relations.permissions)
       rules = routing_results(survivor.id, relations.rules)
       links = link_results(survivor.id, relations)
+      authentication = authentication_results(relations)
 
       validate_result!(
         attrs,
@@ -86,6 +99,19 @@ defmodule Zaq.Accounts.PersonMerger do
         rules,
         links
       )
+
+      Enum.each(authentication.challenges, fn {row, attrs} ->
+        PersonLoginChallenge.changeset(row, attrs) |> valid!()
+      end)
+
+      Enum.each(authentication.sessions, fn {row, attrs} ->
+        PersonSession.changeset(row, attrs) |> valid!()
+      end)
+
+      Enum.each(authentication.person_ids, fn id ->
+        PeopleAuth.invalidate_challenges(id) |> result!()
+        PeopleAuth.revoke_all_sessions(id) |> result!()
+      end)
 
       apply_channels(channel_results, email_channel)
       apply_permissions(relations.permissions, grants, opts)
@@ -220,6 +246,20 @@ defmodule Zaq.Accounts.PersonMerger do
     resource_ids = Enum.map(ids, &to_string/1)
 
     %{
+      challenges:
+        Repo.all(
+          from c in PersonLoginChallenge,
+            where: c.person_id in ^ids and is_nil(c.consumed_at) and is_nil(c.invalidated_at),
+            order_by: c.id,
+            lock: "FOR UPDATE"
+        ),
+      sessions:
+        Repo.all(
+          from s in PersonSession,
+            where: s.person_id in ^ids and is_nil(s.revoked_at),
+            order_by: s.id,
+            lock: "FOR UPDATE"
+        ),
       permissions:
         Repo.all(
           from p in ResourcePermission,
@@ -250,6 +290,20 @@ defmodule Zaq.Accounts.PersonMerger do
             order_by: l.id,
             lock: "FOR UPDATE"
         )
+    }
+  end
+
+  defp authentication_results(relations) do
+    now = DateTime.utc_now(:second)
+
+    %{
+      challenges: Enum.map(relations.challenges, &{&1, %{invalidated_at: now}}),
+      sessions: Enum.map(relations.sessions, &{&1, %{revoked_at: now}}),
+      person_ids:
+        (relations.challenges ++ relations.sessions)
+        |> Enum.map(& &1.person_id)
+        |> Enum.uniq()
+        |> Enum.sort()
     }
   end
 
