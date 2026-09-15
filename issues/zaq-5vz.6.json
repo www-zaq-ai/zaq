@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T12:55:33Z",
+  "description": "Specifications/files: new Engine PeopleConversations facade and fixed Api action, authenticate bearer each operation; all history prerequisites; share adds share grant; parent bounded messages/shares/artifacts/citations and ACL context; write locks Person/session then conversation in outer transaction. Tests first: gateway real auth ownership, revocation, malformed/property guards, spoofed authors, no destructive operation, share permission matrix, artifact/reference ACL denial. Mocking: only external transport. Docs: architecture and people-access.",
+  "id": "zaq-5vz.6",
+  "labels": [],
+  "parent": "zaq-5vz",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5vz] Authorized confidential PeopleConversations Engine gateway",
+  "type": "task",
+  "updated_at": "2026-09-15T12:55:33Z"
+}
