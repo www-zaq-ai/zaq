@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T06:10:53Z",
+  "description": "Implement approved documentation plan: track evolving feature E2E scope in one issue, defer authoring until implementation and explicit UX/UI approval, allow minimal existing-test repairs preserving assertions and intent. Steps: canonical policy/workflow, UI skill alignment, consistency review and mix q. Sequencing: policy --\u003e skills --\u003e validation. No application code or E2E authoring required.",
+  "id": "zaq-gez",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Gate feature E2E authoring on human UX/UI approval",
+  "type": "epic",
+  "updated_at": "2026-09-15T06:10:53Z"
+}
