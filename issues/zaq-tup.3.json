@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [
     "zaq-tup.2",
-    "zaq-tup.5"
+    "zaq-tup.5",
+    "zaq-tup.6"
   ],
   "blocks": [
     "zaq-tup.4"
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "[zaq-tup] Human approval of completed profile UX",
   "type": "task",
-  "updated_at": "2026-09-15T09:57:07Z"
+  "updated_at": "2026-09-15T10:22:45Z"
 }
