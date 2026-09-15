@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-tup.8"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-tup.3"
+  ],
   "created": "2026-09-15T10:39:47Z",
   "description": "Validation: mix format, mix q, assets.build, complete affected context/gateway/API/LiveView/component/login/BO regressions, scoped coverage and git diff --check. Read-only authenticated desktop/mobile browser inspection; fixture-only mutation gestures. No new E2E before zaq-tup.3 final human approval; retain zaq-tup.4 consolidated E2E. Record exact results, legacy coverage exceptions and blockers in UX/handoff and Beadwork. No commits/push/new worktree.",
   "id": "zaq-tup.7",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-tup] Validate production promotion and record final approval gate",
   "type": "task",
-  "updated_at": "2026-09-15T10:40:03Z"
+  "updated_at": "2026-09-15T10:40:04Z"
 }
