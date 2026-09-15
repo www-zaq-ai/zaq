@@ -6,9 +6,15 @@
   "description": "Update README/public getting started with PHX_HOST, reverse proxy TLS, localhost-only HTTP and troubleshooting. Allow PHX_HOST override in Compose and correctly nest SSL exclusions. Validate configuration behavior and run mix format and mix q. No UI changes; E2E unnecessary for documentation/configuration scope.",
   "id": "zaq-6fg",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented in working tree: README production HTTPS guide with Caddy example, PHX_HOST env table and local/remote warnings; dev getting-started cross-link; Compose host interpolation; nested force_ssl exclusions; updated runtime SSL comments; four passing configuration contract tests. mix format, focused mix test, mix q (including docs) and git diff --check pass. Docker is unavailable, so Compose rendering and deployed proxy smoke test remain unverified. External GitHub wiki and installer-hosted gist not modified. No UI/E2E scope. Awaiting user delivery decision; no commit or PR created.",
+      "timestamp": "2026-09-15T07:29:07Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-6fg] Document production host and TLS requirements and align defaults",
   "type": "task",
-  "updated_at": "2026-09-15T07:25:07Z"
+  "updated_at": "2026-09-15T07:29:07Z"
 }
