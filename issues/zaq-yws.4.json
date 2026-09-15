@@ -9,9 +9,15 @@
   "id": "zaq-yws.4",
   "labels": [],
   "parent": "zaq-yws",
+  "comments": [
+    {
+      "text": "Validation: mix format and mix q pass; expanded coveralls.json run with --include integration over every changed test, new ExecutionActor/AgentLifecycle tests, and all workflow tests: 1284 tests, 18 properties, 11 doctests, 0 failures; real_browser excluded. API/Workflows coverage exceptions tracked separately. Full-repository attempts hit 120s/600s limits and unrelated onboarding/DB contention failures; not claimed green. Resolved own fixture omissions and moved singleton lifecycle test out of async context without weakening deletion assertions. Final boundary review fixed raw Incoming person normalization and API rejection before retrieval. Implementation remains uncommitted on fix/agent-lifecycle-identity; no PR/push requested.",
+      "timestamp": "2026-09-15T15:08:15Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-yws] Prove workflow and nested identity and validate",
   "type": "task",
-  "updated_at": "2026-09-15T13:40:04Z"
+  "updated_at": "2026-09-15T15:08:15Z"
 }
