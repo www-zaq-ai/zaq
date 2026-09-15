@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-tup.9"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-tup",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-tup] Promote approved full profile UI and shared components",
   "type": "task",
-  "updated_at": "2026-09-15T10:40:03Z"
+  "updated_at": "2026-09-15T10:55:41Z"
 }
