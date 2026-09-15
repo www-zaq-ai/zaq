@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-15T15:49:53Z",
   "created": "2026-09-14T17:23:26Z",
   "description": "Validation discovery while fixing zaq-5r5. Combined email/NotifyPerson/notifications/PeopleAuth/controller + people_browser suite seed 394634 fails deterministically at person_session_controller_test.exs:256: expected delivery_failed-specific flash, got generic request unavailable. Both combined runs passed all three browsers at 390/1280 and all receipt regressions. Controller location :227 alone passes; entire 21-test controller suite alone passes same seed. Suspect shared live rate budgets/config after browser tests (browser raises IP limit temporarily but real counters persist); root cause not yet proven. Preserve existing user changes; reproduce combined run with --include real_browser --timeout 180000. Independent of the one-field receipt output validation fix; no controller/runtime edits made.",
   "id": "zaq-iik",
@@ -17,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-5r5] Isolate People controller delivery-error test from preceding browser rate budgets",
   "type": "bug",
-  "updated_at": "2026-09-15T15:49:52Z"
+  "updated_at": "2026-09-15T15:49:53Z"
 }
