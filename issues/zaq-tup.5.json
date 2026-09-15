@@ -9,9 +9,15 @@
   "id": "zaq-tup.5",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Continuation of existing uncommitted prototype, not unrelated work. Existing docs/ux/people-profile.md section 1 is the accepted product brief (no standalone PRD). Settings placeholder explicitly approved by user. Signed-in session now available; extract caller-owned header seam, do not copy BO administration menus into People.",
+      "timestamp": "2026-09-15T09:57:09Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Reuse BO header without sidebar in People preview",
   "type": "task",
-  "updated_at": "2026-09-15T09:57:08Z"
+  "updated_at": "2026-09-15T09:57:09Z"
 }
