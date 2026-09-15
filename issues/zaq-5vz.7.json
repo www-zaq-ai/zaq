@@ -17,11 +17,15 @@
     {
       "text": "Final gate complete: mix format and mix q pass (format/compile/docs/Credo), git diff --check clean; 23 properties + 815 tests including all six expanded browser configurations pass seed 394634. New/changed application coverage 452/455 = 99.34%; every new application module \u003e=98.63%. Unchanged whole-file legacy dispatcher/router/history coverage exception and follow-up recorded as zaq-nwq/zaq-n82. Self-review checked parent/author spoofing, source ACL precedence, credential confidentiality, lookup/lock boundaries, BO reuse and header preservation. Both additive development migrations applied normally; fresh replay passed in new retained partition b0a688, no database reset/drop. HEAD remains 44dc33d2da685cf378e2acc012ff4dc858309ffb; original index tree remains a130e3e9ce20f5ce1aa852896568cd072740e1c9. No code commit, push or PR. Temporary BO-only Storybook server and CLI browser stopped after smoke validation.",
       "timestamp": "2026-09-15T15:38:48Z"
+    },
+    {
+      "text": "Final confirmation supersedes earlier test count: 23 properties + 816 tests, zero failures, seed 394634, including all expanded real-browser configurations. One additional reproducing regression now covers optional external resource names; DocumentContent supplies a safe filename and consumes the same document whose ACL was checked rather than rereading by source. DocumentContent remains 100% covered. mix q passed on this final application code. Fresh migration replay/index verification passed in the retained b0a688 partition. Storybook demos use isolated iframe containers and were inspected live. Remaining follow-up is only unchanged legacy whole-file coverage (zaq-nwq); no PR7 functional step remains.",
+      "timestamp": "2026-09-15T15:49:52Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5vz] Validate full slice coverage format quality and preservation",
   "type": "task",
-  "updated_at": "2026-09-15T15:38:48Z"
+  "updated_at": "2026-09-15T15:49:52Z"
 }
