@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-7og.2"
+  ],
   "created": "2026-09-15T19:17:55Z",
   "description": "Functional specs/files: add docs/action-reuse.md with discovery sources, reuse/extend/new Action/local-only decisions, contract/consumer/security/test evidence and missing Action proposal dependencies; link AGENTS, WORKFLOW_AGENT, PLAN_STRATEGY, conventions, quality, planner and review prompts, create-workflow. Fix planning discovery prohibition and plan-file conflicts. Tests before implementation: documentation inspection; runtime tests/E2E N/A (docs-only). Paths: operation changes, no-operation tasks, missing capabilities, unsafe reuse, tool exposure vs workflow eligibility. Mocking: none. Documentation: all listed files; no runtime changes.",
   "id": "zaq-7og.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-7og] Document Action reuse gate and align instruction entry points",
   "type": "task",
-  "updated_at": "2026-09-15T19:17:55Z"
+  "updated_at": "2026-09-15T19:18:03Z"
 }

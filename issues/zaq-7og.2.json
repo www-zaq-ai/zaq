@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-7og.1"
+  ],
   "blocks": [],
   "created": "2026-09-15T19:17:55Z",
   "description": "Functional specs: inspect full diff and canonical guide links for consistent mandatory planning/execution/review gates, source-accurate contracts and no automatic agent exposure; check stale planning instructions. Tests before implementation: read-only consistency audit and git diff --check; unit/E2E N/A docs-only. Run required mix precommit and mix q through context-mode if available; otherwise record blocker per workflow. Mocking: none. Documentation: correct findings and record validation in Beadwork.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-7og] Review reuse instruction consistency and validate docs",
   "type": "task",
-  "updated_at": "2026-09-15T19:17:55Z"
+  "updated_at": "2026-09-15T19:18:03Z"
 }
