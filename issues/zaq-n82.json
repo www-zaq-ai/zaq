@@ -10,11 +10,15 @@
     {
       "text": "Follow-up broad suites now executed in zaq-r1c: 595tests16properties zero failures; Engine API wholefile improved1.9-\u003e81.13% (50 missed preexistingactions), router19.4-\u003e29.17% (51 unrelatedroutes). Allauth-added branches exercised. Remaining wholefile95 gap unrelated to PR4 functionality; retain followup rather than inflate auth tests.",
       "timestamp": "2026-09-14T12:20:11Z"
+    },
+    {
+      "text": "Latest PR7 selected expanded run passes 23 properties + 815 tests with Engine.Api whole-file 80.74% and Router 40.79%; all added PR7 lines covered. New/changed scope across app is 99.34%. Remaining unchanged handler/router branches still need the owning broader suites, per existing issue.",
+      "timestamp": "2026-09-15T15:31:28Z"
     }
   ],
   "priority": 3,
   "status": "open",
   "title": "[zaq-zlx] Measure whole-file Engine API and router coverage with their full suites",
   "type": "task",
-  "updated_at": "2026-09-14T12:20:11Z"
+  "updated_at": "2026-09-15T15:31:28Z"
 }
