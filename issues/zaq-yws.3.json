@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-yws.2"
+  ],
   "blocks": [],
   "created": "2026-09-15T13:40:02Z",
   "description": "Tests first: actor available in Factory runtime config and initial state, supplied context preservation, runtime sync identity preservation and replacement. Own Factory/ServerManager initialization; no grants or per-ask resolution. Update runtime docs.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-yws] Carry actor through runtime initialization",
   "type": "task",
-  "updated_at": "2026-09-15T13:40:02Z"
+  "updated_at": "2026-09-15T13:40:04Z"
 }
