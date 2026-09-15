@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-tup.3"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-tup",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-tup] Share BO avatar account menu with People fixture preview",
   "type": "task",
-  "updated_at": "2026-09-15T10:22:45Z"
+  "updated_at": "2026-09-15T10:22:46Z"
 }
