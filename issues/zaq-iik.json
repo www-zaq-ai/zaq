@@ -10,11 +10,15 @@
     {
       "text": "Root cause identified in fixture topology: controller HTTP requests reused default loopback peer while browser sends persist in Hammer ETS beyond SQL Sandbox rollback. Three browsers issue 18 sends; other request/resend cases can exhaust the default 20-IP budget before delivery-error assertions. Controller setup now assigns a per-Person unique trusted IPv6 peer, matching existing issuance isolation, preserving same IP for each request/resend scenario and all real transport assertions. Combined browser/controller seed validation remains to run.",
       "timestamp": "2026-09-15T14:17:09Z"
+    },
+    {
+      "text": "Resolved and verified: browser-first/controller combined run at original seed 394634 passes 25 tests; final expanded 816-test + 23-property run also passes with all three browser engines before remaining controller scenarios. Existing delivery-specific flash and two transport expectations preserved.",
+      "timestamp": "2026-09-15T15:49:52Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5r5] Isolate People controller delivery-error test from preceding browser rate budgets",
   "type": "bug",
-  "updated_at": "2026-09-15T14:17:09Z"
+  "updated_at": "2026-09-15T15:49:52Z"
 }
