@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T16:51:07Z",
+  "description": "User-approved narrow correction: tests first, Ingestion authorized handle reference, Engine authoritative actor forwarding, Channels controller redemption; preserve legacy bytes/artifacts and all existing work. Validate focused suites, format and mix q. No new E2E needed: unchanged HTTP behavior. No commit/push/PR/database reset.",
+  "id": "zaq-tdt",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Correct People source materialization hop",
+  "type": "task",
+  "updated_at": "2026-09-15T16:51:07Z"
+}
