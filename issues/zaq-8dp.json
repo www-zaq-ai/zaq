@@ -10,11 +10,15 @@
     {
       "text": "Diagnosed with an in-memory copy of the unchanged HEAD test (no fixture or production changes): allowing the same exact mocked HTTP assertion to await up to 5 seconds observed the correct request at 153ms; exact generated-title broadcast and persisted-title assertions then passed. Root cause is the default 100ms asynchronous receive deadline, not missing dispatch. Test now uses explicit 2-second failure bounds for the real local HTTP request and title broadcast, preserving every assertion and using no sleeps/retries. Broad suite validation pending.",
       "timestamp": "2026-09-15T14:35:30Z"
+    },
+    {
+      "text": "Resolved and verified: measured successful cold HTTP arrival at 153ms established the inadequate 100ms default. Explicit 2-second event failure bounds preserve exact request, broadcast and persisted title assertions. Included in final expanded 816-test + 23-property green run; no production title/LLM code changed.",
+      "timestamp": "2026-09-15T15:49:53Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5vz] Baseline title-generation integration test receives no mocked LLM request",
   "type": "bug",
-  "updated_at": "2026-09-15T14:35:30Z"
+  "updated_at": "2026-09-15T15:49:53Z"
 }
