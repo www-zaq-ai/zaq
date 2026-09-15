@@ -13,11 +13,15 @@
     {
       "text": "Tests-first baseline confirmed: 2 properties, 50 tests, 10 expected failures (missing contract and dropped origin actors). Implementing strict validator plus trusted BO/cron/channel origins and lifecycle propagation. Channel finalization belongs at Engine ingress after Person resolution. No UI behavior change; unit/integration sufficient. Main owns mix q; no issue closure or git delivery actions.",
       "timestamp": "2026-09-15T13:45:19Z"
+    },
+    {
+      "text": "Shared ExecutionActor.validate/1 and identity/1 now available at agreed path. Contract rejects person:nil (declared malformed), conflicting aliases, legacy/person mismatch, and Person + nonperson declaration; preserves metadata; normalize_id rules unchanged. No constructor added. Important coordination: validate raw actors before ActorNormalizer can erase duplicate atom/string keys. Focused verification currently 2 properties + 275 tests passing. Audit leaves DispatchEvent machine:true permission policy unchanged/out of scope; workflow.created has no initiating actor in current call chain, so no fake system fallback introduced.",
+      "timestamp": "2026-09-15T13:49:56Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-yws] Define strict shared execution identity and trusted producers",
   "type": "task",
-  "updated_at": "2026-09-15T13:45:19Z"
+  "updated_at": "2026-09-15T13:49:56Z"
 }
