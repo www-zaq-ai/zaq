@@ -9,9 +9,15 @@
   "id": "zaq-7og.1",
   "labels": [],
   "parent": "zaq-7og",
+  "comments": [
+    {
+      "text": "Instruction edits complete in working tree: canonical guide plus planning/execution/review links and planner conflicts repaired. No application code changed; Action reuse not applicable for this docs-only task. No commit requested; leave issue open for delivery. Proceeding with read-only consistency review for zaq-7og.2; context-mode unavailable, so required mix precommit/mix q validation is blocked per WORKFLOW_AGENT.",
+      "timestamp": "2026-09-15T19:21:36Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-7og] Document Action reuse gate and align instruction entry points",
   "type": "task",
-  "updated_at": "2026-09-15T19:18:04Z"
+  "updated_at": "2026-09-15T19:21:36Z"
 }
