@@ -11,6 +11,12 @@
   "id": "zaq-tup.8",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Using /design — DESIGN.md read in full; explicit staged/full-promotion approval is apply authorization. Approved replacement table: ProfileLive old inline layout -\u003e shared PersonProfile; default profile header -\u003e PersonHeader/PageHeader/AccountMenu; numeric per-row inputs -\u003e ChannelPriorityList plus one atomic save. Preview also uses shared presentation and pure ChannelOrder; live imports no fixtures. Login and PersonLayout default untouched. Existing tests adapted with persistence/security assertions retained; 9 properties and 245 tests passed including full affected context/gateways/controllers/header suites. Storybook read at localhost:4010 and source patterns consulted.",
+      "timestamp": "2026-09-15T10:55:41Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Promote approved full profile UI and shared components",
