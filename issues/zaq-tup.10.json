@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T11:11:33Z",
+  "description": "Production promotion scoped suites cover the new atomic operation and \u003e=95% new UI/components. Whole-file exceptions: People254/293 (39 old selection/discovery/resource/team error branches), BOLayout118/140 (22 legacy context/helper branches), CoreComponents11/162 (151 legacy form/modal/table helpers). Run their domain-complete suites and add meaningful missing tests separately; avoid broad unrelated refactors and test-only production seams. Source report cover/excoveralls.json; UX doc records exact percentages. This legacy follow-up does not waive final UX approval .3 or E2E .4.",
+  "id": "zaq-tup.10",
+  "labels": [],
+  "parent": "zaq-tup",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-tup] Follow up scoped legacy People and header coverage gaps",
+  "type": "task",
+  "updated_at": "2026-09-15T11:11:33Z"
+}
