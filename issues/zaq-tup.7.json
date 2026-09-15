@@ -11,6 +11,12 @@
   "id": "zaq-tup.7",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "All production components and pure helper meet scoped \u003e=95%: ProfileLive 96.8% (92/95), PeopleAuthGateway 98% (49/50), PersonProfile42/42, ChannelOrder13/13, AccountMenu21/21, PersonHeader9/9, PageHeader25/25, ChannelPriorityList23/23, PersonLayout16/16. Legacy exceptions: whole People254/293 (selection/discovery/resource/team branches), BOLayout118/140 (legacy helpers), CoreComponents11/162 (legacy forms/modal/table). New atomic function lines covered. Full scoped suite was 10 properties/249 tests; added late rollback test also passed. Production saves catch database/transport exceptions without logging bearer; real DB failure/retry test passes. Remaining real-browser keyboard/drag/focus requires verification; final UX .3 and consolidated E2E .4 remain open.",
+      "timestamp": "2026-09-15T11:10:22Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Validate production promotion and record final approval gate",
