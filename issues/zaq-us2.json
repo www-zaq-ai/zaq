@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T08:19:40Z",
+  "description": "Step 1: config-aware toolchain/environment cache keys plus targeted LiveView rebuild before tests, including fallback restores. Keep narrow existing purge. Update operational docs.",
+  "id": "zaq-us2",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Harden CI LiveView logging compilation",
+  "type": "task",
+  "updated_at": "2026-09-15T08:19:40Z"
+}
