@@ -11,9 +11,15 @@
   "id": "zaq-3q0.2",
   "labels": [],
   "parent": "zaq-3q0",
+  "comments": [
+    {
+      "text": "Added post-review pre-merge coverage phase, context-mode timeouts (precommit 900000 ms; fresh coveralls 600000 ms) and sequential coverup in all definitions. No context-mode tools exposed in this session.",
+      "timestamp": "2026-09-15T16:18:02Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-3q0] Add post-review coverage workflow",
   "type": "task",
-  "updated_at": "2026-09-15T16:15:56Z"
+  "updated_at": "2026-09-15T16:18:02Z"
 }
