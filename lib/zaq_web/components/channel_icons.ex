@@ -17,7 +17,7 @@ defmodule ZaqWeb.Components.ChannelIcons do
     ~H"""
     <%= case @provider do %>
       <% "slack" -> %>
-        <svg class={@class} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 270 270">
+        <svg class={@class} xmlns="http://www.w3.org/2000/svg" viewBox="73.6 73.6 122.8 122.8">
           <g>
             <g>
               <path
