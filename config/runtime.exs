@@ -184,8 +184,10 @@ if config_env() == :prod do
 
   # ## SSL Support
   #
-  # To get SSL working, you will need to add the `https` key
-  # to your endpoint configuration:
+  # The default listener is HTTP behind a TLS-terminating reverse proxy.
+  # See README's production HTTPS guide for PHX_HOST and forwarded-header setup.
+  # To terminate TLS directly in Phoenix instead, add the `https` key
+  # to your endpoint configuration and rebuild the release:
   #
   #     config :zaq, ZaqWeb.Endpoint,
   #       https: [
@@ -206,11 +208,9 @@ if config_env() == :prod do
   # "priv/ssl/server.key". For all supported SSL configuration
   # options, see https://hexdocs.pm/plug/Plug.SSL.html#configure/1
   #
-  # We also recommend setting `force_ssl` in your config/prod.exs,
-  # ensuring no data is ever sent via http, always redirecting to https:
-  #
-  #     config :zaq, ZaqWeb.Endpoint,
-  #       force_ssl: [hsts: true]
+  # config/prod.exs already enables force_ssl and HSTS, with local HTTP
+  # exceptions for localhost and 127.0.0.1. force_ssl is compile-time config;
+  # BASE_URL and BASE_URL_SCHEME do not change endpoint TLS or SSL enforcement.
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
 

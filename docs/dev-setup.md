@@ -8,6 +8,12 @@ mix setup && mix phx.server   # http://localhost:4000/bo
 
 Default credentials on fresh database: `admin` / `admin` (forced password change on first login).
 
+This command runs the development server over HTTP. Docker uses a production
+release, with HTTP exceptions only for request hosts `localhost` and `127.0.0.1`.
+For LAN or public server deployment, configure `PHX_HOST` and TLS using the
+[README production HTTPS guide](../README.md#production-deployment-and-https);
+changing the browser URL to a server IP is not sufficient.
+
 ---
 
 ## Tool Usage

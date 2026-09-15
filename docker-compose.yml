@@ -29,7 +29,8 @@ services:
     environment:
       PHX_SERVER: "true"
       PORT: "4000"
-      PHX_HOST: "localhost"
+      # Public hostname for production; requires a TLS reverse proxy (see README).
+      PHX_HOST: "${PHX_HOST:-localhost}"
       DATABASE_URL: "${DATABASE_URL:-ecto://postgres:postgres@postgres:5432/zaq_prod}"
       SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
       # LLM, Embedding, and Image-to-Text settings are configured

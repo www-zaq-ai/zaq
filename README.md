@@ -113,6 +113,12 @@ What it does automatically:
 
 Use this path when you want the fastest local startup.
 
+This is a **local HTTP quick start**, not a production deployment recipe. For a
+server accessed over a LAN or public domain, follow
+[Production deployment and HTTPS](#production-deployment-and-https) below. The installer
+downloads its Compose file separately; check its `PHX_HOST` setting before adapting
+an installer-generated setup for a server.
+
 ### Docker Compose (local Docker image testing)
 
 Use this path to explicitly test the local Docker image/runtime flow.
@@ -174,6 +180,10 @@ docker compose up --build
 
 6. Open the Back Office at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
 
+   HTTP works for request hosts `localhost` and `127.0.0.1` because they are excluded
+   from production SSL enforcement. Replacing `localhost` with a server IP or domain
+   requires the [production HTTPS setup](#production-deployment-and-https).
+
 7. After completing first-login setup, open **Data Sources → Disk** at
    [`/bo/channels/data_source/disk`](http://localhost:4000/bo/channels/data_source/disk).
    Save a volume with **Name** `documents`, **Relative path** `documents`, and select
@@ -209,6 +219,7 @@ docker compose down -v
 | ----------------------------------- | ------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                      | `ecto://postgres:postgres@postgres:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database                                     |
 | `SECRET_KEY_BASE`                   | none                                              | Yes (prod runtime) | Generate with `openssl rand -hex 64`                                                  |
+| `PHX_HOST`                          | `localhost`                                       | Set for production deployment | Public hostname only, e.g. `zaq.company.com` (no scheme, port, or path). Outside Compose, prod runtime falls back to `example.com`; it does not fail startup if unset. |
 | `STORAGE_VOLUMES`                   | empty                                             | No                 | Legacy one-time migration input only; leave empty for new installations               |
 | `STORAGE_VOLUMES_BASE`              | `/zaq/volumes`                                    | No                 | Runtime filesystem base for all saved Disk volume relative paths; must match the mount destination |
 | `OBAN_INGESTION_CONCURRENCY`        | `3`                                               | No                 | Number of document-level ingestion jobs processed in parallel                         |
@@ -232,6 +243,79 @@ in Data Sources → Disk instead.
 - lower value: less concurrent title/embedding load, lower rate-limit pressure
 - higher value: higher throughput, but higher load on LLM endpoints and DB
 - value `1`: serial chunk worker execution per node
+
+### Production deployment and HTTPS
+
+The Docker image is a production Phoenix release even when used locally.
+Production configuration enforces HTTPS and enables HSTS for non-excluded hosts.
+Its public endpoint URL uses **HTTPS on port 443**, but the release listens on
+**HTTP on port 4000** in the supplied Compose setup. Setting `PHX_HOST` does not
+install certificates or create an HTTPS listener.
+
+For a server deployment:
+
+1. Choose a public hostname (for example, `zaq.company.com`) and configure DNS to
+   reach your TLS reverse proxy. Set `PHX_HOST` in your shell or Compose `.env` file:
+
+   ```bash
+   export PHX_HOST=zaq.company.com
+   ```
+
+   The repository's `docker-compose.yml` passes `${PHX_HOST:-localhost}` into ZAQ.
+   Older or installer-downloaded Compose files may hardcode `PHX_HOST: "localhost"`;
+   replace that literal with `${PHX_HOST:-localhost}` or your public hostname.
+   An exported variable or `.env` entry cannot override a hardcoded Compose value.
+   Recreate the container after changing its environment (`docker compose up -d`).
+
+2. Put a TLS-terminating reverse proxy (such as Caddy, nginx, or Traefik) in front
+   of ZAQ, with a certificate trusted by your clients. Serve HTTPS on port 443 and
+   redirect public HTTP traffic to HTTPS. Forward requests to ZAQ over HTTP,
+   preserving the public `Host` header and supporting WebSocket upgrades for
+   Phoenix LiveView. The proxy must **set/overwrite `X-Forwarded-Proto: https`**
+   for requests received over TLS; ZAQ uses it to recognize secure requests.
+
+   For example, with Caddy installed on the Docker host, a Caddyfile can contain:
+
+   ```text
+   zaq.company.com {
+       reverse_proxy 127.0.0.1:4000
+   }
+   ```
+
+   Caddy handles TLS, forwarded headers, and WebSockets. Public automatic
+   certificate issuance requires suitable DNS and reachable challenge ports;
+   private deployments need an appropriately trusted internal certificate setup.
+
+3. Restrict the backend to the proxy. For the host-based Caddy example, replace
+   ZAQ's `"4000:4000"` port mapping with `"127.0.0.1:4000:4000"`. For a containerized
+   proxy, use a private Docker network and avoid publishing ZAQ's port publicly.
+   Do not let untrusted clients reach the backend directly: forwarded scheme
+   headers are trusted, and loopback request hosts are exempt from SSL enforcement.
+   The supplied Compose file is for local testing; also remove public PostgreSQL
+   port exposure and replace its example database credentials for production.
+
+4. Open `https://zaq.company.com/bo/login`. Verify that login and LiveView navigation
+   work without redirect loops or WebSocket/origin errors. For integrations that
+   need callback URLs, also set **System Config → Global → Base URL** to your public
+   HTTPS URL; this database setting is separate from `PHX_HOST`.
+
+**Troubleshooting:**
+
+- Redirects to `https://localhost/...` or `https://example.com/...`: correct the
+  container's `PHX_HOST` and recreate it. Phoenix defaults SSL redirects to the
+  configured endpoint hostname, not necessarily the incoming request hostname.
+- Repeated HTTPS redirects behind a proxy: verify the proxy overwrites
+  `X-Forwarded-Proto` with `https` and preserves the public host.
+- TLS errors when opening `https://server:4000`: that port serves plain HTTP, not
+  TLS. Use the proxy's HTTPS endpoint instead.
+- `BASE_URL` or `BASE_URL_SCHEME` does not disable SSL enforcement or change the
+  endpoint's HTTPS/443 configuration. `force_ssl` is compile-time configuration;
+  changing it requires rebuilding the release. Do not disable it for production.
+
+Direct TLS termination inside Phoenix is an alternative, but requires adding an
+`https` listener and certificate/key configuration as described in
+`config/runtime.exs`, then rebuilding the release. The supplied Compose setup
+does not configure this.
 
 ### Local (Mix)
 
