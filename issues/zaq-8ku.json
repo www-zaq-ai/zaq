@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T19:00:59Z",
+  "description": "User-approved narrow correction in current worktree. Engine gates current session, ownership and stored reference membership; Channels invokes existing GetDocument current Record ACL and fresh materialization. Remove Ingestion DocumentContent. Preserve profile work. No commit/push/PR/reset. Steps: regression tests -\u003e implementation -\u003e validation/docs (linear DAG). Existing three People real_browser journeys retain assertions.",
+  "id": "zaq-8ku",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Correct People source resource boundary",
+  "type": "epic",
+  "updated_at": "2026-09-15T19:00:59Z"
+}
