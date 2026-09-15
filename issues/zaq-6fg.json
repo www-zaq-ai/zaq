@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T07:25:01Z",
+  "description": "Update README/public getting started with PHX_HOST, reverse proxy TLS, localhost-only HTTP and troubleshooting. Allow PHX_HOST override in Compose and correctly nest SSL exclusions. Validate configuration behavior and run mix format and mix q. No UI changes; E2E unnecessary for documentation/configuration scope.",
+  "id": "zaq-6fg",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[prod-https] Document production host and TLS requirements and align defaults",
+  "type": "task",
+  "updated_at": "2026-09-15T07:25:01Z"
+}
