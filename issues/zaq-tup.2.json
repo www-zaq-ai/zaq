@@ -7,7 +7,7 @@
     "zaq-tup.3"
   ],
   "created": "2026-09-15T09:21:20Z",
-  "description": "Own fixtures, People preview LiveView, PersonLayout width option, DSM priority list, protected preview route. Before implementation add fixture ordering/property and component tests; cover Save/Cancel, malformed moves, empty/read-only/error states and narrow default shell. No mocks for fixture logic. Run mix format, mix q and browser review. Update UX doc with gaps; no backend or Storybook changes. Target 95% coverage, report any environment blocker.",
+  "description": "Historical staging implementation was promoted and its preview machinery removed in zaq-tup.12. Remaining verification targets canonical /people/profile: physical drag/drop, keyboard move alternatives, focus restoration, Escape and long-content responsive states with dedicated test identities when mutations are necessary. Keep current user's real name/priorities and session unchanged. Do not recreate fixture route or scenario machinery. Final human approval zaq-tup.3 and consolidated E2E zaq-tup.4 remain open.",
   "id": "zaq-tup.2",
   "labels": [],
   "parent": "zaq-tup",
@@ -27,7 +27,7 @@
   ],
   "priority": 2,
   "status": "in_progress",
-  "title": "[zaq-tup] Stage and validate profile prototype",
+  "title": "[zaq-tup] Complete production profile browser interaction verification",
   "type": "task",
-  "updated_at": "2026-09-15T11:13:47Z"
+  "updated_at": "2026-09-15T12:13:51Z"
 }
