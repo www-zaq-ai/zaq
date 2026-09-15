@@ -9,9 +9,15 @@
   "id": "zaq-5vz.7",
   "labels": [],
   "parent": "zaq-5vz",
+  "comments": [
+    {
+      "text": "Controller fault test diagnosed: test config provider module not loaded; Config.get function_exported? probe fell back to real NodeRouter, giving correct invalid_session redirect. Explicitly loading the test provider and isolating each fault in an independent ConnCase test preserves the expected 404 assertions. All three pass seed 976085; no production controller behavior change.",
+      "timestamp": "2026-09-15T14:14:23Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5vz] Validate full slice coverage format quality and preservation",
   "type": "task",
-  "updated_at": "2026-09-15T12:55:55Z"
+  "updated_at": "2026-09-15T14:14:23Z"
 }
