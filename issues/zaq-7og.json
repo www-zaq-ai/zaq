@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T19:17:41Z",
+  "description": "Documentation-only harness update approved by user. Add canonical Action discovery and reuse decision guide; align entrypoint, workflow, planners and review gates. Reuse assessment: not applicable to runtime operations (instructions only); reuse existing Registry and Workflows.Action documentation rather than invent a catalog. No code, runtime API, agent exposure or UX changes. Delivery: current working tree, no commit/PR requested. Plan DAG: documentation changes -\u003e consistency and validation.",
+  "id": "zaq-7og",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Enforce Action reuse in agent planning and execution",
+  "type": "epic",
+  "updated_at": "2026-09-15T19:17:41Z"
+}
