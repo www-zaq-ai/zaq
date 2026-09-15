@@ -9,9 +9,15 @@
   "id": "zaq-3q0.3",
   "labels": [],
   "parent": "zaq-3q0",
+  "comments": [
+    {
+      "text": "Changed coverup no-arg and threshold-only limits from 3 to 20; explicit override and 95 threshold preserved. Validating.",
+      "timestamp": "2026-09-15T16:18:03Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-3q0] Increase coverup defaults and validate",
   "type": "task",
-  "updated_at": "2026-09-15T16:15:56Z"
+  "updated_at": "2026-09-15T16:18:03Z"
 }
