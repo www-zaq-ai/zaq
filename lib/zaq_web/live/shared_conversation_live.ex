@@ -25,7 +25,7 @@ defmodule ZaqWeb.Live.SharedConversationLive do
          socket
          |> assign(:page_title, conv.title || "Shared Conversation")
          |> assign(:conversation, conv)
-         |> assign(:messages, messages), layout: {ZaqWeb.Layouts, :root}}
+         |> assign(:messages, messages)}
     end
   end
 end

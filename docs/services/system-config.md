@@ -79,6 +79,28 @@ for all eight fields, units, and read/write contracts, including the versioned O
 HMAC key derived from the existing endpoint `secret_key_base`. Authentication tables
 store only digests, never plaintext codes or bearer tokens.
 
+Public PR4 authentication uses confidential Engine events and the existing
+notification delivery path. V1 intentionally retains the OTP notification body
+in the ordinary notification log; this is separate from digest-only auth rows.
+Phoenix filters `password`, `secret`, `token` and `code` HTTP/event parameters.
+The installed LiveView mount logger does **not** filter its session dump. Logger's
+compile-time purge targets only `Phoenix.LiveView.Logger.lv_mount_start/4` to
+exclude that dump on every page sharing the cookie, including BO. Other HTTP and
+LiveView event diagnostics remain enabled. When reusing cached dependencies after
+changing this configuration, rebuild LiveView before building the app:
+
+```sh
+MIX_ENV=prod mix deps.compile phoenix_live_view --force
+```
+
+Use the corresponding `MIX_ENV=test` rebuild before the log regression test.
+CI keys compiled caches by toolchain, Mix environment, lockfile, project and
+configuration files, and always recompiles LiveView before tests/coverage so a
+fallback cache cannot retain a session logger compiled under an older policy.
+The shared signed session cookie is HttpOnly/Lax and Secure in production. Its
+browser-session lifetime is unchanged: no explicit Max-Age/Expires is set.
+People session expiry remains database-authoritative.
+
 ## Outbound HTTP
 
 Outbound HTTP for agents/workflows is controlled from `/bo/system-config?tab=outbound_http`.

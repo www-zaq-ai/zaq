@@ -54,7 +54,7 @@ defmodule Zaq.Engine.ApiTest do
   end
 
   defmodule StubNotifications do
-    def notify_person(person_id, attrs) do
+    def notify_person(person_id, attrs, _opts) do
       send(self(), {:notify_person_called, person_id, attrs})
       {:ok, %{status: :sent, channel: "email:smtp", channel_identifier: "person@example.com"}}
     end

@@ -38,7 +38,7 @@ defmodule ZaqWeb.BOSessionController do
 
   def delete(conn, _params) do
     conn
-    |> clear_session()
+    |> delete_session(:user_id)
     |> redirect(to: ~p"/bo/login")
   end
 end

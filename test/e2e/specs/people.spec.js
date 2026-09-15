@@ -219,7 +219,7 @@ test.describe("People", () => {
       "CronCountdown", "DetailsKeepOpen", "DownloadFile", "FlashAutoDismiss",
       "FocusAndSelect", "FocusInput", "FolderDrop", "JsonTree",
       "LoadingActionButton", "MarkdownHighlight", "OAuthPopupListener", "OntologyTree",
-      "PeopleBulkDeleteDialog", "PeoplePermissions", "ScrollBottom", "ScrollToFirstError", "SearchableSelect",
+      "PeopleAuthForm", "PeopleBulkDeleteDialog", "PeopleOTP", "PeoplePermissions", "ScrollBottom", "ScrollToFirstError", "SearchableSelect",
       "WorkflowExport", "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox", "liveViewHooks",
     ].sort())
     expect(registered).not.toContain("DetectTimezone")

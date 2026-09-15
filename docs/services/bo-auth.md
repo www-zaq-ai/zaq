@@ -18,7 +18,11 @@
 - Logged-in users visiting `/bo/login` are redirected to dashboard (or change-password)
 - Root `/` redirects to `/bo/login` or `/bo/dashboard` based on session
 - Logout uses CSRF-protected DELETE request
-- Logout clears session
+- Logout and invalid-user cleanup remove only BO `user_id`, preserving the independent
+  People cookie credential. People login renews the same signed HttpOnly/Lax cookie
+  while preserving BO state; production cookies are Secure. Cookie transport retains
+  the original browser-session lifetime (no Max-Age/Expires). People expiry is
+  independently enforced by its database session row.
 
 ### BO Layout
 - Shared sidebar layout component (`BOLayout`)
