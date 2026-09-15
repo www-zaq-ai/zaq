@@ -7,9 +7,15 @@
   "id": "zaq-tup.13",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Added AccountMenu.AccountDisclosure, ChannelPriorityList.PriorityDrag and PersonProfile.ProfileFocus to exact registered-hook allowlist, matching explicit production app.js registrations. Exact equality and dormant DetectTimezone/DialogOverlay exclusions preserved. mix format and mix q passed. First Firefox attempts blocked by initial separate build and missing dedicated E2E DB; standard npm run bootstrap created/migrated/seeded test DB, then focused journeys-firefox test passed (1 test, 17.2s). Only people.spec.js changed; no production edits or new journey authoring.",
+      "timestamp": "2026-09-15T12:44:58Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Repair People E2E hook allowlist after live profile promotion",
   "type": "task",
-  "updated_at": "2026-09-15T12:38:04Z"
+  "updated_at": "2026-09-15T12:44:58Z"
 }
