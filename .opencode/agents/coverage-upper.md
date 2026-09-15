@@ -21,8 +21,8 @@ Skipped steps 1 and 2 and go directly to step 3
 ### User only instructed to proceed
 
 Follow these steps:
-1 - run `ls -lT cover/excoveralls.json` to check if the file is more than 24h old: if yes report back to the user and ask for a confirmation to proceed, otherwise continue
-2 - run `mix coverup` to get a report of all files changed that have a coverage below 95% with their respective uncovered line numbers
+1 - Run `mix coveralls.json` through context-mode (`ctx_execute`, shell execution) with a **10-minute (600,000 ms) execution timeout** to generate a fresh `cover/excoveralls.json`. Keep logs in context-mode and return only a concise result. Do not check report age. If the command fails, times out, or context-mode cannot support this execution, stop and report the blocker; do not use a stale report.
+2 - Only after step 1 finishes successfully, run `mix coverup` through context-mode to report changed files below 95% coverage with their uncovered line numbers (up to 20 files by default).
 3 - For EACH file listed, start a @general subagent with the test-coverage-planner skill to generate one clear plan per file, pass it the file name and the uncovered lines
 4 - Review all the plans to identify the ones overlapping similar test files and merge these (do NOT summarize any plan, just merge where fit) to produce a final set of fully detailed plans where no two plans touch the same test file.
 5 - For every ready plan, start a @mini-worker subagent with the test-gap-fixer skill and pass it the full plan (no summary) to develop the code
@@ -34,7 +34,7 @@ Follow these steps:
 
 - Resort to doing the work of subagents yourself, if they are blocked report back
 - Shorten the plans you receive before you hand them to @fast-worker, this subagent needs as much details as can be possibly provided
-- Run full test suite to re-assess coverage, an approximation based on step 7 is enough
+- Run the full test suite again to re-assess coverage after the initial report generation in step 1; use the targeted coverage run in step 8 instead
 
 ## Summary
 

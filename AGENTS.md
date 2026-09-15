@@ -78,7 +78,7 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 - **Always run `mix format`** after any code file change to keep code well formatted
 - **Always run `mix q`** after a task is done. Never replace it with ad-hoc checks.
 - **Never push directly to `main`** — all changes go through a PR.
-- **Target at least 95% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
+- **During development, test critical paths rather than enforcing a coverage ratio** — cover core behavior, failure paths, permissions, and regressions. Keep code async-testable through injected configuration/dependencies and isolated state. After all implementation issues are tackled and PR review is approved, invoke `coverage-upper` before merging; numerical targets belong to that dedicated phase.
 - **Apply `docs/testing-approach.md` on every code change** — add property tests when invariants or broad input spaces are touched.
 - **Plan feature E2E early, author it after explicit human UX/UI approval** — maintain one Beadwork E2E issue across iterations, blocked by the approval gate. Follow `docs/testing-approach.md#feature-e2e-approval-gate`; existing tests may receive only minimal repairs preserving assertions and intent, never weakening them to hide regressions.
 - **All cross-service BO calls go through `NodeRouter.dispatch/1` with `%Zaq.Event{}`** — never direct module calls.

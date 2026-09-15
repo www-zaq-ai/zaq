@@ -19,13 +19,13 @@ assert observable outcomes, not the internal sequence used to produce them.
 
 ## Choosing a Test Level
 
-| Test level | Use when | Avoid when |
-| --- | --- | --- |
-| Unit | One module's public contract can be exercised with deterministic inputs and collaborators | The behavior depends on an Ecto query, supervision, routing, or another real boundary |
-| Collaborator contract | A behavior-backed boundary must be exercised with controlled responses | Mocking an internal module would bypass the implementation under test |
-| Integration | Confidence depends on multiple real modules, the database, processes, events, or routing working together | The same behavior can be proven cheaply through one public module |
-| Property | A stable invariant must hold over a broad or combinatorial input space | The requirement is a single concrete workflow or side effect |
-| E2E | A critical user journey must be proven through the deployed interface | Unit or integration tests already provide equivalent confidence |
+| Test level            | Use when                                                                                                  | Avoid when                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Unit                  | One module's public contract can be exercised with deterministic inputs and collaborators                 | The behavior depends on an Ecto query, supervision, routing, or another real boundary |
+| Collaborator contract | A behavior-backed boundary must be exercised with controlled responses                                    | Mocking an internal module would bypass the implementation under test                 |
+| Integration           | Confidence depends on multiple real modules, the database, processes, events, or routing working together | The same behavior can be proven cheaply through one public module                     |
+| Property              | A stable invariant must hold over a broad or combinatorial input space                                    | The requirement is a single concrete workflow or side effect                          |
+| E2E                   | A critical user journey must be proven through the deployed interface                                     | Unit or integration tests already provide equivalent confidence                       |
 
 Use contracted collaborator tests plus thin integration tests by default. A thin
 integration test crosses only the boundaries necessary to prove the behavior; it is
@@ -421,24 +421,20 @@ Do not:
 
 ## Coverage and Validation
 
-New development and every touched file target at least 95% coverage. Coverage is a
-guardrail, not the objective: a test suite with high line coverage but weak assertions,
-missing branches, or bypassed implementation is insufficient.
-
 Review coverage alongside:
 
-- public behaviors and meaningful branches exercised;
+- public and critical behaviors and meaningful branches exercised;
 - failures and boundary conditions covered;
+- permissions
 - applicable invariants tested;
 - production code actually executed;
 - tests remaining deterministic and async-safe.
 
-If 95% is not feasible, document the exact uncovered behavior, reason, risk, and
-follow-up plan in the PR.
+After any code or documentation task, `mix precommit` must pass; run it through context-mode with a 15-minute (900,000 ms) execution timeout and summarize the result without returning full logs. Do not add a redundant `mix test` run to this validation step. Once all implementation issues are tackled and PR review is approved, invoke `coverage-upper` before merging. Coverage targets remain in that agent and its coverage-specific instructions.
 
-After any code or documentation task, run `mix q` and fix every failure. Do not replace
-it with ad-hoc checks. Run narrower tests during development for feedback, but they do
-not replace the final quality gate.
+- For invariant-heavy changes, reviewers should expect at least one property test.
+
+---
 
 ## Review Checklist
 

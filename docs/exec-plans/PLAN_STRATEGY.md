@@ -143,13 +143,12 @@ If any item is missing, the step is incomplete and cannot be executed.
 
 ---
 
-## Coverage Policy (Mandatory)
+## Testing and Coverage Handoff (Mandatory)
 
-- Any file added or modified during implementation must reach at least 95% coverage.
-- Coverage checks must be part of plan validation before closing the plan.
-- If a file cannot meet 95%, document the exact reason and follow-up work in:
-  - plan Decisions Log
-  - PR description
+- During implementation, test critical behavior, failure paths, permissions, and regressions; do not impose a numerical coverage gate on each step.
+- Preserve async-testable boundaries, injected configuration/dependencies, and isolated state so the later coverage pass can add tests safely.
+- Plan a dedicated `coverage-upper` handoff after all implementation issues are tackled and PR review is approved, before squash/merge. Numerical targets remain in coverage-specific agents and skills.
+- Record coverage-phase exceptions and follow-up work in Beadwork issue notes and the PR description. Review any changes from that phase before merging.
 
 ---
 
@@ -163,5 +162,5 @@ A plan is done only when:
 - Required feature E2E was implemented and validated after recorded human UX/UI
   approval; an iteration may finish with its E2E issue blocked, but the feature
   plan remains open until that finalization is complete.
-- Coverage for every touched file is >= 95%.
-- `mix q` passes.
+- Critical paths are tested and the post-review `coverage-upper` phase is complete before merging.
+- `mix precommit` passes via context-mode with a 15-minute (900,000 ms) execution timeout; return only a concise result, not full logs.

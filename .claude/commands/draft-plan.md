@@ -64,10 +64,11 @@ Modules and files touched. For each module, confirm its @moduledoc covers the re
 
 ---
 
-## Coverage Policy
-- Every file added or modified must reach ≥ 95% coverage.
-- List files and their expected coverage targets.
-- If a file cannot reach 95%, document the exact reason here.
+## Testing and Coverage Handoff
+- During implementation, cover critical behavior, failure paths, permissions, and regressions without a numerical coverage gate.
+- Preserve async-testable boundaries, injected configuration/dependencies, and isolated state.
+- After all implementation issues are tackled and PR review is approved, invoke `coverage-upper` before merging; numerical targets remain in its coverage-specific instructions.
+- Record coverage-phase exceptions and follow-up work, and review any resulting changes before merging.
 
 ---
 
@@ -75,8 +76,8 @@ Modules and files touched. For each module, confirm its @moduledoc covers the re
 - [ ] Step-level functional specs written before implementation
 - [ ] Step-level tests written before implementation
 - [ ] All tests passing
-- [ ] Coverage ≥ 95% for every touched file
-- [ ] `mix precommit` passes
+- [ ] Critical paths tested and post-review `coverage-upper` phase complete before merging
+- [ ] `mix precommit` passes via context-mode with a 15-minute (900,000 ms) execution timeout; only a concise result is returned
 - [ ] Docs updated
 
 ---

@@ -212,10 +212,8 @@ defmodule Zaq.MixProject do
         "phx.digest"
       ],
       precommit: [
-        "compile --warnings-as-errors",
+        "quality",
         "deps.unlock --unused",
-        "format",
-        "credo --strict",
         "hooks.verify",
         "test --stale"
       ],
@@ -229,12 +227,12 @@ defmodule Zaq.MixProject do
         # "dialyzer"
       ],
       coverup: fn args ->
-        # call mix coverup [threshold|95] [limit|3]
+        # call mix coverup [threshold|95] [limit|20]
         {threshold, limit} =
           case args do
             [threshold, limit] -> {threshold, limit}
-            [threshold] -> {threshold, "3"}
-            _ -> {"95", "3"}
+            [threshold] -> {threshold, "20"}
+            _ -> {"95", "20"}
           end
 
         command = """

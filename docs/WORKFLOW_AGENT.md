@@ -21,10 +21,12 @@ Before writing a single line of code:
 ## Phase 2 — Plan
 
 ### Simple tasks (single file, single concern)
+
 - State your approach in 2-3 sentences before starting.
 - Create one Beadwork issue for the task before coding.
 
 ### Complex tasks (multiple files, multiple concerns, or architectural changes)
+
 1. Break the work into explicit implementation steps.
 2. Create Beadwork issues for the plan: at least one issue per step (create more when a step should be split for safe delivery/review).
    - Split one step into multiple issues when any of these apply: different owning module/domain, independent test surface, different deploy/review risk, or expected effort over one day.
@@ -49,7 +51,7 @@ Work through the planned Beadwork issues one at a time:
 1. Read the relevant source files using `mcp__serena__get_symbols_overview` before editing.
 2. Implement the change.
 3. Write or update unit tests covering the change.
-4. Target at least 95% coverage for new development in the changed scope (unit/integration as appropriate).
+4. Focus tests on critical behavior, failure paths, permissions, and regressions rather than a numerical coverage ratio. Keep code async-testable through injected configuration/dependencies and isolated state; preserve the guidance in `docs/testing-approach.md`.
 5. Apply `docs/testing-approach.md`: add property tests when the change touches invariants, broad input spaces, normalization, or permission/safety defaults.
 6. Run `mix test` — fix all failures before moving to the next step.
 7. Update the active Beadwork issue notes/description with decisions and progress as you go.
@@ -59,6 +61,7 @@ Work through the planned Beadwork issues one at a time:
    tests must preserve assertions and intent. See the testing handbook's gate.
 
 ### Rules during implementation
+
 - One PR per step when possible — keep PRs small and focused.
 - Never call Agent, Ingestion, Engine, or Channel modules directly from BO.
 - For cross-service invoke calls, always use role/channel Events helpers instead of building `%Zaq.Event{}` inline and dispatching manually:
@@ -75,11 +78,14 @@ Work through the planned Beadwork issues one at a time:
 ## Phase 4 — Validate
 
 ### Unit validation
-1. Run `mix q` — fix everything it reports. Never skip or replace it.
-2. If coverage for new development is below 95%, document the exception in the PR with rationale and a follow-up plan.
-3. Review your own diff — check for dead code, debug statements, and convention violations.
+
+1. Run `mix precommit` through context-mode with a **15-minute (900,000 ms) execution timeout** — fix everything it reports. Keep logs in context-mode and return only a concise result. Never skip or replace it; if context-mode is unavailable or cannot support the timeout, report the validation blocker rather than dumping logs through a raw shell tool.
+2. Do not run an additional `mix test` in this phase: `mix precommit` already runs tests (`test --stale`). Implementation-step tests remain required.
+3. Run the separately required `mix q` quality checks through context-mode. Numerical coverage targets are deferred to the post-review coverage phase.
+4. Review your own diff — check for dead code, debug statements, and convention violations.
 
 ### E2E validation
+
 **Execution is distinct from authoring.** During iterations, run existing E2E
 where required below; do not generate new feature tests to satisfy this phase.
 After the human approval gate, implement the consolidated E2E issue and run the
@@ -87,6 +93,7 @@ required validation before declaring the feature complete. A blocked approval
 gate is a tracked finalization prerequisite, not a test failure or an E2E waiver.
 
 Run E2E tests when your change touches any of these areas:
+
 - Ingestion pipeline (file upload, processing, status)
 - System config (LLM, embedding, SMTP settings)
 - Telemetry dashboards
@@ -99,6 +106,7 @@ cd test/e2e && npm run test
 This bootstraps a fresh E2E database on port `4002` and runs the full Playwright suite.
 
 #### Reproducing failures with ProcessorState
+
 If you need to test ingestion failure scenarios, use `Zaq.E2E.ProcessorState` to inject
 controlled failures into the fake processor:
 
@@ -114,13 +122,15 @@ This is only available in `MIX_ENV=test` with `E2E=1`. Use it in `test/support/e
 or directly in Playwright `beforeEach` hooks via the E2E controller.
 
 #### E2E spec coverage
-| Spec | What it covers |
-|---|---|
-| `ingestion.spec.js` | File upload, processing pipeline, job status |
-| `system_config.spec.js` | LLM, embedding, SMTP config via BO |
-| `knowledge_ops_lead.spec.js` | Knowledge base operations |
+
+| Spec                         | What it covers                               |
+| ---------------------------- | -------------------------------------------- |
+| `ingestion.spec.js`          | File upload, processing pipeline, job status |
+| `system_config.spec.js`      | LLM, embedding, SMTP config via BO           |
+| `knowledge_ops_lead.spec.js` | Knowledge base operations                    |
 
 ### When to skip E2E
+
 - Pure refactoring with no behavior change — skip E2E, unit tests are sufficient.
 - Doc-only changes — skip both E2E and unit tests.
 - If E2E bootstrapping fails due to environment issues, note it in the PR and flag for human.
@@ -133,18 +143,29 @@ or directly in Playwright `beforeEach` hooks via the E2E controller.
 2. Title must follow Conventional Commits: `feat(scope): description`.
 3. PR description must include:
    - What changed and why
-    - Whether E2E tests were run and passed
-    - For iterative feature work: E2E issue link, pending scenarios, and approval
-      blocker (or rationale that E2E is unnecessary); for finalization: recorded
-      UX/UI approval, completed E2E scope, and validation results
+   - Whether E2E tests were run and passed
+   - For iterative feature work: E2E issue link, pending scenarios, and approval
+     blocker (or rationale that E2E is unnecessary); for finalization: recorded
+     UX/UI approval, completed E2E scope, and validation results
    - Link to Beadwork issue(s) or tech debt item if applicable
    - Any decisions made that future agents need to know
 4. Respond to all review feedback before merging.
-5. Squash and merge when approved.
+5. Once all implementation Beadwork issues are tackled and review is approved, proceed to Phase 6 before squash/merge.
 
 ---
 
-## Phase 6 — Close Out
+## Phase 6 — Coverage and Merge
+
+For multi-PR plans, apply this phase to each PR once all implementation issues in that PR are tackled and its review is approved; prerequisite PRs need not wait for downstream implementation.
+
+1. Invoke the `coverage-upper` agent after all implementation issues are tackled and PR review is approved. Numerical coverage targets belong to this dedicated phase, not the development loop.
+2. The agent generates a fresh report by running `mix coveralls.json` through context-mode with a **10-minute (600,000 ms) execution timeout**, then runs `mix coverup` only after successful completion. Do not check report age or reuse a stale report after failure/timeout. Follow the agent's remaining planning, delegation, and validation instructions.
+3. Record results, exceptions, and follow-up work in Beadwork and the PR. Have any coverage-phase changes reviewed and approved, and repeat Phase 4 validation for those changes before merging.
+4. Squash and merge when approved and authorized. Never push directly to `main`.
+
+---
+
+## Phase 7 — Close Out
 
 After merging:
 

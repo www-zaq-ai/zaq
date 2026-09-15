@@ -60,7 +60,7 @@ completable in a single PR. Check off as you go.
     - [ ] Branch/path coverage: [describe branches]
     - [ ] Permission/security paths (if applicable): [nil person_id, skip_permissions, access scope]
     - [ ] Edge external API mocks only: [describe mocks or `none`]
-  - Coverage target for files touched in this step: `>= 95%`
+  - Critical-path tests and async-safe configuration/dependency isolation: [describe]
 - [ ] Step 2: [description]
   - Module placement check: [which module owns this? does @moduledoc cover it?]
   - Temporary code? [yes → add `# Temporary:` comment in code | no]
@@ -69,7 +69,7 @@ completable in a single PR. Check off as you go.
     - [ ] Branch/path coverage: [describe branches]
     - [ ] Permission/security paths (if applicable): [nil person_id, skip_permissions, access scope]
     - [ ] Edge external API mocks only: [describe mocks or `none`]
-  - Coverage target for files touched in this step: `>= 95%`
+  - Critical-path tests and async-safe configuration/dependency isolation: [describe]
 - [ ] Step 3: [description]
   - Module placement check: [which module owns this? does @moduledoc cover it?]
   - Temporary code? [yes → add `# Temporary:` comment in code | no]
@@ -78,7 +78,7 @@ completable in a single PR. Check off as you go.
     - [ ] Branch/path coverage: [describe branches]
     - [ ] Permission/security paths (if applicable): [nil person_id, skip_permissions, access scope]
     - [ ] Edge external API mocks only: [describe mocks or `none`]
-  - Coverage target for files touched in this step: `>= 95%`
+  - Critical-path tests and async-safe configuration/dependency isolation: [describe]
 
 ---
 
@@ -108,8 +108,8 @@ List anything blocking progress and who/what can unblock it.
 - [ ] Tests written and passing
 - [ ] Integration tests cover key branches/paths
 - [ ] Any mocks are limited to edge external API calls
-- [ ] Coverage for every added/modified file is `>= 95%`
-- [ ] `mix precommit` passes
+- [ ] After all implementation issues are tackled and PR review is approved, `coverage-upper` completes; its changes are reviewed before merging
+- [ ] `mix precommit` passes via context-mode with a 15-minute (900,000 ms) execution timeout; only a concise result is returned
 - [ ] Relevant docs updated
 - [ ] `docs/QUALITY_SCORE.md` updated if domain grade changed
 - [ ] Item removed from `docs/exec-plans/tech-debt-tracker.md` if applicable

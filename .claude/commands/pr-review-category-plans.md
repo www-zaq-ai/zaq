@@ -117,7 +117,7 @@ listing every source comment so reconciliation still adds up)*
 ## Definition of Done
 
 - [ ] All tasks `todo` → done; `obsolete` tasks have a written justification
-- [ ] New/updated tests cover every change (target ≥95% on touched code)
+- [ ] New/updated tests cover critical behavior, failure paths, permissions, and regressions; numerical coverage targets are handled by the post-review `coverage-upper` phase
 - [ ] `mix format` run on every touched file
 - [ ] `mix q` passes
 - [ ] Parent review-plan table status updated for this category
