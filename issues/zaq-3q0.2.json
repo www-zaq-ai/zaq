@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T16:15:48Z",
+  "description": "Precommit only for step 4 tests via context-mode 15 minutes. Add pre-merge coverage-upper and refresh report via context-mode 10 minutes in all definitions.",
+  "id": "zaq-3q0.2",
+  "labels": [],
+  "parent": "zaq-3q0",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-3q0] Add post-review coverage workflow",
+  "type": "task",
+  "updated_at": "2026-09-15T16:15:48Z"
+}
