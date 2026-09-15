@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T13:40:03Z",
+  "description": "Real routed integration tests: A/B runs, two steps one actor, nested run_agent, explicit non-Person, missing actor, scope-independent property. Update callers/doubles, service/architecture docs; mix format and mix q; \u003e=95% coverage or precise documented exception. LLM HTTP only mocked. No browser E2E needed.",
+  "id": "zaq-yws.4",
+  "labels": [],
+  "parent": "zaq-yws",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-yws] Prove workflow and nested identity and validate",
+  "type": "task",
+  "updated_at": "2026-09-15T13:40:03Z"
+}
