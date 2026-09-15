@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T16:15:48Z",
+  "description": "Set default limit 20 for no args and threshold-only; preserve explicit overrides. Verify branches, format, precommit and q where tooling permits.",
+  "id": "zaq-3q0.3",
+  "labels": [],
+  "parent": "zaq-3q0",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-3q0] Increase coverup defaults and validate",
+  "type": "task",
+  "updated_at": "2026-09-15T16:15:48Z"
+}
