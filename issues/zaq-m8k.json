@@ -8,9 +8,15 @@
   "description": "Step 3: format, focused regressions, clean/restored LiveView compilation checks where feasible, mix q and diff review. No new production functions; property tests not needed for build configuration and concrete integration regression.",
   "id": "zaq-m8k",
   "labels": [],
+  "comments": [
+    {
+      "text": "Validated regression red/green: recompiled LiveView with purge disabled in memory (no config-file edit); new mount regression failed with raw Session/token as expected. Restored using CI sequence mix deps.compile then MIX_ENV=test mix deps.compile phoenix_live_view --force. Controller + BO profile suites: 23 tests, 0 failures. mix format, mix q (docs/Credo no issues), git diff --check passed; read-only review no findings. Full suite, actual cold-cache build and hosted CI not run. Changes uncommitted per working-tree delivery.",
+      "timestamp": "2026-09-15T08:25:42Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-m8k] Validate cached LiveView logging fix",
   "type": "task",
-  "updated_at": "2026-09-15T08:22:24Z"
+  "updated_at": "2026-09-15T08:25:42Z"
 }
