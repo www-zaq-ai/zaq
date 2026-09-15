@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-tup.7"
   ],
+  "closed_at": "2026-09-15T11:10:21Z",
   "created": "2026-09-15T10:39:48Z",
   "description": "Functional scope: real ProfileLive uses shared approved presentation, inline name editor, read-only teams, provider priority list, atomic Save/Cancel; pure web reorder helper shared with preview; no fixtures in production; login/default PersonLayout unchanged. Tests BEFORE implementation: LiveView security/persistence/menu/no prototype/read-only/errors/name cancel and optional blank validation, stale reload, editor event guards; permutation move property; component/header/login regressions. Real DB/Engine gateway; router mocks only event-contract cases. Update Storybook/inventory, UX and handoff. Final implemented UX approval zaq-tup.3 remains open, E2E zaq-tup.4 deferred.",
   "id": "zaq-tup.8",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-tup] Promote approved full profile UI and shared components",
   "type": "task",
-  "updated_at": "2026-09-15T10:55:41Z"
+  "updated_at": "2026-09-15T11:10:21Z"
 }
