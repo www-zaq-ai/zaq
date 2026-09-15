@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-8ku.2"
+  ],
   "created": "2026-09-15T19:01:52Z",
   "description": "Edit PeopleConversations and resource controller tests first: exact membership and fresh actor, real GetDocument/DataSourceBridge/Disk Storage ACL granted then revoked with no indexed Document; source-backed mixed communication label denies; plain artifacts retain bytes; malformed/forged references fail closed. Mock only edge transport; use isolated filesystem and database sandbox. Paths: test/zaq/engine/people_conversations_test.exs and test/zaq_web/controllers/person_conversation_resource_controller_test.exs. Docs updated in validation step.",
   "id": "zaq-8ku.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8ku] Specify current Records ACL regressions",
   "type": "task",
-  "updated_at": "2026-09-15T19:01:52Z"
+  "updated_at": "2026-09-15T19:02:08Z"
 }
