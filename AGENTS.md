@@ -80,6 +80,7 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 - **Never push directly to `main`** — all changes go through a PR.
 - **Target at least 95% test coverage for new development** (unit/integration as appropriate). If an exception is needed, document the rationale and follow-up plan in the PR.
 - **Apply `docs/testing-approach.md` on every code change** — add property tests when invariants or broad input spaces are touched.
+- **Plan feature E2E early, author it after explicit human UX/UI approval** — maintain one Beadwork E2E issue across iterations, blocked by the approval gate. Follow `docs/testing-approach.md#feature-e2e-approval-gate`; existing tests may receive only minimal repairs preserving assertions and intent, never weakening them to hide regressions.
 - **All cross-service BO calls go through `NodeRouter.dispatch/1` with `%Zaq.Event{}`** — never direct module calls.
 - **Before adding a function to any module, read its `@moduledoc`** — confirm the function fits the module's stated responsibility. If it doesn't belong, find the correct module first.
 - **Check existing Beadwork issues first** before starting any complex or multi-step task.

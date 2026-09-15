@@ -34,6 +34,61 @@ not a broad test of unrelated subsystems.
 Property tests complement example-based tests. E2E guidance, fixtures, and commands
 live in `docs/e2e-testing.md`.
 
+## Feature E2E approval gate
+
+**Plan E2E early; author it only at feature finalization, after explicit human
+UX/UI approval.** This applies to new or substantially rewritten feature journey
+tests, not to running existing tests or testing behavior at smaller test levels.
+
+### Track scope throughout development
+
+- Assess E2E need during planning and whenever feature scope changes. Use the test
+  level guidance above: not every feature or UI correction needs a browser test.
+- When E2E is needed, create or reuse one dedicated Beadwork E2E issue for the
+  feature. Keep it across iterations and PRs; do not create one per correction.
+- Keep its description current with affected journeys/routes, scenarios and
+  expected outcomes, acceptance criteria, existing specs to reuse, prerequisites,
+  and approval status. Record removed or superseded scenarios and their rationale.
+- If E2E is unnecessary, record why in the feature issue. Reassess when scope
+  changes; do not generate tests merely to satisfy a planning template.
+
+### Block authoring until approval
+
+- Create a human UX/UI approval issue and make it depend on the feature's
+  implementation steps. Make the E2E issue depend on that approval issue. Keep
+  the approval issue open while awaiting the human, so E2E is not in `bw ready`.
+- Do not write new feature specs, expand journeys, or substantially rewrite them
+  during implementation, prototyping, or correction loops. Update the E2E issue
+  instead. Stop and report the approval blocker rather than self-approving.
+- Close the approval issue only after implementation is complete and the human
+  explicitly approves the feature's UX/UI for E2E finalization. Record who approved,
+  when, the source message or review reference, and the approved scope in Beadwork.
+  Passing tests, silence, a merged iteration PR, prototype acceptance, and approval
+  of individual components or replacement rows are not final feature approval.
+- If material UX/UI changes reopen the approved scope before finalization, reopen
+  the approval gate, update scenarios and prerequisites, and pause E2E authoring
+  until renewed approval. Do not rewrite tests for each intermediate revision.
+- After approval, implement the consolidated coverage against the completed
+  feature, run the required E2E validation, and record results before closing its
+  issue. An iteration can finish with E2E blocked; the overall feature cannot be
+  declared complete while required E2E work is outstanding. If scope removes the
+  need for E2E, record the reassessment and rationale rather than silently closing it.
+
+### Keep immediate regression protection
+
+- Continue unit, integration, LiveView/component, and applicable property tests,
+  coverage checks, `mix q`, and browser-based UI inspection during iterations.
+- Continue running existing E2E tests wherever required by the workflow. Deferring
+  authoring does not waive execution or permit ignoring failures.
+- Existing E2E tests may receive minimal repairs when spotted, such as selector
+  changes, **only if they preserve the assertions and original intent**. Never
+  weaken/remove assertions, skip tests, or change expected behavior to hide a
+  regression. Verify the repaired tests and describe the repair in the PR.
+- A confirmed regression still needs a reproducing test. Prefer a smaller test
+  level; if only new browser coverage can prove it, ask the human for an explicit
+  exception to the authoring gate and record the decision in Beadwork. Do not
+  silently defer regression protection or treat behavior changes as selector repairs.
+
 ## Selecting Scenarios
 
 Start from the public contract and enumerate only applicable scenarios:

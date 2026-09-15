@@ -65,6 +65,8 @@ Read in parallel:
 1. `docs/prd-{slug}.md`
 2. `docs/ux/{slug}.md`
 3. Prototype files under `lib/zaq_web/` for this slug (LiveView, fixtures, DSM stubs)
+4. The feature's Beadwork E2E and human UX/UI approval issues, when present, and
+   `docs/testing-approach.md#feature-e2e-approval-gate`
 
 Restate briefly: feature name, current PRD status, screens in UX plan, prototype route.
 
@@ -162,6 +164,14 @@ Scope: [screens / states from feedback matrix]
 
 ### 6. Verify and summarize
 
+Update the **same** feature E2E issue with changed journeys, expected outcomes,
+removed scenarios, and prerequisites. Create it and its approval gate if the new
+scope first requires E2E; otherwise record why E2E is unnecessary. Do not author
+feature E2E during this correction loop. If material changes invalidate recorded
+approval, reopen the gate and pause E2E authoring. Existing tests may receive only
+minimal repairs preserving assertions and intent, never weakening them to hide
+regressions, per the testing handbook.
+
 1. Confirm PRD ↔ UX plan ↔ prototype alignment on changed items
 2. Run **`/run`** if server status unknown; point reviewer to `/bo/{slug}`
 3. Deliver **Iteration summary**:
@@ -182,6 +192,10 @@ Scope: [screens / states from feedback matrix]
 
 ### Still open
 - [unresolved questions or deferred items]
+
+### E2E finalization
+- [persistent E2E issue ID + scope changes, or why E2E is unnecessary]
+- [approval issue ID + status; feature E2E authoring remains blocked until final approval]
 
 ### Review next
 Open `/bo/{slug}` and verify: [specific flows / states from this iteration]

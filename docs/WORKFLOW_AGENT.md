@@ -35,6 +35,11 @@ Before writing a single line of code:
 6. Start implementation only after issue creation and dependency wiring.
 7. If the task requires architectural changes not covered in `docs/architecture.md` — stop, create the related Beadwork issue(s), and wait for human approval before proceeding.
 
+For feature work, assess E2E need and follow the
+[feature E2E approval gate](testing-approach.md#feature-e2e-approval-gate).
+When needed, create/reuse one E2E issue and wire implementation → human UX/UI
+approval → E2E dependencies per `docs/exec-plans/PLAN_STRATEGY.md`.
+
 ---
 
 ## Phase 3 — Implement
@@ -48,6 +53,10 @@ Work through the planned Beadwork issues one at a time:
 5. Apply `docs/testing-approach.md`: add property tests when the change touches invariants, broad input spaces, normalization, or permission/safety defaults.
 6. Run `mix test` — fix all failures before moving to the next step.
 7. Update the active Beadwork issue notes/description with decisions and progress as you go.
+8. Keep the feature's E2E issue scenarios and approval status current after each
+   relevant iteration. Defer new/substantially rewritten feature E2E until final
+   implementation and explicit human UX/UI approval; minimal repairs to existing
+   tests must preserve assertions and intent. See the testing handbook's gate.
 
 ### Rules during implementation
 - One PR per step when possible — keep PRs small and focused.
@@ -71,6 +80,12 @@ Work through the planned Beadwork issues one at a time:
 3. Review your own diff — check for dead code, debug statements, and convention violations.
 
 ### E2E validation
+**Execution is distinct from authoring.** During iterations, run existing E2E
+where required below; do not generate new feature tests to satisfy this phase.
+After the human approval gate, implement the consolidated E2E issue and run the
+required validation before declaring the feature complete. A blocked approval
+gate is a tracked finalization prerequisite, not a test failure or an E2E waiver.
+
 Run E2E tests when your change touches any of these areas:
 - Ingestion pipeline (file upload, processing, status)
 - System config (LLM, embedding, SMTP settings)
@@ -118,7 +133,10 @@ or directly in Playwright `beforeEach` hooks via the E2E controller.
 2. Title must follow Conventional Commits: `feat(scope): description`.
 3. PR description must include:
    - What changed and why
-   - Whether E2E tests were run and passed
+    - Whether E2E tests were run and passed
+    - For iterative feature work: E2E issue link, pending scenarios, and approval
+      blocker (or rationale that E2E is unnecessary); for finalization: recorded
+      UX/UI approval, completed E2E scope, and validation results
    - Link to Beadwork issue(s) or tech debt item if applicable
    - Any decisions made that future agents need to know
 4. Respond to all review feedback before merging.
@@ -131,6 +149,9 @@ or directly in Playwright `beforeEach` hooks via the E2E controller.
 After merging:
 
 1. Close all completed Beadwork issues and ensure dependencies are resolved.
+   Do not close a pending UX/UI approval gate or E2E issue merely because an
+   iteration merged. Carry their IDs and pending scope into the handoff; keep the
+   overall feature open until required approved E2E finalization is complete.
 2. Check off the item in `docs/exec-plans/tech-debt-tracker.md` if applicable.
 3. Update `docs/QUALITY_SCORE.md` if the domain grade changed.
 4. Update any service doc in `docs/services/` if behavior or architecture changed.

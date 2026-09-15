@@ -229,6 +229,10 @@ Grep touched files for violations:
    - **Every fixture scenario** (each changes visible UI on the intended screen)
    - **Every form screen** from the UX plan (create / edit / settings)
 4. Confirm form controls match DSM modules named in UX plan §5 / §5b
+5. Follow `docs/testing-approach.md#feature-e2e-approval-gate`: assess E2E need,
+   create/reuse the feature's persistent E2E issue and approval gate when needed,
+   and update scenarios as staging changes. Do not author E2E against each fixture
+   iteration; continue browser inspection and required existing-test execution.
 
 ---
 
@@ -275,5 +279,8 @@ Grep touched files for violations:
 2. Gaps needing **production data wiring** or **DS hardening** → **`/design`** (extract / migrate / replace)
 3. **`/design` is not blocked on prototype** — it runs independently for production-ready DSM work
 4. Prototype output is **staging** until backend integration is explicitly scoped later (outside this skill)
+5. Include the persistent E2E issue ID, pending scenarios, and approval blocker
+   (or rationale that E2E is unnecessary). Prototype acceptance alone is not final
+   feature UX/UI approval for E2E authoring; carry the gate into production work.
 
 **Do not** wire real backend data in this skill — that is post-review work via **`/design`** or a separate backend task.

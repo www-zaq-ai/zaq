@@ -21,7 +21,7 @@ description: >
 |------|------|
 | `lib/zaq_web/` | LiveViews, `*_components.ex`, layouts — markup and imports only; do not change business logic, assigns semantics, or event handler behavior unless the user explicitly asked. |
 | `assets/css/styles.css` | Remove dead feature-scoped rules **only after** confirming they are unused post-replacement. |
-| `test/` | ExUnit or e2e updates when selectors or structure change. |
+| `test/` | ExUnit updates; only minimal existing E2E repairs preserving assertions and intent during iteration, per the feature E2E approval gate. |
 
 **Do not create new DesignSystem modules here** — that is **extract**. If no suitable component exists, stop and run **extract** first.
 
@@ -106,6 +106,11 @@ Using `docs/e2e-testing.md` and `test/e2e/specs/`:
 
 Flag **E2E notes** when replacement would move or rename nodes tests depend on — **preserve ids and `data-testid` on the component API**; add wrappers only if tests still resolve.
 
+Follow `docs/testing-approach.md#feature-e2e-approval-gate`: a coverage gap is not
+an instruction to author feature E2E during replacement. Record required journeys
+in the same feature E2E issue (create it and its approval gate if first needed).
+Approval of replacement rows is not final human approval of the completed feature.
+
 ### 3. Human validation (required — do not skip)
 
 **Stop** and output a **Replacement report**. **Do not start step 4** until the human approves rows (by #).
@@ -136,6 +141,9 @@ For each **approved** row:
 
 **E2E (when specs exist)**
 
+- Minimal repairs when spotted are allowed only if assertions and original intent
+  are preserved. Never weaken assertions or skip tests to hide regressions. New or
+  substantially rewritten feature journeys wait for the handbook's approval gate.
 - Derive slug from the consuming LiveView path (`…/live/bo/agents_live.ex` → `agents`) and run `test/e2e/specs/<slug>.spec.js` **if the file exists**.
 - If **`ZaqWeb.Components.BOLayout`** or another **BO-wide layout** changed, also run `test/e2e/specs/agents.spec.js` as representative smoke.
 

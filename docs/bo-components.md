@@ -211,4 +211,6 @@ Prefer `<.input type="checkbox" ...>` over raw `<input>` tags — the core compo
 - [ ] Checkboxes use `accent-[var(--zaq-color-accent)]`, not `text-[var(--zaq-color-accent)]` — or use `<.input type="checkbox">`
 - [ ] Raw `<input type="text">` tags have `text-[var(--zaq-color-ink)]` — or use `<.input>`
 - [ ] No `<.flash_group>` in the template
+- [ ] [Feature E2E approval gate](testing-approach.md#feature-e2e-approval-gate) respected: iterative PRs link the current E2E issue and approval blocker (or explain why E2E is unnecessary); finalization records human UX/UI approval and passing required E2E
+- [ ] Any existing E2E repairs are minimal and preserve assertions and intent, without weakening them to hide regressions
 - [ ] `mix q` passes

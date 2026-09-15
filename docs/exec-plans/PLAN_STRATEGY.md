@@ -28,6 +28,20 @@ This strategy is mandatory for every new execution plan.
 - Verify both `depends_on` and `blocks` edges are correct for each planned issue.
 - Fix dependency direction mistakes before implementation starts.
 
+### Feature E2E lifecycle
+
+Follow [the testing handbook's feature E2E approval gate](../testing-approach.md#feature-e2e-approval-gate).
+When E2E is needed, plan one persistent E2E issue and a separate human UX/UI
+approval issue. Use this dependency sequence:
+
+`implementation steps → human UX/UI approval → consolidated E2E implementation`
+
+The approval issue stays open until the completed feature is explicitly approved
+for E2E finalization. Keep scenarios and prerequisites current across iterations;
+never make E2E depend on closure of its parent feature (which needs E2E to finish).
+Iteration completion is not feature completion. Preserve the gate in handoffs and
+reopen it if material UX/UI changes invalidate approval.
+
 ---
 
 ## Pre-Planning Infrastructure Audit (Mandatory)
@@ -102,6 +116,12 @@ Any step that touches permission filtering, person_id, skip_permissions, or data
 For every implementation step, identify and document tests that must be created
 before coding that step.
 
+Exception: define feature E2E scenarios early in the persistent E2E issue, but
+defer their implementation until the human approval gate is satisfied. This does
+not defer unit, integration, LiveView/component, or property tests. For iteration
+steps, `Tests to add before implementation` must distinguish immediate tests from
+deferred E2E and link the E2E issue (or record why E2E is not needed).
+
 Each step must include:
 
 1. `Functional specifications covered with associated files to edit/add`
@@ -140,5 +160,8 @@ A plan is done only when:
 - Step-level functional specifications were written before implementation
 - Step-level test definitions were written before implementation.
 - Required tests were implemented and passing.
+- Required feature E2E was implemented and validated after recorded human UX/UI
+  approval; an iteration may finish with its E2E issue blocked, but the feature
+  plan remains open until that finalization is complete.
 - Coverage for every touched file is >= 95%.
 - `mix q` passes.

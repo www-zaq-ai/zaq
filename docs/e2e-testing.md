@@ -4,6 +4,13 @@
 
 E2E tests use [Playwright](https://playwright.dev/) and live in `test/e2e/`. The server runs on port `4002` with `MIX_ENV=test E2E=1`, which enables special `/e2e/*` endpoints for direct DB seeding.
 
+For **when to author tests**, follow the authoritative
+[feature E2E approval gate](testing-approach.md#feature-e2e-approval-gate): track
+and update one Beadwork E2E issue during iterations, but implement consolidated
+feature coverage only after implementation and explicit human UX/UI approval.
+Running existing tests continues as required. Minimal repairs to existing tests
+must preserve assertions and intent, never weaken them to hide regressions.
+
 The separate [real browser-tool integration](#real-browser-tool-integration-flow-3)
 uses ExUnit and the production `agent-browser` CLI, not the Playwright journey suite.
 

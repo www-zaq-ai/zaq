@@ -50,3 +50,16 @@ Role CSS files (`btn.css`, `form.css`, etc.) are read-only unless the design lea
 ## Step 4: Verify
 
 Run **`mix format`** on touched files. Run **`mix q`** before opening a PR.
+
+Follow `docs/testing-approach.md#feature-e2e-approval-gate`. Keep the same feature
+E2E issue current through production wiring and UI corrections; defer feature E2E
+authoring until implementation is complete and final human UX/UI approval is
+recorded. The extract/migrate/replace gates and prototype acceptance do not replace
+that approval. Continue smaller tests, browser inspection, and required existing
+E2E execution; repairs to existing E2E must remain minimal and preserve assertions
+and intent, never weakening them to hide regressions.
+
+At finalization, verify the recorded approval covers the completed feature and
+hand off the consolidated E2E issue for implementation and validation (without
+expanding this skill's allowed write scope). Do not declare the overall feature
+complete until required E2E passes. Report the issue ID and any approval blocker.
