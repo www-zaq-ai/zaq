@@ -20,11 +20,15 @@
     {
       "text": "FINAL: mix format; mix q (1255 sources, no issues); mix assets.build; git diff --check passed. Complete affected scoped coveralls.json run: 10 properties, 250 tests, 0 failures. Includes People full context, merge/auth concurrency, new order concurrency+late rollback+real failed save retry, profile/auth/admin gateways and confidential API dispatch, production/preview LiveViews, pure properties, all shared components/BO header and full PersonSessionController login/auth regression suite. Existing license_manager warning unchanged. Exact legacy coverage exceptions tracked zaq-tup.10. Storybook duplicate-ID issue fixed with iframe isolation and reinspection shows no duplicate errors. Read-only real desktop/mobile data inspection completed; no real name/order mutation or logout. Remaining manual drag/keyboard/focus lives in .2; final UX .3 and behavior-changing existing E2E consolidation .4 remain gated.",
       "timestamp": "2026-09-15T11:13:46Z"
+    },
+    {
+      "text": "Post-audit validation supersedes previous FINAL comment: zaq-tup.11 P2 fixed and closed after reproducing failing stale-swap regressions. mix format PASS; final mix q PASS (1255 sources, zero issues); git diff --check PASS. Full prior 260-case scope plus 3 regressions and 80 BO PeopleLive caller tests: 10 properties,333 tests,0 failures (343 cases). No new E2E authored, no real-user mutations, no commits/pushes. Existing coverage numbers are pre-correction, not remeasured. Final UX .3 and E2E .4 still OPEN; remaining fixture browser checks .2 and legacy coverage .10 unchanged.",
+      "timestamp": "2026-09-15T11:23:18Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Validate production promotion and record final approval gate",
   "type": "task",
-  "updated_at": "2026-09-15T11:22:38Z"
+  "updated_at": "2026-09-15T11:23:18Z"
 }
