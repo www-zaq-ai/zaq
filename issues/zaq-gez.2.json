@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-gez.3"
   ],
+  "closed_at": "2026-09-15T06:13:46Z",
   "created": "2026-09-15T06:11:07Z",
   "description": "Update prototype, iterate, design, replace skills and E2E/BO docs to reference canonical policy, carry issue through handoffs, and distinguish component approval from final feature approval. Validate links and ensure existing test execution and manual verification remain intact. Docs-only; no test code or mocking.",
   "id": "zaq-gez.2",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-gez] Align UI skills and E2E checklists",
   "type": "task",
-  "updated_at": "2026-09-15T06:13:45Z"
+  "updated_at": "2026-09-15T06:13:46Z"
 }
