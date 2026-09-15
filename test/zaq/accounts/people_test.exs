@@ -653,6 +653,31 @@ defmodule Zaq.Accounts.PeopleTest do
   end
 
   describe "swap_channel_weights/2" do
+    test "stale input weights are ignored and cross-owner swaps retain their contract" do
+      person = create_person(%{email: nil})
+      other = create_person(%{email: nil})
+      a = add_channel(person.id, %{"platform" => "slack", "channel_identifier" => "swap-a"})
+      b = add_channel(other.id, %{"platform" => "slack", "channel_identifier" => "swap-b"})
+      {:ok, _} = People.update_self_channel_weight(person, a.id, %{weight: 4})
+      {:ok, _} = People.update_self_channel_weight(other, b.id, %{weight: 9})
+      assert {:ok, {:ok, updated_b}} = People.swap_channel_weights(b, a)
+      assert updated_b.id == a.id
+      assert People.get_channel(a.id).weight == 9
+      assert People.get_channel(b.id).weight == 4
+      assert People.get_channel(a.id).person_id == person.id
+      assert People.get_channel(b.id).person_id == other.id
+      assert {:ok, _} = People.swap_channel_weights(a, a)
+      assert People.get_channel(a.id).weight == 9
+      assert {:error, :not_found} = People.swap_channel_weights(nil, b)
+      assert {:error, :not_found} = People.swap_channel_weights(%{a | person_id: other.id}, b)
+      {:ok, _} = People.delete_channel(a)
+      assert {:error, :not_found} = People.swap_channel_weights(a, b)
+      assert People.get_channel(b.id).weight == 4
+      {:ok, _} = People.delete_person(person)
+      assert {:error, :not_found} = People.swap_channel_weights(a, b)
+      assert People.get_channel(b.id).weight == 4
+    end
+
     test "exchanges weights atomically" do
       person = create_person(%{email: nil})
       a = add_channel(person.id, %{"platform" => "slack", "channel_identifier" => "@slack"})

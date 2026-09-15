@@ -127,6 +127,7 @@ defmodule ZaqWeb.CoreComponents do
         class="zaq-toggle-segment"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="system"
+        aria-label="Use system theme"
       >
         <.icon name="hero-computer-desktop-micro" class="zaq-icon-sm" />
       </button>
@@ -136,6 +137,7 @@ defmodule ZaqWeb.CoreComponents do
         class="zaq-toggle-segment"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="light"
+        aria-label="Use light theme"
       >
         <.icon name="hero-sun-micro" class="zaq-icon-sm" />
       </button>
@@ -145,6 +147,7 @@ defmodule ZaqWeb.CoreComponents do
         class="zaq-toggle-segment"
         phx-click={JS.dispatch("phx:set-theme")}
         data-phx-theme="dark"
+        aria-label="Use dark theme"
       >
         <.icon name="hero-moon-micro" class="zaq-icon-sm" />
       </button>

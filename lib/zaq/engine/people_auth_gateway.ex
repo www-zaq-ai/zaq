@@ -40,6 +40,13 @@ defmodule Zaq.Engine.PeopleAuthGateway do
 
   @doc "Executes a fixed auth operation; callers must use confidential event envelopes."
   @spec dispatch(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def dispatch(
+        %{op: :update_self_channel_order, token: token, ids: ids, expected: expected},
+        opts
+      ) do
+    edit_profile(token, opts, &update_channel_order(&1, ids, expected))
+  end
+
   def dispatch(request, opts) do
     case request do
       %{op: :request_challenge, email: email, ip: ip} ->
@@ -79,6 +86,10 @@ defmodule Zaq.Engine.PeopleAuthGateway do
 
   defp update_channel_weight(person, id, attrs) do
     with {:ok, _} <- People.update_self_channel_weight(person, id, attrs), do: {:ok, person}
+  end
+
+  defp update_channel_order(person, ids, expected) do
+    with {:ok, _} <- People.update_self_channel_order(person, ids, expected), do: {:ok, person}
   end
 
   defp profile_operation(token, opts, operation) do

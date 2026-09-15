@@ -124,4 +124,105 @@ defmodule Zaq.Accounts.PeopleSelfProfileTest do
       assert Map.keys(changeset.changes) -- [:weight] == []
     end
   end
+
+  test "atomic order validates the complete snapshot and permutation without partial writes", %{
+    person: p,
+    channel: c
+  } do
+    {:ok, b} =
+      People.add_channel(%{
+        person_id: p.id,
+        platform: "slack",
+        channel_identifier: "order-second"
+      })
+
+    {:ok, other} =
+      People.create_person(%{full_name: "Foreign", email: "foreign-order@example.test"})
+
+    [foreign] = People.list_person_channels(other.id)
+    original = People.list_person_channels(p.id)
+    expected = Enum.map(original, &Map.take(&1, [:id, :weight]))
+
+    for ids <- [
+          [c.id],
+          [c.id, c.id],
+          [c.id, foreign.id],
+          [c.id, b.id, foreign.id],
+          nil,
+          %{},
+          ["bad"],
+          [c.id | :bad]
+        ] do
+      assert {:error, :invalid_order} = People.update_self_channel_order(p, ids, expected)
+      assert People.list_person_channels(p.id) == original
+    end
+
+    assert {:error, :not_found} = People.update_self_channel_order(nil, [], [])
+
+    assert {:error, :invalid_order} =
+             People.update_self_channel_order(p, [b.id, c.id], [%{id: c.id, weight: nil}])
+
+    assert {:ok, ordered} = People.update_self_channel_order(p, [b.id, c.id], expected)
+    assert Enum.map(ordered, &{&1.id, &1.weight}) == [{b.id, 0}, {c.id, 1}]
+
+    for channel <- ordered do
+      before = Enum.find(original, &(&1.id == channel.id))
+
+      assert Map.drop(Map.from_struct(channel), [:weight, :updated_at]) ==
+               Map.drop(Map.from_struct(before), [:weight, :updated_at])
+    end
+
+    assert {:error, :stale_order} = People.update_self_channel_order(p, [c.id, b.id], expected)
+    assert People.get_channel(foreign.id) == foreign
+  end
+
+  test "membership, weight-only changes and outer rollback protect an order draft", %{
+    person: p,
+    channel: c
+  } do
+    expected = [%{id: c.id, weight: c.weight}]
+    {:ok, _} = People.update_self_channel_weight(p, c.id, %{weight: 8})
+    assert {:error, :stale_order} = People.update_self_channel_order(p, [c.id], expected)
+    expected = [%{id: c.id, weight: 8}]
+
+    assert {:error, :abort} =
+             Repo.transaction(fn ->
+               assert {:ok, _} = People.update_self_channel_order(p, [c.id], expected)
+               Repo.rollback(:abort)
+             end)
+
+    assert People.get_channel(c.id).weight == 8
+
+    {:ok, b} =
+      People.add_channel(%{person_id: p.id, platform: "slack", channel_identifier: "membership"})
+
+    assert {:error, :stale_order} = People.update_self_channel_order(p, [c.id], expected)
+    expected = Enum.map(People.list_person_channels(p.id), &Map.take(&1, [:id, :weight]))
+    {:ok, _} = People.delete_channel(b)
+    assert {:error, :stale_order} = People.update_self_channel_order(p, [c.id, b.id], expected)
+  end
+
+  property "full permutations persist in exactly requested order with dense bounded weights", %{
+    person: p
+  } do
+    for index <- 1..3 do
+      {:ok, _} =
+        People.add_channel(%{
+          person_id: p.id,
+          platform: "slack",
+          channel_identifier: "permutation-#{index}"
+        })
+    end
+
+    ids = Enum.map(People.list_person_channels(p.id), & &1.id)
+
+    check all(priorities <- list_of(integer(), length: 4)) do
+      ordered = Enum.zip(ids, priorities) |> Enum.sort_by(&elem(&1, 1)) |> Enum.map(&elem(&1, 0))
+      expected = Enum.map(People.list_person_channels(p.id), &Map.take(&1, [:id, :weight]))
+      assert {:ok, rows} = People.update_self_channel_order(p, ordered, expected)
+      assert Enum.map(rows, & &1.id) == ordered
+      assert Enum.map(People.list_person_channels(p.id), & &1.id) == ordered
+      assert Enum.map(rows, & &1.weight) == [0, 1, 2, 3]
+    end
+  end
 end

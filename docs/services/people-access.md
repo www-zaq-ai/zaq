@@ -118,15 +118,50 @@ Trusted persistence APIs are `People.update_self_profile(person, attrs)` and
 by both literal current Person ID and channel ID before reading or updating.
 Foreign, missing and discarded channel IDs return `:not_found`, without alias fallback.
 Browser callers use fixed confidential `:people_auth` Engine operations `:profile`,
-`:update_self_profile` and `:update_self_channel_weight`, never trusted owner coordinates.
+`:update_self_profile`, `:update_self_channel_weight` and `:update_self_channel_order`,
+never trusted owner coordinates.
 The gateway derives the current Person from its bearer, holding authentication's
 Person-before-session locks in an outer transaction through each write and fresh
 `PeopleProfile` response. This serializes writes with session revocation and merges;
 merged credentials cannot transfer. Grant changes are checked at each operation
 boundary, but grant administrators do not participate in the Person lock protocol.
 
-The name form and each channel priority form save independently. Validation keeps
+`People.update_self_channel_order(person, ids, expected)` replaces all owned channel
+priorities atomically. `ids` is a complete permutation of the current literal owner's
+integer channel IDs; duplicates, omissions, foreign IDs and malformed lists reject.
+`expected` is the original ordered list of `%{id: integer, weight: integer}` maps.
+Different current membership, ordering or weights returns `:stale_order` before
+writing. The transaction locks the literal Person `FOR UPDATE`, then its channels
+by ID `FOR UPDATE`, and compares the fresh weight/ID-sorted snapshot. Person/FK
+locking blocks new channel references; channel locks serialize existing updates
+and deletes, including the legacy single-weight API. Merges already use Person-first
+locking. Dense zero-based weights go through `weight_changeset/2`; all rows commit
+or roll back together, preserving metadata and activity. The confidential gateway
+adds the same authentication/edit authorization and fresh response as existing writes.
+
+BO `People.swap_channel_weights/2` also locks literal Person owners first (ascending
+ID for trusted cross-owner swaps), then the requested channels in ascending ID order.
+It rereads current weights under those locks instead of using the supplied structs'
+old weights. Missing owners/channels or changed ownership return `:not_found` without
+alias fallback or partial writes. Existing cross-owner behavior, success envelope
+and ordinary channel-update activity semantics are retained. Thus a BO swap waiting
+for a profile reorder swaps the newly committed weights; a profile draft waiting
+for a BO swap rejects its now-stale snapshot.
+
+The profile uses the approved wide PersonLayout and shared PersonHeader/account menu;
+login retains the default narrow shell. Real full name (safe Profile fallback),
+People Profile and People logout are used, with a no-personal-settings placeholder.
+Teams are alphabetical and read-only. Provider icons and numbered channel rows replace
+numeric forms. One inline editor at a time offers name Save/Cancel or channel-order
+Save/Cancel with optional dragging and move-button alternatives. The draft and expected
+snapshot stay server-owned; Save dispatches one atomic operation. Validation keeps
 submitted scalar values and shows field errors; success reloads authoritative data.
+The existing optional blank-name behavior is retained. Stale order reloads for explicit
+review without overwriting or claiming success. Transient save errors retain drafts
+when a fresh authorized read confirms safe retry; failed reads remove controls.
+Database/transport exceptions at the web command boundary become generic unavailable
+outcomes without logging exception data. The live profile uses presentational
+`PersonProfile` and pure web `ChannelOrder`; the retired fixture preview is removed.
 Edit revocation denies the next save and refreshes the page read-only, retaining
 profile access. Access/session invalidation redirects to login. Unavailable loads
 remove writable controls; authentication/configuration failures show unavailable
