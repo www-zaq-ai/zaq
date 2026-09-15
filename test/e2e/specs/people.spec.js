@@ -4,6 +4,7 @@ const {
   loginToBackOffice,
   pickSearchableSelect,
   resetE2EState,
+  waitForLiveViewConnected,
   waitForLiveViewSettled,
   waitForServerRoundTrip,
 } = require("../support/bo")
@@ -212,9 +213,11 @@ test.describe("People", () => {
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
     await gotoBackOfficeLive(page, PEOPLE_PATH)
-    await page.locator(SEL.filterName).fill(name)
+    // A matching row can exist before filtering. Wait for the filtered table
+    // before clicking: blur flushes the debounce and can patch during the click.
+    await filterByName(page, name)
+    await expect(page.locator("#people-table tbody tr")).toHaveCount(1)
     await expect(page.locator("#people-table tbody tr").filter({ hasText: name })).toHaveCount(1)
-    await waitForServerRoundTrip(page)
     await selectPerson(page, name)
     await page.locator(editPerson).first().click()
     await expect(page.locator(SEL.emailInput)).toHaveValue(canonical)
@@ -223,10 +226,11 @@ test.describe("People", () => {
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
 
     await page.reload()
+    await waitForLiveViewConnected(page)
     await waitForLiveViewSettled(page)
-    await page.locator(SEL.filterName).fill(name)
+    await filterByName(page, name)
+    await expect(page.locator("#people-table tbody tr")).toHaveCount(1)
     await expect(page.locator("#people-table tbody tr").filter({ hasText: name })).toHaveCount(1)
-    await waitForServerRoundTrip(page)
     await selectPerson(page, name)
     await page.locator(editPerson).first().click()
     await expect(page.locator(SEL.emailInput)).toHaveValue(edited)
@@ -243,9 +247,9 @@ test.describe("People", () => {
     await page.locator(SEL.emailInput).fill(`other-${ts}@example.com`)
     await page.locator(SEL.savePersonButton).click()
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
-    await page.locator(SEL.filterName).fill(otherName)
+    await filterByName(page, otherName)
+    await expect(page.locator("#people-table tbody tr")).toHaveCount(1)
     await expect(page.locator("#people-table tbody tr").filter({ hasText: otherName })).toHaveCount(1)
-    await waitForServerRoundTrip(page)
     await selectPerson(page, otherName)
     await page.locator(editPerson).first().click()
     await page.locator(SEL.emailInput).fill(`EDITED-${ts}@Example.com`)
@@ -253,9 +257,9 @@ test.describe("People", () => {
     await expect(page.locator(SEL.modalOverlay)).toContainText("has already been taken")
 
     await gotoBackOfficeLive(page, PEOPLE_PATH)
-    await page.locator(SEL.filterName).fill(otherName)
+    await filterByName(page, otherName)
+    await expect(page.locator("#people-table tbody tr")).toHaveCount(1)
     await expect(page.locator("#people-table tbody tr").filter({ hasText: otherName })).toHaveCount(1)
-    await waitForServerRoundTrip(page)
     await selectPerson(page, otherName)
     await page.locator(editPerson).first().click()
     await expect(page.locator(SEL.emailInput)).toHaveValue(`other-${ts}@example.com`)
