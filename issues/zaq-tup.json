@@ -3,7 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-15T09:20:46Z",
-  "description": "Approved self-service redesign: keep PersonLayout, existing fields and permissions; teams read-only, channel logos, draft priority with Save/Cancel, responsive width. Deliver working-tree changes only. Production persistence and final UX approval remain separate.",
+  "description": "Approved full People profile redesign promoted to canonical /people/profile with real authenticated persistence; staging preview/fixtures removed in zaq-tup.12. Shared production header/account/content/list components, hooks, CSS and Storybook retained. Working-tree delivery only; preserve uncommitted work, no commits/push/worktrees. Remaining: .2 production browser interaction checks, .3 final explicit human UX approval, .4 consolidated E2E after approval, .10 scoped legacy coverage follow-up.",
   "id": "zaq-tup",
   "labels": [],
   "comments": [
@@ -16,5 +16,5 @@
   "status": "open",
   "title": "[zaq-tup] People profile UX and fixture prototype",
   "type": "epic",
-  "updated_at": "2026-09-15T10:40:04Z"
+  "updated_at": "2026-09-15T12:19:06Z"
 }
