@@ -6,9 +6,15 @@
   "description": "Approved self-service redesign: keep PersonLayout, existing fields and permissions; teams read-only, channel logos, draft priority with Save/Cancel, responsive width. Deliver working-tree changes only. Production persistence and final UX approval remain separate.",
   "id": "zaq-tup",
   "labels": [],
+  "comments": [
+    {
+      "text": "Production promotion explicitly approved, entire redesigned profile including persistence, excluding login. Final implemented UX/E2E approval is still pending .3 -\u003e .4. Plan graph: .9 atomic command -\u003e .8 live UI -\u003e .7 validation -\u003e .3 human approval -\u003e .4 E2E. Existing uncommitted work preserved; working-tree delivery only. /design applies approved shared header/account/list patterns. Context-mode/Serena tools are unavailable; using dedicated available tools.",
+      "timestamp": "2026-09-15T10:40:04Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-tup] People profile UX and fixture prototype",
   "type": "epic",
-  "updated_at": "2026-09-15T09:21:19Z"
+  "updated_at": "2026-09-15T10:40:04Z"
 }
