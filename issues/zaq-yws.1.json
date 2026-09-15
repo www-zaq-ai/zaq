@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-yws.2"
+  ],
   "created": "2026-09-15T13:40:01Z",
   "description": "Tests first: canonical Person, explicit non-Person kind/subject, missing/invalid/conflicting identity and property invariants. Own identity contract and trusted producers; preserve permissions; no downstream nil-to-system fallback. Mock only external edges. Update identity docs. Approved schema implementation follows audit of current producers.",
   "id": "zaq-yws.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-yws] Define strict shared execution identity and trusted producers",
   "type": "task",
-  "updated_at": "2026-09-15T13:40:01Z"
+  "updated_at": "2026-09-15T13:40:03Z"
 }

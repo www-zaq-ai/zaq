@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-yws.1"
+  ],
   "blocks": [],
   "created": "2026-09-15T13:40:02Z",
   "description": "Tests first: cold actor validation, warm same-identity reuse, mismatch rejection before touch/replacement, concurrent starts and unverifiable runtimes. Own Executor and ServerManager API and immutable binding. Update API docs; internal modules real.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-yws] Enforce actor-bound server lifecycle",
   "type": "task",
-  "updated_at": "2026-09-15T13:40:02Z"
+  "updated_at": "2026-09-15T13:40:03Z"
 }
