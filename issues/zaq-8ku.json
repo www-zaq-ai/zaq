@@ -10,11 +10,15 @@
     {
       "text": "Regression runs before implementation: Engine/controller 15 tests, 5 expected failures; real Records integration 3 tests, 2 expected failures (unindexed source + signed artifact). Implemented fixed Engine descriptors, fresh GetDocument in controller and removal of Ingestion DocumentContent. Initial focused+unchanged BoundaryTest run: 19 tests, 0 failures. Context-mode tools/resources unavailable; precommit mandated context-mode gate blocked. Continuing expanded regression/browser/quality validation. Linear DAG: zaq-8ku.1 -\u003e zaq-8ku.2 -\u003e zaq-8ku.3. No issues closed until full gates pass.",
       "timestamp": "2026-09-15T19:08:54Z"
+    },
+    {
+      "text": "Final validation: focused ExCoveralls run 46 tests + 1 property PASS, including unchanged Ingestion BoundaryTest and API/events. Whole-file scoped coverage: Engine.PeopleConversations 95.8%; resource controller 100%; shared PersonConversationResource 97.5%; People.ConversationDetailLive 96.2%. Ingestion API remaining unrelated handlers 44.4% in this focused run, events 100%; this is not full-suite coverage (overall scoped-run total 8.5%). Broad DataSource actions/tools, Channels API/DataSourceBridge/DiskBridge/materializers, Storage materializers, Record and Materialization: 372 tests + 6 properties PASS. Browser 3 tests PASS at both widths. mix format and mix q PASS; final repeat pending log below. Source-content module/test and API/event deleted, no dead source_content references under lib/test. git index remained empty and BoundaryTest unchanged. No commits/push/PR/DB resets. All issues retained open because mandatory context-mode precommit cannot run with the available tools.",
+      "timestamp": "2026-09-15T19:31:32Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-8ku] Correct People source resource boundary",
   "type": "epic",
-  "updated_at": "2026-09-15T19:31:31Z"
+  "updated_at": "2026-09-15T19:31:32Z"
 }
