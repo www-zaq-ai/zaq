@@ -13,11 +13,15 @@
     {
       "text": "Continuation of existing uncommitted prototype, not unrelated work. Existing docs/ux/people-profile.md section 1 is the accepted product brief (no standalone PRD). Settings placeholder explicitly approved by user. Signed-in session now available; extract caller-owned header seam, do not copy BO administration menus into People.",
       "timestamp": "2026-09-15T09:57:09Z"
+    },
+    {
+      "text": "Implemented shared PageHeader/page_heading used by BOLayout and new PersonHeader in People preview. Brand at left, no sidebar, Settings placeholder approved, People-only profile/logout. Theme accessible names; specific prototype hooks registered after browser found unknown hooks. Mobile menu anchored to account nav with opaque existing raised/border roles. Latest mix format/q/assets.build pass; 1 property+31 tests pass including unchanged BO and production profile tests. Browser verified 1440/390 header, dark/light, menus, outside dismissal, name cancel and move/save. Coverage scoped run: PersonLayout/preview100, legacy BOLayout84.6 and Core6.7; untested legacy helper coverage follow-up documented, no whole-file95 claim. Physical dragging/keyboard checks remain in .2; final human approval .3 stays open. No commits.",
+      "timestamp": "2026-09-15T10:16:54Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Reuse BO header without sidebar in People preview",
   "type": "task",
-  "updated_at": "2026-09-15T09:57:09Z"
+  "updated_at": "2026-09-15T10:16:54Z"
 }
