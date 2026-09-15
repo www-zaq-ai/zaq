@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-15T07:25:01Z",
@@ -7,7 +7,7 @@
   "id": "zaq-6fg",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-6fg] Document production host and TLS requirements and align defaults",
   "type": "task",
   "updated_at": "2026-09-15T07:25:07Z"
