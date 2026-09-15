@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-yws.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-yws",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-yws] Define strict shared execution identity and trusted producers",
   "type": "task",
-  "updated_at": "2026-09-15T13:40:03Z"
+  "updated_at": "2026-09-15T13:40:05Z"
 }
