@@ -11,9 +11,15 @@
   "id": "zaq-gez.2",
   "labels": [],
   "parent": "zaq-gez",
+  "comments": [
+    {
+      "text": "Aligned prototype/iterate/design/replace and E2E/BO docs with canonical gate. Checked relative handbook links, retained existing-spec runs and browser inspection, clarified that prototype/component approvals are not final feature approval. No test/application changes.",
+      "timestamp": "2026-09-15T06:13:45Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-gez] Align UI skills and E2E checklists",
   "type": "task",
-  "updated_at": "2026-09-15T06:12:40Z"
+  "updated_at": "2026-09-15T06:13:45Z"
 }
