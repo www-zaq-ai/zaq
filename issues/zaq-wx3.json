@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T08:09:56Z",
+  "description": "Minimal existing E2E repair approved by user. Use existing filter helper, assert one total row before selection, and await LiveView connection after reload. Preserve email/duplicate/persistence assertions; no production changes or new journeys. CI trace shows filter diff during failing click. Validate repeated WebKit, browser matrix People spec, mix format and mix q.",
+  "id": "zaq-wx3",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[people-webkit] Synchronize email journey filtering before selection",
+  "type": "task",
+  "updated_at": "2026-09-15T08:09:56Z"
+}
