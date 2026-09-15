@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T15:08:15Z",
+  "description": "Coverage exception from actor lifecycle implementation: Workflows context 93% after all workflow suites plus changed files (1284 tests, 18 properties, 11 doctests). New lifecycle actor forwarding tested; uncovered pre-existing CRUD/validation, version/dependency, pause/resume/async errors remain (lines 206,260,311,329-331,372-384,457,608,621,857,1097,1147,1185,1528-1531,1569,1647,1693,1706). Add production-relevant public context tests to \u003e=95%; preserve assertions. Include exception in eventual PR.",
+  "id": "zaq-vow",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-yws] Cover remaining Workflows context branches",
+  "type": "task",
+  "updated_at": "2026-09-15T15:08:15Z"
+}
