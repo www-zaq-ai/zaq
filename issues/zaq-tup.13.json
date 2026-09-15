@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T12:37:54Z",
+  "description": "Minimal existing-test repair: include three explicitly registered production People profile hooks in exact equality allowlist. Keep exact equality and DetectTimezone/DialogOverlay exclusions, do not broaden test scope or relax assertions. Run Firefox focused journey and mix format/mix q. No production code changes; final feature E2E authoring gate unchanged.",
+  "id": "zaq-tup.13",
+  "labels": [],
+  "parent": "zaq-tup",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-tup] Repair People E2E hook allowlist after live profile promotion",
+  "type": "task",
+  "updated_at": "2026-09-15T12:37:54Z"
+}
