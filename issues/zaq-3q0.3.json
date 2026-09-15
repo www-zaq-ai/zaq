@@ -13,11 +13,15 @@
     {
       "text": "Changed coverup no-arg and threshold-only limits from 3 to 20; explicit override and 95 threshold preserved. Validating.",
       "timestamp": "2026-09-15T16:18:03Z"
+    },
+    {
+      "text": "Verification: dependency-free Elixir probe invoked the actual coverup alias and passed [] =\u003e 95/20, [80] =\u003e 80/20, [80,7] =\u003e 80/7. git diff --check passes. mix format and mix q attempted, both blocked by missing ecto_sql formatter dependency. mix precommit not run: context-mode tools unavailable. Validation remains pending; no claims of full checks passing.",
+      "timestamp": "2026-09-15T16:20:46Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-3q0] Increase coverup defaults and validate",
   "type": "task",
-  "updated_at": "2026-09-15T16:18:03Z"
+  "updated_at": "2026-09-15T16:20:46Z"
 }
