@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T12:55:34Z",
+  "description": "Specifications: complete targeted ExUnit/property/browser checks, \u003e=95% new scope coverage or exact tracked gaps, mix format and mandatory mix q; inspect complete diff and unchanged baseline index. Tests first: enumerate changed scope and run relevant suites. Paths: regression BO behavior and existing enhanced profile. No extra mocks. Update service docs and issue decisions. No commits, pushes, PRs or database resets.",
+  "id": "zaq-5vz.7",
+  "labels": [],
+  "parent": "zaq-5vz",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-5vz] Validate full slice coverage format quality and preservation",
+  "type": "task",
+  "updated_at": "2026-09-15T12:55:34Z"
+}
