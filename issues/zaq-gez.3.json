@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-gez.2"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-gez",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-gez] Validate approval-gated E2E documentation",
   "type": "task",
-  "updated_at": "2026-09-15T06:11:15Z"
+  "updated_at": "2026-09-15T06:13:46Z"
 }
