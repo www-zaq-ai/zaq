@@ -10,9 +10,15 @@
   "description": "Step 2: split HTTP filter coverage from People/BO connected mount bearer absence, preserve positive diagnostics and restore global Logger state.",
   "id": "zaq-nn5",
   "labels": [],
+  "comments": [
+    {
+      "text": "Split HTTP regression from connected People/BO mount checks; mount-stop diagnostic positive control, session-dump/bearer absence, global Logger restoration. mix format and controller suite pass: 20 tests. No production functions added.",
+      "timestamp": "2026-09-15T08:22:23Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-nn5] Separate HTTP and shared-session logging regressions",
   "type": "task",
-  "updated_at": "2026-09-15T08:21:02Z"
+  "updated_at": "2026-09-15T08:22:23Z"
 }
