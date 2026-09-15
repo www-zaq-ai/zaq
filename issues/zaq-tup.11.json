@@ -13,11 +13,15 @@
     {
       "text": "Call-site audit: only Engine PeopleGateway and BO adjacent-channel moves call swap. No tests restrict cross-owner swaps; preserve existing trusted cross-owner behavior by locking all supplied literal Person owners ascending, then channels ascending. Reread and verify each channel still belongs to its supplied owner; deleted/transferred/invalid coordinates return not_found, no alias following. Preserve successful return shape and update_channel activity semantics. Tests reproduce stale weights and both deterministic serialized interleavings.",
       "timestamp": "2026-09-15T11:17:35Z"
+    },
+    {
+      "text": "Reproduced before fix: stale BO C/B swap after B0/A1/C2 yielded A1/C1/B2; cross-owner stale weights also failed. Fixed Person owners ascending -\u003e channel IDs ascending, reread fresh weights and verify literal ownership; retain cross-owner behavior, nested success envelope and activity timestamps. No UI/API authorization changes. Regression/context tests pass, including transaction/message barriers for both reorder/swap interleavings, no sleeps. Full prior scope plus all BO PeopleLive tests: 10 properties +333 tests =343 cases, zero failures. mix format/q passed; original license_manager warning remains. Docs/handoff updated; no coverage remeasurement claimed.",
+      "timestamp": "2026-09-15T11:22:37Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Serialize BO channel swaps with profile reordering",
   "type": "task",
-  "updated_at": "2026-09-15T11:17:35Z"
+  "updated_at": "2026-09-15T11:22:37Z"
 }
