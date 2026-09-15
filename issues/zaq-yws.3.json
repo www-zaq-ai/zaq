@@ -11,9 +11,15 @@
   "id": "zaq-yws.3",
   "labels": [],
   "parent": "zaq-yws",
+  "comments": [
+    {
+      "text": "Factory.runtime_config/2 validates actor before structural build, exposes actor in runtime configuration and initial tool context. Dedicated server execution_actor retained independently of mutable request context; RuntimeSync does not rebind. Core tests passing.",
+      "timestamp": "2026-09-15T14:53:39Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-yws] Carry actor through runtime initialization",
   "type": "task",
-  "updated_at": "2026-09-15T13:40:04Z"
+  "updated_at": "2026-09-15T14:53:39Z"
 }
