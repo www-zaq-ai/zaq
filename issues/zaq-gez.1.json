@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T06:11:07Z",
+  "description": "Edit testing handbook, AGENTS, PLAN_STRATEGY and WORKFLOW_AGENT. Define persistent E2E issue, approval dependency, scope updates, minimal intent-preserving repairs, regression exception escalation, and final completion gate. Validation defined before edits: inspect lifecycle against planning/iteration/approval/reopened-scope scenarios; docs-only, no test code or mocks; final mix q in validation step.",
+  "id": "zaq-gez.1",
+  "labels": [],
+  "parent": "zaq-gez",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-gez] Define E2E approval policy and planning workflow",
+  "type": "task",
+  "updated_at": "2026-09-15T06:11:07Z"
+}
