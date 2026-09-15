@@ -17,11 +17,15 @@
     {
       "text": "Production promotion approved, but final implemented UX approval .3 is still OPEN. Existing test/e2e/support/people-auth-browser.cjs assumes Welcome copy, People nav, always-visible name form and numeric priority=5. New draft-order behavior cannot be repaired with selector-only changes while preserving numeric assertions. Do not substantially rewrite this existing journey until .3 is approved; then consolidate identity/menu, inline name Save/Cancel, ordered batch persistence/cancel, permission revocation, mobile/desktop and independent logout scenarios. Immediate real context/gateway/LiveView/controller regressions cover these boundaries; real user data must not be mutated for review.",
       "timestamp": "2026-09-15T11:03:02Z"
+    },
+    {
+      "text": "Cleanup zaq-tup.12 removes staging route/fixtures/simulation scenarios. Pending E2E covers production /people/profile only, with dedicated test identities; synthetic scenario navigation and fixture-only saves are superseded. Inline Storybook presentation variants remain. Final UX approval .3 still blocks authoring; existing E2E remains unchanged.",
+      "timestamp": "2026-09-15T12:13:52Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-tup] Consolidated profile E2E after approval",
   "type": "task",
-  "updated_at": "2026-09-15T11:03:02Z"
+  "updated_at": "2026-09-15T12:13:52Z"
 }
