@@ -98,8 +98,8 @@ defmodule Zaq.People.AuthRateLimiter do
       local = local(role)
       key = {role, scope, scale}
       # Adapter broadcast reaches other nodes only, avoiding double local counting.
-      with {:ok, {adapter, name}} <- Registry.meta(@pubsub, :pubsub),
-           :ok <- adapter.broadcast(name, topic(role), {:inc, key, scale, 1}, Phoenix.PubSub) do
+      with {:ok, {adapter, name, dispatcher}} <- Registry.meta(@pubsub, :pubsub),
+           :ok <- adapter.broadcast(name, topic(role), {:inc, key, scale, 1}, dispatcher) do
         local.hit(key, scale, limit) |> hit_result()
       else
         _ -> {:error, :rate_limiter_unavailable}
