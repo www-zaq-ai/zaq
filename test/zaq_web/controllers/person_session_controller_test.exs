@@ -300,18 +300,13 @@ defmodule ZaqWeb.PersonSessionControllerTest do
     {:ok, %{token: token}} = PeopleAuth.verify_challenge(c.challenge_id, c.code)
     marker = "otp-log-marker-" <> Ecto.UUID.generate()
     control = "visible-control-" <> Ecto.UUID.generate()
-    modules = [Phoenix.Logger, Phoenix.LiveView.Logger]
+    modules = [Phoenix.Logger]
     previous_levels = Logger.get_module_level(modules)
     Logger.put_module_level(modules, :debug)
 
     try do
       log =
         ExUnit.CaptureLog.capture_log([level: :debug], fn ->
-          {:ok, view, _} =
-            conn |> init_test_session(%{person_session_token: token}) |> live("/people/profile")
-
-          assert render(view) =~ "Profile"
-
           conn
           |> init_test_session(%{person_session_token: token})
           |> post("/people/session", %{
@@ -326,6 +321,41 @@ defmodule ZaqWeb.PersonSessionControllerTest do
       assert log =~ "[FILTERED]"
       refute log =~ marker
       refute log =~ token
+    after
+      Logger.delete_module_level(modules)
+      Enum.each(previous_levels, fn {module, level} -> Logger.put_module_level(module, level) end)
+    end
+  end
+
+  test "LiveView mount diagnostics never dump People bearers on People or BO pages", %{
+    conn: conn,
+    challenge: c
+  } do
+    {:ok, %{token: token}} = PeopleAuth.verify_challenge(c.challenge_id, c.code)
+    Zaq.PortalStubs.stub_portal_reachable()
+    user = Zaq.AccountsFixtures.user_fixture()
+    {:ok, user} = Zaq.Accounts.change_password(user, %{password: "StrongPass1!"})
+    modules = [Phoenix.LiveView.Logger]
+    previous_levels = Logger.get_module_level(modules)
+    Logger.put_module_level(modules, :debug)
+
+    try do
+      for path <- ["/people/profile", "/bo/profile"] do
+        log =
+          ExUnit.CaptureLog.capture_log([level: :debug], fn ->
+            {:ok, view, _} =
+              conn
+              |> init_test_session(%{person_session_token: token, user_id: user.id})
+              |> live(path)
+
+            assert render(view) =~ "Profile"
+          end)
+
+        # Mount-stop diagnostics remain enabled; only the raw session dump is purged.
+        assert log =~ "Replied in"
+        refute log =~ "Session:"
+        refute log =~ token
+      end
     after
       Logger.delete_module_level(modules)
       Enum.each(previous_levels, fn {module, level} -> Logger.put_module_level(module, level) end)
