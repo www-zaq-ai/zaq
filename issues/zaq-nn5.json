@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-us2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-m8k"
+  ],
   "created": "2026-09-15T08:19:40Z",
   "description": "Step 2: split HTTP filter coverage from People/BO connected mount bearer absence, preserve positive diagnostics and restore global Logger state.",
   "id": "zaq-nn5",

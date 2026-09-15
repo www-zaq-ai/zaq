@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-nn5"
+  ],
   "blocks": [],
   "created": "2026-09-15T08:19:40Z",
   "description": "Step 3: format, focused regressions, clean/restored LiveView compilation checks where feasible, mix q and diff review. No new production functions; property tests not needed for build configuration and concrete integration regression.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-m8k] Validate cached LiveView logging fix",
   "type": "task",
-  "updated_at": "2026-09-15T08:19:51Z"
+  "updated_at": "2026-09-15T08:19:52Z"
 }
