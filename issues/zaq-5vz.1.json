@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-5vz.6"
+  ],
   "blocks": [],
   "created": "2026-09-15T12:55:21Z",
   "description": "Specifications/files: DS HistoryBrowser composes existing History filters/table/row/bulkbar; optional SimplePagination; DS ConversationDetail reuses BO transcript, ChatMessage info/trace/feedback/shares. Parameterize routes/actions/identity and safe artifact URLs. BO call sites consume shared components with original semantics; no auth/event delegation. Tests first: components BO default appearance/selectors and People no identity/destructive controls, paging and route overrides, details full info/attachments. Storybook update existing history stories and add cohesive component stories. Mocking: none. Docs: DESIGN and bo-components. User explicitly approves extraction and reuse wiring.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-5vz] Extract and wire shared BO HistoryBrowser and ConversationDetail presentation",
   "type": "task",
-  "updated_at": "2026-09-15T12:55:21Z"
+  "updated_at": "2026-09-15T12:55:53Z"
 }
