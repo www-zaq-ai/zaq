@@ -15,11 +15,15 @@
     {
       "text": "Extending the existing no-reset SQL Sandbox People browser harness. Existing auth/profile assertions had stale welcome/inline numeric-priority selectors from before HEAD enhanced profile; repairing them to assert name edits, atomic saved channel order, revoke-before-save and independent logout with current header menus. New history journeys will run through the same regular sign-in and admin-grant controls.",
       "timestamp": "2026-09-15T13:24:02Z"
+    },
+    {
+      "text": "Complete: actual Chromium/Firefox/WebKit at 390 and 1280, existing no-reset SQL Sandbox runner. Expanded journeys verify header/settings, active/archive filters, 25-row paging, Back state, attachment metadata, positive/negative feedback, full trace JSON, authorized artifact bytes/citation preview, create/revoke share in separate anonymous context, recipient denial for protected resources, permission revocation and independent BO/People logout. Existing enhanced profile selectors repaired preserving save/order/reload/revocation intent. Final combined run seed 394634: 815 tests + 23 properties, zero failures. Also reproduced former browser-\u003econtroller ordering with 25 tests, zero failures.",
+      "timestamp": "2026-09-15T15:38:46Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5vz] Consolidated no-reset People history browser journeys",
   "type": "task",
-  "updated_at": "2026-09-15T13:24:02Z"
+  "updated_at": "2026-09-15T15:38:46Z"
 }
