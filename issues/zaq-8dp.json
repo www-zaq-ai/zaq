@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-15T15:49:53Z",
   "created": "2026-09-15T13:56:52Z",
   "description": "Discovered during PR7 broad coverage. test/zaq/engine/conversations/title_generation_from_conversations_test.exs:41 fails assert_receive openai_request after 100ms. Reproduced twice normally and with unchanged HEAD 44dc33d2 Conversations source compiled only in a separate test VM via git show + Code.compile_string; no worktree baseline files changed. Existing LLM stub/title generation integration is outside requested People history slice. Preserve assertions; investigate production LLM factory/config path and async test ownership before changing timeout. Blocks a completely green broad coverage run, not focused PR7 tests.",
   "id": "zaq-8dp",
@@ -17,7 +18,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-5vz] Baseline title-generation integration test receives no mocked LLM request",
   "type": "bug",
   "updated_at": "2026-09-15T15:49:53Z"
