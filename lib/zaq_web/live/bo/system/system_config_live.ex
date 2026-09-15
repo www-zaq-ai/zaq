@@ -1,4 +1,8 @@
 defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
+  @moduledoc """
+  Back-office system settings orchestration. Configuration persistence is owned
+  by System through Engine events; embedded schemas provide local form feedback.
+  """
   use ZaqWeb, :live_view
 
   alias Zaq.Agent.MCP
@@ -7,11 +11,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.Agent.ZAQRouter
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Config
+  alias Zaq.Engine.Events
   alias Zaq.Event
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.OutboundHttpPolicy, as: SystemOutboundHttpPolicy
+  alias Zaq.System.PeopleAccessConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.Utils.Map, as: MapUtils
   alias Zaq.Utils.ParseUtils
@@ -41,6 +47,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:current_path, "/bo/system-config")
      |> assign(:page_title, "System Configuration")
      |> assign(:active_tab, :ai_credentials)
+     |> assign(:people_access_config, nil)
+     |> assign(:people_access_form, nil)
+     |> assign(:people_access_load_error, nil)
      |> assign(:node_router_module, node_router_module)
      |> assign(:ai_credential_modal, false)
      |> assign(:ai_credential_delete_confirm_modal, false)
@@ -98,6 +107,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> load_image_to_text_form()}
   end
 
+  def handle_params(%{"tab" => "people_access"}, _uri, socket) do
+    {:noreply, socket |> assign(:active_tab, :people_access) |> load_people_access_form()}
+  end
+
   def handle_params(%{"tab" => tab}, _uri, socket)
       when tab in ~w(ai_credentials auth_credentials outbound_http mcps global skills llm embedding image_to_text telemetry) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
@@ -111,6 +124,43 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     {:noreply, push_patch(socket, to: ~p"/bo/system-config?tab=#{tab}")}
+  end
+
+  def handle_event("retry_people_access_config", _params, socket) do
+    {:noreply, load_people_access_form(socket)}
+  end
+
+  def handle_event(event, _params, %{assigns: %{people_access_config: nil}} = socket)
+      when event in ["validate_people_access_config", "save_people_access_config"] do
+    {:noreply, socket}
+  end
+
+  def handle_event("validate_people_access_config", params, socket) do
+    {:noreply, assign_people_access_form(socket, Map.get(params, "people_access_config"))}
+  end
+
+  def handle_event("save_people_access_config", params, socket) do
+    attrs = Map.get(params, "people_access_config")
+    socket = assign_people_access_form(socket, attrs)
+
+    case dispatch_engine(:system_config_save_people_access_config, %{attrs: attrs}) do
+      {:ok, %PeopleAccessConfig{} = config} ->
+        {:noreply,
+         socket
+         |> put_people_access_config(config)
+         |> put_flash(:info, "People access settings saved")}
+
+      {:error, %Ecto.Changeset{data: %PeopleAccessConfig{}} = changeset} ->
+        {:noreply, assign(socket, :people_access_form, to_form(changeset, action: :validate))}
+
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Could not save People access settings. Your edits are retained; try again."
+         )}
+    end
   end
 
   def handle_event("save_skill_resource_config", %{"skill_resources" => attrs}, socket) do
@@ -1563,9 +1613,44 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp ai_oauth_error(reason), do: "OAuth2 grant flow could not start: #{inspect(reason)}"
 
   defp dispatch_engine(action, request \\ %{}) do
-    Event.new(request, :engine, opts: [action: action])
-    |> node_router_module().dispatch()
+    Events.build_and_dispatch_invoke_event(request, action, node_router: node_router_module())
     |> Map.get(:response)
+  end
+
+  defp load_people_access_form(socket) do
+    case dispatch_engine(:system_config_get_people_access_config) do
+      {:ok, %PeopleAccessConfig{} = config} ->
+        put_people_access_config(socket, config)
+
+      {:error, {:invalid_people_access_config, _changeset}} ->
+        assign(socket,
+          people_access_config: nil,
+          people_access_form: nil,
+          people_access_load_error:
+            "Stored People access settings are invalid. Correct the stored configuration and retry."
+        )
+
+      _ ->
+        assign(socket,
+          people_access_config: nil,
+          people_access_form: nil,
+          people_access_load_error:
+            "People access settings are unavailable. Retry to load current settings."
+        )
+    end
+  end
+
+  defp put_people_access_config(socket, config) do
+    assign(socket,
+      people_access_config: config,
+      people_access_form: to_form(PeopleAccessConfig.changeset(config, %{})),
+      people_access_load_error: nil
+    )
+  end
+
+  defp assign_people_access_form(socket, attrs) do
+    changeset = PeopleAccessConfig.changeset(socket.assigns.people_access_config, attrs)
+    assign(socket, :people_access_form, to_form(changeset, action: :validate))
   end
 
   defp dispatch_agent(action, request \\ %{}) do

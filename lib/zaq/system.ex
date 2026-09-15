@@ -22,6 +22,7 @@ defmodule Zaq.System do
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
   alias Zaq.System.OutboundHttpPolicy
+  alias Zaq.System.PeopleAccessConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
@@ -223,6 +224,70 @@ defmodule Zaq.System do
 
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(value), do: value
+
+  # ── People access ─────────────────────────────────────────────────────
+
+  @doc """
+  Reads People access settings with one grouped query and no writes.
+  Missing keys use embedded defaults; invalid persisted keys return
+  `{:error, {:invalid_people_access_config, changeset}}`, never fallback values.
+  """
+  @spec get_people_access_config() ::
+          {:ok, PeopleAccessConfig.t()}
+          | {:error, {:invalid_people_access_config, Ecto.Changeset.t()}}
+  def get_people_access_config do
+    keys = Enum.map(PeopleAccessConfig.__schema__(:fields), &"people_access.#{&1}")
+
+    attrs =
+      from(c in Config, where: c.key in ^keys, select: {c.key, c.value})
+      |> Repo.all()
+      |> Map.new(fn {key, value} -> {String.replace_prefix(key, "people_access.", ""), value} end)
+
+    case PeopleAccessConfig.changeset(%PeopleAccessConfig{}, attrs)
+         |> Ecto.Changeset.apply_action(:validate) do
+      {:ok, config} -> {:ok, config}
+      {:error, changeset} -> {:error, {:invalid_people_access_config, changeset}}
+    end
+  end
+
+  @doc """
+  Authoritatively validates attributes and atomically saves all nine numeric keys.
+  Partial attributes preserve current effective values. A corrupt group blocks
+  partial saves; a complete valid payload can repair it. Unknown keys are ignored.
+  Returns the typed saved config or a validation/persistence changeset (or the
+  typed corrupt-read error). Concurrent complete saves use last-writer-wins semantics.
+  """
+  @spec save_people_access_config(term()) ::
+          {:ok, PeopleAccessConfig.t()} | {:error, term()}
+  def save_people_access_config(attrs) do
+    changeset = PeopleAccessConfig.changeset(%PeopleAccessConfig{}, attrs)
+
+    with {:ok, config} <- Ecto.Changeset.apply_action(changeset, :validate),
+         {:ok, config} <- merge_people_access_config(config, changeset.params, attrs) do
+      case Repo.transaction(people_access_config_multi(config)) do
+        {:ok, _rows} -> {:ok, config}
+        {:error, _field, reason, _changes} -> {:error, reason}
+      end
+    end
+  end
+
+  defp people_access_config_multi(config) do
+    Enum.reduce(PeopleAccessConfig.__schema__(:fields), Ecto.Multi.new(), fn field, multi ->
+      Ecto.Multi.run(multi, field, fn _repo, _changes ->
+        set_config("people_access.#{field}", Map.fetch!(config, field))
+      end)
+    end)
+  end
+
+  defp merge_people_access_config(config, params, attrs) do
+    if map_size(params) == length(PeopleAccessConfig.__schema__(:fields)) do
+      {:ok, config}
+    else
+      with {:ok, current} <- get_people_access_config() do
+        current |> PeopleAccessConfig.changeset(attrs) |> Ecto.Changeset.apply_action(:validate)
+      end
+    end
+  end
 
   # ── Telemetry ─────────────────────────────────────────────────────────
 
