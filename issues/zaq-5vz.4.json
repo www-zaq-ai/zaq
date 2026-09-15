@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-5vz.1"
+  ],
   "blocks": [],
   "created": "2026-09-15T12:55:32Z",
   "description": "Specifications/files: People HistoryLive/ConversationDetailLive, scoped resource controller/routes in existing Channels People protected scope, server-private token confidential commands; every event and data refresh reauthorized; safe denial cleanup and unknown-event handling. Existing PersonHeader settings Conversations link using effective profile+history, real current_person name, profile preserved. Tests first: HTTP/LiveView routing isolation, direct-link/forged events, rating/share workflows, revocation, filters/page/back, header on all pages and no BO navigation. Mocking: real internal boundaries, external bytes only if needed. Docs: people-access and e2e.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-5vz] Wire protected People history detail resources and settings navigation",
   "type": "task",
-  "updated_at": "2026-09-15T12:55:32Z"
+  "updated_at": "2026-09-15T12:55:53Z"
 }
