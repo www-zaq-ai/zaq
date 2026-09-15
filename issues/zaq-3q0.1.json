@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-3q0.2"
+  ],
   "created": "2026-09-15T16:15:47Z",
   "description": "Update general policies/templates to critical-path testing; preserve async-friendly design and coverage-specific targets.",
   "id": "zaq-3q0.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-3q0] Replace development coverage gates",
   "type": "task",
-  "updated_at": "2026-09-15T16:15:47Z"
+  "updated_at": "2026-09-15T16:15:56Z"
 }
