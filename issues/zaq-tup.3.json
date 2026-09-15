@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-tup.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-tup.4"
+  ],
   "created": "2026-09-15T09:21:21Z",
   "description": "Await explicit human UX/UI approval after staging and later production hardening; prototype acceptance is not final E2E approval.",
   "id": "zaq-tup.3",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-tup] Human approval of completed profile UX",
   "type": "task",
-  "updated_at": "2026-09-15T09:21:29Z"
+  "updated_at": "2026-09-15T09:21:30Z"
 }
