@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T10:22:35Z",
+  "description": "Approved correction: extract BO account menu with configurable IDs and caller-owned name/routes/logout labels; share disclosure behavior and viewport containment; preserve Settings and existing assertions. Update UX before code, add component/LiveView regressions, run format/q/targeted tests/assets and record results. Final UX approval and E2E remain pending.",
+  "id": "zaq-tup.6",
+  "labels": [],
+  "parent": "zaq-tup",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-tup] Share BO avatar account menu with People fixture preview",
+  "type": "task",
+  "updated_at": "2026-09-15T10:22:35Z"
+}
