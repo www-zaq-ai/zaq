@@ -9,9 +9,15 @@
   "id": "zaq-3q0.1",
   "labels": [],
   "parent": "zaq-3q0",
+  "comments": [
+    {
+      "text": "Updated general testing policies/templates to critical paths without percentage gates; preserved async config/dependency guidance. Working tree changes only pending validation/review.",
+      "timestamp": "2026-09-15T16:18:01Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-3q0] Replace development coverage gates",
   "type": "task",
-  "updated_at": "2026-09-15T16:15:58Z"
+  "updated_at": "2026-09-15T16:18:01Z"
 }
