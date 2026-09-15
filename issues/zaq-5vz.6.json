@@ -11,9 +11,15 @@
   "id": "zaq-5vz.6",
   "labels": [],
   "parent": "zaq-5vz",
+  "comments": [
+    {
+      "text": "Complete: fixed confidential Engine action, fresh PeopleAuth + generic prerequisite lists on every operation; literal conversation ownership before children; conversation/message locks through rating/share writes; no destructive allowlist entries or browser author trust. Explicit source ACL checks precede communication snapshot fallback. Raw trace content retained; protected URLs use parent-scoped resources and current document ACL/materialization context. Gateway whole-file coverage 98.63%, DocumentContent 100%, all new/changed app lines 99.34%. Expanded real integration/property/concurrency suite green.",
+      "timestamp": "2026-09-15T15:38:47Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5vz] Authorized confidential PeopleConversations Engine gateway",
   "type": "task",
-  "updated_at": "2026-09-15T12:55:53Z"
+  "updated_at": "2026-09-15T15:38:47Z"
 }
