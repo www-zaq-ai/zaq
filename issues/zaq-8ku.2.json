@@ -11,9 +11,15 @@
   "id": "zaq-8ku.2",
   "labels": [],
   "parent": "zaq-8ku",
+  "comments": [
+    {
+      "text": "Browser exposed existing LiveView byte-preview consumer of Engine result. Added shared ZaqWeb.PersonConversationResource orchestration used by HTTP controller and existing preview modal; no duplicated parser/GetDocument logic, no new role API or authorization policy. Modal now loads current Record before rendering. Canonical disk fixture shared by browser/LiveView/integration tests. Unrelated profile markup/styles untouched. Latest focused run includes history LiveView, Access, Engine concurrency, resources and unchanged Ingestion boundary/API/events: 45 tests + 1 property, all pass.",
+      "timestamp": "2026-09-15T19:20:25Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-8ku] Move source orchestration to secured GetDocument",
   "type": "task",
-  "updated_at": "2026-09-15T19:02:08Z"
+  "updated_at": "2026-09-15T19:20:25Z"
 }
