@@ -11,9 +11,15 @@
   "id": "zaq-5vz.4",
   "labels": [],
   "parent": "zaq-5vz",
+  "comments": [
+    {
+      "text": "Complete: Channels-only existing protected People live_session routes for history/detail and resource URLs; PersonLayout/PersonHeader throughout, current_person name without header profile queries/callbacks. Server-private bearer, current permission checks, scoped child operations, controlled unknown actions and denial cleanup including drafts. Full read-only archived history, local Back/filter/page state, own ratings and separately guarded share management. Resource controllers/transport helper 100%, HistoryLive 100%, DetailLive 99.04%; all new application modules \u003e=98.63%.",
+      "timestamp": "2026-09-15T15:38:41Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5vz] Wire protected People history detail resources and settings navigation",
   "type": "task",
-  "updated_at": "2026-09-15T12:55:54Z"
+  "updated_at": "2026-09-15T15:38:41Z"
 }
