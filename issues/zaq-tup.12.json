@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T12:10:02Z",
+  "description": "Single cleanup step: confirm references, remove preview route/LiveView/fixtures and simulation suites; localize component data and protect removed route; refresh canonical docs/handoff; run format/q/assets, complete scoped regressions and read-only browser inspection. Preserve existing uncommitted production implementation. Final approval/E2E and drag/keyboard checks stay open; no commits/push/worktrees.",
+  "id": "zaq-tup.12",
+  "labels": [],
+  "parent": "zaq-tup",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-tup] Remove approved profile staging machinery and validate production",
+  "type": "task",
+  "updated_at": "2026-09-15T12:10:02Z"
+}
