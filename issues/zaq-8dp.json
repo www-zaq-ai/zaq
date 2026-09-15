@@ -6,9 +6,15 @@
   "description": "Discovered during PR7 broad coverage. test/zaq/engine/conversations/title_generation_from_conversations_test.exs:41 fails assert_receive openai_request after 100ms. Reproduced twice normally and with unchanged HEAD 44dc33d2 Conversations source compiled only in a separate test VM via git show + Code.compile_string; no worktree baseline files changed. Existing LLM stub/title generation integration is outside requested People history slice. Preserve assertions; investigate production LLM factory/config path and async test ownership before changing timeout. Blocks a completely green broad coverage run, not focused PR7 tests.",
   "id": "zaq-8dp",
   "labels": [],
+  "comments": [
+    {
+      "text": "Diagnosed with an in-memory copy of the unchanged HEAD test (no fixture or production changes): allowing the same exact mocked HTTP assertion to await up to 5 seconds observed the correct request at 153ms; exact generated-title broadcast and persisted-title assertions then passed. Root cause is the default 100ms asynchronous receive deadline, not missing dispatch. Test now uses explicit 2-second failure bounds for the real local HTTP request and title broadcast, preserving every assertion and using no sleeps/retries. Broad suite validation pending.",
+      "timestamp": "2026-09-15T14:35:30Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5vz] Baseline title-generation integration test receives no mocked LLM request",
   "type": "bug",
-  "updated_at": "2026-09-15T14:35:29Z"
+  "updated_at": "2026-09-15T14:35:30Z"
 }
