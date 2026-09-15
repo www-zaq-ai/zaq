@@ -8,9 +8,15 @@
   "description": "Step 1: config-aware toolchain/environment cache keys plus targeted LiveView rebuild before tests, including fallback restores. Keep narrow existing purge. Update operational docs.",
   "id": "zaq-us2",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented config/toolchain/environment-aware cache keys; test jobs first compile missing dependencies for cold caches, then force only LiveView to enforce purge even on fallback restores. Docs updated. Working-tree delivery; no commit requested.",
+      "timestamp": "2026-09-15T08:21:01Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-us2] Harden CI LiveView logging compilation",
   "type": "task",
-  "updated_at": "2026-09-15T08:19:53Z"
+  "updated_at": "2026-09-15T08:21:01Z"
 }
