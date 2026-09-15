@@ -6,9 +6,15 @@
   "description": "Approved plan: critical-path tests during development, context-mode precommit validation, post-review coverage-upper, and coverup default 20. Working-tree delivery only; no commit/PR authorized.",
   "id": "zaq-3q0",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented approved plan in working tree. Sequence: zaq-3q0.1 -\u003e zaq-3q0.2 -\u003e zaq-3q0.3 (linear DAG). Read-only audit found no remaining general-development numeric gates; aligned docs/workflows.md validation and clarified coverage handoff per PR. No commit, PR, merge or coverage-upper invocation performed.",
+      "timestamp": "2026-09-15T16:20:45Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Testing policy and pre-merge coverage workflow",
   "type": "epic",
-  "updated_at": "2026-09-15T16:15:37Z"
+  "updated_at": "2026-09-15T16:20:45Z"
 }
