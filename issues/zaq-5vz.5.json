@@ -13,11 +13,15 @@
     {
       "text": "Initial test-first implementation passes 1 property + 3 integration tests. Added literal-owner get, shared SQL count/query and deterministic updated_at/id sort; nullable person rating actor FK/partial uniqueness; survivor-first merge ratings. New migration 20260910170000 precedes normalization, historical migrations unchanged. More rollback/concurrency/coverage validation remains.",
       "timestamp": "2026-09-15T13:00:35Z"
+    },
+    {
+      "text": "Fresh Repo-only migration replay passed in newly created guarded partition zaq_test_feat_people_profile_pages_people_history_replay_1789482079; no database reset/drop. Verified auth/rating schema before normalization, forced legacy failure rollback, survivor-first/transfer ratings, ownership transfer, session revocation and rerun with ZAQ app not started. Later dedicated activity-index migration added without rewriting an applied ledger; final fresh replay to repeat after completion.",
+      "timestamp": "2026-09-15T14:35:31Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5vz] Scoped persistence and Person ratings with merge preservation",
   "type": "task",
-  "updated_at": "2026-09-15T13:00:35Z"
+  "updated_at": "2026-09-15T14:35:31Z"
 }
