@@ -21,11 +21,15 @@
     {
       "text": "Final focused validation: MIX_ENV=test mix coveralls over execution_actor, actor_normalizer, incoming_message_router, workflow_run_agent, cron_trigger_worker, dispatch_event, workflow_run_helpers, chat_live, and engine/workflows tests: 3 properties, 280 tests, 0 failures. ExecutionActor 100%, CronTriggerWorker 100%, WorkflowRunHelpers 100%, IncomingMessageRouter 96.7%, ChatLive 97.8%, DispatchEvent 95.3%; WorkflowRunAgent 94.6%, Workflows 58.3% whole-file in this partial suite. Exception rationale: broad pre-existing workflow engine/context branches are outside identity producer scope; main should check aggregate coverage with full quality gate rather than expand this task into workflow CRUD/composition coverage. mix format run scoped after edits. mix q deliberately reserved for main. Bridges audited: CommunicationBridge stamps routing config before Engine dispatch, so finalizing channel subjects at IncomingMessageRouter is trusted; no bridge edits required. Lifecycle run events copy initiating source_event.actor, including interruption and build failure. No commits/push/worktree/branch operations or issue closures.",
       "timestamp": "2026-09-15T14:00:12Z"
+    },
+    {
+      "text": "Shared contract and trusted producer changes implemented. Focused suite: 3 properties, 280 tests, 0 failures; new ExecutionActor coverage 100%. Further aggregate validation pending; issues remain open until verified/landed. Lifecycle implementation now underway.",
+      "timestamp": "2026-09-15T14:10:21Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-yws] Define strict shared execution identity and trusted producers",
   "type": "task",
-  "updated_at": "2026-09-15T14:00:12Z"
+  "updated_at": "2026-09-15T14:10:21Z"
 }
