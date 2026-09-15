@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-tup.1"
+  ],
   "blocks": [],
   "created": "2026-09-15T09:21:20Z",
   "description": "Own fixtures, People preview LiveView, PersonLayout width option, DSM priority list, protected preview route. Before implementation add fixture ordering/property and component tests; cover Save/Cancel, malformed moves, empty/read-only/error states and narrow default shell. No mocks for fixture logic. Run mix format, mix q and browser review. Update UX doc with gaps; no backend or Storybook changes. Target 95% coverage, report any environment blocker.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-tup] Stage and validate profile prototype",
   "type": "task",
-  "updated_at": "2026-09-15T09:21:20Z"
+  "updated_at": "2026-09-15T09:21:29Z"
 }
