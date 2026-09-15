@@ -32,6 +32,7 @@ import { WorkflowExport } from "./hooks/workflow_export"
 import JsonTree from "./hooks/json_tree"
 import MarkdownHighlight from "./hooks/markdown_highlight"
 import { SearchableSelectHook } from "./hooks/searchable_select_hook"
+import PeoplePermissions from "./hooks/people_permissions"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -45,6 +46,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
     "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox":
       liveViewHooks["ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox"],
     PeopleBulkDeleteDialog: liveViewHooks.DialogOverlay,
+    PeoplePermissions,
     ContentFilter,
     FolderDrop,
     WorkflowExport,

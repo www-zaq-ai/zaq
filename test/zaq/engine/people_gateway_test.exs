@@ -5,6 +5,29 @@ defmodule Zaq.Engine.PeopleGatewayTest do
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Engine.PeopleGateway
 
+  test "permission commands expose explicit matrix and idempotent validated writes" do
+    Zaq.Repo.delete_all(Zaq.Accounts.PeoplePermissionGrant)
+    {:ok, team} = People.create_team(%{name: "Gateway permissions"})
+    params = %{scope: {:team, team.id}, permission: "share_conversations"}
+    assert {:ok, first} = PeopleGateway.dispatch(:grant_permission, params)
+    assert {:ok, same} = PeopleGateway.dispatch(:grant_permission, params)
+    assert same.id == first.id
+    assert {:ok, matrix} = PeopleGateway.dispatch(:permissions_matrix, %{})
+    assert List.last(matrix.rows).grants == MapSet.new([{:team, team.id}])
+    assert hd(matrix.rows).grants == MapSet.new()
+    assert {:ok, 1} = PeopleGateway.dispatch(:revoke_permission, params)
+    assert {:ok, 0} = PeopleGateway.dispatch(:revoke_permission, params)
+
+    assert {:error, :invalid_scope} =
+             PeopleGateway.dispatch(:grant_permission, %{params | scope: nil})
+
+    assert {:error, :invalid_permission} =
+             PeopleGateway.dispatch(:revoke_permission, %{params | permission: "execute"})
+
+    assert {:error, :unsupported_people_operation} =
+             PeopleGateway.dispatch(:grant_permission, %{})
+  end
+
   test "dispatch(:create) creates a person" do
     attrs = %{"full_name" => "Gateway Person", "email" => "gateway@example.com"}
 

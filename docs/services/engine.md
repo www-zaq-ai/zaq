@@ -162,6 +162,8 @@ rejected rather than ignored, since it would silently override the message resol
 - `get_conversation_by_token/1` — resolves a conversation from an unexpired share token.
 
 ### People Command Gateway (`Zaq.Engine.PeopleGateway`)
+- Capability matrix/grant/revoke commands and their separate permission domain are
+  documented in [People permissions](people-access.md).
 - BO People operations are routed through `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
   to Engine using `action: :people_command`.
 - `Zaq.Engine.Api` validates `%{op: atom(), params: map()}` and delegates to

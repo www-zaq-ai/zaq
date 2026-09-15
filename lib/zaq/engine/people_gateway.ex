@@ -4,12 +4,21 @@ defmodule Zaq.Engine.PeopleGateway do
   """
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.PeoplePermissions
   alias Zaq.MapUtils
 
   def dispatch(:filter, %{filters: filters, opts: opts}) when is_map(filters) and is_list(opts),
     do: People.filter_people(filters, opts)
 
   def dispatch(:resolve_selection, params), do: People.resolve_selection(params)
+
+  def dispatch(:permissions_matrix, %{}), do: {:ok, PeoplePermissions.permissions_matrix()}
+
+  def dispatch(:grant_permission, %{scope: scope, permission: permission}),
+    do: PeoplePermissions.grant(scope, permission)
+
+  def dispatch(:revoke_permission, %{scope: scope, permission: permission}),
+    do: PeoplePermissions.revoke(scope, permission)
 
   def dispatch(:get_with_channels, %{id: id}) do
     case People.get_person_with_channels(normalize_id(id)) do
