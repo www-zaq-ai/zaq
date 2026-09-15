@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-8ku.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-8ku",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-8ku] Specify current Records ACL regressions",
   "type": "task",
-  "updated_at": "2026-09-15T19:02:08Z"
+  "updated_at": "2026-09-15T19:02:09Z"
 }
