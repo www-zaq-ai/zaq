@@ -9,9 +9,15 @@
   "id": "zaq-5vz.5",
   "labels": [],
   "parent": "zaq-5vz",
+  "comments": [
+    {
+      "text": "Initial test-first implementation passes 1 property + 3 integration tests. Added literal-owner get, shared SQL count/query and deterministic updated_at/id sort; nullable person rating actor FK/partial uniqueness; survivor-first merge ratings. New migration 20260910170000 precedes normalization, historical migrations unchanged. More rollback/concurrency/coverage validation remains.",
+      "timestamp": "2026-09-15T13:00:35Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5vz] Scoped persistence and Person ratings with merge preservation",
   "type": "task",
-  "updated_at": "2026-09-15T12:56:07Z"
+  "updated_at": "2026-09-15T13:00:35Z"
 }
