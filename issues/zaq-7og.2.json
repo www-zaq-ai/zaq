@@ -9,9 +9,15 @@
   "id": "zaq-7og.2",
   "labels": [],
   "parent": "zaq-7og",
+  "comments": [
+    {
+      "text": "Read-only review completed: canonical links and source paths resolve; gates and contracts verified against implementation. Fixed two residual create-workflow contradictions: unconditional registration now requires intended/reviewed agent exposure; blanket Step eligibility replaced by workflow contract validation excluding internal infrastructure. git diff --check passes. Documentation-only; no unit/E2E tests needed and no code formatting required. Required mix precommit and mix q NOT RUN: context-mode tools unavailable (resource/template discovery empty); workflow prohibits raw-shell fallback. Validation remains blocked. All changes remain uncommitted by user scope; prerequisite issue remains open for delivery.",
+      "timestamp": "2026-09-15T19:23:45Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-7og] Review reuse instruction consistency and validate docs",
   "type": "task",
-  "updated_at": "2026-09-15T19:18:03Z"
+  "updated_at": "2026-09-15T19:23:45Z"
 }
