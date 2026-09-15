@@ -9,9 +9,15 @@
   "id": "zaq-tup.9",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Implemented and targeted context/gateway tests pass. Atomic operation locks literal Person FOR UPDATE then all current owned channels by ID FOR UPDATE; compares ordered ID/weight snapshot before validating/writing full permutation using dense 0-based changeset weights. Existing FK locking serializes insertion; channel row locks cover legacy updates/deletes. Added actual concurrent writer tests. Confidential transport uses existing envelope opt-out from logging/broadcasts (not a custom Inspect redactor). UI uses one command and keeps bearer private.",
+      "timestamp": "2026-09-15T10:53:27Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Atomic authenticated profile channel ordering",
   "type": "task",
-  "updated_at": "2026-09-15T10:40:06Z"
+  "updated_at": "2026-09-15T10:53:27Z"
 }
