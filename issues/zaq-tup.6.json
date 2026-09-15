@@ -9,9 +9,15 @@
   "id": "zaq-tup.6",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Implemented approved shared AccountMenu correction in current workspace, preserving prior uncommitted work and all BO IDs/assertions. UX brief/mapping updated before code. mix format, mix q (1251 files/no issues), assets.build, diff --check passed. Targeted suites and coverage runs: 2 properties, 34 tests, 0 failures. Coverage AccountMenu 21/21, PersonHeader 9/9, ProfilePreviewLive 94/94; BOLayout 84.2% legacy helpers. Signed-in browser verified fictional Alex Morgan/A, contents, mutual Settings/account and outside dismissal; panel x1184/w224 desktop1440 and x134/w224 mobile390. Keyboard/Escape not exercised by OpenChamber API; JS coverage unmeasured. Existing license_manager config warning persists. Handoff/UX updated; no commits/push/worktree. Final human UX gate .3 and E2E .4 remain pending.",
+      "timestamp": "2026-09-15T10:33:50Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Share BO avatar account menu with People fixture preview",
   "type": "task",
-  "updated_at": "2026-09-15T10:22:46Z"
+  "updated_at": "2026-09-15T10:33:50Z"
 }
