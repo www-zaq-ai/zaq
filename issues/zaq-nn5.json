@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-us2"
   ],
@@ -11,8 +11,8 @@
   "id": "zaq-nn5",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-nn5] Separate HTTP and shared-session logging regressions",
   "type": "task",
-  "updated_at": "2026-09-15T08:19:52Z"
+  "updated_at": "2026-09-15T08:21:02Z"
 }
