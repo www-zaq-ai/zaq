@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T16:15:37Z",
+  "description": "Approved plan: critical-path tests during development, context-mode precommit validation, post-review coverage-upper, and coverup default 20. Working-tree delivery only; no commit/PR authorized.",
+  "id": "zaq-3q0",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Testing policy and pre-merge coverage workflow",
+  "type": "epic",
+  "updated_at": "2026-09-15T16:15:37Z"
+}
