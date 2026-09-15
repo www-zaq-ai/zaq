@@ -13,11 +13,15 @@
     {
       "text": "Quality check after shared orchestration: mix q PASS (1274 files, no issues). Browser next failure isolated to existing PeopleAuthDelivery.setup replacing entire channels config with email-only transport mock; restored real configured Disk bridge in browser test while preserving SMTP mock. Existing browser journey assertions untouched. No context-mode tools available, so required context-mode precommit remains an explicit validation blocker.",
       "timestamp": "2026-09-15T19:23:25Z"
+    },
+    {
+      "text": "All 3 real_browser tests now PASS: Chromium, Firefox, WebKit each at 390px and 1280px, 117.1s. Existing source modal assertion and artifact download assertions unchanged and exercised real Records/Disk path. Browser fixture preserves real Disk bridge alongside existing email transport mock; no database reset.",
+      "timestamp": "2026-09-15T19:26:47Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-8ku] Validate Records source correction and docs",
   "type": "task",
-  "updated_at": "2026-09-15T19:23:25Z"
+  "updated_at": "2026-09-15T19:26:47Z"
 }
