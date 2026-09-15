@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T15:08:14Z",
+  "description": "Coverage exception from actor lifecycle implementation: full file Agent.Api 89% in expanded 1284-test suite. Changed identity gate covered; pre-existing skill runtime mutation, system-config endpoint variants, request validation/return-hop branches remain uncovered (lines 187,189,193,197,202,204,208,212,217,224,236,249,338,435,436,443,444 at current working diff). Add real public-boundary regressions to \u003e=95%; do not mock internal primitives solely for coverage. Include exception in any eventual PR.",
+  "id": "zaq-tzg",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-yws] Cover remaining Agent API branches",
+  "type": "task",
+  "updated_at": "2026-09-15T15:08:14Z"
+}
