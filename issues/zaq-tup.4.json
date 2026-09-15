@@ -9,9 +9,15 @@
   "id": "zaq-tup.4",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Account-menu correction adds shared BO/People avatar trigger, fictional preview name, mutual dismissal, Escape/focus and mobile viewport containment to pending consolidated scenarios. Authoring remains blocked by final human approval zaq-tup.3.",
+      "timestamp": "2026-09-15T10:22:46Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-tup] Consolidated profile E2E after approval",
   "type": "task",
-  "updated_at": "2026-09-15T09:21:30Z"
+  "updated_at": "2026-09-15T10:22:46Z"
 }
