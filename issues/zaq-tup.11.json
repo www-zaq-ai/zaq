@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-tup.7"
+  ],
   "created": "2026-09-15T11:17:15Z",
   "description": "P2 audit correction. People owns swap_channel_weights: inspect callers/cross-owner semantics, lock Person(s) before channels in stable ID order, reread current rows and never use stale struct weights. Tests first: stale BO B/C after B/A/C reorder yields C/A/B, deterministic transaction-held reorder-vs-swap and swap-vs-stale-draft, invalid/missing/owner-change cases and existing swap contracts. Real DB, no sleeps/mocks. Update people-access, UX/handoff; rerun full previously scoped 260 cases plus regression, mix format/q/diff check. Working-tree only. Graph: correction -\u003e reopened validation .7 -\u003e final human approval .3 -\u003e E2E .4.",
   "id": "zaq-tup.11",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-tup] Serialize BO channel swaps with profile reordering",
   "type": "task",
-  "updated_at": "2026-09-15T11:17:15Z"
+  "updated_at": "2026-09-15T11:17:34Z"
 }

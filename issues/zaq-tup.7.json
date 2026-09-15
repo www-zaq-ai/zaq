@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "zaq-tup.11",
     "zaq-tup.8"
   ],
   "blocks": [
@@ -25,5 +26,5 @@
   "status": "open",
   "title": "[zaq-tup] Validate production promotion and record final approval gate",
   "type": "task",
-  "updated_at": "2026-09-15T11:17:15Z"
+  "updated_at": "2026-09-15T11:17:34Z"
 }
