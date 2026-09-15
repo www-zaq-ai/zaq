@@ -13,11 +13,15 @@
     {
       "text": "Reference audit: only preview simulation suite and ChannelPriorityList component suite depend on fixture module. Existing ChannelOrder property strictly subsumes fixture membership/target invariant and adds unaffected-relative-order checks; direct boundary tests cover up/down/empty. No duplicate properties needed. Plan: .12 cleanup -\u003e .3 final human UX approval -\u003e .4 E2E. Available tools lack context-mode/Serena; dedicated read/search/apply_patch fallback. User explicitly resolved dirty-tree delivery: preserve production edits, no commits.",
       "timestamp": "2026-09-15T12:10:28Z"
+    },
+    {
+      "text": "Cleanup complete. New no-route regression reproduced failure before route deletion and passes after. Removed only profile preview LiveView/fixture/simulation suites; local component rows preserve assertions; direct ChannelOrder properties already stronger. Full main coveralls.json scope: 7 properties,367 tests,0 failures; supplemental complete auth/permissions/permission-concurrency:4 properties,30 tests,0 failures. mix format, mix q (1252 files,no issues), assets.build,diff check passed. Fresh main scoped coverage: ProfileLive96.8%,PeopleAuthGateway98%;ChannelOrder/PersonLayout/PersonHeader/PersonProfile/PageHeader/AccountMenu/ChannelPriorityList/LoginLive100%. Legacy People90.1%,BOLayout86.4%,CoreComponents6.7% remain .10; JS not measured. Existing license_manager warning. Read-only signed-in desktop profile loaded; removed URL displays expected Phoenix NoRouteError. Docs/handoff canonical URL updated, historical notes labeled. No commits/push/worktrees, real-user mutations or logout. Final .3/.4 remain open; .2 updated to production browser checks.",
+      "timestamp": "2026-09-15T12:18:05Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Remove approved profile staging machinery and validate production",
   "type": "task",
-  "updated_at": "2026-09-15T12:10:28Z"
+  "updated_at": "2026-09-15T12:18:05Z"
 }
