@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-5vz.4"
+  ],
   "blocks": [],
   "created": "2026-09-15T12:55:23Z",
   "description": "User source: current task explicitly states full slice Go UI reuse yes and E2E approval. Approved scope is existing BO fullpage history/table and detail reused inside enhanced People header; no redesign. Record final implemented scope matches approval before consolidated browser authoring. Validation: compare routes/header/navigation/table/dialog actions with approved contract. No mocks. Docs: approval notes here.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-5vz] Record approved People history UI E2E gate",
   "type": "task",
-  "updated_at": "2026-09-15T12:55:23Z"
+  "updated_at": "2026-09-15T12:55:54Z"
 }
