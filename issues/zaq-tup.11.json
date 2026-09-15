@@ -9,6 +9,12 @@
   "id": "zaq-tup.11",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Call-site audit: only Engine PeopleGateway and BO adjacent-channel moves call swap. No tests restrict cross-owner swaps; preserve existing trusted cross-owner behavior by locking all supplied literal Person owners ascending, then channels ascending. Reread and verify each channel still belongs to its supplied owner; deleted/transferred/invalid coordinates return not_found, no alias following. Preserve successful return shape and update_channel activity semantics. Tests reproduce stale weights and both deterministic serialized interleavings.",
+      "timestamp": "2026-09-15T11:17:35Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Serialize BO channel swaps with profile reordering",
