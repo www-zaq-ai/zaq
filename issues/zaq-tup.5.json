@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-tup.3"
   ],
+  "closed_at": "2026-09-15T10:16:55Z",
   "created": "2026-09-15T09:56:32Z",
   "description": "User feedback: shared BO header title/description, theme selector, settings/profile; ZAQ icon at left, no sidebar. Settings approved as preview-only placeholder. Extract presentational DSM header with caller-owned slots; BO retains its routes and People retains auth/logout. Patch embedded product brief/UX first. Tests before implementation: shared header composition, People no BO links/sidebar, one heading, theme names, narrow fallback. Validate existing BO/profile tests, mix format, mix q, assets build and signed-in browser desktop/mobile. No backend or Storybook edits. Keep final UX/E2E gates open.",
   "id": "zaq-tup.5",
@@ -20,8 +21,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-tup] Reuse BO header without sidebar in People preview",
   "type": "task",
-  "updated_at": "2026-09-15T10:16:54Z"
+  "updated_at": "2026-09-15T10:16:55Z"
 }
