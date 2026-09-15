@@ -23,11 +23,15 @@
     {
       "text": "Production components now shared with fixture preview. Real profile read-only browser inspected at 1440 and 390; preview move button/announcement verified. Physical drag, keyboard/Escape and focus restoration still need browser verification. OpenChamber geometry sometimes stale/scaled; original valid mobile content inspection x24 width342 within390 recorded. Do not mutate real priorities/name or sign out for these checks.",
       "timestamp": "2026-09-15T11:13:47Z"
+    },
+    {
+      "text": "Cleanup read-only browser: live profile loaded signed in at desktop; mobile open reported390px but snapshot retained desktop coordinates, so no new mobile overflow verification is claimed. No mutation/logout. Retired preview displayed expected NoRouteError. Pending physical drag, keyboard/Escape/focus checks remain open on canonical production UI with dedicated test identities.",
+      "timestamp": "2026-09-15T12:19:05Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Complete production profile browser interaction verification",
   "type": "task",
-  "updated_at": "2026-09-15T12:13:51Z"
+  "updated_at": "2026-09-15T12:19:05Z"
 }
