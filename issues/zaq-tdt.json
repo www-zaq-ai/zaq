@@ -10,11 +10,15 @@
     {
       "text": "Implemented approved 7-file correction: DocumentContent returns authorized handle/name/octet-stream without redemption; Engine source response sets fresh authenticated actor; Channels controller uses real Materialization resolver and existing byte-response helper. Legacy local/file DB bytes and artifact ACL/content paths preserved. RED 18 tests/4 expected failures; final mix coveralls on document_content, people_conversations, people_conversations_concurrency, person_conversation_resource_controller, message_trace_artifact_controller, materialization suites: 1 property +47 tests, zero failures. Coverage DocumentContent 100%, controller 95.4%, full PeopleConversations 94.5% (4 existing lines outside narrow source correction); defer wider facade coverage to existing People coverage work, no unrelated tests added. Existing real-browser test: Chromium/Firefox/WebKit each 390px and1280px passed (3 tests). mix format and diff check passed. mix q attempted three times: first shell timeout then repeat and +S4 both fail in ExDNA.Detection.Detector Task.Supervised.stream(5000), after successful format/compile/docs; quality gate remains BLOCKED, no config or checks weakened. No commits/push/PR/reset. Retain issue open for quality validation follow-up.",
       "timestamp": "2026-09-15T17:05:48Z"
+    },
+    {
+      "text": "Final quality follow-up: mix q completed and exposed four alias/style findings; fixed only alias ordering and qualification. Ran mix format, 19 focused resource tests (seed 608915) all passed, mix q no issues across 1273 files, git diff --check passed.",
+      "timestamp": "2026-09-15T17:09:13Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tdt] Correct People source materialization hop",
   "type": "task",
-  "updated_at": "2026-09-15T17:05:48Z"
+  "updated_at": "2026-09-15T17:09:13Z"
 }
