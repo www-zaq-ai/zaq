@@ -11,9 +11,15 @@
   "id": "zaq-5vz.1",
   "labels": [],
   "parent": "zaq-5vz",
+  "comments": [
+    {
+      "text": "Complete: BO and People consume stateless shared HistoryBrowser and ConversationDetail. Existing filters/table/rows/bulk bar, bubbles, feedback/info/trace and share presentation reused; channel/status choices, destinations, selection/actions, identity and optional paging parameterized. Existing BO bleed and legacy presentation retained. PersonHeader icons/logo/theme/account markup preserved; only authorized Settings link added. Shared default timezone lookup now uses existing Engine action, with failing-then-passing routing/cache regression; Timezone 100%. Shared new components 100% coverage. Live Storybook smoke passed both new stories; iframe containers prevent repeated demo IDs without changing application selectors.",
+      "timestamp": "2026-09-15T15:38:43Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5vz] Extract and wire shared BO HistoryBrowser and ConversationDetail presentation",
   "type": "task",
-  "updated_at": "2026-09-15T12:55:53Z"
+  "updated_at": "2026-09-15T15:38:43Z"
 }
