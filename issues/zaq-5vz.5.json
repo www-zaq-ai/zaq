@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-5vz.6"
   ],
+  "closed_at": "2026-09-15T15:49:54Z",
   "created": "2026-09-15T12:55:33Z",
   "description": "Specifications/files: Conversations generic scoped get/count/message/share queries, MessageRating person actor migration before historical normalization, PersonMerger survivor-first rating reconciliation. Tests first: SQL scoping and exact count/paging ordering; person upsert isolation; merge duplicates, rollback and migration ordering. Paths: nil/malformed/foreign ids deny, legacy BO/channel/anonymous behavior preserved. Mocking: none, real sandbox. Docs: engine and people-access owner/rating/migration contracts.",
   "id": "zaq-5vz.5",
@@ -24,8 +25,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-5vz] Scoped persistence and Person ratings with merge preservation",
   "type": "task",
-  "updated_at": "2026-09-15T15:38:48Z"
+  "updated_at": "2026-09-15T15:49:54Z"
 }
