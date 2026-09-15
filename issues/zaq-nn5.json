@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T08:19:40Z",
+  "description": "Step 2: split HTTP filter coverage from People/BO connected mount bearer absence, preserve positive diagnostics and restore global Logger state.",
+  "id": "zaq-nn5",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Separate HTTP and shared-session logging regressions",
+  "type": "task",
+  "updated_at": "2026-09-15T08:19:40Z"
+}
