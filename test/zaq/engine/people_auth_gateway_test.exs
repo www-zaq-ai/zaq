@@ -4,10 +4,61 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions, PersonLoginChallenge}
   alias Zaq.Channels.{ChannelConfig, PeopleAuthDeliveryMock}
   alias Zaq.Engine.{Events, PeopleAuthGateway}
-  alias Zaq.TestSupport.PeopleAuthDelivery
+  alias Zaq.TestSupport.{PeopleAuthClock, PeopleAuthDelivery}
   import Mox
 
   setup :verify_on_exit!
+
+  test "duplicate email is limited without sending or replacing and the held code still verifies" do
+    PeopleAuthDelivery.setup()
+
+    {:ok, person} =
+      People.create_person(%{full_name: "Duplicate", email: "duplicate@example.test"})
+
+    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    PeopleAuthClock.put(~U[2026-09-14 12:00:00Z])
+    opts = [clock: PeopleAuthClock]
+    parent = self()
+
+    expect(PeopleAuthDeliveryMock, :send_reply, fn outgoing, _ ->
+      [_, code] = Regex.run(~r/\*\*([0-9]{4}-[0-9]{4})\*\*/, outgoing.body)
+      send(parent, {:code, code})
+      :ok
+    end)
+
+    {:ok, descriptor} = PeopleAuthGateway.request_challenge(person.email, {127, 0, 2, 50}, opts)
+    rows = Repo.all(PersonLoginChallenge)
+
+    assert {:error, {:resend_limited, 60}} =
+             PeopleAuthGateway.request_challenge(person.email, {127, 0, 2, 51}, opts)
+
+    assert Repo.all(PersonLoginChallenge) == rows
+    assert_received {:code, code}
+    assert {:ok, _} = PeopleAuth.verify_challenge(descriptor.challenge_id, code, opts)
+  end
+
+  test "failed delivery permits immediate retry within the existing send budget" do
+    PeopleAuthDelivery.setup()
+    {:ok, person} = People.create_person(%{full_name: "Retry", email: "retry@example.test"})
+    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = Zaq.System.save_people_access_config(%{otp_send_person_limit: 5})
+    PeopleAuthClock.put(~U[2026-09-14 12:00:00Z])
+    opts = [clock: PeopleAuthClock]
+    expect(PeopleAuthDeliveryMock, :send_reply, fn _, _ -> {:error, :unavailable} end)
+    expect(PeopleAuthDeliveryMock, :send_reply, fn _, _ -> :ok end)
+
+    assert {:error, :delivery_failed} =
+             PeopleAuthGateway.request_challenge(person.email, {127, 0, 2, 52}, opts)
+
+    failed = Repo.one!(from c in PersonLoginChallenge, where: c.person_id == ^person.id)
+    assert failed.invalidated_at
+
+    assert {:ok, descriptor} =
+             PeopleAuthGateway.request_challenge(person.email, {127, 0, 2, 52}, opts)
+
+    assert descriptor.resend_available_at == ~U[2026-09-14 12:01:00Z]
+    refute descriptor.challenge_id == failed.id
+  end
 
   test "sent delivery returns only descriptor and the delivered code verifies through confidential events" do
     PeopleAuthDelivery.setup()
@@ -18,7 +69,11 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
 
     expect(PeopleAuthDeliveryMock, :send_reply, fn outgoing, _ ->
       refute Repo.in_transaction?()
-      assert outgoing.body =~ ~r/\b[0-9]{4}-[0-9]{4}\b/
+      [_, code] = Regex.run(~r/\*\*([0-9]{4}-[0-9]{4})\*\*/, outgoing.body)
+
+      assert outgoing.body ==
+               "Your ZAQ sign-in code is\n\n**#{code}**\n\nDo not share this code.\n\n*Input this code in the current Sign-in page*"
+
       assert outgoing.channel_id == person.email
       send(parent, {:delivered, outgoing.body})
       :ok
@@ -33,7 +88,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
 
     assert {:ok, descriptor} = event.response
     assert event.actor == nil
-    assert Enum.sort(Map.keys(descriptor)) == [:challenge_id, :expires_at]
+    assert Enum.sort(Map.keys(descriptor)) == [:challenge_id, :expires_at, :resend_available_at]
     assert_received {:delivered, body}
     [code] = Regex.run(~r/[0-9]{4}-[0-9]{4}/, body)
 
@@ -61,7 +116,8 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
     parent = self()
 
     expect(PeopleAuthDeliveryMock, :send_reply, fn _, _ ->
-      {:ok, replacement} = PeopleAuth.issue_challenge(person, ip)
+      PeopleAuthClock.put(DateTime.add(DateTime.utc_now(:second), 60))
+      {:ok, replacement} = PeopleAuth.issue_challenge(person, ip, clock: PeopleAuthClock)
       send(parent, {:replacement, replacement})
       {:error, :transport_failed}
     end)
@@ -79,7 +135,8 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
     parent = self()
 
     expect(PeopleAuthDeliveryMock, :send_reply, fn _, _ ->
-      {:ok, replacement} = PeopleAuth.issue_challenge(person, ip)
+      PeopleAuthClock.put(DateTime.add(DateTime.utc_now(:second), 60))
+      {:ok, replacement} = PeopleAuth.issue_challenge(person, ip, clock: PeopleAuthClock)
       send(parent, {:replacement, replacement})
       :ok
     end)
@@ -158,7 +215,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
              )
 
     assert_received :action_dispatched
-    assert Enum.sort(Map.keys(descriptor)) == [:challenge_id, :expires_at]
+    assert Enum.sort(Map.keys(descriptor)) == [:challenge_id, :expires_at, :resend_available_at]
   end
 
   test "malformed transport receipt fails real Jido output validation and invalidates challenge" do
@@ -198,7 +255,9 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
     {:ok, _} = PeopleAuth.issue_challenge(person, {127, 0, 2, 25})
 
     assert {:error, :request_unavailable} =
-             PeopleAuthGateway.request_challenge(person.email, {127, 0, 2, 25})
+             PeopleAuthGateway.request_challenge(person.email, {127, 0, 2, 25},
+               clock: Zaq.TestSupport.PeopleAuthFutureClock
+             )
   end
 
   test "unknown email is read-only and reports only failed identification" do
@@ -267,7 +326,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
     end)
 
     assert {:ok, descriptor} = PeopleAuthGateway.request_challenge(person.email, {127, 0, 2, 29})
-    assert Enum.sort(Map.keys(descriptor)) == [:challenge_id, :expires_at]
+    assert Enum.sort(Map.keys(descriptor)) == [:challenge_id, :expires_at, :resend_available_at]
   end
 
   test "delivery-time permission removal fails closed and invalidates the challenge" do

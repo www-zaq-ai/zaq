@@ -13,7 +13,9 @@ defmodule Zaq.Accounts.PeopleAuthConcurrencyTest do
     Team
   }
 
+  alias Zaq.Engine.PeopleAuthGateway
   alias Zaq.Repo
+  alias Zaq.TestSupport.PeopleAuthClock
 
   setup do
     fixture =
@@ -78,11 +80,34 @@ defmodule Zaq.Accounts.PeopleAuthConcurrencyTest do
     end)
   end
 
-  test "simultaneous issuance leaves one unfinished challenge", %{person: person, ip: ip} do
-    results = race(for _ <- 1..3, do: fn -> PeopleAuth.issue_challenge(person, ip) end)
-    assert Enum.all?(results, &match?({:ok, _}, &1))
+  test "simultaneous issuance at exactly 60 seconds creates one replacement", %{
+    person: person,
+    ip: ip
+  } do
+    now = ~U[2026-09-14 12:00:00Z]
+
+    {:ok, first} =
+      Sandbox.unboxed_run(Repo, fn ->
+        PeopleAuthClock.put(now)
+        PeopleAuth.issue_challenge(person, ip, clock: PeopleAuthClock)
+      end)
+
+    results =
+      race(
+        for _ <- 1..3,
+            do: fn ->
+              PeopleAuthClock.put(DateTime.add(now, 60))
+              PeopleAuth.issue_challenge(person, ip, clock: PeopleAuthClock)
+            end
+      )
+
+    assert Enum.count(results, &match?({:ok, _}, &1)) == 1
+    assert Enum.count(results, &match?({:error, {:resend_limited, _}}, &1)) == 2
 
     Sandbox.unboxed_run(Repo, fn ->
+      assert Repo.get!(PersonLoginChallenge, first.challenge_id).invalidated_at ==
+               DateTime.add(now, 60)
+
       assert Repo.aggregate(
                from(c in PersonLoginChallenge,
                  where: c.person_id == ^person.id and is_nil(c.invalidated_at)
@@ -159,6 +184,85 @@ defmodule Zaq.Accounts.PeopleAuthConcurrencyTest do
     for _ <- tasks, do: assert_receive({:ready, _}, 5_000)
     Enum.each(tasks, &send(&1.pid, :go))
     Enum.map(tasks, &Task.await(&1, 10_000))
+  end
+
+  for operation <- [:revoke, :merge] do
+    test "self priority waiting on #{operation} rejects the old session without stale mutation",
+         fixture do
+      %{person: person, survivor: survivor, team: team, ip: ip} = fixture
+
+      {token, channel} =
+        Sandbox.unboxed_run(Repo, fn ->
+          {:ok, _} = PeoplePermissions.grant({:team, team.id}, :edit_profile)
+
+          {:ok, channel} =
+            People.add_channel(%{
+              person_id: person.id,
+              platform: "slack",
+              channel_identifier: "priority-race-#{person.id}"
+            })
+
+          {:ok, challenge} = PeopleAuth.issue_challenge(person, ip)
+
+          {:ok, %{token: token}} =
+            PeopleAuth.verify_challenge(challenge.challenge_id, challenge.code)
+
+          {token, channel}
+        end)
+
+      parent = self()
+
+      revoker =
+        Task.async(fn ->
+          Sandbox.unboxed_run(Repo, fn ->
+            Repo.transaction(fn ->
+              result =
+                case unquote(operation) do
+                  :revoke -> PeopleAuth.revoke_session(token)
+                  :merge -> People.merge_persons(survivor, person)
+                end
+
+              assert {:ok, _} = result
+              send(parent, :revoked_locked)
+              receive do: (:release -> :ok)
+            end)
+          end)
+        end)
+
+      assert_receive :revoked_locked, 5_000
+
+      editor =
+        Task.async(fn ->
+          Sandbox.unboxed_run(Repo, fn ->
+            send(parent, :editing)
+
+            PeopleAuthGateway.dispatch(
+              %{
+                op: :update_self_channel_weight,
+                token: token,
+                channel_id: channel.id,
+                attrs: %{weight: 42}
+              },
+              []
+            )
+          end)
+        end)
+
+      try do
+        assert_receive :editing, 5_000
+        send(revoker.pid, :release)
+        assert {:ok, :ok} = Task.await(revoker, 5_000)
+        assert {:error, :invalid_session} = Task.await(editor, 5_000)
+
+        Sandbox.unboxed_run(Repo, fn ->
+          assert People.get_channel(channel.id).weight == channel.weight
+        end)
+      after
+        send(revoker.pid, :release)
+        Task.shutdown(revoker)
+        Task.shutdown(editor)
+      end
+    end
   end
 
   defp run_racer(fun, parent) do

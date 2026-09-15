@@ -6,6 +6,12 @@ defmodule Zaq.Ingestion.Events do
   alias Zaq.Event
   alias Zaq.Events.Helper
 
+  @doc "Dispatches a fixed authorized source read or authorization check."
+  @spec build_and_dispatch_source_content_event(map(), keyword()) :: Event.t()
+  def build_and_dispatch_source_content_event(request, opts \\ []) do
+    Helper.build_and_dispatch_invoke_event(:ingestion, request, :source_content, opts)
+  end
+
   @doc "Builds an Ingestion event that reads a document's bytes off its volume."
   @spec build_materialize_document_event(map(), keyword()) :: Event.t()
   def build_materialize_document_event(request, opts \\ []) when is_map(request) do

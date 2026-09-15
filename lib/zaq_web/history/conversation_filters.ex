@@ -20,6 +20,9 @@ defmodule ZaqWeb.History.ConversationFilters do
     {"API", "api"}
   ]
 
+  @doc "Existing history channel choices, reusable or replaceable by a hosting page."
+  def channel_type_options, do: @channel_type_options
+
   attr :conversation_count, :integer, required: true
   attr :status, :string, required: true, doc: "`active` or `archived` — default route is active."
   attr :is_admin, :boolean, required: true
@@ -29,12 +32,11 @@ defmodule ZaqWeb.History.ConversationFilters do
   attr :filter_person_id, :string, required: true
   attr :teams, :list, required: true
   attr :people, :list, required: true
+  attr :channel_type_options, :list, default: @channel_type_options
+  attr :status_options, :list, default: [{"Active", "active"}, {"Archived", "archived"}]
 
   def conversation_filters(assigns) do
-    assigns =
-      assigns
-      |> assign(:count_suffix, "#{assigns.conversation_count} conversations")
-      |> assign(:channel_type_options, @channel_type_options)
+    assigns = assign(assigns, :count_suffix, "#{assigns.conversation_count} conversations")
 
     ~H"""
     <div class="zaq-ingestion-chrome-row zaq-ingestion-chrome-row--spaced">
@@ -90,7 +92,7 @@ defmodule ZaqWeb.History.ConversationFilters do
           label_position="inline"
           value={@status}
           compact={true}
-          options={[{"Active", "active"}, {"Archived", "archived"}]}
+          options={@status_options}
         />
 
         <.select

@@ -100,6 +100,11 @@ Adapter inbound path:
 - Public API for the full conversation/message/rating/share lifecycle.
 - Access from BO via `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`.
 - Dispatches `Zaq.Hooks` `:feedback_provided` event after a rating is saved.
+- People self-service calls use the separate fixed confidential
+  `PeopleConversations` facade, deriving literal ownership from fresh bearer
+  authentication. It composes ordinary scoped context queries/persistence;
+  authorization does not move into the persistence context. See
+  [self-service conversation history](people-access.md#self-service-conversation-history).
 
 **Key functions:**
 - `create_conversation/1` — insert a new conversation.
@@ -391,6 +396,12 @@ Rule write commands accept a required `rules` list. Each rule carries optional s
   - Returns a structured sent/skipped/failed result with final channel details on success.
 - `bridge_available?/1` — returns true if a bridge is configured for the given platform.
 
+`NotifyPerson` forwards the receipt's `message_id`, `thread_id`, and opaque
+`thread_metadata` through Jido output validation. Metadata must be a map (omission
+defaults to `%{}`; explicit `nil` is invalid), with arbitrary keys and nested values
+preserved verbatim. Its NimbleOptions field uses `{:map, :any, :any}` because plain
+`:map` restricts keys to atoms; Engine and the action do not normalize provider keys.
+
 ### Notification Struct (`Zaq.Engine.Notifications.Notification`)
 - Build via `Notification.build/1` — validates subject, body, channel format.
 - Fields: `recipient_channels`, `sender`, `subject`, `body`, `html_body`,
@@ -517,8 +528,10 @@ For telemetry modules (`Zaq.Engine.Telemetry`, `Buffer`, `Collector`, workers), 
 - No `updated_at` timestamp.
 
 **`Zaq.Engine.Conversations.MessageRating`** (`message_ratings`)
-- Fields: `rating` (1–5), `comment`, `channel_user_id`, `user_id`, `message_id`.
-- Unique constraint on `(message_id, user_id)`.
+- Fields: `rating` (1–5), `comment`, `channel_user_id`, `user_id`, `person_id`, `message_id`.
+- Unique constraints on `(message_id, user_id)` and non-null `(message_id, person_id)`.
+  Person authors are mutually exclusive with BO/channel attribution. Merges retain
+  survivor feedback on conflicts and transfer uncontested Person ratings.
 
 **`Zaq.Engine.Conversations.ConversationShare`** (`conversation_shares`)
 - Fields: `share_token` (auto-generated, URL-safe base64), `permission` (only `"read"`),

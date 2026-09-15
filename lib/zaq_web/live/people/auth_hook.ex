@@ -50,8 +50,14 @@ defmodule ZaqWeb.Live.People.AuthHook do
            person_session: session
          )}
 
-      _ ->
+      {:error, :invalid_session} ->
         {:halt, redirect(socket, to: "/people/login")}
+
+      _ ->
+        {:halt,
+         socket
+         |> put_flash(:error, "People sign-in is unavailable. Please try again.")
+         |> redirect(to: "/people/login")}
     end
   end
 end

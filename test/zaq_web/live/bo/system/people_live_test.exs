@@ -142,7 +142,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     assert has_element?(view, "#people-permissions-table thead tr th:nth-child(2)", "All People")
     refute has_element?(view, "#people-permissions-table thead tr th:nth-child(3)")
 
-    for permission <- ~w(access_profile access_message_history share_conversations) do
+    for permission <- ~w(access_profile edit_profile access_message_history share_conversations) do
       assert has_element?(view, "#permission-all_people-#{permission}")
     end
 

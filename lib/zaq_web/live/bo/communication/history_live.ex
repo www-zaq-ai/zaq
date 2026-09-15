@@ -14,10 +14,6 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLive do
 
   use ZaqWeb, :live_view
 
-  import ZaqWeb.History.BulkSelectionBar
-  import ZaqWeb.History.ConversationFilters
-  import ZaqWeb.History.ConversationTable
-
   alias Zaq.Accounts.People
   alias Zaq.NodeRouter
 

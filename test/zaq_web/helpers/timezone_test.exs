@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Helpers.TimezoneTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import Zaq.TimezoneTestHelpers
 

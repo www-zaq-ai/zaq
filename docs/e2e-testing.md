@@ -172,8 +172,37 @@ HttpOnly/Lax browser-session cookies, logout and protected-route denial. BO-firs
 and People-first login, People logout preserving BO, and BO logout preserving
 People run in every engine. The supporting browser runner is
 `test/e2e/support/people-auth-browser.cjs`, using the shared BO connection/settling
-helpers. Countdown testing changes only client wall time, not socket heartbeat
-timers. This uses Playwright, not the agent-browser CLI from the separate test above.
+helpers. Countdown testing controls browser wall time without advancing socket
+heartbeat timers. A private stdout/stdin checkpoint asks the sandbox owner to age
+only the issued challenge's `inserted_at` by 60 seconds before the real resend POST;
+its server expiry stays valid. After issuance, browser time aligns to the new
+signed deadline. No minute-long sleeps or production clock hooks are used. The
+journey also checks row widths, reload persistence and submission/timer races.
+This uses Playwright, not the agent-browser CLI from the separate test above.
+
+The same journey checks an access-only profile, enables the fourth **Edit profile**
+matrix row through BO and verifies persistence, saves full name and channel priority,
+reloads the sorted channels, then revokes edit in a second BO tab while the profile
+is mounted. The next save is denied and becomes read-only. Each engine captures
+`test/e2e/test-results/people-profile-<engine>-<width>.png`; viewport overflow is
+checked at both widths. Name and channel forms save separately. No database reset
+or production test hook is used.
+
+The enhanced profile uses inline Edit name / Save name and Change order / Save
+order controls. The journey preserves the original save/reload/revocation intent
+against those selectors and checks header account-menu logout. Its consolidated
+People history segment (`people-history-journey.cjs`) enables history/sharing via
+the real BO matrix, navigates from Settings, verifies 25-row pagination and channel
+filtering across active/archived ownership, preserves filters through Back,
+saves positive/negative feedback, displays attachment metadata, expands full trace
+JSON, downloads an owned trace artifact, and previews an authorized citation.
+It creates and revokes a public share in a separate anonymous browser context,
+proves that recipient cannot access protected People history/artifacts, and
+rechecks live permission revocation.
+All three browser engines run at 390px and 1280px, asserting viewport containment;
+mobile tables scroll within their wrapper. The same no-reset sandbox command
+above runs the entire journey. Do not run separate Mix test processes concurrently
+against this database: their global-grant transactions can block one another.
 
 ### Distributed confidentiality and cookie/logging regression tests
 

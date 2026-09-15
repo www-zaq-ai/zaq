@@ -16,12 +16,17 @@ defmodule ZaqWeb.History.ConversationTable do
     ]
 
   import ZaqWeb.History.ConversationRow, only: [conversation_row: 1]
+  alias ZaqWeb.History.ConversationRow
 
   attr :conversations, :list, required: true
   attr :selected, :any, required: true, doc: "MapSet of selected conversation ids."
   attr :live_action, :atom, required: true
   attr :is_admin, :boolean, required: true
   attr :filter_scope, :string, required: true
+  attr :selectable, :boolean, default: true
+  attr :actions, :boolean, default: true
+
+  attr :destination, :any, default: &ConversationRow.bo_destination/1
 
   def conversation_table(assigns) do
     show_identity? = assigns.is_admin && assigns.filter_scope == "all"
@@ -29,13 +34,21 @@ defmodule ZaqWeb.History.ConversationTable do
     assigns =
       assigns
       |> assign(:show_identity?, show_identity?)
-      |> assign(:empty_colspan, if(show_identity?, do: 7, else: 6))
+      |> assign(
+        :empty_colspan,
+        4 + if(show_identity?, do: 1, else: 0) +
+          if(assigns.selectable, do: 1, else: 0) + if(assigns.actions, do: 1, else: 0)
+      )
 
     ~H"""
-    <.table id="history-conversations-table" min_width="768px" wrapper_class="overflow-x-auto">
+    <.table
+      id="history-conversations-table"
+      min_width="768px"
+      wrapper_class="overflow-x-auto min-w-0 max-w-full"
+    >
       <:head>
         <.table_head_row>
-          <.table_cell element={:th} width="w-10">
+          <.table_cell :if={@selectable} element={:th} width="w-10">
             <.table_checkbox
               phx-click="select_all"
               checked={
@@ -59,7 +72,7 @@ defmodule ZaqWeb.History.ConversationTable do
           <.table_cell element={:th}>
             <.table_text label="Updated" tone={:tertiary} />
           </.table_cell>
-          <.table_cell element={:th} align={:right} />
+          <.table_cell :if={@actions} element={:th} align={:right} />
         </.table_head_row>
       </:head>
       <:body>
@@ -72,6 +85,9 @@ defmodule ZaqWeb.History.ConversationTable do
           selected={@selected}
           live_action={@live_action}
           show_identity?={@show_identity?}
+          selectable={@selectable}
+          actions={@actions}
+          destination={@destination}
         />
       </:body>
     </.table>

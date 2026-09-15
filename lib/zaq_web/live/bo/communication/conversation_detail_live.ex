@@ -6,13 +6,8 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
   use ZaqWeb, :live_view
 
   alias Zaq.NodeRouter
-  alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
   alias ZaqWeb.Live.BO.Communication.MessageHelpers
   alias ZaqWeb.Live.BO.PreviewHelpers
-
-  import ZaqWeb.Chat.Modals, only: [feedback_modal: 1]
-  import ZaqWeb.Components.DesignSystem.Table, only: [table_badge: 1]
-  import ZaqWeb.Helpers.DateFormat, only: [format_date: 1, inject_date_separators: 2]
 
   @impl true
   def mount(%{"id" => id}, _session, socket) do
@@ -210,7 +205,4 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLive do
 
     if is_list(messages), do: messages, else: []
   end
-
-  defp infer_feedback_from_ratings(ratings),
-    do: MessageHelpers.infer_feedback_from_ratings(ratings)
 end

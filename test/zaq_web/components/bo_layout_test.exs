@@ -77,6 +77,13 @@ defmodule ZaqWeb.Components.BOLayoutTest do
     assert html =~ "/bo/dashboard"
     assert html =~ "alice"
     assert html =~ "id=\"header-user-trigger\""
+    assert html =~ "Account menu: alice"
+    assert html =~ "zaq-account-avatar"
+    assert html =~ "href=\"/bo/profile\""
+    assert html =~ "method=\"post\" action=\"/bo/session\""
+    assert html =~ "name=\"_method\" value=\"delete\""
+    assert html =~ "id=\"header-user-dropdown\""
+    assert html =~ "id=\"header-logout-form\""
   end
 
   test "config_row/1 renders hint and truncate class" do

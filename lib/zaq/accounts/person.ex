@@ -50,6 +50,15 @@ defmodule Zaq.Accounts.Person do
     |> put_incomplete_flag()
   end
 
+  @doc "Self-service profile changes; only full_name and derived completeness may change."
+  @spec self_profile_changeset(t(), map()) :: Ecto.Changeset.t()
+  def self_profile_changeset(person, attrs) do
+    person
+    |> cast(attrs, [:full_name])
+    |> update_change(:full_name, &(&1 || ""))
+    |> put_incomplete_flag()
+  end
+
   @doc "Protected identity consolidation changeset; never use for ordinary request attributes."
   @spec merge_result_changeset(t(), map()) :: Ecto.Changeset.t()
   def merge_result_changeset(person, attrs) do

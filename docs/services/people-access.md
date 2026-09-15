@@ -20,6 +20,7 @@ The schema owns the ordered permission metadata and explicit atom/string casting
 | API atom / storage string | Matrix label |
 | --- | --- |
 | `access_profile` | Access profile |
+| `edit_profile` | Edit profile |
 | `access_message_history` | Access message history |
 | `share_conversations` | Share conversations |
 
@@ -91,8 +92,146 @@ synchronization state.
 Administration uses the existing authenticated BO People access policy. These
 grants do not authorize BO administrators. People authentication separately
 requires an active current Person with `access_profile`; BO sessions are independent.
-Public People login and a protected profile landing scaffold are available on
-Channels nodes. Profile editing (PR5), history and sharing remain separate work.
+Public People login, profile and owned conversation history are available on
+Channels nodes. BO sessions and administration remain independent.
+
+## Self-service conversation history
+
+`/people/history` and `/people/conversations/:id` share the existing protected
+People live session. The enhanced PersonHeader keeps its logo, theme and account
+controls; Settings adds Conversations when both profile and history grants exist.
+The full-page BO HistoryBrowser and ConversationDetail presentation are shared,
+with People-specific routes and explicit capabilities. People has no identity
+selectors, selection, archive or delete actions. BO remains unpaged.
+
+The confidential fixed Engine `:people_conversations` action delegates to
+`PeopleConversations`. Each operation authenticates its server-held bearer and
+checks `allowed?(person, [:access_profile, :access_message_history])`. Sharing,
+including listing existing links, additionally requires `share_conversations`.
+Owner and author coordinates never come from browser attributes. Parent queries
+bind UUID and literal current Person before loading messages, shares or artifacts;
+malformed, foreign and missing IDs are indistinguishable. Legacy unassociated
+conversations are not inferred or backfilled by self-service.
+
+History defaults to all active and archived owned conversations, optionally
+filtered by status/channel. SQL count and bounded 25-row pages use identical
+filters and deterministic updated-at/UUID ordering. Known local filter/page
+parameters round-trip through the list/detail Back destination.
+
+Ratings use nullable `message_ratings.person_id` with a partial unique
+message/Person index. Person authors cannot coexist with BO/channel attribution.
+People loads only its current author's rating; anonymous BO behavior remains.
+Outer transactions retain authentication Person/session locks through writes,
+then lock the conversation parent. Merges preserve the survivor's rating when
+both participants rated a message; otherwise lowest original Person/UUID wins.
+Uncontested ratings transfer through ordinary rating APIs before loser deletion.
+Migration `20260910170000_add_person_to_message_ratings.exs` intentionally precedes
+historical email normalization, like the authentication schema. Use ordinary
+migration ordering rather than strict-version mode; historical migrations are unchanged.
+The separate `20260915142546_add_conversation_person_activity_index.exs` migration
+indexes literal ownership plus activity/UUID ordering for bounded history pages.
+
+Fresh schema/data replay is available through
+`test/support/people_history_migration_replay.exs`, run with `MIX_ENV=test` and a
+unique `MIX_TEST_PARTITION=_people_history_replay_<suffix>` using `mix run --no-start`.
+Use a short suffix (for this worktree, six hex characters) to stay within
+PostgreSQL's 63-byte database-name limit; oversized names are rejected.
+It refuses existing databases and retains its new isolated database; it never
+resets or drops one. The Repo-only replay covers prerequisite ordering, failed
+normalization rollback, rating conflicts/transfers, session revocation and reruns.
+
+Citation and artifact URLs bind conversation and message parents, use People
+authentication, and return private/no-store sandboxed responses. Citation reads
+also require a stored message source reference and the current document ACL on
+Ingestion. Handle-backed reads return an authorized reference through Engine,
+which supplies the authenticated actor; the Channels-hosted resource controller
+redeems it directly through the existing materializer to the owning role. Legacy
+local-file and stored-document bytes still pass through Ingestion and Engine.
+Stored handles never become browser preview credentials. Trace JSON
+is displayed unchanged. Communication artifact snapshots require their owning
+message and trace reference; source-backed artifacts additionally require their
+document ACL. Historical resources lacking sufficient source attribution fail
+closed. Public `/s/:token` links retain existing token/expiry semantics and do
+not grant People authentication or resource access.
+
+## Self-service profile
+
+`/people/profile` displays full name, email, phone, role, status, team names and
+owned channel platform/identifier/priority. Reading requires an active current
+Person and `access_profile`. Every edit explicitly requires
+`PeoplePermissions.allowed?(person, [:access_profile, :edit_profile])`.
+These independent grants may come from different scopes. Granting edit does not
+grant access, and existing access grants do not permit any edits.
+
+Only `full_name` and owned channel `weight` are editable. `Person.self_profile_changeset/2`
+casts only the name and recalculates completeness. Clearing the optional name stores
+an empty string, compatible with the database's non-null column. Email, phone, role,
+status, teams, metadata and identity history cannot be changed through self-service.
+`PersonChannel.weight_changeset/2` casts only weight: a nonnegative integer within
+the existing PostgreSQL integer storage range. Lower weights are tried first;
+ties use ascending channel ID. Priority edits preserve identity, ownership, metadata
+and `last_interaction_at`; they do not record communication activity.
+
+Trusted persistence APIs are `People.update_self_profile(person, attrs)` and
+`People.update_self_channel_weight(person, channel_id, attrs)`. The latter queries
+by both literal current Person ID and channel ID before reading or updating.
+Foreign, missing and discarded channel IDs return `:not_found`, without alias fallback.
+Browser callers use fixed confidential `:people_auth` Engine operations `:profile`,
+`:update_self_profile`, `:update_self_channel_weight` and `:update_self_channel_order`,
+never trusted owner coordinates.
+The gateway derives the current Person from its bearer, holding authentication's
+Person-before-session locks in an outer transaction through each write and fresh
+`PeopleProfile` response. This serializes writes with session revocation and merges;
+merged credentials cannot transfer. Grant changes are checked at each operation
+boundary, but grant administrators do not participate in the Person lock protocol.
+
+`People.update_self_channel_order(person, ids, expected)` replaces all owned channel
+priorities atomically. `ids` is a complete permutation of the current literal owner's
+integer channel IDs; duplicates, omissions, foreign IDs and malformed lists reject.
+`expected` is the original ordered list of `%{id: integer, weight: integer}` maps.
+Different current membership, ordering or weights returns `:stale_order` before
+writing. The transaction locks the literal Person `FOR UPDATE`, then its channels
+by ID `FOR UPDATE`, and compares the fresh weight/ID-sorted snapshot. Person/FK
+locking blocks new channel references; channel locks serialize existing updates
+and deletes, including the legacy single-weight API. Merges already use Person-first
+locking. Dense zero-based weights go through `weight_changeset/2`; all rows commit
+or roll back together, preserving metadata and activity. The confidential gateway
+adds the same authentication/edit authorization and fresh response as existing writes.
+
+BO `People.swap_channel_weights/2` also locks literal Person owners first (ascending
+ID for trusted cross-owner swaps), then the requested channels in ascending ID order.
+It rereads current weights under those locks instead of using the supplied structs'
+old weights. Missing owners/channels or changed ownership return `:not_found` without
+alias fallback or partial writes. Existing cross-owner behavior, success envelope
+and ordinary channel-update activity semantics are retained. Thus a BO swap waiting
+for a profile reorder swaps the newly committed weights; a profile draft waiting
+for a BO swap rejects its now-stale snapshot.
+
+The profile uses the approved wide PersonLayout and shared PersonHeader/account menu;
+login retains the default narrow shell. Real full name (safe Profile fallback),
+People Profile and People logout are used; Settings includes Conversations when history access is granted.
+Teams are alphabetical and read-only. Provider icons and numbered channel rows replace
+numeric forms. One inline editor at a time offers name Save/Cancel or channel-order
+Save/Cancel with optional dragging and move-button alternatives. The draft and expected
+snapshot stay server-owned; Save dispatches one atomic operation. Validation keeps
+submitted scalar values and shows field errors; success reloads authoritative data.
+The existing optional blank-name behavior is retained. Stale order reloads for explicit
+review without overwriting or claiming success. Transient save errors retain drafts
+when a fresh authorized read confirms safe retry; failed reads remove controls.
+Database/transport exceptions at the web command boundary become generic unavailable
+outcomes without logging exception data. The live profile uses presentational
+`PersonProfile` and pure web `ChannelOrder`; the retired fixture preview is removed.
+Edit revocation denies the next save and refreshes the page read-only, retaining
+profile access. Access/session invalidation redirects to login. Unavailable loads
+remove writable controls; authentication/configuration failures show unavailable
+feedback and fail closed. The server-held bearer stays in socket private state,
+never assigns, DOM, URLs or client parameters. Profile responses exclude metadata,
+merge history, internal DM IDs and authentication credentials. Navigation contains
+Profile, Sign out and permission-gated Conversations in Settings; BO credentials remain independent.
+
+Migration `20260914153303_add_edit_profile_permission.exs` replaces only the known
+permission CHECK and preserves existing grants. Downgrade refuses while edit grants
+exist; operators must explicitly revoke them before reverting the vocabulary.
 
 ## People access configuration (current)
 
@@ -158,7 +297,7 @@ body persistence; authentication tables remain digest-only.
 
 | Operation | Success contract |
 | --- | --- |
-| `issue_challenge(person_or_id, ip, opts \\ [])` | `{:ok, %{challenge_id: uuid, code: eight_digits, expires_at: datetime}}`; code returned once for trusted delivery |
+| `issue_challenge(person_or_id, ip, opts \\ [])` | `{:ok, %{challenge_id: uuid, code: eight_digits, expires_at: datetime, resend_available_at: datetime}}`; code returned once for trusted delivery |
 | `verify_challenge(challenge_id, code, opts \\ [])` | `{:ok, %{token: bearer, session: metadata}}`; consumes challenge and creates session atomically |
 | `authenticate(token, opts \\ [])` | `{:ok, %{person: current_person, permissions: current_grants, session: metadata}}` |
 | `touch_session(token, opts \\ [])` | `{:ok, metadata}`; checks authentication and records `last_seen_at`, without extending expiry |
@@ -178,7 +317,9 @@ permission bypass exists. Session metadata contains only `id`, `expires_at`,
 `revoked_at`, `last_seen_at`, and `inserted_at`. A session UUID is not a bearer token;
 list/revoke-all/invalidate take trusted owner coordinates, not proof of authority.
 
-The public-safe challenge descriptor is only `challenge_id` and `expires_at`.
+The public-safe challenge descriptor contains `challenge_id`, `expires_at` and
+`resend_available_at` (UTC datetimes). The resend deadline is always insertion + 60
+seconds, independent of the configured OTP validity (default 300 seconds).
 Verification accepts that opaque UUID, not a Person identifier. Invalid, expired,
 consumed, invalidated, exhausted or ineligible challenges return
 `{:error, :invalid_challenge}`. Whitespace and hyphens are removed from code input;
@@ -281,6 +422,15 @@ SQL counter store, Redis dependency or replicated state framework is involved.
   accepted reservation is not refunded on a later quota or database failure.
   Hammer also counts denied hits; these do not extend the window.
 
+Before reserving send budgets, PeopleAuth checks the newest unfinished challenge
+under the existing Person lock, after eligibility. Issuance—including repeated
+initial email POSTs—requires at least 60 elapsed seconds from `inserted_at`.
+Expired but unfinished challenges still count. Earlier requests return
+`{:error, {:resend_limited, retry_after_seconds}}`, without changing quotas or
+challenges; an existing valid code remains usable. At exactly 60 seconds, one
+concurrent caller can replace it and the others must wait again. Delivery failure
+invalidates its challenge and permits immediate retry, subject to send budgets.
+
 Engine reservations load the current typed config group. Channels operations read
 only a local typed snapshot from `PeopleAuthRateLimiter.Config`; they never query
 Repo or dispatch an Engine/config request. The cache loads via the existing
@@ -312,8 +462,8 @@ can change bucket attribution. No hard global overshoot bound is promised.
 
 Channels serves `GET /people/login`, `POST /people/challenge`, CSRF-protected
 `POST /people/session` (verify) and `DELETE /people/session` (logout).
-`GET /people/profile` is a minimal protected landing page with Profile navigation
-and logout. It has no editing or history links. People LiveViews have independent
+`GET /people/profile` is the protected self-service profile described above, with
+Profile navigation and logout. People LiveViews have independent
 live sessions from BO. `PersonAuth` protects HTTP and `People.AuthHook` checks
 current identity, active status, access_profile and expiry on mount/reconnect and
 every event. No periodic polling or idle-page revocation broadcast is required.
@@ -324,8 +474,12 @@ uses read-only `People.match_person/1` for profile/email-channel identity, then
 quota-backed issuance, then `Jido.Exec.run/3` with `Zaq.Agent.Tools.People.NotifyPerson`.
 The action dispatches confidential `:notify_person` to Engine, which forwards
 confidentiality to the existing `Notifications.notify_person/3` Channels delivery. Delivery uses the
-existing weighted preferred/fallback channel routing, a plain eight-digit code
-formatted `XXXX-XXXX`, and a fixed subject. No agent runtime, LLM or workflow runs.
+existing weighted preferred/fallback channel routing and a fixed subject. The
+Markdown message places `**XXXX-XXXX**` on its own paragraph, followed by
+"Do not share this code." and the final italic instruction
+`*Input this code in the current Sign-in page*`. Existing channel formatting
+renders Markdown for chat and strong/emphasis in HTML email; no auth-specific
+adapter formatting is used. No agent runtime, LLM or workflow runs.
 Only final `:sent` with `notified: true` is success; action message/content and
 instructions never leave the private gateway. Unknown/ineligible outcomes are tagged internally
 `:failed_identification`; only that outcome spends Channels' failure budget.
@@ -361,9 +515,17 @@ presentational, so there are no outstanding asynchronous UI result generations.
 Concurrent HTTP requests still consume normal backend budgets and supersession:
 a late cookie response can show an old descriptor, whose code is rejected; resend
 recovers. Buttons disable during submission to reduce accidental duplicates.
-Wrong-code redirects retain the opaque challenge/expiry and email in the signed
-cookie session, never the code. The timestamp countdown is informational and
-keeps resend/input available after expiry; the backend is authoritative.
+Wrong-code redirects retain the opaque challenge, both deadlines and email in the
+signed cookie session, never the code. Code input and resend share one row;
+Sign in sits below. Verification and resend have separate CSRF-protected HTTP
+forms, associated explicitly without nesting. Resend displays `Resend in 00:45`
+until its fixed deadline, then `Resend code`. Reload preserves that deadline;
+new issuance resets it. Submitting keeps controls disabled across timer ticks.
+Legacy descriptors without a resend deadline show an enabled resend button;
+the server still enforces the same rule. A denied resend retains the current
+descriptor and displays a generic wait message; an initial email denial stays on
+the email stage with the generic unavailable message. OTP expiry does not change
+the resend deadline or disable code input; backend verification is authoritative.
 
 The session bearer is stored in existing Plug.Session under
 `person_session_token`. It never enters URLs, JS, DOM or LiveView assigns. LiveView

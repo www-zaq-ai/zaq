@@ -347,6 +347,104 @@ defmodule Zaq.Accounts.People do
     persist_person(Person.update_changeset(person, stringify_keys(attrs)), :update)
   end
 
+  @doc "Updates only the authenticated current Person's full name; caller owns authentication and locking."
+  @spec update_self_profile(Person.t(), map()) :: {:ok, Person.t()} | {:error, term()}
+  def update_self_profile(%Person{id: id, __meta__: %{state: :loaded}} = person, attrs)
+      when is_integer(id) and id > 0 and is_non_struct_map(attrs) do
+    person |> Person.self_profile_changeset(stringify_keys(attrs)) |> Repo.update()
+  end
+
+  def update_self_profile(_, _), do: {:error, :not_found}
+
+  @doc "Updates only priority on a literal owned channel. Caller holds the authenticated Person lock; aliases are never followed."
+  @spec update_self_channel_weight(Person.t(), term(), map()) ::
+          {:ok, PersonChannel.t()} | {:error, term()}
+  def update_self_channel_weight(%Person{id: person_id, __meta__: %{state: :loaded}}, id, attrs)
+      when is_integer(person_id) and person_id > 0 and is_non_struct_map(attrs) do
+    with {:ok, id} when is_integer(id) and id > 0 <- Ecto.Type.cast(:integer, id),
+         %PersonChannel{} = channel <-
+           Repo.one(from c in PersonChannel, where: c.id == ^id and c.person_id == ^person_id) do
+      channel |> PersonChannel.weight_changeset(stringify_keys(attrs)) |> Repo.update()
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def update_self_channel_weight(_, _, _), do: {:error, :not_found}
+
+  @doc """
+  Atomically replaces a literal owner's complete channel order. The authenticated
+  gateway owns authorization. `expected` is the original ordered list of id/weight
+  maps; changed membership or weights returns `:stale_order`, never an overwrite.
+
+  The Person FOR UPDATE lock (also held by authentication/merges) blocks new
+  foreign-key references. Channel row locks serialize existing updates/deletes,
+  including the legacy weight API. Locks precede comparison and all writes.
+  Dense zero-based weights use the existing weight-only changeset and preserve
+  identity, metadata and activity. Caller transactions retain rollback control.
+  """
+  @spec update_self_channel_order(Person.t(), term(), term()) ::
+          {:ok, [PersonChannel.t()]} | {:error, term()}
+  def update_self_channel_order(%Person{id: id, __meta__: %{state: :loaded}}, ids, expected)
+      when is_integer(id) and id > 0 do
+    if valid_order_ids?(ids) and valid_order_snapshot?(expected) do
+      Repo.transaction(fn -> replace_channel_order!(id, ids, expected) end)
+    else
+      {:error, :invalid_order}
+    end
+  end
+
+  def update_self_channel_order(_, _, _), do: {:error, :not_found}
+
+  defp replace_channel_order!(person_id, ids, expected) do
+    Repo.one(from p in Person, where: p.id == ^person_id, lock: "FOR UPDATE") ||
+      Repo.rollback(:not_found)
+
+    channels =
+      Repo.all(
+        from c in PersonChannel,
+          where: c.person_id == ^person_id,
+          order_by: c.id,
+          lock: "FOR UPDATE"
+      )
+      |> Enum.sort_by(&{&1.weight, &1.id})
+
+    snapshot = Enum.map(channels, &Map.take(&1, [:id, :weight]))
+    if snapshot != expected, do: Repo.rollback(:stale_order)
+
+    if Enum.sort(ids) != Enum.sort(Enum.map(channels, & &1.id)),
+      do: Repo.rollback(:invalid_order)
+
+    by_id = Map.new(channels, &{&1.id, &1})
+
+    ids
+    |> Enum.with_index()
+    |> Enum.map(fn {id, weight} ->
+      by_id
+      |> Map.fetch!(id)
+      |> PersonChannel.weight_changeset(%{weight: weight})
+      |> Repo.update()
+      |> linked!()
+    end)
+  end
+
+  defp valid_order_ids?([]), do: true
+
+  defp valid_order_ids?([id | rest])
+       when is_integer(id) and id > 0 and id <= 9_223_372_036_854_775_807,
+       do: valid_order_ids?(rest)
+
+  defp valid_order_ids?(_), do: false
+
+  defp valid_order_snapshot?([]), do: true
+
+  defp valid_order_snapshot?([%{id: id, weight: weight} = row | rest])
+       when map_size(row) == 2 and is_integer(id) and id > 0 and
+              is_integer(weight) and weight >= 0 and weight <= 2_147_483_647,
+       do: valid_order_snapshot?(rest)
+
+  defp valid_order_snapshot?(_), do: false
+
   @doc """
   Protected owner operation persisting a calculated identity consolidation result
   in one update. Only the merger supplies these attributes, including aliases and
@@ -541,7 +639,9 @@ defmodule Zaq.Accounts.People do
   # ── PersonChannels ───────────────────────────────────────────────────────
 
   def list_person_channels(person_id) do
-    Repo.all(from c in PersonChannel, where: c.person_id == ^person_id, order_by: c.weight)
+    Repo.all(
+      from c in PersonChannel, where: c.person_id == ^person_id, order_by: [c.weight, c.id]
+    )
   end
 
   def get_channel(id), do: Repo.get(PersonChannel, id)
@@ -563,11 +663,54 @@ defmodule Zaq.Accounts.People do
 
   def delete_channel(%PersonChannel{} = channel), do: Repo.delete(channel)
 
-  def swap_channel_weights(%PersonChannel{} = a, %PersonChannel{} = b) do
+  @doc """
+  Swaps current persisted weights, never weights from the supplied snapshots.
+  Locks literal Person owners then channel rows, both in ascending ID order,
+  matching profile reorder/merge locking. Trusted cross-owner swaps remain
+  supported; missing or reparented channels fail without following aliases.
+  Retains ordinary channel-update activity and the existing success envelope.
+  """
+  def swap_channel_weights(%PersonChannel{} = a, %PersonChannel{} = b)
+      when is_integer(a.id) and a.id > 0 and is_integer(b.id) and b.id > 0 and
+             is_integer(a.person_id) and a.person_id > 0 and
+             is_integer(b.person_id) and b.person_id > 0 do
     Repo.transaction(fn ->
-      {:ok, _} = update_channel(a, %{weight: b.weight})
-      {:ok, _} = update_channel(b, %{weight: a.weight})
+      {a, b} = lock_swap_channels!(a, b)
+      update_channel(a, %{weight: b.weight}) |> linked!()
+      updated_b = update_channel(b, %{weight: a.weight}) |> linked!()
+      {:ok, updated_b}
     end)
+  end
+
+  def swap_channel_weights(_, _), do: {:error, :not_found}
+
+  defp lock_swap_channels!(a, b) do
+    owner_ids = Enum.uniq([a.person_id, b.person_id])
+
+    owners =
+      Repo.all(from p in Person, where: p.id in ^owner_ids, order_by: p.id, lock: "FOR UPDATE")
+
+    if length(owners) != length(owner_ids), do: Repo.rollback(:not_found)
+
+    ids = Enum.uniq([a.id, b.id])
+
+    channels =
+      Repo.all(
+        from c in PersonChannel,
+          where: c.id in ^ids and c.person_id in ^owner_ids,
+          order_by: c.id,
+          lock: "FOR UPDATE"
+      )
+      |> Map.new(&{&1.id, &1})
+
+    {current_swap_channel!(channels, a), current_swap_channel!(channels, b)}
+  end
+
+  defp current_swap_channel!(channels, original) do
+    case Map.get(channels, original.id) do
+      %PersonChannel{person_id: owner_id} = current when owner_id == original.person_id -> current
+      _ -> Repo.rollback(:not_found)
+    end
   end
 
   # ── Private ──────────────────────────────────────────────────────────────

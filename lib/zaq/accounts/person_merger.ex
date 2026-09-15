@@ -27,7 +27,7 @@ defmodule Zaq.Accounts.PersonMerger do
   }
 
   alias Zaq.Engine.Conversations
-  alias Zaq.Engine.Conversations.Conversation
+  alias Zaq.Engine.Conversations.{Conversation, MessageRating}
   alias Zaq.Engine.{IncomingMessageRouting, IncomingMessageRoutingRule}
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Permissions
@@ -90,6 +90,11 @@ defmodule Zaq.Accounts.PersonMerger do
       rules = routing_results(survivor.id, relations.rules)
       links = link_results(survivor.id, relations)
       authentication = authentication_results(relations)
+      ratings = rating_results(survivor.id, relations.ratings)
+
+      Enum.each(ratings, fn {row, attrs, _rest} ->
+        MessageRating.changeset(row, attrs) |> valid!()
+      end)
 
       validate_result!(
         attrs,
@@ -117,6 +122,12 @@ defmodule Zaq.Accounts.PersonMerger do
       apply_permissions(relations.permissions, grants, opts)
       apply_routing(rules)
       transfer_links(links)
+
+      Enum.each(ratings, fn {row, attrs, rest} ->
+        Enum.each(rest, &(Conversations.delete_rating(&1) |> result!()))
+        Conversations.update_rating(row, attrs) |> result!()
+      end)
+
       # All losers must disappear BEFORE canonical email is written (three-way
       # collision) and before their inherited aliases are installed on survivor.
       Enum.each(losers, &(People.delete_person(&1) |> result!()))
@@ -289,8 +300,26 @@ defmodule Zaq.Accounts.PersonMerger do
             where: l.recipient_ref_type == "person" and l.recipient_ref_id in ^losers,
             order_by: l.id,
             lock: "FOR UPDATE"
+        ),
+      ratings:
+        Repo.all(
+          from r in MessageRating,
+            where: r.person_id in ^ids,
+            order_by: r.id,
+            lock: "FOR UPDATE"
         )
     }
+  end
+
+  # Survivor feedback wins; otherwise the lowest original owner/id wins.
+  defp rating_results(survivor_id, ratings) do
+    ratings
+    |> Enum.sort_by(&{&1.person_id != survivor_id, &1.person_id, &1.id})
+    |> Enum.group_by(& &1.message_id)
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(fn {_message, [first | rest]} ->
+      {first, %{person_id: survivor_id}, rest}
+    end)
   end
 
   defp authentication_results(relations) do

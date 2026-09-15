@@ -97,6 +97,7 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
 
     assert Enum.map(matrix.rows, &{&1.permission, &1.label}) == [
              {:access_profile, "Access profile"},
+             {:edit_profile, "Edit profile"},
              {:access_message_history, "Access message history"},
              {:share_conversations, "Share conversations"}
            ]
@@ -114,11 +115,11 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
            %{person: p, a: a, b: b} do
     check all(
             left <-
-              list_of(member_of([:access_profile, :access_message_history, :share_conversations]),
+              list_of(member_of(Enum.map(PeoplePermissionGrant.permissions(), & &1.permission)),
                 max_length: 6
               ),
             right <-
-              list_of(member_of([:access_profile, :access_message_history, :share_conversations]),
+              list_of(member_of(Enum.map(PeoplePermissionGrant.permissions(), & &1.permission)),
                 max_length: 6
               ),
             max_runs: 25
@@ -178,7 +179,7 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
   property "ALL requirements ignore duplicates, order and atom/string representation", %{
     person: p
   } do
-    permissions = [:access_profile, :access_message_history, :share_conversations]
+    permissions = Enum.map(PeoplePermissionGrant.permissions(), & &1.permission)
 
     check all(
             grants <- list_of(member_of(permissions), max_length: 6),
@@ -268,6 +269,27 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
                [scope, id, permission],
                mode: :savepoint
              )
+  end
+
+  test "edit grants persist independently in both scopes without granting profile access", %{
+    person: p,
+    a: a
+  } do
+    assert {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    assert {:ok, _} = PeoplePermissions.grant({:team, a.id}, "edit_profile")
+    assert PeoplePermissions.allowed?(p, :edit_profile)
+    refute PeoplePermissions.allowed?(p, [:access_profile, :edit_profile])
+    assert_sql_error("all_people", nil, "edit_profile", :unique_violation)
+    assert_sql_error("team", a.id, "edit_profile", :unique_violation)
+    assert {:ok, _} = PeoplePermissions.revoke(:all_people, :edit_profile)
+    assert PeoplePermissions.allowed?(%{p | team_ids: [a.id]}, :edit_profile)
+
+    assert {:ok, _} =
+             Repo.query(
+               "INSERT INTO people_permission_grants (scope_type, permission, inserted_at, updated_at) VALUES ('all_people', 'edit_profile', now(), now())"
+             )
+
+    assert_sql_error("all_people", nil, "unknown", :check_violation)
   end
 
   test "schema validates scope shape and maps database field constraints", %{a: a} do

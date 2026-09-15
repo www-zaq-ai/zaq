@@ -3,9 +3,14 @@ defmodule ZaqWeb.PeopleBrowserTest do
   @moduletag :real_browser
 
   import Mox
-  alias Zaq.Accounts.{People, PeoplePermissions}
+  alias Zaq.Accounts.{People, PeoplePermissions, PersonLoginChallenge}
   alias Zaq.Channels.PeopleAuthDeliveryMock
   alias Zaq.Channels.PeopleAuthRateLimiter.Config
+  alias Zaq.Contracts.Record
+  alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Ingestion.Document
+  alias Zaq.Permissions
   alias Zaq.TestSupport.PeopleAuthDelivery
   import Zaq.AccountsFixtures
 
@@ -20,11 +25,92 @@ defmodule ZaqWeb.PeopleBrowserTest do
       set_mox_global()
 
       for width <- [390, 1280] do
-        {:ok, _} =
+        {:ok, person} =
           People.create_person(%{
             full_name: "Browser Person",
             email: "#{suffix}-#{width}@example.test"
           })
+
+        {:ok, _} =
+          People.add_channel(%{
+            person_id: person.id,
+            platform: "slack",
+            channel_identifier: "browser-slack-#{width}"
+          })
+
+        {:ok, conversation} =
+          Conversations.create_conversation(%{
+            person_id: person.id,
+            title: "Browser history #{width}",
+            channel_type: "api"
+          })
+
+        incoming = %Incoming{
+          content: "Browser input",
+          channel_id: "api",
+          provider: "api",
+          metadata: %{conversation_id: conversation.id},
+          attachments: [
+            %Record{
+              id: "notes",
+              kind: :file,
+              name: "notes.txt",
+              size: 12,
+              mime_type: "text/plain"
+            }
+          ]
+        }
+
+        {:ok, _} =
+          Conversations.persist_from_incoming(incoming, %{
+            answer: "Browser history answer",
+            trace: [
+              %{
+                "id" => "browser-trace",
+                "tool_name" => "History inspection",
+                "response" => %{"visible" => "trace details"}
+              }
+            ],
+            trace_artifacts: [
+              %{
+                tool_call_id: "browser-trace",
+                tool_name: "download_document",
+                content: "Browser artifact",
+                name: "browser-evidence.txt",
+                mime_type: "text/plain",
+                record: %{"attributes" => %{"source_type" => "communication_media"}}
+              }
+            ]
+          })
+
+        {:ok, document} =
+          Document.create(%{
+            source: "browser-#{suffix}-#{width}.md",
+            content: "# Browser source\nAuthorized source material"
+          })
+
+        {:ok, _} =
+          Permissions.grant({"document", to_string(document.id)}, %{
+            person_id: person.id,
+            access_rights: ["read"]
+          })
+
+        {:ok, _} =
+          Conversations.add_message(conversation, %{
+            role: "assistant",
+            content: "Additional source",
+            sources: [%{"type" => "document", "index" => 1, "path" => document.source}]
+          })
+
+        for n <- 1..26 do
+          {:ok, _} =
+            Conversations.create_conversation(%{
+              person_id: person.id,
+              title: "Archived history #{n}",
+              channel_type: "slack",
+              status: "archived"
+            })
+        end
       end
 
       user = super_admin_fixture(%{username: "browser-#{suffix}"})
@@ -36,7 +122,7 @@ defmodule ZaqWeb.PeopleBrowserTest do
       owner = self()
 
       expect(PeopleAuthDeliveryMock, :send_reply, 6, fn outgoing, _ ->
-        [code] = Regex.run(~r/[0-9]{4}-[0-9]{4}/, outgoing.body)
+        [_, code] = Regex.run(~r/\*\*([0-9]{4}-[0-9]{4})\*\*/, outgoing.body)
         send(owner, {:delivered, code})
         :ok
       end)
@@ -66,14 +152,16 @@ defmodule ZaqWeb.PeopleBrowserTest do
     end
   end
 
-  defp browser_result(port, output) do
+  defp browser_result(port, output, buffer \\ "") do
     receive do
       {:delivered, code} ->
         Port.command(port, code <> "\n")
-        browser_result(port, output)
+        browser_result(port, output, buffer)
 
       {^port, {:data, data}} ->
-        browser_result(port, output <> data)
+        lines = String.split(buffer <> data, "\n")
+        Enum.each(Enum.drop(lines, -1), &browser_checkpoint(port, &1))
+        browser_result(port, output <> data, List.last(lines))
 
       {^port, {:exit_status, 0}} ->
         output
@@ -86,4 +174,18 @@ defmodule ZaqWeb.PeopleBrowserTest do
         flunk("Browser journey timed out: #{output}")
     end
   end
+
+  defp browser_checkpoint(port, "advance-resend:" <> id) do
+    # Sandbox-only synchronization: age the named issued row, leaving its actual
+    # expiry valid. The browser separately advances its signed display deadline.
+    Zaq.Repo.get!(PersonLoginChallenge, id)
+    |> PersonLoginChallenge.changeset(%{
+      inserted_at: DateTime.add(DateTime.utc_now(:second), -60)
+    })
+    |> Zaq.Repo.update!()
+
+    Port.command(port, "resend-ready\n")
+  end
+
+  defp browser_checkpoint(_port, _line), do: :ok
 end

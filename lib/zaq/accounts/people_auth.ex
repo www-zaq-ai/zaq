@@ -6,7 +6,9 @@ defmodule Zaq.Accounts.PeopleAuth do
   It resolves current identity through People, requires active + access_profile,
   reserves send budgets and supersedes unfinished challenges. The returned code
   is for a trusted delivery caller ONLY; public callers receive only challenge_id
-  and expires_at. Verification takes the opaque challenge UUID, never a Person ID.
+  and deadlines. Verification takes the opaque challenge UUID, never a Person ID.
+  A fixed 60-second interval from the newest unfinished challenge's insertion
+  applies before quotas, including when that challenge has already expired.
 
   Successful verification consumes the challenge and creates a session in the same
   transaction. Only that response contains the raw session bearer token. Session
@@ -34,6 +36,13 @@ defmodule Zaq.Accounts.PeopleAuth do
   alias Zaq.Repo
 
   @otp_purpose "zaq:people-auth:otp-verification:v1"
+  @resend_interval_seconds 60
+
+  @type challenge_descriptor :: %{
+          challenge_id: Ecto.UUID.t(),
+          expires_at: DateTime.t(),
+          resend_available_at: DateTime.t()
+        }
 
   @doc "Issues a replacement challenge; code is returned once for trusted delivery only."
   @spec issue_challenge(Person.t() | integer(), term(), keyword()) ::
@@ -122,7 +131,7 @@ defmodule Zaq.Accounts.PeopleAuth do
   end
 
   @doc "Rechecks live challenge eligibility after delivery, returning only a public-safe descriptor."
-  @spec challenge_status(term(), keyword()) :: {:ok, map()} | {:error, term()}
+  @spec challenge_status(term(), keyword()) :: {:ok, challenge_descriptor()} | {:error, term()}
   def challenge_status(challenge_id, opts \\ []) do
     with {:ok, id} <- uuid(challenge_id, :invalid_challenge),
          {:ok, config} <- Zaq.System.get_people_access_config() do
@@ -157,7 +166,7 @@ defmodule Zaq.Accounts.PeopleAuth do
          true <- eligible?(person) and unfinished?(challenge),
          true <- DateTime.before?(clock.utc_now(:second), challenge.expires_at),
          true <- challenge.attempt_count < config.otp_max_attempts do
-      {:ok, %{challenge_id: challenge.id, expires_at: challenge.expires_at}}
+      {:ok, challenge_descriptor(challenge)}
     else
       _ -> {:error, :invalid_challenge}
     end
@@ -203,8 +212,9 @@ defmodule Zaq.Accounts.PeopleAuth do
   defp issue_locked(person, ip, config, key, clock) do
     with {:ok, current} <- lock_person(person),
          true <- eligible?(current),
+         now = clock.utc_now(:second),
+         :ok <- check_resend(current.id, now),
          :ok <- AuthRateLimiter.reserve_challenge(current.id, ip) do
-      now = clock.utc_now(:second)
       invalidate_locked(current.id, now)
       id = Ecto.UUID.generate()
       code = generate_code()
@@ -222,7 +232,7 @@ defmodule Zaq.Accounts.PeopleAuth do
         |> Repo.insert()
         |> persisted!()
 
-      {:ok, %{challenge_id: row.id, code: code, expires_at: row.expires_at}}
+      {:ok, Map.put(challenge_descriptor(row), :code, code)}
     else
       false -> {:error, :ineligible}
       error -> error
@@ -241,6 +251,30 @@ defmodule Zaq.Accounts.PeopleAuth do
       _ -> {:error, :invalid_challenge}
     end
   end
+
+  defp check_resend(person_id, now) do
+    latest =
+      Repo.one(
+        from c in PersonLoginChallenge,
+          where: c.person_id == ^person_id and is_nil(c.consumed_at) and is_nil(c.invalidated_at),
+          order_by: [desc: c.inserted_at],
+          limit: 1
+      )
+
+    retry_after = if latest, do: DateTime.diff(resend_available_at(latest), now), else: 0
+    if retry_after > 0, do: {:error, {:resend_limited, retry_after}}, else: :ok
+  end
+
+  defp challenge_descriptor(challenge) do
+    %{
+      challenge_id: challenge.id,
+      expires_at: challenge.expires_at,
+      resend_available_at: resend_available_at(challenge)
+    }
+  end
+
+  defp resend_available_at(challenge),
+    do: DateTime.add(challenge.inserted_at, @resend_interval_seconds, :second)
 
   defp authenticate_session(person, session, clock) do
     permissions = PeoplePermissions.effective_permissions(person)

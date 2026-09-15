@@ -7,9 +7,25 @@ defmodule Zaq.Ingestion.Api do
 
   alias Zaq.Event
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.DocumentContent
   alias Zaq.InternalBoundaries
 
   @impl true
+  def handle_event(
+        %Event{request: %{source: source, op: op}, actor: %{person: %{id: id}}} = event,
+        :source_content,
+        _context
+      )
+      when op in [:read, :authorize] do
+    response =
+      case op do
+        :read -> DocumentContent.read(source, id)
+        :authorize -> DocumentContent.authorize(source, id)
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(
         %Event{request: %{records: records, params: params}} = event,
         :ingest_records,

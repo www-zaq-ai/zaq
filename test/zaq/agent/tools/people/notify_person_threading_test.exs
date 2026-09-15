@@ -9,6 +9,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
   opaque `thread_metadata` anchor, which `NotifyPerson` never interprets.
   """
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.Tools.People.NotifyPerson
 
@@ -21,9 +22,11 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
   defp run(response, person \\ %{id: 7, full_name: "Lead"}) do
     Process.put(:notify_response, response)
 
-    NotifyPerson.run(
+    Jido.Exec.run(
+      NotifyPerson,
       %{person: person, subject: "Topic A", message: "hello"},
-      %{node_router: StubRouter}
+      %{node_router: StubRouter},
+      timeout: 0
     )
   end
 
@@ -105,6 +108,51 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
   end
 
   describe "output schema" do
+    property "opaque metadata survives validated execution without changing keys or nested values" do
+      key = one_of([string(:alphanumeric), member_of([:threading, :anchor, :provider])])
+      scalar = one_of([string(:printable), integer(), float(), boolean(), constant(nil)])
+
+      value =
+        tree(scalar, fn child ->
+          one_of([list_of(child, max_length: 4), map_of(key, child, max_length: 4)])
+        end)
+
+      check all(metadata <- map_of(key, value, max_length: 5)) do
+        {:ok, receipt} = sent_result()
+        assert {:ok, out} = run({:ok, %{receipt | thread_metadata: metadata}})
+        assert out.thread_metadata === metadata
+      end
+    end
+
+    test "Mattermost receipts retain string and atom metadata exactly" do
+      for metadata <- [%{"root_id" => "post-1"}, %{root_id: "post-1"}] do
+        receipt = %{
+          status: :sent,
+          channel: "mattermost",
+          channel_identifier: "U1",
+          message_id: "post-2",
+          thread_id: "post-1",
+          thread_metadata: metadata
+        }
+
+        assert {:ok, out} = run({:ok, receipt})
+        assert out.notified
+        assert out.status == :sent
+        assert out.message_id == "post-2"
+        assert out.thread_id == "post-1"
+        assert out.thread_metadata === metadata
+      end
+    end
+
+    test "non-map metadata including explicit nil still fails output validation" do
+      for metadata <- [nil, "invalid", 42, 1.5, true, [], [:anchor], {:anchor, "id"}] do
+        {:ok, receipt} = sent_result()
+
+        assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+                 run({:ok, %{receipt | thread_metadata: metadata}})
+      end
+    end
+
     test "declares the generic threading fields and no email-specific one" do
       keys = NotifyPerson.__action_metadata__()[:output_schema] |> Keyword.keys()
 

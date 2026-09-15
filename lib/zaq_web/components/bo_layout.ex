@@ -12,6 +12,7 @@ defmodule ZaqWeb.Components.BOLayout do
   alias Zaq.Addons.FeatureStore
   alias Zaq.System
   alias ZaqWeb.Components.ChannelIcons
+  alias ZaqWeb.Components.DesignSystem.PageHeader
   use ZaqWeb, :verified_routes
 
   attr :current_user, :map, required: true
@@ -67,17 +68,12 @@ defmodule ZaqWeb.Components.BOLayout do
         _ -> load_update_badge_enabled()
       end
 
-    header_subtitle? =
-      (is_binary(assigns.page_subtitle) and assigns.page_subtitle != "") or
-        assigns.subtitle != [] or assigns.page_tag != []
-
     assigns =
       assigns
       |> assign(:app_version, app_version)
       |> assign(:update_badge_enabled, update_badge_enabled)
       |> assign(:nav_sections, nav_sections)
       |> assign(:nav_section_ids, Enum.map(nav_sections, & &1.id))
-      |> assign(:header_subtitle?, header_subtitle?)
 
     ~H"""
     <div class="min-h-screen flex" style="background: var(--zaq-surface-color-base);" id="bo-root">
@@ -390,74 +386,44 @@ defmodule ZaqWeb.Components.BOLayout do
       <!-- Main -->
       <main id="bo-main" class="flex-1 min-w-0">
         <!-- Header -->
-        <header
-          class="h-16 border-b flex items-center px-8 gap-6"
-          style="background: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default);"
-        >
-          <div class="flex items-center gap-3 min-w-0 max-w-2xl shrink-0">
-            <%= cond do %>
-              <% @page_icon != [] -> %>
-                <span id="bo-page-icon" class="shrink-0 flex items-center">
-                  {render_slot(@page_icon)}
-                </span>
-              <% is_binary(@page_icon_provider) and @page_icon_provider != "" -> %>
-                <div
-                  id="bo-page-icon"
-                  class="w-10 h-10 rounded-lg grid place-items-center shrink-0"
-                  style={page_icon_style(@page_icon_accent)}
-                >
-                  <ChannelIcons.icon provider={@page_icon_provider} class="w-6 h-6" />
-                </div>
-              <% true -> %>
-            <% end %>
-            <div id="bo-page-heading" class="min-w-0 flex-1">
-              <div class="flex items-center gap-2 min-w-0">
-                <h1
-                  id="bo-page-title"
-                  data-testid="bo-main-page-heading"
-                  class={[
-                    "truncate",
-                    if(@header_subtitle?, do: "zaq-text-body", else: "zaq-text-body-lg")
-                  ]}
-                  style="color: var(--zaq-text-color-body-default);"
-                >
-                  {@page_title}
-                </h1>
-                <span :if={@page_tag != []} id="bo-page-tag" class="shrink-0 flex items-center">
-                  {render_slot(@page_tag)}
-                </span>
-              </div>
-              <%= if @subtitle != [] do %>
-                <div
-                  id="bo-page-subtitle"
-                  class="zaq-text-body-sm truncate mt-0.5"
-                  style="color: var(--zaq-text-color-body-tertiary);"
-                >
-                  {render_slot(@subtitle)}
-                </div>
-              <% else %>
-                <p
-                  :if={@page_subtitle}
-                  id="bo-page-subtitle"
-                  class="zaq-text-body-sm truncate mt-0.5"
-                  style="color: var(--zaq-text-color-body-tertiary);"
-                >
-                  {@page_subtitle}
-                </p>
-              <% end %>
-            </div>
-          </div>
-
-          <div class="flex-1 min-w-0">
+        <PageHeader.page_header id="bo-header">
+          <:heading>
+            <PageHeader.page_heading
+              id="bo-page"
+              title={@page_title}
+              description={@page_subtitle}
+              heading_testid="bo-main-page-heading"
+            >
+              <:icon>
+                <%= cond do %>
+                  <% @page_icon != [] -> %>
+                    <span id="bo-page-icon" class="shrink-0 flex items-center">
+                      {render_slot(@page_icon)}
+                    </span>
+                  <% is_binary(@page_icon_provider) and @page_icon_provider != "" -> %>
+                    <div
+                      id="bo-page-icon"
+                      class="w-10 h-10 rounded-lg grid place-items-center shrink-0"
+                      style={page_icon_style(@page_icon_accent)}
+                    >
+                      <ChannelIcons.icon provider={@page_icon_provider} class="w-6 h-6" />
+                    </div>
+                  <% true -> %>
+                <% end %>
+              </:icon>
+              <:tag :if={@page_tag != []}>{render_slot(@page_tag)}</:tag>
+              <:subtitle :if={@subtitle != []}>{render_slot(@subtitle)}</:subtitle>
+            </PageHeader.page_heading>
+          </:heading>
+          <:context>
             <.live_component
               :if={@portal_consent_live_enabled}
               module={ZaqWeb.Live.BO.PortalConsentLive}
               id="portal-consent"
               current_user={@current_user}
             />
-          </div>
-
-          <div class="flex items-center gap-2 shrink-0">
+          </:context>
+          <:actions>
             <.theme_toggle />
             <a
               id="header-notifications-link"
@@ -663,52 +629,19 @@ defmodule ZaqWeb.Components.BOLayout do
               </div>
             </details>
 
-            <details id="header-user-menu" class="relative">
-              <summary
-                id="header-user-trigger"
-                class="zaq-btn zaq-btn-secondary list-none flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer"
-              >
-                <span
-                  class="zaq-text-body-sm w-8 h-8 rounded-lg grid place-items-center font-bold border"
-                  style="background: color: var(--zaq-text-color-body-accent); border-color: var(--zaq-border-color-accent);"
-                >
-                  {String.first(@current_user.username) |> String.upcase()}
-                </span>
-                <span class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default);">
-                  {@current_user.username}
-                </span>
-              </summary>
-
-              <div
-                id="header-user-dropdown"
-                class="absolute right-0 top-[calc(100%+0.55rem)] w-56 rounded-xl border shadow-xl p-1.5 z-50"
-                style="background: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default);"
-              >
-                <a
-                  id="header-profile-link"
-                  href={~p"/bo/profile"}
-                  class="zaq-text-body-sm zaq-dropdown-menu-item block rounded-lg px-3 py-2"
-                  style="color: var(--zaq-text-color-body-default);"
-                >
-                  Profile
-                </a>
-                <div class="my-1 h-px" style="background: var(--zaq-border-color-default);" />
-                <form id="header-logout-form" method="post" action={~p"/bo/session"}>
-                  <input type="hidden" name="_method" value="delete" />
-                  <input type="hidden" name="_csrf_token" value={Phoenix.Controller.get_csrf_token()} />
-                  <button
-                    id="header-logout-button"
-                    type="submit"
-                    class="zaq-text-body-sm zaq-dropdown-menu-item w-full text-left rounded-lg px-3 py-2 cursor-pointer"
-                    style="color: var(--zaq-text-color-body-danger);"
-                  >
-                    Logout
-                  </button>
-                </form>
-              </div>
-            </details>
-          </div>
-        </header>
+            <ZaqWeb.Components.DesignSystem.AccountMenu.account_menu
+              id="header-user-menu"
+              trigger_id="header-user-trigger"
+              panel_id="header-user-dropdown"
+              profile_id="header-profile-link"
+              logout_form_id="header-logout-form"
+              logout_button_id="header-logout-button"
+              display_name={@current_user.username}
+              profile_url={~p"/bo/profile"}
+              logout_action={~p"/bo/session"}
+            />
+          </:actions>
+        </PageHeader.page_header>
         <!-- Content -->
         <div class="p-8">
           <div
