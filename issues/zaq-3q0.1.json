@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-3q0.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-3q0",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-3q0] Replace development coverage gates",
   "type": "task",
-  "updated_at": "2026-09-15T16:15:56Z"
+  "updated_at": "2026-09-15T16:15:58Z"
 }
