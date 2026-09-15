@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T19:01:53Z",
+  "description": "Engine PeopleConversations owns parent membership and normalized authenticated actor only. Controller owns canonical reference translation once, Jido.Exec GetDocument then fresh handle redemption, trace bytes retained after GetDocument authorization. Remove DocumentContent and source_content API/event only. Tests from previous step precede implementation; malformed, revoked, missing, source-backed and plain branches. No manual grants or storage logic. Document Records ACL ownership.",
+  "id": "zaq-8ku.2",
+  "labels": [],
+  "parent": "zaq-8ku",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-8ku] Move source orchestration to secured GetDocument",
+  "type": "task",
+  "updated_at": "2026-09-15T19:01:53Z"
+}
