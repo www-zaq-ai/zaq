@@ -9,9 +9,15 @@
   "id": "zaq-yws.1",
   "labels": [],
   "parent": "zaq-yws",
+  "comments": [
+    {
+      "text": "Tests-first baseline confirmed: 2 properties, 50 tests, 10 expected failures (missing contract and dropped origin actors). Implementing strict validator plus trusted BO/cron/channel origins and lifecycle propagation. Channel finalization belongs at Engine ingress after Person resolution. No UI behavior change; unit/integration sufficient. Main owns mix q; no issue closure or git delivery actions.",
+      "timestamp": "2026-09-15T13:45:19Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-yws] Define strict shared execution identity and trusted producers",
   "type": "task",
-  "updated_at": "2026-09-15T13:40:05Z"
+  "updated_at": "2026-09-15T13:45:19Z"
 }
