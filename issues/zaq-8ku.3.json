@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-8ku.2"
+  ],
   "blocks": [],
   "created": "2026-09-15T19:01:53Z",
   "description": "Run focused Engine/controller, complete relevant DataSource actions/bridge/Materialization, unchanged Ingestion BoundaryTest and API/events. mix format, mix q; precommit via context-mode if available. Existing all three People browser journeys --include real_browser --timeout 180000 preserving assertions and canonical fixtures. Update people-access current Records ACL docs. Report exact results and blockers; no close before gates pass; no commit/push/PR/reset.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-8ku] Validate Records source correction and docs",
   "type": "task",
-  "updated_at": "2026-09-15T19:01:53Z"
+  "updated_at": "2026-09-15T19:02:08Z"
 }
