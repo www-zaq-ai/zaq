@@ -6,9 +6,15 @@
   "description": "Approved full implementation in current worktree before admin sessions PR6. Preserve HEAD 44dc33d2da685cf378e2acc012ff4dc858309ffb and index a130e3e9ce20f5ce1aa852896568cd072740e1c9 (initially clean). No commit, push, PR or database reset. User explicitly approves existing BO history/detail extraction, reuse wiring and E2E. People list includes active and archived literal-owned conversations by default. Ratings survivor-first on merge. Fixed confidential Engine gateway derives identity from bearer for every operation; never trusts browser ownership. Plan DAG: persistence -\u003e gateway -\u003e shared presentation -\u003e People routes/events -\u003e approval -\u003e E2E -\u003e quality. Tests first per step; real internal boundaries and sandbox, external transport mocks only. Keep prior enhanced PersonHeader/profile and auth behavior.",
   "id": "zaq-5vz",
   "labels": [],
+  "comments": [
+    {
+      "text": "Approved extraction/reuse mapping: HistoryLive.html.heex filters+bulkbar+table -\u003e DS.HistoryBrowser (existing history filter/table/row/bulkbar reused; BO consumes same browser; optional People pager). ConversationDetailLive.html.heex -\u003e DS.ConversationDetail (existing bubbles, date grouping, info/trace/feedback/share markup; BO consumes same component; original BO bleed/legacy presentation retained, responsive containment parameterized). PersonHeader extended only with permitted Settings link; original brand/theme/account layout retained. Existing history Storybook stories remain; new cohesive-browser/detail stories and header history variation added. BO history E2E coverage existed; expanded real People sandbox journey covers new consumers. User explicitly approved extraction and wiring in original task. DAG: ```mermaid\ngraph LR\nP[zaq-5vz.5 persistence] --\u003e G[zaq-5vz.6 gateway]\nG --\u003e U[zaq-5vz.1 shared UI]\nU --\u003e W[zaq-5vz.4 People wiring]\nW --\u003e A[zaq-5vz.2 approval]\nA --\u003e E[zaq-5vz.3 E2E]\nE --\u003e Q[zaq-5vz.7 quality]\n```",
+      "timestamp": "2026-09-15T14:36:51Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-5vz] PR7 People owned conversation history and shared BO presentation",
   "type": "epic",
-  "updated_at": "2026-09-15T12:55:26Z"
+  "updated_at": "2026-09-15T14:36:51Z"
 }
