@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T15:31:26Z",
+  "description": "PR7 final coverage run: 23 properties + 815 tests, all green including all browsers. New/changed application lines 452/455 (99.34%); every new application module \u003e=98.63%. Whole-file exceptions are unchanged branches outside the slice: Engine.Api 80.74%, Ingestion.Api 61.54%, Ingestion.Events 33.33%, BO Communication.HistoryLive 89.77%, Router 40.79%. All added lines in these files are covered. Preserve user scope: do not redesign unrelated BO queries or add low-value mirror tests solely for a whole-file number. Follow up with the owning feature suites and meaningful missing scenarios; overlap Engine.Api/Router tracking with zaq-n82. Exception recorded in Beadwork because user explicitly requested no PR/commit. No unvalidated PR7 branch is hidden by this exception.",
+  "id": "zaq-nwq",
+  "labels": [],
+  "priority": 3,
+  "status": "open",
+  "title": "[zaq-5vz] Measure remaining legacy dispatcher and BO history coverage",
+  "type": "task",
+  "updated_at": "2026-09-15T15:31:26Z"
+}
