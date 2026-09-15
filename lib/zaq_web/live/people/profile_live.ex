@@ -148,6 +148,9 @@ defmodule ZaqWeb.Live.People.ProfileLive do
   defp assign_profile(socket, profile) do
     assign(socket,
       profile: profile,
+      current_person:
+        Map.put(socket.assigns[:current_person] || %{}, :full_name, profile.person.full_name),
+      person_permissions: profile.permissions,
       editable: editable?(profile.permissions),
       mode: :read,
       name_form: to_form(%{"full_name" => profile.person.full_name || ""}, as: :profile),
@@ -269,11 +272,20 @@ defmodule ZaqWeb.Live.People.ProfileLive do
 
   @impl true
   def render(assigns) do
+    assigns = assign_new(assigns, :person_permissions, fn -> MapSet.new() end)
+    assigns = assign_new(assigns, :current_person, fn -> nil end)
+
     ~H"""
     <PersonLayout.person_layout flash={@flash} authenticated content_width={:wide}>
       <:header>
         <PersonHeader.person_header
-          display_name={@profile && @profile.person.full_name}
+          history_access={
+            Enum.all?(
+              [:access_profile, :access_message_history],
+              &MapSet.member?(@person_permissions, &1)
+            )
+          }
+          display_name={@current_person && @current_person.full_name}
           title="Profile"
           description="Your information and how we contact you."
         />

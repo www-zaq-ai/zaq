@@ -92,8 +92,67 @@ synchronization state.
 Administration uses the existing authenticated BO People access policy. These
 grants do not authorize BO administrators. People authentication separately
 requires an active current Person with `access_profile`; BO sessions are independent.
-Public People login and a protected self-service profile are available on
-Channels nodes. History and sharing remain separate work.
+Public People login, profile and owned conversation history are available on
+Channels nodes. BO sessions and administration remain independent.
+
+## Self-service conversation history
+
+`/people/history` and `/people/conversations/:id` share the existing protected
+People live session. The enhanced PersonHeader keeps its logo, theme and account
+controls; Settings adds Conversations when both profile and history grants exist.
+The full-page BO HistoryBrowser and ConversationDetail presentation are shared,
+with People-specific routes and explicit capabilities. People has no identity
+selectors, selection, archive or delete actions. BO remains unpaged.
+
+The confidential fixed Engine `:people_conversations` action delegates to
+`PeopleConversations`. Each operation authenticates its server-held bearer and
+checks `allowed?(person, [:access_profile, :access_message_history])`. Sharing,
+including listing existing links, additionally requires `share_conversations`.
+Owner and author coordinates never come from browser attributes. Parent queries
+bind UUID and literal current Person before loading messages, shares or artifacts;
+malformed, foreign and missing IDs are indistinguishable. Legacy unassociated
+conversations are not inferred or backfilled by self-service.
+
+History defaults to all active and archived owned conversations, optionally
+filtered by status/channel. SQL count and bounded 25-row pages use identical
+filters and deterministic updated-at/UUID ordering. Known local filter/page
+parameters round-trip through the list/detail Back destination.
+
+Ratings use nullable `message_ratings.person_id` with a partial unique
+message/Person index. Person authors cannot coexist with BO/channel attribution.
+People loads only its current author's rating; anonymous BO behavior remains.
+Outer transactions retain authentication Person/session locks through writes,
+then lock the conversation parent. Merges preserve the survivor's rating when
+both participants rated a message; otherwise lowest original Person/UUID wins.
+Uncontested ratings transfer through ordinary rating APIs before loser deletion.
+Migration `20260910170000_add_person_to_message_ratings.exs` intentionally precedes
+historical email normalization, like the authentication schema. Use ordinary
+migration ordering rather than strict-version mode; historical migrations are unchanged.
+The separate `20260915142546_add_conversation_person_activity_index.exs` migration
+indexes literal ownership plus activity/UUID ordering for bounded history pages.
+
+Fresh schema/data replay is available through
+`test/support/people_history_migration_replay.exs`, run with `MIX_ENV=test` and a
+unique `MIX_TEST_PARTITION=_people_history_replay_<suffix>` using `mix run --no-start`.
+Use a short suffix (for this worktree, six hex characters) to stay within
+PostgreSQL's 63-byte database-name limit; oversized names are rejected.
+It refuses existing databases and retains its new isolated database; it never
+resets or drops one. The Repo-only replay covers prerequisite ordering, failed
+normalization rollback, rating conflicts/transfers, session revocation and reruns.
+
+Citation and artifact URLs bind conversation and message parents, use People
+authentication, and return private/no-store sandboxed responses. Citation reads
+also require a stored message source reference and the current document ACL on
+Ingestion. Handle-backed reads return an authorized reference through Engine,
+which supplies the authenticated actor; the Channels-hosted resource controller
+redeems it directly through the existing materializer to the owning role. Legacy
+local-file and stored-document bytes still pass through Ingestion and Engine.
+Stored handles never become browser preview credentials. Trace JSON
+is displayed unchanged. Communication artifact snapshots require their owning
+message and trace reference; source-backed artifacts additionally require their
+document ACL. Historical resources lacking sufficient source attribution fail
+closed. Public `/s/:token` links retain existing token/expiry semantics and do
+not grant People authentication or resource access.
 
 ## Self-service profile
 
@@ -150,7 +209,7 @@ for a BO swap rejects its now-stale snapshot.
 
 The profile uses the approved wide PersonLayout and shared PersonHeader/account menu;
 login retains the default narrow shell. Real full name (safe Profile fallback),
-People Profile and People logout are used, with a no-personal-settings placeholder.
+People Profile and People logout are used; Settings includes Conversations when history access is granted.
 Teams are alphabetical and read-only. Provider icons and numbered channel rows replace
 numeric forms. One inline editor at a time offers name Save/Cancel or channel-order
 Save/Cancel with optional dragging and move-button alternatives. The draft and expected
@@ -168,7 +227,7 @@ remove writable controls; authentication/configuration failures show unavailable
 feedback and fail closed. The server-held bearer stays in socket private state,
 never assigns, DOM, URLs or client parameters. Profile responses exclude metadata,
 merge history, internal DM IDs and authentication credentials. Navigation contains
-only Profile and Sign out; BO credentials remain independent.
+Profile, Sign out and permission-gated Conversations in Settings; BO credentials remain independent.
 
 Migration `20260914153303_add_edit_profile_permission.exs` replaces only the known
 permission CHECK and preserves existing grants. Downgrade refuses while edit grants

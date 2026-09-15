@@ -112,6 +112,7 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :error_type, :atom, default: nil
   attr :source_click_event, :string, default: nil
   attr :source_click_target, :string, default: nil
+  attr :source_preview_path, :any, default: nil
   attr :saved_feedback_reasons, :string, default: nil
   attr :saved_feedback_user_comment, :string, default: nil
 
@@ -241,6 +242,7 @@ defmodule ZaqWeb.Components.ChatMessage do
                 source={source}
                 click_event={@source_click_event}
                 click_target={@source_click_target}
+                preview_path_builder={@source_preview_path}
               />
             </div>
 
@@ -456,6 +458,7 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :expanded_ids, :any, default: nil
   attr :close_event, :string, required: true
   attr :toggle_event, :string, required: true
+  attr :artifact_url, :any, default: nil
 
   def message_info_popin(assigns) do
     assigns = assign_new(assigns, :expanded_ids, fn -> MapSet.new() end)
@@ -485,6 +488,7 @@ defmodule ZaqWeb.Components.ChatMessage do
             message_info={@message_info}
             expanded_ids={@expanded_ids}
             toggle_event={@toggle_event}
+            artifact_url={@artifact_url}
           />
         </div>
       </div>
@@ -499,11 +503,18 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :source, :any, required: true
   attr :click_event, :string, default: nil
   attr :click_target, :string, default: nil
+  attr :preview_path_builder, :any, default: nil
 
   defp source_card(assigns) do
     assigns =
       assigns
-      |> assign(:preview_path, source_preview_path_for_modal(assigns.source))
+      |> assign(
+        :preview_path,
+        if(assigns.preview_path_builder,
+          do: assigns.preview_path_builder.(assigns.source),
+          else: source_preview_path_for_modal(assigns.source)
+        )
+      )
       |> assign(:click_target_attrs, click_target_attrs(assigns.click_target))
 
     ~H"""

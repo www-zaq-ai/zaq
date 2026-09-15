@@ -5,7 +5,7 @@
   current_path={@current_path}
   features_version={@features_version}
 >
-  <.conversation_filters
+  <ZaqWeb.Components.DesignSystem.HistoryBrowser.history_browser
     conversation_count={length(@conversations)}
     status={@status}
     is_admin={@is_admin}
@@ -15,15 +15,8 @@
     filter_person_id={@filter_person_id}
     teams={@teams}
     people={@people}
-  />
-
-  <.bulk_selection_bar selected_count={MapSet.size(@selected)} live_action={@live_action} />
-
-  <.conversation_table
     conversations={@conversations}
     selected={@selected}
     live_action={@live_action}
-    is_admin={@is_admin}
-    filter_scope={@filter_scope}
   />
 </ZaqWeb.Components.BOLayout.bo_layout>

@@ -38,6 +38,24 @@ defmodule Zaq.Engine.Conversations do
   @doc "Fetches a conversation by id, returns nil if not found."
   def get_conversation(id), do: Repo.get(Conversation, id)
 
+  @doc "Fetches by UUID and literal Person owner, without identity inference or alias fallback."
+  @spec get_person_conversation(term(), term(), keyword()) :: struct() | nil
+  def get_person_conversation(id, person_id, opts \\ [])
+
+  def get_person_conversation(id, person_id, opts) when is_integer(person_id) and person_id > 0 do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        query = from c in Conversation, where: c.id == ^uuid and c.person_id == ^person_id
+        query = if opts[:lock], do: lock(query, "FOR UPDATE"), else: query
+        Repo.one(query)
+
+      _ ->
+        nil
+    end
+  end
+
+  def get_person_conversation(_, _, _), do: nil
+
   @doc "Fetches a conversation by id, raises if not found."
   def get_conversation!(id) do
     Repo.get!(Conversation, id)
@@ -97,10 +115,29 @@ defmodule Zaq.Engine.Conversations do
   - `search_in` — scopes `query` to `:title`, `:content`, or `:all` (default).
     Ignored when `query` is absent.
   - `from` / `to` — `DateTime` bounds (inclusive) on `updated_at`.
+  - `preload` — associations needed by the caller; defaults to `[:person, :user]`.
   """
   def list_conversations(opts \\ []) do
+    opts
+    |> conversation_query()
+    |> Repo.all()
+    |> backfill_missing_person_ids()
+    |> Repo.preload(Keyword.get(opts, :preload, [:person, :user]))
+  end
+
+  @doc "Counts the exact listing scope in SQL, ignoring pagination."
+  @spec count_conversations(keyword()) :: non_neg_integer()
+  def count_conversations(opts \\ []) do
+    opts
+    |> Keyword.drop([:limit, :offset])
+    |> conversation_query()
+    |> exclude(:order_by)
+    |> Repo.aggregate(:count)
+  end
+
+  defp conversation_query(opts) do
     search_in = Keyword.get(opts, :search_in, :all)
-    query = from(c in Conversation, order_by: [desc: c.updated_at])
+    query = from(c in Conversation, order_by: [desc: c.updated_at, desc: c.id])
 
     query =
       Enum.reduce(opts, query, fn
@@ -143,9 +180,6 @@ defmodule Zaq.Engine.Conversations do
       end)
 
     query
-    |> Repo.all()
-    |> backfill_missing_person_ids()
-    |> Repo.preload([:person, :user])
   end
 
   defp apply_search_filter(query, "", _scope), do: query
@@ -763,13 +797,65 @@ defmodule Zaq.Engine.Conversations do
     the truncation into SQL instead of fetching every row and trimming in memory.
   """
   def list_messages(%Conversation{} = conversation, opts \\ []) do
+    ratings =
+      case Keyword.fetch(opts, :rating_person_id) do
+        {:ok, id} when is_integer(id) and id > 0 ->
+          from r in MessageRating, where: r.person_id == ^id
+
+        {:ok, _} ->
+          from r in MessageRating, where: false
+
+        :error ->
+          from(r in MessageRating)
+      end
+
     from(m in Message,
       where: m.conversation_id == ^conversation.id,
-      order_by: [asc: m.inserted_at],
-      preload: [:ratings]
+      order_by: [asc: m.inserted_at, asc: m.id],
+      preload: [ratings: ^ratings]
     )
     |> maybe_limit(opts[:limit])
     |> Repo.all()
+  end
+
+  @doc "Fetches a message only within its supplied conversation parent."
+  @spec get_conversation_message(struct(), term(), keyword()) :: struct() | nil
+  def get_conversation_message(%Conversation{id: parent}, id, opts \\ []) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        query = from m in Message, where: m.id == ^uuid and m.conversation_id == ^parent
+        query = if opts[:lock], do: lock(query, "FOR UPDATE"), else: query
+        Repo.one(query)
+
+      _ ->
+        nil
+    end
+  end
+
+  @doc "Fetches a share only within its supplied conversation parent."
+  @spec get_conversation_share(struct(), term()) :: struct() | nil
+  def get_conversation_share(%Conversation{id: parent}, id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        Repo.one(
+          from s in ConversationShare, where: s.id == ^uuid and s.conversation_id == ^parent
+        )
+
+      _ ->
+        nil
+    end
+  end
+
+  @doc "Fetches a trace artifact only within its supplied message parent."
+  @spec get_message_trace_artifact(struct(), term()) :: struct() | nil
+  def get_message_trace_artifact(%Message{id: parent}, id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        Repo.one(from a in MessageTraceArtifact, where: a.id == ^uuid and a.message_id == ^parent)
+
+      _ ->
+        nil
+    end
   end
 
   @doc "Returns a trace artifact when the BO user may access its conversation."
@@ -853,6 +939,9 @@ defmodule Zaq.Engine.Conversations do
 
     query =
       cond do
+        person_id = Map.get(rater_attrs, :person_id) ->
+          where(query, [r], r.person_id == ^person_id)
+
         user_id = Map.get(rater_attrs, :user_id) ->
           where(query, [r], r.user_id == ^user_id)
 
@@ -860,20 +949,24 @@ defmodule Zaq.Engine.Conversations do
           where(query, [r], r.channel_user_id == ^channel_user_id)
 
         true ->
-          query
+          where(query, [r], is_nil(r.person_id))
       end
 
     Repo.one(query)
   end
 
-  @doc "Updates an existing rating."
+  @doc "Updates an existing rating; only submitted rating/comment edits emit feedback telemetry."
   def update_rating(%MessageRating{} = rating, attrs, telemetry_attrs \\ %{}, occurred_at \\ nil) do
     rating
     |> MessageRating.changeset(attrs)
     |> Repo.update()
     |> tap(fn
-      {:ok, updated} -> maybe_record_rating_telemetry(updated, telemetry_attrs, occurred_at)
-      _ -> :ok
+      {:ok, updated} ->
+        if Enum.any?([:rating, :comment, "rating", "comment"], &Map.has_key?(attrs, &1)),
+          do: maybe_record_rating_telemetry(updated, telemetry_attrs, occurred_at)
+
+      _ ->
+        :ok
     end)
   end
 
@@ -892,37 +985,41 @@ defmodule Zaq.Engine.Conversations do
         {:error, :not_found}
 
       message ->
-        case get_rating(message, rater_attrs) do
-          nil ->
-            rate_message(message, rater_attrs)
-
-          existing ->
-            update_rating(
-              existing,
-              Map.take(rater_attrs, [:rating, :comment]),
-              rater_attrs,
-              message.inserted_at
-            )
-        end
-        |> tap(fn
-          {:ok, rating} ->
-            conversation_history = list_conversation_messages(message.conversation_id)
-
-            Zaq.Hooks.dispatch_async(
-              :feedback_provided,
-              %{
-                message: message,
-                rating: rating,
-                conversation_history: conversation_history,
-                rater_attrs: rater_attrs
-              },
-              %{}
-            )
-
-          _ ->
-            :ok
-        end)
+        upsert_rating(message, rater_attrs)
     end
+  end
+
+  @doc "Upserts feedback for an already-resolved message without an unscoped message reread."
+  @spec upsert_rating(struct(), map()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
+  def upsert_rating(%Message{} = message, rater_attrs) do
+    case get_rating(message, rater_attrs) do
+      nil ->
+        rate_message(message, rater_attrs)
+
+      existing ->
+        update_rating(
+          existing,
+          Map.take(rater_attrs, [:rating, :comment]),
+          rater_attrs,
+          message.inserted_at
+        )
+    end
+    |> tap(fn
+      {:ok, rating} ->
+        Zaq.Hooks.dispatch_async(
+          :feedback_provided,
+          %{
+            message: message,
+            rating: rating,
+            conversation_history: list_conversation_messages(message.conversation_id),
+            rater_attrs: rater_attrs
+          },
+          %{}
+        )
+
+      _ ->
+        :ok
+    end)
   end
 
   @doc """

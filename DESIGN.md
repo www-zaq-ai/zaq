@@ -524,7 +524,9 @@ Shell classes consume semantic tokens and adapt in dark mode automatically.
 | Empty state | `ZaqWeb.Components.DesignSystem.EmptyState` | `empty_state/1` | zero-data placeholder |
 | Page header / heading | `ZaqWeb.Components.DesignSystem.PageHeader` | `page_header/1`, `page_heading/1` | caller-owned brand, heading, context and actions; shared BO/People chrome |
 | Account menu | `ZaqWeb.Components.DesignSystem.AccountMenu` | `account_menu/1` | avatar/name with caller-owned routes, logout and DOM IDs |
-| People header | `ZaqWeb.Components.DesignSystem.PersonHeader` | `person_header/1` | People-only account destinations; no-settings placeholder; see PersonHeader story |
+| People header | `ZaqWeb.Components.DesignSystem.PersonHeader` | `person_header/1` | People-only account destinations and caller-authorized Conversations settings link |
+| History browser | `ZaqWeb.Components.DesignSystem.HistoryBrowser` | `history_browser/1` | Existing history filters/table/rows/bulkbar; caller-owned routes, controls and optional pager |
+| Conversation detail | `ZaqWeb.Components.DesignSystem.ConversationDetail` | `conversation_detail/1` | Existing BO transcript/info/feedback/share presentation, explicit capabilities and resource routes |
 | Profile content | `ZaqWeb.Components.DesignSystem.PersonProfile` | `person_profile/1` | parent-owned name/order drafts, read-only memberships; see PersonProfile story |
 | Channel priority list | `ZaqWeb.Components.DesignSystem.ChannelPriorityList` | `channel_priority_list/1` | ordered branded rows, drag and move alternatives; exercised in PersonProfile order story |
 

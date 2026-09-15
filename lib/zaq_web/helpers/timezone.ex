@@ -1,7 +1,11 @@
 defmodule ZaqWeb.Helpers.Timezone do
   @moduledoc """
-  Timezone module for BO.
+   Shared web timezone formatting. The default lookup uses Engine routing so
+   BO and People pages do not require a local database connection.
   """
+
+  alias Zaq.Config
+  alias Zaq.Engine.Events
 
   def shift(nil), do: nil
 
@@ -42,9 +46,16 @@ defmodule ZaqWeb.Helpers.Timezone do
   end
 
   defp load_system_timezone do
-    fun = Application.get_env(:zaq, :system_timezone_fun, &Zaq.System.get_system_timezone/0)
+    fun = Config.get(:zaq, :system_timezone_fun, &engine_timezone/0, [])
     tz = fun.()
     Process.put(:zaq_system_timezone, tz)
     tz
+  end
+
+  defp engine_timezone do
+    case Events.build_and_dispatch_invoke_event(%{}, :system_config_get_system_timezone).response do
+      timezone when is_binary(timezone) -> timezone
+      _ -> nil
+    end
   end
 end

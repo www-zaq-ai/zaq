@@ -18,6 +18,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Notifications
   alias Zaq.Engine.OutboundHttp
   alias Zaq.Engine.PeopleAuthGateway
+  alias Zaq.Engine.PeopleConversations
   alias Zaq.Engine.PeopleGateway
   alias Zaq.Engine.Workflows
   alias Zaq.Event
@@ -26,6 +27,15 @@ defmodule Zaq.Engine.Api do
   alias Zaq.System
 
   @impl true
+  def handle_event(%Event{} = event, :people_conversations, _context) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true,
+        do: PeopleConversations.dispatch(event.request, event.opts),
+        else: {:error, :confidential_event_required}
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, :people_auth, _context) do
     response =
       if Keyword.get(event.opts, :confidential) == true do

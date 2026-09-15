@@ -6,6 +6,11 @@ defmodule ZaqWeb.PeopleBrowserTest do
   alias Zaq.Accounts.{People, PeoplePermissions, PersonLoginChallenge}
   alias Zaq.Channels.PeopleAuthDeliveryMock
   alias Zaq.Channels.PeopleAuthRateLimiter.Config
+  alias Zaq.Contracts.Record
+  alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Ingestion.Document
+  alias Zaq.Permissions
   alias Zaq.TestSupport.PeopleAuthDelivery
   import Zaq.AccountsFixtures
 
@@ -32,6 +37,80 @@ defmodule ZaqWeb.PeopleBrowserTest do
             platform: "slack",
             channel_identifier: "browser-slack-#{width}"
           })
+
+        {:ok, conversation} =
+          Conversations.create_conversation(%{
+            person_id: person.id,
+            title: "Browser history #{width}",
+            channel_type: "api"
+          })
+
+        incoming = %Incoming{
+          content: "Browser input",
+          channel_id: "api",
+          provider: "api",
+          metadata: %{conversation_id: conversation.id},
+          attachments: [
+            %Record{
+              id: "notes",
+              kind: :file,
+              name: "notes.txt",
+              size: 12,
+              mime_type: "text/plain"
+            }
+          ]
+        }
+
+        {:ok, _} =
+          Conversations.persist_from_incoming(incoming, %{
+            answer: "Browser history answer",
+            trace: [
+              %{
+                "id" => "browser-trace",
+                "tool_name" => "History inspection",
+                "response" => %{"visible" => "trace details"}
+              }
+            ],
+            trace_artifacts: [
+              %{
+                tool_call_id: "browser-trace",
+                tool_name: "download_document",
+                content: "Browser artifact",
+                name: "browser-evidence.txt",
+                mime_type: "text/plain",
+                record: %{"attributes" => %{"source_type" => "communication_media"}}
+              }
+            ]
+          })
+
+        {:ok, document} =
+          Document.create(%{
+            source: "browser-#{suffix}-#{width}.md",
+            content: "# Browser source\nAuthorized source material"
+          })
+
+        {:ok, _} =
+          Permissions.grant({"document", to_string(document.id)}, %{
+            person_id: person.id,
+            access_rights: ["read"]
+          })
+
+        {:ok, _} =
+          Conversations.add_message(conversation, %{
+            role: "assistant",
+            content: "Additional source",
+            sources: [%{"type" => "document", "index" => 1, "path" => document.source}]
+          })
+
+        for n <- 1..26 do
+          {:ok, _} =
+            Conversations.create_conversation(%{
+              person_id: person.id,
+              title: "Archived history #{n}",
+              channel_type: "slack",
+              status: "archived"
+            })
+        end
       end
 
       user = super_admin_fixture(%{username: "browser-#{suffix}"})
