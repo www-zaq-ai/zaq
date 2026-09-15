@@ -29,8 +29,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-
 
       - name: Install dependencies
         run: mix deps.get
@@ -63,8 +63,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-
 
       - name: Install dependencies
         run: mix deps.get
@@ -111,11 +111,17 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-
 
       - name: Install dependencies
         run: mix deps.get
+
+      # Fallback caches may predate Logger's compile-time session-dump purge.
+      - name: Recompile LiveView with current logging policy
+        run: |
+          mix deps.compile
+          mix deps.compile phoenix_live_view --force
 
       - name: Send coverage to Coveralls (internal PRs + main pushes)
         if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
@@ -167,11 +173,16 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-
 
       - name: Install dependencies
         run: mix deps.get
+
+      - name: Recompile LiveView with current logging policy
+        run: |
+          mix deps.compile
+          mix deps.compile phoenix_live_view --force
 
       - name: Run ingestion tests against ParadeDB
         run: mix test test/zaq/ingestion/ --include paradedb
@@ -217,11 +228,16 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-elixir-1-20-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-elixir-1-20-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-test-
 
       - name: Install dependencies
         run: mix deps.get
+
+      - name: Recompile LiveView with current logging policy
+        run: |
+          mix deps.compile
+          mix deps.compile phoenix_live_view --force
 
       - name: Run tests
         run: mix test
@@ -250,8 +266,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-docs-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-docs-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-docs-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-docs-
 
       - name: Install dependencies
         run: mix deps.get

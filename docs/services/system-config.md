@@ -94,6 +94,9 @@ MIX_ENV=prod mix deps.compile phoenix_live_view --force
 ```
 
 Use the corresponding `MIX_ENV=test` rebuild before the log regression test.
+CI keys compiled caches by toolchain, Mix environment, lockfile, project and
+configuration files, and always recompiles LiveView before tests/coverage so a
+fallback cache cannot retain a session logger compiled under an older policy.
 The shared signed session cookie is HttpOnly/Lax and Secure in production. Its
 browser-session lifetime is unchanged: no explicit Max-Age/Expires is set.
 People session expiry remains database-authoritative.
