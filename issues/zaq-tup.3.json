@@ -14,9 +14,15 @@
   "id": "zaq-tup.3",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "User explicitly approved staged UI/shared account menu and ENTIRE production promotion (name editor, teams, icons, ordered channels with atomic save). This authorized apply/persistence work only. Implemented result now awaits explicit final human UX/UI approval before E2E authoring. Keep this gate OPEN.",
+      "timestamp": "2026-09-15T11:13:47Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-tup] Human approval of completed profile UX",
   "type": "task",
-  "updated_at": "2026-09-15T10:40:04Z"
+  "updated_at": "2026-09-15T11:13:47Z"
 }
