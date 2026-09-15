@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-15T09:21:20Z",
+  "description": "Write docs/ux/people-profile.md, map existing modules and field controls, specify responsive states and permission boundaries. Validate against approved brief and DESIGN inventory; no executable tests for doc-only step. No mocks. Record prototype route safety and production Save-order gap.",
+  "id": "zaq-tup.1",
+  "labels": [],
+  "parent": "zaq-tup",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-tup] Write profile UX specification",
+  "type": "task",
+  "updated_at": "2026-09-15T09:21:20Z"
+}
