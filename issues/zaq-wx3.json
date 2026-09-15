@@ -6,9 +6,15 @@
   "description": "Minimal existing E2E repair approved by user. Use existing filter helper, assert one total row before selection, and await LiveView connection after reload. Preserve email/duplicate/persistence assertions; no production changes or new journeys. CI trace shows filter diff during failing click. Validate repeated WebKit, browser matrix People spec, mix format and mix q.",
   "id": "zaq-wx3",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented minimal test-only repair in test/e2e/specs/people.spec.js: existing filterByName at all four selections, total-row-count assertion alongside original matching-row assertions, explicit connected wait after reload. No click helper, production, timeout, retry or business assertion changes. Validation passed: 10 repeated WebKit normalization journey runs with retries=0; full People spec 75/75 across Firefox/WebKit/Chromium with retries=0; mix format; node --check; mix q; git diff --check. Existing license_manager unavailable warning during E2E bootstrap/server. Uncommitted working-tree change; awaiting delivery.",
+      "timestamp": "2026-09-15T08:18:41Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-wx3] Synchronize email journey filtering before selection",
   "type": "task",
-  "updated_at": "2026-09-15T08:10:05Z"
+  "updated_at": "2026-09-15T08:18:41Z"
 }
