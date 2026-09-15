@@ -11,9 +11,15 @@
   "id": "zaq-tup.2",
   "labels": [],
   "parent": "zaq-tup",
+  "comments": [
+    {
+      "text": "Implemented fixture preview at /people/profile/preview, preserving real profile/authentication and narrow login. UX spec docs/ux/people-profile.md. mix format, mix q, assets.build, diff --check pass. Targeted suite: 1 property + 19 tests, 0 failures; fixture, preview LiveView and PersonLayout coverage 100%. Browser redirected to localhost:4010/people/login; waiting for human sign-in to verify desktop/mobile, focus and drag. Keep issue open until visual verification; approval and E2E remain blocked. No commits or production wiring.",
+      "timestamp": "2026-09-15T09:41:42Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Stage and validate profile prototype",
   "type": "task",
-  "updated_at": "2026-09-15T09:23:36Z"
+  "updated_at": "2026-09-15T09:41:42Z"
 }
