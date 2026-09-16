@@ -412,6 +412,12 @@ Rule write commands accept a required `rules` list. Each rule carries optional s
   - Returns a structured sent/skipped/failed result with final channel details on success.
 - `bridge_available?/1` — returns true if a bridge is configured for the given platform.
 
+`NotifyPerson` forwards the receipt's `message_id`, `thread_id`, and opaque
+`thread_metadata` through Jido output validation. Metadata must be a map (omission
+defaults to `%{}`; explicit `nil` is invalid), with arbitrary keys and nested values
+preserved verbatim. Its NimbleOptions field uses `{:map, :any, :any}` because plain
+`:map` restricts keys to atoms; Engine and the action do not normalize provider keys.
+
 ### Notification Struct (`Zaq.Engine.Notifications.Notification`)
 
 - Build via `Notification.build/1` — validates subject, body, channel format.

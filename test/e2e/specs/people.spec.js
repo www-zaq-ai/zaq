@@ -75,6 +75,7 @@ test.describe("People", () => {
     // Reset leaves no user-created teams; the existing Everyone system team remains.
     await expect(page.locator("#people-permissions-table thead th")).toHaveText(["Permission", "All People", "Everyone"])
     await expect(page.locator('#people-permissions-table input[aria-checked="true"]')).toHaveCount(0)
+    await expect(page.locator("#people-permissions-table tbody tr")).toHaveCount(4)
     await page.locator(SEL.tabTeams).click()
     const teamNames = Array.from({ length: 5 }, (_, n) => `Permissions ${Date.now()} ${n} very long team name for responsive layout`)
     for (const name of teamNames) {
@@ -86,6 +87,10 @@ test.describe("People", () => {
     await page.locator('[phx-value-tab="permissions"]').click()
     const globalProfile = page.locator("#permission-all_people-access_profile")
     const globalHistory = page.locator("#permission-all_people-access_message_history")
+    const globalEdit = page.locator("#permission-all_people-edit_profile")
+    await globalEdit.locator("..").click()
+    await expect(globalEdit).toHaveAttribute("aria-checked", "true")
+    await expect(globalProfile).not.toBeChecked()
     const teamShare = page.getByRole("switch", { name: new RegExp(`Share conversations — ${teamNames[0]}`) })
     await expect(globalProfile).not.toBeChecked()
     await globalProfile.focus()
@@ -104,6 +109,7 @@ test.describe("People", () => {
     await page.locator('[phx-value-tab="permissions"]').click()
     await expect(globalProfile).toBeChecked()
     await expect(teamShare).toBeChecked()
+    await expect(globalEdit).toBeChecked()
     await expect(teamHistory).not.toBeChecked()
     await globalProfile.locator("..").click()
     await expect(globalProfile).toHaveAttribute("aria-checked", "false")

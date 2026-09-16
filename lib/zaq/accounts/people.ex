@@ -347,6 +347,31 @@ defmodule Zaq.Accounts.People do
     persist_person(Person.update_changeset(person, stringify_keys(attrs)), :update)
   end
 
+  @doc "Updates only the authenticated current Person's full name; caller owns authentication and locking."
+  @spec update_self_profile(Person.t(), map()) :: {:ok, Person.t()} | {:error, term()}
+  def update_self_profile(%Person{id: id, __meta__: %{state: :loaded}} = person, attrs)
+      when is_integer(id) and id > 0 and is_non_struct_map(attrs) do
+    person |> Person.self_profile_changeset(stringify_keys(attrs)) |> Repo.update()
+  end
+
+  def update_self_profile(_, _), do: {:error, :not_found}
+
+  @doc "Updates only priority on a literal owned channel. Caller holds the authenticated Person lock; aliases are never followed."
+  @spec update_self_channel_weight(Person.t(), term(), map()) ::
+          {:ok, PersonChannel.t()} | {:error, term()}
+  def update_self_channel_weight(%Person{id: person_id, __meta__: %{state: :loaded}}, id, attrs)
+      when is_integer(person_id) and person_id > 0 and is_non_struct_map(attrs) do
+    with {:ok, id} when is_integer(id) and id > 0 <- Ecto.Type.cast(:integer, id),
+         %PersonChannel{} = channel <-
+           Repo.one(from c in PersonChannel, where: c.id == ^id and c.person_id == ^person_id) do
+      channel |> PersonChannel.weight_changeset(stringify_keys(attrs)) |> Repo.update()
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  def update_self_channel_weight(_, _, _), do: {:error, :not_found}
+
   @doc """
   Protected owner operation persisting a calculated identity consolidation result
   in one update. Only the merger supplies these attributes, including aliases and
@@ -541,7 +566,9 @@ defmodule Zaq.Accounts.People do
   # ── PersonChannels ───────────────────────────────────────────────────────
 
   def list_person_channels(person_id) do
-    Repo.all(from c in PersonChannel, where: c.person_id == ^person_id, order_by: c.weight)
+    Repo.all(
+      from c in PersonChannel, where: c.person_id == ^person_id, order_by: [c.weight, c.id]
+    )
   end
 
   def get_channel(id), do: Repo.get(PersonChannel, id)

@@ -46,7 +46,7 @@ defmodule Zaq.Accounts.PersonChannel do
     |> normalize_channel_identifier()
     |> validate_required([:platform, :channel_identifier, :person_id])
     |> validate_inclusion(:platform, @valid_platforms)
-    |> validate_number(:weight, greater_than_or_equal_to: 0)
+    |> validate_weight()
     |> foreign_key_constraint(:person_id)
     |> identifier_constraint()
   end
@@ -67,7 +67,7 @@ defmodule Zaq.Accounts.PersonChannel do
     |> normalize_channel_identifier()
     |> validate_required([:platform, :channel_identifier])
     |> validate_inclusion(:platform, @valid_platforms)
-    |> validate_number(:weight, greater_than_or_equal_to: 0)
+    |> validate_weight()
     |> identifier_constraint()
   end
 
@@ -79,6 +79,24 @@ defmodule Zaq.Accounts.PersonChannel do
       message: "This channel identifier is already assigned."
     )
   end
+
+  @doc "Changes priority alone without normalizing identity or recording communication activity."
+  @spec weight_changeset(t(), map()) :: Ecto.Changeset.t()
+  def weight_changeset(channel, attrs) do
+    channel
+    |> cast(attrs, [:weight])
+    |> validate_required([:weight])
+    |> validate_weight()
+  end
+
+  defp validate_weight(changeset),
+    # The persisted PostgreSQL integer is signed 32-bit; this is a storage bound,
+    # not an additional product priority limit.
+    do:
+      validate_number(changeset, :weight,
+        greater_than_or_equal_to: 0,
+        less_than_or_equal_to: 2_147_483_647
+      )
 
   @doc "Canonical stored identifier for matching and merging; only email is normalized."
   @spec normalize_identifier(String.t() | nil, String.t() | nil) :: String.t() | nil

@@ -8,7 +8,7 @@ defmodule ZaqWeb.PersonSessionControllerTest do
   alias Zaq.Channels.{PeopleAuthDeliveryMock, PeopleAuthRateLimiter}
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Repo
-  alias Zaq.TestSupport.PeopleAuthDelivery
+  alias Zaq.TestSupport.{PeopleAuthClock, PeopleAuthDelivery}
   alias ZaqWeb.Live.People.AuthHook
   import Mox
 
@@ -17,7 +17,14 @@ defmodule ZaqWeb.PersonSessionControllerTest do
   setup do
     {:ok, person} = People.create_person(%{full_name: "Profile visitor"})
     {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
-    {:ok, challenge} = PeopleAuth.issue_challenge(person, {127, 0, 1, 99})
+    # Existing HTTP replacement scenarios begin after the initial issuance minute.
+    PeopleAuthClock.put(DateTime.add(DateTime.utc_now(:second), -60))
+
+    {:ok, challenge} =
+      PeopleAuth.issue_challenge(person, {0, 0, 0, 0, 0, 0, 9, rem(person.id, 65_536)},
+        clock: PeopleAuthClock
+      )
+
     %{person: person, challenge: challenge}
   end
 
@@ -93,6 +100,31 @@ defmodule ZaqWeb.PersonSessionControllerTest do
     {:ok, _, html} = live(recycle(conn), "/people/login")
     assert html =~ "One-time code"
     assert html =~ "inputmode=\"numeric\""
+    assert first.resend_available_at
+    assert html =~ "data-resend-available-at"
+    assert html =~ "form=\"people-resend-form\""
+    assert html =~ "id=\"people-code-row\""
+    assert html =~ "aria-describedby=\"people-resend-caption\""
+    assert html =~ "Resend in"
+    document = LazyHTML.from_fragment(html)
+    assert LazyHTML.query(document, "form form") |> Enum.count() == 0
+
+    assert LazyHTML.query(document, "#people-resend-form input[name=_csrf_token]") |> Enum.count() ==
+             1
+
+    denied = conn |> recycle() |> post("/people/challenge", %{})
+    assert get_session(denied, :person_login_challenge) == first
+
+    assert Phoenix.Flash.get(denied.assigns.flash, :error) ==
+             "Please wait before requesting another code."
+
+    # Advance only this sandbox challenge; HTTP continues to use the real clock.
+    Repo.get!(PersonLoginChallenge, first.challenge_id)
+    |> PersonLoginChallenge.changeset(%{
+      inserted_at: DateTime.add(DateTime.utc_now(:second), -60)
+    })
+    |> Repo.update!()
+
     conn = conn |> recycle() |> post("/people/challenge", %{})
     second = get_session(conn, :person_login_challenge)
     refute second.challenge_id == first.challenge_id
@@ -413,7 +445,7 @@ defmodule ZaqWeb.PersonSessionControllerTest do
   end
 
   test "failed verification retains the server-issued expiration", %{conn: conn, challenge: c} do
-    descriptor = Map.take(c, [:challenge_id, :expires_at])
+    descriptor = Map.take(c, [:challenge_id, :expires_at, :resend_available_at])
 
     conn =
       conn
@@ -421,6 +453,50 @@ defmodule ZaqWeb.PersonSessionControllerTest do
       |> post("/people/session", %{"challenge_id" => c.challenge_id, "code" => "invalid"})
 
     assert get_session(conn, :person_login_challenge) == descriptor
+  end
+
+  test "new email POST cannot bypass cooldown or acquire another browser's descriptor", %{
+    conn: conn,
+    person: person
+  } do
+    {:ok, person} = People.update_person(person, %{email: "held@example.test"})
+    {:ok, issued} = PeopleAuth.issue_challenge(person, {127, 0, 1, 98})
+    send(Zaq.Channels.PeopleAuthRateLimiter.Config, :refresh)
+    _ = :sys.get_state(Zaq.Channels.PeopleAuthRateLimiter.Config)
+    before = Repo.get!(PersonLoginChallenge, issued.challenge_id)
+    failed = post(conn, "/people/challenge", %{"email" => person.email})
+    assert get_session(failed, :person_login_challenge) == nil
+
+    assert Phoenix.Flash.get(failed.assigns.flash, :error) ==
+             "Unable to send a sign-in code. Please try again later."
+
+    {:ok, _, html} = live(recycle(failed), "/people/login")
+    refute html =~ "One-time code"
+    assert Repo.get!(PersonLoginChallenge, issued.challenge_id) == before
+    assert {:ok, _} = PeopleAuth.verify_challenge(issued.challenge_id, issued.code)
+  end
+
+  test "legacy descriptor renders enabled resend and unrelated verify cannot copy deadlines", %{
+    conn: conn,
+    challenge: c
+  } do
+    legacy = Map.take(c, [:challenge_id, :expires_at])
+    conn = init_test_session(conn, %{person_login_challenge: legacy})
+    {:ok, _, html} = live(conn, "/people/login")
+    document = LazyHTML.from_fragment(html)
+    assert LazyHTML.query(document, "#people-resend[disabled]") |> Enum.count() == 0
+    assert html =~ "Resend code"
+    id = Ecto.UUID.generate()
+
+    failed =
+      post(conn, "/people/session", %{
+        "challenge_id" => id,
+        "code" => "wrong",
+        "expires_at" => "2090-01-01T00:00:00Z",
+        "resend_available_at" => "2090-01-01T00:00:00Z"
+      })
+
+    assert get_session(failed, :person_login_challenge) == %{challenge_id: id, expires_at: nil}
   end
 
   test "public and protected People routes require Channels role", %{conn: conn} do
@@ -434,7 +510,7 @@ defmodule ZaqWeb.PersonSessionControllerTest do
     assert conn |> get("/people/login") |> response(404) == "Not Found"
     assert conn |> recycle() |> get("/people/profile") |> response(404) == "Not Found"
     assert conn |> recycle() |> post("/people/challenge", %{}) |> response(404) == "Not Found"
-    socket = %Phoenix.LiveView.Socket{}
+    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, flash: %{}}}
     assert {:halt, _} = AuthHook.on_mount(:public, %{}, %{}, socket)
     assert {:halt, _} = AuthHook.on_mount(:default, %{}, %{}, socket)
   end

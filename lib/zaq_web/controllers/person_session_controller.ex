@@ -20,6 +20,11 @@ defmodule ZaqWeb.PersonSessionController do
         |> put_session(:person_login_challenge, challenge)
         |> redirect(to: ~p"/people/login")
 
+      {:error, {:resend_limited, _}} when not is_map_key(params, "email") ->
+        conn
+        |> put_flash(:error, "Please wait before requesting another code.")
+        |> redirect(to: ~p"/people/login")
+
       error ->
         conn
         |> put_flash(:error, request_error_message(error))

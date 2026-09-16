@@ -21,9 +21,15 @@ defmodule ZaqWeb.Plugs.PersonAuth do
         |> assign(:person_permissions, permissions)
         |> assign(:person_session, session)
 
-      _ ->
+      {:error, :invalid_session} ->
         conn
         |> delete_session(:person_session_token)
+        |> redirect(to: "/people/login")
+        |> halt()
+
+      _ ->
+        conn
+        |> put_flash(:error, "People sign-in is unavailable. Please try again.")
         |> redirect(to: "/people/login")
         |> halt()
     end

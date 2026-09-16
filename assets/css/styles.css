@@ -7,6 +7,24 @@
 @import "./drawer.css";
 @import "./form.css";
 
+/* One code-entry row, including its independently submitted resend action. */
+.zaq-people-code-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--zaq-layout-inline-gap);
+  min-width: 0;
+}
+
+.zaq-people-code-row > .zaq-field-row-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.zaq-people-code-row > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* ── Card ────────────────────────────────────────────────────────────────── */
 
 .zaq-card-default {

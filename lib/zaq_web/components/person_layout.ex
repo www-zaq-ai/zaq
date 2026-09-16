@@ -27,6 +27,14 @@ defmodule ZaqWeb.Components.PersonLayout do
       </header>
       <main class="w-full max-w-lg mx-auto zaq-layout-stack">
         <p
+          :if={Phoenix.Flash.get(@flash, :info)}
+          role="status"
+          class="zaq-text-body"
+          style="color: var(--zaq-text-color-body-success)"
+        >
+          {Phoenix.Flash.get(@flash, :info)}
+        </p>
+        <p
           :if={Phoenix.Flash.get(@flash, :error)}
           role="alert"
           class="zaq-text-body"

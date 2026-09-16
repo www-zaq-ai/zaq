@@ -20,6 +20,7 @@ The schema owns the ordered permission metadata and explicit atom/string casting
 | API atom / storage string | Matrix label           |
 | ------------------------- | ---------------------- |
 | `access_profile`          | Access profile         |
+| `edit_profile`            | Edit profile           |
 | `access_message_history`  | Access message history |
 | `share_conversations`     | Share conversations    |
 
@@ -91,8 +92,52 @@ synchronization state.
 Administration uses the existing authenticated BO People access policy. These
 grants do not authorize BO administrators. People authentication separately
 requires an active current Person with `access_profile`; BO sessions are independent.
-Public People login and a protected profile landing scaffold are available on
-Channels nodes. Profile editing (PR5), history and sharing remain separate work.
+Public People login and a protected self-service profile are available on
+Channels nodes. History and sharing remain separate work.
+
+## Self-service profile
+
+`/people/profile` displays full name, email, phone, role, status, team names and
+owned channel platform/identifier/priority. Reading requires an active current
+Person and `access_profile`. Every edit explicitly requires
+`PeoplePermissions.allowed?(person, [:access_profile, :edit_profile])`.
+These independent grants may come from different scopes. Granting edit does not
+grant access, and existing access grants do not permit any edits.
+
+Only `full_name` and owned channel `weight` are editable. `Person.self_profile_changeset/2`
+casts only the name and recalculates completeness. Clearing the optional name stores
+an empty string, compatible with the database's non-null column. Email, phone, role,
+status, teams, metadata and identity history cannot be changed through self-service.
+`PersonChannel.weight_changeset/2` casts only weight: a nonnegative integer within
+the existing PostgreSQL integer storage range. Lower weights are tried first;
+ties use ascending channel ID. Priority edits preserve identity, ownership, metadata
+and `last_interaction_at`; they do not record communication activity.
+
+Trusted persistence APIs are `People.update_self_profile(person, attrs)` and
+`People.update_self_channel_weight(person, channel_id, attrs)`. The latter queries
+by both literal current Person ID and channel ID before reading or updating.
+Foreign, missing and discarded channel IDs return `:not_found`, without alias fallback.
+Browser callers use fixed confidential `:people_auth` Engine operations `:profile`,
+`:update_self_profile` and `:update_self_channel_weight`, never trusted owner coordinates.
+The gateway derives the current Person from its bearer, holding authentication's
+Person-before-session locks in an outer transaction through each write and fresh
+`PeopleProfile` response. This serializes writes with session revocation and merges;
+merged credentials cannot transfer. Grant changes are checked at each operation
+boundary, but grant administrators do not participate in the Person lock protocol.
+
+The name form and each channel priority form save independently. Validation keeps
+submitted scalar values and shows field errors; success reloads authoritative data.
+Edit revocation denies the next save and refreshes the page read-only, retaining
+profile access. Access/session invalidation redirects to login. Unavailable loads
+remove writable controls; authentication/configuration failures show unavailable
+feedback and fail closed. The server-held bearer stays in socket private state,
+never assigns, DOM, URLs or client parameters. Profile responses exclude metadata,
+merge history, internal DM IDs and authentication credentials. Navigation contains
+only Profile and Sign out; BO credentials remain independent.
+
+Migration `20260914153303_add_edit_profile_permission.exs` replaces only the known
+permission CHECK and preserves existing grants. Downgrade refuses while edit grants
+exist; operators must explicitly revoke them before reverting the vocabulary.
 
 ## People access configuration (current)
 
@@ -162,18 +207,18 @@ gateway delivers through Notifications and returns only a public descriptor.
 Bearer/OTP events are confidential. V1 intentionally accepts existing notification
 body persistence; authentication tables remain digest-only.
 
-| Operation                                          | Success contract                                                                                                  |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `issue_challenge(person_or_id, ip, opts \\ [])`    | `{:ok, %{challenge_id: uuid, code: eight_digits, expires_at: datetime}}`; code returned once for trusted delivery |
-| `verify_challenge(challenge_id, code, opts \\ [])` | `{:ok, %{token: bearer, session: metadata}}`; consumes challenge and creates session atomically                   |
-| `authenticate(token, opts \\ [])`                  | `{:ok, %{person: current_person, permissions: current_grants, session: metadata}}`                                |
-| `touch_session(token, opts \\ [])`                 | `{:ok, metadata}`; checks authentication and records `last_seen_at`, without extending expiry                     |
-| `revoke_session(token)`                            | `{:ok, metadata}`; idempotent for an existing session                                                             |
-| `list_sessions(person_or_id)`                      | `{:ok, [metadata]}`; includes expired/revoked sessions, ordered by UUID                                           |
-| `invalidate_challenges(person_or_id)`              | `{:ok, count}`; invalidates all unfinished challenges, including expired ones                                     |
-| `invalidate_challenge(challenge_id)`               | `{:ok, count}`; targeted trusted delivery cleanup, missing/finished rows return zero                              |
-| `challenge_status(challenge_id, opts \\ [])`       | current eligibility/lifecycle/expiry/attempt check; returns only a safe descriptor                                |
-| `revoke_all_sessions(person_or_id)`                | `{:ok, count}`; revokes all unrevoked sessions, including expired ones                                            |
+| Operation                                          | Success contract                                                                                                                                 |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `issue_challenge(person_or_id, ip, opts \\ [])`    | `{:ok, %{challenge_id: uuid, code: eight_digits, expires_at: datetime, resend_available_at: datetime}}`; code returned once for trusted delivery |
+| `verify_challenge(challenge_id, code, opts \\ [])` | `{:ok, %{token: bearer, session: metadata}}`; consumes challenge and creates session atomically                                                  |
+| `authenticate(token, opts \\ [])`                  | `{:ok, %{person: current_person, permissions: current_grants, session: metadata}}`                                                               |
+| `touch_session(token, opts \\ [])`                 | `{:ok, metadata}`; checks authentication and records `last_seen_at`, without extending expiry                                                    |
+| `revoke_session(token)`                            | `{:ok, metadata}`; idempotent for an existing session                                                                                            |
+| `list_sessions(person_or_id)`                      | `{:ok, [metadata]}`; includes expired/revoked sessions, ordered by UUID                                                                          |
+| `invalidate_challenges(person_or_id)`              | `{:ok, count}`; invalidates all unfinished challenges, including expired ones                                                                    |
+| `invalidate_challenge(challenge_id)`               | `{:ok, count}`; targeted trusted delivery cleanup, missing/finished rows return zero                                                             |
+| `challenge_status(challenge_id, opts \\ [])`       | current eligibility/lifecycle/expiry/attempt check; returns only a safe descriptor                                                               |
+| `revoke_all_sessions(person_or_id)`                | `{:ok, count}`; revokes all unrevoked sessions, including expired ones                                                                           |
 
 Person inputs are persisted Person structs or positive integer IDs. Trusted
 Person-based operations resolve aliases through `People.get_person/1` and lock the
@@ -184,7 +229,9 @@ permission bypass exists. Session metadata contains only `id`, `expires_at`,
 `revoked_at`, `last_seen_at`, and `inserted_at`. A session UUID is not a bearer token;
 list/revoke-all/invalidate take trusted owner coordinates, not proof of authority.
 
-The public-safe challenge descriptor is only `challenge_id` and `expires_at`.
+The public-safe challenge descriptor contains `challenge_id`, `expires_at` and
+`resend_available_at` (UTC datetimes). The resend deadline is always insertion + 60
+seconds, independent of the configured OTP validity (default 300 seconds).
 Verification accepts that opaque UUID, not a Person identifier. Invalid, expired,
 consumed, invalidated, exhausted or ineligible challenges return
 `{:error, :invalid_challenge}`. Whitespace and hyphens are removed from code input;
@@ -287,6 +334,15 @@ SQL counter store, Redis dependency or replicated state framework is involved.
   accepted reservation is not refunded on a later quota or database failure.
   Hammer also counts denied hits; these do not extend the window.
 
+Before reserving send budgets, PeopleAuth checks the newest unfinished challenge
+under the existing Person lock, after eligibility. Issuance—including repeated
+initial email POSTs—requires at least 60 elapsed seconds from `inserted_at`.
+Expired but unfinished challenges still count. Earlier requests return
+`{:error, {:resend_limited, retry_after_seconds}}`, without changing quotas or
+challenges; an existing valid code remains usable. At exactly 60 seconds, one
+concurrent caller can replace it and the others must wait again. Delivery failure
+invalidates its challenge and permits immediate retry, subject to send budgets.
+
 Engine reservations load the current typed config group. Channels operations read
 only a local typed snapshot from `PeopleAuthRateLimiter.Config`; they never query
 Repo or dispatch an Engine/config request. The cache loads via the existing
@@ -318,8 +374,8 @@ can change bucket attribution. No hard global overshoot bound is promised.
 
 Channels serves `GET /people/login`, `POST /people/challenge`, CSRF-protected
 `POST /people/session` (verify) and `DELETE /people/session` (logout).
-`GET /people/profile` is a minimal protected landing page with Profile navigation
-and logout. It has no editing or history links. People LiveViews have independent
+`GET /people/profile` is the protected self-service profile described above, with
+Profile navigation and logout. People LiveViews have independent
 live sessions from BO. `PersonAuth` protects HTTP and `People.AuthHook` checks
 current identity, active status, access_profile and expiry on mount/reconnect and
 every event. No periodic polling or idle-page revocation broadcast is required.
@@ -330,8 +386,12 @@ uses read-only `People.match_person/1` for profile/email-channel identity, then
 quota-backed issuance, then `Jido.Exec.run/3` with `Zaq.Agent.Tools.People.NotifyPerson`.
 The action dispatches confidential `:notify_person` to Engine, which forwards
 confidentiality to the existing `Notifications.notify_person/3` Channels delivery. Delivery uses the
-existing weighted preferred/fallback channel routing, a plain eight-digit code
-formatted `XXXX-XXXX`, and a fixed subject. No agent runtime, LLM or workflow runs.
+existing weighted preferred/fallback channel routing and a fixed subject. The
+Markdown message places `**XXXX-XXXX**` on its own paragraph, followed by
+"Do not share this code." and the final italic instruction
+`*Input this code in the current Sign-in page*`. Existing channel formatting
+renders Markdown for chat and strong/emphasis in HTML email; no auth-specific
+adapter formatting is used. No agent runtime, LLM or workflow runs.
 Only final `:sent` with `notified: true` is success; action message/content and
 instructions never leave the private gateway. Unknown/ineligible outcomes are tagged internally
 `:failed_identification`; only that outcome spends Channels' failure budget.
@@ -367,9 +427,17 @@ presentational, so there are no outstanding asynchronous UI result generations.
 Concurrent HTTP requests still consume normal backend budgets and supersession:
 a late cookie response can show an old descriptor, whose code is rejected; resend
 recovers. Buttons disable during submission to reduce accidental duplicates.
-Wrong-code redirects retain the opaque challenge/expiry and email in the signed
-cookie session, never the code. The timestamp countdown is informational and
-keeps resend/input available after expiry; the backend is authoritative.
+Wrong-code redirects retain the opaque challenge, both deadlines and email in the
+signed cookie session, never the code. Code input and resend share one row;
+Sign in sits below. Verification and resend have separate CSRF-protected HTTP
+forms, associated explicitly without nesting. Resend displays `Resend in 00:45`
+until its fixed deadline, then `Resend code`. Reload preserves that deadline;
+new issuance resets it. Submitting keeps controls disabled across timer ticks.
+Legacy descriptors without a resend deadline show an enabled resend button;
+the server still enforces the same rule. A denied resend retains the current
+descriptor and displays a generic wait message; an initial email denial stays on
+the email stage with the generic unavailable message. OTP expiry does not change
+the resend deadline or disable code input; backend verification is authoritative.
 
 The session bearer is stored in existing Plug.Session under
 `person_session_token`. It never enters URLs, JS, DOM or LiveView assigns. LiveView

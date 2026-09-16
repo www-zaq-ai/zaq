@@ -8,11 +8,14 @@ defmodule Zaq.Accounts.PeoplePermissionGrant do
 
   @permissions [
     %{permission: :access_profile, label: "Access profile"},
+    %{permission: :edit_profile, label: "Edit profile"},
     %{permission: :access_message_history, label: "Access message history"},
     %{permission: :share_conversations, label: "Share conversations"}
   ]
   @strings Enum.map(@permissions, &Atom.to_string(&1.permission))
   @type t :: %__MODULE__{}
+  @type permission ::
+          :access_profile | :edit_profile | :access_message_history | :share_conversations
 
   schema "people_permission_grants" do
     field :scope_type, :string
@@ -26,7 +29,7 @@ defmodule Zaq.Accounts.PeoplePermissionGrant do
   def permissions, do: @permissions
 
   @doc "Casts only known atoms or exact storage strings; never creates atoms."
-  @spec cast_permission(term()) :: {:ok, atom()} | {:error, :invalid_permission}
+  @spec cast_permission(term()) :: {:ok, permission()} | {:error, :invalid_permission}
   for %{permission: permission} <- @permissions do
     def cast_permission(unquote(permission)), do: {:ok, unquote(permission)}
     def cast_permission(unquote(Atom.to_string(permission))), do: {:ok, unquote(permission)}
