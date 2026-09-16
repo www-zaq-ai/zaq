@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-ltl.2"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-ltl",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-ltl] Document combined workflow fallback and memory",
   "type": "task",
-  "updated_at": "2026-09-16T08:30:31Z"
+  "updated_at": "2026-09-16T08:33:25Z"
 }
