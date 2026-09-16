@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-16T11:32:47Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-t9j",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-t9j] Align policy links and service-specific rules",
   "type": "task",
-  "updated_at": "2026-09-16T11:32:47Z"
+  "updated_at": "2026-09-16T11:54:41Z"
 }
