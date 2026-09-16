@@ -66,8 +66,18 @@ defmodule ZaqWeb.Router do
   scope "/people", ZaqWeb do
     pipe_through [:browser, :channels_node_only, :person_auth]
 
+    get "/conversations/:id/messages/:message_id/artifacts/:artifact_id",
+        PersonConversationResourceController,
+        :show
+
+    get "/conversations/:id/messages/:message_id/source",
+        PersonConversationResourceController,
+        :show
+
     live_session :people, on_mount: {ZaqWeb.Live.People.AuthHook, :default} do
       live "/profile", Live.People.ProfileLive
+      live "/history", Live.People.HistoryLive
+      live "/conversations/:id", Live.People.ConversationDetailLive
     end
   end
 

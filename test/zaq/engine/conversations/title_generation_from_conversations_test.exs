@@ -38,8 +38,10 @@ defmodule Zaq.Engine.Conversations.TitleGenerationFromConversationsTest do
                content: "Can you review the revenue forecast for next quarter?"
              })
 
-    assert_receive {:openai_request, "POST", "/v1/chat/completions", "", _body}
-    assert_receive {:title_updated, conv_id, "Revenue Forecast Review"}
+    # This crosses the asynchronous title task and a real local HTTP server.
+    # A cold successful request measured 153ms, exceeding ExUnit's 100ms default.
+    assert_receive {:openai_request, "POST", "/v1/chat/completions", "", _body}, 2_000
+    assert_receive {:title_updated, conv_id, "Revenue Forecast Review"}, 2_000
     assert conv_id == conv.id
     assert Conversations.get_conversation!(conv.id).title == "Revenue Forecast Review"
   end

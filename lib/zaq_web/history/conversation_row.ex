@@ -18,6 +18,9 @@ defmodule ZaqWeb.History.ConversationRow do
 
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
 
+  @doc "Default BO row destination, overridden by self-service callers."
+  def bo_destination(id), do: "/bo/conversations/#{id}"
+
   attr :conversation, :any,
     required: true,
     doc: "Preloaded conversation struct (engine list result)."
@@ -25,15 +28,19 @@ defmodule ZaqWeb.History.ConversationRow do
   attr :selected, :any, required: true, doc: "MapSet of selected conversation ids."
   attr :live_action, :atom, required: true
   attr :show_identity?, :boolean, required: true
+  attr :selectable, :boolean, default: true
+  attr :actions, :boolean, default: true
+
+  attr :destination, :any, default: &__MODULE__.bo_destination/1
 
   def conversation_row(assigns) do
     ~H"""
     <.table_row
       id={"conv-#{@conversation.id}"}
-      navigate={~p"/bo/conversations/#{@conversation.id}"}
+      navigate={@destination.(@conversation.id)}
       variant={if(MapSet.member?(@selected, @conversation.id), do: :selected, else: :default)}
     >
-      <.table_cell width="w-10">
+      <.table_cell :if={@selectable} width="w-10">
         <.table_checkbox
           checked={MapSet.member?(@selected, @conversation.id)}
           phx-click="toggle_select"
@@ -94,7 +101,7 @@ defmodule ZaqWeb.History.ConversationRow do
         <.table_datetime value={@conversation.updated_at} />
       </.table_cell>
 
-      <.table_cell align={:right} width="w-24" nowrap>
+      <.table_cell :if={@actions} align={:right} width="w-24" nowrap>
         <.table_actions reveal={:hover}>
           <DSButton.button
             :if={@live_action != :archived}

@@ -105,6 +105,11 @@ Adapter inbound path:
 - Public API for the full conversation/message/rating/share lifecycle.
 - Access from BO crosses `NodeRouter.dispatch/1` and the Engine role API. Some existing callers still use generic invoke helpers; new calls follow the domain-action dispatch contract above.
 - Dispatches `Zaq.Hooks` `:feedback_provided` event after a rating is saved.
+- People self-service calls use the separate fixed confidential
+  `PeopleConversations` facade, deriving literal ownership from fresh bearer
+  authentication. It composes ordinary scoped context queries/persistence;
+  authorization does not move into the persistence context. See
+  [self-service conversation history](people-access.md#self-service-conversation-history).
 
 **Key functions:**
 
@@ -561,8 +566,10 @@ For telemetry modules (`Zaq.Engine.Telemetry`, `Buffer`, `Collector`, workers), 
 
 **`Zaq.Engine.Conversations.MessageRating`** (`message_ratings`)
 
-- Fields: `rating` (1–5), `comment`, `channel_user_id`, `user_id`, `message_id`.
-- Unique constraint on `(message_id, user_id)`.
+- Fields: `rating` (1–5), `comment`, `channel_user_id`, `user_id`, `person_id`, `message_id`.
+- Unique constraints on `(message_id, user_id)` and non-null `(message_id, person_id)`.
+  Person authors are mutually exclusive with BO/channel attribution. Merges retain
+  survivor feedback on conflicts and transfer uncontested Person ratings.
 
 **`Zaq.Engine.Conversations.ConversationShare`** (`conversation_shares`)
 

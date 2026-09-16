@@ -14,7 +14,7 @@ defmodule ZaqWeb.PersonSessionControllerTest do
 
   setup :verify_on_exit!
 
-  setup do
+  setup %{conn: conn} do
     {:ok, person} = People.create_person(%{full_name: "Profile visitor"})
     {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
     # Existing HTTP replacement scenarios begin after the initial issuance minute.
@@ -25,7 +25,11 @@ defmodule ZaqWeb.PersonSessionControllerTest do
         clock: PeopleAuthClock
       )
 
-    %{person: person, challenge: challenge}
+    # Hammer budgets outlive SQL Sandbox rollback. The real browser journey uses
+    # loopback, so HTTP scenarios need their own trusted peer IP, just as issuance
+    # already does. Keep one IP throughout each request/resend scenario.
+    conn = %{conn | remote_ip: {0, 0, 0, 0, 0, 0, 10, rem(person.id, 65_536)}}
+    %{person: person, challenge: challenge, conn: conn}
   end
 
   test "verification sets only the Person credential, profile mounts and logout preserves BO", %{

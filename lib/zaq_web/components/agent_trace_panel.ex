@@ -13,6 +13,7 @@ defmodule ZaqWeb.Components.AgentTracePanel do
   attr :expanded_ids, :any, default: nil
   attr :toggle_event, :string, required: true
   attr :testid, :string, default: "agent-trace-panel"
+  attr :artifact_url, :any, default: nil, doc: "Trusted caller-owned artifact route builder."
   attr :rest, :global, doc: "forwarded onto each trace-row button, e.g. phx-value-step_run_id"
 
   def agent_trace_panel(assigns) do
@@ -89,7 +90,7 @@ defmodule ZaqWeb.Components.AgentTracePanel do
               <div class="flex flex-wrap gap-2">
                 <a
                   :for={artifact <- trace_artifacts(trace)}
-                  href={artifact.path}
+                  href={if(@artifact_url, do: @artifact_url.(artifact.id), else: artifact.path)}
                   target="_blank"
                   rel="noopener noreferrer"
                   class="font-mono text-[0.66rem] px-2 py-1 rounded-md border border-black/10 text-[#027589] hover:bg-black/5"
@@ -147,6 +148,7 @@ defmodule ZaqWeb.Components.AgentTracePanel do
       {:ok, id} ->
         [
           %{
+            id: id,
             name: if(is_binary(name) and name != "", do: name, else: "Artifact"),
             path: "/bo/trace-artifacts/#{id}"
           }

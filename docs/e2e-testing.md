@@ -188,6 +188,22 @@ is mounted. The next save is denied and becomes read-only. Each engine captures
 checked at both widths. Name and channel forms save separately. No database reset
 or production test hook is used.
 
+The enhanced profile uses inline Edit name / Save name and Change order / Save
+order controls. The journey preserves the original save/reload/revocation intent
+against those selectors and checks header account-menu logout. Its consolidated
+People history segment (`people-history-journey.cjs`) enables history/sharing via
+the real BO matrix, navigates from Settings, verifies 25-row pagination and channel
+filtering across active/archived ownership, preserves filters through Back,
+saves positive/negative feedback, displays attachment metadata, expands full trace
+JSON, downloads an owned trace artifact, and previews an authorized citation.
+It creates and revokes a public share in a separate anonymous browser context,
+proves that recipient cannot access protected People history/artifacts, and
+rechecks live permission revocation.
+All three browser engines run at 390px and 1280px, asserting viewport containment;
+mobile tables scroll within their wrapper. The same no-reset sandbox command
+above runs the entire journey. Do not run separate Mix test processes concurrently
+against this database: their global-grant transactions can block one another.
+
 ### Distributed confidentiality and cookie/logging regression tests
 
 ```sh

@@ -1,7 +1,7 @@
 defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
   @moduledoc """
   People-facing composition of the shared BO page header without a sidebar.
-  Settings is the approved no-personal-settings placeholder.
+   Settings exposes caller-authorized People destinations.
   Theme changes reuse the root preference handler; account actions remain People-only.
   """
   use Phoenix.Component
@@ -13,6 +13,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
   attr :title, :string, required: true
   attr :description, :string, default: nil
   attr :display_name, :string, default: nil
+  attr :history_access, :boolean, default: false
 
   def person_header(assigns) do
     ~H"""
@@ -38,7 +39,15 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
             </summary>
             <div class="zaq-card-default zaq-card-hover zaq-border-default zaq-header-menu-panel">
               <p class="zaq-text-h4">Personal settings</p>
-              <p class="zaq-text-body-sm">No personal settings available yet.</p>
+              <.link
+                :if={@history_access}
+                id="people-conversations-link"
+                navigate="/people/history"
+                class="zaq-btn zaq-btn-ghost"
+              >Conversations</.link>
+              <p :if={!@history_access} class="zaq-text-body-sm">
+                No personal settings available yet.
+              </p>
             </div>
           </details>
           <AccountMenu.account_menu
