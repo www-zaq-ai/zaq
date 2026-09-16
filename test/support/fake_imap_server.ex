@@ -67,6 +67,7 @@ defmodule Zaq.TestSupport.FakeImapServer do
 
   @impl GenServer
   def init(opts) do
+    Process.flag(:trap_exit, true)
     owner = Keyword.get(opts, :owner)
     mailboxes = Keyword.get(opts, :mailboxes, ["INBOX"])
     message = Map.merge(@default_message, Keyword.get(opts, :message, %{}))
@@ -94,8 +95,14 @@ defmodule Zaq.TestSupport.FakeImapServer do
       ])
 
     {:ok, {_ip, port}} = :inet.sockname(listen_socket)
+    {:ok, connection_supervisor} = Task.Supervisor.start_link()
     server = self()
-    acceptor = spawn_link(fn -> accept_loop(listen_socket, server) end)
+
+    {:ok, acceptor} =
+      Task.Supervisor.start_child(connection_supervisor, fn ->
+        accept_loop(listen_socket, server, connection_supervisor)
+      end)
+
     :ok = :gen_tcp.controlling_process(listen_socket, acceptor)
 
     {:ok,
@@ -105,6 +112,7 @@ defmodule Zaq.TestSupport.FakeImapServer do
        port: port,
        listen_socket: listen_socket,
        acceptor: acceptor,
+       connection_supervisor: connection_supervisor,
        mailboxes: mailboxes,
        message: message,
        uid_validity: uid_validity,
@@ -210,10 +218,11 @@ defmodule Zaq.TestSupport.FakeImapServer do
 
   @impl GenServer
   def handle_info({:connection_started, pid}, state) do
+    Process.monitor(pid)
     {:noreply, %{state | connections: MapSet.put(state.connections, pid)}}
   end
 
-  def handle_info({:connection_closed, pid}, state) do
+  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
     {:noreply, %{state | connections: MapSet.delete(state.connections, pid)}}
   end
 
@@ -224,26 +233,25 @@ defmodule Zaq.TestSupport.FakeImapServer do
 
   @impl GenServer
   def terminate(_reason, state) do
-    _ = Process.exit(state.acceptor, :normal)
-
-    Enum.each(state.connections, fn pid -> Process.exit(pid, :normal) end)
-    :ok
+    Supervisor.stop(state.connection_supervisor)
   end
 
-  defp accept_loop(listen_socket, server) do
+  defp accept_loop(listen_socket, server, connection_supervisor) do
     case :gen_tcp.accept(listen_socket) do
       {:ok, socket} ->
-        pid = spawn_link(fn -> connection_entry(server) end)
+        {:ok, pid} =
+          Task.Supervisor.start_child(connection_supervisor, fn -> connection_entry(server) end)
+
         :ok = :gen_tcp.controlling_process(socket, pid)
-        send(pid, {:socket_ready, socket})
         send(server, {:connection_started, pid})
-        accept_loop(listen_socket, server)
+        send(pid, {:socket_ready, socket})
+        accept_loop(listen_socket, server, connection_supervisor)
 
       {:error, :closed} ->
         :ok
 
       {:error, _reason} ->
-        accept_loop(listen_socket, server)
+        accept_loop(listen_socket, server, connection_supervisor)
     end
   end
 
@@ -257,7 +265,7 @@ defmodule Zaq.TestSupport.FakeImapServer do
             :ok = :gen_tcp.send(socket, "* OK [CAPABILITY IMAP4rev1 IDLE] ZAQ Fake IMAP\r\n")
           end
 
-          connection_loop(%{server: server, socket: socket, idle_tag: nil, idle_notified: false})
+          connection_loop(%{server: server, socket: socket, idle_tag: nil})
         end
     end
   end
@@ -266,13 +274,6 @@ defmodule Zaq.TestSupport.FakeImapServer do
     receive do
       {:notify_exists, count} ->
         _ = :gen_tcp.send(state.socket, "* #{count} EXISTS\r\n")
-
-        state =
-          if state.idle_tag do
-            %{state | idle_notified: true}
-          else
-            state
-          end
 
         connection_loop(state)
     after
@@ -283,7 +284,6 @@ defmodule Zaq.TestSupport.FakeImapServer do
 
             case new_state do
               :stop ->
-                send(state.server, {:connection_closed, self()})
                 :ok
 
               _ ->
@@ -294,7 +294,6 @@ defmodule Zaq.TestSupport.FakeImapServer do
             connection_loop(state)
 
           {:error, :closed} ->
-            send(state.server, {:connection_closed, self()})
             :ok
         end
     end
@@ -302,13 +301,9 @@ defmodule Zaq.TestSupport.FakeImapServer do
 
   defp handle_client_line("DONE", %{idle_tag: nil} = state), do: state
 
-  defp handle_client_line("DONE", %{socket: socket, idle_tag: tag, idle_notified: true} = state) do
+  defp handle_client_line("DONE", %{socket: socket, idle_tag: tag} = state) do
     _ = :gen_tcp.send(socket, "#{tag} OK IDLE terminated\r\n")
-    %{state | idle_tag: nil, idle_notified: false}
-  end
-
-  defp handle_client_line("DONE", state) do
-    %{state | idle_tag: nil, idle_notified: false}
+    %{state | idle_tag: nil}
   end
 
   defp handle_client_line(line, state) do
@@ -416,7 +411,7 @@ defmodule Zaq.TestSupport.FakeImapServer do
 
   defp run_command("IDLE", tag, _rest, state) do
     _ = :gen_tcp.send(state.socket, "+ idling\r\n")
-    %{state | idle_tag: tag, idle_notified: false}
+    %{state | idle_tag: tag}
   end
 
   defp run_command("LOGOUT", tag, _rest, state) do

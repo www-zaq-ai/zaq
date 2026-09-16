@@ -1,0 +1,295 @@
+defmodule Zaq.Channels.BridgeSupervisor do
+  @moduledoc """
+  Dynamic supervisor for channel bridge listener processes.
+
+  On startup, loads all enabled retrieval and data source channel configs from
+  the database and starts the corresponding runtime processes. Supports runtime
+  start/stop of listeners when channel configs are enabled or disabled.
+
+  Listener processes deliver incoming payloads to the bridge sink callback
+  configured by the active bridge runtime.
+
+  Runs under `Zaq.Channels.Supervisor`, which retains the public runtime API and
+  NodeRouter role-discovery name. Bootstrap runs on every dynamic child restart.
+  The parent owns `:zaq_channels_listeners` because it calls this `start_link/1`;
+  the table survives this child's restart and is cleared before reloading configs.
+  """
+
+  use DynamicSupervisor
+
+  require Logger
+
+  alias Zaq.Channels.{ChannelConfig, CommunicationBridge, DataSourceBridge}
+
+  # ETS table: bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
+  @table :zaq_channels_listeners
+
+  def start_link(_opts) do
+    if :ets.whereis(@table) == :undefined do
+      :ets.new(@table, [:named_table, :public, :set])
+    end
+
+    case DynamicSupervisor.start_link(__MODULE__, [], name: __MODULE__) do
+      {:ok, _pid} = result ->
+        :ets.delete_all_objects(@table)
+        load_initial_runtimes()
+        result
+
+      error ->
+        error
+    end
+  end
+
+  @impl DynamicSupervisor
+  def init([]) do
+    DynamicSupervisor.init(strategy: :one_for_one)
+  end
+
+  @doc "Starts runtime for a config via router bridge delegation."
+  def start_listener(config) do
+    case CommunicationBridge.sync_config_runtime(
+           %{enabled: false},
+           Map.put(config, :enabled, true)
+         ) do
+      :ok -> lookup_runtime(bridge_id(config))
+      error -> error
+    end
+  end
+
+  @doc "Stops runtime for a config via router bridge delegation."
+  def stop_listener(config) do
+    CommunicationBridge.sync_config_runtime(
+      Map.put(config, :enabled, true),
+      Map.put(config, :enabled, false)
+    )
+  end
+
+  @doc "Starts runtime processes for a bridge id."
+  def start_runtime(bridge_id, state_spec, listener_specs \\ [])
+
+  def start_runtime(bridge_id, state_spec, listener_specs)
+      when is_binary(bridge_id) and (is_nil(state_spec) or is_map(state_spec)) and
+             is_list(listener_specs) do
+    if running?(bridge_id) do
+      {:error, :already_running}
+    else
+      do_start_runtime(bridge_id, state_spec, listener_specs)
+    end
+  end
+
+  @doc "Stops a bridge runtime by bridge id."
+  def stop_bridge_runtime(_config, bridge_id) do
+    case runtime_entry(bridge_id) do
+      [{^bridge_id, runtime}] ->
+        try do
+          Enum.each(runtime.listener_pids, &safe_terminate_child/1)
+          maybe_stop_state(runtime.state_pid)
+        after
+          delete_runtime_entry(bridge_id)
+        end
+
+        :ok
+
+      [] ->
+        {:error, :not_running}
+    end
+  end
+
+  @doc "Returns runtime pids for a bridge id."
+  @spec lookup_runtime(String.t()) ::
+          {:ok, %{listener_pids: [pid()], state_pid: pid() | nil}} | {:error, :not_running}
+  def lookup_runtime(bridge_id) when is_binary(bridge_id) do
+    case runtime_entry(bridge_id) do
+      [{^bridge_id, runtime}] ->
+        if runtime_alive?(runtime) or runtime == %{listener_pids: [], state_pid: nil},
+          do: {:ok, runtime},
+          else: {:error, :not_running}
+
+      [] ->
+        {:error, :not_running}
+    end
+  end
+
+  @doc "Returns the state pid for a bridge id."
+  @spec lookup_state_pid(String.t()) :: {:ok, pid()} | {:error, :not_running}
+  def lookup_state_pid(bridge_id) when is_binary(bridge_id) do
+    with {:ok, runtime} <- lookup_runtime(bridge_id),
+         true <- is_pid(runtime.state_pid) and Process.alive?(runtime.state_pid) do
+      {:ok, runtime.state_pid}
+    else
+      _ -> {:error, :not_running}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private
+  # ---------------------------------------------------------------------------
+
+  defp load_initial_runtimes do
+    load_initial_runtimes_for(:retrieval, CommunicationBridge)
+    load_initial_runtimes_for(:data_source, DataSourceBridge)
+  end
+
+  defp load_initial_runtimes_for(kind, runtime_module) do
+    providers = configured_providers()
+
+    case ChannelConfig.list_enabled_by_kind(kind, providers) do
+      [] ->
+        Logger.info(
+          "[Channels.BridgeSupervisor] No enabled #{kind} channel configs found, starting empty."
+        )
+
+      configs ->
+        Enum.each(configs, fn config ->
+          _ = runtime_module.sync_config_runtime(nil, config)
+        end)
+    end
+  end
+
+  defp do_start_runtime(bridge_id, state_spec, listener_specs) do
+    case maybe_start_state_process(state_spec) do
+      {:ok, state_pid} ->
+        case start_listener_children(listener_specs, bridge_id) do
+          {:ok, listener_pids} ->
+            runtime = %{listener_pids: listener_pids, state_pid: state_pid}
+            maybe_monitor_listeners(state_spec, state_pid, listener_pids)
+            :ets.insert(@table, {bridge_id, runtime})
+            {:ok, runtime}
+
+          {:error, reason} = error ->
+            maybe_stop_state(state_pid)
+            :ets.delete(@table, bridge_id)
+
+            Logger.warning(
+              "[Channels.BridgeSupervisor] Could not start runtime for bridge_id=#{bridge_id}: #{inspect(reason)}"
+            )
+
+            error
+        end
+
+      {:error, reason} = error ->
+        Logger.warning(
+          "[Channels.BridgeSupervisor] Could not start state process for bridge_id=#{bridge_id}: #{inspect(reason)}"
+        )
+
+        error
+    end
+  rescue
+    e ->
+      Logger.warning(
+        "[Channels.BridgeSupervisor] Exception starting runtime bridge_id=#{bridge_id}: #{Exception.message(e)}"
+      )
+
+      {:error, Exception.message(e)}
+  end
+
+  defp start_listener_children(specs, bridge_id) do
+    Enum.reduce_while(specs, {:ok, []}, fn spec, {:ok, pids} ->
+      case DynamicSupervisor.start_child(__MODULE__, spec) do
+        {:ok, pid} ->
+          {:cont, {:ok, [pid | pids]}}
+
+        {:error, {:already_started, pid}} ->
+          {:cont, {:ok, [pid | pids]}}
+
+        {:error, reason} ->
+          Enum.each(pids, &DynamicSupervisor.terminate_child(__MODULE__, &1))
+          listener_child_start_error(bridge_id, reason)
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, pids} -> {:ok, Enum.reverse(pids)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp listener_child_start_error(bridge_id, reason) do
+    Logger.warning(
+      "[Channels.BridgeSupervisor] Failed to start child for bridge_id=#{bridge_id}: #{inspect(reason)}"
+    )
+  end
+
+  defp start_state_process(spec) do
+    case DynamicSupervisor.start_child(__MODULE__, spec) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> {:ok, pid}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_start_state_process(nil), do: {:ok, nil}
+  defp maybe_start_state_process(spec), do: start_state_process(spec)
+
+  defp maybe_stop_state(pid) when is_pid(pid), do: safe_terminate_child(pid)
+
+  defp maybe_stop_state(_), do: :ok
+
+  defp maybe_monitor_listeners(state_spec, state_pid, listener_pids) when is_pid(state_pid) do
+    case state_module_from_spec(state_spec) do
+      module when is_atom(module) ->
+        if function_exported?(module, :monitor_listeners, 2),
+          do: module.monitor_listeners(state_pid, listener_pids),
+          else: :ok
+
+      nil ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp maybe_monitor_listeners(_state_spec, _state_pid, _listener_pids), do: :ok
+
+  defp state_module_from_spec(%{start: {module, :start_link, _args}}), do: module
+  defp state_module_from_spec(_state_spec), do: nil
+
+  defp safe_terminate_child(pid) when is_pid(pid) do
+    DynamicSupervisor.terminate_child(__MODULE__, pid)
+  rescue
+    _ -> :ok
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp safe_terminate_child(_), do: :ok
+
+  defp running?(bridge_id) do
+    case runtime_entry(bridge_id) do
+      [{^bridge_id, runtime}] -> runtime_alive?(runtime)
+      [] -> false
+    end
+  end
+
+  defp runtime_alive?(%{listener_pids: pids, state_pid: state_pid}) do
+    (is_pid(state_pid) and Process.alive?(state_pid)) or Enum.any?(pids, &Process.alive?/1)
+  end
+
+  # The owning parent can stop between an ETS presence check and the operation.
+  # Only missing-table errors at this boundary represent an absent runtime.
+  defp runtime_entry(bridge_id) do
+    :ets.lookup(@table, bridge_id)
+  rescue
+    ArgumentError -> []
+  end
+
+  defp delete_runtime_entry(bridge_id) do
+    :ets.delete(@table, bridge_id)
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp bridge_id(config), do: "#{config.provider}_#{config.id}"
+
+  # ChannelConfig handles sub-provider matching (`email` matches `email:imap`),
+  # so the supervisor only needs to pass configured base provider keys.
+  defp configured_providers do
+    :zaq
+    |> Application.get_env(:channels, %{})
+    |> Enum.flat_map(fn {provider, cfg} ->
+      if is_map(cfg) and Map.has_key?(cfg, :adapter), do: [to_string(provider)], else: []
+    end)
+  end
+end

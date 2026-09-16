@@ -297,11 +297,14 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     }
 
     assert {:noreply, updated} = Listener.handle_info(:connect, state)
-    assert is_pid(updated.client)
-    assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
-    # Stop the unsupervised IMAP client before FakeImapServer teardown to avoid
-    # a Mailroom.IMAP crash on {:tcp_closed} when the fake server's socket closes.
-    capture_log(fn -> GenServer.stop(updated.client, :normal) end)
+
+    try do
+      assert is_pid(updated.client)
+      assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
+    after
+      # Callback-only tests own the client directly rather than through a listener.
+      capture_log(fn -> GenServer.stop(updated.client, :normal) end)
+    end
   end
 
   test "handle_info/2 reconnect path reuses connect_and_idle" do
@@ -344,9 +347,13 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     }
 
     assert {:noreply, updated} = Listener.handle_info(:reconnect, state)
-    assert is_pid(updated.client)
-    assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
-    capture_log(fn -> GenServer.stop(updated.client, :normal) end)
+
+    try do
+      assert is_pid(updated.client)
+      assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
+    after
+      capture_log(fn -> GenServer.stop(updated.client, :normal) end)
+    end
   end
 
   test "listener connects and processes idle notifications through IMAP IDLE" do
@@ -371,6 +378,23 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
     assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
     assert_receive {:imap_fake_command, ^fake, :select, _}, 1_000
     assert_receive {:imap_fake_command, ^fake, :idle, _}, 1_000
+
+    client_pid = :sys.get_state(listener).client
+    fake_state = :sys.get_state(fake)
+
+    owned_pids = [
+      listener,
+      client_pid,
+      fake_state.acceptor | MapSet.to_list(fake_state.connections)
+    ]
+
+    # ExUnit stops supervised children before on_exit, even if a sink assertion fails.
+    on_exit(fn ->
+      for pid <- owned_pids do
+        ref = Process.monitor(pid)
+        assert_receive {:DOWN, ^ref, :process, ^pid, :noproc}, 1_000
+      end
+    end)
 
     assert :ok = FakeImapServer.trigger_exists(fake)
 
@@ -612,17 +636,8 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
 
     assert_receive {:imap_fake_command, ^fake, :login, _}, 1_000
     client_pid = :sys.get_state(listener).client
-    ref = Process.monitor(client_pid)
-    GenServer.stop(listener, :normal)
+    stop_listener_and_imap_client(listener, client_pid)
     assert_receive {:imap_fake_command, ^fake, :logout, _}, 1_000
-
-    receive do
-      {:DOWN, ^ref, :process, ^client_pid, _} -> :ok
-    after
-      500 ->
-        if Process.alive?(client_pid), do: GenServer.stop(client_pid, :shutdown)
-        assert_receive {:DOWN, ^ref, :process, ^client_pid, _}, 1_000
-    end
   end
 
   test "handle_info/2 clears client on monitored process exit" do
@@ -672,16 +687,14 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.ListenerTest do
   end
 
   defp stop_listener_and_imap_client(listener, client_pid) do
+    listener_ref = Process.monitor(listener)
     ref = Process.monitor(client_pid)
-    GenServer.stop(listener, :normal)
+    stop_supervised!(Listener)
 
-    receive do
-      {:DOWN, ^ref, :process, ^client_pid, _} -> :ok
-    after
-      500 ->
-        if Process.alive?(client_pid), do: GenServer.stop(client_pid, :shutdown)
-        assert_receive {:DOWN, ^ref, :process, ^client_pid, _}, 1_000
-    end
+    assert_receive {:DOWN, ^listener_ref, :process, ^listener, :shutdown}, 1_000
+    assert_receive {:DOWN, ^ref, :process, ^client_pid, :shutdown}, 1_000
+    {:ok, supervisor} = ExUnit.fetch_test_supervisor()
+    refute List.keymember?(Supervisor.which_children(supervisor), Listener, 0)
   end
 
   def sink(_config, payload, opts) do

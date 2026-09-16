@@ -445,6 +445,10 @@ ROLES=engine,agent mix phx.server
 | `:channels`  | `Zaq.Channels.Supervisor`    |
 | `:bo`        | `ZaqWeb.Endpoint` (LiveView) |
 
+`Zaq.Channels.Supervisor` is a static `:one_for_one` parent for the Channels
+authentication limiter and dynamic `Zaq.Channels.BridgeSupervisor`. It retains
+the public runtime API and Channels role-discovery name.
+
 ### Multi-Node Deployment
 
 Peer connectivity is automatic via Erlang distribution + EPMD peer discovery (no `NODES` env var required).

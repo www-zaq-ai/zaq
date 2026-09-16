@@ -65,9 +65,19 @@ stored as numeric strings under `people_access.*`. `Zaq.System.PeopleAccessConfi
 owns typed defaults (including a seven-day session lifetime) and strict positive
 integer validation. System exposes one grouped read and an atomic group save via
 Engine events. Missing keys use defaults without writes; corrupt values return an
-explicit error. These are configuration only, not yet consumed by OTP/session flows.
+explicit error. Engine PeopleAuth and issuance reservations consume this group on
+each operation. Channels failed-identification protection uses a local typed cache
+refreshed through the existing Engine config action at startup and 30 seconds after
+each completed fetch; requests never read DB or fetch config. Snapshots expire after
+120 seconds from fetch start; any refresh error invalidates them immediately.
+Save becomes visible on the next completed refresh, without resetting counters.
+OTP/session expiry is fixed at issuance; current attempt and rate limits apply on
+subsequent calls. The legacy independent cooldown key is ignored and preserved:
+V1 uses Hammer's remaining fixed-window time instead.
 See [People access configuration](people-access.md#people-access-configuration-current)
-for all nine fields, units, and read/write contracts.
+for all eight fields, units, and read/write contracts, including the versioned OTP
+HMAC key derived from the existing endpoint `secret_key_base`. Authentication tables
+store only digests, never plaintext codes or bearer tokens.
 
 ## Outbound HTTP
 

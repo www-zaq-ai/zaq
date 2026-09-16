@@ -21,6 +21,10 @@ defmodule ZaqWeb.Live.BO.System.PeopleAccessConfigLiveTest do
     view |> element("button[phx-value-tab='people_access']") |> render_click()
     assert_patch(view, "/bo/system-config?tab=people_access")
     assert has_element?(view, "#people-access-config-form")
+    refute has_element?(view, "#people_access_config_unknown_email_cooldown_seconds")
+    assert render(view) =~ "current window expires"
+    assert render(view) =~ "People authentication backend"
+    refute render(view) =~ "do not consume them yet"
 
     assert has_element?(
              view,

@@ -95,6 +95,7 @@ defmodule Zaq.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.5"},
       {:bcrypt_elixir, "~> 3.0"},
+      {:hammer, "~> 7.5.0"},
       {:pgvector, "~> 0.3.1"},
       {:oban, "~> 2.20.3"},
       {:httpoison, "~> 2.3"},

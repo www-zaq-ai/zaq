@@ -16,8 +16,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.PeopleAccessTab do
     >
       <h2 class="zaq-text-h2">People access</h2>
       <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
-        Configure access durations and attempt limits. These settings are stored for future
-        People access flows; authentication and rate limiting do not consume them yet.
+        Configure OTP validity, verification attempts, send limits and session lifetime
+        for the People authentication backend.
       </p>
       <div :if={@load_error} class="zaq-layout-stack" role="alert">
         <p class="zaq-text-body" style="color: var(--zaq-text-color-body-danger)">{@load_error}</p>
@@ -86,16 +86,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.PeopleAccessTab do
             aria-describedby="unknown-email-window-hint"
           />
           <p id="unknown-email-window-hint" class="zaq-text-body-sm">Default: 10 minutes.</p>
-          <Input.input
-            field={@form[:unknown_email_cooldown_seconds]}
-            type="number"
-            min="1"
-            step="1"
-            required
-            label="Unknown email cooldown (seconds)"
-            aria-describedby="unknown-email-cooldown-hint"
-          />
-          <p id="unknown-email-cooldown-hint" class="zaq-text-body-sm">Default: 15 minutes.</p>
+          <p class="zaq-text-body-sm">Blocked requests can retry when the current window expires.</p>
         </fieldset>
         <fieldset class="zaq-layout-stack">
           <legend class="zaq-text-h3">OTP sends</legend>
