@@ -99,9 +99,16 @@
 
 ### Layering — where does new code go?
 
+Before choosing a new module or helper, apply [the Action reuse gate](action-reuse.md).
+Reuse or extend existing operations first. Propose a focused Action for a missing
+essential composable operation, delegating to authoritative domain APIs. Private
+helpers and domain-only operations remain valid with a documented local-only
+rationale; neither a service module nor a single consumer waives this evaluation.
+
 | What you're writing | Where it lives |
 |---|---|
 | Business rule / domain logic | `lib/zaq/<context>/` context module |
+| Composable operation contract | Existing domain Action, or a focused Action following `docs/action-reuse.md`; domain logic remains in its owning context/service |
 | Persistence query | Same context module, private query builder |
 | External API call | `lib/zaq/<context>/adapters/<provider>.ex` |
 | Background job | `lib/zaq/<context>/<name>_worker.ex` (Oban) |
@@ -131,6 +138,7 @@
 ### Single-operation services
 
 - When an operation is complex (multi-step, involves FS + DB, or has a rollback strategy), extract it into a focused `*Service` module.
+- First evaluate existing Actions and services. When an Action is appropriate, it delegates to the service's authoritative implementation; do not build separate code, tool, and workflow versions of the operation.
 - Do not spread the operation across a context module and a LiveView.
 - Examples: Zaq.Ingestion.DeleteService, Zaq.Ingestion.RenameService.
 

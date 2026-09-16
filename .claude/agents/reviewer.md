@@ -25,6 +25,15 @@ Use LSP before reading files manually:
 
 ## Review Checklist
 
+### Action Reuse (mandatory)
+- [ ] Read `docs/action-reuse.md` and inspect the issue's assessment and relevant existing Actions/tools/domain APIs, not only the diff
+- [ ] Reuse / extend / new Action / local-only decisions have source evidence, contracts, consumers, and tests (or justified not applicable)
+- [ ] Missing essential Actions are tracked as prerequisites; no unjustified duplicate operation logic remains
+- [ ] Validated execution, workflow lifecycle, NodeRouter, permissions, and deliberate agent-tool exposure are preserved
+
+Missing evidence or unjustified duplication must be resolved before approval;
+cite concrete candidates rather than demanding speculative wrappers.
+
 ### ZAQ Architecture Boundaries
 - [ ] BO LiveViews use role/channel Events helpers, not direct context calls or raw dispatch where a helper exists
 - [ ] Context modules only access their own schemas and `Repo`

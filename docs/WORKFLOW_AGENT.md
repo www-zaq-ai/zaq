@@ -15,10 +15,18 @@ Before writing a single line of code:
 4. Check existing Beadwork issues to confirm whether planning work already exists for this task.
 5. Read `docs/exec-plans/tech-debt-tracker.md` — check if this task is tracked debt.
 6. Read `docs/QUALITY_SCORE.md` — understand the current state of the domain you're touching.
+7. Apply [the Action reuse gate](action-reuse.md): identify affected executable operations and inspect existing Actions/tools and domain APIs before designing a solution. Record not applicable with a reason for tasks without operation changes.
 
 ---
 
 ## Phase 2 — Plan
+
+Every task must record an `Action reuse assessment` per affected operation using
+[the canonical guide](action-reuse.md). Include candidates, decision, contract,
+consumers/execution boundary, and verification. Missing essential operations need
+proposed Action issues that block their consumer steps, not hidden feature-specific
+helpers. A supplied roadmap does not waive discovery. A plan without this evidence
+(or justified not-applicable assessment) is not ready to execute.
 
 ### Simple tasks (single file, single concern)
 
@@ -63,6 +71,7 @@ Work through the planned Beadwork issues one at a time:
 ### Rules during implementation
 
 - One PR per step when possible — keep PRs small and focused.
+- Before coding each step, recheck its Action reuse assessment against current source. Update decisions and prerequisites before changing direction; reuse/extend existing operations instead of adding parallel flows. Preserve execution, authorization, and NodeRouter boundaries per `docs/action-reuse.md`.
 - Never call Agent, Ingestion, Engine, or Channel modules directly from BO.
 - For cross-service invoke calls, always use role/channel Events helpers instead of building `%Zaq.Event{}` inline and dispatching manually:
   - `Zaq.Agent.Events.build_and_dispatch_invoke_event/3`
@@ -83,6 +92,7 @@ Work through the planned Beadwork issues one at a time:
 2. Do not run an additional `mix test` in this phase: `mix precommit` already runs tests (`test --stale`). Implementation-step tests remain required.
 3. Run the separately required `mix q` quality checks through context-mode. Numerical coverage targets are deferred to the post-review coverage phase.
 4. Review your own diff — check for dead code, debug statements, and convention violations.
+5. Apply the review gate in `docs/action-reuse.md`: verify reuse evidence and shared implementations, missing Action prerequisites, justified local-only decisions, and deliberate tool exposure. Resolve unjustified duplication or bypassed boundaries before approval.
 
 ### E2E validation
 
@@ -143,6 +153,7 @@ or directly in Playwright `beforeEach` hooks via the E2E controller.
 2. Title must follow Conventional Commits: `feat(scope): description`.
 3. PR description must include:
    - What changed and why
+   - Action reuse decisions and linked missing-Action issues (or not applicable with a reason)
    - Whether E2E tests were run and passed
    - For iterative feature work: E2E issue link, pending scenarios, and approval
      blocker (or rationale that E2E is unnecessary); for finalization: recorded

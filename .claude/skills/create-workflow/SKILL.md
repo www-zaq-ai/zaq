@@ -35,6 +35,14 @@ don't build it here.
 
 ## Step 1 — Build the live tool catalog (never hardcode it)
 
+First apply `docs/action-reuse.md` and record operation-level reuse decisions in
+Beadwork. For missing essential operations, create/reuse proposed Action issues
+with contracts and make consumer integration depend on them; `missing_tools/0`
+is a generated diagnostic, not a substitute for durable planning. Keep this
+skill's file-write restrictions: propose missing Actions, do not implement them
+here. Workflow eligibility is distinct from agent-tool exposure; do not register
+an Action merely to use it in a workflow.
+
 Tool lists drift. Always rebuild the catalog from source at run time. Use one
 sandboxed command (per the context-mode rules) and print a compact catalog:
 
@@ -69,8 +77,10 @@ outputs (field -> type)                 ← from output_schema:
 Only modules present in `@tools` are agent-usable, BUT the example workflow also
 uses workflow-contract modules directly by module string (e.g.
 `Zaq.Agent.Tools.Workflow.RunAgent`, `Zaq.Agent.Tools.Workflow.Increment`,
-`Zaq.Engine.Workflows.Steps.HumanInTheLoop`). Treat any module that `use`s
-`Zaq.Engine.Workflows.Action` (or is a Step) as a valid node module.
+`Zaq.Engine.Workflows.Steps.HumanInTheLoop`). Verify authorable action/agent node
+modules satisfy `Zaq.Engine.Workflows.Action.validate/1`; neither a `use` declaration
+nor living under `steps/` alone proves eligibility. Do not author internal
+infrastructure such as `EdgeStep` or `MapCollect` as user action nodes.
 
 ---
 
@@ -148,7 +158,8 @@ that doesn't exist.
 If one or more steps had no matching tool, add this function to the generated
 module and reference it in the `@moduledoc` ("⚠ Requires tools: see
 `missing_tools/0`"). It returns structured suggestions so a developer can build
-them and add them to the registry:
+them through the prerequisite Action issues. Register them only for explicitly
+intended agent use after reviewing permissions and exposure:
 
 ```elixir
 @doc """
@@ -197,7 +208,8 @@ Output a short summary:
 - File path created.
 - A table of steps → mapped module (or **MISSING**).
 - If anything is missing: the list from `missing_tools/0` and the one-line next
-  step ("build these tools, register them, then re-run /create-workflow").
+  step ("implement the prerequisite Actions, register only those intended and
+  reviewed for agent use, then re-run /create-workflow"). Include the Beadwork IDs.
 
 Keep the final response under 500 words. The module is the artifact — don't paste
 it inline; give the path plus the step→tool table.

@@ -156,6 +156,14 @@ Produce a recap with:
 
 ## Auditing checklist
 
+Apply `docs/action-reuse.md` as an approval gate: inspect the issue's reuse
+assessment and existing candidate Actions/tools/domain APIs. Verify decisions,
+contracts, shared implementation tests, missing essential Action prerequisites,
+and justified local-only/not-applicable cases. Require resolution of missing
+evidence, unjustified parallel operation logic, unsafe tool exposure, or bypassed
+execution/permission/NodeRouter boundaries before approval. Cite concrete sources;
+do not demand speculative wrappers or unrelated refactors.
+
 You must explicitly check, within the scope of the PR only:
 
 - duplicate code introduced or expanded by the PR that should be centralized into reusable functions

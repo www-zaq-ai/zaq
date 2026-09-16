@@ -17,6 +17,8 @@ You can receive:
 
 Your job:
 
+- Before each fix, apply `docs/action-reuse.md`: inspect existing operations and record reuse / extend / new Action / local-only evidence (or not applicable with a reason). Do not resolve a smell by duplicating an Action's logic. Track missing essential composable operations as Action prerequisites; keep unrelated refactors outside this fix.
+
 - Fix the credo errors by adapting the strategy that matches the project's code structuring requirements
 - Remove code smells locally with quick wins edit
 

@@ -17,6 +17,7 @@ This file is your **map**. Read the relevant doc before starting any task.
 | Naming conventions, module & API design         | `docs/conventions.md`      |
 | Git workflow, branching, semantic versioning    | `docs/workflows.md`        |
 | Code quality standards, debt prevention         | `docs/code-quality.md`     |
+| Action/tool discovery, reuse, and missing operations | `docs/action-reuse.md` |
 | Dev setup, tool usage, sub-agents               | `docs/dev-setup.md`        |
 | Elixir, Mix, Ecto, Test guidelines              | `docs/elixir.md`           |
 | Production testing strategy & property testing  | `docs/testing-approach.md` |
@@ -72,6 +73,7 @@ The overall project management is still handled on GitHub (issues, PRs, discussi
 
 - **Follow `docs/WORKFLOW_AGENT.md`** on every task — orient, plan, implement, validate, PR, close out.
 - **Read the relevant doc first** before starting any task.
+- **Evaluate Action reuse before every task and implementation step** — follow `docs/action-reuse.md`: discover existing Actions/tools and domain APIs, record reuse / extend / new Action / local-only with evidence (or not applicable with a reason), and plan missing essential operations as composable Action issues before consumer code. Never duplicate an existing operation or automatically expose new Actions to agents. Review must verify this gate.
 - **BO UI styling and components:** read `DESIGN.md` first; use `docs/bo-components.md` for BOLayout, flash, and PR checklist only.
 - **Use `docs/exec-plans/PLAN_STRATEGY.md` for every new complex plan** and represent planning in Beadwork issues (not plan files).
 - **For planned work, create at least one Beadwork issue per step** (split into additional issues when needed) and prefix each planned issue title with `[{issueId}]`.

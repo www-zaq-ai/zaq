@@ -15,8 +15,9 @@
 
 ## DRY & Pattern Reuse
 
-- Reuse existing context APIs, query helpers, changeset patterns, and UI components before introducing new abstractions.
-- Apply a rule-of-three for extraction: duplicate twice if needed, extract shared abstractions once the pattern is stable.
+- Reuse existing Actions/tools, context APIs, query helpers, changeset patterns, and UI components before introducing new abstractions. Apply [the Action reuse gate](action-reuse.md) before planning, implementation, and approval.
+- Apply a rule-of-three for incidental helper extraction once the pattern is stable; this never permits duplicating an existing operation or postponing evaluation of a missing essential composable Action.
+- Require evidence-backed reuse / extend / new Action / local-only decisions (or justified not applicable). Reject unjustified parallel operation flows and untracked missing essential Actions; preserve validated execution, permission checks, NodeRouter boundaries, and deliberate agent-tool exposure.
 - Prefer extending established project patterns instead of creating competing variants without a strong reason.
 - Avoid catch-all utility modules. Helpers should be domain-scoped and intent-revealing.
 - Prefer shared utility packages over hand-rolled helpers to keep invariants centralized.

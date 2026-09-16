@@ -50,6 +50,15 @@ Before writing any step, audit what already exists for the domain being changed.
 An agent that skips this will duplicate infrastructure, create parallel code paths, and
 generate avoidable review comments.
 
+Apply [the Action reuse gate](../action-reuse.md) to every affected operation,
+including changes to existing flows. Search Actions/tools, workflow Steps, and domain
+APIs; record concrete candidates and choose reuse / extend / new Action / local-only.
+For tasks without operation changes, record not applicable with a reason. A supplied
+roadmap does not waive source discovery. Missing essential operations must be proposed
+as focused Action issues with contracts and dependencies before consumer steps, not
+implemented as unplanned feature-specific helpers. Unknown contracts block planning
+until investigated or escalated.
+
 For agent service work, verify:
 
 - Does `Factory` already cover the LLM call? If yes, use it. If no, extend it — never bypass it.
@@ -129,6 +138,7 @@ Each step must include:
 3. `Branches/paths validated`
 4. `Mocking plan` (only for edge external API calls)
 5. `Documentations to update for both code and docs/ related content`
+6. `Action reuse assessment` per affected operation: candidate paths/search evidence, decision and rationale, owning module, input/output/error/permission and side-effect contract, code/tool/workflow consumers and execution boundary, and verification (or not applicable with a reason). Follow `docs/action-reuse.md`; link proposed missing-Action prerequisites.
 
 If any item is missing, the step is incomplete and cannot be executed.
 
@@ -157,6 +167,7 @@ If any item is missing, the step is incomplete and cannot be executed.
 A plan is done only when:
 
 - Step-level functional specifications were written before implementation
+- Action reuse assessments were recorded before implementation, rechecked during execution, and verified in review; missing essential Actions were tracked as prerequisites and no unjustified parallel operation logic remains.
 - Step-level test definitions were written before implementation.
 - Required tests were implemented and passing.
 - Required feature E2E was implemented and validated after recorded human UX/UI
