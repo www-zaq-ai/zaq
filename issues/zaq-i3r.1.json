@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T09:12:04Z",
+  "description": "Approved docs-only policy update; no application operations or new tests.",
+  "id": "zaq-i3r.1",
+  "labels": [],
+  "parent": "zaq-i3r",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-i3r] Update canonical validation lifecycle",
+  "type": "task",
+  "updated_at": "2026-09-16T09:12:04Z"
+}
