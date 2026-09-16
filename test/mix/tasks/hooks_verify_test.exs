@@ -50,8 +50,13 @@ defmodule Mix.Tasks.Hooks.VerifyTest do
   end
 
   defmodule FailingMixTask do
-    def run("compile", []), do: :ok
-    def run("app.start"), do: raise(Mix.Error, message: "boom")
+    def run("compile", []), do: raise(Mix.Error, message: "boom")
+  end
+
+  defmodule CompileOnlyMixTask do
+    def run("compile", []), do: send(self(), :hooks_verify_compiled)
+
+    def run("app.start"), do: raise("hooks.verify must not start the application")
   end
 
   # ---------------------------------------------------------------------------
@@ -209,13 +214,23 @@ defmodule Mix.Tasks.Hooks.VerifyTest do
       assert msg =~ "hooks.verify passed"
     end
 
-    test "exits after reporting startup failures from Mix.Task.run/2" do
+    test "compiles and verifies hooks without starting the application" do
+      with_mix_task_module(CompileOnlyMixTask, fn ->
+        assert :ok = Verify.run([])
+      end)
+
+      assert_received :hooks_verify_compiled
+      assert_received {:mix_shell, :info, [msg]}
+      assert msg =~ "hooks.verify passed"
+    end
+
+    test "exits after reporting compilation failures from Mix.Task.run/2" do
       with_mix_task_module(FailingMixTask, fn ->
         assert catch_exit(Verify.run([])) == {:shutdown, 1}
       end)
 
       assert_received {:mix_shell, :error, [msg]}
-      assert msg =~ "Failed to start application: boom"
+      assert msg =~ "Failed to compile application: boom"
     end
   end
 end

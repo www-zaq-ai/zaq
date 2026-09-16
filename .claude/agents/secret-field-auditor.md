@@ -76,7 +76,7 @@ For each violation:
 2. Add the field to the sensitive fields list in `docs/services/system-config.md`.
 3. Add missing tests.
 4. Run `mix test` after each fix.
-5. Run `mix precommit` before opening a PR.
+5. Read and follow the validation lifecycle in `docs/WORKFLOW_AGENT.md`; include isolated secret-field regression tests.
 
 ### Step 5 — Open PRs
 

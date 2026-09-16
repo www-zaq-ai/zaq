@@ -118,7 +118,7 @@ listing every source comment so reconciliation still adds up)*
 
 - [ ] All tasks `todo` → done; `obsolete` tasks have a written justification
 - [ ] New/updated tests cover critical behavior, failure paths, permissions, and regressions; numerical coverage targets are handled by the post-review `coverage-upper` phase
-- [ ] `mix format` run on every touched file
+- [ ] Specific isolated behavior/failure/regression tests pass for each issue; formatting is included in `mix q`
 - [ ] `mix q` passes
 - [ ] Parent review-plan table status updated for this category
 ```

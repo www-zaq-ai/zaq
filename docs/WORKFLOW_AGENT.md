@@ -1,6 +1,6 @@
 # Agent Workflow
 
-This document defines the exact loop Claude Code follows on every task —
+This document owns the workflow and validation/approval lifecycle for every coding agent —
 from receiving a prompt to merging a PR. Follow this without skipping steps.
 
 ---
@@ -9,12 +9,12 @@ from receiving a prompt to merging a PR. Follow this without skipping steps.
 
 Before writing a single line of code:
 
-1. Read `AGENTS.md` to confirm you have the full map.
-2. Identify which docs apply to this task and read them.
+1. Read `AGENTS.md` once to route the task; reuse unchanged instructions already in context.
+2. Read required sections of applicable policy/service documents before affected work. Links are not imports; do not load the entire map. Tool routing is owned by [agent tools](agent-tools.md). After compaction, recover applicable policies and verify current files, Git and Beadwork before acting. Delegation must explicitly require applicable policy paths when not inherited.
 3. Run `bw prime`.
 4. Check existing Beadwork issues to confirm whether planning work already exists for this task.
-5. Read `docs/exec-plans/tech-debt-tracker.md` — check if this task is tracked debt.
-6. Read `docs/QUALITY_SCORE.md` — understand the current state of the domain you're touching.
+5. For tracked-debt work, consult the relevant entries in `docs/exec-plans/tech-debt-tracker.md`.
+6. For domain changes, consult the relevant section of `docs/QUALITY_SCORE.md`.
 7. Apply [the Action reuse gate](action-reuse.md): identify affected executable operations and inspect existing Actions/tools and domain APIs before designing a solution. Record not applicable with a reason for tasks without operation changes.
 
 ---
@@ -56,12 +56,12 @@ approval → E2E dependencies per `docs/exec-plans/PLAN_STRATEGY.md`.
 
 Work through the planned Beadwork issues one at a time:
 
-1. Read the relevant source files using `mcp__serena__get_symbols_overview` before editing.
-2. Implement the change.
+1. Follow [the tool boundary](agent-tools.md#tool-boundaries) to inspect the affected source or documentation.
+2. Implement the change with a symbol-aware edit when supported, or the host-required patch/edit tool. Retrieve only the code/text needed for that edit.
 3. Write or update unit tests covering the change.
 4. Focus tests on critical behavior, failure paths, permissions, and regressions rather than a numerical coverage ratio. Keep code async-testable through injected configuration/dependencies and isolated state; preserve the guidance in `docs/testing-approach.md`.
 5. Apply `docs/testing-approach.md`: add property tests when the change touches invariants, broad input spaces, normalization, or permission/safety defaults.
-6. Run `mix test` — fix all failures before moving to the next step.
+6. Complete the [issue validation checks](#unit-validation) before marking each issue complete.
 7. Update the active Beadwork issue notes/description with decisions and progress as you go.
 8. Keep the feature's E2E issue scenarios and approval status current after each
    relevant iteration. Defer new/substantially rewritten feature E2E until final
@@ -88,9 +88,9 @@ Work through the planned Beadwork issues one at a time:
 
 ### Unit validation
 
-1. Run `mix precommit` through context-mode with a **15-minute (900,000 ms) execution timeout** — fix everything it reports. Keep logs in context-mode and return only a concise result. Never skip or replace it; if context-mode is unavailable or cannot support the timeout, report the validation blocker rather than dumping logs through a raw shell tool.
-2. Do not run an additional `mix test` in this phase: `mix precommit` already runs tests (`test --stale`). Implementation-step tests remain required.
-3. Run the separately required `mix q` quality checks through context-mode. Numerical coverage targets are deferred to the post-review coverage phase.
+1. After each issue, run `mix q` through Context Mode. It includes formatting; do not run `mix format` separately. Keep logs in Context Mode and return only concise results.
+2. Run specific isolated tests confirming the developed feature and relevant failure/regression cases. `mix q` does not replace these tests. Fix failures before completing the issue; documentation-only work needs no application tests.
+3. Reserve `mix precommit` for the [final gate](#phase-6--coverage-and-merge), not each issue. Numerical coverage targets remain in that dedicated coverage phase.
 4. Review your own diff — check for dead code, debug statements, and convention violations.
 5. Apply the review gate in `docs/action-reuse.md`: verify reuse evidence and shared implementations, missing Action prerequisites, justified local-only decisions, and deliberate tool exposure. Resolve unjustified duplication or bypassed boundaries before approval.
 
@@ -171,8 +171,10 @@ For multi-PR plans, apply this phase to each PR once all implementation issues i
 
 1. Invoke the `coverage-upper` agent after all implementation issues are tackled and PR review is approved. Numerical coverage targets belong to this dedicated phase, not the development loop.
 2. The agent generates a fresh report by running `mix coveralls.json` through context-mode with a **10-minute (600,000 ms) execution timeout**, then runs `mix coverup` only after successful completion. Do not check report age or reuse a stale report after failure/timeout. Follow the agent's remaining planning, delegation, and validation instructions.
-3. Record results, exceptions, and follow-up work in Beadwork and the PR. Have any coverage-phase changes reviewed and approved, and repeat Phase 4 validation for those changes before merging.
-4. Squash and merge when approved and authorized. Never push directly to `main`.
+3. Record results, exceptions, and follow-up work in Beadwork and the PR. Repeat Phase 4 checks for coverage-phase changes. The review approval that starts coverage is not the final human approval of the completed work.
+4. After all implementation, review fixes, required E2E and coverage work is complete, run `mix precommit` through Context Mode with a **15-minute (900,000 ms) execution timeout**. Fix everything it reports and rerun until it passes against the final changes. Do not add a redundant full test run to this gate; issue-level isolated tests remain required. Keep logs in Context Mode and return concise results. If execution is blocked, report the blocker rather than requesting final approval or dumping raw logs.
+5. Only after the gate passes, request final human approval with the validation summary. If feedback requires changes, repeat issue-level checks and the final gate before requesting approval again. This applies to documentation-only work too; if coverage is not applicable, record why and proceed to the final gate.
+6. Commit, squash or merge only when approved and authorized. Never push directly to `main`. Final approval does not itself authorize a Git mutation the user has not requested.
 
 ---
 

@@ -22,7 +22,7 @@ Use LSP before reading files manually:
 3. Use `lsp_find_references` to trace the call chain upward
 4. Form a hypothesis, apply the minimal fix
 5. Run `mix test` to verify no regressions
-6. Run `mix format --check-formatted` before finishing
+6. Run `mix q` (includes formatting) and specific isolated regression tests after each issue; follow the final approval gate in `docs/WORKFLOW_AGENT.md`.
 
 ---
 

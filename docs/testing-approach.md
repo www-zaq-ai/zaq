@@ -430,7 +430,7 @@ Review coverage alongside:
 - production code actually executed;
 - tests remaining deterministic and async-safe.
 
-After any code or documentation task, `mix precommit` must pass; run it through context-mode with a 15-minute (900,000 ms) execution timeout and summarize the result without returning full logs. Do not add a redundant `mix test` run to this validation step. Once all implementation issues are tackled and PR review is approved, invoke `coverage-upper` before merging. Coverage targets remain in that agent and its coverage-specific instructions.
+Read and follow the [validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate) for issue checks, coverage handoff, failure handling and final human approval. This handbook owns test design, not command timing; numerical targets remain in coverage-specific instructions.
 
 - For invariant-heavy changes, reviewers should expect at least one property test.
 

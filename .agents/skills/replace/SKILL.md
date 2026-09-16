@@ -131,7 +131,7 @@ For each **approved** row:
 - **Preserve** e2e hooks (`id`, `data-testid`, `role`).
 - Remove **dead** private helpers and markup **only** used by the replaced block.
 - Remove **orphaned CSS** in `assets/css/styles.css` if nothing else references it.
-- Run **`mix format`**.
+- Read and follow the validation lifecycle in `docs/WORKFLOW_AGENT.md`; include isolated tests for the replacement.
 
 **Do not** change unrelated regions in the same edit.
 

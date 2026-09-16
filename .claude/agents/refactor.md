@@ -30,7 +30,7 @@ Refactoring changes structure, never behavior. If tests fail after your change, 
 2. Run `mix test` to establish a baseline
 3. Apply one refactoring at a time
 4. Run `mix test` after each change
-5. Run `mix format` before finishing
+5. Run `mix q` (includes formatting) plus specific isolated regression tests after each issue; follow the final approval gate in `docs/WORKFLOW_AGENT.md`.
 
 ---
 
@@ -154,6 +154,6 @@ end
 
 ## Safety Checklist
 - `mix test` passes before and after
-- `mix format --check-formatted` passes
+- `mix q` (includes formatting) and specific isolated regression tests pass
 - No functionality changed
 - No new dependencies introduced

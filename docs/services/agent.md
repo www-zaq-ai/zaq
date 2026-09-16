@@ -646,9 +646,13 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 
 ### Harness-Critical Checks for Coding Agents
 - **Doc ↔ code parity**: service docs must only reference real modules.
-- **Single execution path**: extend `Factory`/`Executor`; never add parallel LLM paths.
+- **Single execution path**: before implementing LLM calls, agent lifecycle or response builders, check `Factory`, `Executor`, `Outgoing` and `History`. Use/extend existing infrastructure, never create a parallel path; follow the Entry Point Decision Tree above.
+- **Provider ownership**: normalization, fixed-URL detection and base-URL injection belong in `ProviderSpec`; credentials resolve through `get_ai_provider_credential/1`; `Factory` assembles model specs. Other modules receive pre-built specs, never construct or inspect provider URLs/credentials directly.
+- **Configured-agent parity**: the default answering agent is a configured agent with defaults, not a special case. `ServerManager` must not branch by agent type; answering-only behavior must fit the general path or be removed.
+- **Minimal lifecycle state**: if state exists only to trigger future behavior, use `Process.send_after/3` instead.
+- **Provider catalog**: read provider names, endpoint configuration and capability flags from `llm_db` at runtime, not hardcoded source lists.
 - **Ownership-aligned telemetry**: avoid duplicate emitters; module doing work emits the stage/metric.
-- **Security defaults**: nil identity is never implicit admin; explicit opt-in only.
+- **Security defaults**: `person_id: nil` without explicit `skip_permissions: true` allows only public data. Never derive permissions from nil; admin access must be explicit opt-in.
 - **MCP runtime safety**: keep runtime id mapping and atom guards centralized in `Zaq.Agent.MCP.Runtime`.
 - **Property testing for invariants**: follow `docs/testing-approach.md`; add property tests for normalization, safety defaults, and deterministic mappings when agent code changes.
 

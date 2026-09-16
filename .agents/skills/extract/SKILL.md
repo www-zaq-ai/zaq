@@ -184,8 +184,7 @@ After steps 1–2, **stop** and output an **Extraction report** to the human. **
 
 ### 7. Verify
 
-- Run **`mix format`** on touched files.
-- Run **`mix q`** before opening the PR.
+- Read and follow the validation lifecycle in `docs/WORKFLOW_AGENT.md`; include isolated tests for the extracted component.
 - Add or update **`render_component`** ExUnit for the module (assigns, slots, critical markup).
 - **Story dedup check:** for each extracted function, grep `storybook/` — at most **one** story file should reference that UI role; no remaining `CoreComponents.<fn>` in story `function` for the extracted slice (unless explicitly kept in a deprecated folder).
 - Confirm the story renders at `http://localhost:4000/storybook` (manual smoke or document in PR).

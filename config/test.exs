@@ -33,7 +33,7 @@ config :zaq, Zaq.Repo,
   hostname: "localhost",
   database: test_database,
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: System.schedulers_online()
 
 config :zaq, Oban,
   repo: Zaq.Repo,

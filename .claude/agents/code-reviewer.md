@@ -21,7 +21,7 @@ git diff --name-only          # identify changed files
 git diff                      # review the changes
 mix compile --warnings-as-errors  # surface any warnings
 mix test                      # confirm tests pass
-mix format --check-formatted  # check formatting
+mix q                        # issue-level quality check, includes formatting
 ```
 
 ---

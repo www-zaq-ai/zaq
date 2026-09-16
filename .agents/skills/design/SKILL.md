@@ -49,7 +49,7 @@ Role CSS files (`btn.css`, `form.css`, etc.) are read-only unless the design lea
 
 ## Step 4: Verify
 
-Run **`mix format`** on touched files. Run **`mix q`** before opening a PR.
+Read and follow the validation lifecycle in `docs/WORKFLOW_AGENT.md`, including isolated tests for the design changes and the final approval gate.
 
 Follow `docs/testing-approach.md#feature-e2e-approval-gate`. Keep the same feature
 E2E issue current through production wiring and UI corrections; defer feature E2E

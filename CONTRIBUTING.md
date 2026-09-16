@@ -59,14 +59,10 @@ feat(api)!: remove deprecated v1 endpoints
 1. Create your branch from `main`.
 2. Write or update tests that cover your change.
 3. Implement the change.
-4. Run the full quality check before committing:
-   ```bash
-   mix precommit
-   ```
-   Fix all failures — do not skip or replace this step.
+4. Complete the [issue validation checks](docs/WORKFLOW_AGENT.md#unit-validation); that policy owns commands, tests and failure handling.
 5. Open a Pull Request targeting `main` with a clear description of what changed and why.
 6. Respond to all review feedback before merging.
-7. Update relevant docs if behavior or architecture changed.
+7. Update relevant docs if behavior or architecture changed. Follow the [coverage and final approval gate](docs/WORKFLOW_AGENT.md#phase-6--coverage-and-merge) before requesting final human approval. Commit/merge only when authorized.
 
 ## Bug Fixes
 
@@ -74,7 +70,7 @@ For bug fixes specifically:
 
 1. Write a test that reproduces the bug first.
 2. Fix the code until the test passes.
-3. Run `mix credo --strict` in addition to `mix precommit`.
+3. Include the isolated regression tests in the issue checks linked above.
 
 ## Architecture Boundaries
 
@@ -86,7 +82,7 @@ A few rules that reviewers will check:
 
 ## Code Quality
 
-- `mix precommit` runs formatter, Credo, and custom linters. Green = ready to commit.
+- Follow the linked validation policy rather than defining alternative quality gates here.
 - Any temporary shortcut must include a `TODO` with a linked issue and a clear removal condition.
 - Remove dead code — don't leave inactive paths "just in case".
 - If your change intentionally diverges from established patterns, explain why in the PR description.

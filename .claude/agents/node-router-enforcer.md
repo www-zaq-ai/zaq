@@ -88,7 +88,7 @@ For each violation:
    - `:engine` for `Zaq.Engine.*` and `Zaq.Engine.Conversations.*`
    - `:channels` for `Zaq.Channels.*`
 3. Run `mix test` after each fix to confirm no regression.
-4. Run `mix precommit` before opening a PR.
+4. Read and follow the validation lifecycle in `docs/WORKFLOW_AGENT.md`; include isolated boundary regression tests.
 
 ### Step 4 — Open PRs
 

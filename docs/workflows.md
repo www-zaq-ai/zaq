@@ -70,17 +70,17 @@ Follow this for every bug — no exceptions:
 2. Fix the code and confirm the new/updated test passes.
 3. Iterate on the fix until the reproducing test passes reliably.
 4. Check code standards with `mix credo --strict`.
-5. Validate with `mix precommit` through context-mode with a 15-minute (900,000 ms) execution timeout, followed by applicable E2E tests per `docs/WORKFLOW_AGENT.md`. Do not add a redundant full `mix test` run during validation; the post-review coverage phase generates the full coverage report.
+5. Read and follow the [validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate), including issue checks, E2E and final approval gates.
 
 ---
 
 ## PR Workflow
 
-1. Validate current codebase state before starting with `mix precommit` through context-mode with a 15-minute (900,000 ms) execution timeout; keep logs in context-mode and return only a concise result.
+1. Follow [workflow orientation](WORKFLOW_AGENT.md#phase-1--orient) before starting.
 2. Implement the change.
-3. Run `mix precommit` through context-mode with the same 15-minute timeout — fix all failures before opening a PR. Never replace it with ad-hoc checks or add a redundant `mix test` run.
+3. Complete the [issue validation checks](WORKFLOW_AGENT.md#unit-validation).
 4. Open a PR with a clear description referencing the task or Beadwork issue(s).
-5. Respond to all review feedback. After all implementation issues in the PR are tackled and review is approved, invoke `coverage-upper` per `docs/WORKFLOW_AGENT.md`, validate and review its changes, then merge when authorized.
+5. Respond to review feedback, then follow [coverage and final approval](WORKFLOW_AGENT.md#phase-6--coverage-and-merge); merge only when approved and authorized.
 6. Update relevant docs if behavior or architecture changed.
 7. If the task is planned in Beadwork, keep issue status and notes updated as progress is made.
 

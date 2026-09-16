@@ -109,7 +109,7 @@ List anything blocking progress and who/what can unblock it.
 - [ ] Integration tests cover key branches/paths
 - [ ] Any mocks are limited to edge external API calls
 - [ ] After all implementation issues are tackled and PR review is approved, `coverage-upper` completes; its changes are reviewed before merging
-- [ ] `mix precommit` passes via context-mode with a 15-minute (900,000 ms) execution timeout; only a concise result is returned
+- [ ] Issue checks and final approval gate satisfy `docs/WORKFLOW_AGENT.md` (read its validation lifecycle rather than copying it here)
 - [ ] Relevant docs updated
 - [ ] `docs/QUALITY_SCORE.md` updated if domain grade changed
 - [ ] Item removed from `docs/exec-plans/tech-debt-tracker.md` if applicable

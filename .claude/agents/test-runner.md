@@ -36,7 +36,7 @@ mix test --failed                          # only previously failing
 ```bash
 mix test test/path/to/fixed_test.exs   # confirm fix
 mix test                                # confirm no regressions
-mix format --check-formatted           # before finishing
+mix q                                 # after each issue; includes formatting; pair with isolated tests
 ```
 
 ---

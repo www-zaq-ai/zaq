@@ -90,7 +90,7 @@ Modules and files touched. For each module, confirm its @moduledoc covers the re
 - [ ] Step-level tests written before implementation
 - [ ] All tests passing
 - [ ] Critical paths tested and post-review `coverage-upper` phase complete before merging
-- [ ] `mix precommit` passes via context-mode with a 15-minute (900,000 ms) execution timeout; only a concise result is returned
+- [ ] Issue checks and final approval gate satisfy `docs/WORKFLOW_AGENT.md` (read its validation lifecycle rather than copying it here)
 - [ ] Docs updated
 
 ---

@@ -117,4 +117,4 @@ a generic invoke dispatcher exists or use raw dispatch where a role helper cover
 - Controller modules: `ZaqWeb.<Scope>.<Resource>Controller`
 - JSON view modules: `ZaqWeb.<Scope>.<Resource>JSON`
 - Follow `create_x/1`, `update_x/2`, `delete_x/1` naming in contexts
-- Run `mix test` and `mix format --check-formatted` before finishing
+- After each issue, run `mix q` (includes formatting) plus specific isolated behavior/failure/regression tests before finishing; follow the final approval gate in `docs/WORKFLOW_AGENT.md`.

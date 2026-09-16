@@ -35,7 +35,7 @@ config :git_hooks,
   hooks: [
     pre_commit: [
       tasks: [
-        {:mix_task, :quality}
+        {:mix_task, :qf}
       ]
     ],
     commit_msg: [

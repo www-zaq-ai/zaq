@@ -67,7 +67,7 @@ must complete before consumer integration; write tests before implementation
 
 ### Done When
 - [ ] mix test passes
-- [ ] mix format --check-formatted passes
+- [ ] `mix q` (includes formatting) plus specific isolated tests pass after each issue; final `mix precommit` passes before requesting final human approval per `docs/WORKFLOW_AGENT.md`
 - [ ] Workflow validation, Action reuse review, and coverage handoff follow PLAN_STRATEGY
 - [ ] All routes protected by auth plug
 - [ ] Relevant service/architecture docs updated if behavior changed

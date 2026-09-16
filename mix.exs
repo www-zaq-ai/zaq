@@ -212,17 +212,27 @@ defmodule Zaq.MixProject do
         "phx.digest"
       ],
       precommit: [
-        "quality",
-        "deps.unlock --unused",
-        "hooks.verify",
+        "format --check-formatted",
+        "credo --strict",
+        "compile --warnings-as-errors",
         "test --stale"
       ],
       q: ["quality"],
-      quality: [
+      qf: ["quality.fast"],
+      "quality.fast": [
         "format --check-formatted",
-        "compile --warnings-as-errors",
+        "hooks.verify",
         "docs --warnings-as-errors",
+        "compile --warnings-as-errors",
         "credo --strict"
+      ],
+      quality: [
+        "format",
+        "hooks.verify",
+        "credo --strict",
+        "deps.unlock --unused",
+        "docs --warnings-as-errors",
+        "compile --warnings-as-errors"
         # "doctor --summary --raise"
         # "dialyzer"
       ],

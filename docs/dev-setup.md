@@ -18,22 +18,9 @@ changing the browser URL to a server IP is not sufficient.
 
 ## Tool Usage
 
-### Tool Priority
-1. `mcp__plugin_context-mode_context-mode__*` — file reads, searches, code execution
-2. `mcp__serena__*` — symbol navigation, file creation, replacing symbol bodies
-3. `ctx_execute` over raw Bash for shell commands
-
-### Serena Usage
-- Prefer `mcp__serena__find_symbol` and `mcp__serena__get_symbols_overview` before editing any module
-- Prefer `mcp__serena__replace_symbol_body` over full file rewrites
-- Use `mcp__serena__*` for creating new files
-
----
-
-## Execution Rule
-
-ALL related operations MUST be concurrent in a single message: batch TodoWrite, Task spawns,
-file reads/writes, and bash commands together. Never split related operations across messages.
+Read and follow [agent tools](agent-tools.md) before tool use: it owns routing,
+fallbacks, batching, memory, delegation and Context Mode commands. Do not copy
+its procedures here. Serena selects relevant code; Context Mode selects relevant observations.
 
 ---
 
@@ -44,8 +31,12 @@ file reads/writes, and bash commands together. Never split related operations ac
 mix test                  # full suite
 mix test test/my_test.exs # single file
 mix test --failed         # previously failed tests only
-mix precommit             # full pre-commit validation (always run before PR)
+mix q                     # issue quality check
+mix precommit             # final gate
 ```
+
+Follow [the validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate) for timing,
+isolated tests, failure handling and final approval; commands here are setup references only.
 
 ### E2E Tests (Playwright)
 

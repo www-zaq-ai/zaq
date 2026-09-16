@@ -196,9 +196,8 @@ When there are no missing tools, omit the function entirely.
 1. Write the module to `lib/zaq/engine/workflows/example/<snake_name>.ex` with a
    `@moduledoc` that documents the DAG (ASCII flow like the template), the trigger,
    the expected input shape, and a `## Usage` example.
-2. Run `mix format` on the new file.
-3. Run `mix compile` (or `mix q` if the user wants the full gate) and fix any
-   compile errors in the generated file only.
+2. Run `mix q` (includes formatting) after the issue; follow `docs/WORKFLOW_AGENT.md` for the final approval gate.
+3. Run specific isolated tests confirming the workflow behavior, failure paths and regressions. Fix compilation or test failures introduced by the generated file; report unrelated blockers rather than silently changing unrelated code.
 
 ---
 

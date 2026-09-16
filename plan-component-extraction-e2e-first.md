@@ -80,7 +80,7 @@ Implemented in repo (run locally with Postgres on `localhost:5432` per `docs/e2e
 1. Add `lib/zaq_web/components/design_system/<snake>.ex` with `ZaqWeb.Components.DesignSystem.<Name>` (or agreed name).
 2. Move `~H"""` + helpers used **only** by that slice; preserve **e2e ids**, **event names**, and **assigns contract**.
 3. New layout/color utilities → **`assets/css/styles.css`** only; use `--zaq-*` / `.zaq-*` (and **design-migrate** if token work is in scope).
-4. Import at call sites; remove dead code from old modules; **`mix format`**.
+4. Import at call sites; remove dead code from old modules; formatting runs as part of **`mix q`** in verification.
 5. **Storybook:** `storybook/components/design_system/<snake>.story.exs` + index updates; **row 9** needs a **new** story for `PortalConsentModal` if you approve it.
 6. Verify: **`mix q`**; run e2e specs derived from consuming LiveViews (`docs/e2e-testing.md` + extract skill §8).
 

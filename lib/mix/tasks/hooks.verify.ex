@@ -18,6 +18,9 @@ defmodule Mix.Tasks.Hooks.Verify do
 
   Exits non-zero on any violation.
 
+  Compiles the project without starting the application. Verification uses source
+  files and documented event metadata, so no database or running services are required.
+
   ## Known limitations
 
   The source scan uses a regex (`dispatch_(?:sync|async)\\(\\s*:(\\w+)`) that
@@ -37,10 +40,9 @@ defmodule Mix.Tasks.Hooks.Verify do
 
     try do
       mix_task_module.run("compile", [])
-      mix_task_module.run("app.start")
     rescue
       e in Mix.Error ->
-        Mix.shell().error("Failed to start application: #{Exception.message(e)}")
+        Mix.shell().error("Failed to compile application: #{Exception.message(e)}")
         exit({:shutdown, 1})
     end
 

@@ -57,7 +57,7 @@
 
 ## Linting & Enforcement
 
-- Run `mix precommit` before every commit through context-mode with a 15-minute (900,000 ms) execution timeout — never replace it with ad-hoc checks. Keep command logs in context-mode and return only a concise result.
+- Read and follow the [validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate) for required commands, tests, failure handling and approval timing; do not maintain a separate gate here.
 - `mix credo --strict` for code standards on bugfixes.
 - During development, prioritize tests for critical behavior, failure paths, permissions, and regressions rather than a coverage ratio. Preserve async-friendly configuration/dependency injection and isolated state. Delegate numerical coverage targets to the post-review `coverage-upper` phase before merging.
 - Custom linters enforce: structured logging, naming conventions for schemas and types, file size limits, and platform-specific reliability requirements.

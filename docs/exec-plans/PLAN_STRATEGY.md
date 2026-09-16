@@ -174,4 +174,4 @@ A plan is done only when:
   approval; an iteration may finish with its E2E issue blocked, but the feature
   plan remains open until that finalization is complete.
 - Critical paths are tested and the post-review `coverage-upper` phase is complete before merging.
-- `mix precommit` passes via context-mode with a 15-minute (900,000 ms) execution timeout; return only a concise result, not full logs.
+- Plan and satisfy the [validation lifecycle](../WORKFLOW_AGENT.md#phase-4--validate), including issue checks and the final approval gate; do not copy command timing into plans.

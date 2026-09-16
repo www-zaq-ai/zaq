@@ -164,12 +164,12 @@ Apply only the approved table rows (or line overrides the user gave). Write to t
 Then run:
 
 ```bash
-mix format
+mix q
 ```
 
 ### Targeted e2e verification
 
-After `mix format` passes, run a targeted smoke test:
+After `mix q` passes (includes formatting), run specific isolated tests and a targeted smoke test:
 
 1. **Pick LiveView(s) to cover the change:**
    - If the edited file is already a LiveView under `lib/zaq_web/live/`, use that file only.
@@ -224,7 +224,7 @@ Pending:  [component A, component B]
 Approved: [component C]
 ```
 
-To batch-apply: when the user is ready to ship, list all `pending` items, confirm, then run Step 4 for each in one pass. Run `mix format` once across the full batch, then open one PR.
+To batch-apply: when the user is ready to ship, list all `pending` items, confirm, then run Step 4 for each in one pass. Read and follow the validation lifecycle in `docs/WORKFLOW_AGENT.md`; include isolated migration tests.
 
 Batching is session-scoped — there is no persistent state file.
 

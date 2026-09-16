@@ -222,7 +222,7 @@ Grep touched files for violations:
 
 ### 9. Verify
 
-1. `mix format` on touched files
+1. Read and follow the validation lifecycle in `docs/WORKFLOW_AGENT.md`, including isolated prototype tests and the final approval gate
 2. Confirm no backend or Storybook diffs
 3. Run **`/run`** → open `/bo/{slug}` and verify:
    - Happy path

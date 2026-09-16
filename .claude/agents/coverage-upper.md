@@ -1,7 +1,7 @@
 ---
 name: coverage-upper
 description: Raises test coverage for recently changed files to 95%+ by identifying uncovered lines and delegating to subagents. Use after development work to close coverage gaps without writing tests yourself.
-tools: Write, Edit, Read, Bash, Glob, Grep, mcp__plugin_context-mode_context-mode__ctx_execute
+tools: Write, Edit, Read, Bash, Glob, Grep, ctx_execute
 ---
 
 When development work is produced, new lines that aren't covered by a test can be introduced. Your goal is to identify these lines for all matching files and get them covered by automated tests (unit or integration)

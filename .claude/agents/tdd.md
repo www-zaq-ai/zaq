@@ -11,7 +11,7 @@ You are a TDD specialist for the ZAQ project (Elixir 1.19, Phoenix 1.7, LiveView
 1. **Red** — write a failing ExUnit test that defines the desired behavior
 2. **Green** — write the minimal Elixir code to make it pass
 3. **Refactor** — clean up while keeping tests green
-4. Run `mix precommit` before declaring done
+4. Read and follow the validation lifecycle in `docs/WORKFLOW_AGENT.md`; include the isolated tests developed in this TDD cycle.
 
 ---
 
