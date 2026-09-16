@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T21:48:34Z",
+  "description": "Restore Phoenix form-field values in DesignSystem.Input after the rebased value default change. Add focused component regression coverage and verify the People access LiveView failures. Action reuse: not applicable — this corrects shared presentation binding and changes no executable business operation. Existing Input.input/1 is the reused UI contract; no E2E authoring is needed because focused component and existing LiveView tests cover the regression.",
+  "id": "zaq-0kp",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Fix design-system field value regression",
+  "type": "bug",
+  "updated_at": "2026-09-16T21:48:34Z"
+}
