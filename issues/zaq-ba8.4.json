@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T19:15:44Z",
+  "description": "User-approved final docs addition on existing branch; preserve prior changes and unrelated tmp-script.js. Add docs/agent-setup.md linking official Context Mode, Serena and Beadwork upstream instructions instead of maintaining installation commands/version pins. Describe repo-specific readiness and link CONTRIBUTING, AGENTS, docs index/dev setup/ownership. Action reuse N/A: documentation only. Verify official URLs and local links. Prior ExDNA/Credo and final gate timeout blockers remain outstanding; no application code/config changes, installs or Git delivery.",
+  "id": "zaq-ba8.4",
+  "labels": [],
+  "parent": "zaq-ba8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-ba8] Document agent workflow tool prerequisites",
+  "type": "task",
+  "updated_at": "2026-09-16T19:15:44Z"
+}
