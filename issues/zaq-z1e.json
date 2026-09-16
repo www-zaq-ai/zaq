@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T06:23:57Z",
+  "description": "Approved documentation-only plan for AGENTS.md, CLAUDE.md and docs/dev-setup.md. Action reuse: not applicable; no application operations change. Working-tree delivery only. Sequence: normalize names and reference -\u003e command behavior and integration guidance -\u003e validation.",
+  "id": "zaq-z1e",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Update context-mode command/tool documentation",
+  "type": "epic",
+  "updated_at": "2026-09-16T06:23:57Z"
+}
