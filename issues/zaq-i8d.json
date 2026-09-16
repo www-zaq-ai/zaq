@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T09:30:47Z",
+  "description": "Local-only developer validation fix; reuse existing source scan and Zaq.Hooks.documented_events/0. No Action applicable. Remove app.start, retain compilation and errors, regression test rejecting startup; existing fixture cases cover violations. No new broad-input logic; property tests not needed. Validate isolated tests, mix q and final mix precommit.",
+  "id": "zaq-i8d",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Remove runtime startup from hooks.verify",
+  "type": "task",
+  "updated_at": "2026-09-16T09:30:47Z"
+}
