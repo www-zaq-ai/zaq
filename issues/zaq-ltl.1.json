@@ -4,14 +4,15 @@
   "blocks": [
     "zaq-ltl.2"
   ],
+  "closed_at": "2026-09-16T08:33:19Z",
   "created": "2026-09-16T08:30:18Z",
   "description": "Implement approved documentation boundary plan; Action reuse N/A. No application code or runtime tests to add.",
   "id": "zaq-ltl.1",
   "labels": [],
   "parent": "zaq-ltl",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-ltl] Define task-based routing",
   "type": "task",
-  "updated_at": "2026-09-16T08:30:32Z"
+  "updated_at": "2026-09-16T08:33:19Z"
 }
