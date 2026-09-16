@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T15:24:43Z",
+  "description": "Add docs/documentation.md and docs/README.md; link entry points; correct verified architecture/project drift; align invoke-first instructions with user-confirmed NodeRouter.dispatch Event convention; fix TODO policy and doc agents. Action reuse N/A: documentation only. Verify contracts against source and inspect diff; run mix q and record blockers.",
+  "id": "zaq-ba8.1",
+  "labels": [],
+  "parent": "zaq-ba8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-ba8] Establish documentation owners and reconcile dispatch guidance",
+  "type": "task",
+  "updated_at": "2026-09-16T15:24:43Z"
+}
