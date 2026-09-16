@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+PARTITIONS="${TEST_PARTITIONS:-2}"
+MAX_CASES="${TEST_MAX_CASES:-8}"
+
+pids=()
+interrupted=0
+
+cleanup() {
+  # Prevent recursive signal handling.
+  trap - INT TERM
+  interrupted=1
+
+  echo
+  echo "Stopping test partitions..."
+
+  for pid in "${pids[@]:-}"; do
+    [[ -n "$pid" ]] && kill -TERM "$pid" 2>/dev/null || true
+  done
+
+  # Give the BEAMs a chance to terminate cleanly.
+  sleep 1
+
+  for pid in "${pids[@]:-}"; do
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  done
+
+  wait 2>/dev/null || true
+
+  exit 130
+}
+
+trap cleanup INT TERM
+
+for partition in $(seq 1 "$PARTITIONS"); do
+  echo "Starting partition $partition/$PARTITIONS"
+
+  MIX_TEST_PARTITION="$partition" \
+    mix test \
+      --partitions "$PARTITIONS" \
+      --max-cases "$MAX_CASES" \
+      --color \
+      "$@" &
+
+  pids+=("$!")
+done
+
+status=0
+
+for pid in "${pids[@]}"; do
+  if ! wait "$pid"; then
+    exit_code=$?
+
+    # A partition failure shouldn't prevent us from waiting
+    # for the remaining partitions.
+    if [[ "$exit_code" -ne 0 ]]; then
+      status=1
+    fi
+  fi
+done
+
+exit "$status"
