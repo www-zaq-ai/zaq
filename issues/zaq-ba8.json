@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T15:24:26Z",
+  "description": "User approved docs/memory cleanup on chore/re-align-serena, no commit/push/PR. Establish canonical documentation policy/index, fix source-verified architecture and dispatch (not invoke) guidance, align authoring agents, slim Serena memories. Action reuse: not applicable — documentation only; no executable operation changes. Sequence: policy and docs -\u003e memories -\u003e validation. No unit/E2E or coverage required for documentation; run documented quality/final gates and report blockers.",
+  "id": "zaq-ba8",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Documentation ownership and dispatch convention cleanup",
+  "type": "epic",
+  "updated_at": "2026-09-16T15:24:26Z"
+}
