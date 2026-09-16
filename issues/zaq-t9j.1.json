@@ -7,9 +7,15 @@
   "id": "zaq-t9j.1",
   "labels": [],
   "parent": "zaq-t9j",
+  "comments": [
+    {
+      "text": "Approved docs consolidation implemented: AGENTS 71 lines (~1577 tokens), CLAUDE 7 (~105), agent-tools 76 (~1773) loaded by task. Removed unconditional DESIGN import (~8238 tokens). Moved Agent checks to service owner; routing and validation duplicates replaced with owner links; task-based loading/delegation explicit. Local links/anchors and stale-reference scan pass; mix q and diff check pass. Final MIX_ENV=test mix precommit reported 101 failures and timed out at 900000ms; cause not established, final approval blocked. Preserved staged work; no commits.",
+      "timestamp": "2026-09-16T11:54:40Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-t9j] Slim entrypoints and centralize tool policy",
   "type": "task",
-  "updated_at": "2026-09-16T11:54:39Z"
+  "updated_at": "2026-09-16T11:54:40Z"
 }
