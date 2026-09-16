@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-ltl.2"
+  ],
   "created": "2026-09-16T08:30:18Z",
   "description": "Implement approved documentation boundary plan; Action reuse N/A. No application code or runtime tests to add.",
   "id": "zaq-ltl.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-ltl] Define task-based routing",
   "type": "task",
-  "updated_at": "2026-09-16T08:30:18Z"
+  "updated_at": "2026-09-16T08:30:26Z"
 }
