@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T09:12:05Z",
+  "description": "Approved docs-only policy update; no application operations or new tests.",
+  "id": "zaq-i3r.3",
+  "labels": [],
+  "parent": "zaq-i3r",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-i3r] Validate documentation and final gate",
+  "type": "task",
+  "updated_at": "2026-09-16T09:12:05Z"
+}
