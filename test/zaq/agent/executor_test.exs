@@ -15,7 +15,8 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(configured_agent, server_id, context \\ nil) do
+    def ensure_server(configured_agent, server_id, context, actor: actor) do
+      send(self(), {:ensured_actor, actor})
       send(self(), {:ensure_server, configured_agent, server_id, context})
       {:ok, :stub_server_scoped}
     end
@@ -38,14 +39,16 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule CoverageStubServerManager do
-    def ensure_server(configured_agent, server_id, context \\ nil) do
+    def ensure_server(configured_agent, server_id, context, actor: actor) do
+      send(self(), {:ensured_actor, actor})
       send(self(), {:coverage_ensure_server, configured_agent, server_id, context})
       {:ok, :coverage_stub_server}
     end
   end
 
   defmodule ViaTupleServerManager do
-    def ensure_server(configured_agent, server_id, context \\ nil) do
+    def ensure_server(configured_agent, server_id, context, actor: actor) do
+      send(self(), {:ensured_actor, actor})
       send(self(), {:coverage_ensure_server, configured_agent, server_id, context})
       {:ok, {:via, Registry, {Zaq.Agent.Jido.Registry, server_id}}}
     end
@@ -115,6 +118,11 @@ defmodule Zaq.Agent.ExecutorTest do
   @incoming %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
   @base_opts [
+    event: %Zaq.Event{
+      request: nil,
+      next_hop: nil,
+      actor: %{kind: :anonymous, subject: "executor-test"}
+    },
     agent_id: "stub",
     agent_module: StubAgent,
     server_manager_module: StubServerManager,
@@ -123,6 +131,52 @@ defmodule Zaq.Agent.ExecutorTest do
   ]
 
   @base_incoming %Incoming{content: "q", channel_id: "c", provider: :web}
+
+  test "invalid raw event and incoming declarations fail before lifecycle or ask" do
+    for actor <- [
+          nil,
+          %{},
+          %{person: %{id: 1}, person_id: 2},
+          %{"person" => %{id: 2}, person: %{id: 1}}
+        ] do
+      opts =
+        Keyword.put(@base_opts, :event, %Zaq.Event{request: nil, next_hop: nil, actor: actor})
+
+      outgoing = Executor.run(@incoming, opts)
+      assert outgoing.metadata.error
+      refute_received {:ensure_server, _, _, _}
+    end
+
+    incoming = %{@incoming | person: %{"id" => 2, id: 1}}
+    outgoing = Executor.run(incoming, Keyword.delete(@base_opts, :event))
+    assert outgoing.metadata.error
+    refute_received {:ensure_server, _, _, _}
+  end
+
+  property "event actor identity wins over incoming and is shared by scope and tool context" do
+    check all(id <- integer(), name <- string(:alphanumeric, max_length: 15), max_runs: 20) do
+      actor = %{person: %{id: id, full_name: name, team_ids: []}}
+      incoming = %{@incoming | person: %{id: 999}}
+      Process.put(:coverage_status_result, %{@incoming | person: %{id: 123}})
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: CoverageStubServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          event: %Zaq.Event{request: nil, next_hop: nil, actor: actor}
+        )
+
+      refute outgoing.metadata.error
+      assert_received {:ensured_actor, ^actor}
+      assert_received {:coverage_ensure_server, _, scope, nil}
+      assert scope == "Stub Agent:scope:bo:person:#{id}"
+      assert_received {:coverage_ask, _, _, %{actor: ^actor}}
+    end
+  end
 
   describe "derive_scope/1" do
     test "returns bo conversation scope when metadata.conversation_id is set on :web provider" do
@@ -285,7 +339,7 @@ defmodule Zaq.Agent.ExecutorTest do
 
   describe "run/2 — answering agent (no agent_id)" do
     defmodule StubSMAnswering do
-      def ensure_server(_agent, server_id, _context \\ nil) do
+      def ensure_server(_agent, server_id, _context, actor: _actor) do
         send(self(), {:ensure_server, server_id})
         {:ok, {:via, Registry, {Zaq.Agent.Jido, server_id}}}
       end
@@ -348,6 +402,11 @@ defmodule Zaq.Agent.ExecutorTest do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: nil}
 
       Executor.run(incoming,
+        event: %Zaq.Event{
+          request: nil,
+          next_hop: nil,
+          actor: %{kind: :anonymous, subject: "answering-test"}
+        },
         answering_module: StubFactoryAnswering,
         factory_module: StubFactoryAnswering,
         server_manager_module: StubSMAnswering,
@@ -600,7 +659,12 @@ defmodule Zaq.Agent.ExecutorTest do
       )
 
       assert_received {:coverage_ask, _content, _configured_agent, tool_context}
-      assert tool_context.actor == actor
+
+      assert tool_context.actor ==
+               Map.update!(actor, :person, &Map.merge(%{full_name: nil, team_ids: []}, &1))
+
+      assert_received {:ensured_actor, ensured_actor}
+      assert ensured_actor == tool_context.actor
     end
 
     test "tool_context actor falls back to incoming person without an :event opt" do

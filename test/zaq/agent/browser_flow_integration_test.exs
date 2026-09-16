@@ -146,7 +146,12 @@ defmodule Zaq.Agent.BrowserFlowIntegrationTest do
     incoming = %Incoming{content: message, channel_id: context.session, provider: :web}
 
     outgoing =
-      Executor.run(incoming, agent_id: to_string(context.agent.id), scope: context.session)
+      Executor.run(incoming,
+        agent_id: to_string(context.agent.id),
+        scope: context.session,
+        event:
+          Zaq.Event.new(incoming, :agent, actor: %{kind: :anonymous, subject: context.session})
+      )
 
     assert outgoing.metadata.error == false,
            "Executor failed for #{arguments.command}: #{inspect(outgoing)}"

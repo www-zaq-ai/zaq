@@ -60,6 +60,7 @@ defmodule Zaq.Engine.Workflows.FinchPoolContentionTest do
 
   defp source_event do
     %{
+      "actor" => %{"kind" => "system", "subject" => "finch-contention-test"},
       "request" => nil,
       "assigns" => %{"trigger_type" => "manual"},
       "trace_id" => Ecto.UUID.generate()

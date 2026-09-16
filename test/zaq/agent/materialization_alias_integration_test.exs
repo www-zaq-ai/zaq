@@ -175,7 +175,10 @@ defmodule Zaq.Agent.MaterializationAliasIntegrationTest do
       metadata: %{session_id: "alias-regression-#{System.unique_integer([:positive])}"}
     }
 
-    event = Event.new(%{}, :agent, actor: %{test_pid: test_pid})
+    event =
+      Event.new(%{}, :agent,
+        actor: %{test_pid: test_pid, kind: :anonymous, subject: "materialization-test"}
+      )
 
     outgoing =
       Executor.run(incoming,

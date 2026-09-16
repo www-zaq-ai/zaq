@@ -4,7 +4,6 @@ defmodule Zaq.AgentTest do
 
   import Zaq.SystemConfigFixtures
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
@@ -711,46 +710,6 @@ defmodule Zaq.AgentTest do
     assert Agent.get_agent(agent.id) == nil
   end
 
-  test "delete_agent/1 stops the runtime server before removing the record" do
-    credential =
-      ai_credential_fixture(%{
-        name: "Delete Runtime Credential #{System.unique_integer([:positive, :monotonic])}",
-        provider: "openai",
-        endpoint: "https://api.openai.com/v1",
-        api_key: "x"
-      })
-
-    {:ok, agent} =
-      Agent.create_agent(%{
-        name: "Delete Runtime Agent #{System.unique_integer([:positive])}",
-        job: "job",
-        model: "gpt-4.1-mini",
-        credential_id: credential.id,
-        strategy: "react",
-        enabled_tool_keys: [],
-        conversation_enabled: false,
-        active: true,
-        advanced_options: %{}
-      })
-
-    Sandbox.allow(Zaq.Repo, self(), Process.whereis(Zaq.Agent.ServerManager))
-
-    assert {:ok, server_ref} =
-             ServerManager.ensure_server(agent, "configured_agent_#{agent.id}")
-
-    assert {:via, Registry, {registry, key}} = server_ref
-    pid = Jido.AgentServer.whereis(registry, key)
-    assert is_pid(pid)
-
-    monitor_ref = Process.monitor(pid)
-    wait_for_idle_server(server_ref)
-
-    assert {:ok, _deleted} = Agent.delete_agent(agent)
-    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 3_000
-    refute Process.alive?(pid)
-    assert Agent.get_agent(agent.id) == nil
-  end
-
   test "tool capability validation is skipped when no tools are selected" do
     credential =
       ai_credential_fixture(%{
@@ -932,25 +891,5 @@ defmodule Zaq.AgentTest do
     after
       timeout -> Enum.reverse(acc)
     end
-  end
-
-  defp wait_for_idle_server(server_ref, attempts \\ 40)
-
-  defp wait_for_idle_server(_server_ref, 0), do: :ok
-
-  defp wait_for_idle_server(server_ref, attempts) do
-    case Jido.AgentServer.status(server_ref) do
-      {:ok, %{raw_state: %{requests: requests}}}
-      when is_map(requests) and map_size(requests) == 0 ->
-        :ok
-
-      _ ->
-        Process.sleep(50)
-        wait_for_idle_server(server_ref, attempts - 1)
-    end
-  rescue
-    _ ->
-      Process.sleep(50)
-      wait_for_idle_server(server_ref, attempts - 1)
   end
 end

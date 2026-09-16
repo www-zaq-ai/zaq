@@ -655,6 +655,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     event =
       Event.new(incoming, :engine,
         name: :incoming_message_routing_requested,
+        actor:
+          if incoming.person do
+            %{person: incoming.person, user_id: current_user.id, provider: "bo"}
+          else
+            %{
+              kind: :bo_user,
+              subject: to_string(current_user.id),
+              user_id: current_user.id,
+              provider: "bo"
+            }
+          end,
         type: :sync,
         opts: [
           action: :route_incoming_message,

@@ -20,6 +20,21 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.TestSupport.OpenAIStub
 
+  @execution_actor %{kind: :system, subject: "factory-test"}
+
+  test "lifecycle config requires an actor while structural inspection remains supported" do
+    config = %ConfiguredAgent{job: "Lifecycle", enabled_tool_keys: [], credential: nil}
+    assert {:error, :missing_execution_actor} = Factory.runtime_config(config, [])
+    assert {:error, :invalid_execution_actor} = Factory.runtime_config(config, actor: %{})
+    assert {:ok, structural} = Factory.runtime_config(config)
+    assert {:ok, runtime} = Factory.runtime_config(config, actor: @execution_actor)
+    assert runtime.execution_actor == @execution_actor
+    assert runtime.tool_context.actor == @execution_actor
+
+    assert Map.delete(runtime, :execution_actor) ==
+             Map.update!(structural, :tool_context, &Map.put(&1, :actor, @execution_actor))
+  end
+
   defmodule MCPProbeTool do
     use Jido.Action,
       name: "mcp_probe_tool",
@@ -392,7 +407,9 @@ defmodule Zaq.Agent.FactoryTest do
     assert {:ok, server} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:ok, status} = Jido.AgentServer.status(server)
@@ -467,7 +484,9 @@ defmodule Zaq.Agent.FactoryTest do
     assert {:ok, server} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:ok, request} =
@@ -528,7 +547,9 @@ defmodule Zaq.Agent.FactoryTest do
     end)
 
     server_id = "configured_agent_#{configured_agent.id}"
-    {:ok, server} = ServerManager.ensure_server(configured_agent, server_id)
+
+    {:ok, server} =
+      ServerManager.ensure_server(configured_agent, server_id, nil, actor: @execution_actor)
 
     assert {:ok, status} = Jido.AgentServer.status(server)
     assert status.raw_state.runtime_config.llm_opts[:temperature] == 0.11
@@ -595,7 +616,12 @@ defmodule Zaq.Agent.FactoryTest do
     on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
 
     {:ok, server} =
-      ServerManager.ensure_server(configured_agent, "configured_agent_#{configured_agent.id}")
+      ServerManager.ensure_server(
+        configured_agent,
+        "configured_agent_#{configured_agent.id}",
+        nil,
+        actor: @execution_actor
+      )
 
     {:ok, _updated} =
       Skills.update_skill(skill, %{description: "New description", body: "New body."})
@@ -679,7 +705,9 @@ defmodule Zaq.Agent.FactoryTest do
     assert {:ok, server} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:ok, status} = Jido.AgentServer.status(server)
@@ -744,7 +772,9 @@ defmodule Zaq.Agent.FactoryTest do
     assert {:ok, server} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:ok, _agent} = Jido.AI.register_tool(server, MCPProbeTool)

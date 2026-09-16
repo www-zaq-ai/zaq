@@ -4,12 +4,140 @@ defmodule Zaq.Agent.ServerManagerTest do
   import Zaq.SystemConfigFixtures
   import ExUnit.CaptureLog
 
+  alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
   alias Zaq.TestSupport.OpenAIStub
+
+  @execution_actor %{kind: :system, subject: "server-manager-test"}
+
+  @tag :execution_identity
+  test "missing and invalid actors reject public and raw legacy calls without state changes" do
+    config = valid_configured_agent(System.unique_integer([:positive]))
+    scope = "identity-rejection:#{config.id}"
+    before = :sys.get_state(ServerManager)
+
+    assert {:error, :missing_execution_actor} = ServerManager.ensure_server(config, scope)
+    assert {:error, :missing_execution_actor} = ServerManager.ensure_server(config, scope, nil)
+
+    for message <- [{:ensure_server, config, scope}, {:ensure_server, config, scope, nil}] do
+      assert {:error, :missing_execution_actor} = GenServer.call(ServerManager, message)
+    end
+
+    for {actor, reason} <- [
+          {nil, :missing_execution_actor},
+          {%{}, :invalid_execution_actor},
+          {%{person: %{id: 1}, person_id: 2}, :invalid_execution_actor}
+        ] do
+      assert {:error, ^reason} = ServerManager.ensure_server(config, scope, nil, actor: actor)
+    end
+
+    assert :sys.get_state(ServerManager) == before
+    assert Jido.AgentServer.whereis(Jido.registry_name(Zaq.Agent.Jido), scope) == nil
+  end
+
+  @tag :execution_identity
+  test "opaque scope binds the explicit Person and preserves binding through reuse and refresh" do
+    config = valid_configured_agent(System.unique_integer([:positive]))
+    scope = "identity:#{config.id}:scope:web:person:999"
+    actor = %{person: %{id: 42, full_name: "Original", team_ids: [3]}, name: "Origin"}
+    context = AIContext.new() |> AIContext.append_user("Initial history")
+    {:ok, ref} = ServerManager.ensure_server(config, scope, context, actor: actor)
+    on_exit(fn -> ServerManager.stop_server(config, scope) end)
+    pid = GenServer.whereis(ref)
+    {:ok, initial} = Jido.AgentServer.status(ref)
+    assert initial.raw_state.execution_actor == actor
+    assert initial.raw_state.runtime_config.execution_actor == actor
+    assert initial.raw_state.runtime_config.tool_context.actor == actor
+    assert initial.raw_state.tool_context.actor == actor
+    assert initial.raw_state.tool_context.configured_agent_id == config.id
+    assert initial.raw_state.tool_context.opaque_alias_scope == scope
+    assert initial.raw_state.context == context
+
+    updated_actor = put_in(actor, [:person, :full_name], "Updated")
+    assert {:ok, ^ref} = ServerManager.ensure_server(config, scope, nil, actor: updated_actor)
+    assert GenServer.whereis(ref) == pid
+    assert {:ok, _} = ServerManager.sync_runtime(%{config | job: "Refreshed"})
+    {:ok, refreshed} = Jido.AgentServer.status(ref)
+    assert refreshed.raw_state.execution_actor == actor
+    assert refreshed.raw_state.context == context
+
+    changed = %{config | model_max_context_tokens: 6000}
+    before = :sys.get_state(ServerManager)
+
+    assert {:error, :execution_actor_mismatch} =
+             ServerManager.ensure_server(changed, scope, nil, actor: %{person: %{id: 43}})
+
+    assert :sys.get_state(ServerManager) == before
+    assert GenServer.whereis(ref) == pid
+
+    assert {:ok, ^ref} =
+             ServerManager.ensure_server(changed, scope, context, actor: updated_actor)
+
+    refute GenServer.whereis(ref) == pid
+    {:ok, replaced} = Jido.AgentServer.status(ref)
+    assert replaced.raw_state.execution_actor == updated_actor
+    assert replaced.raw_state.context == context
+  end
+
+  @tag :execution_identity
+  test "untracked runtime must prove its immutable actor rather than request tool context" do
+    config = valid_configured_agent(System.unique_integer([:positive]))
+    scope = "untracked:#{config.id}"
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+
+    pid =
+      start_supervised!(
+        {Jido.AgentServer,
+         agent: Factory,
+         jido: Zaq.Agent.Jido,
+         registry: registry,
+         id: scope,
+         initial_state: %{tool_context: %{actor: @execution_actor}}}
+      )
+
+    assert {:error, :missing_execution_actor} =
+             ServerManager.ensure_server(config, scope, nil, actor: @execution_actor)
+
+    assert Jido.AgentServer.whereis(registry, scope) == pid
+  end
+
+  @tag :execution_identity
+  test "warm non-Person bindings reject changed subjects, categories and Person identities" do
+    config = valid_configured_agent(System.unique_integer([:positive]))
+    scope = "nonperson-binding:#{config.id}"
+    actor = %{kind: :anonymous, subject: "session-a"}
+    assert {:ok, ref} = ServerManager.ensure_server(config, scope, nil, actor: actor)
+    on_exit(fn -> ServerManager.stop_server(config, scope) end)
+    pid = GenServer.whereis(ref)
+
+    for other <- [
+          %{kind: :anonymous, subject: "session-b"},
+          %{kind: :system, subject: "session-a"},
+          %{person: %{id: 42}}
+        ] do
+      assert {:error, :execution_actor_mismatch} =
+               ServerManager.ensure_server(config, scope, nil, actor: other)
+
+      assert GenServer.whereis(ref) == pid
+    end
+
+    assert {:error, :missing_execution_actor} = ServerManager.ensure_server(config, scope)
+
+    assert {:error, :invalid_execution_actor} =
+             ServerManager.ensure_server(config, scope, nil, actor: %{})
+
+    assert {:ok, status} = Jido.AgentServer.status(ref)
+    assert status.raw_state.execution_actor == actor
+
+    assert {:ok, ^ref} =
+             ServerManager.ensure_server(config, scope, nil,
+               actor: %{"kind" => "anonymous", "subject" => "session-a", "name" => "Updated"}
+             )
+  end
 
   defmodule StubRuntimeSync do
     def sync_agent_runtime(agent, server_ref, opts \\ []) do
@@ -112,7 +240,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, server_ref} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     refute is_binary(server_ref)
@@ -158,7 +288,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, server_ref} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:via, Registry, {_registry, _key}} = server_ref
@@ -198,13 +330,17 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, server_ref_1} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:ok, server_ref_2} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert server_ref_1 == server_ref_2
@@ -243,7 +379,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     pid_before = Jido.AgentServer.whereis(registry, key)
@@ -256,7 +394,12 @@ defmodule Zaq.Agent.ServerManagerTest do
       })
 
     assert {:ok, _server_ref} =
-             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+             ServerManager.ensure_server(
+               updated_agent,
+               "configured_agent_#{updated_agent.id}",
+               nil,
+               actor: @execution_actor
+             )
 
     pid_after = Jido.AgentServer.whereis(registry, key)
 
@@ -290,7 +433,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     pid_before = Jido.AgentServer.whereis(registry, key)
@@ -299,7 +444,12 @@ defmodule Zaq.Agent.ServerManagerTest do
     {:ok, updated_agent} = Agent.update_agent(configured_agent, %{job: "Prompt v2"})
 
     assert {:ok, _server_ref} =
-             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+             ServerManager.ensure_server(
+               updated_agent,
+               "configured_agent_#{updated_agent.id}",
+               nil,
+               actor: @execution_actor
+             )
 
     pid_after = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid_after)
@@ -332,7 +482,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     pid_before = Jido.AgentServer.whereis(registry, key)
@@ -344,7 +496,12 @@ defmodule Zaq.Agent.ServerManagerTest do
       })
 
     assert {:ok, _server_ref} =
-             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+             ServerManager.ensure_server(
+               updated_agent,
+               "configured_agent_#{updated_agent.id}",
+               nil,
+               actor: @execution_actor
+             )
 
     pid_after = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid_after)
@@ -377,7 +534,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     pid_before = Jido.AgentServer.whereis(registry, key)
@@ -386,7 +545,12 @@ defmodule Zaq.Agent.ServerManagerTest do
     {:ok, updated_agent} = Agent.update_agent(configured_agent, %{conversation_enabled: true})
 
     assert {:ok, _server_ref} =
-             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+             ServerManager.ensure_server(
+               updated_agent,
+               "configured_agent_#{updated_agent.id}",
+               nil,
+               actor: @execution_actor
+             )
 
     pid_after = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid_after)
@@ -420,7 +584,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     pid_before = Jido.AgentServer.whereis(registry, key)
@@ -429,7 +595,12 @@ defmodule Zaq.Agent.ServerManagerTest do
     {:ok, updated_agent} = Agent.update_agent(configured_agent, %{idle_time_seconds: 900})
 
     assert {:ok, _server_ref} =
-             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+             ServerManager.ensure_server(
+               updated_agent,
+               "configured_agent_#{updated_agent.id}",
+               nil,
+               actor: @execution_actor
+             )
 
     pid_after = Jido.AgentServer.whereis(registry, key)
 
@@ -464,7 +635,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     pid_before = Jido.AgentServer.whereis(registry, key)
@@ -473,7 +646,12 @@ defmodule Zaq.Agent.ServerManagerTest do
     {:ok, updated_agent} = Agent.update_agent(configured_agent, %{max_iterations: 2})
 
     assert {:ok, _server_ref} =
-             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+             ServerManager.ensure_server(
+               updated_agent,
+               "configured_agent_#{updated_agent.id}",
+               nil,
+               actor: @execution_actor
+             )
 
     pid_after = Jido.AgentServer.whereis(registry, key)
 
@@ -508,7 +686,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     pid_before = Jido.AgentServer.whereis(registry, key)
@@ -517,7 +697,12 @@ defmodule Zaq.Agent.ServerManagerTest do
     {:ok, updated_agent} = Agent.update_agent(configured_agent, %{model_max_context_tokens: 3000})
 
     assert {:ok, _server_ref} =
-             ServerManager.ensure_server(updated_agent, "configured_agent_#{updated_agent.id}")
+             ServerManager.ensure_server(
+               updated_agent,
+               "configured_agent_#{updated_agent.id}",
+               nil,
+               actor: @execution_actor
+             )
 
     pid_after = Jido.AgentServer.whereis(registry, key)
 
@@ -551,7 +736,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     pid = Jido.AgentServer.whereis(registry, key)
@@ -601,7 +788,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, server_ref} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:ok, status} = Jido.AgentServer.status(server_ref)
@@ -640,7 +829,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:reply, {:error, :provider_not_found}, ^init_state} =
              ServerManager.handle_call(
-               {:ensure_server, configured_agent, server_id},
+               {:ensure_server, configured_agent, server_id, nil, [actor: @execution_actor]},
                self(),
                init_state
              )
@@ -649,7 +838,18 @@ defmodule Zaq.Agent.ServerManagerTest do
   test "ensure_server accepts already-started child when registry is temporarily missing" do
     configured_agent = valid_configured_agent(200_001)
     server_id = "configured_agent_200001"
-    fake = swap_dynamic_supervisor(start_child_response: {:error, {:already_started, self()}})
+    start_supervised!({Registry, keys: :unique, name: __MODULE__.IndependentRegistry})
+
+    existing =
+      start_supervised!(
+        {Jido.AgentServer,
+         agent: Factory,
+         jido: Zaq.Agent.Jido,
+         registry: __MODULE__.IndependentRegistry,
+         initial_state: %{execution_actor: @execution_actor}}
+      )
+
+    fake = swap_dynamic_supervisor(start_child_response: {:error, {:already_started, existing}})
     stop_jido_registry()
 
     Application.put_env(:zaq, :agent_runtime_sync_module, StubRuntimeSync)
@@ -657,7 +857,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:reply, {:ok, {:via, Registry, {registry, ^server_id}}}, state} =
              ServerManager.handle_call(
-               {:ensure_server, configured_agent, server_id},
+               {:ensure_server, configured_agent, server_id, nil, [actor: @execution_actor]},
                self(),
                empty_server_manager_state()
              )
@@ -687,7 +887,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       capture_log(fn ->
         assert {:reply, {:error, :spawn_failed}, state} =
                  ServerManager.handle_call(
-                   {:ensure_server, configured_agent, server_id},
+                   {:ensure_server, configured_agent, server_id, nil, [actor: @execution_actor]},
                    self(),
                    empty_server_manager_state()
                  )
@@ -726,7 +926,7 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:reply, {:error, :provider_not_found}, next_state} =
              ServerManager.handle_call(
-               {:ensure_server, configured_agent, server_id},
+               {:ensure_server, configured_agent, server_id, nil, [actor: @execution_actor]},
                self(),
                state
              )
@@ -1046,7 +1246,11 @@ defmodule Zaq.Agent.ServerManagerTest do
 
       server_id = "configured_agent_#{configured_agent.id}:person_42"
 
-      assert {:ok, ref} = ServerManager.ensure_server(configured_agent, server_id)
+      assert {:ok, ref} =
+               ServerManager.ensure_server(configured_agent, server_id, nil,
+                 actor: @execution_actor
+               )
+
       assert {:via, Registry, {_registry, ^server_id}} = ref
     end
   end
@@ -1078,7 +1282,9 @@ defmodule Zaq.Agent.ServerManagerTest do
       server_id = "configured_agent_#{configured_agent.id}:scope_stop"
 
       assert {:ok, {:via, Registry, {registry, ^server_id}}} =
-               ServerManager.ensure_server(configured_agent, server_id)
+               ServerManager.ensure_server(configured_agent, server_id, nil,
+                 actor: @execution_actor
+               )
 
       pid = Jido.AgentServer.whereis(registry, server_id)
       assert is_pid(pid)
@@ -1116,7 +1322,12 @@ defmodule Zaq.Agent.ServerManagerTest do
       1..8
       |> Task.async_stream(
         fn _ ->
-          ServerManager.ensure_server(configured_agent, "configured_agent_#{configured_agent.id}")
+          ServerManager.ensure_server(
+            configured_agent,
+            "configured_agent_#{configured_agent.id}",
+            nil,
+            actor: @execution_actor
+          )
         end,
         ordered: false,
         timeout: 10_000
@@ -1191,7 +1402,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, _server_ref} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert_receive {:runtime_sync_hydrate_called, agent_id, endpoint_ids, _server_ref}, 1_000
@@ -1237,7 +1450,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, _server_ref} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:ok, %{server_ref: {:via, Registry, _}, runtime: runtime}} =
@@ -1285,7 +1500,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, _server_ref} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:ok, %{server_ref: {:via, Registry, _}, runtime: %{unexpected: true}}} =
@@ -1330,7 +1547,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, _server_ref} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:error, :runtime_sync_failed} = ServerManager.sync_runtime(configured_agent)
@@ -1383,7 +1602,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, _server_ref} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     assert {:ok, %{runtime: runtime}} = ServerManager.sync_runtime(configured_agent)
@@ -1417,7 +1638,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     server_id = "agent:scope:mattermost:person:#{configured_agent.id}"
 
     assert {:ok, {:via, Registry, {registry, key}}} =
-             ServerManager.ensure_server(configured_agent, server_id)
+             ServerManager.ensure_server(configured_agent, server_id, nil,
+               actor: @execution_actor
+             )
 
     pid = Jido.AgentServer.whereis(registry, key)
     assert is_pid(pid)
@@ -1485,7 +1708,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:ok, {:via, Registry, {registry, key}}} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
 
     pid = Jido.AgentServer.whereis(registry, key)
@@ -1514,7 +1739,9 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert {:error, :provider_not_found} =
              ServerManager.ensure_server(
                configured_agent,
-               "configured_agent_#{configured_agent.id}"
+               "configured_agent_#{configured_agent.id}",
+               nil,
+               actor: @execution_actor
              )
   end
 
@@ -1543,8 +1770,16 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     server_id = "configured_agent_#{configured_agent.id}:channel_99"
 
-    assert {:ok, ref1} = ServerManager.ensure_server(configured_agent, server_id)
-    assert {:ok, ref2} = ServerManager.ensure_server(configured_agent, server_id)
+    assert {:ok, ref1} =
+             ServerManager.ensure_server(configured_agent, server_id, nil,
+               actor: @execution_actor
+             )
+
+    assert {:ok, ref2} =
+             ServerManager.ensure_server(configured_agent, server_id, nil,
+               actor: @execution_actor
+             )
+
     assert ref1 == ref2
 
     assert {:via, Registry, {registry, ^server_id}} = ref1
@@ -1626,7 +1861,9 @@ defmodule Zaq.Agent.ServerManagerTest do
       server_id = "routing_conv_test_:scope:bo:conv:#{conv.id}"
 
       assert {:ok, server_ref} =
-               ServerManager.ensure_server(configured_agent, server_id)
+               ServerManager.ensure_server(configured_agent, server_id, nil,
+                 actor: @execution_actor
+               )
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
       messages = AIContext.to_messages(status.raw_state.context)
@@ -1645,7 +1882,9 @@ defmodule Zaq.Agent.ServerManagerTest do
       server_id = "routing_person_test_:scope:bo:person:#{person.id}"
 
       assert {:ok, server_ref} =
-               ServerManager.ensure_server(configured_agent, server_id)
+               ServerManager.ensure_server(configured_agent, server_id, nil,
+                 actor: @execution_actor
+               )
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
       messages = AIContext.to_messages(status.raw_state.context)
@@ -1667,7 +1906,10 @@ defmodule Zaq.Agent.ServerManagerTest do
       configured_agent = make_agent_for_routing("HistEmail")
       server_id = "routing_email_test_:scope:email%3Aimap:person:#{person.id}"
 
-      assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent, server_id)
+      assert {:ok, server_ref} =
+               ServerManager.ensure_server(configured_agent, server_id, nil,
+                 actor: @execution_actor
+               )
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
       messages = AIContext.to_messages(status.raw_state.context)
@@ -1700,7 +1942,10 @@ defmodule Zaq.Agent.ServerManagerTest do
 
       configured_agent = make_agent_for_routing("HistEmailAttach")
 
-      assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent, server_id)
+      assert {:ok, server_ref} =
+               ServerManager.ensure_server(configured_agent, server_id, nil,
+                 actor: @execution_actor
+               )
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
 
@@ -1788,7 +2033,11 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     server_id = "configured_agent_#{configured_agent.id}:drain_timeout"
 
-    assert {:ok, server_ref} = ServerManager.ensure_server(configured_agent, server_id)
+    assert {:ok, server_ref} =
+             ServerManager.ensure_server(configured_agent, server_id, nil,
+               actor: @execution_actor
+             )
+
     assert {:via, Registry, {registry, ^server_id}} = server_ref
 
     pid_before = Jido.AgentServer.whereis(registry, server_id)
@@ -1825,7 +2074,11 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert_receive {:slow_result, slow_result}, 21_000
     assert match?({:error, _}, slow_result) or match?({:exit, _}, slow_result)
 
-    assert {:ok, server_ref_after} = ServerManager.ensure_server(configured_agent, server_id)
+    assert {:ok, server_ref_after} =
+             ServerManager.ensure_server(configured_agent, server_id, nil,
+               actor: @execution_actor
+             )
+
     assert {:via, Registry, {registry, ^server_id}} = server_ref_after
 
     pid_after = Jido.AgentServer.whereis(registry, server_id)

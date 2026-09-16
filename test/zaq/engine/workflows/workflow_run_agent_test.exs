@@ -29,6 +29,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
   end
 
   @source_event %{
+    "actor" => %{"person" => %{"id" => 42, "team_ids" => [3]}},
     "request" => nil,
     "assigns" => %{"trigger_type" => "manual"},
     "trace_id" => Ecto.UUID.generate()
@@ -630,10 +631,12 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert started.request[:run_id] == run.id
       assert started.request[:workflow_id] == run.workflow_id
       assert started.name == :workflow
+      assert started.actor == run.source_event.actor
 
       assert_received {:dispatched, completed}
       assert completed.request[:action] == "run.completed"
       assert completed.request[:run_id] == run.id
+      assert completed.actor == run.source_event.actor
     end
 
     test "step failure dispatches run.started then run.failed" do
@@ -649,6 +652,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert_received {:dispatched, failed}
       assert failed.request[:action] == "run.failed"
       assert failed.request[:run_id] == run.id
+      assert failed.actor == run.source_event.actor
     end
 
     test "pruned terminal branch dispatches run.started then run.incomplete" do
@@ -678,6 +682,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert incomplete.request[:action] == "run.incomplete"
       assert incomplete.request[:run_id] == run.id
       assert incomplete.name == :workflow
+      assert incomplete.actor == run.source_event.actor
     end
 
     test "DAG build failure dispatches run.failed and never run.started" do
@@ -701,6 +706,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert failed.request[:run_id] == run.id
 
       refute_received {:dispatched, %{request: %{action: "run.started"}}}
+      assert failed.actor == run.source_event.actor
     end
 
     test "paused run dispatches only run.started" do

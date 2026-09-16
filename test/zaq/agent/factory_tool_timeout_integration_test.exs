@@ -16,7 +16,12 @@ defmodule Zaq.Agent.FactoryToolTimeoutIntegrationTest do
     start_supervised!(child)
     scope = "budget-#{Ecto.UUID.generate()}"
     configured = IntegrationAgent.create!(endpoint, scope, "Use the probe tool.", [])
-    {:ok, server} = ServerManager.ensure_server(configured, "#{configured.name}:#{scope}")
+
+    {:ok, server} =
+      ServerManager.ensure_server(configured, "#{configured.name}:#{scope}", nil,
+        actor: %{kind: :system, subject: "timeout-test"}
+      )
+
     assert {:ok, _} = Jido.AI.register_tool(server, BudgetProbeTool)
 
     browser_budget = max(Browsing.tool_timeout_ms(), BudgetProbeTool.tool_timeout_ms())

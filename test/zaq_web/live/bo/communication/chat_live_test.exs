@@ -14,6 +14,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   alias Zaq.Engine.Conversations.Message
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
+  alias Zaq.Identity.ExecutionActor
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.Repo
@@ -350,6 +351,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert dispatched_event.next_hop.destination == :engine
     assert dispatched_event.opts[:action] == :route_incoming_message
     assert dispatched_event.opts[:agent_hop_type] == :sync
+
+    assert {:ok, {:bo_user, subject}} =
+             ExecutionActor.identity(dispatched_event.actor)
+
+    assert subject == dispatched_event.request.author_id
 
     assert dispatched_event.request.routing_context.attributes["configured_agent_id"] ==
              to_string(configured_agent.id)
@@ -1273,6 +1279,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     assert_receive {:person_dispatch, %Event{} = event}, 1_000
     assert event.request.person == %{id: 42, full_name: "testadmin", team_ids: [7, 9]}
+    assert event.actor.person == event.request.person
+    refute Map.has_key?(event.actor, :kind)
     assert event.opts[:pipeline_opts][:skip_permissions] == true
   end
 

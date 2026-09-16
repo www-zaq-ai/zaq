@@ -22,8 +22,10 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
   alias Zaq.Agent
   alias Zaq.Agent.Executor
   alias Zaq.Agent.ServerManager
+  alias Zaq.Agent.Tools.Workflow.RunAgent
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Workflows
+  alias Zaq.Identity.ExecutionActor
   alias Zaq.TestSupport.{MultiAgentOpenAIStub, OpenAIStub}
 
   setup do
@@ -153,8 +155,9 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     {agent_x, agent_y}
   end
 
-  defp source_event do
+  defp source_event(actor \\ %{kind: :system, subject: "nested-integration"}) do
     %{
+      "actor" => actor,
       "request" => nil,
       "assigns" => %{"trigger_type" => "manual"},
       "trace_id" => Ecto.UUID.generate()
@@ -182,6 +185,84 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
 
   defp server_ids_for(agent_name) do
     Enum.filter(spawned_server_ids(), &String.starts_with?(&1, agent_name <> ":"))
+  end
+
+  defp assert_server_actor(server_id, actor) do
+    server = Jido.AgentServer.whereis(Jido.registry_name(Zaq.Agent.Jido), server_id)
+    assert {:ok, status} = Jido.AgentServer.status(server)
+    assert {:ok, expected} = ExecutionActor.validate(actor)
+    assert Map.take(status.raw_state.execution_actor, Map.keys(expected)) == expected
+    assert status.raw_state.runtime_config.execution_actor == status.raw_state.execution_actor
+
+    assert ExecutionActor.identity(status.raw_state.execution_actor) ==
+             ExecutionActor.identity(expected)
+  end
+
+  test "workflow runs preserve distinct originating identities and per-step isolation" do
+    {child, endpoint} =
+      OpenAIStub.server(
+        fn _conn, _body ->
+          {200, MultiAgentOpenAIStub.text_sse("STEP_OK", "gpt-4.1-mini")}
+        end,
+        self()
+      )
+
+    start_supervised!(child)
+    {unused_x, agent} = create_x_and_y(endpoint)
+
+    on_exit(fn ->
+      ServerManager.stop_server(unused_x)
+      ServerManager.stop_server(agent)
+    end)
+
+    {:ok, workflow} =
+      Workflows.create_workflow(%{
+        name: "Actor isolation #{System.unique_integer([:positive])}",
+        status: "active",
+        nodes:
+          Enum.map(0..1, fn index ->
+            %{
+              name: "step#{index}",
+              type: "action",
+              module: "Zaq.Agent.Tools.Workflow.RunAgent",
+              params: %{"agent_id" => agent.id, "input" => "hello"},
+              index: index
+            }
+          end),
+        edges: [%{from: "step0", to: "step1", mapping: %{}}]
+      })
+
+    for actor <- [
+          %{person: %{id: 42}},
+          %{person: %{id: 43}},
+          %{kind: :system, subject: "workflow-system-test"}
+        ] do
+      assert {:ok, run} = Workflows.create_and_start_run(workflow, source_event(actor))
+      assert run.status == "completed"
+      assert Enum.map(Workflows.list_step_runs(run.id), & &1.status) == ["completed", "completed"]
+
+      for index <- 0..1 do
+        assert_server_actor("#{agent.name}:workflow:run:#{run.id}:step:#{index}", actor)
+      end
+    end
+
+    assert length(server_ids_for(agent.name)) == 6
+  end
+
+  test "RunAgent cannot start a server when its originating actor is missing or malformed" do
+    {agent, _nested} = setup_nested(self())
+
+    for actor <- [nil, %{}, %{"person" => %{"id" => 2}, person: %{id: 1}}] do
+      assert {:error, _} =
+               RunAgent.run(
+                 %{agent_id: agent.id, input: "hello"},
+                 %{actor: actor, node_router: Zaq.NodeRouter}
+               )
+
+      assert server_ids_for(agent.name) == []
+    end
+
+    refute_received {:llm_request, _}
   end
 
   # Captures the %Incoming{} and %Event{} a `run_agent` dispatch carries (the
@@ -298,7 +379,8 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
         edges: []
       })
 
-    assert {:ok, run} = Workflows.create_and_start_run(workflow_b, source_event())
+    actor = %{person: %{id: 42}}
+    assert {:ok, run} = Workflows.create_and_start_run(workflow_b, source_event(actor))
     assert run.status == "completed"
 
     [step] = Workflows.list_step_runs(run.id)
@@ -317,6 +399,8 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     assert [y_server] = server_ids_for(agent_y.name)
     assert x_server == "#{agent_x.name}:workflow:run:#{run.id}:step:0"
     assert x_server != y_server
+    assert_server_actor(x_server, actor)
+    assert_server_actor(y_server, actor)
   end
 
   test "T2: channel message → agent(X) → tool call run_agent(Y)" do
@@ -347,6 +431,8 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     assert [y_server] = server_ids_for(agent_y.name)
     assert x_server == "#{agent_x.name}:scope:bo:person:7"
     assert x_server != y_server
+    assert_server_actor(x_server, %{provider: :web, person: %{id: 7}})
+    assert_server_actor(y_server, %{provider: :web, person: %{id: 7}})
   end
 
   # Carrier through the agent-tool-call seam (Issue 1): when Agent X's LLM calls

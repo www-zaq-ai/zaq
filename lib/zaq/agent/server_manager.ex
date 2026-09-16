@@ -8,8 +8,8 @@ defmodule Zaq.Agent.ServerManager do
 
   Key concerns handled here:
 
-  - Ensure/create semantics (`ensure_server/3`) with fingerprint-based reuse or
-    replacement.
+  - Actor-bound ensure/create semantics (`ensure_server/4`) with fingerprint-based
+    reuse or replacement, only after stable identity matches the live binding.
   - Initial spawn wiring through `Zaq.Agent.Factory` +
     `Zaq.Agent.ProviderSpec` (model spec, runtime config, initial context).
   - Runtime hydration and refresh of tools/MCP assignments via
@@ -22,7 +22,7 @@ defmodule Zaq.Agent.ServerManager do
   Interaction boundaries:
 
   - Used by `Zaq.Agent.Executor` to obtain a server reference before execution.
-  - Uses `Factory.runtime_config/1` and `Factory.build_initial_context/3` to
+  - Uses `Factory.runtime_config/2` and `Factory.build_initial_context/3` to
     initialize agent state.
   - Uses `ProviderSpec.build/1` as the single source of provider/model runtime
     spec assembly.
@@ -39,6 +39,7 @@ defmodule Zaq.Agent.ServerManager do
 
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.{ConfiguredAgent, Factory, OpaqueAliases, ProviderSpec, RuntimeSync}
+  alias Zaq.Identity.ExecutionActor
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
   @jido_instance Zaq.Agent.Jido
@@ -63,7 +64,7 @@ defmodule Zaq.Agent.ServerManager do
 
   For each tracked `server_id`, this function:
 
-  1. Ensures a live server exists for the current config (`do_ensure_server/4`).
+  1. Stops fingerprint-stale servers for lazy recreation on the next actor-bound ensure.
   2. Re-hydrates runtime state (configured tools + MCP assignments).
 
   ## Field update behavior (as implemented today)
@@ -96,7 +97,23 @@ defmodule Zaq.Agent.ServerManager do
           {:ok, GenServer.server()} | {:error, term()}
   def ensure_server(%ConfiguredAgent{} = configured_agent, server_id, context \\ nil)
       when is_binary(server_id) and (is_nil(context) or is_struct(context, AIContext)) do
-    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id, context})
+    ensure_server(configured_agent, server_id, context, [])
+  end
+
+  @doc """
+  Ensures a scoped runtime bound to the explicit `:actor` option.
+
+  Scope is opaque routing data, never identity. Legacy arities return
+  `:missing_execution_actor` rather than raising or starting an unbound server.
+  A live runtime's immutable `execution_actor` must match before touch or replacement;
+  request tool context and mutable actor metadata do not establish that binding.
+  """
+  @spec ensure_server(ConfiguredAgent.t(), String.t(), AIContext.t() | nil, keyword()) ::
+          {:ok, GenServer.server()} | {:error, term()}
+  def ensure_server(%ConfiguredAgent{} = configured_agent, server_id, context, opts)
+      when is_binary(server_id) and (is_nil(context) or is_struct(context, AIContext)) and
+             is_list(opts) do
+    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id, context, opts})
   end
 
   @spec stop_server(ConfiguredAgent.t()) :: :ok
@@ -116,29 +133,48 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   @impl true
-  # Backward-compatible 3-tuple form (no supplied context) — delegates to the
-  # 4-tuple clause with a nil context.
   def handle_call(
-        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id},
-        from,
-        state
-      ) do
-    handle_call({:ensure_server, configured_agent, server_id, nil}, from, state)
-  end
-
-  def handle_call(
-        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id, context},
+        {:ensure_server, %ConfiguredAgent{}, _server_id},
         _from,
         state
       ) do
-    state = clear_stale_drain(state, server_id)
+    {:reply, {:error, :missing_execution_actor}, state}
+  end
 
-    case do_ensure_server(configured_agent, state, server_id, context) do
+  def handle_call(
+        {:ensure_server, %ConfiguredAgent{}, _server_id, _context},
+        _from,
+        state
+      ) do
+    {:reply, {:error, :missing_execution_actor}, state}
+  end
+
+  def handle_call(
+        {:ensure_server, %ConfiguredAgent{} = configured_agent, server_id, context, opts},
+        _from,
+        state
+      ) do
+    result =
+      with {:ok, actor} <- ExecutionActor.validate(Keyword.get(opts, :actor)),
+           :ok <- validate_binding(safe_whereis(server_id), actor) do
+        do_ensure_server(
+          configured_agent,
+          clear_stale_drain(state, server_id),
+          server_id,
+          context,
+          actor
+        )
+      end
+
+    case result do
       {:ok, server_id, next_state} ->
         {:reply, {:ok, server_ref(server_id)}, next_state}
 
       {:error, reason, next_state} ->
         {:reply, {:error, reason}, next_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
@@ -177,7 +213,7 @@ defmodule Zaq.Agent.ServerManager do
   # server is cold-started below — a warm/reused server keeps the context it spawned
   # with. This is exactly right for `run_agent`: each step derives a unique per-step
   # scope, so its first (and only) ask always cold-starts with the fresh context.
-  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id, context) do
+  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id, context, actor) do
     fingerprint = fingerprint(configured_agent)
 
     case {Map.get(state.fingerprints, server_id), safe_whereis(server_id)} do
@@ -187,10 +223,10 @@ defmodule Zaq.Agent.ServerManager do
 
       {_previous, pid} when is_pid(pid) ->
         _ = stop_server_if_running(server_id)
-        start_server(configured_agent, server_id, state, fingerprint, context)
+        start_server(configured_agent, server_id, state, fingerprint, context, actor)
 
       _ ->
-        start_server(configured_agent, server_id, state, fingerprint, context)
+        start_server(configured_agent, server_id, state, fingerprint, context, actor)
     end
   end
 
@@ -199,9 +235,10 @@ defmodule Zaq.Agent.ServerManager do
          server_id,
          state,
          fingerprint,
-         context
+         context,
+         actor
        ) do
-    case spawn_agent_server(configured_agent, server_id, context) do
+    case spawn_agent_server(configured_agent, server_id, context, actor) do
       :ok ->
         _ = hydrate_mcp_assignments(configured_agent, server_id)
 
@@ -248,16 +285,18 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, context) do
+  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, context, actor) do
     with {:ok, model_spec} <- ProviderSpec.build(configured_agent),
-         {:ok, runtime_config} <- Factory.runtime_config(configured_agent) do
+         {:ok, runtime_config} <- Factory.runtime_config(configured_agent, actor: actor) do
       spawn_server(server_id, configured_agent, %{
         model: model_spec,
         runtime_config: runtime_config,
-        tool_context: %{
-          configured_agent_id: configured_agent.id,
-          opaque_alias_scope: server_id
-        },
+        execution_actor: actor,
+        tool_context:
+          Map.merge(runtime_config.tool_context, %{
+            configured_agent_id: configured_agent.id,
+            opaque_alias_scope: server_id
+          }),
         context: Factory.build_initial_context(configured_agent, server_id, context)
       })
     end
@@ -280,12 +319,32 @@ defmodule Zaq.Agent.ServerManager do
       {:ok, _pid} ->
         :ok
 
-      {:error, {:already_started, _}} ->
-        :ok
+      {:error, {:already_started, pid}} ->
+        validate_binding(pid, initial_state.execution_actor)
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp validate_binding(nil, _actor), do: :ok
+
+  defp validate_binding(pid, actor) do
+    with {:ok, %{raw_state: raw_state}} <- Jido.AgentServer.status(pid),
+         {:ok, bound_identity} <- ExecutionActor.identity(Map.get(raw_state, :execution_actor)),
+         {:ok, identity} <- ExecutionActor.identity(actor) do
+      if identity == bound_identity, do: :ok, else: {:error, :execution_actor_mismatch}
+    else
+      {:error, reason} when reason in [:missing_execution_actor, :invalid_execution_actor] ->
+        {:error, reason}
+
+      _ ->
+        {:error, :missing_execution_actor}
+    end
+  rescue
+    _ -> {:error, :missing_execution_actor}
+  catch
+    :exit, _ -> {:error, :missing_execution_actor}
   end
 
   defp hydrate_mcp_assignments(%ConfiguredAgent{} = configured_agent, server_id) do

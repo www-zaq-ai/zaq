@@ -34,6 +34,21 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
   end
 
   describe "run/2" do
+    test "preserves trusted actor and never takes identity from tool parameters" do
+      actor = %{person: %{id: 42, team_ids: [3]}}
+
+      params = %{
+        event_name: "follow_up",
+        actor: %{kind: :system, subject: "forged"},
+        machine: true
+      }
+
+      assert {:ok, _} = DispatchEvent.run(params, Map.put(@ctx, :actor, actor))
+      assert_received {:dispatched, %Event{actor: ^actor}}
+      assert {:ok, _} = DispatchEvent.run(params, @ctx)
+      assert_received {:dispatched, %Event{actor: nil}}
+    end
+
     test "dispatches an allowlisted event to the engine asynchronously" do
       input = %{"email" => "a@b.com"}
 

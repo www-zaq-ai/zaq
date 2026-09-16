@@ -86,7 +86,14 @@ defmodule Zaq.Agent.HttpRequestFlowIntegrationTest do
 
   defp assert_response(context, message, arguments, status, authenticated?) do
     incoming = %Incoming{content: message, channel_id: context.id, provider: :web}
-    outgoing = Executor.run(incoming, agent_id: to_string(context.agent.id), scope: context.id)
+
+    outgoing =
+      Executor.run(incoming,
+        agent_id: to_string(context.agent.id),
+        scope: context.id,
+        event: Zaq.Event.new(incoming, :agent, actor: %{kind: :anonymous, subject: context.id})
+      )
+
     assert_received {:llm_tool_call, "http_request", called_arguments}
     assert called_arguments == arguments |> Jason.encode!() |> Jason.decode!()
     refute Jason.encode!(called_arguments) =~ context.secret

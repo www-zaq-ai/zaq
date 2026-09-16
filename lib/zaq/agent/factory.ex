@@ -21,7 +21,7 @@ defmodule Zaq.Agent.Factory do
 
   Typical flow:
 
-  1. `Zaq.Agent.ServerManager` calls `runtime_config/1` and
+  1. `Zaq.Agent.ServerManager` calls actor-bound `runtime_config/2` and
      `build_initial_context/3` when spawning a server.
   2. `Zaq.Agent.Executor` calls `ask_with_config/4` to run an incoming question.
   3. The request runs through Jido with the resolved tools, model opts, and
@@ -58,6 +58,7 @@ defmodule Zaq.Agent.Factory do
   }
 
   alias Zaq.Agent.Tools.Registry
+  alias Zaq.Identity.ExecutionActor
   alias Zaq.System
 
   def strategy_opts do
@@ -138,6 +139,22 @@ defmodule Zaq.Agent.Factory do
          tool_context: skill_integration.tool_context,
          context_window: context_window_config(configured_agent)
        }}
+    end
+  end
+
+  @doc """
+  Builds lifecycle runtime configuration with an explicit, validated execution actor.
+  The actor is retained independently from per-request tool context. `runtime_config/1`
+  remains available for structural configuration inspection and legacy runtime fallback.
+  """
+  @spec runtime_config(ConfiguredAgent.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def runtime_config(%ConfiguredAgent{} = configured_agent, opts) do
+    with {:ok, actor} <- ExecutionActor.validate(Keyword.get(opts, :actor)),
+         {:ok, config} <- runtime_config(configured_agent) do
+      {:ok,
+       config
+       |> Map.put(:execution_actor, actor)
+       |> Map.update!(:tool_context, &Map.put(&1, :actor, actor))}
     end
   end
 
@@ -341,8 +358,14 @@ defmodule Zaq.Agent.Factory do
 
   defp server_runtime_config(server, configured_agent) do
     case Jido.AgentServer.status(server) do
-      {:ok, %{raw_state: %{runtime_config: %{} = config}}} -> {:ok, config}
-      _ -> runtime_config(configured_agent)
+      {:ok, %{raw_state: %{runtime_config: %{} = config}}} ->
+        {:ok, config}
+
+      {:ok, %{raw_state: %{execution_actor: actor}}} ->
+        runtime_config(configured_agent, actor: actor)
+
+      _ ->
+        runtime_config(configured_agent)
     end
   end
 

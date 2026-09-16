@@ -21,7 +21,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(_configured_agent, _server_id, _spawn_opts \\ %{}), do: {:ok, :stub_server}
+    def ensure_server(_configured_agent, _server_id, _context, actor: _actor),
+      do: {:ok, :stub_server}
   end
 
   defmodule StubFactoryResult do
@@ -155,7 +156,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
-    outgoing = Executor.run(incoming, agent_id: to_string(configured_agent.id))
+    outgoing =
+      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert is_binary(outgoing.body)
     assert outgoing.metadata.error == false
@@ -228,7 +230,12 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     results =
       1..8
       |> Enum.map(fn _ ->
-        Task.async(fn -> Executor.run(incoming, agent_id: to_string(configured_agent.id)) end)
+        Task.async(fn ->
+          Executor.run(incoming,
+            agent_id: to_string(configured_agent.id),
+            event: execution_event()
+          )
+        end)
       end)
       |> Task.await_many(5_000)
 
@@ -285,7 +292,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
-    outgoing = Executor.run(incoming, agent_id: to_string(configured_agent.id))
+    outgoing =
+      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert is_binary(outgoing.body)
     assert outgoing.metadata.error == false
@@ -341,7 +349,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
-    outgoing = Executor.run(incoming, agent_id: to_string(configured_agent.id))
+    outgoing =
+      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert is_binary(outgoing.body)
     assert outgoing.metadata.error == false
@@ -389,7 +398,9 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
-    first_outgoing = Executor.run(incoming, agent_id: to_string(configured_agent.id))
+    first_outgoing =
+      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
+
     assert first_outgoing.metadata.error == false
 
     assert_receive {:openai_request, "POST", _path1, "", body1}, 1_000
@@ -404,7 +415,9 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     assert {:ok, %{agent: updated_agent}} = NodeRouter.dispatch(update_event).response
 
-    second_outgoing = Executor.run(incoming, agent_id: to_string(updated_agent.id))
+    second_outgoing =
+      Executor.run(incoming, agent_id: to_string(updated_agent.id), event: execution_event())
+
     assert second_outgoing.metadata.error == false
 
     assert_receive {:openai_request, "POST", _path2, "", body2}, 1_000
@@ -416,7 +429,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     # nil agent_id → answering configured agent; ServerManager spawns a real server.
     # Since there is no LLM configured in test env, the run will error gracefully.
-    outgoing = Executor.run(incoming, [])
+    outgoing = Executor.run(incoming, event: execution_event())
 
     assert %Zaq.Engine.Messages.Outgoing{} = outgoing
   end
@@ -445,7 +458,9 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       })
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
-    outgoing = Executor.run(incoming, agent_id: to_string(configured_agent.id))
+
+    outgoing =
+      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert outgoing.metadata.error == true
     assert outgoing.metadata.reason == ":inactive_agent"
@@ -454,7 +469,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
   test "returns graceful error when selected agent does not exist" do
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
-    outgoing = Executor.run(incoming, agent_id: "999999999")
+    outgoing = Executor.run(incoming, agent_id: "999999999", event: execution_event())
 
     assert outgoing.metadata.error == true
     assert outgoing.metadata.reason == ":agent_not_found"
@@ -462,7 +477,13 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   test "run/1 with no opts routes to answering path" do
-    incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "bo-test",
+      provider: :web,
+      person: %{id: 42}
+    }
+
     outgoing = Executor.run(incoming)
 
     assert %Zaq.Engine.Messages.Outgoing{} = outgoing
@@ -473,6 +494,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     outgoing =
       Executor.run(incoming,
+        event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
         server_manager_module: StubServerManager,
@@ -488,6 +510,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     outgoing =
       Executor.run(incoming,
+        event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
         server_manager_module: StubServerManager,
@@ -503,6 +526,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     outgoing =
       Executor.run(incoming,
+        event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
         server_manager_module: StubServerManager,
@@ -548,7 +572,9 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     end)
 
     incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
-    outgoing = Executor.run(incoming, agent_id: to_string(configured_agent.id))
+
+    outgoing =
+      Executor.run(incoming, agent_id: to_string(configured_agent.id), event: execution_event())
 
     assert outgoing.metadata.error == true
     assert outgoing.body =~ "temporarily unavailable"
@@ -565,6 +591,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     outgoing =
       Executor.run(incoming,
+        event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
         server_manager_module: StubServerManager,
@@ -589,6 +616,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     outgoing =
       Executor.run(incoming,
+        event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
         server_manager_module: StubServerManager,
@@ -609,6 +637,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     outgoing =
       Executor.run(incoming,
+        event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
         server_manager_module: StubServerManager,
@@ -641,6 +670,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     outgoing =
       Executor.run(incoming,
+        event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
         server_manager_module: StubServerManager,
@@ -678,6 +708,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     outgoing =
       Executor.run(incoming,
+        event: execution_event(),
         agent_id: "stub",
         agent_module: StubAgent,
         server_manager_module: StubServerManager,
@@ -727,6 +758,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     try do
       outgoing =
         Executor.run(incoming,
+          event: execution_event(),
           agent_id: "stub",
           agent_module: StubAgent,
           server_manager_module: StubServerManager,
@@ -748,6 +780,10 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
         Process.register(runtime_store_pid, runtime_store_name)
       end
     end
+  end
+
+  defp execution_event do
+    Event.new(nil, :agent, actor: %{kind: :anonymous, subject: "executor-integration-test"})
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do

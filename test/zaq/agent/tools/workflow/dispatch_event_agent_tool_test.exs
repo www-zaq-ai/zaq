@@ -111,6 +111,8 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventAgentToolTest do
 
     outgoing =
       Executor.run(incoming,
+        event:
+          Event.new(incoming, :agent, actor: %{kind: :anonymous, subject: "dispatch-tool-test"}),
         agent_id: to_string(agent.id),
         node_router: CaptureRouter,
         status_module: StubStatus

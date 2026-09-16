@@ -438,6 +438,12 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 
 ### Server Manager (`Zaq.Agent.ServerManager`)
 - Ensures server presence and reconciles tracked runtimes.
+- `ensure_server/4` requires `actor:` alongside configured agent, opaque server ID and optional `Jido.AI.Context`. Older arities return `{:error, :missing_execution_actor}`; they never create an anonymous runtime.
+- `Zaq.Identity.ExecutionActor` validates the shared contract: canonical `person.id`, or explicit `kind` (`bo_user`, `channel_subject`, `anonymous`, `system`) plus nonblank `subject`. JSON string-key actors normalize to the same identity. Conflicting/malformed declarations return `:invalid_execution_actor`, not a fallback identity. This validates identity shape, not authentication; only trusted origins may assert actors.
+- Executor passes one effective actor to scope derivation, server creation and request tool context. API rejects missing/invalid raw declarations before deriving permissions or invoking retrieval/Pipeline; permissive enrichment cannot discard conflicting aliases first.
+- Cold starts pass actor context to `Factory.runtime_config/2`, store `execution_actor` in server state and runtime configuration, and seed `tool_context.actor`. Supplied history remains cold-start-only. `Factory.runtime_config/1` remains structural inspection/fallback support, not an actorless lifecycle entrypoint.
+- Warm reuse requires a stable identity match against the server's creation binding, ignoring display names and team metadata. `:execution_actor_mismatch` leaves the existing server unchanged, even when the supplied configuration would otherwise trigger replacement. Unverifiable existing runtimes are rejected. Tool/MCP refreshes do not rebind identity.
+- No Person lookup, identity reconstruction from scope, credential-policy change, or per-ask credential refresh is introduced. A non-Person identity never implies permission bypass. Existing anonymous/conversation scopes are not expanded: callers colliding across identities receive an error and must use an appropriately isolated scope.
 - Runtime lifecycle details (hot patch vs stop-only + lazy restart) are documented in [Architecture → Configured Agent Runtime Lifecycle](../architecture.md#configured-agent-runtime-lifecycle).
 - Channel reachability policy for `conversation_enabled` is documented in [Channels Service → Conversation Agent Eligibility](channels.md#conversation-agent-eligibility).
 

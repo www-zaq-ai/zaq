@@ -262,6 +262,18 @@ defmodule Zaq.Engine.TriggerNodeTest do
   end
 
   describe "fire/2 — actor and machine-marker propagation" do
+    test "conflicting identity stays invalid after the workflow JSON round trip" do
+      trigger = create_trigger("conflicting_actor_event")
+      workflow = create_active_workflow("ConflictingActorWorkflow")
+      Workflows.assign_workflow_to_trigger(trigger, workflow)
+      actor = %{"person" => %{"id" => 2}, person: %{id: 1}}
+      event = %{build_event(:conflicting_actor_event) | actor: actor}
+
+      assert :ok = TriggerNode.fire("engine:conflicting_actor_event", event)
+      [run] = Workflows.list_runs(workflow.id)
+      assert run.source_event.actor == %{}
+    end
+
     test "propagates the incoming event actor into source_event.actor" do
       trigger = create_trigger("actor_event")
       workflow = create_active_workflow("ActorWorkflow")

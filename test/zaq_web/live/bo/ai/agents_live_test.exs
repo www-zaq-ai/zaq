@@ -1159,7 +1159,11 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
       })
 
     server_id = "agent:mattermost:person:#{agent.id}"
-    assert {:ok, _ref} = ServerManager.ensure_server(agent, server_id)
+
+    assert {:ok, _ref} =
+             ServerManager.ensure_server(agent, server_id, nil,
+               actor: %{kind: :system, subject: "agents-live-test"}
+             )
 
     {:ok, view, _html} = live(conn, ~p"/bo/agents")
 
@@ -1215,8 +1219,15 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         advanced_options: %{}
       })
 
-    assert {:ok, _ref} = ServerManager.ensure_server(agent, "agent:mattermost:person:#{agent.id}")
-    assert {:ok, _ref} = ServerManager.ensure_server(agent, "agent:slack:person:#{agent.id}")
+    assert {:ok, _ref} =
+             ServerManager.ensure_server(agent, "agent:mattermost:person:#{agent.id}", nil,
+               actor: %{person: %{id: agent.id}}
+             )
+
+    assert {:ok, _ref} =
+             ServerManager.ensure_server(agent, "agent:slack:person:#{agent.id}", nil,
+               actor: %{person: %{id: agent.id}}
+             )
 
     {:ok, view, _html} = live(conn, ~p"/bo/agents")
 
@@ -1264,7 +1275,9 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
       })
 
     assert {:ok, _ref} =
-             ServerManager.ensure_server(agent, "agent:mattermost:person:#{agent.id}")
+             ServerManager.ensure_server(agent, "agent:mattermost:person:#{agent.id}", nil,
+               actor: %{person: %{id: agent.id}}
+             )
 
     previous_runtime_sync_module = Application.get_env(:zaq, :agent_runtime_sync_module)
 

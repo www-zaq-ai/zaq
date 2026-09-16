@@ -6,10 +6,16 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
   alias Zaq.Engine.{IncomingMessageRouter, IncomingMessageRouting}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
+  alias Zaq.Identity.ExecutionActor
   alias Zaq.SystemConfigFixtures
 
   defmodule RejectingIdentityResolver do
     def resolve(_incoming, _opts), do: {:error, :not_found}
+    def person_payload(person), do: person
+  end
+
+  defmodule ResolvingIdentityResolver do
+    def resolve(_incoming, _opts), do: {:ok, %{id: 42, full_name: "Resolved", team_ids: [3]}}
     def person_payload(person), do: person
   end
 
@@ -21,6 +27,100 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
   end
 
   describe "route/1" do
+    test "invalid Incoming Person cannot be normalized or downgraded to a channel actor" do
+      for person <- [%{"id" => 2, id: 1}, %{id: "bad"}, %{}],
+          resolver <- [RejectingIdentityResolver, ResolvingIdentityResolver] do
+        event =
+          Event.new(%{incoming() | person: person}, :engine, opts: [identity_resolver: resolver])
+
+        routed = IncomingMessageRouter.route(event)
+        assert {:error, :invalid_execution_actor} = ExecutionActor.validate(routed.actor)
+      end
+    end
+
+    test "promotes a trusted BO origin after Person resolution without a conflicting kind" do
+      actor = %{kind: :bo_user, subject: "7", user_id: 7}
+
+      event =
+        Event.new(incoming(%{provider: :web}), :engine,
+          actor: actor,
+          opts: [identity_resolver: ResolvingIdentityResolver]
+        )
+
+      routed = IncomingMessageRouter.route(event)
+      assert routed.actor.person == %{id: 42, full_name: "Resolved", team_ids: [3]}
+      assert routed.actor.user_id == 7
+      refute Map.has_key?(routed.actor, :kind)
+      refute Map.has_key?(routed.actor, :subject)
+      assert {:ok, {:person, 42}} = ExecutionActor.identity(routed.actor)
+    end
+
+    test "retains an unresolved explicit BO identity rather than replacing it with a channel" do
+      actor = %{"kind" => "bo_user", "subject" => "7"}
+
+      event =
+        Event.new(incoming(%{provider: :web}), :engine,
+          actor: actor,
+          opts: [identity_resolver: RejectingIdentityResolver]
+        )
+
+      assert IncomingMessageRouter.route(event).actor == actor
+    end
+
+    test "blank authors and malformed actor containers do not acquire identities" do
+      assert {:error, _} =
+               ExecutionActor.validate(route(incoming(%{author_id: " "})).actor)
+
+      event =
+        Event.new(incoming(), :engine,
+          actor: [],
+          opts: [identity_resolver: RejectingIdentityResolver]
+        )
+
+      assert IncomingMessageRouter.route(event).actor == []
+    end
+
+    test "does not normalize away malformed or conflicting actor declarations" do
+      for actor <- [
+            %{person: %{id: "bad"}},
+            %{"person" => %{"id" => 2}, person: %{id: 1}},
+            %{person: %{id: 1}, kind: :system, subject: "forged"}
+          ] do
+        event =
+          Event.new(incoming(), :engine,
+            actor: actor,
+            opts: [identity_resolver: RejectingIdentityResolver]
+          )
+
+        assert IncomingMessageRouter.route(event).actor == actor
+      end
+    end
+
+    test "finalizes unresolved channel identity using provider, config and author" do
+      routed = route(incoming(%{routing_context: %{channel_config_id: 42}}))
+
+      assert {:ok, {:channel_subject, subject}} =
+               ExecutionActor.identity(routed.actor)
+
+      assert Jason.decode!(subject) == ["mattermost", 42, "u1"]
+      other = route(incoming(%{routing_context: %{channel_config_id: 43}}))
+      refute other.actor.subject == subject
+    end
+
+    test "retains Person identity without adding an explicit nonperson declaration" do
+      person = %{id: 42, full_name: "Person", team_ids: [3]}
+      routed = route(incoming(%{person: person}))
+      assert routed.actor.person == person
+      refute Map.has_key?(routed.actor, :kind)
+    end
+
+    test "missing channel author cannot become a system or shared anonymous actor" do
+      routed = route(incoming(%{author_id: nil}))
+
+      assert {:error, :invalid_execution_actor} =
+               ExecutionActor.validate(routed.actor)
+    end
+
     test "translates agent rule into an Agent hop" do
       agent = insert_agent!()
 

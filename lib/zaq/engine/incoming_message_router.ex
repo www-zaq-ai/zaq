@@ -13,23 +13,107 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   alias Zaq.Event
   alias Zaq.EventHop
   alias Zaq.Identity.ActorNormalizer
+  alias Zaq.Identity.ExecutionActor
   alias Zaq.NodeRouter
   alias Zaq.People.IdentityResolver
 
   @doc "Routes an incoming-message event to its resolved destination."
   @spec route(Event.t()) :: Event.t()
   def route(%Event{request: %Incoming{} = incoming} = event) do
+    actor = preserve_invalid_person(event.actor, incoming.person)
     {incoming, person_resolved?} = resolve_person(incoming, event.opts)
     resolution = IncomingMessageRouting.resolve(incoming, event.opts)
 
     event
     |> Map.put(:request, incoming)
-    |> Map.put(:actor, ActorNormalizer.from_incoming(event.actor, incoming))
+    |> Map.put(:actor, execution_actor(actor, incoming))
     |> apply_resolution(resolution, person_resolved?)
   end
 
   def route(%Event{} = event),
     do: %{event | response: {:error, {:invalid_request, event.request}}}
+
+  defp preserve_invalid_person(actor, nil), do: actor
+
+  defp preserve_invalid_person(actor, person) do
+    case ExecutionActor.validate(%{person: person}) do
+      {:ok, _} -> actor
+      {:error, _} -> %{person: nil}
+    end
+  end
+
+  # This is the trusted ingress boundary: transport fields have already been
+  # stamped by Channels/BO and Person resolution has completed. Never derive an
+  # anonymous or system identity from absent transport identity.
+  defp execution_actor(actor, _incoming) when not is_map(actor) and not is_nil(actor), do: actor
+
+  defp execution_actor(actor, incoming) do
+    if explicit_identity?(actor) and
+         match?({:error, _}, ExecutionActor.validate(actor)) do
+      actor
+    else
+      finalize_execution_actor(actor, incoming)
+    end
+  end
+
+  defp finalize_execution_actor(actor, incoming) do
+    normalized = ActorNormalizer.from_incoming(actor, incoming)
+
+    cond do
+      not is_nil(ActorNormalizer.person(normalized)) ->
+        promote_origin_actor(normalized, actor)
+
+      explicit_identity?(actor) ->
+        actor
+
+      is_binary(incoming.author_id) ->
+        channel_actor(normalized, incoming)
+
+      true ->
+        normalized
+    end
+  end
+
+  defp channel_actor(actor, incoming) do
+    if String.trim(incoming.author_id) == "" do
+      actor
+    else
+      Map.merge(actor || %{}, %{
+        kind: :channel_subject,
+        subject:
+          Jason.encode!([
+            to_string(incoming.provider),
+            incoming.routing_context.channel_config_id,
+            incoming.author_id
+          ])
+      })
+    end
+  end
+
+  # A BO origin may acquire a Person here. Do not erase a conflicting declaration
+  # already supplied alongside a Person; strict execution validation must see it.
+  defp promote_origin_actor(normalized, actor) do
+    if is_map(actor) and not Map.has_key?(actor, :person) and not Map.has_key?(actor, "person") and
+         (Map.get(actor, :kind) || Map.get(actor, "kind")) in [
+           :bo_user,
+           "bo_user",
+           :channel_subject,
+           "channel_subject"
+         ] do
+      Map.drop(normalized, [:kind, "kind", :subject, "subject"])
+    else
+      normalized
+    end
+  end
+
+  defp explicit_identity?(actor) when is_map(actor) do
+    Enum.any?(
+      [:person, "person", :person_id, "person_id", :kind, "kind", :subject, "subject"],
+      &Map.has_key?(actor, &1)
+    )
+  end
+
+  defp explicit_identity?(_), do: false
 
   defp resolve_person(%Incoming{} = incoming, opts) do
     resolver = Keyword.get(opts, :identity_resolver, IdentityResolver)

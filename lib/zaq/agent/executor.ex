@@ -13,7 +13,7 @@ defmodule Zaq.Agent.Executor do
     long-lived Jido server identity (conversation/person/session/anonymous).
   - Agent selection and per-run overrides (for example temporary
     `:system_prompt`).
-  - Server orchestration through `Zaq.Agent.ServerManager.ensure_server/2`.
+  - Actor-bound server orchestration through `Zaq.Agent.ServerManager.ensure_server/4`.
   - Query execution via `Zaq.Agent.Factory.ask_with_config/4` and
     `Zaq.Agent.StreamEvents.consume/3`.
   - User-facing side effects: typing signal (Channels API through
@@ -47,6 +47,7 @@ defmodule Zaq.Agent.Executor do
   alias Zaq.Engine.Telemetry
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
+  alias Zaq.Identity.ExecutionActor
   alias Zaq.Utils.DateUtils
 
   @doc """
@@ -153,7 +154,7 @@ defmodule Zaq.Agent.Executor do
   - `:person_id` — passed into the retrieval context for permission scoping
   - `:team_ids` — list of team IDs passed into the retrieval context
   - `:context` — a pre-built `Jido.AI.Context` used as the agent's cold-start context (e.g. `RunAgent`'s step turns); when present the server spawns with it and skips history loading. Only consumed on cold start
-  - `:event` — the dispatching `%Zaq.Event{}`; its `actor` is exposed to tools via the tool context
+  - `:event` — the dispatching `%Zaq.Event{}`; its validated actor binds the server lifecycle and is exposed to tools. Without an event actor, a trusted Incoming Person is required; missing identity never becomes anonymous implicitly
   - `:agent_module`, `:server_manager_module`, `:factory_module`, `:answering_module`, `:node_router` — injectable dependencies for testing
   """
   @spec run(Incoming.t(), keyword()) :: Outgoing.t()
@@ -162,7 +163,7 @@ defmodule Zaq.Agent.Executor do
     agent_module = Keyword.get(opts, :agent_module, Agent)
     server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
     factory_module = Keyword.get(opts, :factory_module, Factory)
-    opts = ensure_scope_for_answering_path(opts, incoming)
+    actor_result = execution_actor(opts, incoming)
     selected_agent_result = load_selected_agent(opts, agent_module, factory_module)
     dims = telemetry_dimensions(incoming, selected_agent_result)
 
@@ -172,11 +173,13 @@ defmodule Zaq.Agent.Executor do
     question = Keyword.get(opts, :question, incoming.content)
 
     result =
-      with {:ok, configured_agent} <- selected_agent_result,
+      with {:ok, actor} <- actor_result,
+           opts <- ensure_scope_for_answering_path(opts, incoming, actor),
+           {:ok, configured_agent} <- selected_agent_result,
            configured_agent <- apply_system_prompt_override(configured_agent, opts),
            server_id <- agent_server_id(configured_agent, opts),
            {:ok, server_ref} <-
-             ensure_agent_server(server_manager_module, configured_agent, server_id, opts),
+             ensure_agent_server(server_manager_module, configured_agent, server_id, opts, actor),
            question <-
              question
              |> append_attachments(incoming.attachments, server_id)
@@ -205,7 +208,7 @@ defmodule Zaq.Agent.Executor do
                  team_ids: Keyword.get(opts, :team_ids, []),
                  source_filter: Keyword.get(opts, :source_filter),
                  skip_permissions: Keyword.get(opts, :skip_permissions, false),
-                 actor: execution_actor(opts, incoming),
+                 actor: actor,
                  node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter)
                }
              ),
@@ -296,8 +299,10 @@ defmodule Zaq.Agent.Executor do
     "#{configured_agent.name}:#{Keyword.get(opts, :scope, "anonymous")}"
   end
 
-  defp ensure_agent_server(server_manager_module, configured_agent, server_id, opts) do
-    server_manager_module.ensure_server(configured_agent, server_id, Keyword.get(opts, :context))
+  defp ensure_agent_server(server_manager_module, configured_agent, server_id, opts, actor) do
+    server_manager_module.ensure_server(configured_agent, server_id, Keyword.get(opts, :context),
+      actor: actor
+    )
   end
 
   defp load_selected_agent(opts, agent_module, _factory_module) do
@@ -309,14 +314,26 @@ defmodule Zaq.Agent.Executor do
     end
   end
 
-  defp ensure_scope_for_answering_path(opts, incoming) do
+  defp ensure_scope_for_answering_path(opts, incoming, actor) do
     if is_nil(Keyword.get(opts, :scope)),
-      do: Keyword.put(opts, :scope, derive_scope(incoming, execution_actor(opts, incoming))),
+      do: Keyword.put(opts, :scope, derive_scope(incoming, actor)),
       else: opts
   end
 
   defp execution_actor(opts, incoming) do
-    event_actor(opts) || ActorNormalizer.from_incoming(nil, incoming)
+    case event_actor(opts) do
+      nil -> incoming_actor(incoming)
+      actor -> ExecutionActor.validate(actor)
+    end
+  end
+
+  defp incoming_actor(%Incoming{person: nil}), do: ExecutionActor.validate(nil)
+
+  defp incoming_actor(%Incoming{} = incoming) do
+    # Check raw declarations before ActorNormalizer can discard conflicting aliases.
+    with {:ok, actor} <- ExecutionActor.validate(%{person: incoming.person}) do
+      {:ok, ActorNormalizer.from_incoming(actor, incoming)}
+    end
   end
 
   @doc false

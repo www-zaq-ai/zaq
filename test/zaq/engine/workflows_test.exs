@@ -639,6 +639,29 @@ defmodule Zaq.Engine.WorkflowsTest do
   # --- interrupt_run/1 ---
 
   describe "interrupt_run/1" do
+    test "preserves the initiating actor when interruption emits a lifecycle event" do
+      w = create_workflow()
+      actor = %{kind: :bo_user, subject: "7"}
+
+      source =
+        Zaq.Event.new(nil, :engine, actor: actor, assigns: %{trigger_type: :manual, input: %{}})
+
+      {:ok, run} = Workflows.create_run(w, source)
+      expected_actor = run.source_event.actor
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn
+        %Zaq.Event{request: %{action: "run.interrupted"}} = event ->
+          send(self(), {:interrupted_actor, event.actor})
+          event
+
+        %Zaq.Event{request: {:broadcast, _topic, {:run_updated, _run}}} = event ->
+          event
+      end)
+
+      assert {:ok, _} = Workflows.interrupt_run(run)
+      assert_received {:interrupted_actor, ^expected_actor}
+    end
+
     test "marks a running run as interrupted with finished_at" do
       w = create_workflow()
       run = create_run(w) |> set_run_status("running")

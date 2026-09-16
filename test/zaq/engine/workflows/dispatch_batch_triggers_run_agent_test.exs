@@ -276,6 +276,7 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
 
   defp source_event do
     %{
+      "actor" => %{"kind" => "system", "subject" => "dispatch-batch-test"},
       "request" => nil,
       "assigns" => %{"trigger_type" => "manual", "input" => %{}},
       "trace_id" => Ecto.UUID.generate()

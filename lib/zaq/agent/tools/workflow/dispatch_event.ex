@@ -11,6 +11,10 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
   `"engine"`. Allowed values: `engine`, `agent`, `channels`, `ingestion`, `bo`.
   An unknown destination is rejected before dispatch.
 
+  The dispatched actor is preserved from the trusted action context, never from
+  tool parameters. Missing actors stay missing; the machine marker does not
+  manufacture a system identity.
+
   ## Machine runs
 
   Set `machine: true` to mark the dispatched event as a machine (actorless)
@@ -155,6 +159,7 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEvent do
       Zaq.Event.new(request, destination,
         type: :async,
         name: event_name,
+        actor: Map.get(ctx, :actor),
         assigns: machine_assigns(machine?)
       )
 

@@ -167,7 +167,7 @@ defmodule Zaq.Engine.Workflows do
           }
         })
 
-        dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
+        dispatch_workflow_event("run.failed", run)
         {:error, reason}
     end
   end
@@ -846,7 +846,8 @@ defmodule Zaq.Engine.Workflows do
                 workflow_id: interrupted_run.workflow_id
               },
               :engine,
-              name: :workflow
+              name: :workflow,
+              actor: interrupted_run.source_event && interrupted_run.source_event.actor
             )
           )
 
@@ -1597,9 +1598,12 @@ defmodule Zaq.Engine.Workflows do
   # Dispatches a `:workflow` lifecycle event (e.g. `run.failed`) via NodeRouter.
   # Mirrors the agent's lifecycle dispatch; used here for the build-failure path
   # in `ensure_prepared_dag/1`, which the agent no longer owns.
-  defp dispatch_workflow_event(action, body) do
-    Map.put(body, :action, action)
-    |> Zaq.Event.new(:engine, name: :workflow)
+  defp dispatch_workflow_event(action, run) do
+    %{action: action, run_id: run.id, workflow_id: run.workflow_id}
+    |> Zaq.Event.new(:engine,
+      name: :workflow,
+      actor: run.source_event && run.source_event.actor
+    )
     |> node_router().dispatch()
   end
 

@@ -35,6 +35,7 @@ defmodule Zaq.Agent.Api do
   alias Zaq.Event
   alias Zaq.EventHop
   alias Zaq.Identity.ActorNormalizer
+  alias Zaq.Identity.ExecutionActor
   alias Zaq.InternalBoundaries
 
   @doc """
@@ -74,31 +75,11 @@ defmodule Zaq.Agent.Api do
   """
   @impl true
   def handle_event(%Event{} = event, :run_pipeline, _context) do
-    event = ActorNormalizer.normalize_event(event)
-
     case event.request do
       %Incoming{} = incoming ->
-        status_mod = Keyword.get(event.opts, :status_module, Status)
-        node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
-
-        incoming =
-          status_mod.broadcast(
-            incoming,
-            :validating,
-            "Checking your request…",
-            node_router_mod
-          )
-
-        incoming = normalize_selected_agent_attachment_input(incoming, event.assigns)
-
-        prompt_guard_mod = Keyword.get(event.opts, :prompt_guard, PromptGuard)
-
-        case prompt_guard_mod.validate(incoming.content) do
-          {:error, _reason} ->
-            maybe_dispatch_return_hop(event, incoming, guard_error_outgoing(incoming))
-
-          {:ok, _} ->
-            dispatch_pipeline(event, incoming)
+        case ExecutionActor.from_event_request(event) do
+          {:ok, actor} -> run_pipeline(%{event | actor: actor}, incoming)
+          {:error, reason} -> %{event | response: {:error, reason}, next_hop: nil}
         end
 
       other ->
@@ -359,6 +340,25 @@ defmodule Zaq.Agent.Api do
   defp normalize_action_error({:error, {:invalid_request, _} = reason}), do: {:error, reason}
   defp normalize_action_error({:error, reason}), do: {:error, {:action_failed, reason}}
   defp normalize_action_error(other), do: other
+
+  defp run_pipeline(event, incoming) do
+    status_mod = Keyword.get(event.opts, :status_module, Status)
+    node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
+
+    incoming =
+      status_mod.broadcast(incoming, :validating, "Checking your request…", node_router_mod)
+
+    incoming = normalize_selected_agent_attachment_input(incoming, event.assigns)
+    prompt_guard_mod = Keyword.get(event.opts, :prompt_guard, PromptGuard)
+
+    case prompt_guard_mod.validate(incoming.content) do
+      {:error, _reason} ->
+        maybe_dispatch_return_hop(event, incoming, guard_error_outgoing(incoming))
+
+      {:ok, _} ->
+        dispatch_pipeline(event, incoming)
+    end
+  end
 
   defp dispatch_pipeline(event, incoming) do
     pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])

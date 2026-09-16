@@ -130,6 +130,7 @@ defmodule Zaq.Engine.Workflows.CronTriggerWorkerTest do
       # The machine marker rides on assigns (side-channel), not the request payload.
       assert event.request == %{trigger_id: trigger.id}
       assert event.assigns == %{machine: true}
+      assert event.actor == %{kind: :system, subject: "cron_trigger:#{trigger.id}"}
     end
 
     test "dispatches event routed to :engine destination" do

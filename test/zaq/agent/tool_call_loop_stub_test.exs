@@ -74,7 +74,13 @@ defmodule Zaq.Agent.ToolCallLoopStubTest do
       configured_agent: agent
     } do
       incoming = %Incoming{content: @message, channel_id: "bo-test", provider: :web}
-      outgoing = Executor.run(incoming, agent_id: to_string(agent.id))
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: to_string(agent.id),
+          event:
+            Zaq.Event.new(incoming, :agent, actor: %{kind: :anonymous, subject: "tool-loop-test"})
+        )
 
       assert_received {:llm_tool_call, @tool, %{"value" => @value, "amount" => 3}}
       assert_received {:llm_tool_result, @tool, tool_result}

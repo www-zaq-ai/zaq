@@ -101,7 +101,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
 
     case workflows_mod().update_run(run, start_attrs) do
       {:ok, run} ->
-        dispatch_workflow_event("run.started", %{run_id: run.id, workflow_id: run.workflow_id})
+        dispatch_workflow_event("run.started", run)
         execute_dag_with_pause(dag, run, started_ms, watcher)
 
       {:error, reason} ->
@@ -197,7 +197,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
         )
 
         result = Workflows.update_run(run, %{status: "waiting"})
-        dispatch_workflow_event("run.waiting", %{run_id: run.id, workflow_id: run.workflow_id})
+        dispatch_workflow_event("run.waiting", run)
         result
 
       # A row stuck at "running" after execution means the action raised and
@@ -233,7 +233,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
         # that shows "failed".
         Workflows.fail_orphaned_step_runs(run.id)
 
-        dispatch_workflow_event("run.failed", %{run_id: run.id, workflow_id: run.workflow_id})
+        dispatch_workflow_event("run.failed", run)
         result
 
       # No step errored, yet no terminal (leaf) step of the authored DAG completed.
@@ -269,7 +269,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
             log_summary: log_summary
           })
 
-        dispatch_workflow_event("run.incomplete", %{run_id: run.id, workflow_id: run.workflow_id})
+        dispatch_workflow_event("run.incomplete", run)
         result
 
       true ->
@@ -289,7 +289,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
             log_summary: log_summary
           })
 
-        dispatch_workflow_event("run.completed", %{run_id: run.id, workflow_id: run.workflow_id})
+        dispatch_workflow_event("run.completed", run)
         result
     end
   end
@@ -443,8 +443,13 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
     Zaq.MapUtils.fetch_either(assigns, :trigger_type, "trigger_type")
   end
 
-  defp dispatch_workflow_event(action, body) do
-    event = Event.new(Map.put(body, :action, action), :engine, name: :workflow)
+  defp dispatch_workflow_event(action, run) do
+    event =
+      Event.new(%{action: action, run_id: run.id, workflow_id: run.workflow_id}, :engine,
+        name: :workflow,
+        actor: run.source_event && run.source_event.actor
+      )
+
     node_router().dispatch(event)
   end
 

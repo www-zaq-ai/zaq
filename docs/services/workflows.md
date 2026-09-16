@@ -257,19 +257,31 @@ Every run's `source_event` carries the identity and permission context that
 - **actor** — canonical execution identity. `TriggerNode` preserves an existing
   triggering event actor, or derives `actor.person` from a broadcast event whose
   request is `%Incoming{person: ...}` before creating the workflow run. Actorless
-  events store `actor: nil` — never a fabricated identity.
+  events store `actor: nil` — never a fabricated identity, and any `run_agent` step
+  fails closed without it. Invalid declarations remain invalid across JSON
+  persistence rather than letting conflicting atom/string aliases select a Person.
+  Cron triggers explicitly originate `system` actors with `cron_trigger:<id>`
+  subjects; manual BO runs carry their linked Person or explicit `bo_user` subject.
+  Run lifecycle events and `dispatch_event` preserve the originating actor.
 - **source_request** — optional original `source_event.request` payload. It may be
   `%Incoming{}`, a plain map, nil, or another request shape; it is not the permission
   identity contract.
 - **skip_permissions** — `source_event.assigns.skip_permissions` is `true` only when set
   explicitly at run creation: `CronTriggerWorker` marks its trigger payload with
   `machine: true` (translated by `TriggerNode`), and BO manual runs
-  (`WorkflowsLive`/`WorkflowDetailLive`) set it directly with an audit-only `bo` actor
-  (BO users have no Person record). A missing actor never implies the bypass.
+  (`WorkflowsLive`/`WorkflowDetailLive`) set it directly. Actor categories do not
+  grant the bypass, and a missing actor never implies it.
 
 Steps authorize against this context — e.g. `Zaq.Agent.Tools.Accounts.History` resolves
 the person from `ctx[:actor]["person"]["id"]` and honors its `person_id` parameter only
 under `skip_permissions: true`.
+
+`run_agent` forwards the actor through Agent API and Executor to server creation.
+Workflow run/step scopes remain unchanged and do not encode Person IDs. Two steps
+retain independent runtime servers with the same originating actor. Nested agent
+calls use the same shared actor contract, not a workflow-specific identity path.
+Warm servers reject different stable identities rather than rebinding credentials
+or silently inheriting the first caller's identity.
 
 ---
 

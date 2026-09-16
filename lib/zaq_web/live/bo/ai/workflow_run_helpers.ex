@@ -23,16 +23,28 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunHelpers do
         %{trigger_type: :manual},
         :engine,
         name: :workflow_run_manual,
-        actor: %{
-          user_id: user_attr(current_user, :id),
-          person_id: user_attr(current_user, :person_id),
-          name: user_attr(current_user, :username),
-          provider: "bo",
-          person: current_user_person(current_user)
-        }
+        actor: current_user_actor(current_user)
       )
 
     %{event | assigns: %{trigger_type: :manual, input: %{}, skip_permissions: true}}
+  end
+
+  defp current_user_actor(current_user) do
+    actor = %{
+      user_id: user_attr(current_user, :id),
+      person_id: user_attr(current_user, :person_id),
+      name: user_attr(current_user, :username),
+      provider: "bo",
+      person: current_user_person(current_user)
+    }
+
+    if is_nil(actor.person) and not is_nil(actor.user_id) do
+      actor
+      |> Map.drop([:person, :person_id])
+      |> Map.merge(%{kind: :bo_user, subject: to_string(actor.user_id)})
+    else
+      actor
+    end
   end
 
   defp current_user_person(current_user) do

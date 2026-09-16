@@ -40,7 +40,7 @@ defmodule Zaq.Engine.TriggerNode do
 
   alias Zaq.Engine.Workflows
   alias Zaq.Event
-  alias Zaq.Identity.ActorNormalizer
+  alias Zaq.Identity.ExecutionActor
 
   @spec fire(String.t(), map()) :: :ok
   def fire(event_name, event) when is_binary(event_name) do
@@ -104,7 +104,13 @@ defmodule Zaq.Engine.TriggerNode do
   end
 
   defp incoming_actor(incoming_event) do
-    ActorNormalizer.from_event_request(incoming_event)
+    case ExecutionActor.from_event_request(incoming_event) do
+      {:ok, actor} -> actor
+      {:error, :missing_execution_actor} -> nil
+      # JSON persistence cannot preserve conflicting atom/string aliases. Keep an
+      # explicitly invalid declaration so an Agent step still fails closed.
+      {:error, :invalid_execution_actor} -> %{}
+    end
   end
 
   # The bypass requires an explicit machine marker on the event's `assigns`

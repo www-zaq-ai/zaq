@@ -258,7 +258,10 @@ Configured-agent execution path:
 ### Configured Agent Runtime Lifecycle
 
 - `Zaq.Agent.ServerManager.sync_runtime/1` reconciles tracked servers against current configured-agent state.
-- For structural runtime changes, reconciliation is **stop-only**: stale servers are terminated and removed from manager tracking, then recreated lazily on the next message (`ensure_server/2`).
+- For structural runtime changes, reconciliation is **stop-only**: stale servers are terminated and removed from manager tracking, then recreated lazily on the next message (`ensure_server/4`).
+- Server creation requires an explicit trusted execution actor, validated by `Zaq.Identity.ExecutionActor` before runtime configuration or lifecycle mutations. Scope determines isolation/reuse; it never establishes identity.
+- Each live runtime retains its creation actor in `execution_actor`, independently of mutable request tool context. Warm reuse compares stable Person ID or explicit non-Person kind/subject; mismatches fail before touch, replacement or execution. Existing scope formats are unchanged, so sharing a scope across different identities now returns an error rather than rebinding the server.
+- Missing or malformed actors fail closed. Trusted BO/channel/system origins establish non-Person identities explicitly; neither Executor nor ServerManager converts missing actors into system or anonymous principals. Credential grant selection remains separate work; there is no per-request credential resolution.
 - Runtime sync responses include `stopped_server_ids` so BO/API callers can surface operational impact.
 - Hot runtime patching remains the preferred path for non-structural updates when a compatible runtime is already running.
 
