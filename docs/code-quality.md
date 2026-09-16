@@ -47,7 +47,7 @@
 - Any temporary shortcut must be marked with an inline comment — Credo blocks bare `TODO` tags, so use this format instead:
   ```elixir
   # Temporary: <why it's here now>. Move to <target module/function> once <condition>.
-  # Tracked: <issue number or brief description>
+  # Tracked: <issue ID or URL>
   ```
 - Remove dead code and stale branches when replacing behavior — do not keep inactive paths "just in case".
 - If a change intentionally diverges from established patterns, document the rationale in the PR description.
@@ -60,9 +60,8 @@
 - Read and follow the [validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate) for required commands, tests, failure handling and approval timing; do not maintain a separate gate here.
 - `mix credo --strict` for code standards on bugfixes.
 - During development, prioritize tests for critical behavior, failure paths, permissions, and regressions rather than a coverage ratio. Preserve async-friendly configuration/dependency injection and isolated state. Delegate numerical coverage targets to the post-review `coverage-upper` phase before merging.
-- Custom linters enforce: structured logging, naming conventions for schemas and types, file size limits, and platform-specific reliability requirements.
-- Linter error messages are written to inject remediation instructions into agent context.
-- Architectural layer rules (Types → Config → Repo → Service → Runtime → UI) are enforced mechanically via structural tests.
+- `.credo.exs` defines the enabled Credo checks, including `Credo.Check.Design.TagTODO`. Inspect that configuration and the relevant tests before claiming a rule is automatically enforced.
+- Review the responsibility boundaries in [architecture](architecture.md#layered-domain-architecture); passing lint is not proof that every architectural boundary is respected.
 
 ---
 

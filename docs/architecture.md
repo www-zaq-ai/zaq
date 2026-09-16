@@ -2,31 +2,21 @@
 
 ## Overview
 
-ZAQ is a single Elixir/OTP application composed of five internal services. Each service
-runs under its own supervision tree and can be enabled or disabled per node using
-role-based configuration.
+ZAQ is a single Elixir/OTP application with six routable roles. Role-specific
+supervisors and the web endpoint are enabled per node; shared infrastructure
+(Repo, PubSub, Oban, hooks and add-ons) starts outside those role-specific trees.
+The startup and dispatch maps live in `lib/zaq/application.ex`,
+`lib/zaq/node_roles.ex` and `lib/zaq/node_router.ex`.
 
 ```
-┌──────────────────────────────────────────────────┐
-│                    ZAQ (BEAM)                    │
-│                                                  │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │  Engine  │  │  Agent   │  │  Ingestion    │  │
-│  │          │  │          │  │               │  │
-│  │ Sessions │  │ RAG      │  │ Doc processing│  │
-│  │ Notifs   │  │ LLM      │  │ Chunking      │  │
-│  │ Telemetry│  │ Pipeline │  │ Embeddings    │  │
-│  └──────────┘  └──────────┘  └───────────────┘  │
-│                                                  │
-│  ┌──────────┐  ┌──────────────────────────────┐  │
-│  │ Channels │  │  Back Office (LiveView)      │  │
-│  │          │  │                              │  │
-│  │Mattermost│  │ Admin panel                  │  │
-│  │ Email    │  │ Document management          │  │
-│  │ Slack *  │  │ Telemetry dashboards         │  │
-│  └──────────┘  └──────────────────────────────┘  │
-│  * planned                                       │
-└──────────────────────────────────────────────────┘
+ZAQ (single OTP application, distributed by role)
+  Engine     — routing, conversations, workflows, coordination
+  Agent      — retrieval/answering and configured-agent execution
+  Ingestion  — document processing, chunking and search
+  Storage    — mounted-volume filesystem and access policy
+  Channels   — provider bridges and transport normalization
+  BO         — Phoenix/LiveView back office
+        ↕ cross-role Events through NodeRouter.dispatch/1
 ```
 
 ---
@@ -41,8 +31,13 @@ Services start based on `:roles` config or `ROLES` env var (`ROLES` takes priori
 | `:engine` | `Zaq.Engine.Supervisor` |
 | `:agent` | `Zaq.Agent.Supervisor` |
 | `:ingestion` | `Zaq.Ingestion.Supervisor` |
+| `:storage` | `Zaq.Storage.Supervisor` |
 | `:channels` | `Zaq.Channels.Supervisor` |
 | `:bo` | `ZaqWeb.Endpoint` |
+
+The endpoint also starts on a channels node for provider HTTP callbacks. Router
+role plugs keep BO routes restricted to BO nodes; endpoint presence alone is not
+BO availability.
 
 Peer connectivity is automatic via Erlang distribution + EPMD peer discovery.
 `Zaq.PeerConnector` handles automatic node connection — no `NODES` env var required.
@@ -52,14 +47,25 @@ Peer connectivity is automatic via Erlang distribution + EPMD peer discovery.
 ## NodeRouter — CRITICAL
 
 All cross-service calls from BO go through `Zaq.NodeRouter`, not direct module calls.
+New code uses **`NodeRouter.dispatch/1` with `%Zaq.Event{}` and an explicit domain
+action**, not generic invoke calls. Verify the action and request shape in the
+destination role's `Api.handle_event/3` before dispatching.
+
+Example: `incoming` is an already normalized `%Zaq.Engine.Messages.Incoming{}`;
+`actor` is trusted caller context, not an identity taken from model/user parameters.
 
 ```elixir
 # WRONG — breaks multi-node
 Zaq.Agent.Retrieval.ask(question, opts)
 
-# CORRECT
-event = Zaq.Event.new(%{question: question, opts: opts}, :agent, opts: [action: :ask])
-NodeRouter.dispatch(event).response
+# CORRECT — Engine applies incoming routing policy before the Agent hop
+event =
+  Zaq.Event.new(incoming, :engine,
+    actor: actor,
+    opts: [action: :route_incoming_message]
+  )
+
+Zaq.NodeRouter.dispatch(event).response
 ```
 
 `NodeRouter.dispatch/1` is the preferred API. It routes a `%Zaq.Event{}` by
@@ -77,6 +83,7 @@ Event envelope fields:
 - `opts`
 - `version`
 - `actor`
+- `name`
 
 ### Dispatch Semantics (sync, async, multi-hop)
 
@@ -98,11 +105,22 @@ Multi-hop behavior is recursive:
 
 Dispatch note:
 
-- New code should use `dispatch/1` + `%Zaq.Event{}` directly.
+- Construct an Event with the destination's supported domain action in `event.opts`;
+  dispatch it and consume the returned Event's `response` according to that action's contract.
+- Preserve trusted actor context and runtime dependency overrides across hops.
+  Dispatch is not an authorization grant; nil identity is never implicit permission.
+- Generic `:invoke` handlers and `build_*invoke_event` helpers remain in legacy
+  source. Their existence does not make them the convention for new calls. Do not
+  disguise generic module/function/args invocation as an action-specific migration.
+- Existing domain event builders can encapsulate a fixed request contract, but a
+  helper is not mandatory merely because it exists. Direct Event construction and
+  `dispatch/1` are supported. Missing domain actions require an explicit boundary
+  design, not an invented action name or an automatic generic-invoke fallback.
 
 Role mapping:
 - `:agent` → `Zaq.Agent.*`
 - `:ingestion` → `Zaq.Ingestion.*`
+- `:storage` → `Zaq.Storage.*`
 - `:engine` → `Zaq.Engine.*`, `Zaq.Engine.Conversations.*`
 - `:channels` → `Zaq.Channels.*`
 - `:bo` → `Zaq.Bo.*`, `ZaqWeb.*`
@@ -116,7 +134,8 @@ Role mapping:
 | `engine` | `Zaq.Engine.Supervisor` | Orchestration, conversations, notifications, telemetry, adapter lifecycle, data-source watch-channel runtime state |
 | `agent` | `Zaq.Agent.Supervisor` | RAG pipeline, configured-agent runtime, LLM calls, query rewriting, answering, prompt security |
 | `ingestion` | `Zaq.Ingestion.Supervisor` | Document processing, chunking, embedding, Oban jobs, Python pipeline, watched-record filtering/deletion |
-| `channels` | `Zaq.Channels.Supervisor` | Channel configs, provider calls, webhook normalization, PendingQuestions, Mattermost adapter |
+| `storage` | `Zaq.Storage.Supervisor` | Mounted files, directory metadata, volume mutations and source-scoped access policy |
+| `channels` | `Zaq.Channels.Supervisor` | Communication/data-source bridges, provider calls, transport normalization and webhook handling |
 | `bo` | `ZaqWeb.Endpoint` | Back Office LiveView UI, API controllers |
 
 ---
@@ -160,8 +179,12 @@ Engine modules:
 ### Adapter Lifecycle (`lib/zaq/engine/`)
 - `Zaq.Engine.IngestionSupervisor` — loads ingestion configs from DB, starts adapters dynamically
 - `Zaq.Engine.RetrievalSupervisor` — loads retrieval configs from DB, starts adapters dynamically
-- `Zaq.Engine.AdapterSupervisor` — shared adapter supervision logic
-- `Zaq.Engine.Router` — engine-level internal routing (distinct from `NodeRouter`)
+- `Zaq.Engine.ChannelAdapterLoader` — shared configuration-to-child loading
+- `Zaq.Engine.IncomingMessageRouter` — incoming routing policy (distinct from cross-role `NodeRouter`)
+
+Workflow DAGs, triggers, approvals and recovery are also Engine-owned; see
+[workflows](services/workflows.md). The Engine supervisor includes workflow run
+registration/recovery and the event registry, in addition to telemetry and adapters.
 
 ---
 
@@ -170,19 +193,17 @@ Engine modules:
 The agent pipeline is coordinated through `Zaq.Agent.Pipeline`:
 
 ```
-User question
-  → PromptGuard.validate/1          ← blocks prompt injection (BO node)
-  → NodeRouter.dispatch(%Zaq.Event{next_hop: %Zaq.EventHop{destination: :agent}})
-      → Pipeline                    ← orchestrates retrieval + answering
-          → Retrieval.ask/2         ← LLM rewrites question into search queries
-          → DocumentProcessor       ← hybrid search, returns ranked chunks
-          → Answering.ask/2         ← LLM formulates answer from context
-  → PromptGuard.output_safe?/1      ← checks for system prompt leakage (BO node)
+Normalized Incoming + trusted actor
+  → Engine :route_incoming_message  ← identity enrichment and routing policy
+  → Agent :run_pipeline             ← role API validates input and selects execution path
+      → Pipeline (default RAG)      ← retrieve → extract → answer → output safety check
+      → Executor (selected agent)   ← configured-agent execution
 ```
 
 Key agent modules:
 - `Zaq.Agent.Pipeline` — orchestrates the full RAG flow
-- `Zaq.Agent.LLM` / <code>Zaq.Agent.LLMRunner</code> — centralized LLM config and execution
+- `Zaq.Agent.ProviderSpec` / `Zaq.Agent.Factory` — provider normalization and runtime/model configuration
+- `Zaq.Agent.Executor` / `Zaq.Agent.ServerManager` — run lifecycle and Jido server management
 - `Zaq.Agent.History` — conversation history management
 - <code>Zaq.Agent.CitationNormalizer</code> — normalizes citations in answers
 
@@ -193,7 +214,7 @@ Configured-agent execution path:
 - On the agent node, `Zaq.Agent.Api` decides:
   - no selection -> `Zaq.Agent.Pipeline.run/2`
   - explicit selection -> `Zaq.Agent.Executor.run/2`
-- `Zaq.Agent.Executor` routes to a deterministic `Jido.AgentServer` name derived from configured agent id
+- `Zaq.Agent.Executor` derives conversation/person/session/anonymous scope and asks `ServerManager` for the matching Jido runtime; server identity is not just a configured-agent id
 
 ### Configured Agent Runtime Lifecycle
 
@@ -202,12 +223,9 @@ Configured-agent execution path:
 - Runtime sync responses include `stopped_server_ids` so BO/API callers can surface operational impact.
 - Hot runtime patching remains the preferred path for non-structural updates when a compatible runtime is already running.
 
-Field behavior categories:
-
-- **Hot patch only**: `job`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`
-- **Stop now, recreate on next message**: `model`, `credential_id`, `strategy`, `advanced_options`, `idle_time_seconds`, `model_max_context_tokens`
-- **Routing-only flag (no runtime restart/patch by itself)**: `conversation_enabled`
-- **Drain and stop**: `active = false`
+Field-level reconciliation and in-flight request behavior belong to the
+[Agent service guide](services/agent.md) and `ServerManager`/`RuntimeSync`, rather
+than a second field matrix in this overview.
 
 ---
 
@@ -236,6 +254,21 @@ File (PDF/DOCX/XLSX/image)
 Python scripts fetched via `mix zaq.python.fetch`. Requires Python 3.10+ and `.venv`.
 
 Python converters may write temporary Markdown outputs next to job-scoped materialized inputs. These scratch files are deleted with the materialization root and are not indexed as separate documents.
+
+### Storage and Materialization
+
+`Zaq.Storage` owns mounted-volume bytes, directory metadata, mutations and access
+policy. Ingestion consumes records; it does not own mounted filesystem operations.
+
+`Zaq.Channels.DiskBridge` dispatches to Storage and maps filesystem entries/grants
+into `Zaq.Contracts.Record`. Listings return metadata with `content: nil` and a
+materialization handle, not file bytes. Disk identity is volume plus relative source
+path, independent of whether a document has been ingested.
+
+Handle redemption uses trusted materializers and the owning role. Storage returns
+bytes rather than shaping provider Records or routing back through Channels.
+See [materialization](services/materialization.md) for handle security/lifecycle and
+[Channels](services/channels.md) for bridge contracts.
 
 ---
 
@@ -271,16 +304,12 @@ Always use the dedicated accessor (`Zaq.System.get_llm_config/0`, etc.) — neve
 
 ## Layered Domain Architecture
 
-Each business domain is divided into a fixed set of layers with strictly validated
-dependency directions. Code can only depend **forward**:
-
-```
-Types → Config → Repo → Service → Runtime → UI
-```
-
-Cross-cutting concerns (auth, connectors, telemetry, feature flags) enter through
-a single explicit interface: **Providers**. Anything else is disallowed and enforced
-mechanically via custom linters and structural tests.
+Separate the following responsibilities within each domain. These are design and
+review constraints, not a claim that every domain uses identical directories or
+that a universal structural linter enforces them. UI/runtime orchestration delegates
+to domain contracts; provider and cross-role boundaries remain explicit. Follow
+[conventions](conventions.md#context-boundaries) and the owning service guide for
+allowed dependencies.
 
 ### Layer responsibilities
 
@@ -298,8 +327,8 @@ mechanically via custom linters and structural tests.
 ## What NOT To Do
 
 - Don't add adapters to `Zaq.Channels.Supervisor` — Engine manages adapter lifecycle
-- Don't define behaviour contracts in `lib/zaq/channels/` — they belong in `lib/zaq/engine/`
-- Don't assume Slack, Email, or ingestion adapters exist — only Mattermost is implemented
+- Don't relocate contracts by a blanket namespace rule: Engine owns its orchestration/channel contracts; Channels owns `Bridge`, `CommunicationBridge` and `DataSourceBridge` contracts
+- Don't infer provider support from an old diagram: inspect current bridge implementations/configuration and [Channels](services/channels.md)
 - Don't move `embedding/client.ex` under `agent/` without discussion
 - Don't add BO routes without updating auth plug and router
 - Don't hardcode LLM endpoints — customer-configured via BO system config
@@ -311,12 +340,6 @@ mechanically via custom linters and structural tests.
 
 ## Service Deep-Dives
 
-For detailed internals of each service, see `docs/services/`:
-
-- `docs/services/agent.md`
-- `docs/services/channels.md`
-- `docs/services/ingestion.md`
-- `docs/services/addons.md`
-- `docs/services/system-config.md`
-- `docs/services/telemetry.md`
-- `docs/services/bo-auth.md`
+Use the [domain guide index](README.md#domain-guides) for service contracts and
+the [project map](project.md) for source navigation. Documentation ownership and
+maintenance are defined in [documentation hygiene](documentation.md).

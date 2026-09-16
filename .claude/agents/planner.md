@@ -4,7 +4,7 @@ description: Breaks down ZAQ features into concrete implementation plans. Use be
 tools: Read, Glob, Grep
 ---
 
-You are a technical planning agent for the ZAQ project (Elixir 1.19, Phoenix 1.7, LiveView, Oban, pgvector). You read the codebase and produce concrete, ordered implementation plans that respect ZAQ's architecture boundaries.
+You are a technical planning agent for ZAQ. Use `docs/project.md` and current dependency files for the stack. Produce ordered implementation plans that respect ZAQ's architecture boundaries.
 
 ## Approach
 
@@ -20,19 +20,19 @@ You are a technical planning agent for the ZAQ project (Elixir 1.19, Phoenix 1.7
 **Context boundaries**
 - Business logic lives in `lib/zaq/<context>/` — never in LiveViews or workers
 - Cross-context calls use public context functions only — never internal helpers
-- BO LiveViews use role/channel Events helpers for cross-service calls — never direct context calls
+- BO cross-service calls follow the Event/dispatch contract in `docs/architecture.md`, never direct remote context calls
 
 **NodeRouter**
-- BO → Engine/Agent calls use the role's `Events.build_and_dispatch_invoke_event/3`; Ingestion calls use its applicable action-specific Events helper, not an assumed generic invoke helper
+- Use `NodeRouter.dispatch/1` with `%Zaq.Event{}` and a verified domain action, not generic invoke helpers; preserve trusted actor and dependency context
 - Flag any plan step that crosses a node boundary
 
 **Multi-node roles**
-- Check which role owns the code being changed (`:engine`, `:agent`, `:ingestion`, `:channels`, `:bo`)
+- Check which role owns the code being changed (`:engine`, `:agent`, `:ingestion`, `:storage`, `:channels`, `:bo`)
 - New supervisors/workers must start only under the correct role
 
 **Adapters**
-- Behaviour contracts belong in `lib/zaq/engine/` — never in `lib/zaq/channels/`
-- Adapter implementations belong in `lib/zaq/channels/<kind>/<provider>/`
+- Keep Engine orchestration contracts and Channels bridge/transport contracts with their respective owners; follow `docs/services/channels.md`
+- Inspect the current bridge family under `lib/zaq/channels/` before choosing an implementation path
 - Engine supervisors manage adapter lifecycle — not `Zaq.Channels.Supervisor`
 
 **Oban workers**

@@ -4,8 +4,10 @@ ZAQ is an AI-powered company brain built with Elixir/Phoenix. This file is the d
 
 ## Load instructions by task
 
+- On a new environment, follow [agent workflow setup](docs/agent-setup.md) to configure and verify Context Mode, Serena and Beadwork before starting automated work.
 - On every task, run `bw prime` and read the applicable sections of [the workflow](docs/WORKFLOW_AGENT.md). Check existing Beadwork issues before complex work.
 - Before using tools, read the routing rules in [agent tools](docs/agent-tools.md). Read catalog/maintenance sections only when needed.
+- Before changing documentation, agent guidance or project memories, read [documentation hygiene](docs/documentation.md); use the [docs index](docs/README.md) for navigation.
 - Before designing or changing operations, read [Action reuse](docs/action-reuse.md); record reuse/extend/new/local-only evidence, or justified not-applicable. Never duplicate operations or automatically expose Actions as agent tools.
 - Read the required documents below **before the affected work**. Links are not automatic imports. Do not load the entire map.
 - Read relevant sections once; reuse unchanged instructions already in context. After compaction, recover applicable policies and verify current files, Git and Beadwork state before acting.
@@ -38,13 +40,14 @@ Edit policies at their owner; other docs should link to them, not restate proced
 | --- | --- |
 | Workflow, validation timing, approvals, coverage handoff | [Agent workflow](docs/WORKFLOW_AGENT.md) |
 | Tool routing, fallback, memory, Context Mode commands | [Agent tools](docs/agent-tools.md) |
+| Documentation ownership, organization and memory hygiene | [Documentation policy](docs/documentation.md); [index](docs/README.md) |
 | New complex plan | [Planning strategy](docs/exec-plans/PLAN_STRATEGY.md); durable steps in Beadwork, not new plan files |
 | Action discovery and reuse | [Action reuse](docs/action-reuse.md) |
 | Test design, isolation, property tests, E2E approval | [Testing handbook](docs/testing-approach.md) |
 | Project structure / architecture | [Project](docs/project.md), [architecture](docs/architecture.md) |
 | Naming / module design / code quality | [Conventions](docs/conventions.md), [code quality](docs/code-quality.md) |
 | Elixir, Ecto, Mix / Phoenix, LiveView | [Elixir](docs/elixir.md), [Phoenix](docs/phoenix.md) |
-| Environment setup / agent selection | [Dev setup](docs/dev-setup.md) |
+| Environment setup / agent selection | [Agent workflow setup](docs/agent-setup.md), [dev setup](docs/dev-setup.md) |
 | Git conventions / contribution process | [Git workflows](docs/workflows.md), [contributing](CONTRIBUTING.md) |
 | E2E execution and fixtures | [E2E testing](docs/e2e-testing.md) |
 | Domain quality / existing debt | [Quality score](docs/QUALITY_SCORE.md), [debt tracker](docs/exec-plans/tech-debt-tracker.md) |

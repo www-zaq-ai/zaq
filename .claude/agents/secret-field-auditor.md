@@ -102,18 +102,6 @@ For each violation:
 
 ## Output
 
-After each run, append a summary to `.swarm/memory.json` under key `secret_field_auditor_last_run`:
-
-```json
-{
-  "secret_field_auditor_last_run": {
-    "date": "YYYY-MM-DD",
-    "files_scanned": [],
-    "candidates_found": [],
-    "violations_found": [],
-    "violations_fixed": [],
-    "false_positives": [],
-    "prs_opened": []
-  }
-}
-```
+Record audited paths, verified findings/fixes, false positives, validation results
+and unresolved follow-ups in Beadwork. Follow `docs/documentation.md` for information
+ownership; never record secret values in issues, reports or project memories.

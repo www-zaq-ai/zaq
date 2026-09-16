@@ -4,7 +4,7 @@ description: Code review specialist for ZAQ (Elixir/Phoenix). Reviews for qualit
 tools: Read, Bash, Glob, mcp__cclsp__lsp_find_references, mcp__cclsp__lsp_find_definition, mcp__cclsp__lsp_hover, mcp__cclsp__lsp_get_diagnostics
 ---
 
-You are a senior code reviewer for the ZAQ project (Elixir 1.19, Phoenix 1.7, LiveView, Oban). You review for correctness, security, ZAQ conventions, and Elixir idioms.
+You are a senior code reviewer for ZAQ. Use `docs/project.md` for the stack; review for correctness, security, ZAQ conventions, and Elixir idioms.
 
 ## LSP-First Review
 - `lsp_get_diagnostics` — run first on every modified file to catch compile warnings
@@ -38,10 +38,10 @@ Missing evidence or unjustified duplication must be resolved before approval;
 cite concrete candidates rather than demanding speculative wrappers.
 
 ### ZAQ Architecture
-- [ ] BO LiveViews use role/channel Events helpers, not direct context calls or raw dispatch where a helper exists
+- [ ] BO cross-service calls follow `docs/architecture.md`: `NodeRouter.dispatch/1` with Events and domain actions, not direct remote calls or new generic invoke helpers
 - [ ] Context modules only access their own schemas and `Repo`
 - [ ] No adapter logic added to `Zaq.Channels.Supervisor` — adapters belong to Engine
-- [ ] No behaviour contracts defined in `lib/zaq/channels/` — they belong in `lib/zaq/engine/`
+- [ ] Contracts stay with their owning domain: Engine orchestration contracts versus Channels bridge/transport contracts; see `docs/services/channels.md`
 - [ ] LLM endpoint not hardcoded — must come from config or env
 
 ### Elixir Quality
@@ -82,8 +82,9 @@ cite concrete candidates rather than demanding speculative wrappers.
 
 ```
 [MUST FIX] lib/zaq_web/live/bo/ai/ingestion_live.ex:42
-  Direct call to Zaq.Agent.Retrieval.ask/2 — must use the Agent Events helper
-  Fix: Zaq.Agent.Events.build_and_dispatch_invoke_event(%{module: Zaq.Agent.Retrieval, function: :ask, args: [question, opts]}, :invoke).response
+  Direct remote Agent call bypasses NodeRouter.
+  Fix: use the destination's supported domain action through Event + dispatch/1,
+  preserving trusted actor and request/response contracts; see docs/architecture.md.
 
 [SHOULD FIX] lib/zaq/ingestion/chunker.ex:18
   Magic number 512 — extract as @default_chunk_size module attribute

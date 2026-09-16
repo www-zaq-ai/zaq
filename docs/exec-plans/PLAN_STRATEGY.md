@@ -83,13 +83,9 @@ Each step must identify which module(s) will own new code. For each module, conf
 2. No existing module already does this.
 3. No cross-cutting concern (credentials, URL formatting, permission checks) is being pulled into a domain module.
 
-If a step places temporary code in a non-ideal module (acceptable when tracked), add a `# Temporary:` inline
-comment in the code explaining the placement and the condition for moving it. `TODO` tags are blocked by Credo —
-use this format instead:
-
-```elixir
-# Temporary: <reason it's here>. Move to <target> once <condition>.
-```
+If a step places temporary code in a non-ideal module (acceptable when tracked),
+follow the [technical debt comment format](../code-quality.md#technical-debt-controls)
+with the reason, removal condition and tracking issue.
 
 When detailing the implementation for a module:
 

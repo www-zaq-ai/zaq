@@ -12,12 +12,13 @@ customer-provided LLM endpoint.
 
 | Layer | Technology |
 |---|---|
-| Language | Elixir 1.19.5 / Erlang OTP 28 |
-| Web | Phoenix 1.7, Phoenix LiveView |
+| Language | Elixir 1.19 / Erlang OTP 28; exact development pins in [`.tool-versions`](../.tool-versions) |
+| Web | Phoenix 1.8, LiveView 1.2; constraints in [`mix.exs`](../mix.exs), resolved dependencies in [`mix.lock`](../mix.lock) |
 | Database | PostgreSQL 16+ with pgvector `>= 0.7.0` (`halfvec` support) |
 | Jobs | Oban |
-| Assets | Node.js 20+ |
+| Assets | Mix-managed esbuild/Tailwind; Node.js 20+ for Playwright |
 | LLM | Customer-provided, configured per deployment |
+| Agent/workflow runtime | Jido ecosystem and ReqLLM; dependency sources/overrides in `mix.exs` |
 
 ---
 
@@ -28,20 +29,21 @@ lib/
 ├── zaq/
 │   ├── accounts/         # Users, roles, auth
 │   ├── agent/            # RAG, LLM, answering, retrieval
-│   ├── channels/         # Shared infra + adapter implementations
-│   │   ├── ingestion/    # Google Drive, SharePoint (not yet implemented)
-│   │   └── retrieval/    # Mattermost, Email; Slack planned
+│   ├── channels/         # Communication/data-source bridges and provider integrations
 │   ├── embedding/        # Embedding client (standalone)
-│   ├── engine/           # Orchestrator — adapter contracts + supervisors + Conversations context
+│   ├── engine/           # Routing, conversations, workflows, watches and telemetry
 │   ├── ingestion/        # Document processing, chunking, Oban jobs
+│   ├── storage/          # Mounted-volume filesystem operations and access policy
+│   ├── materialization/  # Trusted record-content handle redemption
 │   ├── addons/           # Add-on package verification, feature gating
-│   ├── node_router.ex    # Routes RPC calls by role
+│   ├── node_router.ex    # Dispatches Events locally or remotely by role
 │   └── application.ex   # Role-based OTP startup
 ├── zaq_web/
 │   ├── live/bo/
 │   │   ├── accounts/     # Users + Roles CRUD
 │   │   ├── ai/           # Ingestion, Ontology, Prompt Templates, Diagnostics
-│   │   ├── communication/# Channels, History, Playground, Conversations
+│   │   ├── communication/# Channels, History, Chat, Conversations
+│   │   ├── data_sources/ # Provider browsing and configuration
 │   │   └── system/       # Password, add-ons
 │   ├── controllers/
 │   ├── plugs/auth.ex
@@ -50,26 +52,20 @@ lib/
 
 ---
 
-## Service Responsibilities
+## Responsibilities and Navigation
 
-| Service | Responsibility |
-|---|---|
-| `accounts` | Users, roles, authentication |
-| `agent` | LLM calls, query rewriting, answering, prompt security |
-| `channels` | Shared infra, channel configs, Mattermost and Email adapters |
-| `embedding` | Standalone embedding HTTP client |
-| `engine` | Adapter contracts, supervisors, conversations |
-| `ingestion` | Document processing, chunking, Oban jobs, hybrid search |
-| `addons` | Add-on loading, BEAM decryption, feature gating |
+[Architecture](architecture.md#service-responsibilities) owns the six node roles and
+cross-service boundaries; not every source directory is an independently routable
+service. For example, Accounts and the standalone Embedding client are domain
+modules, not additional node roles.
 
-For deep-dives into each service, see `docs/services/`.
+Use the [domain guide index](README.md#domain-guides) for detailed contracts.
+ExUnit tests mirror domains under `test/zaq/` and `test/zaq_web/`; shared fixtures
+and fakes live in `test/support/`; browser journeys live in `test/e2e/`.
 
 ---
 
 ## Dev Setup
 
-```bash
-mix setup && mix phx.server   # http://localhost:4000/bo
-```
-
-Default credentials on fresh database: `admin` / `admin` (forced password change on first login).
+Follow [development setup](dev-setup.md) for setup, server, Python and browser-test
+commands. Validation timing is owned by [the workflow](WORKFLOW_AGENT.md#phase-4--validate).

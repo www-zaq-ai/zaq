@@ -2,24 +2,27 @@
 
 ## Overview
 
-The Engine service is the operational backbone of ZAQ. It owns four distinct
-responsibilities:
+The Engine service is the operational backbone of ZAQ. Its responsibilities include:
 
 1. **Conversations** — persisting and querying the full conversation/message/rating lifecycle.
 2. **Notifications** — routing outbound notifications (email, etc.) through a centralized
    dispatch pipeline with audit logging.
 3. **Channel Adapters** — supervising ingestion channel adapters (document sources) and
    retrieval channel adapters (messaging platforms).
+4. **Routing and orchestration** — incoming message policy, workflows, event registration
+   and durable data-source watch coordination.
 
 The Engine runs under the `:engine` role. The top-level `Zaq.Engine.Supervisor` starts
 `Zaq.Engine.Telemetry.Supervisor`, `Zaq.Engine.IngestionSupervisor`, and
-`Zaq.Engine.RetrievalSupervisor` under a `:one_for_one` strategy.
+`Zaq.Engine.RetrievalSupervisor`, workflow run registry/startup recovery and
+`Zaq.Engine.EventRegistry` under a `:one_for_one` strategy.
 
 Telemetry is a separate concern — see `docs/services/telemetry.md`.
 
-**Important**: BO LiveViews must never call `Zaq.Engine.Conversations` directly. For
-invoke-style cross-service calls, use `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
-instead of constructing `%Zaq.Event{}` inline.
+**Important**: BO LiveViews must never call `Zaq.Engine.Conversations` directly.
+New cross-service calls use `NodeRouter.dispatch/1` with `%Zaq.Event{}` and a
+supported domain action. See the [dispatch contract](../architecture.md#noderouter--critical)
+for request/actor preservation and the distinction from legacy generic invoke calls.
 
 ---
 
@@ -29,7 +32,7 @@ The `:engine` role must be included in `:roles` config or the `ROLES` env var:
 
 ```elixir
 # config/dev.exs
-config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
+config :zaq, roles: [:bo, :agent, :ingestion, :storage, :channels, :engine]
 ```
 
 ```bash
@@ -94,11 +97,11 @@ Adapter inbound path:
 
 ### Supervisor (`Zaq.Engine.Supervisor`)
 - Top-level supervisor for the `:engine` role.
-- `:one_for_one` children: `Telemetry.Supervisor` (see `docs/services/telemetry.md`), `IngestionSupervisor`, `RetrievalSupervisor`.
+- `:one_for_one` children are defined in `lib/zaq/engine/supervisor.ex`; these include telemetry/adapters plus event registration and workflow recovery.
 
 ### Conversations Context (`Zaq.Engine.Conversations`)
 - Public API for the full conversation/message/rating/share lifecycle.
-- Access from BO via `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`.
+- Access from BO crosses `NodeRouter.dispatch/1` and the Engine role API. Some existing callers still use generic invoke helpers; new calls follow the domain-action dispatch contract above.
 - Dispatches `Zaq.Hooks` `:feedback_provided` event after a rating is saved.
 
 **Key functions:**
@@ -162,8 +165,9 @@ rejected rather than ignored, since it would silently override the message resol
 - `get_conversation_by_token/1` — resolves a conversation from an unexpired share token.
 
 ### People Command Gateway (`Zaq.Engine.PeopleGateway`)
-- BO People operations are routed through `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
-  to Engine using `action: :people_command`.
+- BO People operations dispatch to Engine using `action: :people_command`.
+  Existing invoke-named event builders do not change that domain action's contract;
+  new callers follow `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 - `Zaq.Engine.Api` validates `%{op: atom(), params: map()}` and delegates to
   `Zaq.Engine.PeopleGateway.dispatch/2`.
 - Gateway maps operations (`:filter`, `:create`, `:update`, `:delete`, `:bulk_delete`,

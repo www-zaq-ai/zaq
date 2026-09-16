@@ -1,15 +1,8 @@
-# Validation and delivery gates
+# Completion policy entry points
 
-Authoritative lifecycle: `docs/WORKFLOW_AGENT.md` phases 4–7; test policy: `docs/testing-approach.md`. Re-read owners for current requirements rather than treating this summary as independent policy.
-
-1. Each implementation issue: run `mix q` through Context Mode (includes formatting; do not separately format), then targeted isolated tests proving behavior/failure/regression paths. q does not run tests. Review own diff and Action reuse evidence; fix failures before completing the issue. Documentation-only changes do not require application tests.
-2. Run existing E2E for affected ingestion, system config, telemetry dashboards and knowledge operations, per workflow. Full suite: `npm run test` with working directory `test/e2e/`. Pure no-behavior refactors can use unit tests; docs skip unit/E2E. Report environment blockers, do not silently waive required checks.
-3. New/substantially rewritten feature E2E requires explicit final human UX/UI approval. Track one feature E2E issue plus implementation -> human approval -> E2E dependency chain. Continue smaller tests and required existing E2E during iterations. Minimal existing-test repairs preserve assertions/intent. A merged iteration or passing tests is not approval.
-4. After implementation and PR review approval, workflow specifies coverage-upper phase: fresh `mix coveralls.json` via Context Mode with 600000ms timeout, then `mix coverup` only after success. Do not reuse stale reports after failure/timeout. If named agent is unavailable, report that limitation, never claim it ran. Record coverage outcomes/exceptions/follow-ups and rerun issue checks for coverage changes.
-5. After implementation, review fixes, required E2E and coverage, run **`mix precommit`** via Context Mode with **900000ms timeout**. Actual alias: format --check-formatted; credo --strict; compile --warnings-as-errors; test --stale, in test env. No redundant full test run. Fix/rerun until passing; blocked gate means report blocker rather than request final approval. Workflow applies final gate to doc-only delivery too, with coverage not-applicable rationale.
-6. Only then request final human approval with concise validation summary. Changed code after feedback requires repeat issue/final gates. Commit/push/merge only with explicit authorization; never push directly to main. Approval alone does not authorize unrequested Git mutations.
-7. Durable decisions/progress in Beadwork; close out merged work and update affected docs/debt/quality records as applicable. Never close pending human approval/E2E prerequisites just because an iteration merged.
-
-Testing traps verified in source:
-- `test/test_helper.exs` excludes integration/paradedb/real_browser by default; a normal green mix test is not evidence those suites ran.
-- `config/test.exs` names DB `zaq_test_<branch_slug><partition>` or `zaq_test_e2e_<branch_slug><partition>` using MIX_TEST_PARTITION; Ecto SQL Sandbox manual mode, Oban inline. Test support compiles only in test; keep fakes there.
+- [Workflow phases 4–7](../../docs/WORKFLOW_AGENT.md#phase-4--validate) own validation timing, failure handling, coverage and final approval. Read them rather than treating this memory as an alternate checklist.
+- Issue checks are `mix q` plus isolated tests; final gate is `mix precommit`. They are not interchangeable, and q does not run tests. The workflow specifies Context Mode execution and coverage/final-gate timeouts.
+- [Testing handbook](../../docs/testing-approach.md#feature-e2e-approval-gate) distinguishes running existing E2E from authoring new feature journeys. New/substantially rewritten feature E2E needs explicit human UX/UI finalization approval; passing tests or merging an iteration isn't approval.
+- [Documentation hygiene](../../docs/documentation.md#change-and-review-checklist) owns link/example/memory checks and refers to the same workflow for documentation-only exceptions. `serena memories check` proves reference integrity, not factual accuracy.
+- Beadwork holds durable progress/blockers. Report blocked checks honestly; do not weaken assertions or silently waive gates. Final approval does not authorize unrequested commits/pushes/merges.
+- Test exclusions and command side effects that can mislead validation: `mem:suggested_commands`.

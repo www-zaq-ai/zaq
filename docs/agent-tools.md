@@ -1,6 +1,6 @@
 # Agent Tools
 
-This is the authoritative tool-routing and memory policy for all coding agents. Before tool use, read the boundary and routing sections; consult the reference and maintenance sections only as needed. Host tool requirements take precedence. Context Mode uses native `ctx_*` commands/tools, not an MCP server.
+This is the authoritative tool-routing and memory-tool boundary policy for all coding agents. [Documentation hygiene](documentation.md) owns information placement, organization and memory content maintenance. Before tool use, read the boundary and routing sections; consult the reference and maintenance sections only as needed. Host tool requirements take precedence. Context Mode uses native `ctx_*` commands/tools, not an MCP server.
 
 ## Tool boundaries
 
@@ -42,7 +42,7 @@ These rules apply to operational/textual analysis, not as a replacement for sema
 ## Memory and delegation
 
 - Repository documentation owns standards; Beadwork owns durable plans, tasks and progress. GitHub remains overall project management.
-- Serena memories hold stable project knowledge (architecture, conventions, modules, commands), consistent with repository documentation.
+- Serena memories provide compact source maps and durable pitfalls linked to repository owners, not parallel architecture manuals or copied procedures. Follow [memory hygiene](documentation.md#serena-memory-hygiene) for content and refresh rules.
 - Context Mode supports session/working recall (edits, errors, decisions, command results). Automatic capture depends on the installed integration; verify it, never promise complete history.
 - After compaction, retrieve relevant context and verify against current files, Git and Beadwork. Unchanged policies already in context need not be reread. Neither memory store replaces the authoritative sources.
 - Delegated prompts must require applicable policies when not inherited. Do not assume automatic injection, agent-type upgrades or tool access; report missing capabilities and use bounded fallbacks.

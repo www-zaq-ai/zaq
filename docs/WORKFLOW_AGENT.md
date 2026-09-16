@@ -10,7 +10,7 @@ from receiving a prompt to merging a PR. Follow this without skipping steps.
 Before writing a single line of code:
 
 1. Read `AGENTS.md` once to route the task; reuse unchanged instructions already in context.
-2. Read required sections of applicable policy/service documents before affected work. Links are not imports; do not load the entire map. Tool routing is owned by [agent tools](agent-tools.md). After compaction, recover applicable policies and verify current files, Git and Beadwork before acting. Delegation must explicitly require applicable policy paths when not inherited.
+2. Read required sections of applicable policy/service documents before affected work. Links are not imports; do not load the entire map. Tool routing is owned by [agent tools](agent-tools.md); documentation and memory content by [documentation hygiene](documentation.md). After compaction, recover applicable policies and verify current files, Git and Beadwork before acting. Delegation must explicitly require applicable policy paths when not inherited.
 3. Run `bw prime`.
 4. Check existing Beadwork issues to confirm whether planning work already exists for this task.
 5. For tracked-debt work, consult the relevant entries in `docs/exec-plans/tech-debt-tracker.md`.
@@ -73,11 +73,7 @@ Work through the planned Beadwork issues one at a time:
 - One PR per step when possible — keep PRs small and focused.
 - Before coding each step, recheck its Action reuse assessment against current source. Update decisions and prerequisites before changing direction; reuse/extend existing operations instead of adding parallel flows. Preserve execution, authorization, and NodeRouter boundaries per `docs/action-reuse.md`.
 - Never call Agent, Ingestion, Engine, or Channel modules directly from BO.
-- For cross-service invoke calls, always use role/channel Events helpers instead of building `%Zaq.Event{}` inline and dispatching manually:
-  - `Zaq.Agent.Events.build_and_dispatch_invoke_event/3`
-  - `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
-  - `Zaq.BO.Events.build_and_dispatch_invoke_event/3`
-  - `Zaq.Channels.Events.build_and_dispatch_*`
+- For cross-service calls, use `NodeRouter.dispatch/1` with `%Zaq.Event{}` and supported domain actions per the [dispatch contract](architecture.md#noderouter--critical). Do not introduce generic invoke calls or invoke-helper requirements for new code.
 - Never persist sensitive values without encrypting first — see `docs/services/system-config.md`.
 - Never bypass Ecto changesets for data mutations.
 - If you discover something unexpected, add it to the decisions log before continuing.

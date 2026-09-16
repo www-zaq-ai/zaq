@@ -35,13 +35,7 @@
 - LiveViews, controllers, plugs, and workers orchestrate and delegate — they do not own business logic.
 - BO modules in `lib/zaq_web/` must not access persistence or integrations directly.
 - Cross-context calls use public context functions, not internal helpers.
-- Cross-service BO calls always go through `NodeRouter`.
-- For role-boundary invoke calls, use role-specific Events helpers instead of hand-rolling `%Zaq.Event{}`:
-  - `Zaq.Agent.Events.build_and_dispatch_invoke_event/3`
-  - `Zaq.Engine.Events.build_and_dispatch_invoke_event/3`
-  - `Zaq.BO.Events.build_and_dispatch_invoke_event/3`
-- If an event must be built now and dispatched later, use the corresponding `build_invoke_event/3` helper.
-- Direct `Event.new(...) |> NodeRouter.dispatch()` is reserved for helper internals or legacy paths pending migration.
+- Cross-service BO calls use `NodeRouter.dispatch/1` with `%Zaq.Event{}` and a supported domain action. Follow the [dispatch contract](architecture.md#noderouter--critical); generic `:invoke`/module-function-args requests and invoke helpers are legacy, not the convention for new code.
 - Role-level event boundary handlers live under `Zaq.<Role>.Api` (including `Zaq.Bo.Api` for `:bo`).
 - BO channel configuration flows must call channels role APIs via `NodeRouter.dispatch/1`, with provider operations delegated to `Zaq.Channels.CommunicationBridge`; they must not call bridge or adapter modules directly.
 
@@ -127,7 +121,7 @@ rationale; neither a service module nor a single consumer waives this evaluation
 
 - When data crosses a service boundary, define a canonical struct with `@enforce_keys`.
 - Adapter-specific envelopes must never leak inward — always map to the canonical struct first.
-- Cross-node routing uses `%Zaq.Event{}` as the envelope, but callers should create/dispatch invoke events through role-specific Events helpers (`Zaq.Agent.Events`, `Zaq.Engine.Events`, `Zaq.BO.Events`) rather than constructing envelopes inline.
+- Cross-node routing uses `%Zaq.Event{}` through `NodeRouter.dispatch/1`; preserve trusted actor, opts and the destination action's request/response contract. See the [dispatch contract](architecture.md#noderouter--critical).
 - Example: `Zaq.Engine.Messages.Incoming` / `Outgoing` are canonical message payloads and are carried as `event.request` / `event.response`.
 
 ### State transitions belong in their own module
@@ -212,7 +206,7 @@ rationale; neither a service module nor a single consumer waives this evaluation
 
 ## Temporary Code
 
-- Any temporary shortcut must include a `TODO` with a linked issue and clear removal condition.
+- Mark temporary shortcuts with a tracked `Temporary:` comment and removal condition per [technical debt controls](code-quality.md#technical-debt-controls); bare `TODO` tags fail the configured Credo check.
 - Remove dead code and stale branches when replacing behavior — do not keep inactive paths "just in case".
 - If a change intentionally diverges from established patterns, document the rationale in the PR description.
 

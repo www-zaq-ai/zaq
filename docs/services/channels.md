@@ -8,7 +8,7 @@ The Channels service provides transport and runtime infrastructure for communica
 - **Retrieval channels** receive user messages and deliver ZAQ responses (Mattermost, Slack, Teams, Email, Telegram, Discord).
 - **Outbound HTTP** receives untrusted `http_request` events, asks Engine to prepare policy and credentials, then performs stateless DNS validation and transport execution.
 
-All channel delivery flows through canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`. Nothing inside ZAQ depends on adapter-specific envelope types. For channel event creation/dispatch, use `Zaq.Channels.Events` helpers; these helpers emit `%Zaq.Event{}` envelopes for cross-node routing.
+Channel delivery uses canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`; adapter-specific envelopes stay at the transport boundary. Cross-node routing follows the [Event/dispatch contract](../architecture.md#noderouter--critical). Existing `Zaq.Channels.Events` domain builders encapsulate specific request contracts, but are not a blanket requirement to replace direct Event construction.
 
 ---
 
@@ -175,7 +175,7 @@ again before returning content.
 
 ## Channels API and Communication Routing
 
-`Zaq.Channels.Api` is the role boundary entrypoint for channel delivery/runtime events. Callers should route through `Zaq.Channels.Events` helpers (`build_*` / `build_and_dispatch_*`) rather than constructing and dispatching `%Zaq.Event{}` inline.
+`Zaq.Channels.Api` is the role boundary entrypoint for channel delivery/runtime events. Callers use `NodeRouter.dispatch/1` with `%Zaq.Event{}` and a supported domain action, preserving trusted actor and runtime opts. Inspect this API and any domain event builder for the request contract; do not use generic invocation as a fallback for a missing action.
 
 `Zaq.Channels.CommunicationBridge` owns provider normalization, bridge resolution, and delivery/runtime delegation helpers.
 

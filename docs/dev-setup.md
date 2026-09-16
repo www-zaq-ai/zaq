@@ -18,6 +18,10 @@ changing the browser URL to a server IP is not sufficient.
 
 ## Tool Usage
 
+Automated coding-agent work requires Context Mode, Serena and Beadwork. Follow
+[agent workflow setup](agent-setup.md) for official upstream instructions and
+new-environment readiness checks.
+
 Read and follow [agent tools](agent-tools.md) before tool use: it owns routing,
 fallbacks, batching, memory, delegation and Context Mode commands. Do not copy
 its procedures here. Serena selects relevant code; Context Mode selects relevant observations.
@@ -101,7 +105,10 @@ mix zaq.python.fetch --commit <sha> # pin to commit
 
 ## Sub-Agents
 
-Located in `.claude/agents/`. Shared memory at `.swarm/memory.json`.
+Agent definitions live in `.claude/agents/` and `.opencode/agents/`; availability and
+tools depend on the active host, so inspect exposed agents rather than assuming all
+names below are callable. Beadwork owns durable plans/progress; repository docs and
+supporting memories follow [documentation hygiene](documentation.md).
 
 | Agent | Purpose | When to run |
 |---|---|---|

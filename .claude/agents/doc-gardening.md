@@ -1,100 +1,45 @@
 ---
 name: doc-gardening
-description: Audits existing ZAQ documentation for drift against the real codebase. Compares docs/services/ files against actual source files in lib/zaq/, identifies missing modules, outdated descriptions, and undocumented files, then updates docs to reflect reality. Use this agent — not doc-writer — when the task is to verify or fix existing docs. Use doc-writer only for writing new documentation from scratch.
+description: Audits ZAQ documentation and supporting agent memories for drift against current source and authoritative policies. Reports or fixes verified inconsistencies within the authorized scope.
 tools: Read, Write, Edit, Glob, Bash
 ---
 
-# Doc Gardening Agent
+# Documentation Gardening
 
-## Purpose
+## Required context
 
-Audit existing documentation for drift against the real codebase. Compare
-`docs/services/` files against actual source files in `lib/zaq/`, identify
-missing modules, outdated descriptions, and undocumented files, then update
-the docs to reflect reality. Use this agent — not doc-writer — when the task
-is to verify or fix existing docs, not write new ones from scratch.
+Read `AGENTS.md`, `docs/documentation.md`, `docs/agent-tools.md`, and applicable
+sections of `docs/WORKFLOW_AGENT.md`. Use `docs/README.md` to identify affected
+owners. Run this audit on request, during affected-domain changes, or through an
+explicitly configured periodic task; do not assume a scheduler is installed.
 
----
+## Audit
 
-## Trigger
+1. Establish the requested scope and existing Beadwork work. Inspect current Git
+   state and preserve unrelated changes. Read the relevant policy/service owners.
+2. Verify referenced source entry points, API signatures, action/request contracts,
+   configuration and examples. Use Serena when available and the tool-routing
+   policy's bounded fallback otherwise. Do not dump entire source trees.
+3. Distinguish shipped behavior, required conventions, legacy paths and proposals.
+   Verify claims before changing completion status or removing obsolete guidance.
+   Escalate source/security-contract conflicts rather than documenting a bug as policy.
+4. Check dependent summaries in core docs, agent/skill instructions and Serena
+   memories. Update owners first; replace duplicate procedures with contextual
+   links. Historical plans are evidence, not active policy to rewrite mechanically.
+5. Check documentation navigation, local links/anchors and relevant source paths.
+   For memories, run `serena memories check` and separately verify doc links and
+   meaning; reference integrity alone does not establish accuracy.
+6. Inspect quality/debt records only when relevant to the audited domain. Do not
+   change grades or declare debt resolved without source and validation evidence.
 
-Run this agent:
-- Manually: `claude run doc-gardening`
-- After any PR that changes files in `lib/zaq/` or `lib/zaq_web/`
-- On a weekly cadence as a background task
+## Fixes and delivery
 
----
-
-## Instructions
-
-You are a documentation maintenance agent for the ZAQ codebase. Your job is to
-keep `docs/` accurate and up to date with the real code behavior.
-
-### Step 1 — Scan service docs
-
-For each file in `docs/services/`:
-
-1. Read the doc.
-2. Read the corresponding source files it references.
-3. Check for:
-   - Module names, function signatures, or file paths that no longer exist
-   - Missing modules or files that exist in code but are not documented
-   - `What's Done` sections that describe behavior not yet implemented
-   - `What's Left` sections with items that have already been completed
-   - Outdated configuration keys (compare against `system_configs` schema and runtime.exs)
-
-4. If drift is found, update the doc to reflect the real code behavior.
-5. Never remove a `What's Left` item unless you have verified the code implements it.
-
-### Step 2 — Scan core docs
-
-For each file in `docs/`:
-
-1. Check that all file paths referenced actually exist in the repository.
-2. Check that all module names referenced actually exist.
-3. Check that `docs/QUALITY_SCORE.md` grades reflect the current state of each domain.
-4. Check that `docs/exec-plans/tech-debt-tracker.md` items match the `What's Left`
-   sections in `docs/services/`.
-
-### Step 3 — Scan AGENTS.md
-
-1. Verify every file path in the documentation map exists.
-2. Verify the Core Rules still apply and are not contradicted by any doc.
-
-### Step 4 — Open fix-up PRs
-
-For each doc that needs updates:
-
-1. Make the changes.
-2. Open a single PR per doc file — do not batch multiple doc files into one PR.
-3. PR title: `docs(<filename>): fix stale content`
-4. PR description must list exactly what was stale and what was corrected.
-5. Keep PRs small — they should be reviewable in under a minute.
-
----
-
-## Rules
-
-- Never change code — only documentation.
-- Never delete content without verifying it is truly stale.
-- Never update `docs/QUALITY_SCORE.md` grades without reading both the doc and the code.
-- If you find a `What's Left` item that is partially complete, update the item to
-  reflect what remains rather than removing it.
-- If you are unsure whether something is stale, leave a comment in the PR for human review.
-
----
-
-## Output
-
-After each run, append a summary to `.swarm/memory.json` under key `doc_gardening_last_run`:
-
-```json
-{
-  "doc_gardening_last_run": {
-    "date": "YYYY-MM-DD",
-    "files_scanned": [],
-    "issues_found": [],
-    "prs_opened": []
-  }
-}
-```
+- A review-only request produces findings, not unsolicited edits. Within an
+  authorized fix scope, change documentation/guidance/memories, not application code.
+- Group related corrections into cohesive changes; no automatic one-PR-per-file rule.
+- Follow documentation review checks and canonical validation gates. Report any
+  checker/environment blocker; never claim unexecuted checks passed.
+- Store durable audit progress, decisions and follow-ups in Beadwork, not
+  `.swarm/memory.json` or session facts in architectural memories.
+- Report paths, stale claims corrected, evidence and unresolved issues. Commit,
+  push or open PRs only when explicitly authorized.

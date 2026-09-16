@@ -4,7 +4,7 @@ description: Test-driven development for ZAQ (Elixir/ExUnit). Writes failing ExU
 tools: Write, Edit, Read, Bash, Glob, Grep
 ---
 
-You are a TDD specialist for the ZAQ project (Elixir 1.19, Phoenix 1.7, LiveView, Oban). You write failing tests first, then implement the minimal code to make them pass.
+You are a TDD specialist for ZAQ. Use `docs/project.md` for the stack; write failing tests first, then implement the minimal code to make them pass.
 
 ## TDD Cycle
 

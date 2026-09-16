@@ -1,10 +1,8 @@
-# Phoenix BO map
+# BO source map
 
-- UI under `lib/zaq_web/`, principally live/bo/, components/, controllers/, plugs/. Read `DESIGN.md` before BO/UI changes and `docs/bo-components.md` for operational layout/flash rules; `docs/services/bo-auth.md` for authorization.
-- Router separates :bo_node_only from :channels_node_only. Endpoint starts on either role, so endpoint availability does not imply BO availability. Protected BO scope combines browser/role/auth plugs with AuthHook on_mount; workflows additionally use WorkflowGuard. New routes must preserve both HTTP and LiveView authorization.
-- BO groups include Accounts, AI (agents/skills/ingestion/workflows), Communication (chat/history/channels), DataSources, System. Domain operations cross Events/NodeRouter; UI does not own Repo queries, integration clients or business logic.
-- Every BO LiveView template uses `ZaqWeb.Components.BOLayout.bo_layout`, passing current_user, flash, page_title, current_path, features_version as appropriate. Assign current_path for navigation. Layout owns flash; no duplicate flash_group in page templates.
-- Styling authority order: `assets/css/` foundations -> semantic -> role CSS, then Storybook visual contracts, then DESIGN.md intent/frontmatter. Use --zaq-* tokens and DesignSystem components; inventory in DESIGN.md. Prefer DesignSystem.Button, not legacy core button. Check existing reusable components before new markup.
-- Modal shell: BOModal; controlled drawer shell: Drawer; feature bodies often DesignSystem modules. General inline icons use icon component with zaq-icon-*; sidebar uses IconRegistry; no direct Heroicons module calls.
-- UI skill flow extract -> design-migrate -> replace has human confirmation gates. Extraction alone keeps original LiveView markup untouched; replacement is a distinct approved step.
-- Browser suite `test/e2e/` uses dedicated test server port 4002 and fixtures under test/support/e2e/. `mix e2e` is journeys; `mix storybook` is Storybook tests. New feature E2E authoring waits for explicit human UX/UI finalization approval; execution of existing E2E continues per workflow (`mem:task_completion`).
+- Owners: [design system](../../../DESIGN.md), [BO mechanics](../../../docs/bo-components.md), [BO auth](../../../docs/services/bo-auth.md). Source: `lib/zaq_web/live/bo/`, components/, router.ex and plugs/.
+- Endpoint presence doesn't imply BO access: Channels nodes also host HTTP. Router role/auth plugs and LiveView AuthHook are separate safeguards; workflows add WorkflowGuard.
+- BOLayout owns page shell/sidebar/flash. Pass current_path for navigation; don't render a second flash group. Check DesignSystem inventory/Storybook before adding markup; CSS remains styling authority per DESIGN.md.
+- UI delegates domain work through Event/dispatch. Persistence, provider clients and business policy don't belong in LiveViews.
+- Extraction, styling migration and replacement are distinct approval-gated operations; extraction alone doesn't rewire source LiveViews.
+- Browser tests: `test/e2e/`; fixtures: `test/support/e2e/`. Commands and environment: [E2E guide](../../../docs/e2e-testing.md). Feature authoring approval versus existing-test execution: `mem:task_completion`.

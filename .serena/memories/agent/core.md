@@ -1,10 +1,8 @@
-# Agent execution map
+# Agent source map
 
-- Policy owner `docs/services/agent.md`, especially harness-critical checks before touching `lib/zaq/agent/`. Action reuse and runtime injection summarized in `mem:conventions`.
-- `agent/api.ex` handles role Events. For :run_pipeline it normalizes identity into Event.actor and selects RAG Pipeline vs direct Executor by nonempty agent_selection.agent_id. Both atom-keyed and string-keyed selections are supported; do not accidentally route workflow-selected agents into the default RAG path.
-- `pipeline.ex`: shared validate -> retrieve -> extract -> answer -> safety-check flow; hook events surround retrieval/answering/completion. `retrieval.ex`, `answering.ex`, `prompt_guard.ex`, `citation_normalizer.ex` own focused stages. Retrieval's document/search implementation belongs to Ingestion, not Agent.
-- `executor.ex`: shared run lifecycle for default answering and explicit configured agents. Derives scope for conversation/person/session/anonymous identities, orchestrates ServerManager, asks via Factory, consumes StreamEvents, normalizes output to Engine.Messages.Outgoing. Do not collapse runtime identity to only configured-agent id.
-- `factory.ex` / `provider_spec.ex` build runtime/provider configuration; `server_manager.ex` owns Jido server lifecycle. `runtime_sync.ex` / `idle_lifecycle.ex` separate reconciliation and inactivity. Inspect actual lifecycle contracts before changing hot-patch/restart semantics.
-- `tools/registry.ex` explicitly allowlists BO-agent tool keys; runtime declarations must not execute arbitrary modules. `tools/`, `skills/`, `mcp/`, context_window/ and request_registry.ex are separate capability/state concerns, not permission shortcuts.
-- Identity/permission defaults are fail-closed: no implicit bypass for nil identity, missing actor or model-provided parameters. Read service checks before altering scope, tool params, selected agents or retrieval authorization.
-- Cross-channel policy comes from Engine, transport details from Channels: see `mem:engine/core`, `mem:channels/core`. Search/materialization ownership: `mem:ingestion/core`.
+- Owner: [Agent service](../../../docs/services/agent.md), including harness-critical checks. Source root: `lib/zaq/agent/`.
+- `api.ex` is the role entry point: run_pipeline selects default RAG (`pipeline.ex`) versus explicit configured agent (`executor.ex`). Both string/atom selection keys exist; don't lose workflow-selected agents during normalization.
+- Pipeline coordinates retrieval/extraction/answering/safety. Executor coordinates run scope and lifecycle; Factory/ProviderSpec build runtime/provider configuration; ServerManager owns Jido processes. Keep those responsibilities separate.
+- Server identity includes request scope, not only configured-agent id. Check the service guide and RuntimeSync/ServerManager before changing hot-patch, restart or idle behavior.
+- `tools/registry.ex` allowlists agent tools; `skills/`, `mcp/`, `context_window/` and `request_registry.ex` own distinct capability/state concerns. None bypasses trusted identity or permission checks.
+- Routing policy comes from Engine (`mem:engine/core`), transport from Channels (`mem:channels/core`), document search from Ingestion (`mem:ingestion/core`).

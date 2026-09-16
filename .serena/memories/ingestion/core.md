@@ -1,10 +1,9 @@
-# Ingestion and retrieval map
+# Ingestion source map
 
-- Policy owner `docs/services/ingestion.md`; main context path `lib/zaq/ingestion/ingestion.ex`, role boundary api.ex/events.ex. Do not assume context is at lib/zaq/ingestion.ex.
-- IngestWorker -> DocumentProcessor/DocumentChunker -> IngestChunkWorker -> chunk title/standalone `Zaq.Embedding.Client` -> Chunk persistence. Parent/child job schemas are ingest_job.ex / ingest_chunk_job.ex; `JobLifecycle` centralizes transitions and broadcasts.
-- DocumentProcessor owns layout-aware chunking, embedding/storage and hybrid search: parallel BM25/vector legs with Elixir-side reciprocal-rank fusion and token-limited extraction. FTSBackend selects supported full-text backend; application detects/caches it after startup. Embedding remains a standalone domain, not part of Agent.
-- `python/` coordinates non-Markdown conversion before Elixir chunking; scripts fetched into priv/python. Converted scratch Markdown beside job-materialized input is temporary, not a second document to index.
-- `record_source.ex`, `content_source.ex`, `external_source.ex`, `document_access.ex`, `external_permissions.ex` separate source/provenance/access concerns. Preserve source-backed permissions and trusted actor propagation across retrieval and watched-record handling.
-- Provider-facing calls belong to Channels; watch-channel rows/checkpoints/renewal belong to Engine; changed-record filtering and removal of ingested watched docs belong to Ingestion. Mounted filesystem bytes/volume mutations belong to Storage, not Ingestion.
-- Temporary materialization is job-scoped (`temporary_materialization_store.ex`); shared handle contract in `lib/zaq/materialization.ex` / `docs/services/materialization.md`. Consumers redeem handles through trusted owners, not guessed local paths or arbitrary target modules.
-- Consult `mem:channels/core` for Disk source identity and storage ownership, `mem:engine/core` for watch coordination, `mem:agent/core` for answering consumers. Tests and controlled E2E processor fixtures stay in test/support, not production-only test branches.
+- Owner: [Ingestion](../../../docs/services/ingestion.md). Main context is `lib/zaq/ingestion/ingestion.ex`, not `lib/zaq/ingestion.ex`; role boundary is api.ex.
+- IngestWorker/IngestChunkWorker coordinate document/chunk work. DocumentProcessor/DocumentChunker own processing; standalone `lib/zaq/embedding/client.ex` owns embedding calls. JobLifecycle centralizes transitions and broadcasts.
+- DocumentProcessor hybrid search combines BM25/vector legs via reciprocal-rank fusion; FTSBackend resolves deployment capability. Don't treat ParadeDB availability as universal.
+- `python/` coordinates conversion before Elixir chunking. Job-scoped converted Markdown is scratch output, not a separate document to index.
+- RecordSource/ContentSource/DocumentAccess/ExternalPermissions separate provenance and access. Mounted bytes/volume mutations belong to Storage; provider calls to Channels; durable watch checkpoints to Engine.
+- Temporary materialization and shared handle contracts: [materialization](../../../docs/services/materialization.md), `temporary_materialization_store.ex` and `lib/zaq/materialization.ex`.
+- Provider/Storage seam: `mem:channels/core`; watch coordination: `mem:engine/core`; search consumers: `mem:agent/core`.

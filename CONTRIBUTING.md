@@ -15,7 +15,16 @@ mix setup
 mix phx.server
 ```
 
+## Agent-Assisted Development
+
+Before starting an automated coding-agent workflow, complete the
+[agent workflow setup](docs/agent-setup.md): **Context Mode, Serena, and Beadwork
+(`bw`) are required** for the agent to follow this repository's workflow. The guide
+links to current upstream installation/integration instructions and covers
+repository-specific readiness checks. These tools are not ZAQ runtime dependencies.
+
 ## Branching
+
 
 | Branch type                 | Naming                                                   | Targets |
 | --------------------------- | -------------------------------------------------------- | ------- |
@@ -62,7 +71,7 @@ feat(api)!: remove deprecated v1 endpoints
 4. Complete the [issue validation checks](docs/WORKFLOW_AGENT.md#unit-validation); that policy owns commands, tests and failure handling.
 5. Open a Pull Request targeting `main` with a clear description of what changed and why.
 6. Respond to all review feedback before merging.
-7. Update relevant docs if behavior or architecture changed. Follow the [coverage and final approval gate](docs/WORKFLOW_AGENT.md#phase-6--coverage-and-merge) before requesting final human approval. Commit/merge only when authorized.
+7. Update relevant docs if behavior or architecture changed, following [documentation organization and hygiene](docs/documentation.md). Use the [documentation index](docs/README.md) to find the owner. Follow the [coverage and final approval gate](docs/WORKFLOW_AGENT.md#phase-6--coverage-and-merge) before requesting final human approval. Commit/merge only when authorized.
 
 ## Bug Fixes
 
@@ -83,7 +92,7 @@ A few rules that reviewers will check:
 ## Code Quality
 
 - Follow the linked validation policy rather than defining alternative quality gates here.
-- Any temporary shortcut must include a `TODO` with a linked issue and a clear removal condition.
+- Mark temporary shortcuts using the tracked `Temporary:` format in [technical debt controls](docs/code-quality.md#technical-debt-controls), not a bare `TODO` tag.
 - Remove dead code — don't leave inactive paths "just in case".
 - If your change intentionally diverges from established patterns, explain why in the PR description.
 

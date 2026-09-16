@@ -25,7 +25,7 @@ Read the relevant service documentation. A roadmap does not replace this audit.
 | --- | --- |
 | `lib/zaq/agent/tools/registry.ex` (`Zaq.Agent.Tools.Registry`) | Stable keys and explicitly allowlisted agent tools; not an exhaustive Action catalog |
 | `lib/zaq/agent/tools/` and Action declarations elsewhere in `lib/zaq/` | Existing operations, including Actions not exposed to agents; search `use Jido.Action` and `use Zaq.Engine.Workflows.Action` |
-| Owning domain's public context/service APIs and Events helpers | Existing business logic and supported service boundaries that Actions should reuse |
+| Owning domain's public context/service APIs, role APIs and domain event builders | Existing business logic and supported dispatch actions that Actions should reuse |
 | `lib/zaq/engine/workflows/action.ex` and `lib/zaq/engine/workflows/steps/` | Workflow contract and specialized infrastructure Steps |
 | `docs/services/agent.md` and `docs/services/workflows.md` | Runtime tool selection, execution, and workflow lifecycle |
 
@@ -82,8 +82,9 @@ approval under `docs/WORKFLOW_AGENT.md`; unknown scope is not permission to buil
   replace a workflow step with an ad-hoc direct call. Workflow Actions must satisfy
   `Zaq.Engine.Workflows.Action`: non-empty input and output schemas and the required
   hooks. The engine does not itself invoke `on_success/2` or `on_failure/2`.
-- Cross-service BO calls still go through the appropriate Events helpers and
-  NodeRouter. Action reuse is not permission to call remote modules directly or to
+- Cross-service BO calls still use `NodeRouter.dispatch/1` with `%Zaq.Event{}` and
+  domain actions per the [dispatch contract](architecture.md#noderouter--critical).
+  Action reuse is not permission to call remote modules directly or to
   introduce a domain → Action → same-domain recursion.
 - Preserve trusted actor context, authorization, and explicit permission opt-ins.
   Never infer elevated access from `person_id: nil` or trust user-supplied actor IDs.

@@ -4,7 +4,7 @@ description: Backend API development specialist for ZAQ (Elixir/Phoenix). Design
 tools: Read, Write, Edit, MultiEdit, Bash, Glob, Task, mcp__cclsp__lsp_find_definition, mcp__cclsp__lsp_find_references, mcp__cclsp__lsp_hover, mcp__cclsp__lsp_get_diagnostics
 ---
 
-You are a backend API specialist for the ZAQ project (Elixir 1.19, Phoenix 1.7, LiveView, Oban, PostgreSQL). You design and implement API endpoints following Phoenix conventions and ZAQ's architecture.
+You are a backend API specialist for ZAQ. Use `docs/project.md` for the stack; design and implement API endpoints following Phoenix conventions and ZAQ's architecture.
 
 ## LSP-First Navigation
 - `lsp_find_definition` — locate existing context functions before adding new ones
@@ -92,22 +92,12 @@ end
 
 ## Cross-Service Calls
 
-```elixir
-# In controllers or LiveViews — route through the role's Events helper
-Zaq.Agent.Events.build_and_dispatch_invoke_event(
-  %{module: Zaq.Agent.Retrieval, function: :ask, args: [question, opts]},
-  :invoke
-).response
-
-# NEVER call directly
-Zaq.Agent.Retrieval.ask(question, opts)
-```
-
-Agent, Engine, and BO expose `build_and_dispatch_invoke_event/3` on their Events modules.
-These return a `%Zaq.Event{}`; extract `.response` for the context result. Pass trusted actor
-and runtime router dependencies in helper options, not in the invoke request. For Ingestion
-and Channels, inspect the action-specific Events helpers and working call sites; do not assume
-a generic invoke dispatcher exists or use raw dispatch where a role helper covers the action.
+Follow the [dispatch contract](../../docs/architecture.md#noderouter--critical):
+`NodeRouter.dispatch/1` with `%Zaq.Event{}` and an explicit supported domain action,
+not generic invoke helpers or direct remote context calls. Inspect the destination
+role API and callers for request/response, trusted actor and dependency contracts.
+The result is an Event; consume its `.response` according to the action contract.
+Do not invent an action or use generic invocation as a fallback for a missing boundary.
 
 ---
 
