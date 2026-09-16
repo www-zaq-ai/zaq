@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-16T09:12:04Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-i3r",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-i3r] Update canonical validation lifecycle",
   "type": "task",
-  "updated_at": "2026-09-16T09:12:04Z"
+  "updated_at": "2026-09-16T09:17:58Z"
 }
