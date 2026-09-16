@@ -7,9 +7,15 @@
   "id": "zaq-z1e.5",
   "labels": [],
   "parent": "zaq-z1e",
+  "comments": [
+    {
+      "text": "Documentation scan and git diff --check pass; mix q passes. mix precommit blocked: task docs could not be found. Also normalized two stale Claude subagent tool allowlists discovered during final scan. Changes left uncommitted for user; no application code changed.",
+      "timestamp": "2026-09-16T06:32:34Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-z1e] Validate documentation consistency and quality",
   "type": "task",
-  "updated_at": "2026-09-16T06:32:33Z"
+  "updated_at": "2026-09-16T06:32:34Z"
 }
