@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-ltl.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ltl.4"
+  ],
   "created": "2026-09-16T08:30:22Z",
   "description": "Implement approved documentation boundary plan; Action reuse N/A. No application code or runtime tests to add.",
   "id": "zaq-ltl.3",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-ltl] Document combined workflow fallback and memory",
   "type": "task",
-  "updated_at": "2026-09-16T08:30:30Z"
+  "updated_at": "2026-09-16T08:30:31Z"
 }
