@@ -2,14 +2,15 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-16T06:32:32Z",
   "created": "2026-09-16T06:24:14Z",
   "description": "Approved documentation-only plan. Action reuse not applicable: no application operations. Edit only AGENTS.md, CLAUDE.md and docs/dev-setup.md; preserve unrelated MCP tools.",
   "id": "zaq-z1e.1",
   "labels": [],
   "parent": "zaq-z1e",
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-z1e] Normalize native context-mode tool names",
   "type": "task",
-  "updated_at": "2026-09-16T06:24:14Z"
+  "updated_at": "2026-09-16T06:32:32Z"
 }
