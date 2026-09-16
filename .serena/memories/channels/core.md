@@ -1,0 +1,11 @@
+# Channels and Storage boundaries
+
+- Owner `docs/services/channels.md`; current source `lib/zaq/channels/` uses Bridge, CommunicationBridge, DataSourceBridge and implementation families (JidoChatBridge, JidoConnectBridge, EmailBridge, WebBridge, DiskBridge). Verify provider_catalog.ex/current bridge support rather than older architecture statements about Mattermost-only support.
+- CommunicationBridge is stateless provider-to-bridge delegation plus runtime-sync coordination; concrete bridges own provider vocabulary/runtime internals. Engine owns incoming routing policy. BO reaches Channels Api via Events/NodeRouter, never bridges directly.
+- DataSourceBridge owns provider-facing auth/list/download/listener/watch/webhook boundary, not durable watch state (Engine) or watched-document deletion (Ingestion).
+- Data-source file callbacks receive normalized `Zaq.Events.TrustedContext` separately from provider business params. Params must not contain full Record or model-controlled authority. Signed Record mutations authorize at this boundary; provider-based update requires bridge-owned permission checking per current contract.
+- Storage is a separate role: `lib/zaq/storage.ex`, `storage/`, Api/Supervisor and NodeRouter mapping. Owns mounted bytes, directories, volume mutation and source-scoped policy. Ingestion does not manage mounted files directly.
+- DiskBridge dispatches storage Events: **no mounted filesystem reads on Channels nodes**. Maps Storage.FileExplorer.Entry/flat grants into `Zaq.Contracts.Record`; Storage does not construct provider Records.
+- Disk listings return unmaterialized Records (`content: nil` plus materialization_handle). File identity is volume + relative source path, not ingested documents.id; files need not be ingested to be addressable.
+- Handle redemption uses Storage.Materializers.DiskDocument directly through storage ownership, not Channels -> Storage -> Channels loops. Storage materialize_document returns bytes; caller merges into existing Record. `lib/zaq/materialization.ex` issues/redeems JSON-safe handles; `docs/services/materialization.md` owns handle/security contract. Do not parse opaque handle payloads in consumers.
+- Other boundary owners: `mem:engine/core` for watches/routing; `mem:ingestion/core` for record ingestion; `mem:conventions` for trusted identity/injection/Actions.

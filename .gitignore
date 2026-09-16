@@ -69,7 +69,6 @@ config/test.secret.exs
 .cursor/
 .cursor/debug*.log
 
-.serena
 .expert
 .swarm
 swarm
