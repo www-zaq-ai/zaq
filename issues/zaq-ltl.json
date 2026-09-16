@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T08:30:14Z",
+  "description": "Approved documentation-only plan. Action reuse N/A: no application operation changes. Preserve prior edits; working-tree delivery. Steps: routing table, scope sandbox rules, workflow/fallback/memory, align instructions, validate.\n```mermaid\ngraph LR\n1 --\u003e 2 --\u003e 3 --\u003e 4 --\u003e 5\n```",
+  "id": "zaq-ltl",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Define Serena and Context Mode responsibilities",
+  "type": "epic",
+  "updated_at": "2026-09-16T08:30:14Z"
+}
