@@ -17,11 +17,11 @@ The team index also supports team-scope lookups via its leading scope ID.
 
 The schema owns the ordered permission metadata and explicit atom/string casting:
 
-| API atom / storage string | Matrix label |
-| --- | --- |
-| `access_profile` | Access profile |
-| `access_message_history` | Access message history |
-| `share_conversations` | Share conversations |
+| API atom / storage string | Matrix label           |
+| ------------------------- | ---------------------- |
+| `access_profile`          | Access profile         |
+| `access_message_history`  | Access message history |
+| `share_conversations`     | Share conversations    |
 
 Only these exact strings or known atoms are accepted. Input never creates atoms.
 
@@ -105,17 +105,17 @@ OTP length is fixed at eight digits, not configurable.
 All fields are strictly positive integers; durations use seconds, limits use counts.
 There are no product maxima or cross-field restrictions.
 
-| Field (key suffix) | Default | Unit / duration |
-| --- | ---: | --- |
-| `otp_validity_seconds` | 300 | seconds / 5 minutes |
-| `otp_max_attempts` | 5 | attempts per OTP |
-| `unknown_email_attempt_limit` | 10 | attempts |
-| `unknown_email_window_seconds` | 600 | seconds / 10 minutes |
-| `unknown_email_cooldown_seconds` | 900 | seconds / 15 minutes |
-| `otp_send_person_limit` | 5 | sends per person |
-| `otp_send_ip_limit` | 20 | sends per IP |
-| `otp_send_window_seconds` | 900 | seconds / 15 minutes |
-| `session_lifetime_seconds` | 604800 | seconds / **7 days** |
+| Field (key suffix)               | Default | Unit / duration      |
+| -------------------------------- | ------: | -------------------- |
+| `otp_validity_seconds`           |     300 | seconds / 5 minutes  |
+| `otp_max_attempts`               |       5 | attempts per OTP     |
+| `unknown_email_attempt_limit`    |      10 | attempts             |
+| `unknown_email_window_seconds`   |     600 | seconds / 10 minutes |
+| `unknown_email_cooldown_seconds` |     900 | seconds / 15 minutes |
+| `otp_send_person_limit`          |       5 | sends per person     |
+| `otp_send_ip_limit`              |      20 | sends per IP         |
+| `otp_send_window_seconds`        |     900 | seconds / 15 minutes |
+| `session_lifetime_seconds`       |  604800 | seconds / **7 days** |
 
 Storage uses numeric strings in the existing `system_configs` table, prefixed with
 `people_access.`. No environment settings, additional tables, or migrations apply.
