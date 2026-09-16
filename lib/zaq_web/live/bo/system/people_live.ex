@@ -13,6 +13,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   alias ZaqWeb.Components.DesignSystem.EmptyState
   alias ZaqWeb.Components.DesignSystem.ListSelection
   alias ZaqWeb.Components.DesignSystem.SimplePagination
+  alias ZaqWeb.Components.DesignSystem.Switch, as: DSSwitch
   alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
   alias ZaqWeb.Components.DesignSystem.Toggle, as: DSToggle
   alias ZaqWeb.Helpers.Selection
@@ -28,6 +29,8 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> assign(:current_path, "/bo/people")
       |> assign(:teams, [])
       |> assign(:active_tab, :people)
+      |> assign(:permissions_matrix, nil)
+      |> assign(:permissions_generation, 0)
       |> assign(:loading, false)
       |> assign(:error, nil)
       |> assign(:selected_person, nil)
@@ -67,6 +70,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
         {:noreply,
          socket
+         |> assign(:active_tab, :people)
          |> assign(:selected_person, person)
          |> assign(:person_channels, person.channels)
          |> assign(:person_documents, person_documents)
@@ -78,10 +82,14 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
   # ── Tab ─────────────────────────────────────────────────────────────────
 
-  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+  def handle_event("switch_tab", %{"tab" => tab}, socket)
+      when tab in ["people", "teams", "permissions"] do
+    active_tab = %{"people" => :people, "teams" => :teams, "permissions" => :permissions}[tab]
+    socket = if active_tab == :permissions, do: refresh_permissions(socket), else: socket
+
     {:noreply,
      socket
-     |> assign(:active_tab, String.to_existing_atom(tab))
+     |> assign(:active_tab, active_tab)
      |> assign(:selected_person, nil)
      |> assign(:person_channels, [])
      |> assign(:confirm_delete, nil)
@@ -91,6 +99,42 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:merge_search, "")
      |> assign(:merge_candidates, [])}
   end
+
+  def handle_event("switch_tab", _params, socket), do: {:noreply, socket}
+
+  def handle_event(
+        "set_permission",
+        %{"scope" => scope, "permission" => permission, "enabled" => enabled},
+        %{assigns: %{active_tab: :permissions, permissions_matrix: matrix}} = socket
+      )
+      when is_boolean(enabled) and is_binary(permission) and not is_nil(matrix) do
+    column = Enum.find(matrix.scopes, &(permission_scope_key(&1.scope) == scope))
+
+    if column do
+      op = if enabled, do: :grant_permission, else: :revoke_permission
+      result = people_command(op, %{scope: column.scope, permission: permission})
+      socket = refresh_permissions(socket)
+
+      case result do
+        {:ok, _} ->
+          {:noreply, socket}
+
+        _ ->
+          {:noreply, put_flash(socket, :error, "Permission change failed. Reload and try again.")}
+      end
+    else
+      {:noreply,
+       socket |> refresh_permissions() |> put_flash(:error, "Invalid permission change.")}
+    end
+  end
+
+  def handle_event("set_permission", _params, socket),
+    do:
+      {:noreply,
+       socket |> refresh_permissions() |> put_flash(:error, "Invalid permission change.")}
+
+  def handle_event("reload_permissions", _params, socket),
+    do: {:noreply, refresh_permissions(socket)}
 
   # ── Merge ────────────────────────────────────────────────────────────────
 
@@ -826,6 +870,25 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     Events.build_and_dispatch_invoke_event(%{op: op, params: params}, :people_command)
     |> Map.get(:response)
   end
+
+  defp refresh_permissions(socket) do
+    # Native checkboxes mutate before the event. Reconcile their DOM even when
+    # the authoritative matrix equals the previous assign (failed/no-op writes).
+    socket = update(socket, :permissions_generation, &(&1 + 1))
+
+    case people_command(:permissions_matrix, %{}) do
+      {:ok, matrix} ->
+        assign(socket, :permissions_matrix, matrix)
+
+      _ ->
+        socket
+        |> assign(:permissions_matrix, nil)
+        |> put_flash(:error, "Permissions could not be loaded. Reload before making changes.")
+    end
+  end
+
+  defp permission_scope_key(:all_people), do: "all_people"
+  defp permission_scope_key({:team, id}), do: "team-#{id}"
 
   defp maybe_put_routing_error(socket, {:ok, _result}), do: socket
 

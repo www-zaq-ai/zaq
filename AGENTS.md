@@ -36,39 +36,39 @@ Do not index the source tree merely to find a symbol. Do not dump large logs or 
 
 Edit policies at their owner; other docs should link to them, not restate procedures. Short reminders here are routing aids, not independent policy definitions. If documents conflict, flag the drift and consult the owner; never override host/system instructions.
 
-| When / need | Required owner or guide |
-| --- | --- |
-| Workflow, validation timing, approvals, coverage handoff | [Agent workflow](docs/WORKFLOW_AGENT.md) |
-| Tool routing, fallback, memory, Context Mode commands | [Agent tools](docs/agent-tools.md) |
-| Documentation ownership, organization and memory hygiene | [Documentation policy](docs/documentation.md); [index](docs/README.md) |
-| New complex plan | [Planning strategy](docs/exec-plans/PLAN_STRATEGY.md); durable steps in Beadwork, not new plan files |
-| Action discovery and reuse | [Action reuse](docs/action-reuse.md) |
-| Test design, isolation, property tests, E2E approval | [Testing handbook](docs/testing-approach.md) |
-| Project structure / architecture | [Project](docs/project.md), [architecture](docs/architecture.md) |
-| Naming / module design / code quality | [Conventions](docs/conventions.md), [code quality](docs/code-quality.md) |
-| Elixir, Ecto, Mix / Phoenix, LiveView | [Elixir](docs/elixir.md), [Phoenix](docs/phoenix.md) |
-| Environment setup / agent selection | [Agent workflow setup](docs/agent-setup.md), [dev setup](docs/dev-setup.md) |
-| Git conventions / contribution process | [Git workflows](docs/workflows.md), [contributing](CONTRIBUTING.md) |
-| E2E execution and fixtures | [E2E testing](docs/e2e-testing.md) |
-| Domain quality / existing debt | [Quality score](docs/QUALITY_SCORE.md), [debt tracker](docs/exec-plans/tech-debt-tracker.md) |
-| Historical decisions / harness roadmap | [Completed plans](docs/exec-plans/completed/), [roadmap](docs/plans/harness-roadmap.md) |
+| When / need                                              | Required owner or guide                                                                              |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Workflow, validation timing, approvals, coverage handoff | [Agent workflow](docs/WORKFLOW_AGENT.md)                                                             |
+| Tool routing, fallback, memory, Context Mode commands    | [Agent tools](docs/agent-tools.md)                                                                   |
+| Documentation ownership, organization and memory hygiene | [Documentation policy](docs/documentation.md); [index](docs/README.md)                               |
+| New complex plan                                         | [Planning strategy](docs/exec-plans/PLAN_STRATEGY.md); durable steps in Beadwork, not new plan files |
+| Action discovery and reuse                               | [Action reuse](docs/action-reuse.md)                                                                 |
+| Test design, isolation, property tests, E2E approval     | [Testing handbook](docs/testing-approach.md)                                                         |
+| Project structure / architecture                         | [Project](docs/project.md), [architecture](docs/architecture.md)                                     |
+| Naming / module design / code quality                    | [Conventions](docs/conventions.md), [code quality](docs/code-quality.md)                             |
+| Elixir, Ecto, Mix / Phoenix, LiveView                    | [Elixir](docs/elixir.md), [Phoenix](docs/phoenix.md)                                                 |
+| Environment setup / agent selection                      | [Agent workflow setup](docs/agent-setup.md), [dev setup](docs/dev-setup.md)                          |
+| Git conventions / contribution process                   | [Git workflows](docs/workflows.md), [contributing](CONTRIBUTING.md)                                  |
+| E2E execution and fixtures                               | [E2E testing](docs/e2e-testing.md)                                                                   |
+| Domain quality / existing debt                           | [Quality score](docs/QUALITY_SCORE.md), [debt tracker](docs/exec-plans/tech-debt-tracker.md)         |
+| Historical decisions / harness roadmap                   | [Completed plans](docs/exec-plans/completed/), [roadmap](docs/plans/harness-roadmap.md)              |
 
 ### Service-specific work
 
 Read the relevant service guide before changing its domain; inspect only the applicable sections.
 
-| Domain | Guide |
-| --- | --- |
-| Agent pipeline, LLM, retrieval, answering | [Agent](docs/services/agent.md) |
-| BO authentication / authorization | [BO auth](docs/services/bo-auth.md) |
-| Channels and adapters | [Channels](docs/services/channels.md) |
-| Engine, conversations, notifications, dispatch | [Engine](docs/services/engine.md) |
-| Ingestion, chunking, embedding | [Ingestion](docs/services/ingestion.md) |
-| Onboarding, provisioning, consent | [Onboarding](docs/services/onboarding.md) |
-| Add-ons and feature gating | [Add-ons](docs/services/addons.md) |
-| Secrets, encryption, configuration | [System config](docs/services/system-config.md) |
-| Telemetry and metrics | [Telemetry](docs/services/telemetry.md) |
-| Record materialization | [Materialization](docs/services/materialization.md) |
-| Workflow DAGs, triggers, runs | [Workflows](docs/services/workflows.md) |
+| Domain                                         | Guide                                               |
+| ---------------------------------------------- | --------------------------------------------------- |
+| Agent pipeline, LLM, retrieval, answering      | [Agent](docs/services/agent.md)                     |
+| BO authentication / authorization              | [BO auth](docs/services/bo-auth.md)                 |
+| Channels and adapters                          | [Channels](docs/services/channels.md)               |
+| Engine, conversations, notifications, dispatch | [Engine](docs/services/engine.md)                   |
+| Ingestion, chunking, embedding                 | [Ingestion](docs/services/ingestion.md)             |
+| Onboarding, provisioning, consent              | [Onboarding](docs/services/onboarding.md)           |
+| Add-ons and feature gating                     | [Add-ons](docs/services/addons.md)                  |
+| Secrets, encryption, configuration             | [System config](docs/services/system-config.md)     |
+| Telemetry and metrics                          | [Telemetry](docs/services/telemetry.md)             |
+| Record materialization                         | [Materialization](docs/services/materialization.md) |
+| Workflow DAGs, triggers, runs                  | [Workflows](docs/services/workflows.md)             |
 
 Beadwork owns durable AI plans/progress; GitHub owns overall project issues/PRs/discussions. Repository documentation owns standards; memory is supporting recall, not a substitute.

@@ -96,15 +96,18 @@ Adapter inbound path:
 ## Modules
 
 ### Supervisor (`Zaq.Engine.Supervisor`)
+
 - Top-level supervisor for the `:engine` role.
 - `:one_for_one` children are defined in `lib/zaq/engine/supervisor.ex`; these include telemetry/adapters plus event registration and workflow recovery.
 
 ### Conversations Context (`Zaq.Engine.Conversations`)
+
 - Public API for the full conversation/message/rating/share lifecycle.
 - Access from BO crosses `NodeRouter.dispatch/1` and the Engine role API. Some existing callers still use generic invoke helpers; new calls follow the domain-action dispatch contract above.
 - Dispatches `Zaq.Hooks` `:feedback_provided` event after a rating is saved.
 
 **Key functions:**
+
 - `create_conversation/1` — insert a new conversation.
 - `get_conversation/1`, `get_conversation!/1` — fetch by UUID.
 - `get_or_create_conversation_for_channel/3` — idempotent; returns the most recent
@@ -156,15 +159,19 @@ feeds straight into `MessageRating.changeset/2`. Only `message_ref` differs by o
 a message UUID, a channel only has the provider's identifier.
 
 The engine cannot tell a reaction-originated rating from a back-office one — that is deliberate.
-Channels map their provider's emoji vocabulary to a ZAQ rating *before* dispatch (see
+Channels map their provider's emoji vocabulary to a ZAQ rating _before_ dispatch (see
 `Zaq.Channels.JidoChatBridge.ReactionMapper`) and dispatch through the shared
 `CommunicationBridge.dispatch_message_rating/3` seam. A `:message_id` key inside `rater_attrs` is
 rejected rather than ignored, since it would silently override the message resolved from
 `message_ref`.
+
 - `share_conversation/2`, `list_shares/1`, `revoke_share/1` — share link management.
 - `get_conversation_by_token/1` — resolves a conversation from an unexpired share token.
 
 ### People Command Gateway (`Zaq.Engine.PeopleGateway`)
+
+- Capability matrix/grant/revoke commands and their separate permission domain are
+  documented in [People permissions](people-access.md).
 - BO People operations dispatch to Engine using `action: :people_command`.
   Existing invoke-named event builders do not change that domain action's contract;
   new callers follow `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
@@ -173,7 +180,7 @@ rejected rather than ignored, since it would silently override the message resol
 - Gateway maps operations (`:filter`, `:create`, `:update`, `:delete`, `:bulk_delete`,
   team/channel operations, etc.) to `Zaq.Accounts.People` domain calls.
 - `:resolve_selection` accepts `%{mode: :explicit | :all_matching, filters: map,
-  ids: [positive_integer]}`. IDs are inclusions in explicit mode, exclusions in
+ids: [positive_integer]}`. IDs are inclusions in explicit mode, exclusions in
   all-matching mode. Filters are required; `%{}` explicitly means unfiltered.
   It reuses the listing's literal AND filters and stable `full_name, id` ordering,
   returning `{:ok, ids}` without pagination; malformed selections are rejected.
@@ -314,6 +321,7 @@ For schema-first normalization, writer quiescence, backup and restore requiremen
 the [Person email normalization runbook](../operations/person-email-normalization.md).
 
 ### Conversation Title Generator (`Zaq.Engine.Conversations.TitleGenerator`)
+
 - Generates a 6-word-max title from the first user message via LLM.
 - Uses `Zaq.Agent.LLM.chat_config/1` and `Zaq.Agent.LLMRunner`.
 - Called asynchronously (`Task.start/1`) — never blocks the message-storage path.
@@ -321,12 +329,14 @@ the [Person email normalization runbook](../operations/person-email-normalizatio
 - `generate/2` — returns `{:ok, title} | {:error, reason}`.
 
 ### Token Usage Aggregator (`Zaq.Engine.Conversations.TokenUsageAggregator`)
+
 - Oban worker; queue: `:conversations`, max 3 attempts.
 - Triggered after each assistant message that has a non-nil `model`.
 - Aggregates daily `prompt_tokens` + `completion_tokens` per model into
   `conversation.metadata["token_usage"][date][model]`.
 
 ### Messages — Incoming (`Zaq.Engine.Messages.Incoming`)
+
 - Canonical struct for all inbound messages crossing the adapter boundary.
 - Enforce keys: `:content`, `:channel_id`, `:provider`.
 - Optional: `:author_id`, `:author_name`, `:thread_id`, `:message_id`, `:person`, `:attachments`, `:metadata`, `:routing_context`, `:is_dm`, `:content_filter`.
@@ -335,6 +345,7 @@ the [Person email normalization runbook](../operations/person-email-normalizatio
 - When crossing nodes, this payload is carried in `%Zaq.Event.request`.
 
 ### Incoming Message Routing
+
 - `Zaq.Engine.IncomingMessageRoutingRule` is the single persistence model for incoming-message routing policy.
 - Routing rule writes enter the Engine node through action `:upsert_incoming_message_routing_rules`. The Engine command normalizes rule maps and reuses `IncomingMessageRouting.upsert_rule/2` and `delete_rule/1` for all persistence and validation.
 - `Zaq.Engine.Messages.Incoming.RoutingContext` carries transport-derived routing facts: `channel_config_id`, `retrieval_channel_id`, `topic_id`, and normalized attributes.
@@ -362,6 +373,7 @@ Agent-targeting rules and explicit selections must resolve to agents that are ac
 Rule write commands accept a required `rules` list. Each rule carries optional scope keys (`person_id`, `channel_config_id`, `retrieval_channel_id`, `topic_id`), `routing_mode: "agent" | "none" | "clear"`, and `configured_agent_id` for agent mode. Example: `%{rules: [%{channel_config_id: 12, topic_id: "INBOX", routing_mode: "agent", configured_agent_id: 34}]}`. Single-rule updates submit a one-item list; IMAP mailbox saves use the same batch form so selected mailbox rules are updated through one standardized action call.
 
 ### Messages — Outgoing (`Zaq.Engine.Messages.Outgoing`)
+
 - Canonical struct for all outbound messages.
 - Enforce keys: `:body`, `:channel_id`, `:provider`.
 - `from_pipeline_result/2` — builds an `%Outgoing{}` from an `%Incoming{}` and a pipeline
@@ -369,6 +381,7 @@ Rule write commands accept a required `rules` list. Each rule carries optional s
 - When crossing nodes, this payload is typically returned in `%Zaq.Event.response`.
 
 ### Notifications Context (`Zaq.Engine.Notifications`)
+
 - Single exit point for all outbound communication from ZAQ.
 - `notify/1` — accepts only a validated `%Notification{}` struct.
   - Filters `recipient_channels` against enabled `ChannelConfig` rows.
@@ -377,12 +390,14 @@ Rule write commands accept a required `rules` list. Each rule carries optional s
 - `bridge_available?/1` — returns true if a bridge is configured for the given platform.
 
 ### Notification Struct (`Zaq.Engine.Notifications.Notification`)
+
 - Build via `Notification.build/1` — validates subject, body, channel format.
 - Fields: `recipient_channels`, `sender`, `subject`, `body`, `html_body`,
   `recipient_name`, `recipient_ref`, `metadata`.
 - `recipient_ref` type: `{:user, integer()} | {:person, integer()} | nil`.
 
 ### Notification Log (`Zaq.Engine.Notifications.NotificationLog`)
+
 - Ecto schema (`notification_logs`); stores payload (subject/body) and delivery audit trail.
 - Status lifecycle: `pending → sent | skipped | failed`.
 - `create_log/1` — inserts with status `"pending"`.
@@ -395,11 +410,13 @@ Rule write commands accept a required `rules` list. Each rule carries optional s
   keys (for email: `"message_id"`, `"in_reply_to"`, `"references"`, `"thread_id"`).
 
 #### Outbound threading — anchor source of truth (invariant)
+
 The notification center never interprets channel wire formats. Per delivery attempt,
 `Notifications.resolve_anchor/2` fetches the prior anchor and passes it down on
 `Outgoing.thread_anchor`; the provider bridge (e.g. `Zaq.Channels.EmailBridge`) mints
 ids, builds headers, and returns a delivery receipt whose `anchor` the engine persists
 on the `sent` transition. Resolution consults two stores in a fixed order:
+
 1. **Primary — `NotificationLog.thread_anchor/2`.** The log is authoritative for the
    outbound chain: it is written by the code that saw delivery succeed, keyed by
    `(recipient_ref, thread_key)`, and only on the `sent` transition (never
@@ -429,28 +446,34 @@ shipped with write-time anchors from the start); rows without an anchor simply
 don't resolve, starting a fresh chain.
 
 ### Welcome Email (`Zaq.Engine.Notifications.WelcomeEmail`)
+
 - `deliver/1` — builds and dispatches a welcome email to a newly created user via
   `Notifications.notify/1`. Skips if the user has no email address.
 
 ### Password Reset Email (`Zaq.Engine.Notifications.PasswordResetEmail`)
+
 - `deliver/2` — builds and dispatches a password reset email with a one-time token URL.
   Skips if the user has no email address.
 
 ### Ingestion Channel Behaviour (`Zaq.Engine.IngestionChannel`)
+
 - Behaviour contract for document-source adapters.
 - Required callbacks: `connect/1`, `disconnect/1`, `list_documents/1`, `fetch_document/2`.
 - Optional callbacks: `schedule_sync/1` (polling), `handle_event/2` (event-driven).
 
 ### Retrieval Channel Behaviour (`Zaq.Engine.RetrievalChannel`)
+
 - Behaviour contract for messaging platform adapters.
 - Required callbacks: `connect/1`, `disconnect/1`, `send_message/3`, `send_question/2`,
   `handle_event/1`, `forward_to_engine/1`.
 
 ### Notification Channel Behaviour (`Zaq.Engine.NotificationChannel`)
+
 - Behaviour contract for notification delivery adapters.
 - Required callbacks: `available?/1`, `send_notification/2`.
 
 ### Data Sources Runtime (`Zaq.Engine.DataSources`)
+
 - Owns durable provider watch-channel runtime state for external data-source webhooks.
 - Persists `Zaq.Engine.DataSources.WatchChannel` rows with provider channel ids, resource ids, checkpoints, expiration, operational status, and provider metadata.
 - Resolves webhook deliveries by provider `channel_id`/`resource_id`, or resolves provider setup/teardown by config and target source.
@@ -458,12 +481,14 @@ don't resolve, starting a fresh chain.
 - Stores provider runtime status (`active`, `error`, `stopped`) separately from user-facing document watch status in Ingestion.
 
 ### Watch Channel Renewal (`Zaq.Engine.DataSources.WatchChannelRenewalWorker`)
+
 - Oban worker on the `:channels` queue.
 - Scheduled when an active watch channel has `expiration_at`; default lead time is one hour before provider expiration.
 - Recomputes public webhook URL from `system.global.base_url` during renewal so URL changes are picked up.
 - Creates a replacement provider channel before stopping and deleting the old row.
 
 ### Ingestion Supervisor (`Zaq.Engine.IngestionSupervisor`)
+
 - Starts one child process per enabled ingestion `ChannelConfig`.
 - Registered adapters: `"google_drive"` → `Zaq.Channels.Ingestion.GoogleDrive`,
   `"sharepoint"` → `Zaq.Channels.Ingestion.SharePoint`.
@@ -471,12 +496,14 @@ don't resolve, starting a fresh chain.
 - Starts empty without crashing when no configs are found.
 
 ### Retrieval Supervisor (`Zaq.Engine.RetrievalSupervisor`)
+
 - Starts one child process per enabled retrieval `ChannelConfig`.
 - Registered adapters: `"slack"` → `Zaq.Channels.Retrieval.Slack`.
 - Adapters started via `connect/1`; `:permanent` restart strategy.
 - `adapter_for/1` — returns adapter module for a provider string or `nil`.
 
 ### Channel Adapter Loader (`Zaq.Engine.ChannelAdapterLoader`)
+
 - Shared helper used by both supervisors.
 - `children_for/3` — loads enabled configs, maps providers to adapter modules, builds
   Supervisor child specs.
@@ -489,6 +516,7 @@ For telemetry modules (`Zaq.Engine.Telemetry`, `Buffer`, `Collector`, workers), 
 ### Schemas
 
 **`Zaq.Engine.Conversations.Conversation`** (`conversations`)
+
 - Fields: `title`, `channel_user_id`, `channel_type`, `channel_config_id`, `status`,
   `metadata`, `user_id`.
 - Valid channel types: `mattermost`, `slack`, `bo`, `api`.
@@ -496,16 +524,19 @@ For telemetry modules (`Zaq.Engine.Telemetry`, `Buffer`, `Collector`, workers), 
 - Primary key: UUID (`:binary_id`).
 
 **`Zaq.Engine.Conversations.Message`** (`messages`)
+
 - Fields: `role`, `content`, `model`, `prompt_tokens`, `completion_tokens`,
   `total_tokens`, `confidence_score`, `sources`, `latency_ms`, `metadata`.
 - Valid roles: `user`, `assistant`.
 - No `updated_at` timestamp.
 
 **`Zaq.Engine.Conversations.MessageRating`** (`message_ratings`)
+
 - Fields: `rating` (1–5), `comment`, `channel_user_id`, `user_id`, `message_id`.
 - Unique constraint on `(message_id, user_id)`.
 
 **`Zaq.Engine.Conversations.ConversationShare`** (`conversation_shares`)
+
 - Fields: `share_token` (auto-generated, URL-safe base64), `permission` (only `"read"`),
   `expires_at`, `shared_with_user_id`.
 - Unique constraints on `share_token` and `(conversation_id, shared_with_user_id)`.
@@ -513,6 +544,7 @@ For telemetry modules (`Zaq.Engine.Telemetry`, `Buffer`, `Collector`, workers), 
 For telemetry schemas (`Point`, `Rollup`) and dashboard contracts, see `docs/services/telemetry.md`.
 
 **`Zaq.Engine.DataSources.WatchChannel`** (`data_source_watch_channels`)
+
 - Fields: `config_id`, `provider`, `target_source`, `target_provider_id`, `target_kind`,
   `channel_id`, `resource_id`, `resource_uri`, `checkpoint`, `expiration_at`, `status`,
   `last_error`, `metadata`.
@@ -598,10 +630,12 @@ Oban queues used by the Engine:
 ## What's Left
 
 ### Should Do
+
 - [ ] Dynamic adapter hot-loading — currently adapters are resolved only at supervisor
-  startup; adding/removing a ChannelConfig requires an Engine node restart.
+      startup; adding/removing a ChannelConfig requires an Engine node restart.
 - [ ] Conversation pruning — no lifecycle management for old conversations; storage grows
-  unbounded.
+      unbounded.
 
 ### Nice to Have
+
 - [ ] Notification channel adapter for Slack/Mattermost direct messages
