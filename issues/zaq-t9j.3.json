@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-16T11:32:48Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-t9j",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-t9j] Validate preservation links and quality gates",
   "type": "task",
-  "updated_at": "2026-09-16T11:32:48Z"
+  "updated_at": "2026-09-16T11:54:42Z"
 }
