@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T06:24:16Z",
+  "description": "Approved documentation-only plan. Action reuse not applicable: no application operations. Edit only AGENTS.md, CLAUDE.md and docs/dev-setup.md; preserve unrelated MCP tools.",
+  "id": "zaq-z1e.4",
+  "labels": [],
+  "parent": "zaq-z1e",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-z1e] Remove obsolete integration claims",
+  "type": "task",
+  "updated_at": "2026-09-16T06:24:16Z"
+}
