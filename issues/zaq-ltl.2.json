@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T08:30:19Z",
+  "description": "Implement approved documentation boundary plan; Action reuse N/A. No application code or runtime tests to add.",
+  "id": "zaq-ltl.2",
+  "labels": [],
+  "parent": "zaq-ltl",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-ltl] Scope Context Mode rules",
+  "type": "task",
+  "updated_at": "2026-09-16T08:30:19Z"
+}
