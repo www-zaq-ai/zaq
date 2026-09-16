@@ -93,6 +93,13 @@ and replace error reasons with a fixed label. The flag is server-owned and must
 be propagated to separately built child events; request payload fields cannot
 opt out of observation. People bearer operations and OTP delivery events use it.
 
+Trusted `event.opts[:confidential] == true` suppresses the entire envelope from
+NodeRouter observer/workflow-trigger broadcasts, including `fire/1`. Dispatch and
+remote hop execution still occur. Async failure diagnostics omit request fields
+and replace error reasons with a fixed label. The flag is server-owned and must
+be propagated to separately built child events; request payload fields cannot
+opt out of observation. People bearer operations and OTP delivery events use it.
+
 ### Dispatch Semantics (sync, async, multi-hop)
 
 `NodeRouter.dispatch/1` is event-first and hop-driven:
