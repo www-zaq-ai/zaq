@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T11:32:47Z",
+  "description": "Approved documentation-only instruction consolidation. Preserve policy meaning; no application changes.",
+  "id": "zaq-t9j.2",
+  "labels": [],
+  "parent": "zaq-t9j",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-t9j] Align policy links and service-specific rules",
+  "type": "task",
+  "updated_at": "2026-09-16T11:32:47Z"
+}
