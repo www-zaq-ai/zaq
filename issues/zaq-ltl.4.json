@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-ltl.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-ltl.5"
+  ],
   "created": "2026-09-16T08:30:23Z",
   "description": "Implement approved documentation boundary plan; Action reuse N/A. No application code or runtime tests to add.",
   "id": "zaq-ltl.4",
