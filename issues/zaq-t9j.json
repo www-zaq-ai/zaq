@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T11:32:45Z",
+  "description": "Approved quick win: thin CLAUDE adapter; compact AGENTS dispatcher; single policy owners and mandatory task-based loading; replace duplicate instructions with links. Documentation-only Action reuse N/A. Preserve current changes and historical plans. Steps: entrypoints/tools -\u003e dependent links/service rules -\u003e preservation/link/context-size checks and quality gates.",
+  "id": "zaq-t9j",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Consolidate agent instructions and lazy loading",
+  "type": "epic",
+  "updated_at": "2026-09-16T11:32:45Z"
+}
