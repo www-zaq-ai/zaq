@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-16T19:15:44Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-ba8",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-ba8] Document agent workflow tool prerequisites",
   "type": "task",
-  "updated_at": "2026-09-16T19:15:44Z"
+  "updated_at": "2026-09-16T19:15:49Z"
 }
