@@ -92,10 +92,15 @@ Administration uses the existing authenticated BO People access policy. These
 grants do not authorize BO administrators. People authentication separately
 requires an active current Person with `access_profile`; BO sessions are independent.
 There are no public People login, profile, history, sharing or portal routes yet.
+grants do not authorize BO administrators. People authentication separately
+requires an active current Person with `access_profile`; BO sessions are independent.
+There are no public People login, profile, history, sharing or portal routes yet.
 
 ## People access configuration (current)
 
 **BO → System Configuration → People access** (`/bo/system-config?tab=people_access`)
+manages the following settings consumed by PeopleAuth and AuthRateLimiter.
+Authenticated BO access policy is independent.
 manages the following settings consumed by PeopleAuth and AuthRateLimiter.
 Authenticated BO access policy is independent.
 OTP length is fixed at eight digits, not configurable.
@@ -116,6 +121,10 @@ There are no product maxima or cross-field restrictions.
 | `session_lifetime_seconds`     |  604800 | seconds / **7 days** |
 
 Storage uses numeric strings in the existing `system_configs` table, prefixed with
+`people_access.`. No environment settings apply to these eight controls. The legacy
+`people_access.unknown_email_cooldown_seconds` key, if present, is ignored and left
+untouched by reads/saves. There is no independent cooldown: retry waits only for the
+current failed-identification window to expire.
 `people_access.`. No environment settings apply to these eight controls. The legacy
 `people_access.unknown_email_cooldown_seconds` key, if present, is ignored and left
 untouched by reads/saves. There is no independent cooldown: retry waits only for the

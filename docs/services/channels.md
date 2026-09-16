@@ -27,6 +27,23 @@ There is no broad ingress ceiling or separate eligibility lookup call. See
 [rate topology and retry behavior](people-access.md#rate-topology-and-retry-behavior)
 for cache refresh/expiry and eventual-consistency limitations.
 
+### People authentication rate ownership (V1)
+
+`Zaq.Channels.PeopleAuthRateLimiter` is the first child of the static
+`Zaq.Channels.Supervisor`, beside `Zaq.Channels.BridgeSupervisor`. It owns only unsuccessful-identification IP
+protection via `check_identification/1` (non-consuming) and
+`record_failed_identification/1`. Both use local counters and a background-refreshed
+typed config snapshot; neither queries Repo nor dispatches to Engine. Missing,
+expired or failed config denies locally. Engine retains OTP Person/IP issuance
+budgets and persisted verification attempts. Shared Hammer mechanics use separate
+role tables/listeners/topics, including on combined-role nodes.
+
+Public authentication orchestration remains PR4: precheck before one Engine
+resolve/eligible/issue request, then record only its unknown/ineligible response.
+There is no broad ingress ceiling or separate eligibility lookup call. See
+[rate topology and retry behavior](people-access.md#rate-topology-and-retry-behavior)
+for cache refresh/expiry and eventual-consistency limitations.
+
 ---
 
 ## Module Map
