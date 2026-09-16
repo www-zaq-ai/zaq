@@ -87,4 +87,42 @@ defmodule ZaqWeb.Components.DesignSystem.InputTest do
 
     assert html =~ "name=\"filters[tags][]\""
   end
+
+  test "input/1 renders values from form fields across variants" do
+    form =
+      Phoenix.Component.to_form(
+        %{"attempts" => "77", "token" => "secret", "bio" => "hello", "enabled" => true},
+        as: :settings
+      )
+
+    number_html =
+      render_component(&Input.input/1,
+        field: form[:attempts],
+        type: "number"
+      )
+
+    hidden_html = render_component(&Input.input/1, field: form[:token], type: "hidden")
+    textarea_html = render_component(&Input.input/1, field: form[:bio], type: "textarea")
+    checkbox_html = render_component(&Input.input/1, field: form[:enabled], type: "checkbox")
+
+    assert number_html =~ "id=\"settings_attempts\""
+    assert number_html =~ "value=\"77\""
+    assert hidden_html =~ "value=\"secret\""
+    assert textarea_html =~ "hello</textarea>"
+    assert checkbox_html =~ "checked"
+  end
+
+  test "input/1 preserves an explicit value over a form field value" do
+    form = Phoenix.Component.to_form(%{"attempts" => "77"}, as: :settings)
+
+    html =
+      render_component(&Input.input/1,
+        field: form[:attempts],
+        type: "number",
+        value: "12"
+      )
+
+    assert html =~ "value=\"12\""
+    refute html =~ "value=\"77\""
+  end
 end

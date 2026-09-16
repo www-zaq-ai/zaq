@@ -25,7 +25,7 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
   attr :id, :any, default: nil
   attr :name, :any
   attr :label, :string, default: nil
-  attr :value, :any, default: nil
+  attr :value, :any
 
   attr :type, :string,
     default: "text",
@@ -61,6 +61,8 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
   end
 
   def input(%{type: "hidden"} = assigns) do
+    assigns = assign_new(assigns, :value, fn -> nil end)
+
     ~H"""
     <input type="hidden" id={@id} name={@name} value={@value} {@rest} />
     """
@@ -100,6 +102,8 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
   end
 
   def input(%{type: "textarea"} = assigns) do
+    assigns = assign_new(assigns, :value, fn -> nil end)
+
     ~H"""
     <.input_shell label={@label} errors={@errors} field_id={@id}>
       <:field>
@@ -115,6 +119,8 @@ defmodule ZaqWeb.Components.DesignSystem.Input do
   end
 
   def input(assigns) do
+    assigns = assign_new(assigns, :value, fn -> nil end)
+
     ~H"""
     <.input_shell label={@label} errors={@errors} field_id={@id}>
       <:field>
