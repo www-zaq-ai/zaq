@@ -6,9 +6,15 @@
   "description": "Local-only developer validation fix; reuse existing source scan and Zaq.Hooks.documented_events/0. No Action applicable. Remove app.start, retain compilation and errors, regression test rejecting startup; existing fixture cases cover violations. No new broad-input logic; property tests not needed. Validate isolated tests, mix q and final mix precommit.",
   "id": "zaq-i8d",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented hooks.verify compile-only execution with startup-rejection and compilation-error regression coverage. 11 isolated tests pass; fresh Mix process confirms ZAQ stays stopped; mix q passes. Final MIX_ENV=test mix precommit initially had one unrelated ServerManager timeout in 8739 tests; final rerun exceeded 900000ms with no confirmed result. Final validation remains blocked. Existing staged changes preserved; no commit.",
+      "timestamp": "2026-09-16T10:00:21Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Remove runtime startup from hooks.verify",
   "type": "task",
-  "updated_at": "2026-09-16T10:00:19Z"
+  "updated_at": "2026-09-16T10:00:21Z"
 }
