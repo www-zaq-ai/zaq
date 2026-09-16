@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-16T09:12:03Z",
+  "description": "Approved documentation-only change. Action reuse N/A. Preserve working tree. mix q includes format; isolated tests per issue; precommit after all work before final human approval. Steps: canonical policy -\u003e dependent instructions -\u003e consistency and quality validation.",
+  "id": "zaq-i3r",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Align issue and final approval validation gates",
+  "type": "epic",
+  "updated_at": "2026-09-16T09:12:03Z"
+}
