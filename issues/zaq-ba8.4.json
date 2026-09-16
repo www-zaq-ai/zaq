@@ -7,9 +7,15 @@
   "id": "zaq-ba8.4",
   "labels": [],
   "parent": "zaq-ba8",
+  "comments": [
+    {
+      "text": "Added docs/agent-setup.md with official upstream URLs only (Context Mode mksglu/context-mode, Serena oraios/serena, Beadwork jallum/beadwork), verified via gh repo view. No installation commands/version pins; includes repo-specific activation/readiness/permissions/fallback guidance. Linked CONTRIBUTING, AGENTS, dev setup, docs index and documentation ownership. 119 local links/anchors across six touched files and git diff --check passed. No installs or application changes; prior edits and unrelated tmp-script.js preserved. Did not rerun known blocked application quality gates for this final documentation-only addition; final validation remains outstanding under zaq-ba8.3. No commit/push/PR.",
+      "timestamp": "2026-09-16T19:17:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ba8] Document agent workflow tool prerequisites",
   "type": "task",
-  "updated_at": "2026-09-16T19:15:49Z"
+  "updated_at": "2026-09-16T19:17:28Z"
 }
