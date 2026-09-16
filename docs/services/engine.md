@@ -276,6 +276,12 @@ metadata/activity; newly added identity channels have no recorded interaction.
   This remains available with corrupt auth configuration and rolls back with the merge.
   The authentication schema migration precedes historical email normalization so fresh
   replay can invoke the current merger without querying absent tables.
+- Authentication challenges and sessions are revoked for **every participant**, including
+  the survivor, through ordinary PeopleAuth APIs in the same transaction. Credentials
+  never transfer; loser auth rows cascade on deletion, survivor revocations persist.
+  This remains available with corrupt auth configuration and rolls back with the merge.
+  The authentication schema migration precedes historical email normalization so fresh
+  replay can invoke the current merger without querying absent tables.
 
 The merger resolves and locks the complete supplied group in stable order, then loads
 and locks its relationships. From these original snapshots it privately calculates

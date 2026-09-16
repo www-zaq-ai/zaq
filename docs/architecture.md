@@ -25,15 +25,15 @@ ZAQ (single OTP application, distributed by role)
 
 Services start based on `:roles` config or `ROLES` env var (`ROLES` takes priority).
 
-| Role | Starts |
-|---|---|
-| `:all` | All services (default) |
-| `:engine` | `Zaq.Engine.Supervisor` |
-| `:agent` | `Zaq.Agent.Supervisor` |
+| Role         | Starts                     |
+| ------------ | -------------------------- |
+| `:all`       | All services (default)     |
+| `:engine`    | `Zaq.Engine.Supervisor`    |
+| `:agent`     | `Zaq.Agent.Supervisor`     |
 | `:ingestion` | `Zaq.Ingestion.Supervisor` |
-| `:storage` | `Zaq.Storage.Supervisor` |
-| `:channels` | `Zaq.Channels.Supervisor` |
-| `:bo` | `ZaqWeb.Endpoint` |
+| `:storage`   | `Zaq.Storage.Supervisor`   |
+| `:channels`  | `Zaq.Channels.Supervisor`  |
+| `:bo`        | `ZaqWeb.Endpoint`          |
 
 The endpoint also starts on a channels node for provider HTTP callbacks. Router
 role plugs keep BO routes restricted to BO nodes; endpoint presence alone is not
@@ -74,6 +74,7 @@ Materialization handles do not target exact nodes; their trusted handlers build 
 for the owning role, and `NodeRouter` routes to any node running that role.
 
 Event envelope fields:
+
 - `request`
 - `assigns`
 - `response`
@@ -125,6 +126,7 @@ Dispatch note:
   design, not an invented action name or an automatic generic-invoke fallback.
 
 Role mapping:
+
 - `:agent` → `Zaq.Agent.*`
 - `:ingestion` → `Zaq.Ingestion.*`
 - `:storage` → `Zaq.Storage.*`
@@ -136,14 +138,14 @@ Role mapping:
 
 ## Service Responsibilities
 
-| Service | Supervisor | Responsibility |
-|---|---|---|
-| `engine` | `Zaq.Engine.Supervisor` | Orchestration, conversations, notifications, telemetry, adapter lifecycle, data-source watch-channel runtime state |
-| `agent` | `Zaq.Agent.Supervisor` | RAG pipeline, configured-agent runtime, LLM calls, query rewriting, answering, prompt security |
-| `ingestion` | `Zaq.Ingestion.Supervisor` | Document processing, chunking, embedding, Oban jobs, Python pipeline, watched-record filtering/deletion |
-| `storage` | `Zaq.Storage.Supervisor` | Mounted files, directory metadata, volume mutations and source-scoped access policy |
-| `channels` | `Zaq.Channels.Supervisor` | Communication/data-source bridges, provider calls, transport normalization and webhook handling |
-| `bo` | `ZaqWeb.Endpoint` | Back Office LiveView UI, API controllers |
+| Service     | Supervisor                 | Responsibility                                                                                                     |
+| ----------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `engine`    | `Zaq.Engine.Supervisor`    | Orchestration, conversations, notifications, telemetry, adapter lifecycle, data-source watch-channel runtime state |
+| `agent`     | `Zaq.Agent.Supervisor`     | RAG pipeline, configured-agent runtime, LLM calls, query rewriting, answering, prompt security                     |
+| `ingestion` | `Zaq.Ingestion.Supervisor` | Document processing, chunking, embedding, Oban jobs, Python pipeline, watched-record filtering/deletion            |
+| `storage`   | `Zaq.Storage.Supervisor`   | Mounted files, directory metadata, volume mutations and source-scoped access policy                                |
+| `channels`  | `Zaq.Channels.Supervisor`  | Communication/data-source bridges, provider calls, transport normalization and webhook handling                    |
+| `bo`        | `ZaqWeb.Endpoint`          | Back Office LiveView UI, API controllers                                                                           |
 
 ---
 
@@ -167,16 +169,21 @@ the dynamic child reloads enabled bridge configs on every startup.
 Engine is the largest service. It owns several internal subsystems:
 
 ### Conversations (`lib/zaq/engine/conversations/`)
+
 Persists every Q&A exchange as a structured Conversation with Messages.
 All BO calls go through `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
 
 ### Notifications (`lib/zaq/engine/notifications/`)
+
 Email notifications, inline fallback delivery, notification logs.
+
 - `Zaq.Engine.Notifications` — public context
 - `Zaq.Engine.Notifications.NotificationLog` — persisted delivery log
 
 ### Telemetry (`lib/zaq/engine/telemetry/`)
+
 Full telemetry subsystem with in-memory buffer, rollups, and benchmark connectors.
+
 - `Zaq.Engine.Telemetry` — public API: `record/4`
 - `Zaq.Engine.Telemetry.Buffer` — in-memory buffer with periodic flush
 - `Zaq.Engine.Telemetry.Rollup` — aggregation logic
@@ -199,6 +206,7 @@ Engine modules:
 - `Zaq.Engine.DataSources.WatchChannelRenewalWorker` — scheduled renewal before provider expiration.
 
 ### Adapter Lifecycle (`lib/zaq/engine/`)
+
 - `Zaq.Engine.IngestionSupervisor` — loads ingestion configs from DB, starts adapters dynamically
 - `Zaq.Engine.RetrievalSupervisor` — loads retrieval configs from DB, starts adapters dynamically
 - `Zaq.Engine.ChannelAdapterLoader` — shared configuration-to-child loading
@@ -223,6 +231,7 @@ Normalized Incoming + trusted actor
 ```
 
 Key agent modules:
+
 - `Zaq.Agent.Pipeline` — orchestrates the full RAG flow
 - `Zaq.Agent.ProviderSpec` / `Zaq.Agent.Factory` — provider normalization and runtime/model configuration
 - `Zaq.Agent.Executor` / `Zaq.Agent.ServerManager` — run lifecycle and Jido server management
@@ -230,6 +239,7 @@ Key agent modules:
 - <code>Zaq.Agent.CitationNormalizer</code> — normalizes citations in answers
 
 Configured-agent execution path:
+
 - BO chat dispatches `%Incoming{provider: :web}` to Engine with `action: :route_incoming_message`
 - Optional explicit BO selection is carried in `event.assigns["agent_selection"]` with `source: "bo_explicit"`
 - Engine incoming routing turns the request into the executable agent `:run_pipeline` hop
@@ -254,12 +264,14 @@ than a second field matrix in this overview.
 ## Ingestion Pipeline
 
 ### Elixir Pipeline
+
 ```
 File → IngestWorker → DocumentProcessor → DocumentChunker → IngestChunkWorker
      → ChunkTitle (LLM) → EmbeddingClient → Chunk (PGVector)
 ```
 
 ### Python Pipeline (`lib/zaq/ingestion/python/`)
+
 Handles non-markdown files before they enter the Elixir pipeline:
 
 ```
@@ -297,6 +309,7 @@ See [materialization](services/materialization.md) for handle security/lifecycle
 ## Hooks System (`lib/zaq/hooks/`)
 
 A pluggable hook system for extending ZAQ behavior at runtime:
+
 - `Zaq.Hooks` — public API
 - `Zaq.Hooks.Registry` — ETS-backed hook registry
 - `Zaq.Hooks.Handler` — hook execution
@@ -310,15 +323,15 @@ Used for add-on-driven feature extensions loaded at runtime via `PostLoader`.
 
 Config is split into dedicated modules per concern — never read config keys directly:
 
-| Module | Reads |
-|---|---|
-| `Zaq.System.LLMConfig` | LLM provider, endpoint, model, feature flags |
-| `Zaq.System.EmbeddingConfig` | Embedding provider, model, dimension, chunk sizes |
-| `Zaq.System.ImageToTextConfig` | Image-to-text provider, model |
-| `Zaq.System.EmailConfig` | SMTP settings |
-| `Zaq.System.IngestionConfig` | Ingestion volume paths |
-| `Zaq.System.TelemetryConfig` | Telemetry settings |
-| `Zaq.System.SecretConfig` | AES-256-GCM encryption key management |
+| Module                         | Reads                                             |
+| ------------------------------ | ------------------------------------------------- |
+| `Zaq.System.LLMConfig`         | LLM provider, endpoint, model, feature flags      |
+| `Zaq.System.EmbeddingConfig`   | Embedding provider, model, dimension, chunk sizes |
+| `Zaq.System.ImageToTextConfig` | Image-to-text provider, model                     |
+| `Zaq.System.EmailConfig`       | SMTP settings                                     |
+| `Zaq.System.IngestionConfig`   | Ingestion volume paths                            |
+| `Zaq.System.TelemetryConfig`   | Telemetry settings                                |
+| `Zaq.System.SecretConfig`      | AES-256-GCM encryption key management             |
 
 Always use the dedicated accessor (`Zaq.System.get_llm_config/0`, etc.) — never query `system_configs` directly.
 
@@ -335,14 +348,14 @@ allowed dependencies.
 
 ### Layer responsibilities
 
-| Layer | What goes here |
-|---|---|
-| `Types` | Ecto schemas, structs, type definitions |
-| `Config` | Config readers, feature flags |
-| `Repo` | Ecto queries, persistence, upserts |
-| `Service` | Business logic, orchestration |
-| `Runtime` | OTP processes, GenServers, supervisors |
-| `UI` | LiveViews, components, templates |
+| Layer     | What goes here                          |
+| --------- | --------------------------------------- |
+| `Types`   | Ecto schemas, structs, type definitions |
+| `Config`  | Config readers, feature flags           |
+| `Repo`    | Ecto queries, persistence, upserts      |
+| `Service` | Business logic, orchestration           |
+| `Runtime` | OTP processes, GenServers, supervisors  |
+| `UI`      | LiveViews, components, templates        |
 
 ---
 
