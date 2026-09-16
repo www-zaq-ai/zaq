@@ -1,5 +1,8 @@
 defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
+  import Mox
+  setup :verify_on_exit!
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.Person
@@ -53,6 +56,149 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
       refute :row_index in keys
       refute :email_state in keys
       refute :email_state_column in keys
+    end
+  end
+
+  describe "Jido execution" do
+    test "parameter confidentiality cannot change trusted defaults" do
+      assert {:ok, _} =
+               Jido.Exec.run(
+                 NotifyPerson,
+                 %{
+                   person: %{id: 123},
+                   subject: "Hello",
+                   message: "Body",
+                   confidential: true,
+                   event_opts: [confidential: true]
+                 },
+                 %{node_router: OkRouter},
+                 timeout: 0
+               )
+
+      assert_received {:dispatched, event}
+      refute event.opts[:confidential]
+    end
+
+    test "confidential returned failures retain safe classification before Jido logs" do
+      for reason <- [
+            "private-error-body",
+            %RuntimeError{message: "private-error-body"},
+            {:provider_failed, "private-error-body"},
+            {:ok, :unexpected}
+          ] do
+        expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+          response = if reason == {:ok, :unexpected}, do: reason, else: {:error, reason}
+          %{event | response: response}
+        end)
+
+        log =
+          ExUnit.CaptureLog.capture_log(
+            [level: :warning, metadata: [:phase, :exception_type]],
+            fn ->
+              assert {:error, %Jido.Action.Error.ExecutionFailureError{details: details} = error} =
+                       Jido.Exec.run(
+                         NotifyPerson,
+                         %{person: %{id: 123}, subject: "Hello", message: "private-message"},
+                         %{node_router: Zaq.NodeRouterMock, event_opts: [confidential: true]},
+                         timeout: 0
+                       )
+
+              assert details.phase == :delivery
+              assert details.retry == false
+              refute inspect(error) =~ "private-"
+            end
+          )
+
+        assert log =~ "phase=delivery"
+        if is_exception(reason), do: assert(log =~ "RuntimeError")
+        refute log =~ "private-"
+      end
+    end
+
+    test "ordinary raised and thrown failures retain Jido execution handling" do
+      expect(Zaq.NodeRouterMock, :dispatch, fn _ -> raise "ordinary failure" end)
+
+      assert {:error,
+              %Jido.Action.Error.ExecutionFailureError{
+                details: %{original_exception: %RuntimeError{}}
+              }} =
+               Jido.Exec.run(
+                 NotifyPerson,
+                 %{person: %{id: 123}, subject: "Hello", message: "Body"},
+                 %{node_router: Zaq.NodeRouterMock},
+                 timeout: 0,
+                 max_retries: 0
+               )
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn _ -> throw(:ordinary_failure) end)
+
+      assert {:error, %Jido.Action.Error.InternalError{}} =
+               Jido.Exec.run(
+                 NotifyPerson,
+                 %{person: %{id: 123}, subject: "Hello", message: "Body"},
+                 %{node_router: Zaq.NodeRouterMock},
+                 timeout: 0,
+                 max_retries: 0
+               )
+    end
+
+    property "only trusted confidentiality is forwarded and cannot override the action" do
+      check all(message <- string(:alphanumeric, min_length: 1), max_runs: 10) do
+        parent = self()
+
+        Mox.expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+          send(parent, {:action_event, event})
+          %{event | response: {:ok, %{status: :skipped}}}
+        end)
+
+        assert {:ok, %{notified: false, status: :skipped, content: ^message}} =
+                 Jido.Exec.run(
+                   NotifyPerson,
+                   %{person: %{id: 123}, subject: "Hello", message: message},
+                   %{
+                     node_router: Zaq.NodeRouterMock,
+                     event_opts: [confidential: true, action: :invoke, secret: message]
+                   },
+                   timeout: 0
+                 )
+
+        assert_received {:action_event, event}
+        assert event.opts[:action] == :notify_person
+        assert event.opts[:confidential] == true
+        refute Keyword.has_key?(event.opts, :secret)
+      end
+    end
+
+    test "malformed parameters fail Jido validation before dispatch" do
+      assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+               Jido.Exec.run(
+                 NotifyPerson,
+                 %{person: :invalid, subject: "Hello", message: "Body"},
+                 %{node_router: OkRouter}
+               )
+
+      refute_received {:dispatched, _}
+    end
+
+    test "ordinary execution retains sent payload and error contracts" do
+      assert {:ok, %{notified: true, status: :sent, message: "Body", content: "Body"}} =
+               Jido.Exec.run(
+                 NotifyPerson,
+                 %{person: %{id: 123}, subject: "Hello", message: "Body"},
+                 %{node_router: OkRouter},
+                 timeout: 0
+               )
+
+      assert_received {:dispatched, event}
+      refute event.opts[:confidential]
+
+      assert {:error, %Jido.Action.Error.ExecutionFailureError{message: "person_not_found:123"}} =
+               Jido.Exec.run(
+                 NotifyPerson,
+                 %{person: %{id: 123}, subject: "Hello", message: "Body"},
+                 %{node_router: ErrorRouter},
+                 timeout: 0
+               )
     end
   end
 

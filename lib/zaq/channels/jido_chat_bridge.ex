@@ -822,7 +822,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
     Thread.new(%{
       id: "#{incoming.external_room_id}:#{thread_id}",
-      adapter_name: adapter_name,
+      adapter_name: provider_to_atom(adapter_name),
       adapter: adapter,
       external_room_id: incoming.external_room_id,
       external_thread_id: incoming.external_thread_id,
@@ -1781,7 +1781,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     thread =
       Thread.new(%{
         id: "#{channel_id}:#{effective_thread_id}",
-        adapter_name: provider,
+        adapter_name: provider_to_atom(provider),
         adapter: adapter_module,
         external_room_id: channel_id,
         external_thread_id: thread_id,

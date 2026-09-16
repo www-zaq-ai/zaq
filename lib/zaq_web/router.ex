@@ -23,6 +23,10 @@ defmodule ZaqWeb.Router do
     plug ZaqWeb.Plugs.Auth
   end
 
+  pipeline :person_auth do
+    plug ZaqWeb.Plugs.PersonAuth
+  end
+
   pipeline :api do
     plug :accepts, ["json"]
   end
@@ -45,6 +49,26 @@ defmodule ZaqWeb.Router do
     get "/", PageController, :home
     get "/auth/callback", ChannelsController, :openai_oauth_callback
     live "/s/:token", Live.SharedConversationLive
+  end
+
+  scope "/people", ZaqWeb do
+    pipe_through [:browser, :channels_node_only]
+
+    post "/challenge", PersonSessionController, :request
+    post "/session", PersonSessionController, :create
+    delete "/session", PersonSessionController, :delete
+
+    live_session :people_login, on_mount: {ZaqWeb.Live.People.AuthHook, :public} do
+      live "/login", Live.People.LoginLive
+    end
+  end
+
+  scope "/people", ZaqWeb do
+    pipe_through [:browser, :channels_node_only, :person_auth]
+
+    live_session :people, on_mount: {ZaqWeb.Live.People.AuthHook, :default} do
+      live "/profile", Live.People.ProfileLive
+    end
   end
 
   # BO - Public

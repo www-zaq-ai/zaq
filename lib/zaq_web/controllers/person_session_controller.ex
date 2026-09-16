@@ -1,0 +1,106 @@
+defmodule ZaqWeb.PersonSessionController do
+  @moduledoc """
+  CSRF-protected HTTP bridge for People sign-in and the existing HttpOnly cookie
+  session. Bearers stay in Plug.Session, never in LiveView assigns or URLs.
+  Login/resend use ordinary POST/redirect forms; no asynchronous UI result can
+  select an older challenge. Engine remains authoritative for concurrent requests.
+  """
+  use ZaqWeb, :controller
+
+  alias Zaq.Channels.PeopleAuth
+  alias Zaq.Engine.Events
+
+  def request(conn, params) do
+    email = Map.get(params, "email", get_session(conn, :person_login_email))
+
+    case PeopleAuth.request_challenge(email, conn.remote_ip) do
+      {:ok, %{challenge_id: _, expires_at: _} = challenge} ->
+        conn
+        |> put_session(:person_login_email, email)
+        |> put_session(:person_login_challenge, challenge)
+        |> redirect(to: ~p"/people/login")
+
+      error ->
+        conn
+        |> put_flash(:error, request_error_message(error))
+        |> redirect(to: ~p"/people/login")
+    end
+  end
+
+  def create(conn, params) do
+    id = Map.get(params, "challenge_id")
+
+    case auth(%{op: :verify, challenge_id: id, code: Map.get(params, "code")}) do
+      {:ok, %{token: token}} ->
+        conn
+        |> configure_session(renew: true)
+        |> put_session(:person_session_token, token)
+        |> delete_session(:person_login_challenge)
+        |> delete_session(:person_login_email)
+        |> redirect(to: ~p"/people/profile")
+
+      _ ->
+        conn
+        |> retain_challenge(id)
+        |> put_flash(
+          :error,
+          "The code is incorrect or has expired. Try again or request a new code."
+        )
+        |> redirect(to: ~p"/people/login")
+    end
+  end
+
+  def delete(conn, _params) do
+    result = auth(%{op: :revoke, token: get_session(conn, :person_session_token)})
+
+    conn =
+      conn
+      |> delete_session(:person_session_token)
+      |> delete_session(:person_login_challenge)
+      |> delete_session(:person_login_email)
+      |> configure_session(renew: true)
+
+    conn =
+      case result do
+        {:ok, _} -> conn
+        {:error, :invalid_session} -> conn
+        _ -> put_flash(conn, :error, "Signed out here. Server revocation could not be confirmed.")
+      end
+
+    redirect(conn, to: ~p"/people/login")
+  end
+
+  defp request_error_message({:error, :failed_identification}),
+    do: "We couldn't start the authentication process for this address."
+
+  defp request_error_message({:error, :delivery_failed}),
+    do: "We couldn't send your verification code. Please try again later."
+
+  defp request_error_message(_),
+    do: "Unable to send a sign-in code. Please try again later."
+
+  defp retain_challenge(conn, id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} ->
+        challenge = get_session(conn, :person_login_challenge)
+
+        challenge =
+          if challenge && challenge.challenge_id == id,
+            do: challenge,
+            else: %{challenge_id: id, expires_at: nil}
+
+        put_session(conn, :person_login_challenge, challenge)
+
+      _ ->
+        conn
+    end
+  end
+
+  defp retain_challenge(conn, _), do: conn
+
+  defp auth(request) do
+    Events.build_and_dispatch_invoke_event(request, :people_auth,
+      event_opts: [confidential: true]
+    ).response
+  end
+end

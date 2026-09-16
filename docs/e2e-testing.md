@@ -148,6 +148,70 @@ or host browser profiles are mounted into the browser container.
 
 ## Running Tests
 
+### People authentication journey (isolated, no reset)
+
+After `mix assets.build` and installing `test/e2e` Playwright dependencies plus
+Chromium, Firefox and WebKit (`npm exec --prefix test/e2e -- playwright install chromium firefox webkit`):
+
+```sh
+mix test test/zaq_web/people_browser_test.exs --include real_browser --timeout 180000
+```
+
+This test starts an ephemeral Bandit HTTP server against the existing Phoenix
+Endpoint inside SQL Sandbox. The real browser uses regular CSRF forms and
+LiveView connections. Only the notification transport is mocked; delivered codes
+reach the test browser over its private process stdin, with no test-only public
+endpoint. No database reset, E2E bootstrap, external delivery, or Agent/LLM call
+is used. The fixture rolls back on completion.
+
+Each of the three engines runs the entire journey at 390px and 1280px. Fixtures
+use separate Person identities per engine/viewport and sandbox-scoped send limits.
+The journey covers mobile/desktop presentation, email request, incorrect-code
+recovery, timestamp countdown/expiry, resend, code formatting, profile entry,
+HttpOnly/Lax browser-session cookies, logout and protected-route denial. BO-first
+and People-first login, People logout preserving BO, and BO logout preserving
+People run in every engine. The supporting browser runner is
+`test/e2e/support/people-auth-browser.cjs`, using the shared BO connection/settling
+helpers. Countdown testing changes only client wall time, not socket heartbeat
+timers. This uses Playwright, not the agent-browser CLI from the separate test above.
+
+### Distributed confidentiality and cookie/logging regression tests
+
+```sh
+MIX_ENV=test mix deps.compile phoenix_live_view --force
+mix test test/zaq/confidential_event_peer_test.exs test/zaq_web/production_session_options_test.exs test/zaq_web/controllers/person_session_controller_test.exs
+```
+
+The peer test requires Erlang `epmd`/`:peer` and the normal isolated test database.
+It uses two actual BEAM nodes, real NodeRouter RPC verification/revocation and
+PubSub subscribers on both peers. Public controls from each side prove observer
+delivery; confidential envelopes remain absent. Authentication credentials stay
+inside the peers; only boolean summaries return. Remote database writes roll back
+when the peer-owned SQL Sandbox exits. No test database reset is performed.
+
+The production-options test evaluates the endpoint's real session options against
+`Config.Reader` production settings without changing application environment.
+HTTP/LiveView log tests capture actual pipeline debug output, including a visible
+control parameter, and reject submitted OTP/bearer leakage. They do not prohibit
+the accepted V1 notification-body persistence.
+
+For the broader People/BO authentication, event routing and notification coverage
+gate (including all browser engines and the real peer tests):
+
+```sh
+MIX_ENV=test mix coveralls.json \
+  test/zaq/accounts test/zaq/accounts_test.exs \
+  test/zaq/{node_router,event,event_hop,confidential_event,confidential_event_peer}_test.exs \
+  test/zaq/events test/zaq/people/auth_rate_limiter{,_peer}_test.exs \
+  test/zaq/channels/people_auth{,_rate_limiter}_test.exs \
+  test/zaq/engine/{api,people_auth_gateway,people_access_config_api}_test.exs \
+  test/zaq/engine/notifications \
+  test/zaq_web/controllers/{bo_session,person_session}_controller_test.exs \
+  test/zaq_web/plugs test/zaq_web/live/bo/{auth_hook,login_live}_test.exs \
+  test/zaq_web/{router,production_session_options,people_browser}_test.exs \
+  --include real_browser --timeout 180000
+```
+
 ### Prerequisites
 
 1. **PostgreSQL** reachable at `localhost:5432` (same as CI and `docker compose` in this repo). With `E2E=1`, the app re-applies DB settings **after** `config/test.secret.exs`, so a worktree-specific repo port in that file does not apply to the E2E server. Override only when intentional: `E2E_DB_HOST`, `E2E_DB_PORT`, `E2E_DB_USER`, `E2E_DB_PASSWORD`.

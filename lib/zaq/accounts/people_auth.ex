@@ -21,8 +21,10 @@ defmodule Zaq.Accounts.PeopleAuth do
   Config is read per operation; expiry is fixed at issuance, max attempts is current.
   The existing endpoint secret_key_base derives the challenge-bound HMAC key with
   versioned purpose separation. No raw code or bearer token enters an Ecto value,
-  log, telemetry event, or generic Engine event. Delivery and public routing are
-  separate responsibilities. Runtime opts resolve clock and signing configuration.
+  authentication row or authentication telemetry. Delivery and public routing are
+  separate responsibilities: bearer operations require confidential Engine events;
+  V1 notification bodies use the existing notification log persistence. Runtime
+  opts resolve clock and signing configuration.
   """
   import Ecto.Query
 
@@ -111,6 +113,68 @@ defmodule Zaq.Accounts.PeopleAuth do
     end)
   end
 
+  @doc "Invalidates only the named unfinished challenge; missing/finished rows are idempotent no-ops."
+  @spec invalidate_challenge(term()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def invalidate_challenge(challenge_id) do
+    with {:ok, id} <- uuid(challenge_id, :invalid_challenge) do
+      transaction(fn -> invalidate_reference(id) end)
+    end
+  end
+
+  @doc "Rechecks live challenge eligibility after delivery, returning only a public-safe descriptor."
+  @spec challenge_status(term(), keyword()) :: {:ok, map()} | {:error, term()}
+  def challenge_status(challenge_id, opts \\ []) do
+    with {:ok, id} <- uuid(challenge_id, :invalid_challenge),
+         {:ok, config} <- Zaq.System.get_people_access_config() do
+      clock = Keyword.get(opts, :clock, DateTime)
+
+      transaction(fn -> challenge_status_locked(id, config, clock) end)
+    end
+  end
+
+  defp invalidate_reference(id) do
+    case locked_challenge(id) do
+      {_person, challenge} -> invalidate_unfinished(challenge)
+      nil -> {:ok, 0}
+    end
+  end
+
+  defp invalidate_unfinished(challenge) do
+    if unfinished?(challenge) do
+      challenge
+      |> PersonLoginChallenge.changeset(%{invalidated_at: DateTime.utc_now(:second)})
+      |> Repo.update()
+      |> persisted!()
+
+      {:ok, 1}
+    else
+      {:ok, 0}
+    end
+  end
+
+  defp challenge_status_locked(id, config, clock) do
+    with {person, challenge} <- locked_challenge(id),
+         true <- eligible?(person) and unfinished?(challenge),
+         true <- DateTime.before?(clock.utc_now(:second), challenge.expires_at),
+         true <- challenge.attempt_count < config.otp_max_attempts do
+      {:ok, %{challenge_id: challenge.id, expires_at: challenge.expires_at}}
+    else
+      _ -> {:error, :invalid_challenge}
+    end
+  end
+
+  defp locked_challenge(id) do
+    with person_id when is_integer(person_id) <-
+           Repo.one(from c in PersonLoginChallenge, where: c.id == ^id, select: c.person_id),
+         %Person{} = person <- lock_owner(person_id),
+         %PersonLoginChallenge{} = challenge <-
+           Repo.one(from c in PersonLoginChallenge, where: c.id == ^id, lock: "FOR UPDATE") do
+      {person, challenge}
+    else
+      _ -> nil
+    end
+  end
+
   @doc "Revokes all sessions for a trusted Person without checking eligibility or auth config."
   @spec revoke_all_sessions(Person.t() | integer()) :: {:ok, non_neg_integer()} | {:error, term()}
   def revoke_all_sessions(person) do
@@ -179,9 +243,13 @@ defmodule Zaq.Accounts.PeopleAuth do
   end
 
   defp authenticate_session(person, session, clock) do
-    if usable_session?(person, session, clock.utc_now(:second)),
-      do: {:ok, %{person: person, session: session_metadata(session)}},
-      else: {:error, :invalid_session}
+    permissions = PeoplePermissions.effective_permissions(person)
+
+    if person.status == "active" and MapSet.member?(permissions, :access_profile) and
+         is_nil(session.revoked_at) and
+         DateTime.before?(clock.utc_now(:second), session.expires_at),
+       do: {:ok, %{person: person, permissions: permissions, session: session_metadata(session)}},
+       else: {:error, :invalid_session}
   end
 
   defp touch_authenticated_session(person, session, clock) do

@@ -85,6 +85,13 @@ Event envelope fields:
 - `actor`
 - `name`
 
+Trusted `event.opts[:confidential] == true` suppresses the entire envelope from
+NodeRouter observer/workflow-trigger broadcasts, including `fire/1`. Dispatch and
+remote hop execution still occur. Async failure diagnostics omit request fields
+and replace error reasons with a fixed label. The flag is server-owned and must
+be propagated to separately built child events; request payload fields cannot
+opt out of observation. People bearer operations and OTP delivery events use it.
+
 ### Dispatch Semantics (sync, async, multi-hop)
 
 `NodeRouter.dispatch/1` is event-first and hop-driven:
@@ -147,7 +154,8 @@ issuance counters and owns persisted challenge verification attempts; Channels
 supervises only unsuccessful-identification IP counters. Shared Hammer ETS/PubSub
 mechanics have distinct role-local tables, listeners and replication topics.
 Channels prechecks use a bounded, background-refreshed typed config snapshot with
-no request-time database or Engine call. Public login orchestration remains PR4;
+no request-time database or Engine call. Public login uses one confidential Engine
+resolve/issue/notify request after that precheck;
 see [People authentication](services/people-access.md#rate-topology-and-retry-behavior).
 
 `Zaq.Channels.Supervisor` is a static `:one_for_one` parent: it starts

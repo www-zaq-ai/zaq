@@ -223,7 +223,10 @@ defmodule Zaq.NodeRouter do
   end
 
   defp broadcast_event(%Event{} = event) do
-    Phoenix.PubSub.broadcast(@pubsub, @trigger_topic, {:node_router_event, event})
+    unless confidential?(event) do
+      Phoenix.PubSub.broadcast(@pubsub, @trigger_topic, {:node_router_event, event})
+    end
+
     event
   end
 
@@ -260,6 +263,9 @@ defmodule Zaq.NodeRouter do
   defp unwrap_call_response(%Event{response: response}), do: response
 
   defp log_async_failure(%Event{response: {:error, reason}} = event, dispatch_ctx) do
+    confidential? = confidential?(event)
+    reason = if confidential?, do: :confidential_dispatch_failed, else: reason
+    event = if confidential?, do: %{event | request: nil}, else: event
     metadata = async_failure_metadata(event, dispatch_ctx)
 
     :telemetry.execute([:zaq, :node_router, :async, :failed], %{count: 1}, metadata)
@@ -273,6 +279,11 @@ defmodule Zaq.NodeRouter do
   end
 
   defp log_async_failure(%Event{}, _dispatch_ctx), do: :ok
+
+  defp confidential?(%Event{opts: opts}) when is_list(opts),
+    do: Keyword.get(opts, :confidential) == true
+
+  defp confidential?(_event), do: false
 
   defp async_failure_metadata(%Event{} = event, dispatch_ctx) do
     request = event.request

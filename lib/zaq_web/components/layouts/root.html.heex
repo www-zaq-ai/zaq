@@ -5,7 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
     <meta favicon="icon" href={~p"/favicon.ico"} />
-    <.live_title default="ZAQ" suffix=" · Back Office">
+    <.live_title
+      default="ZAQ"
+      suffix={
+        if String.starts_with?(@conn.request_path, "/people/"),
+          do: " · ZAQ",
+          else: " · Back Office"
+      }
+    >
       {assigns[:page_title]}
     </.live_title>
     <.figma_capture_script enabled={assigns[:figma_capture_enabled] || false} />

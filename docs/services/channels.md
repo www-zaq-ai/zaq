@@ -38,8 +38,11 @@ expired or failed config denies locally. Engine retains OTP Person/IP issuance
 budgets and persisted verification attempts. Shared Hammer mechanics use separate
 role tables/listeners/topics, including on combined-role nodes.
 
-Public authentication orchestration remains PR4: precheck before one Engine
-resolve/eligible/issue request, then record only its unknown/ineligible response.
+Public authentication uses `Zaq.Channels.PeopleAuth`: precheck before one confidential
+Engine resolve/eligible/issue/notify request, then record only its unknown/ineligible response.
+People HTTP forms use only the direct peer `conn.remote_ip`, ignoring forwarded
+client-IP headers. Public routes and their independent session contract are in
+[People authentication](people-access.md#public-people-authentication-pr4).
 There is no broad ingress ceiling or separate eligibility lookup call. See
 [rate topology and retry behavior](people-access.md#rate-topology-and-retry-behavior)
 for cache refresh/expiry and eventual-consistency limitations.

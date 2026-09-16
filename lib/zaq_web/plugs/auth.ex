@@ -29,7 +29,7 @@ defmodule ZaqWeb.Plugs.Auth do
         case Accounts.get_user(user_id) do
           nil ->
             conn
-            |> clear_session()
+            |> delete_session(:user_id)
             |> put_flash(:error, "You must log in to access this page.")
             |> redirect(to: ~p"/bo/login")
             |> halt()

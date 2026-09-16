@@ -91,10 +91,8 @@ synchronization state.
 Administration uses the existing authenticated BO People access policy. These
 grants do not authorize BO administrators. People authentication separately
 requires an active current Person with `access_profile`; BO sessions are independent.
-There are no public People login, profile, history, sharing or portal routes yet.
-grants do not authorize BO administrators. People authentication separately
-requires an active current Person with `access_profile`; BO sessions are independent.
-There are no public People login, profile, history, sharing or portal routes yet.
+Public People login and a protected profile landing scaffold are available on
+Channels nodes. Profile editing (PR5), history and sharing remain separate work.
 
 ## People access configuration (current)
 
@@ -157,20 +155,24 @@ the form becomes editable only after an authoritative successful load.
 
 ## People authentication backend
 
-`Zaq.Accounts.PeopleAuth` owns the lifecycle on Engine nodes. These are trusted
-backend APIs, not public routes or Engine event operations. No notification is
-dispatched. A delivery caller must not expose the returned OTP to a browser or
-place codes/tokens in generic event envelopes, logs or persisted notification data.
+`Zaq.Accounts.PeopleAuth` owns the lifecycle on Engine nodes. Its Person/ID-based
+APIs are trusted backend APIs. Public callers use the fixed `:people_auth` Engine
+action and `PeopleAuthGateway`; they cannot invoke owner-wide revocation. The
+gateway delivers through Notifications and returns only a public descriptor.
+Bearer/OTP events are confidential. V1 intentionally accepts existing notification
+body persistence; authentication tables remain digest-only.
 
 | Operation                                          | Success contract                                                                                                  |
 | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `issue_challenge(person_or_id, ip, opts \\ [])`    | `{:ok, %{challenge_id: uuid, code: eight_digits, expires_at: datetime}}`; code returned once for trusted delivery |
 | `verify_challenge(challenge_id, code, opts \\ [])` | `{:ok, %{token: bearer, session: metadata}}`; consumes challenge and creates session atomically                   |
-| `authenticate(token, opts \\ [])`                  | `{:ok, %{person: current_person, session: metadata}}`                                                             |
+| `authenticate(token, opts \\ [])`                  | `{:ok, %{person: current_person, permissions: current_grants, session: metadata}}`                                |
 | `touch_session(token, opts \\ [])`                 | `{:ok, metadata}`; checks authentication and records `last_seen_at`, without extending expiry                     |
 | `revoke_session(token)`                            | `{:ok, metadata}`; idempotent for an existing session                                                             |
 | `list_sessions(person_or_id)`                      | `{:ok, [metadata]}`; includes expired/revoked sessions, ordered by UUID                                           |
 | `invalidate_challenges(person_or_id)`              | `{:ok, count}`; invalidates all unfinished challenges, including expired ones                                     |
+| `invalidate_challenge(challenge_id)`               | `{:ok, count}`; targeted trusted delivery cleanup, missing/finished rows return zero                              |
+| `challenge_status(challenge_id, opts \\ [])`       | current eligibility/lifecycle/expiry/attempt check; returns only a safe descriptor                                |
 | `revoke_all_sessions(person_or_id)`                | `{:ok, count}`; revokes all unrevoked sessions, including expired ones                                            |
 
 Person inputs are persisted Person structs or positive integer IDs. Trusted
@@ -312,14 +314,79 @@ nodes begin empty, and partitions lose increments with no replay/state transfer.
 Delayed hits are applied in the receiving node's current window. Clock differences
 can change bucket attribution. No hard global overshoot bound is promised.
 
-### PR4 integration boundary (not implemented)
+### Public People authentication (PR4)
 
-V1 exposes the supervised budgets and trusted Person/ID-based backend lifecycle;
-it does not add an email challenge request, authentication Engine event, gateway,
-public route, cookie or notification delivery. PR4 must compose: local Channels
-precheck → **one** Engine request resolving identity, checking eligibility and
-issuing → Channels records a failure only for the unknown/ineligible outcome in
-that response. Identity lookup stays in Engine. There is no two-phase lookup/issue
-protocol or callback from Engine to Channels for rate accounting. Delivery must
-keep raw OTPs out of public responses. There is **no broad ingress ceiling**:
-known eligible requests may reach Engine and be rejected by issuance budgets.
+Channels serves `GET /people/login`, `POST /people/challenge`, CSRF-protected
+`POST /people/session` (verify) and `DELETE /people/session` (logout).
+`GET /people/profile` is a minimal protected landing page with Profile navigation
+and logout. It has no editing or history links. People LiveViews have independent
+live sessions from BO. `PersonAuth` protects HTTP and `People.AuthHook` checks
+current identity, active status, access_profile and expiry on mount/reconnect and
+every event. No periodic polling or idle-page revocation broadcast is required.
+
+`Zaq.Channels.PeopleAuth.request_challenge/2` performs its local precheck before
+**one** confidential Engine request. `PeopleAuthGateway.request_challenge/3`
+uses read-only `People.match_person/1` for profile/email-channel identity, then
+quota-backed issuance, then `Jido.Exec.run/3` with `Zaq.Agent.Tools.People.NotifyPerson`.
+The action dispatches confidential `:notify_person` to Engine, which forwards
+confidentiality to the existing `Notifications.notify_person/3` Channels delivery. Delivery uses the
+existing weighted preferred/fallback channel routing, a plain eight-digit code
+formatted `XXXX-XXXX`, and a fixed subject. No agent runtime, LLM or workflow runs.
+Only final `:sent` with `notified: true` is success; action message/content and
+instructions never leave the private gateway. Unknown/ineligible outcomes are tagged internally
+`:failed_identification`; only that outcome spends Channels' failure budget.
+Public errors disclose no channel details. Showing OTP entry only after real
+delivery intentionally permits account enumeration in V1; no decoys are issued.
+
+Request and resend share public stage messages: unknown, inactive and missing
+profile access all say "We couldn't start the authentication process for this
+address." The existing `:delivery_failed` outcome says "We couldn't send your
+verification code. Please try again later." Issuance/configuration/limiter and
+other unavailable outcomes retain "Unable to send a sign-in code. Please try
+again later." No identity, permission or transport reason is included. Failed
+requests retain any pending session descriptor; OTP verification errors remain
+separate.
+
+Failed/raised/exited delivery invalidates only that request's challenge, using
+literal-owner Person-before-challenge locks. Remote I/O holds no database lock.
+Successful sends recheck current eligibility, expiry and supersession before
+returning. Failure of A cannot invalidate later B. Process/node death or database
+unavailability can prevent cleanup; expiry and supersession remain authoritative.
+
+Confidential action failures emit safe structured diagnostics before Jido error
+logging: delivery/execution phase, exception module (or `:unknown`), event trace id,
+and, for raised exceptions, source module/function/arity without arguments.
+The gateway logs validation/execution/delivery phase and challenge id. Neither
+boundary logs raw results, exception messages, codes, bearer tokens or Person
+details. Confidential failures reach Jido as non-retryable structured errors;
+ordinary workflow error strings remain compatible. V1's existing notification
+database payload retention is unchanged.
+
+Email, resend and verification use conventional POST/redirect forms; LiveView is
+presentational, so there are no outstanding asynchronous UI result generations.
+Concurrent HTTP requests still consume normal backend budgets and supersession:
+a late cookie response can show an old descriptor, whose code is rejected; resend
+recovers. Buttons disable during submission to reduce accidental duplicates.
+Wrong-code redirects retain the opaque challenge/expiry and email in the signed
+cookie session, never the code. The timestamp countdown is informational and
+keeps resend/input available after expiry; the backend is authoritative.
+
+The session bearer is stored in existing Plug.Session under
+`person_session_token`. It never enters URLs, JS, DOM or LiveView assigns. LiveView
+receives the cookie through connect_info; cookie data is not copied into explicit
+signed DOM live-session payloads. Phoenix filters password/secret/token/code
+parameters; the unfiltered stock LiveView mount-session dump is suppressed at
+compile time (see system-config logging guidance). Cookie transport is signed,
+HttpOnly, SameSite=Lax, Secure in production, with the original browser-session
+lifetime and no explicit Max-Age/Expires; the database enforces
+the configured seven-day People session lifetime. Cookie renewal preserves BO
+`user_id`; BO logout/invalid-user cleanup remove only `user_id`. Person logout
+revokes its bearer and removes only Person keys. If server revocation cannot be
+confirmed, it still clears the local credential and reports the limitation.
+
+**Trusted IP V1:** only the direct `conn.remote_ip` is used. Auth mutations are
+HTTP POSTs, so no LiveView peer-data IP path is needed. Forwarded client-IP headers
+are ignored; there is no configurable proxy trust policy. A reverse proxy therefore
+shares its peer-IP budget among its users. Hammer's native remaining-window
+retry time varies; the public UI deliberately says to retry later rather than
+promising a fixed cooldown. There is no broad ingress ceiling.
