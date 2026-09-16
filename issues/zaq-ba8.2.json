@@ -11,9 +11,15 @@
   "id": "zaq-ba8.2",
   "labels": [],
   "parent": "zaq-ba8",
+  "comments": [
+    {
+      "text": "Memory cleanup implemented and reference-checked: all 11 project memories now use owner links/source maps/pitfalls, reduced from 3124 to 1514 words (~52%). serena memories check passed; repository doc links included in changed-file link scan. Work remains uncommitted; upstream issue remains open because required quality gate is blocked.",
+      "timestamp": "2026-09-16T16:02:32Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-ba8] Slim Serena memories and connect hygiene policy",
   "type": "task",
-  "updated_at": "2026-09-16T15:24:57Z"
+  "updated_at": "2026-09-16T16:02:32Z"
 }
