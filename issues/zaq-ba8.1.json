@@ -9,9 +9,15 @@
   "id": "zaq-ba8.1",
   "labels": [],
   "parent": "zaq-ba8",
+  "comments": [
+    {
+      "text": "Policy/index and architecture/dispatch guidance updated. 149 local inline links/anchors across 25 changed Markdown files passed the targeted check. mix q attempted twice: format/hooks.verify passed, then existing ExDNA.Credo Task.Supervised.stream(5000) internal timeout while checking 1183 source files. No application/config/lock files changed. Validation is blocked, not waived; keeping issue open while finishing related memory cleanup and final verification.",
+      "timestamp": "2026-09-16T15:38:41Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ba8] Establish documentation owners and reconcile dispatch guidance",
   "type": "task",
-  "updated_at": "2026-09-16T15:24:58Z"
+  "updated_at": "2026-09-16T15:38:41Z"
 }
