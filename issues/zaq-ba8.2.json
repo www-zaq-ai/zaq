@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-ba8.1"
+  ],
   "blocks": [],
   "created": "2026-09-16T15:24:43Z",
   "description": "Replace duplicated architecture/procedures in Serena memories with concise source maps and links to policy owners; update memory maintenance reference. Action reuse N/A: memory/documentation only. Verify memory links with serena memories check.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-ba8] Slim Serena memories and connect hygiene policy",
   "type": "task",
-  "updated_at": "2026-09-16T15:24:43Z"
+  "updated_at": "2026-09-16T15:24:54Z"
 }
