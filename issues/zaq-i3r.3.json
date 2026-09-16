@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-16T09:12:05Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-i3r",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-i3r] Validate documentation and final gate",
   "type": "task",
-  "updated_at": "2026-09-16T09:12:05Z"
+  "updated_at": "2026-09-16T09:18:02Z"
 }
