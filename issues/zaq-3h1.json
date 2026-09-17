@@ -10,11 +10,15 @@
     {
       "text": "Implemented credential validation, mixed-case/provider atom-safety coverage, malformed routing deletion resilience, and ServerManager-synchronized delete race coverage. Isolated tests pass: mix test test/zaq/agent/agent_test.exs test/zaq/agent/agent_delete_race_test.exs (23 tests, 1 property, 0 failures). Left open pending parent validation; did not run mix q/full suite/coverage/precommit.",
       "timestamp": "2026-09-17T16:55:35Z"
+    },
+    {
+      "text": "Implemented Agent branch/property/race tests. Reviewed and hardened singleton cleanup. mix q passed. Final edited-files-only coverage run: 26 tests, 3 properties, 0 failures; lib/zaq/agent.ex 98.5% (2 uncovered lines), supplied baseline 94%. Line 323 retained as stable-valid-state reachability exception. No production edits. Not committed; no final approval requested.",
+      "timestamp": "2026-09-17T17:02:59Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Cover Agent context missed branches",
   "type": "task",
-  "updated_at": "2026-09-17T16:55:35Z"
+  "updated_at": "2026-09-17T17:02:59Z"
 }
