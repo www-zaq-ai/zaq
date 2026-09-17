@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T12:01:33Z",
+  "description": "Implement the approved final review corrections across conversation reuse, logout resilience, BO session availability, auth limiter ownership, and People authentication/profile cohesion. Preserve Channels ingress versus Engine issuance checks and approved PRD amendments. Action reuse: reuse GetDocument, NotifyPerson, Conversations, PeopleAuth, and existing role APIs; no new agent exposure.",
+  "id": "zaq-q47",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "People portal final architecture review fixes",
+  "type": "epic",
+  "updated_at": "2026-09-17T12:01:33Z"
+}
