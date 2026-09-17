@@ -14,11 +14,15 @@
     {
       "text": "Isolated validation passed: mix test test/zaq/agent/tools/registry_input_test.exs test/zaq/agent/tools/registry_test.exs — 2 properties, 28 tests, 0 failures. Leaving zaq-y2j in_progress pending parent mix q/validation; mix q intentionally not run.",
       "timestamp": "2026-09-17T16:58:45Z"
+    },
+    {
+      "text": "Implemented registry_input_test.exs: malformed identifier examples and bounded properties targeting line 458. Isolated Registry suites passed (28 tests, 2 properties). mix q passed. Final edited-files-only coverage run: 26 tests, 3 properties, 0 failures; registry.ex 59.0% versus supplied 95% broader baseline because unchanged registry_test.exs excluded as instructed. No full-suite reassessment. No production edits; not committed.",
+      "timestamp": "2026-09-17T17:03:00Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Cover Registry malformed input fallback",
   "type": "task",
-  "updated_at": "2026-09-17T16:58:45Z"
+  "updated_at": "2026-09-17T17:03:00Z"
 }
