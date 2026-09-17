@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T12:01:36Z",
+  "description": "Run focused security/regression suites and mix q, review diff and documentation consistency. Existing E2E only; no new UX journey authored because changes are architectural/failure handling and feature E2E remains approval-gated. Action reuse: not applicable, validation only.",
+  "id": "zaq-q47.6",
+  "labels": [],
+  "parent": "zaq-q47",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-q47] Validate People portal review fixes",
+  "type": "task",
+  "updated_at": "2026-09-17T12:01:36Z"
+}
