@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T07:03:02Z",
+  "description": "Implement approved current-worktree plan: fix Storybook form warning; use configured DateFormat for People session timestamps; touch last_seen_at inside locked PeopleAuth session validation with 60-second throttle, rollback-safe metadata; reuse styled destructive confirmation for revoke/revoke-all. Preserve existing staged/unstaged changes. Action reuse assessment: extend existing PeopleAuth session operation and reuse existing DateFormat and BO confirmation component/private component; no new agent Action or tool exposure because these are internal auth/UI implementation details. Verify focused auth, LiveView, Storybook, profile/conversation tests plus mix q and final mix precommit; no commit/push/PR/DB reset.",
+  "id": "zaq-op9",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[People profile] Track authenticated activity and align BO confirmation/time display",
+  "type": "task",
+  "updated_at": "2026-09-17T07:03:02Z"
+}
