@@ -204,7 +204,9 @@ test.describe("Agents", () => {
     ).toBeVisible()
   })
 
-  test("custom model shows tool-calling warning and disables MCP/tools actions", async ({ page }) => {
+  test("custom model shows unknown-capability notice and keeps MCP/tools actions enabled", async ({
+    page,
+  }) => {
     await loginToBackOffice(page)
 
     const credential = await createE2EAiCredential(page, {
@@ -221,8 +223,38 @@ test.describe("Agents", () => {
     await expect(page.locator("#configured-agent-model-select")).toHaveCount(0)
     const modelInput = page.locator('input[type="text"][name="configured_agent[model]"]')
     await expect(modelInput).toBeVisible()
-    await modelInput.fill("unsupported-model-no-tools")
+    await modelInput.fill("unlisted-custom-model")
     await modelInput.press("Tab")
+    await waitForLiveViewSettled(page)
+
+    await expect(
+      page.getByText(
+        "Tool-calling support could not be determined for this model. Only add tools or MCP endpoints if the model supports tool calling; otherwise, requests may fail at runtime."
+      )
+    ).toBeVisible()
+    await expect(
+      page.getByText(
+        "Selected model does not support tool calling. MCP endpoints and tools are unavailable for this model."
+      )
+    ).toHaveCount(0)
+    await expect(page.locator("#add-mcp-button")).toBeEnabled()
+    await expect(page.locator("#add-tools-button")).toBeEnabled()
+  })
+
+  test("confirmed unsupported model disables MCP/tools actions", async ({ page }) => {
+    await loginToBackOffice(page)
+
+    const credential = await createE2EAiCredential(page, {
+      name: `E2E Unsupported ${Date.now()}`,
+      provider: "OpenAI",
+      endpoint: "https://api.openai.com/v1",
+      api_key: `e2e-key-${Date.now()}`,
+      description: "Agents spec seeded credential",
+    })
+
+    await openNewAgentForm(page, `E2E Agent Unsupported ${Date.now()}`)
+    await selectAgentCredential(page, credential.name)
+    await selectModelFromPicker(page, "gpt-5.1-2025-11-13")
     await waitForLiveViewSettled(page)
 
     await expect(

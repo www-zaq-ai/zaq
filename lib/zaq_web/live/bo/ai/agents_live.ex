@@ -49,7 +49,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       |> assign(:selected_agent, nil)
       |> assign(:model_options, [])
       |> assign(:model_context_catalog_tokens, nil)
-      |> assign(:selected_model_supports_tools, nil)
+      |> assign(:selected_model_tool_capability, nil)
       |> assign(:advanced_options_json, "{}")
       |> assign(:advanced_options_error, nil)
       |> assign(:form_notice, nil)
@@ -134,7 +134,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       |> Enum.reject(&(&1.id in selected_mcp_endpoint_ids(socket)))
 
     cond do
-      socket.assigns.selected_model_supports_tools == false ->
+      socket.assigns.selected_model_tool_capability == :unsupported ->
         {:noreply,
          socket
          |> assign(:mcp_picker_open, false)
@@ -471,7 +471,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     socket
     |> assign(:changeset, changeset)
     |> assign(:model_context_catalog_tokens, model_context_catalog_tokens(changeset, socket))
-    |> assign(:selected_model_supports_tools, selected_model_supports_tools(changeset, socket))
+    |> assign(:selected_model_tool_capability, selected_model_tool_capability(changeset, socket))
     |> assign(:mcp_notice, nil)
     |> assign(:form, to_form(changeset, as: :configured_agent))
   end
@@ -739,7 +739,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
   defp pretty_json(_), do: "{}"
 
-  defp selected_model_supports_tools(%Changeset{} = changeset, socket) do
+  defp selected_model_tool_capability(%Changeset{} = changeset, socket) do
     credential_id = Changeset.get_field(changeset, :credential_id)
     model_id = Changeset.get_field(changeset, :model)
 
@@ -748,7 +748,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
          true <- model_id != "",
          %{provider: provider_id} when is_binary(provider_id) <-
            credential_for_id(socket.assigns.credentials_by_id, credential_id) do
-      Registry.model_supports_tools?(provider_id, model_id)
+      Registry.model_tool_capability(provider_id, model_id)
     else
       _ -> nil
     end

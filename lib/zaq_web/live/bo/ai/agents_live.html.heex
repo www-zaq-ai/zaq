@@ -316,11 +316,18 @@
               {msg}
             </p>
             <div
-              :if={@selected_model_supports_tools == false}
+              :if={@selected_model_tool_capability == :unsupported}
               class="mt-2 rounded-lg border px-3 py-2 zaq-text-caption"
               style="background-color: var(--zaq-surface-color-danger); border-color: var(--zaq-border-color-danger); color: var(--zaq-text-color-body-danger)"
             >
               Selected model does not support tool calling. MCP endpoints and tools are unavailable for this model.
+            </div>
+            <div
+              :if={@selected_model_tool_capability == :unknown}
+              class="mt-2 rounded-lg border px-3 py-2 zaq-text-caption"
+              style="background-color: var(--zaq-surface-color-warning); border-color: var(--zaq-border-color-warning); color: var(--zaq-text-color-body-warning)"
+            >
+              Tool-calling support could not be determined for this model. Only add tools or MCP endpoints if the model supports tool calling; otherwise, requests may fail at runtime.
             </div>
           </div>
         </div>
@@ -335,7 +342,7 @@
               variant={:secondary}
               type="button"
               phx-click="open_mcp_picker"
-              disabled={@selected_model_supports_tools == false}
+              disabled={@selected_model_tool_capability == :unsupported}
             >
               + Add MCP
             </DSButton.button>
@@ -392,7 +399,9 @@
               variant={:secondary}
               type="button"
               phx-click="open_tools_picker"
-              disabled={@selected_model_supports_tools == false or unselected_tool_options == []}
+              disabled={
+                @selected_model_tool_capability == :unsupported or unselected_tool_options == []
+              }
             >
               + Add tools
             </DSButton.button>

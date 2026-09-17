@@ -269,7 +269,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     assert Registry.ghost_keys("basic.sleep") == []
   end
 
-  test "model_supports_tools? treats unknown or missing values as false" do
+  test "model_tool_capability distinguishes unknown metadata" do
+    assert Registry.model_tool_capability(nil, "gpt-4.1-mini") == :unknown
+    assert Registry.model_tool_capability("openai", nil) == :unknown
+    assert Registry.model_tool_capability("custom", "gpt-4.1-mini") == :unknown
+    assert Registry.model_tool_capability("Custom", "gpt-4.1-mini") == :unknown
+    assert Registry.model_tool_capability("not_a_provider", "not_a_model") == :unknown
+
     refute Registry.model_supports_tools?(nil, "gpt-4.1-mini")
     refute Registry.model_supports_tools?("openai", nil)
     refute Registry.model_supports_tools?("custom", "gpt-4.1-mini")
@@ -293,7 +299,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
           test_provider: [
             name: "Test Provider",
             models: %{
-              "tools_map" => %{capabilities: %{tools: %{enabled: true}}}
+              "tools_map" => %{capabilities: %{tools: %{enabled: true}}},
+              "tools_disabled" => %{capabilities: %{tools: %{enabled: false}}}
             }
           ]
         }
@@ -304,5 +311,8 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     end)
 
     assert Registry.model_supports_tools?("test_provider", "tools_map")
+    assert Registry.model_tool_capability("test_provider", "tools_map") == :supported
+    assert Registry.model_tool_capability("test_provider", "tools_disabled") == :unsupported
+    refute Registry.model_supports_tools?("test_provider", "tools_disabled")
   end
 end

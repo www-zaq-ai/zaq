@@ -381,7 +381,9 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 ### Tool Registry (`Zaq.Agent.Tools.Registry`)
 - Code-defined allowlist of tool keys and modules
 - Runtime validation of selected tools
-- Capability check via `LLMDB` (`capabilities[:tools]`)
+- Three-state tool capability check via `LLMDB` (`capabilities[:tools].enabled`):
+  confirmed support, confirmed lack of support, or unknown metadata. Unknown capability
+  does not block tool/MCP selection; the BO warns about possible runtime failures.
 
 ### DataSource Success Payload Contract
 - Any successful DataSource bridge callback must return one of these shapes only:

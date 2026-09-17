@@ -15,6 +15,8 @@ defmodule Zaq.Agent.Tools.Registry do
           required(:module) => module()
         }
 
+  @type model_tool_capability :: :supported | :unsupported | :unknown
+
   @tools [
     %{
       key: "accounts.fetch_history",
@@ -433,27 +435,31 @@ defmodule Zaq.Agent.Tools.Registry do
 
   def resolve_modules(_), do: {:error, {:unknown_tools, []}}
 
-  @doc """
-  Returns model tool-calling support from provider model metadata.
+  @doc "Returns whether provider model metadata confirms, denies, or cannot determine tool support."
+  @spec model_tool_capability(String.t() | nil, String.t() | nil) :: model_tool_capability()
+  def model_tool_capability(provider_id, model_id)
 
-  Tool support is explicit: unknown/missing provider or model is treated as not
-  supporting tools.
-  """
-  @spec model_supports_tools?(String.t() | nil, String.t() | nil) :: boolean()
-  def model_supports_tools?(provider_id, model_id)
-
-  def model_supports_tools?(provider_id, model_id)
+  def model_tool_capability(provider_id, model_id)
       when provider_id in [nil, "", "custom"] or model_id in [nil, ""] do
-    false
+    :unknown
   end
 
-  def model_supports_tools?(provider_id, model_id)
+  def model_tool_capability(provider_id, model_id)
       when is_binary(provider_id) and is_binary(model_id) do
     with %{capabilities: capabilities} <- ProviderModels.model(provider_id, model_id),
-         tools when is_map(tools) <- Map.get(capabilities || %{}, :tools) do
-      map_size(tools) > 0
+         tools when is_map(tools) <- Map.get(capabilities || %{}, :tools),
+         enabled when is_boolean(enabled) <- Map.get(tools, :enabled) do
+      if enabled, do: :supported, else: :unsupported
     else
-      _ -> false
+      _ -> :unknown
     end
+  end
+
+  def model_tool_capability(_provider_id, _model_id), do: :unknown
+
+  @doc "Returns true only when provider model metadata confirms tool-calling support."
+  @spec model_supports_tools?(String.t() | nil, String.t() | nil) :: boolean()
+  def model_supports_tools?(provider_id, model_id) do
+    model_tool_capability(provider_id, model_id) == :supported
   end
 end

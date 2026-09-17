@@ -1,5 +1,6 @@
 defmodule Zaq.AgentTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   import Zaq.SystemConfigFixtures
 
@@ -7,12 +8,14 @@ defmodule Zaq.AgentTest do
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
+  alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.ServerManager
   alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
+  alias Zaq.System.AIProviderCredential
 
   test "list, get, and id helpers" do
     credential =
@@ -262,7 +265,7 @@ defmodule Zaq.AgentTest do
         provider: "provider_not_found_zaq"
       })
 
-    {:error, changeset} =
+    {:ok, custom_agent} =
       Agent.create_agent(%{
         name: "Provider Missing #{System.unique_integer([:positive])}",
         job: "job",
@@ -275,9 +278,27 @@ defmodule Zaq.AgentTest do
         advanced_options: %{}
       })
 
-    assert "selected provider cannot be used at runtime (provider_not_found)" in errors_on(
-             changeset
-           ).credential_id
+    assert {:ok,
+            %{
+              provider: :openai,
+              id: "gpt-4.1-mini",
+              base_url: "http://localhost:11434/v1"
+            }} = ProviderSpec.build(custom_agent)
+
+    assert {:ok, switched_agent} =
+             Agent.update_agent(openai_agent, %{
+               credential_id: custom_credential.id,
+               model: "qwen2.5:7b"
+             })
+
+    assert switched_agent.credential.id == custom_credential.id
+
+    assert {:ok,
+            %{
+              provider: :openai,
+              id: "qwen2.5:7b",
+              base_url: "http://localhost:11434/v1"
+            }} = ProviderSpec.build(switched_agent)
 
     assert Agent.provider_for_agent(%ConfiguredAgent{}) == nil
     assert {:error, :invalid_provider} = Agent.runtime_provider_for_agent(%ConfiguredAgent{})
@@ -309,6 +330,106 @@ defmodule Zaq.AgentTest do
 
     assert Agent.provider_for_agent(%ConfiguredAgent{credential_id: credential.id}) == "novita_ai"
     assert {:ok, :openai} = Agent.runtime_provider_for_agent(agent)
+  end
+
+  test "create_agent requires a credential when tools are selected" do
+    name = "Agent Missing Credential #{System.unique_integer([:positive])}"
+
+    assert {:error, changeset} =
+             Agent.create_agent(%{
+               name: name,
+               job: "job",
+               model: "gpt-4.1-mini",
+               strategy: "react",
+               enabled_tool_keys: ["general.encode_json"]
+             })
+
+    errors = errors_on(changeset)
+    assert errors.credential_id == ["can't be blank"]
+    refute Map.has_key?(errors, :enabled_tool_keys)
+    assert Repo.get_by(ConfiguredAgent, name: name) == nil
+  end
+
+  test "create_agent rejects a nonexistent credential when tools are selected" do
+    name = "Agent Unknown Credential #{System.unique_integer([:positive])}"
+    assert Repo.get(AIProviderCredential, -1) == nil
+
+    assert {:error, changeset} =
+             Agent.create_agent(%{
+               name: name,
+               job: "job",
+               model: "gpt-4.1-mini",
+               credential_id: -1,
+               strategy: "react",
+               enabled_tool_keys: ["general.encode_json"]
+             })
+
+    errors = errors_on(changeset)
+    assert errors.credential_id == ["does not exist"]
+    refute Map.has_key?(errors, :enabled_tool_keys)
+    assert Repo.get_by(ConfiguredAgent, name: name) == nil
+  end
+
+  test "runtime provider normalizes mixed-case catalog providers safely" do
+    assert_raise ArgumentError, fn -> String.to_existing_atom("oPeNaI") end
+
+    agent = %ConfiguredAgent{credential: %AIProviderCredential{provider: "oPeNaI"}}
+    assert {:ok, :openai} = Agent.runtime_provider_for_agent(agent)
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom("oPeNaI") end
+  end
+
+  property "unknown runtime providers do not create atoms" do
+    check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 24)) do
+      provider = "zaq_unknown_provider_#{suffix}"
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(provider) end
+
+      assert {:error, :provider_not_found} =
+               Agent.runtime_provider_for_agent(%ConfiguredAgent{
+                 credential: %AIProviderCredential{provider: provider}
+               })
+
+      assert_raise ArgumentError, fn -> String.to_existing_atom(provider) end
+    end
+  end
+
+  test "delete_agent reports malformed topic routing rows defensively" do
+    credential =
+      ai_credential_fixture(%{
+        name: "Delete Corrupt Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai"
+      })
+
+    {:ok, agent} =
+      Agent.create_agent(%{
+        name: "Delete Corrupt Agent #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: ["general.encode_json"],
+        conversation_enabled: true
+      })
+
+    malformed_rule =
+      %IncomingMessageRoutingRule{}
+      |> Ecto.Changeset.change(%{
+        topic_id: "INBOX",
+        channel_config_id: nil,
+        routing_mode: :agent,
+        configured_agent_id: agent.id
+      })
+      |> Repo.insert!()
+
+    assert {:error, changeset} = Agent.delete_agent(agent)
+
+    assert errors_on(changeset).base == [
+             "Agent is in use by:\n- incoming routing topic unknown:INBOX"
+           ]
+
+    assert Repo.get!(ConfiguredAgent, agent.id).id == agent.id
+    assert Repo.get!(IncomingMessageRoutingRule, malformed_rule.id).id == malformed_rule.id
   end
 
   test "validates enabled_mcp_endpoint_ids and can list agents by endpoint assignment" do
@@ -444,26 +565,24 @@ defmodule Zaq.AgentTest do
            ).credential_id
   end
 
-  test "runtime provider returns provider_not_found for existing but unknown atom provider" do
-    credential =
-      ai_credential_fixture(%{
-        name:
-          "Agent Provider Existing Atom Unknown Credential #{System.unique_integer([:positive, :monotonic])}",
-        provider: "elixir"
-      })
+  test "runtime provider returns provider_not_found without a custom endpoint" do
+    credential = %AIProviderCredential{id: -1, provider: "elixir", endpoint: nil}
 
-    {:error, changeset} =
-      Agent.create_agent(%{
-        name: "Provider Existing Atom Unknown #{System.unique_integer([:positive])}",
-        job: "job",
-        model: "gpt-4.1-mini",
-        credential_id: credential.id,
-        strategy: "react",
-        enabled_tool_keys: [],
-        conversation_enabled: false,
-        active: true,
-        advanced_options: %{}
-      })
+    changeset =
+      Agent.change_agent(
+        %ConfiguredAgent{credential_id: credential.id, credential: credential},
+        %{
+          name: "Provider Existing Atom Unknown #{System.unique_integer([:positive])}",
+          job: "job",
+          model: "gpt-4.1-mini",
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          conversation_enabled: false,
+          active: true,
+          advanced_options: %{}
+        }
+      )
 
     assert "selected provider cannot be used at runtime (provider_not_found)" in errors_on(
              changeset
@@ -653,7 +772,7 @@ defmodule Zaq.AgentTest do
              })
   end
 
-  test "tool capability validation for create, update and change" do
+  test "unknown model capability does not block tools on create, update, or change" do
     credential =
       ai_credential_fixture(%{
         name:
@@ -661,20 +780,20 @@ defmodule Zaq.AgentTest do
         provider: "openai"
       })
 
-    {:error, create_changeset} =
+    {:ok, created_with_unknown_model} =
       Agent.create_agent(%{
         name: "Tool Invalid Create #{System.unique_integer([:positive])}",
         job: "job",
         model: "not-a-real-model",
         credential_id: credential.id,
         strategy: "react",
-        enabled_tool_keys: ["files.read_file"],
+        enabled_tool_keys: ["general.encode_json"],
         conversation_enabled: false,
         active: true,
         advanced_options: %{}
       })
 
-    assert "selected model does not support tool calling" in errors_on(create_changeset).enabled_tool_keys
+    assert created_with_unknown_model.enabled_tool_keys == ["general.encode_json"]
 
     {:ok, agent} =
       Agent.create_agent(%{
@@ -689,21 +808,43 @@ defmodule Zaq.AgentTest do
         advanced_options: %{}
       })
 
-    {:error, update_changeset} =
+    {:ok, updated_agent} =
       Agent.update_agent(agent, %{
         model: "not-a-real-model",
-        enabled_tool_keys: ["files.read_file"]
+        enabled_tool_keys: ["general.encode_json"]
       })
 
-    assert "selected model does not support tool calling" in errors_on(update_changeset).enabled_tool_keys
+    assert updated_agent.enabled_tool_keys == ["general.encode_json"]
 
     changeset =
       Agent.change_agent(agent, %{
         model: "not-a-real-model",
-        enabled_tool_keys: ["files.read_file"]
+        enabled_tool_keys: ["general.encode_json"]
       })
 
-    refute changeset.valid?
+    assert changeset.valid?
+  end
+
+  test "confirmed unsupported model capability blocks configured tools" do
+    credential =
+      ai_credential_fixture(%{
+        name:
+          "Agent Unsupported Tools Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "novita_ai"
+      })
+
+    {:error, changeset} =
+      Agent.create_agent(%{
+        name: "Unsupported Tools Agent #{System.unique_integer([:positive])}",
+        job: "job",
+        model: "qwen/qwen3-4b-fp8",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: ["general.encode_json"],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
 
     assert "selected model does not support tool calling" in errors_on(changeset).enabled_tool_keys
   end
@@ -734,12 +875,10 @@ defmodule Zaq.AgentTest do
     changeset =
       Agent.change_agent(agent, %{
         model: "not-a-real-model",
-        enabled_tool_keys: ["files.read_file"]
+        enabled_tool_keys: ["general.encode_json"]
       })
 
-    refute changeset.valid?
-
-    assert "selected model does not support tool calling" in errors_on(changeset).enabled_tool_keys
+    assert changeset.valid?
 
     sources = drain_repo_query_sources()
     refute Enum.any?(sources, &(&1 == "ai_provider_credentials"))

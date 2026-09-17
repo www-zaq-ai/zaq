@@ -339,7 +339,9 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
     assert html =~ "Conversation"
   end
 
-  test "shows unsupported-tools indication when selected model has no tool support", %{conn: conn} do
+  test "shows unknown-tools notice without disabling controls for an unlisted model", %{
+    conn: conn
+  } do
     credential =
       ai_credential_fixture(%{
         name: "Unsupported Model Credential #{System.unique_integer([:positive, :monotonic])}",
@@ -364,6 +366,35 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
         "advanced_options_json" => "{}",
         "conversation_enabled" => "false",
         "active" => "true"
+      }
+    )
+    |> render_change()
+
+    html = render(view)
+
+    assert html =~ "Tool-calling support could not be determined for this model."
+
+    refute has_element?(view, "#add-tools-button[disabled]")
+    refute has_element?(view, "#add-mcp-button[disabled]")
+  end
+
+  test "shows unsupported-tools indication and disables controls for confirmed metadata", %{
+    conn: conn
+  } do
+    credential =
+      ai_credential_fixture(%{
+        name: "Unsupported Model Credential #{System.unique_integer([:positive, :monotonic])}",
+        provider: "novita_ai"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "model" => "qwen/qwen3-4b-fp8",
+        "credential_id" => to_string(credential.id)
       }
     )
     |> render_change()
@@ -890,6 +921,35 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
            end)
 
     refute has_element?(view, "#agent-form-drawer")
+  end
+
+  test "creates an agent from a custom endpoint credential", %{conn: conn} do
+    credential =
+      ai_credential_fixture(%{provider: "custom", endpoint: "https://example.com/v1"})
+
+    agent_name = "Custom BO Agent #{:erlang.unique_integer([:positive])}"
+
+    {:ok, view, _html} = live(conn, ~p"/bo/agents")
+    render_click(element(view, "#new-agent-button"))
+
+    view
+    |> form("#configured-agent-form",
+      configured_agent: %{
+        "name" => agent_name,
+        "job" => "You are a helper",
+        "model" => "qwen2.5:7b",
+        "credential_id" => to_string(credential.id),
+        "strategy" => "react",
+        "enabled_tool_keys" => [""],
+        "advanced_options_json" => "{}",
+        "active" => "true"
+      }
+    )
+    |> render_submit()
+
+    assert render(view) =~ "Agent created"
+
+    assert Enum.any?(Zaq.Agent.list_agents(), &(&1.name == agent_name))
   end
 
   test "does not show field validation errors on change before save", %{conn: conn} do

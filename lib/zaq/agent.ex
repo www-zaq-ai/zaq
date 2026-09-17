@@ -4,7 +4,7 @@ defmodule Zaq.Agent do
   import Ecto.Query
 
   alias Ecto.Changeset
-  alias Zaq.Agent.{ConfiguredAgent, MCP, QueryFilters, ServerManager}
+  alias Zaq.Agent.{ConfiguredAgent, MCP, ProviderSpec, QueryFilters, ServerManager}
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.IncomingMessageRoutingRule
@@ -218,10 +218,11 @@ defmodule Zaq.Agent do
   defp preload_credential(other), do: other
 
   defp apply_runtime_validations(%Changeset{} = changeset) do
-    provider = provider_from_changeset(changeset)
+    credential = credential_from_changeset(changeset)
+    provider = if credential, do: credential.provider
 
     changeset
-    |> validate_runtime_provider(provider)
+    |> validate_runtime_provider(credential)
     |> validate_tool_capability(provider)
     |> validate_mcp_endpoint_assignments()
   end
@@ -257,8 +258,8 @@ defmodule Zaq.Agent do
       model = Changeset.get_field(changeset, :model)
       provider_id = provider || provider_from_credential_id(credential_id)
 
-      case Registry.model_supports_tools?(provider_id, model) do
-        false ->
+      case Registry.model_tool_capability(provider_id, model) do
+        :unsupported ->
           Changeset.add_error(
             changeset,
             :enabled_tool_keys,
@@ -271,14 +272,19 @@ defmodule Zaq.Agent do
     end
   end
 
-  defp validate_runtime_provider(%Changeset{} = changeset, provider) do
-    case provider do
+  defp validate_runtime_provider(%Changeset{} = changeset, credential) do
+    case credential do
       nil ->
         changeset
 
-      provider_id ->
-        case runtime_provider_from_id(provider_id) do
-          {:ok, _provider} ->
+      %AIProviderCredential{} ->
+        configured_agent =
+          changeset
+          |> Changeset.apply_changes()
+          |> Map.put(:credential, credential)
+
+        case ProviderSpec.build(configured_agent) do
+          {:ok, _spec} ->
             changeset
 
           {:error, reason} ->
@@ -291,19 +297,22 @@ defmodule Zaq.Agent do
     end
   end
 
-  defp provider_from_changeset(%Changeset{} = changeset) do
+  defp credential_from_changeset(%Changeset{} = changeset) do
     credential_id = Changeset.get_field(changeset, :credential_id)
 
-    case changeset.data do
-      %ConfiguredAgent{
-        credential_id: ^credential_id,
-        credential: %AIProviderCredential{provider: provider}
-      }
-      when is_binary(provider) ->
-        provider
+    case {credential_id, changeset.data} do
+      {nil, _data} ->
+        nil
+
+      {^credential_id,
+       %ConfiguredAgent{
+         credential_id: ^credential_id,
+         credential: %AIProviderCredential{} = credential
+       }} ->
+        credential
 
       _ ->
-        provider_from_credential_id(credential_id)
+        System.get_ai_provider_credential(credential_id)
     end
   end
 
