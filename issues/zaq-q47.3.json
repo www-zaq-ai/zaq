@@ -9,9 +9,15 @@
   "id": "zaq-q47.3",
   "labels": [],
   "parent": "zaq-q47",
+  "comments": [
+    {
+      "text": "Implemented explicit :idle/:loaded/:unavailable active-session state in PeopleLive, retry action/UI, and authoritative empty rendering only after successful loads. Added real Engine-unavailable and recovery regression. Focused People LiveView suites: 86 tests pass. No commit/push.",
+      "timestamp": "2026-09-17T12:12:19Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-q47] Preserve session listing availability state",
   "type": "task",
-  "updated_at": "2026-09-17T12:08:18Z"
+  "updated_at": "2026-09-17T12:12:19Z"
 }
