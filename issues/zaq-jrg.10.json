@@ -4,14 +4,16 @@
   "blocks": [
     "zaq-jrg.11"
   ],
+  "closed_at": "2026-09-17T18:29:08Z",
+  "close_reason": "Resolved both conflicts with upstream confidentiality/auth merge behavior retained; combined tests pass.",
   "created": "2026-09-17T17:21:58Z",
   "description": "Functional specifications/files: resolve lib/zaq/node_router.ex and lib/zaq/accounts/person_merger.ex with updated upstream authoritative; retain main confidential routing plus auth/rating merge behavior; compose Connect PersonLifecycle before loser deletion. Tests first: upstream confidential event and people auth merge plus combined Connect rollback. Branches: sync/async/local/remote; merge survivor/loser collisions and rollback. Mocking: real Router runtime seams and Repo; no external HTTP. Docs: architecture/Engine terminology. Action reuse: reuse NodeRouter, PeopleAuth and PersonLifecycle; no Action.",
   "id": "zaq-jrg.10",
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-jrg.10] Resolve upstream stash conflicts",
   "type": "task",
-  "updated_at": "2026-09-17T17:23:18Z"
+  "updated_at": "2026-09-17T18:29:08Z"
 }
