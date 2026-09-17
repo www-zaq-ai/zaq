@@ -19,11 +19,15 @@
     {
       "text": "User explicitly approved staged UI/shared account menu and ENTIRE production promotion (name editor, teams, icons, ordered channels with atomic save). This authorized apply/persistence work only. Implemented result now awaits explicit final human UX/UI approval before E2E authoring. Keep this gate OPEN.",
       "timestamp": "2026-09-15T11:13:47Z"
+    },
+    {
+      "text": "People profile correction now uses the shared active/inactive status pill; permission matrix has only Everyone as universal scope. Keep human UX/UI approval open for review of the completed corrected screens before consolidated E2E finalization.",
+      "timestamp": "2026-09-17T14:11:32Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-tup] Human approval of completed profile UX",
   "type": "task",
-  "updated_at": "2026-09-15T12:10:28Z"
+  "updated_at": "2026-09-17T14:11:32Z"
 }
