@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T13:22:32Z",
+  "description": "Tests first: cover custom endpoint create/update/change acceptance, missing endpoint rejection, and credential switching. Implement save-time validation by reusing ProviderSpec runtime resolution with the effective credential. Action reuse: reuse ProviderSpec.build resolution contract; local domain validation remains in Zaq.Agent; no new Action.",
+  "id": "zaq-i1u.1",
+  "labels": [],
+  "parent": "zaq-i1u",
+  "priority": 2,
+  "status": "open",
+  "title": "Align custom credential validation with runtime resolution",
+  "type": "task",
+  "updated_at": "2026-09-17T13:22:32Z"
+}
