@@ -9,9 +9,15 @@
   "id": "zaq-q47.5",
   "labels": [],
   "parent": "zaq-q47",
+  "comments": [
+    {
+      "text": "Implemented in working tree: removed unused public touch_session path in favor of authenticate's canonical activity update; bearer revocation now reuses locked-row helper; verification reuses canonical challenge lock. PeopleProfile now owns authenticated profile authorization/transactions/projection while PeopleAuthGateway delegates fixed operations. Updated service contract. Focused auth/profile suites: 61 tests + 2 properties pass. No commit/push.",
+      "timestamp": "2026-09-17T12:17:56Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-q47] Consolidate PeopleAuth and profile ownership",
   "type": "task",
-  "updated_at": "2026-09-17T12:14:54Z"
+  "updated_at": "2026-09-17T12:17:56Z"
 }
