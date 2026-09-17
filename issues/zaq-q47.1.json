@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-q47.6"
   ],
+  "closed_at": "2026-09-17T12:05:19Z",
   "created": "2026-09-17T12:01:34Z",
   "description": "Tests first. Make People trace artifacts rely on authorized conversation ownership and existing Conversations APIs, while citation previews fetch a fresh metadata-only Record through GetDocument and materialize that returned Record. Remove portal provenance/ACL policy. Preserve BO consumers and deny nil/foreign identities. Action reuse: extend/reuse Conversations and GetDocument; no new Action.",
   "id": "zaq-q47.1",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-q47] Reuse conversation resource contracts",
   "type": "task",
-  "updated_at": "2026-09-17T12:05:18Z"
+  "updated_at": "2026-09-17T12:05:19Z"
 }
