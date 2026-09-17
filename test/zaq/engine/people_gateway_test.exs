@@ -3,7 +3,52 @@ defmodule Zaq.Engine.PeopleGatewayTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
+  alias Zaq.Accounts.PersonSession
   alias Zaq.Engine.PeopleGateway
+
+  test "session commands validate boundaries, return safe metadata, and enforce ownership" do
+    {:ok, owner} = People.create_person(%{full_name: "Session gateway owner"})
+    {:ok, other} = People.create_person(%{full_name: "Session gateway other"})
+    now = DateTime.utc_now(:second)
+    session = insert_session(owner, now, DateTime.add(now, 60))
+    session_id = session.id
+
+    assert {:ok, [listed]} =
+             PeopleGateway.dispatch(:list_person_sessions, %{
+               person_id: owner.id,
+               active_only: true
+             })
+
+    assert listed.id == session.id
+    refute Map.has_key?(listed, :token_digest)
+
+    assert {:error, :invalid_person_id} =
+             PeopleGateway.dispatch(:list_person_sessions, %{person_id: 0, active_only: true})
+
+    assert {:error, :invalid_session} =
+             PeopleGateway.dispatch(:revoke_person_session, %{
+               person_id: owner.id,
+               session_id: "bad"
+             })
+
+    assert {:error, :not_found} =
+             PeopleGateway.dispatch(:revoke_person_session, %{
+               person_id: other.id,
+               session_id: session.id
+             })
+
+    assert {:ok, %{id: ^session_id}} =
+             PeopleGateway.dispatch(:revoke_person_session, %{
+               person_id: owner.id,
+               session_id: session_id
+             })
+
+    assert {:ok, []} =
+             PeopleGateway.dispatch(:list_person_sessions, %{
+               person_id: owner.id,
+               active_only: true
+             })
+  end
 
   test "permission commands expose explicit matrix and idempotent validated writes" do
     Zaq.Repo.delete_all(Zaq.Accounts.PeoplePermissionGrant)
@@ -179,5 +224,17 @@ defmodule Zaq.Engine.PeopleGatewayTest do
 
   test "dispatch(:get) handles nil ID via the catch-all normalize_id clause" do
     assert {:error, :not_found} = PeopleGateway.dispatch(:get, %{id: nil})
+  end
+
+  defp insert_session(person, inserted_at, expires_at) do
+    %PersonSession{}
+    |> PersonSession.changeset(%{
+      person_id: person.id,
+      token_digest: :crypto.strong_rand_bytes(32),
+      inserted_at: inserted_at,
+      updated_at: inserted_at,
+      expires_at: expires_at
+    })
+    |> Zaq.Repo.insert!()
   end
 end

@@ -306,8 +306,10 @@ the form becomes editable only after an authoritative successful load.
 
 `Zaq.Accounts.PeopleAuth` owns the lifecycle on Engine nodes. Its Person/ID-based
 APIs are trusted backend APIs. Public callers use the fixed `:people_auth` Engine
-action and `PeopleAuthGateway`; they cannot invoke owner-wide revocation. The
-gateway delivers through Notifications and returns only a public descriptor.
+action and `PeopleAuthGateway`; BO administration uses the allowlisted
+`:people_command` operations `:list_person_sessions`, `:revoke_person_session`,
+and `:revoke_all_person_sessions` through NodeRouter. The gateway delivers through
+Notifications and returns only a public descriptor.
 Bearer/OTP events are confidential. V1 intentionally accepts existing notification
 body persistence; authentication tables remain digest-only.
 
@@ -318,7 +320,7 @@ body persistence; authentication tables remain digest-only.
 | `authenticate(token, opts \\ [])`                  | `{:ok, %{person: current_person, permissions: current_grants, session: metadata}}`                                                               |
 | `touch_session(token, opts \\ [])`                 | `{:ok, metadata}`; checks authentication and records `last_seen_at`, without extending expiry                                                    |
 | `revoke_session(token)`                            | `{:ok, metadata}`; idempotent for an existing session                                                                                            |
-| `list_sessions(person_or_id)`                      | `{:ok, [metadata]}`; includes expired/revoked sessions, ordered by UUID                                                                          |
+| `list_sessions(person_or_id, opts \\ [])`           | `{:ok, [metadata]}`; defaults to all rows, or `active_only: true` for unrevoked sessions whose expiry is strictly in the future; ordered by insertion time and UUID |
 | `invalidate_challenges(person_or_id)`              | `{:ok, count}`; invalidates all unfinished challenges, including expired ones                                                                    |
 | `invalidate_challenge(challenge_id)`               | `{:ok, count}`; targeted trusted delivery cleanup, missing/finished rows return zero                                                             |
 | `challenge_status(challenge_id, opts \\ [])`       | current eligibility/lifecycle/expiry/attempt check; returns only a safe descriptor                                                               |
@@ -332,6 +334,13 @@ verification, authentication and touch require current active status and
 permission bypass exists. Session metadata contains only `id`, `expires_at`,
 `revoked_at`, `last_seen_at`, and `inserted_at`. A session UUID is not a bearer token;
 list/revoke-all/invalidate take trusted owner coordinates, not proof of authority.
+
+Owner-targeted single-session revocation requires both the canonical Person and
+session UUID, returns `:not_found` for missing or foreign sessions, and is
+idempotent for an already revoked row. Owner listing and revocation are independent
+of eligibility and auth configuration. The BO displays only active metadata
+(Created, Last activity, Expires); it makes no realtime eviction promise, so an
+already authenticated request may remain valid until its next backend check.
 
 The public-safe challenge descriptor contains `challenge_id`, `expires_at` and
 `resend_available_at` (UTC datetimes). The resend deadline is always insertion + 60

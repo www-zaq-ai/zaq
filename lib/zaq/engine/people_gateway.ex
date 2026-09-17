@@ -4,6 +4,7 @@ defmodule Zaq.Engine.PeopleGateway do
   """
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.PeopleAuth
   alias Zaq.Accounts.PeoplePermissions
   alias Zaq.MapUtils
 
@@ -19,6 +20,38 @@ defmodule Zaq.Engine.PeopleGateway do
 
   def dispatch(:revoke_permission, %{scope: scope, permission: permission}),
     do: PeoplePermissions.revoke(scope, permission)
+
+  def dispatch(:list_person_sessions, %{person_id: person_id, active_only: active_only})
+      when is_boolean(active_only) do
+    with {:ok, person_id} <- positive_id(person_id),
+         %{} = person <- People.get_person(person_id) do
+      PeopleAuth.list_sessions(person, active_only: active_only)
+    else
+      nil -> {:error, :not_found}
+      error -> error
+    end
+  end
+
+  def dispatch(:revoke_person_session, %{person_id: person_id, session_id: session_id}) do
+    with {:ok, person_id} <- positive_id(person_id),
+         {:ok, session_id} <- uuid(session_id),
+         %{} = person <- People.get_person(person_id) do
+      PeopleAuth.revoke_session(person, session_id)
+    else
+      nil -> {:error, :not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  def dispatch(:revoke_all_person_sessions, %{person_id: person_id}) do
+    with {:ok, person_id} <- positive_id(person_id),
+         %{} = person <- People.get_person(person_id) do
+      PeopleAuth.revoke_all_sessions(person)
+    else
+      nil -> {:error, :not_found}
+      {:error, _} = error -> error
+    end
+  end
 
   def dispatch(:get_with_channels, %{id: id}) do
     case People.get_person_with_channels(normalize_id(id)) do
@@ -148,4 +181,24 @@ defmodule Zaq.Engine.PeopleGateway do
   end
 
   defp normalize_id(id), do: id
+
+  defp positive_id(id) when is_integer(id) and id > 0, do: {:ok, id}
+
+  defp positive_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {value, ""} when value > 0 -> {:ok, value}
+      _ -> {:error, :invalid_person_id}
+    end
+  end
+
+  defp positive_id(_id), do: {:error, :invalid_person_id}
+
+  defp uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :invalid_session}
+    end
+  end
+
+  defp uuid(_value), do: {:error, :invalid_session}
 end

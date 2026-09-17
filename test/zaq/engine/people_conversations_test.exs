@@ -1,6 +1,6 @@
 defmodule Zaq.Engine.PeopleConversationsTest do
   use Zaq.DataCase, async: false
-  alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions}
+  alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions, PersonSession}
   alias Zaq.Engine.{Conversations, Events, PeopleConversations}
   alias Zaq.Ingestion.Document
   alias Zaq.Storage.Materializers.DiskDocument
@@ -10,7 +10,9 @@ defmodule Zaq.Engine.PeopleConversationsTest do
     {:ok, other} = People.create_person(%{full_name: "Other"})
     {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
     {:ok, challenge} = PeopleAuth.issue_challenge(person, {127, 9, 8, 1})
-    {:ok, %{token: token}} = PeopleAuth.verify_challenge(challenge.challenge_id, challenge.code)
+
+    {:ok, %{token: token, session: session}} =
+      PeopleAuth.verify_challenge(challenge.challenge_id, challenge.code)
 
     {:ok, own} =
       Conversations.create_conversation(%{
@@ -35,6 +37,7 @@ defmodule Zaq.Engine.PeopleConversationsTest do
       person: person,
       other: other,
       token: token,
+      session: session,
       own: own,
       foreign: foreign,
       message: message,
@@ -44,13 +47,17 @@ defmodule Zaq.Engine.PeopleConversationsTest do
 
   test "history is separately granted and operations reauthenticate", ctx do
     assert {:error, :forbidden} = call(ctx, :list)
+    assert Repo.get!(PersonSession, ctx.session.id).last_seen_at == nil
     grant_history()
 
     assert {:ok, %{total: 1, conversations: [conv]}} =
              call(ctx, :list, %{person_id: ctx.other.id})
 
+    last_seen_at = Repo.get!(PersonSession, ctx.session.id).last_seen_at
+    assert last_seen_at
     assert conv.id == ctx.own.id
     assert {:ok, %{messages: [message], can_share: false, shares: []}} = call(ctx, :detail)
+    assert Repo.get!(PersonSession, ctx.session.id).last_seen_at == last_seen_at
     assert message.id == ctx.message.id
     assert {:error, :not_found} = call(ctx, :detail, %{conversation_id: ctx.foreign.id})
     assert {:error, :not_found} = call(ctx, :detail, %{conversation_id: "bad"})

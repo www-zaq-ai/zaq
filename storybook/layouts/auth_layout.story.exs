@@ -19,7 +19,7 @@ defmodule Storybook.Layouts.AuthLayout do
           <img src="/images/zaq.png" alt="ZAQ" class="zaq-auth-logo-img" />
         </:header_icon>
 
-        <.form id="story-auth-login-form" class="zaq-layout-stack">
+        <.form for={%{}} id="story-auth-login-form" class="zaq-layout-stack">
           <DSInput.input
             name="username"
             label="Username or Email"

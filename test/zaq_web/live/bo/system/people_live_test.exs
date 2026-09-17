@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PeoplePermissionGrant
   alias Zaq.Accounts.PeoplePermissions
+  alias Zaq.Accounts.PersonSession
   alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
@@ -61,6 +62,108 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
       )
 
     channel
+  end
+
+  test "selected person renders safe active sessions and revokes through confirmation", %{
+    conn: conn
+  } do
+    person = person_fixture()
+    now = DateTime.utc_now(:second)
+    expires_at = DateTime.add(now, 3600)
+    Zaq.TimezoneTestHelpers.stub_system_timezone("GMT+03:00")
+
+    session =
+      %PersonSession{}
+      |> PersonSession.changeset(%{
+        person_id: person.id,
+        token_digest: :crypto.strong_rand_bytes(32),
+        inserted_at: now,
+        updated_at: now,
+        expires_at: expires_at
+      })
+      |> Repo.insert!()
+
+    {:ok, view, _} = live(conn, ~p"/bo/people")
+    render_click(view, "select_person", %{"id" => to_string(person.id)})
+
+    assert has_element?(view, "#person-active-sessions")
+    assert has_element?(view, "#revoke-person-session-#{session.id}")
+    assert render(view) =~ Calendar.strftime(DateTime.add(now, 3, :hour), "%Y-%m-%d %H:%M")
+    assert render(view) =~ Calendar.strftime(DateTime.add(expires_at, 3, :hour), "%Y-%m-%d %H:%M")
+    assert render(view) =~ "Never"
+    refute render(view) =~ "Created (UTC)"
+    refute render(view) =~ "Expires (UTC)"
+    refute render(view) =~ "token_digest"
+
+    render_click(view, "open_revoke_session", %{"id" => Ecto.UUID.generate()})
+    assert render(view) =~ "Session is no longer available"
+    render_click(view, "open_revoke_session", %{"id" => session.id})
+    assert has_element?(view, "#person-session-confirmation")
+    assert render(view) =~ "bg-red-50"
+    assert render(view) =~ "border-red-200"
+    assert render(view) =~ "bg-red-600"
+    render_click(view, "cancel_session_revoke")
+    refute has_element?(view, "#person-session-confirmation")
+    render_click(view, "open_revoke_session", %{"id" => session.id})
+    render_click(view, "confirm_session_revoke")
+    refute has_element?(view, "#person-active-sessions")
+  end
+
+  test "revoke-all confirmation preserves its server target through cancel and success", %{
+    conn: conn
+  } do
+    person = person_fixture()
+    other = person_fixture()
+    now = DateTime.utc_now(:second)
+
+    sessions =
+      for owner <- [person, person, other] do
+        %PersonSession{}
+        |> PersonSession.changeset(%{
+          person_id: owner.id,
+          token_digest: :crypto.strong_rand_bytes(32),
+          expires_at: DateTime.add(now, 3600)
+        })
+        |> Repo.insert!()
+      end
+
+    {:ok, view, _} = live(conn, ~p"/bo/people?person_id=#{person.id}")
+    render_click(view, "open_revoke_all_sessions")
+    assert has_element?(view, "#person-session-confirmation")
+    assert render(view) =~ "Revoke all active sessions for this person?"
+    assert render(view) =~ "bg-red-50"
+    assert render(view) =~ "border-red-200"
+    assert render(view) =~ "text-red-700"
+    assert render(view) =~ "bg-red-600"
+
+    render_click(view, "cancel_session_revoke")
+    refute has_element?(view, "#person-session-confirmation")
+
+    render_click(view, "open_revoke_all_sessions")
+    render_click(view, "confirm_session_revoke", %{"person_id" => other.id})
+    refute has_element?(view, "#person-active-sessions")
+    assert Enum.all?(Enum.take(sessions, 2), &Repo.get!(PersonSession, &1.id).revoked_at)
+    assert Repo.get!(PersonSession, List.last(sessions).id).revoked_at == nil
+  end
+
+  test "session confirmation reports an action failure and closes", %{conn: conn} do
+    person = person_fixture()
+
+    %PersonSession{}
+    |> PersonSession.changeset(%{
+      person_id: person.id,
+      token_digest: :crypto.strong_rand_bytes(32),
+      expires_at: DateTime.add(DateTime.utc_now(:second), 3600)
+    })
+    |> Repo.insert!()
+
+    {:ok, view, _} = live(conn, ~p"/bo/people?person_id=#{person.id}")
+    render_click(view, "open_revoke_all_sessions")
+    assert {:ok, _} = People.delete_person(person)
+    render_click(view, "confirm_session_revoke")
+
+    refute has_element?(view, "#person-session-confirmation")
+    assert render(view) =~ "Session action failed. Reload and try again."
   end
 
   # ── Mount ─────────────────────────────────────────────────────────────────

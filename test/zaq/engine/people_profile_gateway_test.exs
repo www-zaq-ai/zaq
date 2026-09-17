@@ -1,6 +1,6 @@
 defmodule Zaq.Engine.PeopleProfileGatewayTest do
   use Zaq.DataCase, async: true
-  alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissionGrant, PeoplePermissions}
+  alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissionGrant, PeoplePermissions, PersonSession}
   alias Zaq.Engine.{Api, Events, PeopleAuthGateway}
 
   setup do
@@ -15,18 +15,23 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
 
     {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
     {:ok, c} = PeopleAuth.issue_challenge(p, {127, 2, 1, 1})
-    {:ok, %{token: token}} = PeopleAuth.verify_challenge(c.challenge_id, c.code)
+
+    {:ok, %{token: token, session: session}} =
+      PeopleAuth.verify_challenge(c.challenge_id, c.code)
+
     [channel] = People.list_person_channels(p.id)
-    %{person: p, token: token, channel: channel}
+    %{person: p, token: token, session: session, channel: channel}
   end
 
   test "read projection contains only profile fields, own channels/teams and permissions", %{
     person: p,
-    token: token
+    token: token,
+    session: session
   } do
     {:ok, team} = People.create_team(%{name: "Profile team"})
     {:ok, _} = People.assign_team(p, team.id)
     assert {:ok, profile} = dispatch(:profile, token)
+    assert Repo.get!(PersonSession, session.id).last_seen_at
     assert profile.__struct__ == Zaq.Engine.PeopleProfile
 
     assert profile.person == %{
@@ -148,9 +153,11 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
   test "outer failure rolls back writes and revoked or malformed credentials deny", %{
     person: p,
     token: token,
+    session: session,
     channel: c
   } do
     {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    assert Repo.get!(PersonSession, session.id).last_seen_at == nil
 
     assert {:error, :abort} =
              Repo.transaction(fn ->
@@ -170,6 +177,7 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
 
     assert People.get_person(p.id).full_name == p.full_name
     assert People.get_channel(c.id).weight == c.weight
+    assert Repo.get!(PersonSession, session.id).last_seen_at == nil
     {:ok, _} = PeopleAuth.revoke_session(token)
 
     for credential <- [token, nil, "bad", p] do

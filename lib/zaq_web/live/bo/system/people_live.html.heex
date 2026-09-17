@@ -9,6 +9,21 @@
     :if={@confirm_delete && !Map.has_key?(@confirm_delete, :person_ids)}
     confirm_delete={@confirm_delete}
   />
+  <.delete_confirm_bar
+    :if={@confirm_session}
+    confirm_delete={
+      %{
+        id: "person-session-confirmation",
+        message:
+          if(@confirm_session.action == :revoke,
+            do: "Revoke this session?",
+            else: "Revoke all active sessions for this person?"
+          ),
+        event: "confirm_session_revoke",
+        cancel_event: "cancel_session_revoke"
+      }
+    }
+  />
   <ZaqWeb.Components.BOModal.form_dialog
     :if={@confirm_delete && Map.has_key?(@confirm_delete, :person_ids)}
     id="people-bulk-delete-dialog"
@@ -160,6 +175,7 @@
         selected_person={@selected_person}
         person_channels={@person_channels}
         person_documents={@person_documents}
+        person_sessions={@person_sessions}
         teams={@teams}
         agent_options={@agent_options}
       />

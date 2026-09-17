@@ -7,7 +7,6 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Accounts.Team
-  alias Zaq.Engine.Events
   alias Zaq.Ingestion
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
   alias ZaqWeb.Components.DesignSystem.EmptyState
@@ -16,9 +15,11 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   alias ZaqWeb.Components.DesignSystem.Switch, as: DSSwitch
   alias ZaqWeb.Components.DesignSystem.Table, as: DSTable
   alias ZaqWeb.Components.DesignSystem.Toggle, as: DSToggle
+  alias ZaqWeb.Helpers.DateFormat
   alias ZaqWeb.Helpers.Selection
   alias ZaqWeb.Helpers.Timezone
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
+  alias ZaqWeb.Live.BO.EngineDispatch
   alias ZaqWeb.Live.BO.System.PeopleTable
   alias ZaqWeb.Live.BO.System.PersonRouting
   alias ZaqWeb.Live.BO.System.TeamsTable
@@ -36,12 +37,14 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> assign(:selected_person, nil)
       |> assign(:person_channels, [])
       |> assign(:person_documents, [])
+      |> assign(:person_sessions, [])
       |> assign(:modal, nil)
       |> assign(:modal_entity, nil)
       |> assign(:modal_parent_id, nil)
       |> assign(:modal_changeset, nil)
       |> assign(:modal_errors, [])
       |> assign(:confirm_delete, nil)
+      |> assign(:confirm_session, nil)
       |> assign(:selected_people, Selection.new(nil))
       |> assign(:merge_survivor, nil)
       |> assign(:merge_loser, nil)
@@ -74,6 +77,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
          |> assign(:selected_person, person)
          |> assign(:person_channels, person.channels)
          |> assign(:person_documents, person_documents)
+         |> assign(:person_sessions, fetch_person_sessions(person.id))
          |> assign(:confirm_delete, nil)}
     end
   end
@@ -92,6 +96,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:active_tab, active_tab)
      |> assign(:selected_person, nil)
      |> assign(:person_channels, [])
+     |> assign(:person_sessions, [])
      |> assign(:confirm_delete, nil)
      |> assign(:selected_people, Selection.clear(socket.assigns.selected_people))
      |> assign(:merge_survivor, nil)
@@ -240,8 +245,65 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:selected_person, person)
      |> assign(:person_channels, person.channels)
      |> assign(:person_documents, person_documents)
+     |> assign(:person_sessions, fetch_person_sessions(person.id))
      |> assign(:confirm_delete, nil)}
   end
+
+  def handle_event("open_revoke_session", %{"id" => id}, socket) do
+    person = socket.assigns.selected_person
+
+    if person && Enum.any?(socket.assigns.person_sessions, &(to_string(&1.id) == id)) do
+      {:noreply,
+       assign(socket, :confirm_session, %{
+         action: :revoke,
+         person_id: person.id,
+         session_id: id
+       })}
+    else
+      {:noreply, put_flash(socket, :error, "Session is no longer available.")}
+    end
+  end
+
+  def handle_event(
+        "open_revoke_all_sessions",
+        _params,
+        %{assigns: %{selected_person: person}} = socket
+      )
+      when not is_nil(person) do
+    {:noreply, assign(socket, :confirm_session, %{action: :revoke_all, person_id: person.id})}
+  end
+
+  def handle_event("open_revoke_all_sessions", _params, socket), do: {:noreply, socket}
+
+  def handle_event("cancel_session_revoke", _params, socket),
+    do: {:noreply, assign(socket, :confirm_session, nil)}
+
+  def handle_event(
+        "confirm_session_revoke",
+        _params,
+        %{
+          assigns: %{
+            confirm_session: %{action: :revoke, person_id: person_id, session_id: session_id}
+          }
+        } =
+          socket
+      ) do
+    result =
+      people_command(:revoke_person_session, %{person_id: person_id, session_id: session_id})
+
+    reload_sessions_after_action(socket, result, "Session revoked.")
+  end
+
+  def handle_event(
+        "confirm_session_revoke",
+        _params,
+        %{assigns: %{confirm_session: %{action: :revoke_all, person_id: person_id}}} = socket
+      ) do
+    result = people_command(:revoke_all_person_sessions, %{person_id: person_id})
+    reload_sessions_after_action(socket, result, "All sessions revoked.")
+  end
+
+  def handle_event("confirm_session_revoke", _params, socket), do: {:noreply, socket}
 
   def handle_event("toggle_person_selection", %{"id" => id}, socket) do
     case Enum.find(socket.assigns.people, &(to_string(&1.id) == id)) do
@@ -374,6 +436,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:selected_person, nil)
      |> assign(:person_channels, [])
      |> assign(:person_documents, [])
+     |> assign(:person_sessions, [])
      |> assign(:confirm_delete, nil)}
   end
 
@@ -867,8 +930,47 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
   end
 
   defp people_command(op, params) when is_atom(op) and is_map(params) do
-    Events.build_and_dispatch_invoke_event(%{op: op, params: params}, :people_command)
-    |> Map.get(:response)
+    EngineDispatch.dispatch(:people_command, %{op: op, params: params})
+  end
+
+  defp fetch_person_sessions(person_id) do
+    case people_command(:list_person_sessions, %{person_id: person_id, active_only: true}) do
+      {:ok, sessions} when is_list(sessions) -> sessions
+      _ -> []
+    end
+  end
+
+  defp reload_sessions_after_action(socket, {:ok, _result}, message) do
+    person = socket.assigns.selected_person
+
+    case person && fetch_person_with_channels(person.id) do
+      nil ->
+        {:noreply,
+         socket
+         |> assign(:selected_person, nil)
+         |> assign(:person_channels, [])
+         |> assign(:person_documents, [])
+         |> assign(:person_sessions, [])
+         |> assign(:confirm_session, nil)
+         |> put_flash(:info, message)}
+
+      selected ->
+        {:noreply,
+         socket
+         |> assign(:selected_person, selected)
+         |> assign(:person_channels, selected.channels)
+         |> assign(:person_documents, Ingestion.list_person_permissions(selected.id))
+         |> assign(:person_sessions, fetch_person_sessions(selected.id))
+         |> assign(:confirm_session, nil)
+         |> put_flash(:info, message)}
+    end
+  end
+
+  defp reload_sessions_after_action(socket, {:error, _reason}, _message) do
+    {:noreply,
+     socket
+     |> assign(:confirm_session, nil)
+     |> put_flash(:error, "Session action failed. Reload and try again.")}
   end
 
   defp refresh_permissions(socket) do
@@ -916,6 +1018,10 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     end
   end
 
+  defp format_session_time(nil), do: "Never"
+
+  defp format_session_time(%DateTime{} = datetime), do: DateFormat.format_datetime(datetime)
+
   defp fetch_team!(id) do
     case people_command(:get_team, %{id: id}) do
       {:ok, team} -> team
@@ -934,7 +1040,10 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
   defp delete_confirm_bar(assigns) do
     ~H"""
-    <div class="mb-4 rounded-xl bg-red-50 border border-red-200 px-5 py-3 flex items-center justify-between gap-4">
+    <div
+      id={Map.get(@confirm_delete, :id, "people-delete-confirmation")}
+      class="mb-4 rounded-xl bg-red-50 border border-red-200 px-5 py-3 flex items-center justify-between gap-4"
+    >
       <p class="font-mono text-sm text-red-700">
         {Map.get(@confirm_delete, :message) ||
           "Are you sure you want to delete this #{@confirm_delete.entity}? This cannot be undone."}
@@ -1195,6 +1304,61 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
                 </DSTable.table_cell>
                 <DSTable.table_cell>
                   <DSTable.table_text label={entry["merged_at"]} />
+                </DSTable.table_cell>
+              </DSTable.table_row>
+            </:body>
+          </DSTable.table>
+        </section>
+        <%!-- Active sessions section --%>
+        <section id="person-sessions" class="px-6 py-4 border-b border-black/6">
+          <div class="flex items-center justify-between gap-4 mb-3">
+            <p class="font-mono text-[0.62rem] text-black/35 uppercase tracking-wider">
+              Active sessions
+            </p>
+            <DSButton.button
+              :if={@person_sessions != []}
+              id="revoke-all-person-sessions"
+              variant={:tertiary}
+              danger
+              phx-click="open_revoke_all_sessions"
+            >
+              Revoke all
+            </DSButton.button>
+          </div>
+          <p :if={@person_sessions == []} class="zaq-text-body-sm text-black/40">
+            No active sessions.
+          </p>
+          <DSTable.table :if={@person_sessions != []} id="person-active-sessions">
+            <:head>
+              <DSTable.table_head_row>
+                <DSTable.table_cell
+                  :for={label <- ["Created", "Last activity", "Expires", ""]}
+                  element={:th}
+                >
+                  <DSTable.table_text label={label} tone={:tertiary} />
+                </DSTable.table_cell>
+              </DSTable.table_head_row>
+            </:head>
+            <:body>
+              <DSTable.table_row :for={session <- @person_sessions}>
+                <DSTable.table_cell>
+                  <DSTable.table_text label={format_session_time(session.inserted_at)} />
+                </DSTable.table_cell>
+                <DSTable.table_cell>
+                  <DSTable.table_text label={format_session_time(session.last_seen_at)} />
+                </DSTable.table_cell>
+                <DSTable.table_cell>
+                  <DSTable.table_text label={format_session_time(session.expires_at)} />
+                </DSTable.table_cell>
+                <DSTable.table_cell>
+                  <DSButton.button
+                    id={"revoke-person-session-#{session.id}"}
+                    variant={:secondary}
+                    phx-click="open_revoke_session"
+                    phx-value-id={session.id}
+                  >
+                    Revoke
+                  </DSButton.button>
                 </DSTable.table_cell>
               </DSTable.table_row>
             </:body>

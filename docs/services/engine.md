@@ -195,6 +195,10 @@ rejected rather than ignored, since it would silently override the message resol
   `Zaq.Engine.PeopleGateway.dispatch/2`.
 - Gateway maps operations (`:filter`, `:create`, `:update`, `:delete`, `:bulk_delete`,
   team/channel operations, etc.) to `Zaq.Accounts.People` domain calls.
+- Session administration uses fixed `:list_person_sessions`, `:revoke_person_session`,
+  and `:revoke_all_person_sessions` operations. The gateway resolves the canonical
+  Person from the positive `person_id` before calling `PeopleAuth`; BO receives only
+  safe session metadata and active sessions are filtered with strict expiry semantics.
 - `:resolve_selection` accepts `%{mode: :explicit | :all_matching, filters: map,
 ids: [positive_integer]}`. IDs are inclusions in explicit mode, exclusions in
   all-matching mode. Filters are required; `%{}` explicitly means unfiltered.

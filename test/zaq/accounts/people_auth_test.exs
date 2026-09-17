@@ -120,8 +120,14 @@ defmodule Zaq.Accounts.PeopleAuthTest do
     assert byte_size(Base.url_decode64!(token, padding: false)) == 32
     refute Map.has_key?(session, :token_digest)
     assert Repo.get!(PersonSession, session.id).token_digest == :crypto.hash(:sha256, token)
-    assert {:ok, %{person: current, session: ^session}} = PeopleAuth.authenticate(token)
+
+    assert {:ok, %{person: current, session: authenticated_session}} =
+             PeopleAuth.authenticate(token)
+
     assert current.id == person.id
+    assert authenticated_session.id == session.id
+    assert authenticated_session.expires_at == session.expires_at
+    assert authenticated_session.last_seen_at
 
     assert {:error, :invalid_challenge} =
              PeopleAuth.verify_challenge(issued.challenge_id, issued.code)
@@ -313,6 +319,143 @@ defmodule Zaq.Accounts.PeopleAuthTest do
     assert {:ok, 0} = PeopleAuth.revoke_all_sessions(person)
   end
 
+  test "authentication records activity at most once per minute without extending expiry", %{
+    person: person,
+    ip: ip
+  } do
+    now = ~U[2026-09-17 12:00:00Z]
+    opts = [clock: PeopleAuthClock]
+    PeopleAuthClock.put(now)
+    {:ok, issued} = PeopleAuth.issue_challenge(person, ip, opts)
+    {:ok, auth} = PeopleAuth.verify_challenge(issued.challenge_id, issued.code, opts)
+    expires_at = auth.session.expires_at
+
+    assert Repo.get!(PersonSession, auth.session.id).last_seen_at == nil
+    assert {:ok, %{session: %{last_seen_at: ^now}}} = PeopleAuth.authenticate(auth.token, opts)
+
+    PeopleAuthClock.put(DateTime.add(now, 59))
+    assert {:ok, %{session: %{last_seen_at: ^now}}} = PeopleAuth.authenticate(auth.token, opts)
+
+    at_threshold = DateTime.add(now, 60)
+    PeopleAuthClock.put(at_threshold)
+
+    assert {:ok, %{session: %{last_seen_at: ^at_threshold, expires_at: ^expires_at}}} =
+             PeopleAuth.authenticate(auth.token, opts)
+
+    PeopleAuthClock.put(DateTime.add(at_threshold, -1))
+
+    assert {:ok, %{session: %{last_seen_at: ^at_threshold}}} =
+             PeopleAuth.authenticate(auth.token, opts)
+
+    assert {:ok, _} = PeopleAuth.list_sessions(person)
+    assert Repo.get!(PersonSession, auth.session.id).last_seen_at == at_threshold
+
+    assert {:ok, _} = PeopleAuth.revoke_session(auth.token)
+    assert {:error, :invalid_session} = PeopleAuth.authenticate(auth.token, opts)
+    assert Repo.get!(PersonSession, auth.session.id).last_seen_at == at_threshold
+  end
+
+  test "concurrent first authentications serialize one activity timestamp", %{
+    person: person,
+    ip: ip
+  } do
+    {:ok, issued} = PeopleAuth.issue_challenge(person, ip)
+    {:ok, auth} = PeopleAuth.verify_challenge(issued.challenge_id, issued.code)
+    parent = self()
+
+    tasks =
+      for _ <- 1..4 do
+        Task.async(fn ->
+          send(parent, {:authentication_ready, self()})
+          receive do: (:authenticate -> PeopleAuth.authenticate(auth.token))
+        end)
+      end
+
+    for task <- tasks do
+      pid = task.pid
+      assert_receive {:authentication_ready, ^pid}
+    end
+
+    Enum.each(tasks, &send(&1.pid, :authenticate))
+
+    timestamps =
+      tasks
+      |> Task.await_many()
+      |> Enum.map(fn {:ok, %{session: session}} -> session.last_seen_at end)
+
+    assert [last_seen_at] = Enum.uniq(timestamps)
+    assert last_seen_at
+    persisted = Repo.get!(PersonSession, auth.session.id)
+    assert persisted.last_seen_at == last_seen_at
+    assert persisted.expires_at == auth.session.expires_at
+  end
+
+  test "expired, ineligible and revoked authentication never records activity", %{
+    person: person,
+    ip: ip
+  } do
+    now = ~U[2026-09-17 12:00:00Z]
+    opts = [clock: PeopleAuthClock]
+    PeopleAuthClock.put(now)
+    {:ok, issued} = PeopleAuth.issue_challenge(person, ip, opts)
+    {:ok, auth} = PeopleAuth.verify_challenge(issued.challenge_id, issued.code, opts)
+
+    PeopleAuthClock.put(auth.session.expires_at)
+    assert {:error, :invalid_session} = PeopleAuth.authenticate(auth.token, opts)
+    assert Repo.get!(PersonSession, auth.session.id).last_seen_at == nil
+
+    PeopleAuthClock.put(now)
+    {:ok, person} = People.update_person(person, %{status: "inactive"})
+    assert {:error, :invalid_session} = PeopleAuth.authenticate(auth.token, opts)
+    assert Repo.get!(PersonSession, auth.session.id).last_seen_at == nil
+
+    {:ok, _person} = People.update_person(person, %{status: "active"})
+    assert {:ok, _} = PeopleAuth.revoke_session(auth.token)
+    assert {:error, :invalid_session} = PeopleAuth.authenticate(auth.token, opts)
+    assert Repo.get!(PersonSession, auth.session.id).last_seen_at == nil
+  end
+
+  test "active session listing excludes revoked and exactly expired rows in insertion order", %{
+    person: person
+  } do
+    now = DateTime.utc_now(:second)
+    older = insert_session(person, DateTime.add(now, -20), DateTime.add(now, 60))
+    expired = insert_session(person, DateTime.add(now, -10), now)
+    revoked = insert_session(person, DateTime.add(now, -5), DateTime.add(now, 60), now)
+    newer = insert_session(person, now, DateTime.add(now, 60))
+
+    assert {:ok, sessions} = PeopleAuth.list_sessions(person, active_only: true)
+    assert Enum.map(sessions, & &1.id) == [older.id, newer.id]
+    assert {:ok, all} = PeopleAuth.list_sessions(person)
+    assert Enum.map(all, & &1.id) == [older.id, expired.id, revoked.id, newer.id]
+  end
+
+  test "owner session revocation is scoped, malformed IDs are controlled, and idempotent", %{
+    person: person
+  } do
+    other = elem(People.create_person(%{full_name: "Other session owner"}), 1)
+
+    session =
+      insert_session(
+        person,
+        DateTime.utc_now(:second),
+        DateTime.add(DateTime.utc_now(:second), 60)
+      )
+
+    session_id = session.id
+
+    assert {:error, :invalid_session} = PeopleAuth.revoke_session(person, "not-a-uuid")
+    assert {:error, :not_found} = PeopleAuth.revoke_session(other, session.id)
+
+    assert {:ok, %{id: ^session_id, revoked_at: revoked_at}} =
+             PeopleAuth.revoke_session(person, session_id)
+
+    assert revoked_at
+
+    assert {:ok, %{id: ^session_id, revoked_at: ^revoked_at}} =
+             PeopleAuth.revoke_session(person, session_id)
+  end
+
   test "invalid inputs and missing identities never grant access", %{ip: ip} do
     for invalid <- [nil, %{}, [], 0, -1, "junk", <<255>>, String.duplicate("!", 43)] do
       assert {:error, _} = PeopleAuth.issue_challenge(invalid, ip)
@@ -486,6 +629,19 @@ defmodule Zaq.Accounts.PeopleAuthTest do
     after
       0 -> acc
     end
+  end
+
+  defp insert_session(person, inserted_at, expires_at, revoked_at \\ nil) do
+    %PersonSession{}
+    |> PersonSession.changeset(%{
+      person_id: person.id,
+      token_digest: :crypto.strong_rand_bytes(32),
+      inserted_at: inserted_at,
+      updated_at: inserted_at,
+      expires_at: expires_at,
+      revoked_at: revoked_at
+    })
+    |> Repo.insert!()
   end
 
   property "generated eight ASCII digits verify with whitespace/hyphens removed", %{

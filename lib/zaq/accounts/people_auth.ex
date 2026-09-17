@@ -37,6 +37,7 @@ defmodule Zaq.Accounts.PeopleAuth do
 
   @otp_purpose "zaq:people-auth:otp-verification:v1"
   @resend_interval_seconds 60
+  @session_activity_interval_seconds 60
 
   @type challenge_descriptor :: %{
           challenge_id: Ecto.UUID.t(),
@@ -98,18 +99,65 @@ defmodule Zaq.Accounts.PeopleAuth do
     end)
   end
 
+  @doc "Revokes a session owned by a trusted Person, idempotently."
+  @spec revoke_session(Person.t() | integer(), term()) :: {:ok, map()} | {:error, term()}
+  def revoke_session(person, session_id) do
+    with {:ok, id} <- uuid(session_id, :invalid_session) do
+      transaction(fn -> revoke_owned_session(person, id) end)
+    end
+  end
+
+  defp revoke_owned_session(person, session_id) do
+    with {:ok, current} <- lock_person(person),
+         %PersonSession{} = session <-
+           Repo.one(
+             from s in PersonSession,
+               where: s.person_id == ^current.id and s.id == ^session_id,
+               lock: "FOR UPDATE"
+           ) do
+      revoke_locked_session(session)
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp revoke_locked_session(%{revoked_at: revoked_at} = session) when not is_nil(revoked_at),
+    do: {:ok, session_metadata(session)}
+
+  defp revoke_locked_session(session) do
+    session
+    |> PersonSession.changeset(%{revoked_at: DateTime.utc_now(:second)})
+    |> Repo.update()
+    |> persisted!()
+    |> session_metadata()
+    |> then(&{:ok, &1})
+  end
+
   @doc "Lists digest-free session metadata for a trusted Person; this is not a bearer authorization API."
-  @spec list_sessions(Person.t() | integer()) :: {:ok, [map()]} | {:error, term()}
-  def list_sessions(person) do
+  @spec list_sessions(Person.t() | integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def list_sessions(person, opts \\ []) when is_list(opts) do
     transaction(fn ->
       with {:ok, current} <- lock_person(person) do
+        active_only = Keyword.get(opts, :active_only, false)
+        now = DateTime.utc_now(:second)
+
         rows =
-          Repo.all(from s in PersonSession, where: s.person_id == ^current.id, order_by: s.id)
+          from(s in PersonSession,
+            where: s.person_id == ^current.id,
+            order_by: [asc: s.inserted_at, asc: s.id]
+          )
+          |> maybe_active_sessions(active_only, now)
+          |> Repo.all()
 
         {:ok, Enum.map(rows, &session_metadata/1)}
       end
     end)
   end
+
+  defp maybe_active_sessions(query, true, now),
+    do: where(query, [s], is_nil(s.revoked_at) and s.expires_at > ^now)
+
+  defp maybe_active_sessions(query, false, _now), do: query
 
   @doc "Invalidates all unfinished challenges, including expired ones, without loading auth config."
   @spec invalidate_challenges(Person.t() | integer()) ::
@@ -278,25 +326,45 @@ defmodule Zaq.Accounts.PeopleAuth do
 
   defp authenticate_session(person, session, clock) do
     permissions = PeoplePermissions.effective_permissions(person)
+    now = clock.utc_now(:second)
 
     if person.status == "active" and MapSet.member?(permissions, :access_profile) and
          is_nil(session.revoked_at) and
-         DateTime.before?(clock.utc_now(:second), session.expires_at),
-       do: {:ok, %{person: person, permissions: permissions, session: session_metadata(session)}},
-       else: {:error, :invalid_session}
+         DateTime.before?(now, session.expires_at) do
+      session = maybe_touch_session(session, now)
+      {:ok, %{person: person, permissions: permissions, session: session_metadata(session)}}
+    else
+      {:error, :invalid_session}
+    end
   end
 
   defp touch_authenticated_session(person, session, clock) do
     now = clock.utc_now(:second)
 
     if usable_session?(person, session, now) do
-      updated =
-        session |> PersonSession.changeset(%{last_seen_at: now}) |> Repo.update() |> persisted!()
-
-      {:ok, session_metadata(updated)}
+      {:ok, session_metadata(maybe_touch_session(session, now))}
     else
       {:error, :invalid_session}
     end
+  end
+
+  defp maybe_touch_session(%PersonSession{last_seen_at: nil} = session, now),
+    do: write_last_seen(session, now)
+
+  defp maybe_touch_session(%PersonSession{last_seen_at: last_seen_at} = session, now) do
+    if not DateTime.before?(now, last_seen_at) and
+         DateTime.diff(now, last_seen_at) >= @session_activity_interval_seconds do
+      write_last_seen(session, now)
+    else
+      session
+    end
+  end
+
+  defp write_last_seen(session, now) do
+    session
+    |> PersonSession.changeset(%{last_seen_at: now})
+    |> Repo.update()
+    |> persisted!()
   end
 
   defp verify_locked(challenge, code, config, key, now) do
