@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-4tf.3"
   ],
+  "closed_at": "2026-09-17T13:38:06Z",
   "created": "2026-09-17T13:27:41Z",
   "description": "Tests first. Reuse DesignSystem Table/StatusPill presentation for active/inactive status in BO person detail and self-service PersonProfile. No backend operation change; Action reuse not applicable.",
   "id": "zaq-4tf.2",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-4tf] Share person status badge across BO and profile",
   "type": "task",
   "updated_at": "2026-09-17T13:38:06Z"
