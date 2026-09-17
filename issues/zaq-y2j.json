@@ -6,9 +6,15 @@
   "description": "Test-only coverage for lib/zaq/agent/tools/registry.ex:458 with examples and bounded properties in registry_input_test.exs. Action reuse N/A: unchanged existing public APIs. E2E N/A: pure synchronous contract.",
   "id": "zaq-y2j",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented registry_input_test.exs with three malformed-input examples and two max_runs: 100 properties. Running isolated registry tests; mix q deferred to parent.",
+      "timestamp": "2026-09-17T16:57:39Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Cover Registry malformed input fallback",
   "type": "task",
-  "updated_at": "2026-09-17T16:56:45Z"
+  "updated_at": "2026-09-17T16:57:39Z"
 }
