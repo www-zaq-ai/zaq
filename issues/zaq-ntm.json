@@ -6,9 +6,15 @@
   "description": "Tests only in people_gateway_test.exs. Cover missing owners, invalid/string person IDs, malformed legacy bulk IDs and nonbinary UUIDs with real sandbox persistence and malformed-ID property. Action reuse N/A: existing operations unchanged. No E2E necessary; validate isolated tests, mix q and final targeted coverage. Independent test ownership from HistoryLive. No commits or pushes.",
   "id": "zaq-ntm",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented supplied public session and legacy bulk-ID scenarios and malformed-ID property; isolated 1 property +21 tests passed. mix q passed. Final requested two-edited-file-only coverage run: 2 properties,51 tests,0 failures; PeopleGateway whole-file coverage 71.4% (84 relevant,24 uncovered), below user broad baseline 90% because targeted suite excludes other callers. Report scope difference without another full suite. No production edits or commits.",
+      "timestamp": "2026-09-17T15:51:43Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ntm] Cover supplied PeopleGateway test gaps",
   "type": "task",
-  "updated_at": "2026-09-17T15:39:48Z"
+  "updated_at": "2026-09-17T15:51:43Z"
 }
