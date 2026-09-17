@@ -6,9 +6,15 @@
   "description": "Tests only for supplied HistoryLive missed lines. Plan: status transitions and integer filter normalization/property coverage in history_live_test.exs. Four bulk error lines currently unreachable via supported real boundary; record exception. Action reuse N/A: no operation changes. Related debt zaq-nwq. No E2E necessary; validate isolated tests, mix q, final targeted coverage. No commits or pushes.",
   "id": "zaq-30u",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented test-only status transitions, filter normalization and property coverage. Reviewed and corrected tests to assert visible selection reset and explicit nil hook input. mix q passed; final targeted two-file coverage: 2 properties, 51 tests, zero failures. HistoryLive 95.4% (88 relevant, four uncovered). Remaining lines 124,133,147,156 require unsupported bulk-error boundary injection; no production hooks added. Working-tree changes only; no commit.",
+      "timestamp": "2026-09-17T15:51:42Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-30u] Cover supplied HistoryLive test gaps",
   "type": "task",
-  "updated_at": "2026-09-17T15:39:47Z"
+  "updated_at": "2026-09-17T15:51:42Z"
 }
