@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T12:01:34Z",
+  "description": "Tests first. Clear People credentials even when Engine revocation raises/exits, preserve independent BO session, and show generic unconfirmed-revocation feedback. Action reuse: reuse existing people_auth revoke operation; controller recovery remains local-only.",
+  "id": "zaq-q47.2",
+  "labels": [],
+  "parent": "zaq-q47",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-q47] Make People logout failure-safe",
+  "type": "task",
+  "updated_at": "2026-09-17T12:01:34Z"
+}
