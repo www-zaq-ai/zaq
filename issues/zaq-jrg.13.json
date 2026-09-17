@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.12"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.14"
+  ],
   "created": "2026-09-17T17:22:04Z",
   "description": "Functional specifications/files: integrate credential operations into PeopleAuthGateway fixed confidential Engine boundary; PeopleAuth authenticates bearer and PeoplePermissions authorizes; PersonCredentials remains domain projection/mutation and no caller-supplied Person authority. Tests first: forged/revoked/expired session, permission withdrawal, inactive/merged identity, cross-owner input, safe DTO/error. Branches: list/status/put/revoke/remove. Mocking: real auth/Repo/encryption. Docs: Engine/system config. Action reuse: extend existing gateway and domain API; no Action/tool exposure.",
   "id": "zaq-jrg.13",
