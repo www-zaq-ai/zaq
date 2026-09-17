@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-q47.6"
+  ],
   "created": "2026-09-17T12:01:35Z",
   "description": "Tests first. Keep Hammer/PubSub role-local mechanics policy-free and move Engine Person-before-IP challenge reservation to a cohesive issuance owner using the configuration snapshot resolved by PeopleAuth. Preserve Channels cache and ingress/Engine split. Action reuse: local domain refactor; no composable Action or agent exposure.",
   "id": "zaq-q47.4",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-q47] Separate People limiter policy and runtime",
   "type": "task",
-  "updated_at": "2026-09-17T12:01:35Z"
+  "updated_at": "2026-09-17T12:01:37Z"
 }
