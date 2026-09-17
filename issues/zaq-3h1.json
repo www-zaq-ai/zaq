@@ -6,9 +6,15 @@
   "description": "Test-only coverage for lib/zaq/agent.ex lines 170,319,322,323,324,363,404. Plans cover credential validation, atom-safe provider lookup, defensive routing label and deletion race. Line 323 requires reachability assessment. Action reuse N/A: existing public operations unchanged. E2E N/A: backend regression tests.",
   "id": "zaq-3h1",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented credential validation, mixed-case/provider atom-safety coverage, malformed routing deletion resilience, and ServerManager-synchronized delete race coverage. Isolated tests pass: mix test test/zaq/agent/agent_test.exs test/zaq/agent/agent_delete_race_test.exs (23 tests, 1 property, 0 failures). Left open pending parent validation; did not run mix q/full suite/coverage/precommit.",
+      "timestamp": "2026-09-17T16:55:35Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Cover Agent context missed branches",
   "type": "task",
-  "updated_at": "2026-09-17T16:52:01Z"
+  "updated_at": "2026-09-17T16:55:35Z"
 }
