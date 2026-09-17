@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-jrg.13"
   ],
+  "closed_at": "2026-09-17T18:29:09Z",
+  "close_reason": "Added manage_credentials capability, guarded migration, authorization tests and docs.",
   "created": "2026-09-17T17:22:02Z",
   "description": "Functional specifications/files: extend PeoplePermissionGrant catalog and DB CHECK via additive migration; reuse PeoplePermissions matrix; no automatic grant. Tests first: default deny, Everyone/team grant/revoke, invalid/empty requirements, migration up/down. Branches: read access_profile; writes access_profile+manage_credentials. Mocking: real Repo. Docs: BO auth/Engine current capability contract. Action reuse: extend existing permission operation.",
   "id": "zaq-jrg.12",
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-jrg.12] Add manage credentials permission",
   "type": "task",
-  "updated_at": "2026-09-17T17:22:12Z"
+  "updated_at": "2026-09-17T18:29:09Z"
 }
