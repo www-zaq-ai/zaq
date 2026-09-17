@@ -300,22 +300,22 @@ defmodule Zaq.Accounts.PeopleAuthTest do
     assert {:ok, 1} = PeopleAuth.invalidate_challenges(person)
   end
 
-  test "session listing, touch and revocation distinguish session id from bearer token", %{
-    person: person,
-    ip: ip
-  } do
+  test "session listing, authentication activity and revocation distinguish session id from bearer token",
+       %{
+         person: person,
+         ip: ip
+       } do
     {:ok, issued} = PeopleAuth.issue_challenge(person, ip)
     {:ok, auth} = PeopleAuth.verify_challenge(issued.challenge_id, issued.code)
     assert {:ok, [session]} = PeopleAuth.list_sessions(person)
     assert session.id == auth.session.id
     assert {:error, :invalid_session} = PeopleAuth.authenticate(session.id)
-    assert {:ok, touched} = PeopleAuth.touch_session(auth.token)
+    assert {:ok, %{session: touched}} = PeopleAuth.authenticate(auth.token)
     assert touched.last_seen_at
     assert touched.expires_at == session.expires_at
     assert {:ok, _} = PeopleAuth.revoke_session(auth.token)
     assert {:ok, _} = PeopleAuth.revoke_session(auth.token)
     assert {:error, :invalid_session} = PeopleAuth.authenticate(auth.token)
-    assert {:error, :invalid_session} = PeopleAuth.touch_session(auth.token)
     assert {:ok, 0} = PeopleAuth.revoke_all_sessions(person)
   end
 
@@ -462,7 +462,6 @@ defmodule Zaq.Accounts.PeopleAuthTest do
       assert {:error, _} = PeopleAuth.verify_challenge(invalid, "12345678")
       assert {:error, _} = PeopleAuth.authenticate(invalid)
       assert {:error, _} = PeopleAuth.revoke_session(invalid)
-      assert {:error, _} = PeopleAuth.touch_session(invalid)
       assert {:error, _} = PeopleAuth.list_sessions(invalid)
       assert {:error, _} = PeopleAuth.invalidate_challenges(invalid)
       assert {:error, _} = PeopleAuth.revoke_all_sessions(invalid)
@@ -540,9 +539,6 @@ defmodule Zaq.Accounts.PeopleAuthTest do
 
     assert {:error, :invalid_session} =
              PeopleAuth.authenticate(auth.token, clock: Zaq.TestSupport.PeopleAuthFutureClock)
-
-    assert {:error, :invalid_session} =
-             PeopleAuth.touch_session(auth.token, clock: Zaq.TestSupport.PeopleAuthFutureClock)
   end
 
   test "session insertion failure rolls back consumed challenge and allows retry", %{

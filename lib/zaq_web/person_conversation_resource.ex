@@ -2,13 +2,13 @@ defmodule ZaqWeb.PersonConversationResource do
   @moduledoc """
   Loads Engine-gated People resources for HTTP responses and source preview modals.
 
-  Current document authorization runs through GetDocument on Channels. Only a fresh
-  Record is materialized; historical trace bytes are returned after authorization.
-  Engine descriptors and signed handles remain server-side.
+  Current source authorization runs through GetDocument on Channels. Only the fresh
+  returned Record is materialized. Captured trace artifacts inherit the already
+  authorized conversation access and are returned without interpreting historical
+  Record metadata. Engine descriptors and signed handles remain server-side.
   """
   alias Zaq.Agent.Tools.DataSource.GetDocument
   alias Zaq.Contracts.Record
-  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Materialization
   alias Zaq.NodeRouter
 
@@ -38,49 +38,9 @@ defmodule ZaqWeb.PersonConversationResource do
     end
   end
 
-  defp resolve(
-         :artifact,
-         %{kind: :record, record: record, document_reference: reference, actor: actor},
-         router
-       ) do
-    with :ok <- authorize_artifact(reference, %{actor: actor, node_router: router}),
-         do: {:ok, record}
-  end
+  defp resolve(:artifact, %{kind: :record, record: record}, _router), do: {:ok, record}
 
   defp resolve(_, _, _), do: {:error, :not_found}
-
-  # Provenance supplies document identity, never an authorization decision. Even a
-  # signed historical Record must go through GetDocument with the current actor.
-  defp authorize_artifact(reference, context) do
-    case artifact_params(reference) do
-      :communication_media ->
-        :ok
-
-      {:ok, params} ->
-        with {:ok, _record} <- get_document(params, context), do: :ok
-
-      _ ->
-        {:error, :not_found}
-    end
-  end
-
-  defp artifact_params(%{"provenance_ref" => _} = metadata) do
-    with {:ok, record} <- Record.from_map(metadata),
-         {:ok, claims} <- Provenance.verify(record) do
-      reference_params(claims["provider"], claims["config_id"], claims["provider_record_id"])
-    end
-  end
-
-  defp artifact_params(%{"attributes" => %{"source" => source}}), do: document_params(source)
-  defp artifact_params(%{"path" => source}), do: document_params(source)
-
-  defp artifact_params(%{"attributes" => %{"config_id" => _, "provider_record_id" => _}}),
-    do: {:error, :not_found}
-
-  defp artifact_params(%{"attributes" => %{"source_type" => "communication_media"}}),
-    do: :communication_media
-
-  defp artifact_params(_), do: {:error, :not_found}
 
   # Canonical identities are joined without URL encoding. Preserve the entire
   # provider document ID, including slashes, and never infer a config.

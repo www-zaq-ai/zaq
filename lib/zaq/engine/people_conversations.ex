@@ -130,7 +130,7 @@ defmodule Zaq.Engine.PeopleConversations do
     end
   end
 
-  defp conversation_operation(:artifact, request, auth, conversation) do
+  defp conversation_operation(:artifact, request, _auth, conversation) do
     with message when not is_nil(message) <-
            Conversations.get_conversation_message(conversation, Map.get(request, :message_id)),
          artifact when not is_nil(artifact) <-
@@ -139,9 +139,7 @@ defmodule Zaq.Engine.PeopleConversations do
       {:ok,
        %{
          kind: :record,
-         record: Map.take(artifact, [:content, :name, :mime_type]),
-         document_reference: artifact.record,
-         actor: ActorNormalizer.from_person_payload(nil, auth.person)
+         record: Map.take(artifact, [:content, :name, :mime_type])
        }}
     else
       _ -> {:error, :not_found}

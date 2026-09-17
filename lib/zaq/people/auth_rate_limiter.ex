@@ -1,14 +1,15 @@
 defmodule Zaq.People.AuthRateLimiter do
   @moduledoc """
-  Shared People authentication counter mechanics and Engine issuance budgets.
+  Shared People authentication counter mechanics.
 
   Uses Hammer 7.5's official increment-only Phoenix.PubSub pattern. Counters are
   eventually consistent, not a global atomic quota. New/restarted nodes start empty;
   partitions lose increments and there is no replay or state transfer. Retry times
   are milliseconds until normal window expiry, not an independent cooldown.
 
-  Engine reservations read the current typed People access group. Channels supplies
-  locally cached limits to the shared mechanics. Each role has a separate table,
+  Callers own budget policy and supply resolved limits. Channels supplies locally
+  cached limits while Engine issuance uses its operation-level config snapshot.
+  Each role has a separate table,
   listener and replication topic, including on combined-role nodes. Keys include the
   scale: changing a window selects another bucket; changing a limit applies to the
   current count. IPs must be trusted address tuples, never forwarded-header strings.
@@ -45,23 +46,6 @@ defmodule Zaq.People.AuthRateLimiter do
   defp listener(:channels), do: Ingress.Listener
   defp topic(:engine), do: "zaq:people_auth:issuance:v1"
   defp topic(:channels), do: "zaq:people_auth:identification:v1"
-
-  @doc """
-  Reserves person then IP send budgets for an eligible challenge issuance/resend.
-  Reservations are not refunded on later denial or database failure. Hammer counts
-  denied hits too; none extend the fixed window. This is not delivery accounting.
-  """
-  @spec reserve_challenge(term(), term()) :: :ok | {:error, term()}
-  def reserve_challenge(person_id, ip) when is_integer(person_id) and person_id > 0 do
-    with :ok <- validate_ip(ip),
-         {:ok, config} <- Zaq.System.get_people_access_config(),
-         scale = config.otp_send_window_seconds * 1_000,
-         :ok <- hit(:engine, {:send_person, person_id}, scale, config.otp_send_person_limit) do
-      hit(:engine, {:send_ip, ip}, scale, config.otp_send_ip_limit)
-    end
-  end
-
-  def reserve_challenge(_person_id, _ip), do: {:error, :invalid_person}
 
   @doc "Validates trusted socket address tuples for either role's counter boundary."
   @spec validate_ip(term()) :: :ok | {:error, :invalid_ip}

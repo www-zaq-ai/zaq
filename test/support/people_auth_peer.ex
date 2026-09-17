@@ -71,10 +71,21 @@ defmodule Zaq.TestSupport.PeopleAuthPeer do
 
   def connect(other) do
     {ref, members} = :pg.monitor(Phoenix.PubSub, Zaq.PubSub.Adapter)
-    true = Node.connect(other)
+    :ok = connect_node(other, 20)
     wait_member(ref, members, other)
     :pg.demonitor(Phoenix.PubSub, ref)
     :ok
+  end
+
+  defp connect_node(_other, 0), do: {:error, :peer_connection_failed}
+
+  defp connect_node(other, attempts) do
+    if Node.connect(other) do
+      :ok
+    else
+      Process.sleep(100)
+      connect_node(other, attempts - 1)
+    end
   end
 
   defp wait_member(ref, members, other) do
@@ -122,8 +133,11 @@ defmodule Zaq.TestSupport.PeopleAuthPeer do
     results
   end
 
-  def reserve(person, ip, count) do
-    results = for _ <- 1..count, do: AuthRateLimiter.reserve_challenge(person, ip)
+  def record_engine_person(person, count) do
+    results =
+      for _ <- 1..count,
+          do: AuthRateLimiter.hit(:engine, {:send_person, person}, 900_000, 5)
+
     :ok = Phoenix.PubSub.broadcast(Zaq.PubSub, "pr3:rate-barrier", :barrier)
     results
   end

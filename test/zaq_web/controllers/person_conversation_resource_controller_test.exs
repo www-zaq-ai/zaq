@@ -321,7 +321,7 @@ defmodule ZaqWeb.PersonConversationResourceControllerTest do
     end
   end
 
-  test "malformed authoritative sources and unattributed artifacts fail before GetDocument", %{
+  test "malformed authoritative sources fail before GetDocument", %{
     conn: conn
   } do
     for reference <- [
@@ -348,7 +348,9 @@ defmodule ZaqWeb.PersonConversationResourceControllerTest do
 
       assert response(result, 404) == "Resource not found"
     end
+  end
 
+  test "captured artifacts do not interpret historical Record metadata", %{conn: conn} do
     for metadata <- [
           %{},
           %{
@@ -371,7 +373,7 @@ defmodule ZaqWeb.PersonConversationResourceControllerTest do
               {:ok,
                %{
                  kind: :record,
-                 record: %{content: "private"},
+                 record: %{content: "private", name: "trace.txt", mime_type: "text/plain"},
                  document_reference: metadata,
                  actor: %{person: %{id: 42}}
                }}
@@ -384,7 +386,7 @@ defmodule ZaqWeb.PersonConversationResourceControllerTest do
         |> assign(:config, PersonResourceConfig)
         |> PersonConversationResourceController.show(%{"artifact_id" => "artifact"})
 
-      assert response(result, 404) == "Resource not found"
+      assert response(result, 200) == "private"
     end
   end
 end

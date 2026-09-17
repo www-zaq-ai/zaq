@@ -76,27 +76,10 @@ defmodule Zaq.Accounts.PeopleAuth do
     end
   end
 
-  @doc "Records use of a valid bearer session without extending its fixed expiry."
-  @spec touch_session(term(), keyword()) :: {:ok, map()} | {:error, term()}
-  def touch_session(token, opts \\ []) do
-    with {:ok, _config} <- Zaq.System.get_people_access_config() do
-      clock = Keyword.get(opts, :clock, DateTime)
-      session_operation(token, &touch_authenticated_session(&1, &2, clock))
-    end
-  end
-
   @doc "Revokes a bearer session idempotently, including when ineligible or config is corrupt."
   @spec revoke_session(term()) :: {:ok, map()} | {:error, term()}
   def revoke_session(token) do
-    session_operation(token, fn _person, session ->
-      row =
-        session
-        |> PersonSession.changeset(%{revoked_at: session.revoked_at || DateTime.utc_now(:second)})
-        |> Repo.update()
-        |> persisted!()
-
-      {:ok, session_metadata(row)}
-    end)
+    session_operation(token, fn _person, session -> revoke_locked_session(session) end)
   end
 
   @doc "Revokes a session owned by a trusted Person, idempotently."
@@ -262,7 +245,7 @@ defmodule Zaq.Accounts.PeopleAuth do
          true <- eligible?(current),
          now = clock.utc_now(:second),
          :ok <- check_resend(current.id, now),
-         :ok <- AuthRateLimiter.reserve_challenge(current.id, ip) do
+         :ok <- reserve_challenge(current.id, ip, config) do
       invalidate_locked(current.id, now)
       id = Ecto.UUID.generate()
       code = generate_code()
@@ -287,12 +270,25 @@ defmodule Zaq.Accounts.PeopleAuth do
     end
   end
 
+  # Issuance owns budget ordering and uses the same config snapshot as challenge
+  # expiry. Reservations are intentionally not refunded after later failures.
+  defp reserve_challenge(person_id, ip, config) do
+    scale = config.otp_send_window_seconds * 1_000
+
+    with :ok <- AuthRateLimiter.validate_ip(ip),
+         :ok <-
+           AuthRateLimiter.hit(
+             :engine,
+             {:send_person, person_id},
+             scale,
+             config.otp_send_person_limit
+           ) do
+      AuthRateLimiter.hit(:engine, {:send_ip, ip}, scale, config.otp_send_ip_limit)
+    end
+  end
+
   defp verify_reference(id, code, config, key, clock) do
-    with person_id when is_integer(person_id) <-
-           Repo.one(from c in PersonLoginChallenge, where: c.id == ^id, select: c.person_id),
-         %Person{} = person <- lock_owner(person_id),
-         %PersonLoginChallenge{} = challenge <-
-           Repo.one(from c in PersonLoginChallenge, where: c.id == ^id, lock: "FOR UPDATE"),
+    with {person, challenge} <- locked_challenge(id),
          true <- eligible?(person) do
       verify_locked(challenge, code, config, key, clock.utc_now(:second))
     else
@@ -333,16 +329,6 @@ defmodule Zaq.Accounts.PeopleAuth do
          DateTime.before?(now, session.expires_at) do
       session = maybe_touch_session(session, now)
       {:ok, %{person: person, permissions: permissions, session: session_metadata(session)}}
-    else
-      {:error, :invalid_session}
-    end
-  end
-
-  defp touch_authenticated_session(person, session, clock) do
-    now = clock.utc_now(:second)
-
-    if usable_session?(person, session, now) do
-      {:ok, session_metadata(maybe_touch_session(session, now))}
     else
       {:error, :invalid_session}
     end
@@ -449,11 +435,6 @@ defmodule Zaq.Accounts.PeopleAuth do
 
   defp eligible?(person),
     do: person.status == "active" and PeoplePermissions.allowed?(person, :access_profile)
-
-  defp usable_session?(person, session, now),
-    do:
-      is_nil(session.revoked_at) and DateTime.before?(now, session.expires_at) and
-        eligible?(person)
 
   defp unfinished?(challenge),
     do: is_nil(challenge.consumed_at) and is_nil(challenge.invalidated_at)

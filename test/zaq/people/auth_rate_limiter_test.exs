@@ -22,17 +22,19 @@ defmodule Zaq.People.AuthRateLimiterTest do
     assert next <= retry
   end
 
-  test "person and IP sends are independent of failed identification", %{ip: ip, person: person} do
-    assert {:ok, _} =
-             Zaq.System.save_people_access_config(%{
-               otp_send_person_limit: 1,
-               otp_send_ip_limit: 2
-             })
+  test "Engine counters are independent of failed identification", %{ip: ip, person: person} do
+    scale = 900_000
+    assert :ok = AuthRateLimiter.hit(:engine, {:send_person, person}, scale, 1)
 
-    assert :ok = AuthRateLimiter.reserve_challenge(person, ip)
-    assert {:error, {:rate_limited, _}} = AuthRateLimiter.reserve_challenge(person, ip)
-    assert :ok = AuthRateLimiter.reserve_challenge(person + 1, ip)
-    assert {:error, {:rate_limited, _}} = AuthRateLimiter.reserve_challenge(person + 2, ip)
+    assert {:error, {:rate_limited, _}} =
+             AuthRateLimiter.hit(:engine, {:send_person, person}, scale, 1)
+
+    assert :ok = AuthRateLimiter.hit(:engine, {:send_ip, ip}, scale, 2)
+    assert :ok = AuthRateLimiter.hit(:engine, {:send_ip, ip}, scale, 2)
+
+    assert {:error, {:rate_limited, _}} =
+             AuthRateLimiter.hit(:engine, {:send_ip, ip}, scale, 2)
+
     assert :ok = Ingress.check_identification(ip)
   end
 
@@ -50,18 +52,14 @@ defmodule Zaq.People.AuthRateLimiterTest do
 
     assert {:error, :rate_limiter_unavailable} =
              Ingress.record_failed_identification(ip)
-
-    assert {:error, {:invalid_people_access_config, _}} = AuthRateLimiter.reserve_challenge(1, ip)
   end
 
-  test "malformed and untrusted IP representations are rejected", %{ip: ip} do
+  test "malformed and untrusted IP representations are rejected" do
     for invalid <- [nil, "127.0.0.1", {256, 0, 0, 1}, {-1, 0, 0, 1}, {1, 2}, %{}] do
       assert {:error, :invalid_ip} = Ingress.check_identification(invalid)
       assert {:error, :invalid_ip} = Ingress.record_failed_identification(invalid)
-      assert {:error, :invalid_ip} = AuthRateLimiter.reserve_challenge(1, invalid)
+      assert {:error, :invalid_ip} = AuthRateLimiter.validate_ip(invalid)
     end
-
-    assert {:error, :invalid_person} = AuthRateLimiter.reserve_challenge(nil, ip)
   end
 
   test "missing listener fails closed rather than using only local counters", %{
@@ -74,7 +72,8 @@ defmodule Zaq.People.AuthRateLimiterTest do
       assert :ok = Ingress.check_identification(ip)
       assert :ok = Ingress.record_failed_identification(ip)
 
-      assert {:error, :rate_limiter_unavailable} = AuthRateLimiter.reserve_challenge(person, ip)
+      assert {:error, :rate_limiter_unavailable} =
+               AuthRateLimiter.hit(:engine, {:send_person, person}, 900_000, 1)
     after
       assert {:ok, _} = Supervisor.restart_child(AuthRateLimiter, AuthRateLimiter.Listener)
     end

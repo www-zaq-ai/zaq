@@ -12,6 +12,28 @@ defmodule ZaqWeb.PersonSessionControllerTest do
   alias ZaqWeb.Live.People.AuthHook
   import Mox
 
+  defmodule RaisingRouter do
+    def dispatch(_event), do: raise("revocation unavailable")
+  end
+
+  defmodule ExitingRouter do
+    def dispatch(_event), do: exit(:revocation_unavailable)
+  end
+
+  defmodule RaisingRouterConfig do
+    def get(:zaq, :person_session_controller_node_router_module, _default),
+      do: ZaqWeb.PersonSessionControllerTest.RaisingRouter
+
+    def get(app, key, default), do: Application.get_env(app, key, default)
+  end
+
+  defmodule ExitingRouterConfig do
+    def get(:zaq, :person_session_controller_node_router_module, _default),
+      do: ZaqWeb.PersonSessionControllerTest.ExitingRouter
+
+    def get(app, key, default), do: Application.get_env(app, key, default)
+  end
+
   setup :verify_on_exit!
 
   setup %{conn: conn} do
@@ -443,6 +465,30 @@ defmodule ZaqWeb.PersonSessionControllerTest do
       assert html =~ "Server revocation could not be confirmed"
     after
       Process.register(engine, Zaq.Engine.Supervisor)
+    end
+
+    assert {:ok, _} = PeopleAuth.authenticate(token)
+  end
+
+  test "logout clears only People credentials when revocation raises or exits", %{
+    conn: conn,
+    challenge: c
+  } do
+    {:ok, %{token: token}} = PeopleAuth.verify_challenge(c.challenge_id, c.code)
+
+    for config <- [RaisingRouterConfig, ExitingRouterConfig] do
+      result =
+        conn
+        |> recycle()
+        |> init_test_session(%{person_session_token: token, user_id: 123})
+        |> assign(:config, config)
+        |> delete("/people/session")
+
+      assert get_session(result, :person_session_token) == nil
+      assert get_session(result, :user_id) == 123
+
+      assert Phoenix.Flash.get(result.assigns.flash, :error) =~
+               "Server revocation could not be confirmed"
     end
 
     assert {:ok, _} = PeopleAuth.authenticate(token)

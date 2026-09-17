@@ -252,7 +252,7 @@ defmodule Zaq.Engine.PeopleConversationsTest do
         ] do
       Repo.update!(Ecto.Changeset.change(artifact, record: record))
 
-      assert {:ok, %{document_reference: ^record, record: %{content: "bytes"}}} =
+      assert {:ok, %{record: %{content: "bytes"}}} =
                call(ctx, :artifact, params)
     end
 

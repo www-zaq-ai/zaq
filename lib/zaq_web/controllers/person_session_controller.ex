@@ -8,7 +8,9 @@ defmodule ZaqWeb.PersonSessionController do
   use ZaqWeb, :controller
 
   alias Zaq.Channels.PeopleAuth
+  alias Zaq.Config
   alias Zaq.Engine.Events
+  alias Zaq.NodeRouter
 
   def request(conn, params) do
     email = Map.get(params, "email", get_session(conn, :person_login_email))
@@ -35,7 +37,7 @@ defmodule ZaqWeb.PersonSessionController do
   def create(conn, params) do
     id = Map.get(params, "challenge_id")
 
-    case auth(%{op: :verify, challenge_id: id, code: Map.get(params, "code")}) do
+    case auth(%{op: :verify, challenge_id: id, code: Map.get(params, "code")}, conn) do
       {:ok, %{token: token}} ->
         conn
         |> configure_session(renew: true)
@@ -56,7 +58,7 @@ defmodule ZaqWeb.PersonSessionController do
   end
 
   def delete(conn, _params) do
-    result = auth(%{op: :revoke, token: get_session(conn, :person_session_token)})
+    result = safe_revoke(conn)
 
     conn =
       conn
@@ -103,9 +105,23 @@ defmodule ZaqWeb.PersonSessionController do
 
   defp retain_challenge(conn, _), do: conn
 
-  defp auth(request) do
+  defp safe_revoke(conn) do
+    auth(%{op: :revoke, token: get_session(conn, :person_session_token)}, conn)
+  rescue
+    _ -> {:error, :revocation_unavailable}
+  catch
+    :exit, _ -> {:error, :revocation_unavailable}
+  end
+
+  defp auth(request, conn) do
+    router =
+      Config.get(:zaq, :person_session_controller_node_router_module, NodeRouter,
+        config: conn.assigns[:config]
+      )
+
     Events.build_and_dispatch_invoke_event(request, :people_auth,
-      event_opts: [confidential: true]
+      event_opts: [confidential: true],
+      node_router: router
     ).response
   end
 end

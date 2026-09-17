@@ -155,14 +155,14 @@ are not dependencies of this resource-read path.
 Canonical citation identities are `data_source/<provider>/<config>/<record-id>`;
 the record ID retains embedded slashes verbatim. Missing namespaces/configs are
 rejected, not inferred from local paths or browser provider fields. Handles never
-become browser preview credentials. Trace JSON is displayed unchanged. Communication
-artifact snapshots require their owning message and trace reference. Document-backed
-artifacts require a fresh `GetDocument` authorization before returning the original
-trace bytes, without downloading the source again. Verified Record provenance takes
-precedence over display attributes; a source/path reference cannot be bypassed by a
-communication-media label. Resources lacking sufficient source attribution fail
-closed. Public `/s/:token` links retain existing token/expiry semantics and do
-not grant People authentication or resource access.
+become browser preview credentials. Trace JSON is displayed unchanged. Captured trace
+artifacts require their owning conversation, message and trace reference; access to
+that owned conversation authorizes its immutable captured bytes without interpreting
+historical Record metadata or rechecking the source. Citation previews are different:
+they always use `GetDocument` to obtain a fresh authorized Record and materialize only
+that Record, so removed or newly inaccessible sources fail closed. Public `/s/:token`
+links retain existing token/expiry semantics and do not grant People authentication
+or resource access.
 
 ## Self-service profile
 
@@ -189,9 +189,10 @@ Foreign, missing and discarded channel IDs return `:not_found`, without alias fa
 Browser callers use fixed confidential `:people_auth` Engine operations `:profile`,
 `:update_self_profile`, `:update_self_channel_weight` and `:update_self_channel_order`,
 never trusted owner coordinates.
-The gateway derives the current Person from its bearer, holding authentication's
-Person-before-session locks in an outer transaction through each write and fresh
-`PeopleProfile` response. This serializes writes with session revocation and merges;
+`PeopleAuthGateway` delegates these operations to `PeopleProfile`, which derives the
+current Person from its bearer and owns profile authorization and projection. It holds
+authentication's Person-before-session locks in an outer transaction through each
+write and fresh response. This serializes writes with session revocation and merges;
 merged credentials cannot transfer. Grant changes are checked at each operation
 boundary, but grant administrators do not participate in the Person lock protocol.
 
@@ -318,7 +319,6 @@ body persistence; authentication tables remain digest-only.
 | `issue_challenge(person_or_id, ip, opts \\ [])`    | `{:ok, %{challenge_id: uuid, code: eight_digits, expires_at: datetime, resend_available_at: datetime}}`; code returned once for trusted delivery |
 | `verify_challenge(challenge_id, code, opts \\ [])` | `{:ok, %{token: bearer, session: metadata}}`; consumes challenge and creates session atomically                                                  |
 | `authenticate(token, opts \\ [])`                  | `{:ok, %{person: current_person, permissions: current_grants, session: metadata}}`                                                               |
-| `touch_session(token, opts \\ [])`                 | `{:ok, metadata}`; checks authentication and records `last_seen_at`, without extending expiry                                                    |
 | `revoke_session(token)`                            | `{:ok, metadata}`; idempotent for an existing session                                                                                            |
 | `list_sessions(person_or_id, opts \\ [])`           | `{:ok, [metadata]}`; defaults to all rows, or `active_only: true` for unrevoked sessions whose expiry is strictly in the future; ordered by insertion time and UUID |
 | `invalidate_challenges(person_or_id)`              | `{:ok, count}`; invalidates all unfinished challenges, including expired ones                                                                    |
@@ -329,7 +329,7 @@ body persistence; authentication tables remain digest-only.
 Person inputs are persisted Person structs or positive integer IDs. Trusted
 Person-based operations resolve aliases through `People.get_person/1` and lock the
 current row; missing/deleted identities return `{:error, :not_found}`. Issuance,
-verification, authentication and touch require current active status and
+verification and authentication require current active status and
 `PeoplePermissions.allowed?(person, :access_profile)`. No nil identity or implicit
 permission bypass exists. Session metadata contains only `id`, `expires_at`,
 `revoked_at`, `last_seen_at`, and `inserted_at`. A session UUID is not a bearer token;
@@ -357,7 +357,7 @@ Invalid/expired/revoked/ineligible sessions return `{:error, :invalid_session}`.
 Issuance returns `{:error, :ineligible}` for a known ineligible Person. All fallible
 operations return tagged errors; callers must not treat an error tuple as truthy
 authorization. Corrupt typed settings propagate the explicit config error for
-issuance, verification, authentication and touch. Revocation and owner listing do
+issuance, verification and authentication. Revocation and owner listing do
 not load auth config or check eligibility. Config reads do not silently fall back.
 Challenge/session expiry is fixed when issued, while changed attempt limits apply
 to in-flight challenges. Unrepresentable calendar expiry fails with `:invalid_expiry`.
@@ -414,7 +414,7 @@ Rate ownership is split by role, after shared PubSub:
 
 | Owner    | Runtime / API                                                                                                   | Budget                                     |
 | -------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| Engine   | `Zaq.People.AuthRateLimiter` under `Engine.Supervisor`; `reserve_challenge/2`                                   | OTP issuance/resend per Person and IP      |
+| Engine   | `PeopleAuth` issuance policy using `Zaq.People.AuthRateLimiter` mechanics under `Engine.Supervisor`              | OTP issuance/resend per Person and IP      |
 | Channels | `Zaq.Channels.PeopleAuthRateLimiter` under the static `Channels.Supervisor`, before `Channels.BridgeSupervisor` | Unsuccessful-identification IP budget only |
 | Engine   | `PeopleAuth.verify_challenge/3` and persisted challenge row                                                     | Current configured verification maximum    |
 
@@ -442,8 +442,9 @@ SQL counter store, Redis dependency or replicated state framework is involved.
 - Channels `record_failed_identification(ip)` records only unknown/ineligible identification.
   The first configured N failures are counted; subsequent prechecks block until
   window expiry. Known successful requests never call this operation.
-- Engine `reserve_challenge(person_id, ip)` reserves the separate Person then IP send
-  budgets, after eligibility passes. Both new issuance and resend use it. An
+- Engine `PeopleAuth` reserves the separate Person then IP send budgets, after
+  eligibility passes, through the generic limiter counter API. Both new issuance
+  and resend use it. An
   accepted reservation is not refunded on a later quota or database failure.
   Hammer also counts denied hits; these do not extend the window.
 
@@ -456,8 +457,9 @@ challenges; an existing valid code remains usable. At exactly 60 seconds, one
 concurrent caller can replace it and the others must wait again. Delivery failure
 invalidates its challenge and permits immediate retry, subject to send budgets.
 
-Engine reservations load the current typed config group. Channels operations read
-only a local typed snapshot from `PeopleAuthRateLimiter.Config`; they never query
+Engine reservations use the same current typed config snapshot already resolved for
+the issuance operation. Channels operations read only a local typed snapshot from
+`PeopleAuthRateLimiter.Config`; they never query
 Repo or dispatch an Engine/config request. The cache loads via the existing
 `:system_config_get_people_access_config` Engine action at startup, then refreshes
 30 seconds after each completed fetch. A snapshot expires 120 seconds after its
@@ -470,8 +472,8 @@ effect on the next completed refresh, not synchronously with Save.
 
 The keys contain owner, purpose,
 trusted IPv4/IPv6 tuple or Person ID, and window scale; email strings are never keys.
-Malformed IPs return `:invalid_ip`, invalid send Person IDs `:invalid_person`, and
-missing rate infrastructure `:rate_limiter_unavailable`. Runtime limit changes use
+Malformed IPs return `:invalid_ip`, and missing rate infrastructure returns
+`:rate_limiter_unavailable`. Runtime limit changes use
 current counts; window changes select another scale-specific bucket and do not
 rewrite older buckets. Reverting a window can revisit its still-live bucket.
 

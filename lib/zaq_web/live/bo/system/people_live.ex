@@ -38,6 +38,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       |> assign(:person_channels, [])
       |> assign(:person_documents, [])
       |> assign(:person_sessions, [])
+      |> assign(:person_sessions_status, :idle)
       |> assign(:modal, nil)
       |> assign(:modal_entity, nil)
       |> assign(:modal_parent_id, nil)
@@ -77,7 +78,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
          |> assign(:selected_person, person)
          |> assign(:person_channels, person.channels)
          |> assign(:person_documents, person_documents)
-         |> assign(:person_sessions, fetch_person_sessions(person.id))
+         |> put_person_sessions(person.id)
          |> assign(:confirm_delete, nil)}
     end
   end
@@ -97,6 +98,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:selected_person, nil)
      |> assign(:person_channels, [])
      |> assign(:person_sessions, [])
+     |> assign(:person_sessions_status, :idle)
      |> assign(:confirm_delete, nil)
      |> assign(:selected_people, Selection.clear(socket.assigns.selected_people))
      |> assign(:merge_survivor, nil)
@@ -245,7 +247,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:selected_person, person)
      |> assign(:person_channels, person.channels)
      |> assign(:person_documents, person_documents)
-     |> assign(:person_sessions, fetch_person_sessions(person.id))
+     |> put_person_sessions(person.id)
      |> assign(:confirm_delete, nil)}
   end
 
@@ -263,6 +265,16 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
       {:noreply, put_flash(socket, :error, "Session is no longer available.")}
     end
   end
+
+  def handle_event(
+        "reload_person_sessions",
+        _params,
+        %{assigns: %{selected_person: person}} = socket
+      )
+      when not is_nil(person),
+      do: {:noreply, put_person_sessions(socket, person.id)}
+
+  def handle_event("reload_person_sessions", _params, socket), do: {:noreply, socket}
 
   def handle_event(
         "open_revoke_all_sessions",
@@ -437,6 +449,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
      |> assign(:person_channels, [])
      |> assign(:person_documents, [])
      |> assign(:person_sessions, [])
+     |> assign(:person_sessions_status, :idle)
      |> assign(:confirm_delete, nil)}
   end
 
@@ -935,8 +948,23 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
 
   defp fetch_person_sessions(person_id) do
     case people_command(:list_person_sessions, %{person_id: person_id, active_only: true}) do
-      {:ok, sessions} when is_list(sessions) -> sessions
-      _ -> []
+      {:ok, sessions} when is_list(sessions) -> {:ok, sessions}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :invalid_response}
+    end
+  end
+
+  defp put_person_sessions(socket, person_id) do
+    case fetch_person_sessions(person_id) do
+      {:ok, sessions} ->
+        socket
+        |> assign(:person_sessions, sessions)
+        |> assign(:person_sessions_status, :loaded)
+
+      {:error, _reason} ->
+        socket
+        |> assign(:person_sessions, [])
+        |> assign(:person_sessions_status, :unavailable)
     end
   end
 
@@ -951,6 +979,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
          |> assign(:person_channels, [])
          |> assign(:person_documents, [])
          |> assign(:person_sessions, [])
+         |> assign(:person_sessions_status, :idle)
          |> assign(:confirm_session, nil)
          |> put_flash(:info, message)}
 
@@ -960,7 +989,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
          |> assign(:selected_person, selected)
          |> assign(:person_channels, selected.channels)
          |> assign(:person_documents, Ingestion.list_person_permissions(selected.id))
-         |> assign(:person_sessions, fetch_person_sessions(selected.id))
+         |> put_person_sessions(selected.id)
          |> assign(:confirm_session, nil)
          |> put_flash(:info, message)}
     end
@@ -1316,7 +1345,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               Active sessions
             </p>
             <DSButton.button
-              :if={@person_sessions != []}
+              :if={@person_sessions_status == :loaded and @person_sessions != []}
               id="revoke-all-person-sessions"
               variant={:tertiary}
               danger
@@ -1325,10 +1354,34 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
               Revoke all
             </DSButton.button>
           </div>
-          <p :if={@person_sessions == []} class="zaq-text-body-sm text-black/40">
+          <div
+            :if={@person_sessions_status == :unavailable}
+            class="flex items-center justify-between gap-3"
+          >
+            <p
+              class="zaq-text-body-sm"
+              style="color: var(--zaq-text-color-body-danger)"
+            >
+              Active sessions could not be loaded.
+            </p>
+            <DSButton.button
+              id="retry-person-sessions"
+              variant={:tertiary}
+              phx-click="reload_person_sessions"
+            >
+              Retry
+            </DSButton.button>
+          </div>
+          <p
+            :if={@person_sessions_status == :loaded and @person_sessions == []}
+            class="zaq-text-body-sm text-black/40"
+          >
             No active sessions.
           </p>
-          <DSTable.table :if={@person_sessions != []} id="person-active-sessions">
+          <DSTable.table
+            :if={@person_sessions_status == :loaded and @person_sessions != []}
+            id="person-active-sessions"
+          >
             <:head>
               <DSTable.table_head_row>
                 <DSTable.table_cell

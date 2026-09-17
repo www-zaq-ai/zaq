@@ -64,8 +64,8 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
     for control <- [a, b],
         do: assert(:ok = :peer.call(control, PeopleAuthPeer, :start, [Zaq.Repo.config()], 15_000))
 
-    assert :ok = :peer.call(a, PeopleAuthPeer, :connect, [b_node])
-    assert :ok = :peer.call(b, PeopleAuthPeer, :connect, [a_node])
+    assert :ok = :peer.call(a, PeopleAuthPeer, :connect, [b_node], 15_000)
+    assert :ok = :peer.call(b, PeopleAuthPeer, :connect, [a_node], 15_000)
     ip = {192, 0, 2, 42}
     assert :ok = :peer.call(b, Ingress, :check_identification, [ip])
     observer = :peer.call(b, PeopleAuthPeer, :observer, [])
@@ -82,13 +82,17 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
 
     # The saturated Channels budget must not consume Engine issuance quota.
     observer = :peer.call(b, PeopleAuthPeer, :observer, [])
-    assert List.duplicate(:ok, 5) == :peer.call(a, PeopleAuthPeer, :reserve, [42, ip, 5])
+
+    assert List.duplicate(:ok, 5) ==
+             :peer.call(a, PeopleAuthPeer, :record_engine_person, [42, 5])
+
     assert :ok = :peer.call(b, PeopleAuthPeer, :await, [observer])
 
     assert {:error, {:rate_limited, _}} =
-             :peer.call(b, AuthRateLimiter, :reserve_challenge, [42, ip])
+             :peer.call(b, AuthRateLimiter, :hit, [:engine, {:send_person, 42}, 900_000, 5])
 
-    assert :ok = :peer.call(b, AuthRateLimiter, :reserve_challenge, [43, ip])
+    assert :ok =
+             :peer.call(b, AuthRateLimiter, :hit, [:engine, {:send_person, 43}, 900_000, 5])
   end
 
   test "Engine-only and Channels-only runtimes use separate role-local infrastructure" do
@@ -114,14 +118,21 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
     assert {:error, :rate_limiter_unavailable} =
              :peer.call(channels, Ingress, :check_identification, [{192, 0, 2, 1}])
 
-    assert :ok = :peer.call(engine, PeopleAuthPeer, :connect, [channels_node])
-    assert :ok = :peer.call(channels, PeopleAuthPeer, :connect, [engine_node])
+    assert :ok = :peer.call(engine, PeopleAuthPeer, :connect, [channels_node], 15_000)
+    assert :ok = :peer.call(channels, PeopleAuthPeer, :connect, [engine_node], 15_000)
     assert :ok = :peer.call(channels, PeopleAuthPeer, :refresh, [])
     # Channels bootstraps remotely and serves requests without any local Repo.
     assert nil == :peer.call(channels, Process, :whereis, [Zaq.Repo])
     assert :ok = :peer.call(channels, Ingress, :check_identification, [{192, 0, 2, 1}])
     assert :ok = :peer.call(channels, Ingress, :record_failed_identification, [{192, 0, 2, 1}])
-    assert :ok = :peer.call(engine, AuthRateLimiter, :reserve_challenge, [42, {192, 0, 2, 1}])
+
+    assert :ok =
+             :peer.call(
+               engine,
+               AuthRateLimiter,
+               :hit,
+               [:engine, {:send_person, 42}, 900_000, 5]
+             )
   end
 
   defp peer(suffix) do

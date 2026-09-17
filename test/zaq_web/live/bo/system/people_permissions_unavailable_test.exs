@@ -5,7 +5,7 @@ defmodule ZaqWeb.Live.BO.System.PeoplePermissionsUnavailableTest do
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
   alias Zaq.Accounts
-  alias Zaq.Accounts.{PeoplePermissionGrant, PeoplePermissions}
+  alias Zaq.Accounts.{People, PeoplePermissionGrant, PeoplePermissions}
   alias Zaq.Engine.Supervisor, as: EngineSupervisor
   alias Zaq.Repo
 
@@ -88,6 +88,33 @@ defmodule ZaqWeb.Live.BO.System.PeoplePermissionsUnavailableTest do
     view |> element("#reload-people-permissions") |> render_click()
     assert has_element?(view, "#permission-all_people-access_profile")
     refute has_element?(view, "#permission-all_people-access_profile[checked]")
+  end
+
+  test "session listing failure is retryable and never rendered as an empty result", %{conn: conn} do
+    user = admin_fixture()
+    {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+    conn = init_test_session(conn, %{user_id: user.id})
+    {:ok, person} = People.create_person(%{full_name: "Session owner"})
+    {:ok, view, _} = live(conn, ~p"/bo/people?person_id=#{person.id}")
+    assert render(view) =~ "No active sessions."
+
+    engine = Process.whereis(EngineSupervisor)
+    Process.unregister(EngineSupervisor)
+
+    on_exit(fn ->
+      unless Process.whereis(EngineSupervisor), do: Process.register(engine, EngineSupervisor)
+    end)
+
+    render_click(view, "reload_person_sessions")
+    html = render(view)
+    assert html =~ "Active sessions could not be loaded"
+    refute html =~ "No active sessions."
+    refute has_element?(view, "#revoke-all-person-sessions")
+
+    Process.register(engine, EngineSupervisor)
+    view |> element("#retry-person-sessions") |> render_click()
+    assert render(view) =~ "No active sessions."
+    refute render(view) =~ "Active sessions could not be loaded"
   end
 
   defp lose_engine_after_grant(%{query: query}) do

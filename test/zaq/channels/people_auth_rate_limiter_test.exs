@@ -143,14 +143,16 @@ defmodule Zaq.Channels.PeopleAuthRateLimiterTest do
   end
 
   test "role listeners and namespaces are independent", %{ip: ip} do
-    {:ok, _} = Zaq.System.save_people_access_config(%{otp_send_person_limit: 1})
-    assert :ok = AuthRateLimiter.reserve_challenge(9_876_543, ip)
+    scale = 900_000
+    assert :ok = AuthRateLimiter.hit(:engine, {:send_person, 9_876_543}, scale, 1)
     assert :ok = Ingress.check_identification(ip)
     assert :ok = Supervisor.terminate_child(Ingress.Runtime, Ingress.Listener)
 
     try do
       assert {:error, :rate_limiter_unavailable} = Ingress.check_identification(ip)
-      assert {:error, {:rate_limited, _}} = AuthRateLimiter.reserve_challenge(9_876_543, ip)
+
+      assert {:error, {:rate_limited, _}} =
+               AuthRateLimiter.hit(:engine, {:send_person, 9_876_543}, scale, 1)
     after
       {:ok, _} = Supervisor.restart_child(Ingress.Runtime, Ingress.Listener)
     end

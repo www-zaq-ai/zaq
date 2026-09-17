@@ -84,7 +84,7 @@ defmodule ZaqWeb.PersonConversationSourceIntegrationTest do
              "Resource not found"
   end
 
-  test "source-backed snapshots require fresh ACL even with a communication label and retain trace bytes",
+  test "captured trace artifacts follow conversation access without reauthorizing their source",
        ctx do
     actor = ActorNormalizer.from_person_payload(nil, ctx.person)
 
@@ -105,7 +105,7 @@ defmodule ZaqWeb.PersonConversationSourceIntegrationTest do
           %{"path" => ctx.source, "attributes" => %{"source_type" => "communication_media"}}
         ] do
       params = artifact(ctx, metadata)
-      expect_hops(ctx, [:people_conversations, :data_source_get_file])
+      expect_hops(ctx, [:people_conversations])
 
       assert response(PersonConversationResourceController.show(ctx.conn, params), 200) ==
                "Historical trace bytes"
@@ -119,10 +119,10 @@ defmodule ZaqWeb.PersonConversationSourceIntegrationTest do
           %{"path" => ctx.source, "attributes" => %{"source_type" => "communication_media"}}
         ] do
       params = artifact(ctx, metadata)
-      expect_hops(ctx, [:people_conversations, :data_source_get_file])
+      expect_hops(ctx, [:people_conversations])
 
-      assert response(PersonConversationResourceController.show(ctx.conn, params), 404) ==
-               "Resource not found"
+      assert response(PersonConversationResourceController.show(ctx.conn, params), 200) ==
+               "Historical trace bytes"
     end
 
     params =
