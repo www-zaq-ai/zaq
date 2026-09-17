@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-i1u.2"
+  ],
   "blocks": [],
   "created": "2026-09-17T13:22:33Z",
   "description": "Tests first: LiveView coverage for confirmed unsupported versus unknown notices/button states and custom save. Implement warning UX while keeping controls enabled for unknown support. Run focused tests and mix q. Action reuse: reuse existing LiveView, design-system buttons, and NodeRouter persistence; no new Action.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-i1u.3] Update agent editor capability UX and validate",
   "type": "task",
-  "updated_at": "2026-09-17T13:22:45Z"
+  "updated_at": "2026-09-17T13:22:46Z"
 }
