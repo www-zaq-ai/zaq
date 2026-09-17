@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T15:39:36Z",
+  "description": "Tests only in people_gateway_test.exs. Cover missing owners, invalid/string person IDs, malformed legacy bulk IDs and nonbinary UUIDs with real sandbox persistence and malformed-ID property. Action reuse N/A: existing operations unchanged. No E2E necessary; validate isolated tests, mix q and final targeted coverage. Independent test ownership from HistoryLive. No commits or pushes.",
+  "id": "zaq-ntm",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Cover supplied PeopleGateway test gaps",
+  "type": "task",
+  "updated_at": "2026-09-17T15:39:36Z"
+}
