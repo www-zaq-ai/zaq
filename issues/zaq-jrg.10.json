@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-jrg.11"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jrg.10] Resolve upstream stash conflicts",
   "type": "task",
-  "updated_at": "2026-09-17T17:22:10Z"
+  "updated_at": "2026-09-17T17:23:18Z"
 }
