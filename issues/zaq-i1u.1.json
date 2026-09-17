@@ -9,9 +9,15 @@
   "id": "zaq-i1u.1",
   "labels": [],
   "parent": "zaq-i1u",
+  "comments": [
+    {
+      "text": "Implemented runtime-aligned configured-agent validation by resolving the effective credential and reusing ProviderSpec.build/1. Added custom endpoint create/update credential-switch coverage and missing-endpoint regression coverage. Focused tests and mix q pass. Not closing because no commit was authorized.",
+      "timestamp": "2026-09-17T13:38:53Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-i1u.1] Align custom credential validation with runtime resolution",
   "type": "task",
-  "updated_at": "2026-09-17T13:22:46Z"
+  "updated_at": "2026-09-17T13:38:53Z"
 }
