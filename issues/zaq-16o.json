@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-17T15:58:32Z",
@@ -7,7 +7,7 @@
   "id": "zaq-16o",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-16o] Align People permission constraint tests",
   "type": "task",
   "updated_at": "2026-09-17T15:58:38Z"
