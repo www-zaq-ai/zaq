@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-i1u.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-i1u",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-i1u.1] Align custom credential validation with runtime resolution",
   "type": "task",
-  "updated_at": "2026-09-17T13:22:45Z"
+  "updated_at": "2026-09-17T13:22:46Z"
 }
