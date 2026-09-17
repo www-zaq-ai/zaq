@@ -9,9 +9,15 @@
   "id": "zaq-q47.2",
   "labels": [],
   "parent": "zaq-q47",
+  "comments": [
+    {
+      "text": "Implemented in working tree: Person logout catches raised/exited revocation dispatch, always clears People-only credentials, preserves BO user session, and reports generic unconfirmed revocation. Added runtime router seam via Zaq.Config and raise/exit regressions. Controller suite: 23 tests pass. No commit/push.",
+      "timestamp": "2026-09-17T12:08:17Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-q47] Make People logout failure-safe",
   "type": "task",
-  "updated_at": "2026-09-17T12:05:19Z"
+  "updated_at": "2026-09-17T12:08:17Z"
 }
