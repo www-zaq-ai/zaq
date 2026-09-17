@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-q47.1"
+  ],
   "blocks": [],
   "created": "2026-09-17T12:01:36Z",
   "description": "Run focused security/regression suites and mix q, review diff and documentation consistency. Existing E2E only; no new UX journey authored because changes are architectural/failure handling and feature E2E remains approval-gated. Action reuse: not applicable, validation only.",
