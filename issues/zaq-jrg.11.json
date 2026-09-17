@@ -9,7 +9,7 @@
   "parent": "zaq-jrg",
   "priority": 2,
   "status": "open",
-  "title": "Migrate credential events to confidential routing",
+  "title": "[zaq-jrg.11] Migrate credential events to confidential routing",
   "type": "task",
-  "updated_at": "2026-09-17T17:21:59Z"
+  "updated_at": "2026-09-17T17:22:01Z"
 }
