@@ -1,5 +1,6 @@
 defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
   use ZaqWeb.ConnCase, async: true
+  use ExUnitProperties
 
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
@@ -64,6 +65,62 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
   end
 
   describe "filter event" do
+    test "switches status routes and applies same-status filters without navigation", %{
+      conn: conn,
+      user: user
+    } do
+      active = create_conv(user.id, %{title: "Active Status Conv", status: "active"})
+
+      {:ok, archived} =
+        create_conv(user.id, %{title: "Archived Status Conv"})
+        |> Conversations.archive_conversation()
+
+      other_user = user_fixture()
+      _foreign = create_conv(other_user.id, %{title: "Foreign Status Conv", status: "active"})
+
+      {:ok, mattermost} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: "mm_status_#{System.unique_integer([:positive])}",
+          user_id: user.id,
+          title: "Mattermost Status Conv"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+      render_hook(view, "toggle_select", %{"id" => active.id})
+
+      view
+      |> element("form[phx-change='filter']")
+      |> render_change(%{"status" => "archived", "channel_type" => "all"})
+
+      assert_patch(view, "/bo/history/archived")
+      html = render(view)
+      assert html =~ archived.title
+      refute html =~ active.title
+      refute html =~ "Foreign Status Conv"
+      assert html =~ "Archived History"
+      refute html =~ "1 selected"
+
+      view
+      |> element("form[phx-change='filter']")
+      |> render_change(%{"status" => "active", "channel_type" => "all"})
+
+      assert_patch(view, "/bo/history")
+      html = render(view)
+      assert html =~ active.title
+      refute html =~ archived.title
+      refute html =~ "Foreign Status Conv"
+      assert html =~ "History"
+
+      view
+      |> element("form[phx-change='filter']")
+      |> render_change(%{"status" => "active", "channel_type" => "mattermost"})
+
+      html = render(view)
+      assert html =~ mattermost.title
+      refute html =~ active.title
+    end
+
     test "archived route shows archived and excludes active conversations", %{
       conn: conn,
       user: user
@@ -314,6 +371,99 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
   end
 
   describe "filter event with team_id and person_id" do
+    test "empty, nil, and malformed integer filters clear for teams and people", %{conn: conn} do
+      admin = super_admin_fixture()
+      {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
+      conn = init_test_session(conn, %{user_id: admin.id})
+
+      {:ok, team_a} =
+        People.create_team(%{name: "FilterTeamA#{System.unique_integer([:positive])}"})
+
+      {:ok, team_b} =
+        People.create_team(%{name: "FilterTeamB#{System.unique_integer([:positive])}"})
+
+      person_a = create_history_person("Filter Person A")
+      person_b = create_history_person("Filter Person B")
+      {:ok, person_a} = People.assign_team(person_a, team_a.id)
+      {:ok, person_b} = People.assign_team(person_b, team_b.id)
+      conv_a = create_person_conv(person_a.id, "Integer Filter A")
+      conv_b = create_person_conv(person_b.id, "Integer Filter B")
+
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      for {key, id} <- [{"team_id", team_a.id}, {"person_id", person_a.id}],
+          value <- ["", nil, "invalid"] do
+        base_params = %{
+          "scope" => "all",
+          "channel_type" => "all",
+          "team_id" => "all",
+          "person_id" => "all"
+        }
+
+        html =
+          view
+          |> render_hook("filter", Map.put(base_params, key, to_string(id)))
+
+        assert html =~ conv_a.title
+        refute html =~ conv_b.title
+
+        html = render_hook(view, "toggle_select", %{"id" => conv_a.id})
+        assert html =~ "1 selected"
+
+        html =
+          render_hook(view, "filter", Map.put(base_params, key, value))
+
+        assert html =~ conv_a.title
+        assert html =~ conv_b.title
+        refute html =~ "1 selected"
+      end
+    end
+
+    property "malformed integer filters return all conversations", %{conn: conn} do
+      admin = super_admin_fixture()
+      {:ok, admin} = Accounts.change_password(admin, %{password: "StrongPass1!"})
+      conn = init_test_session(conn, %{user_id: admin.id})
+
+      {:ok, team_a} =
+        People.create_team(%{name: "PropertyTeamA#{System.unique_integer([:positive])}"})
+
+      {:ok, team_b} =
+        People.create_team(%{name: "PropertyTeamB#{System.unique_integer([:positive])}"})
+
+      person_a = create_history_person("Property Person A")
+      person_b = create_history_person("Property Person B")
+      {:ok, person_a} = People.assign_team(person_a, team_a.id)
+      {:ok, person_b} = People.assign_team(person_b, team_b.id)
+      conv_a = create_person_conv(person_a.id, "Property Filter A")
+      conv_b = create_person_conv(person_b.id, "Property Filter B")
+      {:ok, view, _html} = live(conn, ~p"/bo/history")
+
+      check all(
+              key <- member_of(["team_id", "person_id"]),
+              suffix <- string(:alphanumeric, min_length: 1, max_length: 24),
+              max_runs: 20
+            ) do
+        valid_id = if key == "team_id", do: team_a.id, else: person_a.id
+
+        base_params = %{
+          "scope" => "all",
+          "channel_type" => "all",
+          "team_id" => "all",
+          "person_id" => "all"
+        }
+
+        html = render_hook(view, "filter", Map.put(base_params, key, to_string(valid_id)))
+        assert html =~ conv_a.title
+        refute html =~ conv_b.title
+
+        html =
+          render_hook(view, "filter", Map.put(base_params, key, "x" <> suffix))
+
+        assert html =~ conv_a.title
+        assert html =~ conv_b.title
+      end
+    end
+
     test "filter with person_id in all-scope returns only conversations for that person", %{
       conn: conn
     } do
@@ -478,6 +628,28 @@ defmodule ZaqWeb.Live.BO.Communication.HistoryLiveTest do
           overrides
         )
       )
+
+    conv
+  end
+
+  defp create_history_person(prefix) do
+    {:ok, person} =
+      People.create_person(%{
+        "full_name" => "#{prefix} #{System.unique_integer([:positive])}",
+        "email" => "history#{System.unique_integer([:positive])}@example.com"
+      })
+
+    person
+  end
+
+  defp create_person_conv(person_id, title) do
+    {:ok, conv} =
+      Conversations.create_conversation(%{
+        channel_type: "bo",
+        channel_user_id: "history_#{System.unique_integer([:positive])}",
+        person_id: person_id,
+        title: title
+      })
 
     conv
   end

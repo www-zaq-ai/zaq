@@ -12,7 +12,7 @@ defmodule Zaq.Accounts.PeopleAuthMergeTest do
 
   setup do
     Repo.delete_all(PeoplePermissionGrant)
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
 
     participants =
       for index <- 1..3 do

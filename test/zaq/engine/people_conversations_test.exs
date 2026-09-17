@@ -8,7 +8,7 @@ defmodule Zaq.Engine.PeopleConversationsTest do
   setup do
     {:ok, person} = People.create_person(%{full_name: "Reader"})
     {:ok, other} = People.create_person(%{full_name: "Other"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     {:ok, challenge} = PeopleAuth.issue_challenge(person, {127, 9, 8, 1})
 
     {:ok, %{token: token, session: session}} =
@@ -109,7 +109,7 @@ defmodule Zaq.Engine.PeopleConversationsTest do
     grant_history()
     assert {:error, :share_forbidden} = call(ctx, :shares)
     assert {:error, :share_forbidden} = call(ctx, :share, %{attrs: %{}})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :share_conversations)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :share_conversations)
 
     assert {:ok, share} =
              call(ctx, :share, %{attrs: %{"permission" => "read", "shared_with_user_id" => 123}})
@@ -121,7 +121,7 @@ defmodule Zaq.Engine.PeopleConversationsTest do
     assert {:error, :not_found} = call(ctx, :revoke_share, %{share_id: foreign_share.id})
     assert {:ok, _} = call(ctx, :revoke_share, %{share_id: share.id})
     assert Conversations.get_conversation_by_token(share.share_token) == nil
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :share_conversations)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :share_conversations)
     assert {:ok, %{can_share: false, shares: []}} = call(ctx, :detail)
   end
 
@@ -264,14 +264,14 @@ defmodule Zaq.Engine.PeopleConversationsTest do
 
   test "malformed optional operations remain controlled and pages normalize", ctx do
     grant_history()
-    {:ok, _} = PeoplePermissions.grant(:all_people, :share_conversations)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :share_conversations)
     assert {:error, :invalid_request} = call(ctx, :share, %{attrs: []})
     assert {:ok, %{page: 1}} = call(ctx, :list, %{page: 1})
     assert {:ok, %{page: 1}} = call(ctx, :list, %{page: "invalid"})
     assert {:ok, %{page: 1}} = call(ctx, :list, %{page: -1})
   end
 
-  defp grant_history, do: PeoplePermissions.grant(:all_people, :access_message_history)
+  defp grant_history, do: PeoplePermissions.grant(:everyone, :access_message_history)
 
   defp call(ctx, op, params \\ %{}) do
     PeopleConversations.dispatch(

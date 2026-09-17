@@ -98,7 +98,7 @@ defmodule ZaqWeb.Live.People.HistoryLiveTest do
     render_click(view, "open_message_info_modal", %{"id" => "bad"})
     render_click(view, "open_preview_modal", %{"path" => "foreign.md"})
     assert render(view) =~ "Unable to complete"
-    {:ok, _} = PeoplePermissions.grant(:all_people, :share_conversations)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :share_conversations)
     render_click(view, "open_share_dialog", %{})
     render_click(view, "close_share_dialog", %{})
     refute has_element?(view, "#conversation-share-dialog")
@@ -184,8 +184,8 @@ defmodule ZaqWeb.Live.People.HistoryLiveTest do
   setup %{conn: conn} do
     {:ok, person} = People.create_person(%{full_name: "History Reader"})
     {:ok, other} = People.create_person(%{full_name: "Other"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_message_history)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_message_history)
     {:ok, challenge} = PeopleAuth.issue_challenge(person, {127, 9, 7, 1})
     {:ok, %{token: token}} = PeopleAuth.verify_challenge(challenge.challenge_id, challenge.code)
 
@@ -249,7 +249,7 @@ defmodule ZaqWeb.Live.People.HistoryLiveTest do
     assert Conversations.get_rating(ctx.message, %{person_id: ctx.person.id}).rating == 5
     render_click(view, "delete_conversation", %{"id" => ctx.conv.id})
     assert Conversations.get_conversation(ctx.conv.id)
-    {:ok, _} = PeoplePermissions.grant(:all_people, :share_conversations)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :share_conversations)
     render_click(view, "open_share_dialog", %{})
     assert has_element?(view, "#conversation-share-dialog")
     view |> form("#conversation-share-form", permission: "read") |> render_submit()
@@ -265,7 +265,7 @@ defmodule ZaqWeb.Live.People.HistoryLiveTest do
     end
 
     {:ok, view, _} = live(ctx.conn, "/people/history")
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :access_message_history)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :access_message_history)
     render_click(view, "change_page", %{"page" => "2"})
     assert_redirect(view, "/people/profile")
   end

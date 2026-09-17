@@ -13,7 +13,7 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
         metadata: %{"secret" => "private"}
       })
 
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     {:ok, c} = PeopleAuth.issue_challenge(p, {127, 2, 1, 1})
 
     {:ok, %{token: token, session: session}} =
@@ -101,7 +101,7 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
     token: token,
     channel: c
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
 
     {:ok, other} =
       People.create_person(%{full_name: "Other", email: "other-gateway@example.test"})
@@ -129,14 +129,14 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
 
   test "access removal denies edit-only sessions, revocation and merging never follow old credentials",
        %{person: p, token: token, channel: c} do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :access_profile)
     assert {:error, :invalid_session} = dispatch(:profile, token)
 
     assert {:error, :invalid_session} =
              dispatch(:update_self_channel_weight, token, %{channel_id: c.id, attrs: %{weight: 6}})
 
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     {:ok, survivor} = People.create_person(%{full_name: "Survivor"})
     assert {:ok, _} = People.merge_persons(survivor, p)
 
@@ -156,7 +156,7 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
     session: session,
     channel: c
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     assert Repo.get!(PersonSession, session.id).last_seen_at == nil
 
     assert {:error, :abort} =
@@ -196,7 +196,7 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
   } do
     params = %{ids: [c.id], expected: [%{id: c.id, weight: c.weight}], person_id: -1}
     assert {:error, :forbidden} = dispatch(:update_self_channel_order, token, params)
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     assert {:ok, profile} = dispatch(:update_self_channel_order, token, params)
     refute inspect(profile) =~ token
     assert hd(profile.channels).id == c.id
@@ -206,10 +206,10 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
     assert {:error, :invalid_order} =
              dispatch(:update_self_channel_order, token, %{ids: nil, expected: nil})
 
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :edit_profile)
     assert {:error, :forbidden} = dispatch(:update_self_channel_order, token, params)
     assert {:error, :invalid_session} = dispatch(:update_self_channel_order, nil, params)
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     {:ok, _} = People.update_person(p, %{status: "inactive"})
     assert {:error, :invalid_session} = dispatch(:update_self_channel_order, token, params)
     assert People.get_channel(c.id).weight == 10
@@ -219,7 +219,7 @@ defmodule Zaq.Engine.PeopleProfileGatewayTest do
     token: token,
     channel: c
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
 
     request = %{
       op: :update_self_channel_order,

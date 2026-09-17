@@ -1,6 +1,7 @@
 defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
   use ZaqWeb.ConnCase, async: true
 
+  import Ecto.Query
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
   import Zaq.SystemConfigFixtures
@@ -182,12 +183,12 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     view |> element(selector) |> render_click()
     assert has_element?(view, selector <> "[checked]")
     refute has_element?(view, "#permission-team-#{team.id}-access_message_history[checked]")
-    params = %{"scope" => "all_people", "permission" => "access_profile", "enabled" => true}
+    params = %{"scope" => "everyone", "permission" => "access_profile", "enabled" => true}
     render_click(view, "set_permission", params)
     render_click(view, "set_permission", params)
-    assert has_element?(view, "#permission-all_people-access_profile[checked]")
+    assert has_element?(view, "#permission-everyone-access_profile[checked]")
     render_click(view, "set_permission", %{params | "enabled" => false})
-    refute has_element?(view, "#permission-all_people-access_profile[checked]")
+    refute has_element?(view, "#permission-everyone-access_profile[checked]")
     render_click(view, "switch_tab", %{"tab" => "teams"})
     render_click(view, "switch_tab", %{"tab" => "permissions"})
     assert has_element?(view, selector <> "[checked]")
@@ -201,10 +202,10 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
 
     for params <- [
           %{},
-          %{"scope" => "all_people", "permission" => "access_profile"},
-          %{"scope" => "all_people", "permission" => "access_profile", "enabled" => "false"},
+          %{"scope" => "everyone", "permission" => "access_profile"},
+          %{"scope" => "everyone", "permission" => "access_profile", "enabled" => "false"},
           %{"scope" => "person-1", "permission" => "access_profile", "enabled" => true},
-          %{"scope" => "all_people", "permission" => %{}, "enabled" => true}
+          %{"scope" => "everyone", "permission" => %{}, "enabled" => true}
         ] do
       assert render_click(view, "set_permission", params) =~ "Invalid permission change"
       assert PeoplePermissions.list_grants() == []
@@ -212,7 +213,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
 
     for enabled <- [true, false] do
       assert render_click(view, "set_permission", %{
-               "scope" => "all_people",
+               "scope" => "everyone",
                "permission" => "unknown",
                "enabled" => enabled
              }) =~ "Permission change failed"
@@ -233,27 +234,29 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
     assert has_element?(view, "#people-permissions-table")
   end
 
-  test "permissions matrix works with no teams and person selection returns to People", %{
+  test "permissions matrix works with only Everyone and person selection returns to People", %{
     conn: conn
   } do
     Repo.delete_all(PeoplePermissionGrant)
-    Repo.delete_all(Zaq.Accounts.Team)
+    everyone_id = People.everyone_team().id
+    Repo.delete_all(from t in Zaq.Accounts.Team, where: t.id != ^everyone_id)
     person = person_fixture()
     {:ok, view, _} = live(conn, ~p"/bo/people")
     render_click(view, "switch_tab", %{"tab" => "permissions"})
 
-    assert has_element?(view, "#people-permissions-table thead tr th:nth-child(2)", "All People")
+    assert has_element?(view, "#people-permissions-table thead tr th:nth-child(2)", "Everyone")
     refute has_element?(view, "#people-permissions-table thead tr th:nth-child(3)")
 
     for permission <- ~w(access_profile edit_profile access_message_history share_conversations) do
-      assert has_element?(view, "#permission-all_people-#{permission}")
+      assert has_element?(view, "#permission-everyone-#{permission}")
     end
 
-    view |> element("#permission-all_people-share_conversations") |> render_click()
-    assert has_element?(view, "#permission-all_people-share_conversations[checked]")
+    view |> element("#permission-everyone-share_conversations") |> render_click()
+    assert has_element?(view, "#permission-everyone-share_conversations[checked]")
     render_click(view, "switch_tab", %{"tab" => "people"})
     render_click(view, "select_person", %{"id" => to_string(person.id)})
     assert has_element?(view, "#people-detail-pane")
+    assert has_element?(view, "#people-detail-pane .zaq-pill--success", "active")
     render_click(view, "switch_tab", %{"tab" => "permissions"})
     render_patch(view, ~p"/bo/people?person_id=#{person.id}")
     assert has_element?(view, "#people-detail-pane")

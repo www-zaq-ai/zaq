@@ -15,7 +15,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
     {:ok, person} =
       People.create_person(%{full_name: "Duplicate", email: "duplicate@example.test"})
 
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     PeopleAuthClock.put(~U[2026-09-14 12:00:00Z])
     opts = [clock: PeopleAuthClock]
     parent = self()
@@ -40,7 +40,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   test "failed delivery permits immediate retry within the existing send budget" do
     PeopleAuthDelivery.setup()
     {:ok, person} = People.create_person(%{full_name: "Retry", email: "retry@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     {:ok, _} = Zaq.System.save_people_access_config(%{otp_send_person_limit: 5})
     PeopleAuthClock.put(~U[2026-09-14 12:00:00Z])
     opts = [clock: PeopleAuthClock]
@@ -63,7 +63,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   test "sent delivery returns only descriptor and the delivered code verifies through confidential events" do
     PeopleAuthDelivery.setup()
     {:ok, person} = People.create_person(%{full_name: "Sent", email: "sent@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
     parent = self()
 
@@ -111,7 +111,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   test "delivery A failing after replacement B is issued invalidates only A" do
     PeopleAuthDelivery.setup()
     {:ok, person} = People.create_person(%{full_name: "Race", email: "race@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     ip = {127, 0, 2, 22}
     parent = self()
 
@@ -130,7 +130,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   test "late successful delivery cannot return a superseded challenge" do
     PeopleAuthDelivery.setup()
     {:ok, person} = People.create_person(%{full_name: "Late", email: "late@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     ip = {127, 0, 2, 23}
     parent = self()
 
@@ -152,7 +152,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
     {:ok, person} =
       People.create_person(%{full_name: "Exception", email: "exception@example.test"})
 
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     parent = self()
 
     expect(PeopleAuthDeliveryMock, :send_reply, fn outgoing, _ ->
@@ -193,7 +193,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   test "resolved canonical target crosses the real action and Engine boundaries" do
     PeopleAuthDelivery.setup()
     {:ok, person} = People.create_person(%{full_name: "Action", email: "action@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     parent = self()
 
     expect(Zaq.NodeRouterMock, :dispatch, fn event ->
@@ -221,7 +221,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   test "malformed transport receipt fails real Jido output validation and invalidates challenge" do
     PeopleAuthDelivery.setup()
     {:ok, person} = People.create_person(%{full_name: "Receipt", email: "receipt@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     expect(PeopleAuthDeliveryMock, :send_reply, fn _, _ -> {:ok, %{message_id: 123}} end)
 
     log =
@@ -250,7 +250,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
              PeopleAuthGateway.dispatch(%{op: :revoke_all, person_id: person.id}, [])
 
     {:ok, person} = People.update_person(person, %{status: "active"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     {:ok, _} = Zaq.System.save_people_access_config(%{otp_send_person_limit: 1})
     {:ok, _} = PeopleAuth.issue_challenge(person, {127, 0, 2, 25})
 
@@ -274,7 +274,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
       People.create_person(%{full_name: "Historical", email: "historical@example.test"})
 
     {:ok, _} = People.update_person(person, %{email: nil})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
 
     expect(PeopleAuthDeliveryMock, :send_reply, fn outgoing, _ ->
       assert outgoing.channel_id == "historical@example.test"
@@ -313,7 +313,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
         weight: 1
       })
 
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
 
     expect(PeopleAuthDeliveryMock, :send_reply, fn outgoing, _ ->
       assert outgoing.channel_id == person.email
@@ -332,10 +332,10 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   test "delivery-time permission removal fails closed and invalidates the challenge" do
     PeopleAuthDelivery.setup()
     {:ok, person} = People.create_person(%{full_name: "Revoked", email: "revoked@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
 
     expect(PeopleAuthDeliveryMock, :send_reply, fn _, _ ->
-      {:ok, _} = PeoplePermissions.revoke(:all_people, :access_profile)
+      {:ok, _} = PeoplePermissions.revoke(:everyone, :access_profile)
       :ok
     end)
 
@@ -348,7 +348,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   test "delivery exit/timeout is cleaned up and nonconfidential auth calls are rejected" do
     PeopleAuthDelivery.setup()
     {:ok, person} = People.create_person(%{full_name: "Timeout", email: "timeout@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     expect(PeopleAuthDeliveryMock, :send_reply, fn _, _ -> exit(:timeout) end)
 
     assert {:error, :delivery_failed} =
@@ -362,7 +362,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
 
   test "skipped notification is not success and its challenge is invalidated" do
     {:ok, person} = People.create_person(%{full_name: "Portal", email: "portal@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     Repo.delete_all(Zaq.Channels.ChannelConfig)
 
     assert {:error, :delivery_failed} =

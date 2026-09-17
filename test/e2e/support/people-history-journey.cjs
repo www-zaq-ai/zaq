@@ -2,8 +2,8 @@ const { expect } = require("@playwright/test")
 const { waitForLiveViewConnected, waitForLiveViewSettled } = require("./bo")
 
 module.exports = async function historyJourney(page, admin, baseURL, engine, width) {
-  const history = admin.locator("#permission-all_people-access_message_history")
-  const share = admin.locator("#permission-all_people-share_conversations")
+  const history = admin.locator("#permission-everyone-access_message_history")
+  const share = admin.locator("#permission-everyone-share_conversations")
   await history.locator("..").click()
   await expect(history).toHaveAttribute("aria-checked", "true")
   await page.reload()

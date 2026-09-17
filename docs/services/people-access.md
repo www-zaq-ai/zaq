@@ -7,13 +7,13 @@ The migration creates no grants: the initial state is default deny.
 ## Storage and scopes
 
 `Zaq.Accounts.PeoplePermissionGrant` stores `people_permission_grants`:
-an integer ID, `scope_type`, nullable `scope_id`, `permission`, and UTC timestamps.
-Scopes are `:all_people` or `{:team, team_id}`. Global grants have no scope ID;
-team grants reference an existing team and cascade when that team is deleted.
+an integer ID, `scope_type`, required `scope_id`, `permission`, and UTC timestamps.
+Scopes are `:everyone` or `{:team, team_id}`. Both are stored as team grants with a
+scope ID and cascade when that team is deleted. `:everyone` resolves the synthetic
+team identified by `system_key: "everyone"`; it is not inferred from its name or ID.
 Database checks enforce the closed scope/permission vocabulary and scope-ID shape.
-Separate partial unique indexes enforce one grant per global permission and one
-per team/permission, including real uniqueness for global rows with NULL scope IDs.
-The team index also supports team-scope lookups via its leading scope ID.
+A partial unique index enforces one grant per team/permission and supports
+team-scope lookups via its leading scope ID.
 
 The schema owns the ordered permission metadata and explicit atom/string casting:
 
@@ -31,7 +31,9 @@ Only these exact strings or known atoms are accepted. Input never creates atoms.
 `Zaq.Accounts.PeoplePermissions` owns grant persistence and resolution:
 
 - `effective_permissions(person)` returns a `MapSet` of permission atoms: the
-  union of all global grants and grants on the supplied Person's current team IDs.
+  union of Everyone grants and grants on the supplied Person's current team IDs.
+  Everyone applies to every valid persisted Person without adding synthetic team
+  membership to the Person record.
 - `allowed?(person, permission_or_permissions)` checks raw membership for a single
   permission or **ALL** permissions in a nonempty list. Known atoms and exact storage
   strings can be mixed; duplicates and order do not matter. Effective grants resolve
@@ -45,8 +47,8 @@ Only these exact strings or known atoms are accepted. Input never creates atoms.
   `{:ok, deleted_count}`; zero is successful and repeated requests are idempotent.
 - `permissions_matrix()` returns `%{scopes: columns, rows: rows}`. Columns have
   `scope` and `label`; rows have `permission`, `label`, and a `grants` MapSet of
-  explicit scopes. All People comes first, then current teams ordered by name,
-  including teams without grants. Permission rows use the schema's stable order.
+  explicit scopes. Everyone appears once and first, then ordinary teams ordered by
+  name, including teams without grants. Permission rows use the schema's stable order.
 
 Resolve identity through `Zaq.Accounts.People.get_person/1` first, including merged
 aliases. Predicates accept only loaded, persisted Person structs and use their
@@ -62,7 +64,7 @@ requires all three. The context does not infer operation prerequisites.
 Invalid write coordinates return `{:error, :invalid_scope}` or
 `{:error, :invalid_permission}`. Database validation failures return
 `{:error, changeset}` with named field constraints, including deleted team IDs.
-Removing a global grant does not remove overlapping team grants; team membership
+Removing an Everyone grant does not remove overlapping team grants; team membership
 changes take effect when the caller supplies the current resolved Person.
 
 ## BO and Engine boundary

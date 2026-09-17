@@ -1,5 +1,6 @@
 defmodule Zaq.Engine.PeopleGatewayTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
@@ -48,6 +49,143 @@ defmodule Zaq.Engine.PeopleGatewayTest do
                person_id: owner.id,
                active_only: true
              })
+  end
+
+  test "session commands return :not_found for a deleted owner" do
+    {:ok, person} = People.create_person(%{full_name: "Deleted session owner"})
+    person_id = person.id
+    {:ok, _deleted} = People.delete_person(person)
+    assert People.get_person(person_id) == nil
+
+    assert {:error, :not_found} =
+             PeopleGateway.dispatch(:list_person_sessions, %{
+               person_id: person_id,
+               active_only: true
+             })
+
+    assert {:error, :not_found} =
+             PeopleGateway.dispatch(:revoke_person_session, %{
+               person_id: person_id,
+               session_id: Ecto.UUID.generate()
+             })
+  end
+
+  test "revoke all rejects invalid person IDs without touching another person's session" do
+    {:ok, owner} = People.create_person(%{full_name: "Revoke all owner"})
+    now = DateTime.utc_now(:second)
+    session = insert_session(owner, now, DateTime.add(now, 86_400))
+
+    for person_id <- [0, -1, nil, "0", "bad"] do
+      assert {:error, :invalid_person_id} =
+               PeopleGateway.dispatch(:revoke_all_person_sessions, %{person_id: person_id})
+    end
+
+    assert Zaq.Repo.get(PersonSession, session.id).revoked_at == nil
+  end
+
+  test "session commands accept string person IDs and return safe metadata" do
+    {:ok, owner} = People.create_person(%{full_name: "String session owner"})
+    now = DateTime.utc_now(:second)
+    session = insert_session(owner, now, DateTime.add(now, 86_400))
+    string_id = Integer.to_string(owner.id)
+
+    assert {:ok, [listed]} =
+             PeopleGateway.dispatch(:list_person_sessions, %{
+               person_id: string_id,
+               active_only: true
+             })
+
+    assert listed.id == session.id
+
+    assert Map.keys(listed) |> Enum.sort() ==
+             [:expires_at, :id, :inserted_at, :last_seen_at, :revoked_at]
+
+    assert {:ok, %{id: session_id}} =
+             PeopleGateway.dispatch(:revoke_person_session, %{
+               person_id: string_id,
+               session_id: session.id
+             })
+
+    assert session_id == session.id
+    assert Zaq.Repo.get(PersonSession, session.id).revoked_at != nil
+  end
+
+  test "session commands reject malformed string person IDs" do
+    {:ok, owner} = People.create_person(%{full_name: "Malformed string owner"})
+    now = DateTime.utc_now(:second)
+    session = insert_session(owner, now, DateTime.add(now, 86_400))
+
+    for person_id <- ["", "abc", "0", "-1", "1x", "1.0"] do
+      assert {:error, :invalid_person_id} =
+               PeopleGateway.dispatch(:list_person_sessions, %{
+                 person_id: person_id,
+                 active_only: true
+               })
+
+      assert {:error, :invalid_person_id} =
+               PeopleGateway.dispatch(:revoke_person_session, %{
+                 person_id: person_id,
+                 session_id: session.id
+               })
+
+      assert {:error, :invalid_person_id} =
+               PeopleGateway.dispatch(:revoke_all_person_sessions, %{person_id: person_id})
+    end
+  end
+
+  test "bulk delete rejects malformed legacy IDs without deleting the person" do
+    {:ok, existing} = People.create_person(%{full_name: "Bulk delete survivor"})
+
+    assert {:error, :invalid_person_ids} =
+             PeopleGateway.dispatch(:bulk_delete, %{person_ids: [existing.id, "#{existing.id}x"]})
+
+    assert People.get_person(existing.id) != nil
+
+    assert {:error, :invalid_person_ids} =
+             PeopleGateway.dispatch(:bulk_delete, %{person_ids: [existing.id, "abc"]})
+
+    assert People.get_person(existing.id) != nil
+  end
+
+  test "revoke session rejects nonbinary UUIDs without revoking the session" do
+    {:ok, owner} = People.create_person(%{full_name: "UUID owner"})
+    now = DateTime.utc_now(:second)
+    session = insert_session(owner, now, DateTime.add(now, 86_400))
+
+    for session_id <- [nil, 42, :invalid, %{}, []] do
+      assert {:error, :invalid_session} =
+               PeopleGateway.dispatch(:revoke_person_session, %{
+                 person_id: owner.id,
+                 session_id: session_id
+               })
+    end
+
+    assert Zaq.Repo.get(PersonSession, session.id).revoked_at == nil
+  end
+
+  property "malformed numeric strings are rejected as person IDs" do
+    {:ok, owner} = People.create_person(%{full_name: "Property owner"})
+    now = DateTime.utc_now(:second)
+    session = insert_session(owner, now, DateTime.add(now, 86_400))
+
+    check all(value <- integer(1..1_000_000), max_runs: 30) do
+      person_id = "#{value}x"
+
+      assert {:error, :invalid_person_id} =
+               PeopleGateway.dispatch(:list_person_sessions, %{
+                 person_id: person_id,
+                 active_only: true
+               })
+
+      assert {:error, :invalid_person_id} =
+               PeopleGateway.dispatch(:revoke_person_session, %{
+                 person_id: person_id,
+                 session_id: session.id
+               })
+
+      assert {:error, :invalid_person_id} =
+               PeopleGateway.dispatch(:revoke_all_person_sessions, %{person_id: person_id})
+    end
   end
 
   test "permission commands expose explicit matrix and idempotent validated writes" do

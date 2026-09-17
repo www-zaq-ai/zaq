@@ -12,11 +12,11 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
     %{person: person, a: a, b: b}
   end
 
-  test "default deny and invalid identities remain denied even with global grants", %{
+  test "default deny and invalid identities remain denied even with Everyone grants", %{
     person: person
   } do
     assert PeoplePermissions.effective_permissions(person) == MapSet.new()
-    assert {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    assert {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
 
     for invalid <- [
           nil,
@@ -39,7 +39,7 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
     assert PeoplePermissions.allowed?(%{person | status: "inactive"}, :access_profile)
   end
 
-  test "global and supplied current teams union without implicit prerequisites", %{
+  test "Everyone and supplied current teams union without implicit prerequisites", %{
     person: p,
     a: a,
     b: b
@@ -53,11 +53,11 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
     sharing = history ++ [:share_conversations]
     refute PeoplePermissions.allowed?(p, history)
     refute PeoplePermissions.allowed?(p, sharing)
-    assert {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    assert {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     assert PeoplePermissions.allowed?(p, history)
     assert PeoplePermissions.allowed?(p, sharing)
     assert {:ok, _} = PeoplePermissions.grant({:team, a.id}, :access_profile)
-    assert {:ok, _} = PeoplePermissions.revoke(:all_people, :access_profile)
+    assert {:ok, _} = PeoplePermissions.revoke(:everyone, :access_profile)
     assert PeoplePermissions.allowed?(p, sharing)
     refute PeoplePermissions.allowed?(%{p | team_ids: [b.id]}, :access_profile)
     assert {:ok, _} = People.delete_team(a)
@@ -65,7 +65,7 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
   end
 
   test "writes are idempotent and invalid coordinates return controlled errors", %{a: a} do
-    for scope <- [:all_people, {:team, a.id}] do
+    for scope <- [:everyone, {:team, a.id}] do
       assert {:ok, grant} = PeoplePermissions.grant(scope, :access_profile)
       assert {:ok, same} = PeoplePermissions.grant(scope, "access_profile")
       assert same.id == grant.id
@@ -79,8 +79,8 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
     end
 
     for permission <- [nil, :unknown, "unknown", %{}] do
-      assert {:error, :invalid_permission} = PeoplePermissions.grant(:all_people, permission)
-      assert {:error, :invalid_permission} = PeoplePermissions.revoke(:all_people, permission)
+      assert {:error, :invalid_permission} = PeoplePermissions.grant(:everyone, permission)
+      assert {:error, :invalid_permission} = PeoplePermissions.revoke(:everyone, permission)
     end
 
     assert {:ok, _} = People.delete_team(a)
@@ -89,11 +89,12 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
     assert PeoplePermissions.list_grants() == []
   end
 
-  test "matrix lists stable metadata and explicit cells including empty teams", %{a: a, b: b} do
-    Repo.delete_all(from t in Team, where: t.id not in ^[a.id, b.id])
-    assert {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+  test "matrix lists Everyone once before stable metadata and empty teams", %{a: a, b: b} do
+    everyone = People.everyone_team()
+    Repo.delete_all(from t in Team, where: t.id not in ^[everyone.id, a.id, b.id])
+    assert {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     matrix = PeoplePermissions.permissions_matrix()
-    assert Enum.map(matrix.scopes, & &1.scope) == [:all_people, {:team, a.id}, {:team, b.id}]
+    assert Enum.map(matrix.scopes, & &1.scope) == [:everyone, {:team, a.id}, {:team, b.id}]
 
     assert Enum.map(matrix.rows, &{&1.permission, &1.label}) == [
              {:access_profile, "Access profile"},
@@ -102,12 +103,12 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
              {:share_conversations, "Share conversations"}
            ]
 
-    assert hd(matrix.rows).grants == MapSet.new([:all_people])
+    assert hd(matrix.rows).grants == MapSet.new([:everyone])
     assert List.last(matrix.rows).grants == MapSet.new()
-    Repo.delete_all(Team)
+    Repo.delete_all(from t in Team, where: t.id != ^everyone.id)
 
     assert PeoplePermissions.permissions_matrix().scopes == [
-             %{scope: :all_people, label: "All People"}
+             %{scope: :everyone, label: "Everyone"}
            ]
   end
 
@@ -141,7 +142,7 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
       Repo.delete_all(PeoplePermissionGrant)
       refute PeoplePermissions.allowed?(p, permission)
       refute PeoplePermissions.allowed?(p, Atom.to_string(permission))
-      assert {:ok, _} = PeoplePermissions.grant(:all_people, permission)
+      assert {:ok, _} = PeoplePermissions.grant(:everyone, permission)
       assert PeoplePermissions.allowed?(p, permission)
       assert PeoplePermissions.allowed?(p, Atom.to_string(permission))
       assert PeoplePermissions.allowed?(p, [permission, Atom.to_string(permission)])
@@ -151,7 +152,7 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
 
   test "empty, unknown and malformed requirements deny even with every grant", %{person: p} do
     for %{permission: permission} <- PeoplePermissionGrant.permissions(),
-        do: PeoplePermissions.grant(:all_people, permission)
+        do: PeoplePermissions.grant(:everyone, permission)
 
     for invalid <- [
           [],
@@ -187,7 +188,7 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
             max_runs: 25
           ) do
       Repo.delete_all(PeoplePermissionGrant)
-      for permission <- grants, do: PeoplePermissions.grant(:all_people, permission)
+      for permission <- grants, do: PeoplePermissions.grant(:everyone, permission)
       expected = Enum.all?(required, &(&1 in grants))
       assert PeoplePermissions.allowed?(p, required) == expected
       assert PeoplePermissions.allowed?(p, Enum.reverse(required) ++ required) == expected
@@ -198,7 +199,7 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
   end
 
   test "valid requirements resolve grants once without querying Person", %{person: p} do
-    assert {:ok, _} = PeoplePermissions.grant(:all_people, :share_conversations)
+    assert {:ok, _} = PeoplePermissions.grant(:everyone, :share_conversations)
     handler = {__MODULE__, self()}
     owner = self()
 
@@ -239,22 +240,21 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
     refute_received {:permission_query, _}
   end
 
-  test "database checks reject bypassed validation and partial indexes enforce null uniqueness",
+  test "database checks reject bypassed validation and team index enforces uniqueness",
        %{a: a, b: b} do
     for {scope, id, permission, code} <- [
           {nil, nil, "access_profile", :not_null_violation},
-          {"all_people", nil, nil, :not_null_violation},
-          {"person", nil, "access_profile", :check_violation},
-          {"all_people", a.id, "access_profile", :check_violation},
-          {"team", nil, "access_profile", :check_violation},
-          {"all_people", nil, "unknown", :check_violation},
+          {"team", nil, nil, :not_null_violation},
+          {"person", a.id, "access_profile", :check_violation},
+          {"team", nil, "access_profile", :not_null_violation},
+          {"team", a.id, "unknown", :check_violation},
           {"team", 9_999_999, "access_profile", :foreign_key_violation}
         ] do
       assert_sql_error(scope, id, permission, code)
     end
 
-    assert {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
-    assert_sql_error("all_people", nil, "access_profile", :unique_violation)
+    assert {:ok, everyone_grant} = PeoplePermissions.grant(:everyone, :access_profile)
+    assert_sql_error("team", everyone_grant.scope_id, "access_profile", :unique_violation)
     assert {:ok, _} = PeoplePermissions.grant({:team, a.id}, :access_profile)
     assert_sql_error("team", a.id, "access_profile", :unique_violation)
     assert {:ok, _} = PeoplePermissions.grant({:team, b.id}, :access_profile)
@@ -271,48 +271,41 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
              )
   end
 
-  test "edit grants persist independently in both scopes without granting profile access", %{
-    person: p,
-    a: a
-  } do
-    assert {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+  test "edit grants persist independently for Everyone and an ordinary team without granting profile access",
+       %{
+         person: p,
+         a: a
+       } do
+    assert {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     assert {:ok, _} = PeoplePermissions.grant({:team, a.id}, "edit_profile")
     assert PeoplePermissions.allowed?(p, :edit_profile)
     refute PeoplePermissions.allowed?(p, [:access_profile, :edit_profile])
-    assert_sql_error("all_people", nil, "edit_profile", :unique_violation)
+    everyone_id = People.everyone_team().id
+    assert_sql_error("team", everyone_id, "edit_profile", :unique_violation)
     assert_sql_error("team", a.id, "edit_profile", :unique_violation)
-    assert {:ok, _} = PeoplePermissions.revoke(:all_people, :edit_profile)
+    assert {:ok, _} = PeoplePermissions.revoke(:everyone, :edit_profile)
     assert PeoplePermissions.allowed?(%{p | team_ids: [a.id]}, :edit_profile)
 
-    assert {:ok, _} =
-             Repo.query(
-               "INSERT INTO people_permission_grants (scope_type, permission, inserted_at, updated_at) VALUES ('all_people', 'edit_profile', now(), now())"
-             )
-
-    assert_sql_error("all_people", nil, "unknown", :check_violation)
+    assert_sql_error("team", everyone_id, "unknown", :check_violation)
   end
 
   test "schema validates scope shape and maps database field constraints", %{a: a} do
     for {attrs, field} <- [
           {%{}, :scope_type},
           {%{scope_type: "unknown", permission: "access_profile"}, :scope_type},
-          {%{scope_type: "all_people", permission: "unknown"}, :permission},
+          {%{scope_type: "team", scope_id: a.id, permission: "unknown"}, :permission},
           {%{scope_type: "team", permission: "access_profile"}, :scope_id},
-          {%{scope_type: "all_people", scope_id: a.id, permission: "access_profile"}, :scope_id}
+          {%{scope_type: "everyone", scope_id: a.id, permission: "access_profile"}, :scope_type}
         ] do
       changeset = PeoplePermissionGrant.changeset(%PeoplePermissionGrant{}, attrs)
       assert Map.has_key?(errors_on(changeset), field)
     end
 
-    for attrs <- [
-          %{scope_type: "all_people", permission: "access_profile"},
-          %{scope_type: "team", scope_id: a.id, permission: "access_profile"}
-        ] do
-      changeset = PeoplePermissionGrant.changeset(%PeoplePermissionGrant{}, attrs)
-      assert {:ok, _} = Repo.insert(changeset)
-      assert {:error, duplicate} = Repo.insert(changeset, mode: :savepoint)
-      assert duplicate.errors != []
-    end
+    attrs = %{scope_type: "team", scope_id: a.id, permission: "access_profile"}
+    changeset = PeoplePermissionGrant.changeset(%PeoplePermissionGrant{}, attrs)
+    assert {:ok, _} = Repo.insert(changeset)
+    assert {:error, duplicate} = Repo.insert(changeset, mode: :savepoint)
+    assert duplicate.errors != []
 
     # Keep constraint metadata but bypass application validations to prove mapping.
     valid =
@@ -322,7 +315,16 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
         permission: "share_conversations"
       })
 
-    for {field, value} <- [scope_id: nil, permission: "invalid"] do
+    invalid_scope_id = Ecto.Changeset.put_change(valid, :scope_id, nil)
+
+    error =
+      assert_raise Postgrex.Error, fn ->
+        Repo.insert(invalid_scope_id, mode: :savepoint)
+      end
+
+    assert error.postgres.code == :not_null_violation
+
+    for {field, value} <- [scope_type: "person", permission: "invalid"] do
       changeset = Ecto.Changeset.put_change(valid, field, value)
       assert {:error, rejected} = Repo.insert(changeset, mode: :savepoint)
       assert Map.has_key?(errors_on(rejected), field)

@@ -201,10 +201,13 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
   end
 
   test "table_badge/1 uses StatusPill classes" do
-    html = render_component(&Table.table_badge/1, status: "failed")
+    active = render_component(&Table.table_badge/1, status: "active")
+    inactive = render_component(&Table.table_badge/1, status: "inactive")
 
-    assert String.contains?(html, "zaq-pill")
-    assert String.contains?(html, "failed")
+    assert String.contains?(active, "zaq-pill--success")
+    assert String.contains?(active, "active")
+    assert String.contains?(inactive, "zaq-pill--elevated")
+    assert String.contains?(inactive, "inactive")
   end
 
   test "table_empty/1 renders plain row with colspan" do

@@ -5,17 +5,16 @@ defmodule Zaq.Accounts.PeoplePermissionsConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Accounts.{People, PeoplePermissionGrant, PeoplePermissions}
   alias Zaq.Repo
-  import Ecto.Query
 
   test "concurrent grants converge and opposing desired writes retain uniqueness" do
     Sandbox.unboxed_run(Repo, fn ->
-      assert Repo.all(from g in PeoplePermissionGrant, where: g.scope_type == "all_people") == []
+      assert Repo.all(PeoplePermissionGrant) == []
 
       {:ok, team} =
         People.create_team(%{name: "Permission race #{System.unique_integer([:positive])}"})
 
       try do
-        for scope <- [:all_people, {:team, team.id}] do
+        for scope <- [:everyone, {:team, team.id}] do
           [first, second] =
             race(
               fn -> PeoplePermissions.grant(scope, :access_profile) end,
@@ -39,7 +38,7 @@ defmodule Zaq.Accounts.PeoplePermissionsConcurrencyTest do
           assert {:ok, 0} = PeoplePermissions.revoke(scope, :access_profile)
         end
       after
-        PeoplePermissions.revoke(:all_people, :access_profile)
+        PeoplePermissions.revoke(:everyone, :access_profile)
         People.delete_team(team)
       end
     end)

@@ -22,7 +22,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonEmailDeliveryTest do
     {:ok, person} =
       People.create_person(%{full_name: "Receipt", email: "real-receipt@example.test"})
 
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     %{person: person}
   end
 

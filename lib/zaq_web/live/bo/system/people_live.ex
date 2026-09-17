@@ -1018,7 +1018,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
     end
   end
 
-  defp permission_scope_key(:all_people), do: "all_people"
+  defp permission_scope_key(:everyone), do: "everyone"
   defp permission_scope_key({:team, id}), do: "team-#{id}"
 
   defp maybe_put_routing_error(socket, {:ok, _result}), do: socket
@@ -1269,15 +1269,7 @@ defmodule ZaqWeb.Live.BO.System.PeopleLive do
           <div>
             <p class="font-mono text-[0.62rem] text-black/35 uppercase tracking-wider mb-1">Status</p>
             <div class="flex items-center gap-1.5 flex-wrap">
-              <span class={[
-                "font-mono text-[0.72rem] px-2 py-0.5 rounded",
-                if(@selected_person.status == "active",
-                  do: "bg-emerald-100 text-emerald-700",
-                  else: "bg-black/6 text-black/40"
-                )
-              ]}>
-                {@selected_person.status}
-              </span>
+              <DSTable.table_badge status={@selected_person.status} />
               <span
                 :if={@selected_person.incomplete}
                 class="font-mono text-[0.62rem] px-1.5 py-0.5 rounded bg-amber-100 text-amber-600 border border-amber-200"

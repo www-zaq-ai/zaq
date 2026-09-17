@@ -114,7 +114,7 @@ defmodule ZaqWeb.PeopleBrowserTest do
       user = super_admin_fixture(%{username: "browser-#{suffix}"})
       {:ok, user} = Zaq.Accounts.change_password(user, %{password: "ValidPass123!"})
       {:ok, _} = Zaq.System.save_people_access_config(%{otp_send_ip_limit: 1000})
-      {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+      {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
       send(Config, :refresh)
       _ = :sys.get_state(Config)
       owner = self()

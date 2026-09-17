@@ -14,7 +14,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
         metadata: %{"private" => "hidden-value"}
       })
 
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     {:ok, challenge} = PeopleAuth.issue_challenge(person, {127, 9, 1, 1})
     {:ok, %{token: token}} = PeopleAuth.verify_challenge(challenge.challenge_id, challenge.code)
     [channel] = People.list_person_channels(person.id)
@@ -52,6 +52,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     refute html =~ "Review scenarios"
     refute html =~ "/bo/"
     assert has_element?(view, "#people-profile-menu", "Self Person")
+    assert has_element?(view, ".zaq-pill.zaq-pill--success", "active")
     assert has_element?(view, "#people-profile-menu a[href='/people/profile']")
     assert has_element?(view, "#person-logout[action='/people/session']")
     refute has_element?(view, "#self-profile-form")
@@ -74,7 +75,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     person: person,
     channel: channel
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
 
     {:ok, second} =
       People.add_channel(%{
@@ -113,7 +114,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     person: person,
     channel: channel
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
 
     {:ok, second} =
       People.add_channel(%{
@@ -136,20 +137,20 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     conn: conn,
     person: person
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     {:ok, view, _} = live(conn, "/people/profile")
     view |> element("#edit-name") |> render_click()
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :edit_profile)
 
     assert view |> form("#self-profile-form", profile: %{full_name: "Revoked"}) |> render_submit() =~
              "permission"
 
     refute has_element?(view, "#self-profile-form")
     assert People.get_person(person.id).full_name == person.full_name
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     {:ok, view, _} = live(conn, "/people/profile")
     assert has_element?(view, "#edit-name")
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :access_profile)
     render_submit(view, "save_profile", %{"profile" => %{"full_name" => "Denied"}})
     assert_redirect(view, "/people/login")
   end
@@ -167,7 +168,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
   end
 
   test "invalid config fails closed with visible unavailable feedback", %{conn: conn} do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     {:ok, view, _} = live(conn, "/people/profile")
 
     view |> element("#edit-name") |> render_click()
@@ -183,7 +184,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     person: person,
     channel: channel
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     {:ok, view, _} = live(conn, "/people/profile")
     view |> element("#edit-name") |> render_click()
 
@@ -211,7 +212,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
 
   test "cancel and delayed events never persist; blank names keep existing optional validation",
        %{conn: conn, person: person} do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     {:ok, view, _} = live(conn, "/people/profile")
     render_click(view, "save_order")
     render_click(view, "move_channel", %{"id" => "bogus", "target" => %{}})
@@ -234,7 +235,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     person: person,
     channel: channel
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
 
     {:ok, second} =
       People.add_channel(%{
@@ -265,7 +266,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     render_click(view, "move_channel", %{"id" => to_string(second.id), "action" => "up"})
     assert Enum.map(People.list_person_channels(person.id), & &1.id) == [channel.id, second.id]
     view |> element("#edit-order") |> render_click()
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :edit_profile)
 
     assert render_click(view, "move_channel", %{"id" => to_string(second.id), "action" => "up"}) =~
              "permission"
@@ -277,7 +278,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
   test "single channel cannot open an order editor", %{
     conn: conn
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     {:ok, view, _} = live(conn, "/people/profile")
     render_click(view, "edit_order")
     refute has_element?(view, "button[phx-click=save_order]")
@@ -286,7 +287,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
   test "gateway edit revocation and unavailable saves fail closed after the route hook", %{
     token: token
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, flash: %{}}}
     {:ok, mounted} = ProfileLive.mount(%{}, %{"person_session_token" => token}, socket)
     {:noreply, editing} = ProfileLive.handle_event("edit_name", %{}, mounted)
@@ -296,7 +297,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
 
     assert invalid.assigns.name_form[:full_name].value == 123
     assert invalid.assigns.name_errors == ["is invalid"]
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :edit_profile)
 
     {:noreply, denied} =
       ProfileLive.handle_event(
@@ -307,7 +308,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
 
     refute denied.assigns.editable
     assert denied.assigns.mode == :read
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     {:noreply, editing} = ProfileLive.handle_event("edit_name", %{}, denied)
     {:ok, _} = Zaq.System.set_config("people_access.session_lifetime_seconds", "broken")
 
@@ -321,7 +322,7 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
   test "profile callback fails closed when authority changes after the generic auth hook", %{
     token: token
   } do
-    {:ok, _} = PeoplePermissions.grant(:all_people, :edit_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :edit_profile)
     socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, flash: %{}}}
 
     {:ok, mounted} =

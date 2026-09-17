@@ -35,18 +35,20 @@ defmodule ZaqWeb.Live.BO.System.PeoplePermissionsUnavailableTest do
       unless Process.whereis(EngineSupervisor), do: Process.register(engine, EngineSupervisor)
     end)
 
-    assert view |> element("#permission-all_people-access_profile") |> render_click() =~
+    assert view |> element("#permission-everyone-access_profile") |> render_click() =~
              "Permissions could not be loaded"
 
     refute has_element?(view, "#people-permissions-table")
 
-    assert [%{scope_type: "all_people", permission: "access_profile"}] =
+    assert [%{scope_type: "team", scope_id: scope_id, permission: "access_profile"}] =
              PeoplePermissions.list_grants()
+
+    assert scope_id == People.everyone_team().id
 
     :telemetry.detach(handler)
     Process.register(engine, EngineSupervisor)
     view |> element("#reload-people-permissions") |> render_click()
-    assert has_element?(view, "#permission-all_people-access_profile[checked]")
+    assert has_element?(view, "#permission-everyone-access_profile[checked]")
   end
 
   test "failed write and reload remove stale controls; retry restores authoritative state", %{
@@ -58,7 +60,7 @@ defmodule ZaqWeb.Live.BO.System.PeoplePermissionsUnavailableTest do
     conn = init_test_session(conn, %{user_id: user.id})
     {:ok, view, _} = live(conn, ~p"/bo/people")
     render_click(view, "switch_tab", %{"tab" => "permissions"})
-    assert has_element?(view, "#permission-all_people-access_profile")
+    assert has_element?(view, "#permission-everyone-access_profile")
 
     engine = Process.whereis(EngineSupervisor)
     Process.unregister(EngineSupervisor)
@@ -67,14 +69,14 @@ defmodule ZaqWeb.Live.BO.System.PeoplePermissionsUnavailableTest do
       unless Process.whereis(EngineSupervisor), do: Process.register(engine, EngineSupervisor)
     end)
 
-    assert view |> element("#permission-all_people-access_profile") |> render_click() =~
+    assert view |> element("#permission-everyone-access_profile") |> render_click() =~
              "Permission change failed"
 
     refute has_element?(view, "#people-permissions-table")
     assert has_element?(view, "#reload-people-permissions")
 
     render_click(view, "set_permission", %{
-      "scope" => "all_people",
+      "scope" => "everyone",
       "permission" => "access_profile",
       "enabled" => true
     })
@@ -86,8 +88,8 @@ defmodule ZaqWeb.Live.BO.System.PeoplePermissionsUnavailableTest do
 
     Process.register(engine, EngineSupervisor)
     view |> element("#reload-people-permissions") |> render_click()
-    assert has_element?(view, "#permission-all_people-access_profile")
-    refute has_element?(view, "#permission-all_people-access_profile[checked]")
+    assert has_element?(view, "#permission-everyone-access_profile")
+    refute has_element?(view, "#permission-everyone-access_profile[checked]")
   end
 
   test "session listing failure is retryable and never rendered as an empty result", %{conn: conn} do

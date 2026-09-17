@@ -35,7 +35,7 @@ defmodule Zaq.TestSupport.ConfidentialAuthPeer do
   @impl true
   def handle_call(:issue, _from, state) do
     {:ok, person} = People.create_person(%{full_name: "Remote validation"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     {:ok, challenge} = PeopleAuth.issue_challenge(person, {192, 0, 2, 201})
     {:reply, {person.id, challenge}, state}
   end

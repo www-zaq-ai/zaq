@@ -16,6 +16,7 @@ defmodule Storybook.Components.DesignSystem.PersonProfile do
       %Variation{id: :name, attributes: %{base | mode: :name}},
       %Variation{id: :invalid_name, attributes: Map.merge(base, %{mode: :name, name_errors: ["is invalid"]})},
       %Variation{id: :order, attributes: %{base | mode: :order, draft_channels: Enum.reverse(channels)}},
+      %Variation{id: :inactive, attributes: %{base | profile: %{profile | person: %{profile.person | status: "inactive"}}}},
       %Variation{id: :empty_read_only, attributes: %{base | profile: %{profile | editable: false, teams: [], channels: []}, draft_channels: []}}
     ]
   end

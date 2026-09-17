@@ -17,8 +17,8 @@ defmodule ZaqWeb.PersonConversationSourceIntegrationTest do
   setup %{conn: conn} do
     Code.ensure_loaded!(PersonResourceConfig)
     {:ok, person} = People.create_person(%{full_name: "Current reader"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_message_history)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_message_history)
     {:ok, challenge} = PeopleAuth.issue_challenge(person, {127, 9, 7, 1})
     {:ok, %{token: token}} = PeopleAuth.verify_challenge(challenge.challenge_id, challenge.code)
     fixture = PeopleSourceFixture.create(person, "Fresh original bytes")

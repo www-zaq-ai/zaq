@@ -11,14 +11,15 @@ defmodule Zaq.Accounts.PeoplePermissions do
   alias Zaq.Accounts.{People, PeoplePermissionGrant, Person}
   alias Zaq.Repo
 
-  @type scope :: :all_people | {:team, pos_integer()}
+  @type scope :: :everyone | {:team, pos_integer()}
   @type write_result :: {:ok, term()} | {:error, atom() | Ecto.Changeset.t()}
 
   @spec effective_permissions(term()) :: MapSet.t(atom())
   def effective_permissions(%Person{id: id, team_ids: teams, __meta__: %{state: :loaded}})
       when is_integer(id) and id > 0 and is_list(teams) do
     from(g in PeoplePermissionGrant,
-      where: g.scope_type == "all_people" or (g.scope_type == "team" and g.scope_id in ^teams),
+      join: t in assoc(g, :scope),
+      where: t.system_key == "everyone" or g.scope_id in ^teams,
       select: g.permission
     )
     |> Repo.all()
@@ -91,23 +92,23 @@ defmodule Zaq.Accounts.PeoplePermissions do
         from g in PeoplePermissionGrant,
           where: g.scope_type == ^attrs.scope_type and g.permission == ^attrs.permission
 
-      query =
-        case scope do
-          :all_people -> query
-          {:team, id} -> from g in query, where: g.scope_id == ^id
-        end
+      query = from g in query, where: g.scope_id == ^attrs.scope_id
 
       {count, _} = Repo.delete_all(query)
       {:ok, count}
     end
   end
 
-  @doc "Rows are ordered capabilities; columns are All People then teams by name. Cells are explicit, not inherited."
+  @doc "Rows are ordered capabilities; columns are Everyone then teams by name. Cells are explicit, not inherited."
   @spec permissions_matrix() :: %{scopes: [map()], rows: [map()]}
   def permissions_matrix do
+    everyone = People.everyone_team()
+
     scopes = [
-      %{scope: :all_people, label: "All People"}
-      | Enum.map(People.list_teams(), &%{scope: {:team, &1.id}, label: &1.name})
+      %{scope: :everyone, label: everyone.name}
+      | People.list_teams()
+        |> Enum.reject(&(&1.id == everyone.id))
+        |> Enum.map(&%{scope: {:team, &1.id}, label: &1.name})
     ]
 
     grants = list_grants()
@@ -117,10 +118,7 @@ defmodule Zaq.Accounts.PeoplePermissions do
         explicit =
           grants
           |> Enum.filter(&(&1.permission == Atom.to_string(metadata.permission)))
-          |> MapSet.new(fn
-            %{scope_type: "all_people"} -> :all_people
-            %{scope_id: id} -> {:team, id}
-          end)
+          |> MapSet.new(fn %{scope_id: id} -> permission_scope(id, everyone.id) end)
 
         Map.put(metadata, :grants, explicit)
       end)
@@ -135,12 +133,15 @@ defmodule Zaq.Accounts.PeoplePermissions do
     end
   end
 
-  defp cast_scope(:all_people), do: {:ok, "all_people", nil}
+  defp cast_scope(:everyone), do: {:ok, "team", People.everyone_team().id}
   defp cast_scope({:team, id}) when is_integer(id) and id > 0, do: {:ok, "team", id}
   defp cast_scope(_), do: {:error, :invalid_scope}
 
-  defp conflict_target(:all_people),
-    do: {:unsafe_fragment, "(permission) WHERE scope_type = 'all_people'"}
+  defp permission_scope(id, id), do: :everyone
+  defp permission_scope(id, _everyone_id), do: {:team, id}
+
+  defp conflict_target(:everyone),
+    do: {:unsafe_fragment, "(scope_id, permission) WHERE scope_type = 'team'"}
 
   defp conflict_target({:team, _}),
     do: {:unsafe_fragment, "(scope_id, permission) WHERE scope_type = 'team'"}

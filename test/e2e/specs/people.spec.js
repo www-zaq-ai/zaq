@@ -73,7 +73,7 @@ test.describe("People", () => {
     test.setTimeout(120_000)
     await page.locator('[phx-value-tab="permissions"]').click()
     // Reset leaves no user-created teams; the existing Everyone system team remains.
-    await expect(page.locator("#people-permissions-table thead th")).toHaveText(["Permission", "All People", "Everyone"])
+    await expect(page.locator("#people-permissions-table thead th")).toHaveText(["Permission", "Everyone"])
     await expect(page.locator('#people-permissions-table input[aria-checked="true"]')).toHaveCount(0)
     await expect(page.locator("#people-permissions-table tbody tr")).toHaveCount(4)
     await page.locator(SEL.tabTeams).click()
@@ -85,9 +85,9 @@ test.describe("People", () => {
       await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
     }
     await page.locator('[phx-value-tab="permissions"]').click()
-    const globalProfile = page.locator("#permission-all_people-access_profile")
-    const globalHistory = page.locator("#permission-all_people-access_message_history")
-    const globalEdit = page.locator("#permission-all_people-edit_profile")
+    const globalProfile = page.locator("#permission-everyone-access_profile")
+    const globalHistory = page.locator("#permission-everyone-access_message_history")
+    const globalEdit = page.locator("#permission-everyone-edit_profile")
     await globalEdit.locator("..").click()
     await expect(globalEdit).toHaveAttribute("aria-checked", "true")
     await expect(globalProfile).not.toBeChecked()
@@ -150,7 +150,7 @@ test.describe("People", () => {
   for (const granted of [true, false]) {
     test(`reconciles native permission checkbox after rejected ${granted ? "revoke" : "grant"} with unchanged authority`, async ({ page }) => {
       await page.locator('[phx-value-tab="permissions"]').click()
-      const control = page.locator("#permission-all_people-access_profile")
+      const control = page.locator("#permission-everyone-access_profile")
       if (await control.isChecked() !== granted) {
         await control.locator("..").click()
         await expect(control).toHaveAttribute("aria-checked", String(granted))
@@ -185,7 +185,7 @@ test.describe("People", () => {
 
   test("reconciles native permission checkbox after malformed and no-op attempts", async ({ page }) => {
     await page.locator('[phx-value-tab="permissions"]').click()
-    const control = page.locator("#permission-all_people-access_profile")
+    const control = page.locator("#permission-everyone-access_profile")
     for (const granted of [false, true]) {
       if (await control.isChecked() !== granted) {
         await control.locator("..").click()

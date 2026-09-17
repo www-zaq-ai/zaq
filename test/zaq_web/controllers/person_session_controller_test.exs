@@ -38,7 +38,7 @@ defmodule ZaqWeb.PersonSessionControllerTest do
 
   setup %{conn: conn} do
     {:ok, person} = People.create_person(%{full_name: "Profile visitor"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     # Existing HTTP replacement scenarios begin after the initial issuance minute.
     PeopleAuthClock.put(DateTime.add(DateTime.utc_now(:second), -60))
 
@@ -214,7 +214,7 @@ defmodule ZaqWeb.PersonSessionControllerTest do
             person.email
 
           :no_grant ->
-            {:ok, _} = PeoplePermissions.revoke(:all_people, :access_profile)
+            {:ok, _} = PeoplePermissions.revoke(:everyone, :access_profile)
             person.email
         end
 
@@ -319,7 +319,7 @@ defmodule ZaqWeb.PersonSessionControllerTest do
     {:ok, %{token: token}} = PeopleAuth.verify_challenge(c.challenge_id, c.code)
     conn = conn |> recycle() |> init_test_session(%{person_session_token: token})
     {:ok, view, _} = live(conn, "/people/profile")
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :access_profile)
     render_hook(view, "sensitive_event", %{})
     assert_redirect(view, "/people/login")
     assert conn |> recycle() |> get("/people/profile") |> redirected_to() == "/people/login"

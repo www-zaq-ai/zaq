@@ -226,7 +226,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
         weight: 0
       })
 
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     person
   end
 end

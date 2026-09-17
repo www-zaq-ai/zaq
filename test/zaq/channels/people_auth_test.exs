@@ -15,7 +15,7 @@ defmodule Zaq.Channels.PeopleAuthTest do
   test "unknown consumes failure quota; next eligible request performs zero NodeRouter dispatches" do
     ip = {127, 0, 7, 11}
     {:ok, person} = People.create_person(%{full_name: "Blocked", email: "blocked@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
 
     assert {:error, :failed_identification} =
              PeopleAuth.request_challenge("unknown@example.test", ip)
@@ -46,7 +46,7 @@ defmodule Zaq.Channels.PeopleAuthTest do
     {:ok, person} =
       People.create_person(%{full_name: "Failed", email: "delivery-failed@example.test"})
 
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     Repo.delete_all(Zaq.Channels.ChannelConfig)
     assert {:error, :delivery_failed} = PeopleAuth.request_challenge(person.email, ip)
     assert :ok = PeopleAuthRateLimiter.check_identification(ip)
@@ -55,7 +55,7 @@ defmodule Zaq.Channels.PeopleAuthTest do
   test "invalid snapshot denies without issuing; corrupt Engine config does not count as identification failure" do
     ip = {127, 0, 7, 13}
     {:ok, person} = People.create_person(%{full_name: "Corrupt", email: "corrupt@example.test"})
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     Zaq.System.set_config("people_access.otp_validity_seconds", "broken")
     assert {:error, :request_unavailable} = PeopleAuth.request_challenge(person.email, ip)
     assert :ok = PeopleAuthRateLimiter.check_identification(ip)

@@ -15,7 +15,7 @@ defmodule Zaq.Accounts.PeopleAuthTest do
 
   setup do
     Repo.delete_all(PeoplePermissionGrant)
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     {:ok, person} = People.create_person(%{full_name: "Authentication person"})
 
     {:ok, _} =
@@ -260,10 +260,10 @@ defmodule Zaq.Accounts.PeopleAuthTest do
   } do
     {:ok, issued} = PeopleAuth.issue_challenge(person, ip)
     {:ok, auth} = PeopleAuth.verify_challenge(issued.challenge_id, issued.code)
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :access_profile)
     assert {:error, :ineligible} = PeopleAuth.issue_challenge(person, ip)
     assert {:error, :invalid_session} = PeopleAuth.authenticate(auth.token)
-    {:ok, _} = PeoplePermissions.grant(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
     {:ok, _} = People.update_person(person, %{status: "inactive"})
     assert {:error, :ineligible} = PeopleAuth.issue_challenge(person, ip)
     assert {:error, :invalid_session} = PeopleAuth.authenticate(auth.token)
@@ -277,7 +277,7 @@ defmodule Zaq.Accounts.PeopleAuthTest do
     ip: ip
   } do
     {:ok, issued} = PeopleAuth.issue_challenge(person, ip)
-    {:ok, _} = PeoplePermissions.revoke(:all_people, :access_profile)
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :access_profile)
 
     assert {:error, :invalid_challenge} =
              PeopleAuth.verify_challenge(issued.challenge_id, issued.code)

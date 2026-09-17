@@ -5,7 +5,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonProfile do
   This component neither authenticates nor persists, and knows no fixture scenarios.
   """
   use Phoenix.Component
-  alias ZaqWeb.Components.DesignSystem.{Button, ChannelPriorityList, EmptyState, Input}
+  alias ZaqWeb.Components.DesignSystem.{Button, ChannelPriorityList, EmptyState, Input, Table}
 
   attr :profile, :map, required: true
   attr :mode, :atom, required: true
@@ -69,7 +69,12 @@ defmodule ZaqWeb.Components.DesignSystem.PersonProfile do
               class="min-w-0"
             >
               <dt class="zaq-text-h4">{label}</dt>
-              <dd class="zaq-text-body break-all">{display(Map.fetch!(@profile.person, field))}</dd>
+              <dd :if={field != :status} class="zaq-text-body break-all">
+                {display(Map.fetch!(@profile.person, field))}
+              </dd>
+              <dd :if={field == :status}>
+                <Table.table_badge status={Map.fetch!(@profile.person, field)} />
+              </dd>
             </div>
           </dl>
         </section>
