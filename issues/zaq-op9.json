@@ -10,11 +10,15 @@
     {
       "text": "Resumed cancelled BUILD in existing dirty worktree per explicit user instruction. Preserving all current changes. Revalidating current implementation against approved activity throttling/rollback, DateFormat, shared destructive confirmation, Storybook warning, and critical focused test requirements. E2E authoring not planned; focused existing BO/People journey only if inexpensive/relevant.",
       "timestamp": "2026-09-17T07:09:40Z"
+    },
+    {
+      "text": "Implementation and focused validation complete. Added authenticated activity throttling/locking coverage (nil first use, 59/60, rollback, clock rollback, concurrent first auth, invalid eligibility states, fixed expiry), profile/history/detail rollback/activity assertions, configured-timezone BO session rendering, and shared revoke/revoke-all confirmation cancel/success/error coverage. Results: focused auth/gateway/profile/conversation/PeopleLive 2 properties + 153 tests pass; People profile/history/conversation LiveViews 24 tests pass; auth_layout Storybook focused smoke 1 pass; full Storybook 93 pass/3 unrelated failures (button playground timeout; person_header/person_profile null-document JS); mix format, mix q, git diff --check pass. Final mix precommit reached 48 doctests + 122 properties + 9012 tests but failed 3: ChangePasswordLive redirect flake passed on --failed rerun; ConfidentialEventPeerTest connect timeout and AuthRateLimiterPeerTest start_application timeout remained (3 rerun, 2 failures). No related failures; no commit/push/PR/reset. Issue remains in progress because final gate is blocked by unrelated peer/startup timeouts.",
+      "timestamp": "2026-09-17T07:40:52Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[People profile] Track authenticated activity and align BO confirmation/time display",
   "type": "task",
-  "updated_at": "2026-09-17T07:09:40Z"
+  "updated_at": "2026-09-17T07:40:52Z"
 }
