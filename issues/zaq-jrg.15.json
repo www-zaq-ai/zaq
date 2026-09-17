@@ -6,16 +6,14 @@
   "blocks": [
     "zaq-jrg.16"
   ],
-  "closed_at": "2026-09-17T18:29:11Z",
-  "close_reason": "Centralized grant compatibility and credential snapshot invariants with regression tests.",
   "created": "2026-09-17T17:22:07Z",
   "description": "Functional specifications/files: centralize repeated grant/config compatibility and internal raw-snapshot hashing while preserving caller-specific fields/errors/expiry. Tests first: equality properties, stale write/refresh/attempt rejection, unchanged 96-case resolver matrix. Branches: API key/OAuth/JWT and malformed storage. Mocking: none except existing OAuth edge. Docs: module contracts. Action reuse: local-only Connect invariants; no Action.",
   "id": "zaq-jrg.15",
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 2,
-  "status": "closed",
+  "status": "open",
   "title": "[zaq-jrg.15] Consolidate Connect invariants",
   "type": "task",
-  "updated_at": "2026-09-17T18:29:11Z"
+  "updated_at": "2026-09-17T18:52:03Z"
 }
