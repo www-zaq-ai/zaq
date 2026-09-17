@@ -9,9 +9,15 @@
   "id": "zaq-4tf.2",
   "labels": [],
   "parent": "zaq-4tf",
+  "comments": [
+    {
+      "text": "Reused DesignSystem.Table.table_badge for BO person detail and self-service PersonProfile; added active/inactive presentation assertions and Storybook inactive variation. Focused tests pass; changes intentionally uncommitted.",
+      "timestamp": "2026-09-17T13:38:06Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-4tf] Share person status badge across BO and profile",
   "type": "task",
-  "updated_at": "2026-09-17T13:38:05Z"
+  "updated_at": "2026-09-17T13:38:06Z"
 }
