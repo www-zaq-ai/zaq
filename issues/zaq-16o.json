@@ -6,9 +6,15 @@
   "description": "Update fresh-DB People permission tests after final pre-deployment migration changed scope_id to NOT NULL. Isolate NOT NULL expectations from named scope/permission CHECK mappings. Tests only; Action reuse N/A because no executable operation changes. Validate isolated test and mix q. Preserve existing uncommitted coverage tests; no commit/push.",
   "id": "zaq-16o",
   "labels": [],
+  "comments": [
+    {
+      "text": "Updated fresh-schema tests only: invalid scope CHECK now uses a valid team ID, null team scope_id expects NOT NULL, and bypassed changeset tests separate raised NOT NULL from mapped named scope/permission CHECK violations. Isolated suite: 2 properties, 10 tests, 0 failures. mix q passed. No production/migration changes; no commit/push.",
+      "timestamp": "2026-09-17T15:59:56Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-16o] Align People permission constraint tests",
   "type": "task",
-  "updated_at": "2026-09-17T15:58:38Z"
+  "updated_at": "2026-09-17T15:59:56Z"
 }
