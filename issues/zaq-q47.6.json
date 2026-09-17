@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [
     "zaq-q47.1",
-    "zaq-q47.2"
+    "zaq-q47.2",
+    "zaq-q47.3"
   ],
   "blocks": [],
   "created": "2026-09-17T12:01:36Z",
@@ -14,5 +15,5 @@
   "status": "open",
   "title": "[zaq-q47] Validate People portal review fixes",
   "type": "task",
-  "updated_at": "2026-09-17T12:01:36Z"
+  "updated_at": "2026-09-17T12:01:37Z"
 }
