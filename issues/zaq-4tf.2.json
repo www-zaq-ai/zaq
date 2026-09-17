@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-4tf.3"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-4tf",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-4tf] Share person status badge across BO and profile",
   "type": "task",
-  "updated_at": "2026-09-17T13:27:49Z"
+  "updated_at": "2026-09-17T13:38:05Z"
 }
