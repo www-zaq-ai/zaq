@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T13:27:29Z",
+  "description": "Remove the unreleased all_people capability scope, make the synthetic Everyone team the sole universal People permission scope, and reuse the BO person status badge on the self-service profile. No legacy migration or compatibility handling. graph LR; permissions --\u003e validation; badge --\u003e validation",
+  "id": "zaq-4tf",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "People permission and profile polish",
+  "type": "epic",
+  "updated_at": "2026-09-17T13:27:29Z"
+}
