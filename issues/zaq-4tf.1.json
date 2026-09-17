@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-4tf.3"
+  ],
   "created": "2026-09-17T13:27:41Z",
   "description": "Tests first. Remove unreleased all_people storage/API/UI/docs with no legacy handling. Make grants on synthetic system_key=everyone apply to every valid persisted Person while nil/transient identity denies. Preserve ordinary team semantics and PeopleGateway/NodeRouter boundary. Action reuse: extend existing PeoplePermissions + PeopleGateway; no new Action/tool.",
   "id": "zaq-4tf.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-4tf] Make Everyone the universal People permission scope",
   "type": "task",
-  "updated_at": "2026-09-17T13:27:41Z"
+  "updated_at": "2026-09-17T13:27:48Z"
 }

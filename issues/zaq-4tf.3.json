@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-4tf.1"
+  ],
   "blocks": [],
   "created": "2026-09-17T13:27:42Z",
   "description": "Update people-access docs, run focused tests and mix q, review diff, preserve existing feature E2E approval gate zaq-tup.3 -\u003e zaq-tup.4. Final mix precommit only before requesting final human approval.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-4tf] Validate People permission and profile polish",
   "type": "task",
-  "updated_at": "2026-09-17T13:27:42Z"
+  "updated_at": "2026-09-17T13:27:48Z"
 }
