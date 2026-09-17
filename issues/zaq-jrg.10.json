@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T17:21:58Z",
+  "description": "Functional specifications/files: resolve lib/zaq/node_router.ex and lib/zaq/accounts/person_merger.ex with updated upstream authoritative; retain main confidential routing plus auth/rating merge behavior; compose Connect PersonLifecycle before loser deletion. Tests first: upstream confidential event and people auth merge plus combined Connect rollback. Branches: sync/async/local/remote; merge survivor/loser collisions and rollback. Mocking: real Router runtime seams and Repo; no external HTTP. Docs: architecture/Engine terminology. Action reuse: reuse NodeRouter, PeopleAuth and PersonLifecycle; no Action.",
+  "id": "zaq-jrg.10",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 2,
+  "status": "open",
+  "title": "Resolve upstream stash conflicts",
+  "type": "task",
+  "updated_at": "2026-09-17T17:21:58Z"
+}
