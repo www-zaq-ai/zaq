@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.10"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.12"
+  ],
   "created": "2026-09-17T17:21:59Z",
   "description": "Functional specifications/files: replace branch sensitive event option in Connect OAuth/refresh/controller callers/tests/docs with upstream confidential event_opts; remove duplicate router-specific implementation/test only after preserving caller assertions. Tests first: OAuth secrets not broadcast/logged across nested/async/remote routing; public mutation notifications observable. Branches: success/error/continuation. Mocking: existing NodeRouter runtime seams. Docs: architecture/Engine/system config. Action reuse: extend existing Event helpers only.",
   "id": "zaq-jrg.11",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-jrg.11] Migrate credential events to confidential routing",
   "type": "task",
-  "updated_at": "2026-09-17T17:22:10Z"
+  "updated_at": "2026-09-17T17:22:11Z"
 }

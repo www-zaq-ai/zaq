@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-jrg.11"
+  ],
   "blocks": [],
   "created": "2026-09-17T17:22:02Z",
   "description": "Functional specifications/files: extend PeoplePermissionGrant catalog and DB CHECK via additive migration; reuse PeoplePermissions matrix; no automatic grant. Tests first: default deny, Everyone/team grant/revoke, invalid/empty requirements, migration up/down. Branches: read access_profile; writes access_profile+manage_credentials. Mocking: real Repo. Docs: BO auth/Engine current capability contract. Action reuse: extend existing permission operation.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg.12] Add manage credentials permission",
   "type": "task",
-  "updated_at": "2026-09-17T17:22:03Z"
+  "updated_at": "2026-09-17T17:22:11Z"
 }
