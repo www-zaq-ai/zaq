@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-q47.6"
+  ],
   "created": "2026-09-17T12:01:35Z",
   "description": "Tests first. Reuse challenge/revocation/session internals, remove or compatibly delegate unused touch_session after caller verification, and move authenticated profile operations behind a cohesive profile owner while preserving people_auth dispatch compatibility. Action reuse: retain NotifyPerson and role API execution; internal helpers local-only.",
   "id": "zaq-q47.5",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-q47] Consolidate PeopleAuth and profile ownership",
   "type": "task",
-  "updated_at": "2026-09-17T12:01:35Z"
+  "updated_at": "2026-09-17T12:01:37Z"
 }
