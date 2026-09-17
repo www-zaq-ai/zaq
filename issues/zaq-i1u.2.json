@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T13:22:32Z",
+  "description": "Tests first: cover supported, unsupported, and unknown model metadata, including explicit negative and absent capabilities. Introduce a three-state capability contract shared by backend validation and BO. Action reuse: extend Registry/ProviderModels metadata lookup; this is pure local validation, not an executable Action.",
+  "id": "zaq-i1u.2",
+  "labels": [],
+  "parent": "zaq-i1u",
+  "priority": 2,
+  "status": "open",
+  "title": "Represent unknown tool capability explicitly",
+  "type": "task",
+  "updated_at": "2026-09-17T13:22:32Z"
+}
