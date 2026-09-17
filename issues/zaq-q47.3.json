@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-q47.6"
   ],
+  "closed_at": "2026-09-17T12:12:19Z",
   "created": "2026-09-17T12:01:35Z",
   "description": "Tests first. Distinguish authoritative empty active-session results from Engine/list failures in PeopleLive, render retryable unavailable state, and preserve refresh semantics. Action reuse: reuse people_command list/revoke operations; UI state helper is local-only.",
   "id": "zaq-q47.3",
@@ -16,7 +17,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-q47] Preserve session listing availability state",
   "type": "task",
   "updated_at": "2026-09-17T12:12:19Z"
