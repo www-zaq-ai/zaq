@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T17:22:09Z",
+  "description": "Functional specifications/files: integrate all prior steps, remove stale duplicate docs/tests, verify boundaries/reuse, update validation evidence. Tests first: consolidated confidential authenticated credential flow, merge/session/OAuth/resolver no-fallback. Branches: permissions/auth/session lifecycle and rollback. Mocking: HTTP edge only. Docs: owners only, no duplicate manuals. Validation: isolated tests and mix q each step; final relevant E2E and mix precommit; coverage exceptions explicit. Action reuse review required.",
+  "id": "zaq-jrg.17",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 2,
+  "status": "open",
+  "title": "Validate rebased self-service integration",
+  "type": "task",
+  "updated_at": "2026-09-17T17:22:09Z"
+}
