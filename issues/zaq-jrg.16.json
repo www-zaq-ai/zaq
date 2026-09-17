@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-jrg.15"
+  ],
   "blocks": [],
   "created": "2026-09-17T17:22:08Z",
   "description": "Functional specifications/files: propagate config/bridge opts end-to-end across OAuth authorize/exchange/endpoint lookup; consolidate private token POST normalization while preserving forms/timeouts/errors and PKCE. Tests first: distinct injected bridges/configs, authoritative credentials, ambient-secret denial, legacy fallback. Branches: catalog/configured token endpoint, exchange/refresh. Mocking: external HTTP seam only. Docs: Channels/Engine. Action reuse: extend existing Channels bridge and Connect OAuth transport.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg.16] Repair OAuth option propagation and transport reuse",
   "type": "task",
-  "updated_at": "2026-09-17T17:22:09Z"
+  "updated_at": "2026-09-17T17:22:13Z"
 }

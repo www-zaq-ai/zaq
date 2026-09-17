@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.14"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.16"
+  ],
   "created": "2026-09-17T17:22:07Z",
   "description": "Functional specifications/files: centralize repeated grant/config compatibility and internal raw-snapshot hashing while preserving caller-specific fields/errors/expiry. Tests first: equality properties, stale write/refresh/attempt rejection, unchanged 96-case resolver matrix. Branches: API key/OAuth/JWT and malformed storage. Mocking: none except existing OAuth edge. Docs: module contracts. Action reuse: local-only Connect invariants; no Action.",
   "id": "zaq-jrg.15",
