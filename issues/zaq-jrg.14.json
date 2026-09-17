@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-jrg.15"
   ],
+  "closed_at": "2026-09-17T18:29:10Z",
+  "close_reason": "Bound OAuth attempts to sessions and revalidate identity/permissions before persistence.",
   "created": "2026-09-17T17:22:06Z",
   "description": "Functional specifications/files: bind Person OAuth starts to authenticated session identity without bearer persistence; split transactional authentication/attempt creation from provider HTTP; revalidate session/person/permissions before final persistence; preserve claim-before-network. Tests first: logout/expiry/permission withdrawal/merge during exchange, replay, failed reconnect, lock ordering. Branches: start/reconnect/callback/error. Mocking: external OAuth HTTP only. Docs: Engine/system config. Action reuse: extend PeopleAuth/OAuthAttempts, no parallel auth.",
   "id": "zaq-jrg.14",
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-jrg.14] Bind OAuth attempts to authenticated sessions",
   "type": "task",
-  "updated_at": "2026-09-17T17:22:13Z"
+  "updated_at": "2026-09-17T18:29:10Z"
 }
