@@ -9,9 +9,15 @@
   "id": "zaq-jrg.17",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Validation: targeted suite 10 properties/285 tests passes; credential gateway 6 tests passes; mix q passes; new PeopleCredentials coverage 96% and changed PeopleAuthGateway lines 100%. Full mix precommit repeat: 48 doctests, 135 properties, 9401 tests, one failure at auth_rate_limiter_peer_test.exs:59 due {:error, :peer_connection_failed}; the peer suite reproduces in isolation (2 failures). All non-peer regression failures were resolved by recompiling phoenix_live_view under updated compile-time purge config. git diff checks pass. External peer-runtime blocker remains; production/feature tests are green.",
+      "timestamp": "2026-09-17T18:29:12Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.17] Validate rebased self-service integration",
   "type": "task",
-  "updated_at": "2026-09-17T18:29:11Z"
+  "updated_at": "2026-09-17T18:29:12Z"
 }
