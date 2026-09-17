@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "zaq-4tf.1"
+    "zaq-4tf.1",
+    "zaq-4tf.2"
   ],
   "blocks": [],
   "created": "2026-09-17T13:27:42Z",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "[zaq-4tf] Validate People permission and profile polish",
   "type": "task",
-  "updated_at": "2026-09-17T13:27:48Z"
+  "updated_at": "2026-09-17T13:27:49Z"
 }
