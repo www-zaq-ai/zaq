@@ -9,9 +9,15 @@
   "id": "zaq-i1u.3",
   "labels": [],
   "parent": "zaq-i1u",
+  "comments": [
+    {
+      "text": "Updated BO editor to show an unknown-capability warning while keeping Tool/MCP controls enabled; confirmed unsupported metadata still disables controls. Added LiveView notice/button/custom-save tests and updated agent service docs. 112 focused tests pass; mix q passes; git diff --check clean. E2E not added because this is an existing editor regression covered at LiveView/domain levels and no listed mandatory E2E area is touched.",
+      "timestamp": "2026-09-17T13:38:53Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-i1u.3] Update agent editor capability UX and validate",
   "type": "task",
-  "updated_at": "2026-09-17T13:22:46Z"
+  "updated_at": "2026-09-17T13:38:53Z"
 }
