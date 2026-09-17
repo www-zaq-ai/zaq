@@ -17,11 +17,15 @@
     {
       "text": "Human accepted the reproducible peer-connection failure as an environment blocker. No peer infrastructure changes will be made. Ticket remains open pending authorized landing/commit; no commit or push performed.",
       "timestamp": "2026-09-17T18:52:04Z"
+    },
+    {
+      "text": "Added docs/services/personal-grant-sequences.md with five validated Mermaid sequence diagrams covering API-key creation, OAuth2 creation/callback, OAuth2 refresh, Person merge, and Person removal. Diagrams expose module hops, transaction/network boundaries, lifecycle collision policy, outbox behavior, and boundary assessment. Linked from Engine guide and docs index. Documentation-only; Mermaid 12 parser validates all five diagrams and source links exist.",
+      "timestamp": "2026-09-17T19:58:49Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.17] Validate rebased self-service integration",
   "type": "task",
-  "updated_at": "2026-09-17T18:52:04Z"
+  "updated_at": "2026-09-17T19:58:49Z"
 }
