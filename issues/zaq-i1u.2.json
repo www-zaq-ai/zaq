@@ -11,9 +11,15 @@
   "id": "zaq-i1u.2",
   "labels": [],
   "parent": "zaq-i1u",
+  "comments": [
+    {
+      "text": "Implemented Registry.model_tool_capability/2 with :supported/:unsupported/:unknown and changed backend rejection to confirmed :unsupported only. Added explicit enabled/disabled/unknown metadata tests. Property test not applicable: finite three-state mapping is exhaustively covered with examples and catalog parsing is global state.",
+      "timestamp": "2026-09-17T13:38:53Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-i1u.2] Represent unknown tool capability explicitly",
   "type": "task",
-  "updated_at": "2026-09-17T13:22:46Z"
+  "updated_at": "2026-09-17T13:38:53Z"
 }
