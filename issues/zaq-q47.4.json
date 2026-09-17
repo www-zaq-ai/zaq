@@ -9,9 +9,15 @@
   "id": "zaq-q47.4",
   "labels": [],
   "parent": "zaq-q47",
+  "comments": [
+    {
+      "text": "Implemented in working tree: generic AuthRateLimiter now owns only counter/runtime mechanics; PeopleAuth issuance owns Person-before-IP reservation and passes the already-resolved config snapshot. Channels cached ingress policy remains separate. Updated mechanics tests; focused limiter/auth suites: 38 tests + 2 properties pass. No commit/push.",
+      "timestamp": "2026-09-17T12:14:53Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-q47] Separate People limiter policy and runtime",
   "type": "task",
-  "updated_at": "2026-09-17T12:12:20Z"
+  "updated_at": "2026-09-17T12:14:53Z"
 }
