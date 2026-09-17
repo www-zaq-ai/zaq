@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-17T15:39:35Z",
+  "description": "Tests only for supplied HistoryLive missed lines. Plan: status transitions and integer filter normalization/property coverage in history_live_test.exs. Four bulk error lines currently unreachable via supported real boundary; record exception. Action reuse N/A: no operation changes. Related debt zaq-nwq. No E2E necessary; validate isolated tests, mix q, final targeted coverage. No commits or pushes.",
+  "id": "zaq-30u",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Cover supplied HistoryLive test gaps",
+  "type": "task",
+  "updated_at": "2026-09-17T15:39:35Z"
+}
