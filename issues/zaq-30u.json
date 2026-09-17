@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-17T15:39:35Z",
@@ -7,8 +7,8 @@
   "id": "zaq-30u",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-30u] Cover supplied HistoryLive test gaps",
   "type": "task",
-  "updated_at": "2026-09-17T15:39:46Z"
+  "updated_at": "2026-09-17T15:39:47Z"
 }
