@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-18T10:06:10Z",
+  "description": "Functional specifications/files: preserve Connect.resolve_credential/3; evaluate clocks after selection locks and return ResolvedCredential.expires_at as earliest non-null configuration/grant deadline. Tests first: lock waits crossing API/JWT expiry, deadline order/nil properties, OAuth refresh/final read, unchanged no-fallback matrix. Branches: API key/OAuth/JWT, fixed/function/default clocks. Mocking: existing external OAuth boundary only; real Repo locks. Docs: Engine/system config/module contracts. Action reuse: extend generic Connect resolver; no consumer-specific API or Action.",
+  "id": "zaq-jrg.21",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-jrg] Finalize resolved credential expiry semantics",
+  "type": "task",
+  "updated_at": "2026-09-18T10:06:10Z"
+}
