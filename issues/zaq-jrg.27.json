@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-jrg.26"
+  ],
   "blocks": [],
   "created": "2026-09-18T10:58:33Z",
   "description": "Functional scope: global/non-Person AI runtime reads resolve associated Connect credential and consume ResolvedCredential; translate API-key/OAuth/no-auth only at ProviderSpec/Factory boundary, preserve provider/endpoint metadata and earliest expiry, remove normal legacy api_key/resource-grant fallback. Tests first: LLM/default Agent, configured Agent, embedding and image-to-text parity; API-key/OAuth/no-auth, missing/revoked/expired, no fallback, sanitized structured errors. Mock provider HTTP only. Docs: Agent/System config. Action reuse: extend existing System get_ai_provider_credential, ProviderSpec and Factory path; no parallel runtime or resolver; no Action/tool exposure.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg.27] Cut over global AI runtime authentication",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:45Z"
+  "updated_at": "2026-09-18T10:58:47Z"
 }

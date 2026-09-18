@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.25"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.27"
+  ],
   "created": "2026-09-18T10:58:33Z",
   "description": "Functional scope: after association, all AI credential create/update/delete and BO OAuth setup mutate canonical Connect configuration/global grant atomically; legacy resource-bound callbacks/refresh cannot create a competing authority. Tests first: create/update/blank secret, auth-kind changes, no-auth selection, OAuth setup/reconnect/refresh, stale submission, delete restrictions and transactional enqueue/encryption failure. Mock only external OAuth HTTP. Docs: System/Engine contracts. Action reuse: extend System CRUD, Connect.Mutations, OAuthAttempts.start_global_configuration and existing BO Engine routing; do not add Actions or bypass NodeRouter.",
   "id": "zaq-jrg.26",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-jrg.26] Converge AI credential writers",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:46Z"
+  "updated_at": "2026-09-18T10:58:47Z"
 }
