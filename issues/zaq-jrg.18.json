@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-jrg.17"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jrg.18] Mark legacy grant deletion retirement",
   "type": "task",
-  "updated_at": "2026-09-18T10:06:35Z"
+  "updated_at": "2026-09-18T10:06:37Z"
 }
