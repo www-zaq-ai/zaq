@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.18.0](https://github.com/www-zaq-ai/zaq/compare/v0.17.0...v0.18.0) (2026-09-18)
+
+
+### Features
+
+* **people:** add filter-scoped cross-page selection (zaq-iz2) ([aeea987](https://github.com/www-zaq-ai/zaq/commit/aeea987bc759164000c2c9650fbcf72dda4be593))
+* **people:** add OTP authentication backend and revocable sessions ([8648b9d](https://github.com/www-zaq-ai/zaq/commit/8648b9d4683cdd802b941d74f0a2fa396e4eb320))
+* **people:** add OTP authentication backend and revocable sessions ([f187d99](https://github.com/www-zaq-ai/zaq/commit/f187d99f5ed7241ddf7a46229da012395a7494a3))
+* **people:** add OTP authentication backend and revocable sessions ([d7f4688](https://github.com/www-zaq-ai/zaq/commit/d7f46889886ceae8cb8cbc3371fea1518d4b5b1b))
+* **people:** administer people sessions via BO ([d84c917](https://github.com/www-zaq-ai/zaq/commit/d84c917c4828811c6a88e27054cf00fcd1e15404))
+* **People:** Authentication flow with UI ([db15209](https://github.com/www-zaq-ai/zaq/commit/db152098356ebff535095a76e2d99fead25a3de2))
+* **People:** Authentication flow with UI ([f623991](https://github.com/www-zaq-ai/zaq/commit/f62399132cf76e95d546429a9dfb4d22f75aa933))
+* **people:** bo access security settings ([4ee52be](https://github.com/www-zaq-ai/zaq/commit/4ee52be0f4ecba85be74dd4028bba74394c84276))
+* **People:** Conversations list and details with sharing ability for people with permissions ([e7ebb7c](https://github.com/www-zaq-ai/zaq/commit/e7ebb7cd970b0c882ecba794486cca6726295dee))
+* **people:** enable dedicate people permission layer ([ff07444](https://github.com/www-zaq-ai/zaq/commit/ff07444ed35bd10223ebfcdf22006767f6dca53a))
+* **people:** enable dedicate people permission layer ([ab3e5f3](https://github.com/www-zaq-ai/zaq/commit/ab3e5f3755869da90e3e09e2dac533b91a75a6dc))
+* **people:** enable dedicate people permission layer ([6114b2e](https://github.com/www-zaq-ai/zaq/commit/6114b2e09598f64b65a0243e5ab58815b5bec948))
+* **People:** People profile page with edit controls ([f23f69d](https://github.com/www-zaq-ai/zaq/commit/f23f69d57572f2360569c9c335c0d79a6cf89c19))
+* **people:** redesign profile and add atomic channel ordering ([25415b5](https://github.com/www-zaq-ai/zaq/commit/25415b566626f6b7bd3971283bff516b3678fb82))
+
+
+### Bug Fixes
+
+* **agent:** lifecycle unified identity ([2f9f2a7](https://github.com/www-zaq-ai/zaq/commit/2f9f2a7f9866a5ac5cb92102da63d4104be68832))
+* **agent:** reject invalid lifecycle actor fallback (zaq-yws) ([ffb3ed7](https://github.com/www-zaq-ai/zaq/commit/ffb3ed761889dbab5929b3580efe03ffd9b7a16f))
+* **agents:** support for custom AI provider in configured agents ([86fc397](https://github.com/www-zaq-ai/zaq/commit/86fc39707c200b190458a4d928580615dde9acdf))
+* **agent:** update factory to honor tool timeout param per turn ([aec7412](https://github.com/www-zaq-ai/zaq/commit/aec741235120f9f91095c4dd8d474c76c80b1f81))
+* **authorization:** resolve current people and reject stale team access ([e6ad2ca](https://github.com/www-zaq-ai/zaq/commit/e6ad2ca758e7b837cc49168e4b85cd3f60f9e9d7))
+* **bo:** default input value assign to nil when omitted ([1cc3a73](https://github.com/www-zaq-ai/zaq/commit/1cc3a73515d6fc9701d27a76e590d78490ea76f0))
+* **browser:** select native runtime and add launch diagnostics (zaq-5j6.9) ([47c2028](https://github.com/www-zaq-ai/zaq/commit/47c20287333bdda92f2777985a575eadb1174267))
+* **ci:** rebuild LiveView to enforce session log filtering ([a0ca270](https://github.com/www-zaq-ai/zaq/commit/a0ca270562a89dd7ec3263603f1d59beb1011c89))
+* **e2e:** remove duplicate test blocks ([c07186e](https://github.com/www-zaq-ai/zaq/commit/c07186e34821782e65f7ba2106770700ae784d92))
+* **identity:** normalize channel identities and enforce uniqueness ([0dcb03b](https://github.com/www-zaq-ai/zaq/commit/0dcb03bb1b49038568c57e2f2f26c7404234417d))
+* **merge:** consolidate people atomically and preserve identity history ([f96b811](https://github.com/www-zaq-ai/zaq/commit/f96b8114befb7b26ea7cbbd83ac46d3c9478322e))
+* **migration:** normalize legacy identities with rollback and replay coverage ([66d0aa6](https://github.com/www-zaq-ai/zaq/commit/66d0aa610b2ed365850e6334019e84bc0324d793))
+* **people:** correct shared layout and auth hook expectations ([9c17b64](https://github.com/www-zaq-ai/zaq/commit/9c17b64a3c5275659a127b36a8d56eb1023833a3))
+* **people:** isolate feature hook registration (zaq-msu) ([ca80e0a](https://github.com/www-zaq-ai/zaq/commit/ca80e0ac815736d1e0b7630658268f5d32a71156))
+* **people:** remove all people use Everyone instead, apply badge for people's status field ([f460855](https://github.com/www-zaq-ai/zaq/commit/f460855b3f0d890550ce004d6195de68506857dc))
+* **Rate Limit:** adhere to new pubsub metadata shape ([6f1c9f6](https://github.com/www-zaq-ai/zaq/commit/6f1c9f6aaa3e7624e4f809fed875fc6e8bd17140))
+* **Slack:** icon dimension ([ee18585](https://github.com/www-zaq-ai/zaq/commit/ee18585a862f6b9aa3d80012b3fb264ce69b0f71))
+* **ui:** compact list selection controls (zaq-4v4) ([eeae929](https://github.com/www-zaq-ai/zaq/commit/eeae929e25277ced7463a2a2232e5b3aa6ee4ccd))
+* **UI:** regression on input ([f1d3c6e](https://github.com/www-zaq-ai/zaq/commit/f1d3c6e5c667b394aa9f10f08d24a98aac4e2189))
+
+
+### Refactoring
+
+* **bo:** apply design system to login and password flows ([1c817e9](https://github.com/www-zaq-ai/zaq/commit/1c817e95980cf04ecceb262825e5839f1a8bd6b1))
+* **bo:** migrate change password to design system ([dc783b0](https://github.com/www-zaq-ai/zaq/commit/dc783b022585781424b419a6a163bf2cbb39dbbc))
+* **bo:** unify password policy UI and field hints on DS inputs ([ce555d7](https://github.com/www-zaq-ai/zaq/commit/ce555d73930d0e91b5fe4c8305cccec69badad78))
+* **people:** align sign-in page with BO AuthLayout shell ([e2acd2d](https://github.com/www-zaq-ai/zaq/commit/e2acd2de09068a7a6066839ab987fa8fffc96c0d))
+* **People:** Document merge locks and dedicate changeset for merge updates ([ffa0ba0](https://github.com/www-zaq-ai/zaq/commit/ffa0ba0e44bf9928c6fb4e40509246f5c84182a9))
+* **people:** properly separate boundaries in code and tighten logout ([db5c0f8](https://github.com/www-zaq-ai/zaq/commit/db5c0f8b7763d8f31d659f2ab9a9ac8cec17fe2c))
+
 ## [0.17.0](https://github.com/www-zaq-ai/zaq/compare/v0.16.0...v0.17.0) (2026-09-07)
 
 
