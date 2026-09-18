@@ -9,9 +9,15 @@
   "id": "zaq-jrg.30",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Action reuse decision: extend existing System AIProviderCredentialConfiguration, Connect.Mutations/CredentialStatuses/PersonCredentials/OAuthAttempts, PeopleCredentials gateway, and NodeRouter :people_auth dispatch. No new Action or agent-tool exposure. Person eligibility is server-derived from AIProviderCredential.connect_credential_id; retained own slots stay cleanup-only after policy changes. New OAuth credentials must be saved first as required/no-global, then global OAuth callback atomically installs the grant and desired policy to avoid orphan/half-configured state.",
+      "timestamp": "2026-09-18T17:15:05Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Admin and Person credential management UI",
   "type": "task",
-  "updated_at": "2026-09-18T17:06:21Z"
+  "updated_at": "2026-09-18T17:15:05Z"
 }
