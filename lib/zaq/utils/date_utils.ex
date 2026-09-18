@@ -1,6 +1,15 @@
 defmodule Zaq.Utils.DateUtils do
   @moduledoc false
 
+  @doc "Evaluates a trusted now override on each call; explicit timestamps remain fixed."
+  @spec now(keyword()) :: DateTime.t()
+  def now(opts) do
+    case Keyword.get(opts, :now, &DateTime.utc_now/0) do
+      clock when is_function(clock, 0) -> clock.()
+      %DateTime{} = timestamp -> timestamp
+    end
+  end
+
   @doc """
   Formats a `DateTime` or `NaiveDateTime` as a seconds-precision ISO-8601 string.
 

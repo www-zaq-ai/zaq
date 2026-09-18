@@ -51,7 +51,7 @@ defmodule Zaq.Engine.Workflows.StartupRecoveryTest do
       running = create_run(w, "running")
       pending = create_run(w, "pending")
 
-      StartupRecovery.run([])
+      Oban.Testing.with_testing_mode(:inline, fn -> StartupRecovery.run([]) end)
 
       assert Workflows.get_run!(running.id).status == "interrupted"
       assert Workflows.get_run!(pending.id).status == "interrupted"
@@ -62,7 +62,7 @@ defmodule Zaq.Engine.Workflows.StartupRecoveryTest do
       completed = create_run(w, "completed")
       failed = create_run(w, "failed")
 
-      StartupRecovery.run([])
+      Oban.Testing.with_testing_mode(:inline, fn -> StartupRecovery.run([]) end)
 
       assert Workflows.get_run!(completed.id).status == "completed"
       assert Workflows.get_run!(failed.id).status == "failed"
@@ -77,7 +77,7 @@ defmodule Zaq.Engine.Workflows.StartupRecoveryTest do
       run1 = create_run(w, "running")
       run2 = create_run(w, "running")
 
-      StartupRecovery.run([])
+      Oban.Testing.with_testing_mode(:inline, fn -> StartupRecovery.run([]) end)
 
       assert Workflows.get_run!(run1.id).status == "interrupted"
       assert Workflows.get_run!(run2.id).status == "interrupted"

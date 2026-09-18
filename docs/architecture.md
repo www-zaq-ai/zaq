@@ -175,6 +175,31 @@ the dynamic child reloads enabled bridge configs on every startup.
 
 Engine is the largest service. It owns several internal subsystems:
 
+### Connect mutation delivery (`lib/zaq/engine/connect/`)
+
+OAuth callback/provider requests use the existing NodeRouter path with trusted
+`opts: [confidential: true]`. These synchronous hops are routed normally but excluded
+from the workflow trigger broadcast because they carry state, codes or client secrets.
+The flag does not authenticate callers; ordinary mutation notifications below remain
+observable and secret-free. Person OAuth starts remain backend-only; the existing
+callback resolves identity from one-use persisted attempts, never browser owner IDs.
+
+Connect writes enqueue versioned, secret-free identity notifications in the same Repo
+transaction as credential/grant mutations. `MutationEventWorker` targets the Agent role
+through the synchronous Agent Events helper and NodeRouter; only explicit `response: :ok`
+completes delivery. NodeRouter's workflow stream receives the same allowlisted payload.
+Connect does not publish directly to PubSub or call ServerManager.
+
+The dedicated `connect_credential_notifications` queue is deliberately unconsumed in
+every dev/production role configuration until a real Agent receiver and owning-node
+fanout ship. Writes still enqueue while consumption is disabled. Three-attempt Oban
+retry retains a UUID; timestamps do not impose ordering and no monotonic revision is
+invented. Delivery may duplicate/reorder and does not acknowledge downstream consumers
+or guarantee all-node fanout. Later integration must re-read current state, reconcile
+missed events and close creation/invalidation races before activating consumption.
+Activation also requires an explicit retention/replay and discarded-job policy; no
+silent pruning of old dead jobs. See `docs/services/engine.md` for the full event schema.
+
 ### Conversations (`lib/zaq/engine/conversations/`)
 
 Persists every Q&A exchange as a structured Conversation with Messages.

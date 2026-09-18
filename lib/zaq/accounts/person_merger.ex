@@ -5,6 +5,8 @@ defmodule Zaq.Accounts.PersonMerger do
   planned owner changesets before any write. Applies constraint-safe relationship
   mutations through their owners, deletes losers, then asks People to persist the
   complete survivor once. Any failure rolls back the transaction.
+  Connect owns grant collision/transfer and attempt cancellation inside this same
+  transaction, before loser deletion. Retained aliases never migrate authorization.
 
   IDs and history come only from persisted participants. Resource request editing
   belongs to People; workflow execution/audit JSON is never rewritten. No
@@ -26,6 +28,7 @@ defmodule Zaq.Accounts.PersonMerger do
     PersonSession
   }
 
+  alias Zaq.Engine.Connect.PersonLifecycle
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{Conversation, MessageRating}
   alias Zaq.Engine.{IncomingMessageRouting, IncomingMessageRoutingRule}
@@ -128,9 +131,10 @@ defmodule Zaq.Accounts.PersonMerger do
         Conversations.update_rating(row, attrs) |> result!()
       end)
 
+      PersonLifecycle.merge_people(survivor.id, Enum.map(losers, & &1.id))
       # All losers must disappear BEFORE canonical email is written (three-way
       # collision) and before their inherited aliases are installed on survivor.
-      Enum.each(losers, &(People.delete_person(&1) |> result!()))
+      Enum.each(losers, &(People.delete_merge_loser(&1) |> result!()))
 
       People.apply_merge_result(survivor, attrs)
       |> result!()

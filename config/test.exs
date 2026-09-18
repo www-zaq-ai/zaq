@@ -37,7 +37,10 @@ config :zaq, Zaq.Repo,
 
 config :zaq, Oban,
   repo: Zaq.Repo,
-  testing: :inline
+  # Inline delivery would run transactional Connect notifications before commit.
+  # Tests needing other workers inline must explicitly scope that execution.
+  # The E2E server uses real asynchronous queues; the notification queue remains absent.
+  testing: if(e2e?, do: :disabled, else: :manual)
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

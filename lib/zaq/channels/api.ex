@@ -567,7 +567,7 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.oauth_authorize_url(provider, params)}
+    %{event | response: data_source_module.oauth_authorize_url(provider, params, event.opts)}
   end
 
   def handle_event(
@@ -577,7 +577,7 @@ defmodule Zaq.Channels.Api do
       )
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
-    %{event | response: data_source_module.oauth_exchange_code(provider, params)}
+    %{event | response: data_source_module.oauth_exchange_code(provider, params, event.opts)}
   end
 
   def handle_event(
@@ -588,6 +588,15 @@ defmodule Zaq.Channels.Api do
       when is_map(params) do
     data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
     %{event | response: data_source_module.oauth_refresh_token(provider, params, event.opts)}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider}} = event,
+        :data_source_oauth_token_endpoint,
+        _context
+      ) do
+    data_source_module = Keyword.get(event.opts, :data_source_bridge_module, DataSourceBridge)
+    %{event | response: data_source_module.oauth_token_endpoint(provider, event.opts)}
   end
 
   def handle_event(

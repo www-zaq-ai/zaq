@@ -9,13 +9,18 @@ defmodule Zaq.Accounts.PeoplePermissionGrant do
   @permissions [
     %{permission: :access_profile, label: "Access profile"},
     %{permission: :edit_profile, label: "Edit profile"},
+    %{permission: :manage_credentials, label: "Manage credentials"},
     %{permission: :access_message_history, label: "Access message history"},
     %{permission: :share_conversations, label: "Share conversations"}
   ]
   @strings Enum.map(@permissions, &Atom.to_string(&1.permission))
   @type t :: %__MODULE__{}
   @type permission ::
-          :access_profile | :edit_profile | :access_message_history | :share_conversations
+          :access_profile
+          | :edit_profile
+          | :manage_credentials
+          | :access_message_history
+          | :share_conversations
 
   schema "people_permission_grants" do
     field :scope_type, :string

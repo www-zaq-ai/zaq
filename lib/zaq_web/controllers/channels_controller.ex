@@ -10,23 +10,24 @@ defmodule ZaqWeb.ChannelsController do
   end
 
   def oauth2_redirect(conn, %{"provider" => provider} = params) do
-    case dispatch_engine_invoke(oauth_module(), :finalize_callback, [provider, params]) do
-      {:ok, grant} ->
-        html(
-          conn,
-          oauth_result_html("success", "Grant created", %{grant_id: grant.id, provider: provider})
-        )
+    conn =
+      conn
+      |> put_resp_header("referrer-policy", "no-referrer")
+      |> put_resp_header("cache-control", "no-store")
 
-      {:error, reason} ->
-        html(
-          conn,
-          oauth_result_html("error", "Grant failed", %{
-            provider: provider,
-            reason: inspect(reason)
-          })
-        )
+    params = Map.take(params, ["state", "code", "error"])
+
+    case dispatch_engine_invoke(oauth_module(), :finalize_callback, [provider, params]) do
+      {:ok, result} ->
+        html(conn, oauth_result_html("success", "Grant created", oauth_summary(result)))
+
+      _ ->
+        html(conn, oauth_result_html("error", "Grant failed", %{}))
     end
   end
+
+  defp oauth_summary(%{id: id}) when is_integer(id), do: %{grant_id: id}
+  defp oauth_summary(_), do: %{}
 
   def openai_oauth_callback(conn, params) do
     oauth2_redirect(conn, Map.put(params, "provider", "openai"))
@@ -78,7 +79,7 @@ defmodule ZaqWeb.ChannelsController do
       Event.new(
         %{module: mod, function: fun, args: args},
         :engine,
-        opts: [action: :invoke]
+        opts: [action: :invoke, confidential: true]
       )
 
     node_router_module().dispatch(event).response
@@ -100,12 +101,12 @@ defmodule ZaqWeb.ChannelsController do
           (function () {
             var payload = #{encoded};
             if (window.opener && !window.opener.closed) {
-              window.opener.postMessage({type: "zaq:oauth2_result", payload: payload}, "*");
+              window.opener.postMessage({type: "zaq:oauth2_result", payload: payload}, window.location.origin);
               window.close();
             }
 
             if (window.parent && window.parent !== window) {
-              window.parent.postMessage({type: "zaq:oauth2_result", payload: payload}, "*");
+              window.parent.postMessage({type: "zaq:oauth2_result", payload: payload}, window.location.origin);
             }
           })();
         </script>

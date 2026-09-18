@@ -775,7 +775,9 @@ defmodule Zaq.IngestionTest do
         {:ok, %{id: nil, chunks_count: 1, document_id: nil}}
       end)
 
-      assert {:ok, retried} = Ingestion.retry_job(job.id)
+      assert {:ok, retried} =
+               Oban.Testing.with_testing_mode(:inline, fn -> Ingestion.retry_job(job.id) end)
+
       job_id = job.id
       assert retried.status == "pending"
       assert retried.error == nil
@@ -831,7 +833,9 @@ defmodule Zaq.IngestionTest do
 
       Application.put_env(:zaq, :document_processor, RetryChunkProcessor)
 
-      assert {:ok, retried} = Ingestion.retry_job(job.id)
+      assert {:ok, retried} =
+               Oban.Testing.with_testing_mode(:inline, fn -> Ingestion.retry_job(job.id) end)
+
       assert retried.status == "pending"
       assert retried.error == nil
 

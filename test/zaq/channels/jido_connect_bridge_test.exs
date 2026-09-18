@@ -4290,7 +4290,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -4629,7 +4631,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -4664,7 +4668,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -4699,7 +4705,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -4734,7 +4742,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -4783,7 +4793,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -4936,7 +4948,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
       })
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -5019,7 +5033,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -5098,7 +5114,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -5137,7 +5155,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -5203,7 +5223,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -5239,7 +5261,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     config = insert_data_source_config(:google_drive)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -5727,7 +5751,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
     # Since get_item_metadata is not available (no file:get action),
     # handle_webhook falls back to built record and dispatches
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records

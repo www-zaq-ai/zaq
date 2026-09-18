@@ -8,6 +8,8 @@ defmodule Zaq.Engine.Connect.Grant do
   credential ID string. Person ownership uses `owner_id`; org ownership has no ID.
   Each credential/owner has one slot
   across all statuses. Reconnection updates that row; revocation retains it.
+  Internal refresh claims use a UUID and bounded expiration, set only by the shared
+  refresh boundary rather than accepted through either material changeset.
   """
 
   use Ecto.Schema
@@ -19,6 +21,7 @@ defmodule Zaq.Engine.Connect.Grant do
   @resource_types ~w(data_source mcp ai_provider_credential)
   @owner_types ~w(org user)
   @statuses ~w(active revoked expired)
+  @configuration_fields ~w(provider auth_kind request_format scopes issuer key_id)a
 
   schema "connect_grants" do
     field :provider, :string
@@ -34,6 +37,8 @@ defmodule Zaq.Engine.Connect.Grant do
     field :metadata, :map, default: %{}, redact: true
     field :expires_at, :utc_datetime
     field :status, :string, default: "active"
+    field :refresh_claim, Ecto.UUID, redact: true
+    field :refresh_claim_until, :utc_datetime
 
     field :access_token, Zaq.Types.EncryptedString, redact: true
     field :refresh_token, Zaq.Types.EncryptedString, redact: true
@@ -66,6 +71,8 @@ defmodule Zaq.Engine.Connect.Grant do
           metadata: map() | nil,
           expires_at: DateTime.t() | nil,
           status: String.t() | nil,
+          refresh_claim: Ecto.UUID.t() | nil,
+          refresh_claim_until: DateTime.t() | nil,
           access_token: String.t() | nil,
           refresh_token: String.t() | nil,
           scopes: [String.t()] | nil,
@@ -98,6 +105,13 @@ defmodule Zaq.Engine.Connect.Grant do
     |> validate_inclusion(:status, @statuses)
     |> validate_auth_fields()
     |> foreign_key_constraint(:credential_id)
+  end
+
+  @doc false
+  @spec compatible_configuration?(t(), Zaq.Engine.Connect.Credential.t()) :: boolean()
+  def compatible_configuration?(grant, credential) do
+    Map.take(grant, @configuration_fields) == Map.take(credential, @configuration_fields) and
+      grant.subject == Zaq.Utils.Map.metadata_subject(credential.metadata)
   end
 
   @doc "Builds a canonical storage changeset from trusted configuration, without copying secrets."
@@ -152,6 +166,20 @@ defmodule Zaq.Engine.Connect.Grant do
     |> unique_constraint(:credential_id, name: :connect_grants_credential_org_index)
   end
 
+  @doc "Protected lifecycle owner-only transfer; never validates or rewrites retained secret material."
+  @spec transfer_owner_changeset(t(), pos_integer()) :: Ecto.Changeset.t()
+  def transfer_owner_changeset(
+        %__MODULE__{owner_type: "person", resource_type: "connect_credential"} = grant,
+        person_id
+      ) do
+    grant
+    |> change(owner_id: person_id)
+    |> validate_required([:owner_id])
+    |> validate_number(:owner_id, greater_than: 0)
+    |> check_constraint(:owner_id, name: :connect_grants_owner_check)
+    |> unique_constraint(:credential_id, name: :connect_grants_credential_person_index)
+  end
+
   defp validate_credential_owner(changeset) do
     if get_field(changeset, :owner_type) == "person" do
       validate_required(changeset, [:owner_id])
@@ -186,4 +214,19 @@ defmodule Zaq.Engine.Connect.Grant do
         changeset
     end
   end
+
+  @doc "Checks decrypted JWT material locally; shared by canonical mutation and runtime usability."
+  @spec private_key?(term()) :: boolean()
+  def private_key?(value) when is_binary(value) do
+    with [entry] <- :public_key.pem_decode(value),
+         key when is_tuple(key) <- :public_key.pem_entry_decode(entry) do
+      elem(key, 0) in [:RSAPrivateKey, :ECPrivateKey]
+    else
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  def private_key?(_), do: false
 end
