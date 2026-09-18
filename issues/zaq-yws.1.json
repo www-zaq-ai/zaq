@@ -25,11 +25,15 @@
     {
       "text": "Shared contract and trusted producer changes implemented. Focused suite: 3 properties, 280 tests, 0 failures; new ExecutionActor coverage 100%. Further aggregate validation pending; issues remain open until verified/landed. Lifecycle implementation now underway.",
       "timestamp": "2026-09-15T14:10:21Z"
+    },
+    {
+      "text": "Fixed explicit-invalid fallback: from_event_request now distinguishes a present false actor from an absent actor, so request Person enrichment cannot convert malformed identity into a valid Person. Added contract and Agent.Api boundary regressions.",
+      "timestamp": "2026-09-18T14:00:13Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-yws] Define strict shared execution identity and trusted producers",
   "type": "task",
-  "updated_at": "2026-09-15T14:10:21Z"
+  "updated_at": "2026-09-18T14:00:13Z"
 }
