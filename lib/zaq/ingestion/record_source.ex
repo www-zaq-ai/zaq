@@ -4,6 +4,13 @@ defmodule Zaq.Ingestion.RecordSource do
 
   Ingestion receives records from Channels bridges and materializes them through
   signed handles. It does not resolve provider-specific paths or mounted volumes.
+
+  Binary downloads use a safe, lowercase downloaded filename suffix when compatible
+  with the downloaded MIME type, or when that MIME is missing, blank or octet-stream.
+  Otherwise the downloaded MIME's canonical suffix wins. Only nonspecific downloaded
+  MIME permits fallback to the original filename; unknown specific types use `.bin`.
+  Original MIME never determines the staged extension. Source metadata stays intact,
+  and row/plain-text downloads continue to use Markdown.
   """
 
   alias Zaq.Channels.Materializers.DataSourceDocument
@@ -11,7 +18,7 @@ defmodule Zaq.Ingestion.RecordSource do
   alias Zaq.Event
   alias Zaq.Materialization
 
-  alias Zaq.Ingestion.{ExternalSource, TemporaryMaterializationStore}
+  alias Zaq.Ingestion.{ArtifactType, ExternalSource, TemporaryMaterializationStore}
 
   @doc "Returns the normalized ingestion kind for a canonical record."
   @spec kind(Record.t()) :: atom()
@@ -248,21 +255,41 @@ defmodule Zaq.Ingestion.RecordSource do
   end
 
   defp extension_for(%Record{} = original, %Record{} = downloaded) do
-    case extension_from_record(original) do
-      ".bin" -> extension_from_record(downloaded)
-      ext -> ext
+    extension = safe_filename_extension(downloaded.name)
+    nonspecific? = nonspecific_mime?(downloaded.mime_type)
+
+    cond do
+      extension &&
+          (nonspecific? || ArtifactType.compatible_extension?(downloaded.mime_type, extension)) ->
+        extension
+
+      nonspecific? ->
+        safe_filename_extension(original.name) || ".bin"
+
+      true ->
+        ArtifactType.canonical_extension(downloaded.mime_type) || ".bin"
     end
   end
 
-  defp extension_from_record(%Record{name: name}) when is_binary(name) do
-    case Path.extname(name) do
-      "" -> ".bin"
-      ext -> ext
-    end
+  defp safe_filename_extension(name) when is_binary(name) do
+    extension = name |> Path.extname() |> String.downcase()
+    if Regex.match?(~r/\A\.[a-z0-9]+\z/, extension), do: extension
   end
 
-  defp extension_from_record(%Record{mime_type: "application/pdf"}), do: ".pdf"
-  defp extension_from_record(_), do: ".bin"
+  defp safe_filename_extension(_name), do: nil
+
+  defp nonspecific_mime?(nil), do: true
+
+  defp nonspecific_mime?(mime_type) when is_binary(mime_type) do
+    mime_type
+    |> String.split(";", parts: 2)
+    |> hd()
+    |> String.trim()
+    |> String.downcase()
+    |> then(&(&1 in ["", "application/octet-stream"]))
+  end
+
+  defp nonspecific_mime?(_mime_type), do: false
 
   defp attr(%Record{} = record, key), do: record |> attributes() |> Map.get(key)
 

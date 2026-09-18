@@ -1,0 +1,55 @@
+defmodule Zaq.Ingestion.ArtifactTypeTest do
+  use ExUnit.Case, async: true
+  use ExUnitProperties
+
+  alias Zaq.Ingestion.ArtifactType
+
+  @mappings [
+    {"application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"},
+    {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"},
+    {"application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx"},
+    {"application/pdf", ".pdf"},
+    {"image/jpeg", ".jpg"},
+    {"application/octet-stream", ".bin"}
+  ]
+
+  test "maps supported artifact MIME types to canonical extensions" do
+    for {mime, extension} <- @mappings do
+      assert ArtifactType.canonical_extension(mime) == extension
+      assert ArtifactType.compatible_extension?(mime, extension)
+    end
+  end
+
+  test "accepts compatible aliases and normalizes case and MIME parameters" do
+    assert ArtifactType.canonical_extension(" Application/PDF ; charset=binary ") == ".pdf"
+    assert ArtifactType.compatible_extension?(" IMAGE/JPEG; x=y", ".JPEG")
+    refute ArtifactType.compatible_extension?("application/pdf", ".docx")
+  end
+
+  test "missing or unmapped MIME and unsafe extensions have no mapping" do
+    for mime <- [nil, "", "  ", "application/x-zaq-unknown"] do
+      assert ArtifactType.canonical_extension(mime) == nil
+      refute ArtifactType.compatible_extension?(mime, ".pdf")
+    end
+
+    for extension <- [nil, "", ".", "pdf", "../pdf", ".pdf/evil", ".pdf\\evil", ".pdf\n", ".pdf "] do
+      refute ArtifactType.compatible_extension?("application/pdf", extension)
+    end
+  end
+
+  property "canonical extensions are normalized, path-safe and compatible" do
+    check all(
+            mime <-
+              one_of([
+                member_of(Enum.map(@mappings, &elem(&1, 0))),
+                string(:alphanumeric, max_length: 40)
+              ]),
+            max_runs: 50
+          ) do
+      if extension = ArtifactType.canonical_extension(mime) do
+        assert extension =~ ~r/\A\.[a-z0-9]+\z/
+        assert ArtifactType.compatible_extension?(mime, extension)
+      end
+    end
+  end
+end
