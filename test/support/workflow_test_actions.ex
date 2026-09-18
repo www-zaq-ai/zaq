@@ -188,6 +188,11 @@ defmodule Zaq.Engine.Workflows.Test.EmitPerson do
   def on_failure(_error, _context), do: :ok
 
   @impl true
+  def on_before_validate_params(params) do
+    {:ok, Map.put(params, :gender, Map.get(params, :gender) || Map.get(params, "gender"))}
+  end
+
+  @impl true
   def run(params, _context) do
     gender = Map.get(params, :gender) || Map.get(params, "gender")
     {:ok, %{name: "Sam", age: 30, gender: gender}}
@@ -368,7 +373,7 @@ defmodule Zaq.Engine.Workflows.Test.InboxWithResults do
     name: "test_inbox_with_results",
     schema: [mailbox: [type: :string, default: "INBOX"]],
     output_schema: [
-      emails: [type: {:list, :map}, required: true],
+      emails: [type: {:list, {:map, :any, :any}}, required: true],
       count: [type: :integer, required: true]
     ]
 
@@ -397,7 +402,7 @@ defmodule Zaq.Engine.Workflows.Test.InboxEmpty do
     name: "test_inbox_empty",
     schema: [mailbox: [type: :string, default: "INBOX"]],
     output_schema: [
-      emails: [type: {:list, :map}, required: true],
+      emails: [type: {:list, {:map, :any, :any}}, required: true],
       count: [type: :integer, required: true]
     ]
 
@@ -419,7 +424,7 @@ defmodule Zaq.Engine.Workflows.Test.DraftReplyStub do
       emails: [type: :any, default: []],
       delay_ms: [type: :integer, default: 0]
     ],
-    output_schema: [drafts: [type: {:list, :map}, required: true]]
+    output_schema: [drafts: [type: {:list, {:map, :any, :any}}, required: true]]
 
   @behaviour Zaq.Engine.Workflows.Action
   @impl Zaq.Engine.Workflows.Action
@@ -453,7 +458,7 @@ defmodule Zaq.Engine.Workflows.Test.DraftReplyErrorStub do
   use Jido.Action,
     name: "test_draft_reply_error_stub",
     schema: [emails: [type: :any, default: []]],
-    output_schema: [drafts: [type: {:list, :map}, required: true]]
+    output_schema: [drafts: [type: {:list, {:map, :any, :any}}, required: true]]
 
   @behaviour Zaq.Engine.Workflows.Action
   @impl Zaq.Engine.Workflows.Action
@@ -490,7 +495,7 @@ defmodule Zaq.Engine.Workflows.Test.EnsurePersonStub do
   use Jido.Action,
     name: "test_ensure_person_stub",
     schema: [drafts: [type: :any, required: true]],
-    output_schema: [drafts: [type: {:list, :map}, required: true]]
+    output_schema: [drafts: [type: {:list, {:map, :any, :any}}, required: true]]
 
   @behaviour Zaq.Engine.Workflows.Action
   @impl Zaq.Engine.Workflows.Action
@@ -519,7 +524,7 @@ defmodule Zaq.Engine.Workflows.Test.SendReplyStub do
     output_schema: [
       sent: [type: :integer, required: true],
       failed: [type: :integer, required: true],
-      results: [type: {:list, :map}, required: true]
+      results: [type: {:list, {:map, :any, :any}}, required: true]
     ]
 
   @behaviour Zaq.Engine.Workflows.Action
@@ -600,7 +605,7 @@ defmodule Zaq.Engine.Workflows.Test.ListClients do
   use Jido.Action,
     name: "test_list_clients",
     schema: [source: [type: :string, required: false]],
-    output_schema: [clients: [type: :list, required: true]]
+    output_schema: [clients: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -625,8 +630,8 @@ defmodule Zaq.Engine.Workflows.Test.CategorizeBySize do
   @moduledoc false
   use Jido.Action,
     name: "test_categorize_by_size",
-    schema: [items: [type: :list, required: true]],
-    output_schema: [results: [type: :list, required: true]]
+    schema: [items: [type: {:list, :any}, required: true]],
+    output_schema: [results: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -655,10 +660,10 @@ defmodule Zaq.Engine.Workflows.Test.Sleep do
   use Jido.Action,
     name: "test_sleep",
     schema: [
-      results: [type: :list, required: true],
+      results: [type: {:list, :any}, required: true],
       duration_ms: [type: :integer, required: false, default: 200]
     ],
-    output_schema: [results: [type: :list, required: true]]
+    output_schema: [results: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -678,8 +683,8 @@ defmodule Zaq.Engine.Workflows.Test.ProcessContact do
   @moduledoc false
   use Jido.Action,
     name: "test_process_contact",
-    schema: [contact: [type: :map, required: true]],
-    output_schema: [processed: [type: :map, required: true]]
+    schema: [contact: [type: {:map, :any, :any}, required: true]],
+    output_schema: [processed: [type: {:map, :any, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -693,8 +698,8 @@ defmodule Zaq.Engine.Workflows.Test.FilterContact do
   @moduledoc false
   use Jido.Action,
     name: "test_filter_contact",
-    schema: [contact: [type: :map, required: true]],
-    output_schema: [contact: [type: :map, required: true]]
+    schema: [contact: [type: {:map, :any, :any}, required: true]],
+    output_schema: [contact: [type: {:map, :any, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -724,8 +729,8 @@ defmodule Zaq.Engine.Workflows.Test.FlattenClients do
   @moduledoc false
   use Jido.Action,
     name: "test_flatten_clients",
-    schema: [results: [type: :list, required: true]],
-    output_schema: [clients: [type: :list, required: true]]
+    schema: [results: [type: {:list, :any}, required: true]],
+    output_schema: [clients: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -750,7 +755,7 @@ defmodule Zaq.Engine.Workflows.Test.EmitItems do
   use Jido.Action,
     name: "test_emit_items",
     schema: [input: [type: :any]],
-    output_schema: [items: [type: :list, required: true]]
+    output_schema: [items: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -859,7 +864,7 @@ defmodule Zaq.Engine.Workflows.Test.EmitNumbers do
   use Jido.Action,
     name: "test_emit_numbers",
     schema: [input: [type: :any]],
-    output_schema: [nums: [type: :list, required: true]]
+    output_schema: [nums: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -925,7 +930,7 @@ defmodule Zaq.Engine.Workflows.Test.EmitIndexedItems do
   use Jido.Action,
     name: "test_emit_indexed_items",
     schema: [count: [type: :integer, required: false, default: 3]],
-    output_schema: [items: [type: :list, required: true]]
+    output_schema: [items: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -946,8 +951,8 @@ defmodule Zaq.Engine.Workflows.Test.RecordItemTime do
   """
   use Jido.Action,
     name: "test_record_item_time",
-    schema: [items: [type: :list, required: true]],
-    output_schema: [items: [type: :list, required: true]]
+    schema: [items: [type: {:list, :any}, required: true]],
+    output_schema: [items: [type: {:list, :any}, required: true]]
 
   use Zaq.Engine.Workflows.Action
 
@@ -989,6 +994,11 @@ defmodule Zaq.Engine.Workflows.Test.RouteByRange do
   use Zaq.Engine.Workflows.Action
 
   @impl Jido.Action
+  def on_before_validate_params(params) do
+    {:ok, Map.put(params, :number, Map.get(params, :number) || Map.get(params, "number"))}
+  end
+
+  @impl Jido.Action
   def run(params, _context) do
     number = Map.get(params, :number) || Map.get(params, "number")
 
@@ -1014,6 +1024,11 @@ defmodule Zaq.Engine.Workflows.Test.Decrement do
     output_schema: [number: [type: :integer, required: true]]
 
   use Zaq.Engine.Workflows.Action
+
+  @impl Jido.Action
+  def on_before_validate_params(params) do
+    {:ok, Map.put(params, :number, Map.get(params, :number) || Map.get(params, "number"))}
+  end
 
   @impl Jido.Action
   def run(params, _context) do
@@ -1103,7 +1118,10 @@ defmodule Zaq.Engine.Workflows.Test.EmitStructRow do
   use Jido.Action,
     name: "test_emit_struct_row",
     schema: [shape: [type: :string, default: "top"]],
-    output_schema: [row: [type: :any, required: true], metadata: [type: :map, required: true]]
+    output_schema: [
+      row: [type: :any, required: true],
+      metadata: [type: {:map, :any, :any}, required: true]
+    ]
 
   use Zaq.Engine.Workflows.Action
 

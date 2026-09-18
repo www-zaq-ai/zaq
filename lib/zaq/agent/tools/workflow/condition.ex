@@ -60,19 +60,19 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
     description: "Checks that all key/value conditions hold on an input map.",
     schema: [
       input: [
-        type: {:or, [:map, :string]},
+        type: {:or, [{:map, :any, :any}, :string]},
         required: true,
         doc:
           "Map to evaluate conditions against. Normally delivered by the upstream node " <>
             "or by Batch/Iterate (this is the batch delivery field). May also be a dotted " <>
             "reference string (e.g. \"build_history.metadata\") resolved against the run " <>
             "cascade — useful because node params are not engine-resolved and a Condition " <>
-            "must keep its own `input` to fire. When absent — e.g. a Condition that is the " <>
-            "first node off a trigger — `run/2` falls back to the incoming fact at root; " <>
-            "`start.<field>` dotted keys reach the trigger payload."
+            "must keep its own `input` to fire. Input is required, including trigger-first " <>
+            "conditions: use an explicit map or a reference such as `start`. " <>
+            "Unresolved or non-map references are validation errors."
       ],
       conditions: [
-        type: {:list, :map},
+        type: {:list, {:map, :any, :any}},
         required: false,
         default: [],
         doc:
@@ -89,7 +89,7 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
     output_schema: [
       passed: [type: :boolean, required: true, doc: "true if all conditions matched."],
       input: [
-        type: :map,
+        type: {:map, :any, :any},
         required: false,
         doc:
           "The original input map, passed through — present only in :halt mode. In :continue " <>
@@ -103,16 +103,54 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
       ]
     ]
 
+  alias Jido.Action.Error
   alias Zaq.Engine.Workflows.EdgeCondition
   alias Zaq.Engine.Workflows.FactLookup
 
   require Logger
 
   @impl Jido.Action
+  def on_before_validate_params(params) do
+    Enum.reduce_while([:input, :conditions, :on_fail], {:ok, params}, fn key, {:ok, acc} ->
+      normalize_param(acc, key)
+    end)
+  end
+
+  defp normalize_param(params, key) do
+    string_key = Atom.to_string(key)
+    atom_value = normalize_value(key, Map.get(params, key))
+    string_value = normalize_value(key, Map.get(params, string_key))
+
+    cond do
+      Map.has_key?(params, key) and Map.has_key?(params, string_key) and
+          atom_value != string_value ->
+        {:halt, {:error, Error.validation_error("Conflicting #{key} aliases")}}
+
+      Map.has_key?(params, key) ->
+        {:cont, {:ok, params |> Map.delete(string_key) |> Map.put(key, atom_value)}}
+
+      Map.has_key?(params, string_key) ->
+        {:cont, {:ok, params |> Map.delete(string_key) |> Map.put(key, string_value)}}
+
+      true ->
+        {:cont, {:ok, params}}
+    end
+  end
+
+  defp normalize_value(:on_fail, "halt"), do: :halt
+  defp normalize_value(:on_fail, "continue"), do: :continue
+  defp normalize_value(_key, value), do: value
+
+  @impl Jido.Action
   def run(params, context) do
+    with {:ok, input} <- resolve_input(params, context) do
+      evaluate_conditions(params, context, input)
+    end
+  end
+
+  defp evaluate_conditions(params, context, input) do
     conditions = Map.get(params, :conditions, [])
-    on_fail = normalize_on_fail(Map.get(params, :on_fail))
-    input = resolve_input(params, context)
+    on_fail = normalize_value(:on_fail, Map.get(params, :on_fail, :halt))
     eval_map = eval_map(input, context)
 
     failed = Enum.reject(conditions, &condition_passes?(&1, eval_map))
@@ -136,8 +174,10 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
         {:ok, %{passed: true, input: input}}
 
       true ->
-        {:error,
-         "Condition not met: " <> Enum.map_join(failed, "; ", &describe_failure(&1, eval_map))}
+        message =
+          "Condition not met: " <> Enum.map_join(failed, "; ", &describe_failure(&1, eval_map))
+
+        {:error, Error.execution_error(message, %{retry: false})}
     end
   end
 
@@ -205,25 +245,34 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   #     its own `input` param to be scheduled/fire, so a reference authored on the node
   #     lands here as a raw string; resolve it so keys read the real map instead of
   #     missing against the bare string (which pins `passed` to false);
-  #   - absent → the incoming fact at root (first node off a trigger), minus this
-  #     action's own config keys.
+  # Missing input and references to non-map data are deliberate validation errors.
   # The persistent `start` namespace rides along via the cascade in every case and is
   # reachable through `start.<field>` dotted keys.
   defp resolve_input(params, context) do
     case Map.fetch(params, :input) do
-      {:ok, ref} when is_binary(ref) -> resolve_reference(ref, context)
-      {:ok, input} -> input
-      :error -> Map.drop(params, [:conditions, :on_fail])
+      {:ok, ref} when is_binary(ref) ->
+        resolve_reference(ref, context)
+
+      {:ok, input} when is_map(input) ->
+        {:ok, input}
+
+      _ ->
+        {:error,
+         Error.validation_error("Condition input must be an explicit map or map reference")}
     end
   end
 
-  # Resolve a dotted `input` reference against the run cascade. Falls back to the raw
-  # string when it does not resolve, so an unrelated literal never crashes the run
-  # (its conditions simply miss, as before).
+  # Resolve input using the same shared cascade lookup as edge conditions.
   defp resolve_reference(ref, context) do
-    case FactLookup.fetch(%{__cascade__: cascade(context)}, ref) do
-      {:ok, value} -> value
-      :error -> ref
+    case FactLookup.fetch(cascade(context), ref) do
+      {:ok, value} when is_map(value) ->
+        {:ok, value}
+
+      _ ->
+        {:error,
+         Error.validation_error("Condition input reference must resolve to a map", %{
+           reference: ref
+         })}
     end
   end
 
@@ -247,12 +296,6 @@ defmodule Zaq.Agent.Tools.Workflow.Condition do
   # `context` is always the action context map injected by `StepRunner` (or `%{}`).
   defp cascade(context),
     do: Map.get(context, :__cascade__) || Map.get(context, "__cascade__") || %{}
-
-  # `on_fail` arrives as an atom (direct calls / tests) or a string (authored in
-  # JSONB — `DagBuilder.atomize_keys` atomizes keys but leaves values as strings).
-  # Accept both; default to `:halt` when absent or unrecognized.
-  defp normalize_on_fail(value) when value in [:continue, "continue"], do: :continue
-  defp normalize_on_fail(_value), do: :halt
 
   defp condition_passes?(condition, eval_map) do
     key = get_field(condition, "key")

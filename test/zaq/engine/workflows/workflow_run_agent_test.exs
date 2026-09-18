@@ -9,7 +9,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
   alias Zaq.Engine.Workflows.{WorkflowRun, WorkflowRunAgent}
   alias Zaq.Event
   alias Zaq.Repo
-  @waiting_module "Zaq.Engine.Workflows.Test.WaitingAction"
+  @waiting_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
 
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
   @error_module "Zaq.Engine.Workflows.Test.ErrorAction"
@@ -137,7 +137,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert ar.errors["reason"] =~ "test_failure"
     end
 
-    test "history tool data-layer errors fail the step and workflow run" do
+    test "history tool invalid input fails before querying the data layer" do
       {:ok, person} =
         People.create_person(%{
           full_name: "History Failure",
@@ -174,7 +174,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
 
       [step_run] = Workflows.list_step_runs(updated.id)
       assert step_run.status == "failed"
-      assert step_run.errors["reason"] =~ "cannot be cast to type :integer"
+      assert step_run.errors["reason"] =~ "expected integer"
     end
   end
 
@@ -562,7 +562,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       wf
     end
 
-    test "run transitions to 'waiting' when WaitingAction step is reached" do
+    test "run transitions to 'waiting' when HumanInTheLoop step is reached" do
       wf = hitl_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
@@ -584,7 +584,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       refute Map.has_key?(by_name, "step2")
     end
 
-    test "WaitingAction suspends the run and WorkflowRunAgent transitions it to waiting" do
+    test "HumanInTheLoop suspends the run and WorkflowRunAgent transitions it to waiting" do
       wf = hitl_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
@@ -1018,7 +1018,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
   # EXPECTED TO FAIL until the mapping feature lands.
   # ---------------------------------------------------------------------------
   describe "execute/1 — maps a renamed trigger field onto the first node (issue #508)" do
-    test "condition as first node passes against a start-mapped renamed field" do
+    test "condition as first node receives its input through a renamed trigger mapping" do
       {:ok, wf} =
         Workflows.create_workflow(%{
           name: "WB Mapping #{System.unique_integer()}",
@@ -1030,7 +1030,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
               module: "Zaq.Agent.Tools.Workflow.Condition",
               params: %{
                 "conditions" => [
-                  %{"key" => "current_position", "op" => "eq", "value" => "CTO"}
+                  %{"key" => "position", "op" => "eq", "value" => "CTO"}
                 ]
               },
               index: 0
@@ -1040,14 +1040,16 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
             %{
               "from" => "start",
               "to" => "check_position",
-              "mapping" => %{"current_position" => "start.position"}
+              "mapping" => %{"input" => "start.person"}
             }
           ]
         })
 
       # The raw dispatched payload, exactly as TriggerNode would plant it
       # (Workflow A's output, string-keyed at the root of assigns.input).
-      source = flat_trigger_source(%{"name" => "Jad", "age" => 32, "position" => "CTO"})
+      source =
+        flat_trigger_source(%{"person" => %{"name" => "Jad", "age" => 32, "position" => "CTO"}})
+
       {:ok, run} = Workflows.create_run(wf, source)
 
       assert {:ok, updated} = WorkflowRunAgent.execute(run)

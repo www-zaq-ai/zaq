@@ -43,6 +43,7 @@ defmodule Zaq.Engine.Workflows.ConditionTriggerFailureTest do
             type: "action",
             module: @condition_module,
             params: %{
+              "input" => "start",
               "on_fail" => "halt",
               "conditions" => [
                 %{"key" => "position", "op" => "eq", "value" => "CFO"},

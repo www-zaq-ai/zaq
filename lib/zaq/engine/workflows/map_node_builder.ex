@@ -16,6 +16,10 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   node's own name, so it writes the single aggregate StepRun and is the chain's tail
   for outgoing edges.
 
+  A pending approval halts the whole fork chain and returns its typed control as
+  an internal carrier. The driver consumes it before apply, so it never reaches
+  FanIn, MapCollect, post-processing or another fork in the same pass.
+
   `build_spec/4` returns a plain spec map; `DagBuilder.add_map_chain/5` wires the
   extract head to incoming edges and appends the Map/Reduce/Collect chain — the same
   way `DagBuilder` assembles a regular node. The shared node-building primitives
@@ -27,6 +31,8 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.DagBuilder
+  alias Zaq.Engine.Workflows.ExecutionPolicy
+  alias Zaq.Engine.Workflows.PendingApproval
   alias Zaq.Engine.Workflows.StepRunner
   alias Zaq.Engine.Workflows.Steps
   alias Zaq.Engine.Workflows.WorkflowRun
@@ -35,6 +41,15 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   # `params["max_items"]`. Overridable via
   # `config :zaq, Zaq.Engine.Workflows, map_max_items: N`.
   @default_map_max_items 10_000
+
+  @doc "Identifies composite fork work created by this builder, not arbitrary domain Steps."
+  @spec fork_executor?(Step.t()) :: boolean()
+  def fork_executor?(%Step{work: work, name: name}) when is_function(work, 1) do
+    Function.info(work, :module) == {:module, __MODULE__} and
+      String.ends_with?(to_string(name), "__map_fork")
+  end
+
+  def fork_executor?(_), do: false
 
   @doc """
   Lowers a `"map"` node's params into the spec map consumed by `DagBuilder`'s
@@ -164,12 +179,14 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   defp run_fork(fact, specs) do
     specs
     |> Enum.reduce_while({:ok, fact}, fn spec, {:ok, prev} ->
-      case StepRunner.run(Map.merge(prev, spec), %{}) do
+      case Jido.Exec.run(StepRunner, Map.merge(prev, spec), %{}, ExecutionPolicy.outer_options()) do
+        {:ok, %{}, workflow_control: %PendingApproval{} = control} -> {:halt, {:pending, control}}
         {:ok, result} -> {:cont, {:ok, result}}
         {:error, _} -> {:halt, {:error, map_index_of(prev)}}
       end
     end)
     |> case do
+      {:pending, control} -> control
       {:ok, result} -> result
       {:error, index} -> %{"__map_index__" => index, "__map_error__" => true}
     end

@@ -1,10 +1,13 @@
 defmodule Zaq.Engine.Workflows.StepRunnerTest do
   use Zaq.DataCase, async: true
 
+  alias Jido.Action.Error
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.DateOperand
+  alias Zaq.Engine.Workflows.PendingApproval
   alias Zaq.Engine.Workflows.StepRunner
+  alias Zaq.Engine.Workflows.Steps.HumanInTheLoop
 
   import ExUnit.CaptureLog
 
@@ -13,9 +16,11 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
     ContextProbe,
     DraftReplyStub,
     ErrorAction,
+    ExecutionProbe,
     OkAction,
     OkWithLogsAction,
-    WaitingAction
+    ParamCapture,
+    ParamProbe
   }
 
   setup do
@@ -50,6 +55,127 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
   end
 
   describe "run/2 — happy path" do
+    test "only the trusted HITL producer may request suspension, even with a valid approval" do
+      run = create_run()
+      token = Ecto.UUID.generate()
+
+      {:ok, _} =
+        Workflows.create_approval(%{
+          workflow_run_id: run.id,
+          step_name: "review",
+          approval_token: token
+        })
+
+      control = %PendingApproval{run_id: run.id, step_name: "review", approval_token: token}
+      params = wp(run, ExecutionProbe, "review", 0)
+
+      assert {:error, error} =
+               StepRunner.run(params, %{outcome: {:ok, %{}, workflow_control: control}})
+
+      assert Error.to_map(error).message == "Untrusted workflow control producer"
+      [step] = Workflows.list_step_runs(run.id)
+      assert step.status == "failed"
+      assert step.results == nil
+      assert Workflows.get_approval_by_token(token).status == "pending"
+      refute inspect(step.logs) =~ token
+    end
+
+    test "metadata logging excludes control structs and unsupported JSON values" do
+      run = create_run()
+
+      control = %PendingApproval{
+        run_id: run.id,
+        step_name: "logs",
+        approval_token: "private-token"
+      }
+
+      params = wp(run, ExecutionProbe, "logs", 0)
+
+      metadata = %{
+        logs: [control, %{message: "safe", workflow_control: control}],
+        nested: %{control: control},
+        worker: self(),
+        count: 2
+      }
+
+      assert {:ok, _} = StepRunner.run(params, %{outcome: {:ok, %{value: "done"}, metadata}})
+      [step] = Workflows.list_step_runs(run.id)
+      assert step.status == "completed"
+
+      assert [_, %{"message" => "safe"}, %{"event" => "action_metadata", "metadata" => extra}] =
+               step.logs
+
+      assert extra == %{"nested" => %{"control" => nil}, "count" => 2}
+      refute inspect(step.logs) =~ "private-token"
+    end
+
+    test "normalized condition failures are recorded as skipped with structured fields" do
+      run = create_run()
+      condition = %ConditionNotMet{field: "age", op: "gt", actual: 10, expected: 20}
+      opts = [timeout: 0, max_retries: 0, backoff: 0, telemetry: :silent]
+      outcome = Jido.Exec.run(ExecutionProbe, %{}, %{raise: condition}, opts)
+      params = wp(run, ExecutionProbe, "condition", 0)
+
+      assert {:error, ^condition} = StepRunner.run(params, %{outcome: outcome})
+      [step] = Workflows.list_step_runs(run.id)
+      assert step.status == "skipped"
+      assert step.results["field"] == "age"
+      assert step.results["actual"] == 10
+      assert step.results["expected"] == 20
+    end
+
+    test "broader success metadata stays in logs and never leaks into business output" do
+      run = create_run()
+      params = wp(run, ExecutionProbe, "metadata", 0)
+      outcome = {:ok, %{value: "done"}, logs: [%{message: "details"}], source: "provider"}
+
+      assert {:ok, result} = StepRunner.run(params, %{outcome: outcome})
+      refute Map.has_key?(result, :source)
+      [step] = Workflows.list_step_runs(run.id)
+      assert step.status == "completed"
+
+      assert [
+               %{"event" => "step_completed"},
+               %{"message" => "details"},
+               %{"event" => "action_metadata", "metadata" => %{"source" => "provider"}}
+             ] = step.logs
+
+      refute Map.has_key?(step.results, "source")
+    end
+
+    test "error triples preserve structured errors and logs without persisting control metadata" do
+      run = create_run()
+      params = wp(run, ExecutionProbe, "failure_metadata", 0)
+      error = Error.execution_error("unavailable", %{code: 503, retry: false})
+
+      control = %PendingApproval{
+        run_id: run.id,
+        step_name: "failure_metadata",
+        approval_token: "not-durable"
+      }
+
+      outcome =
+        {:error, error,
+         logs: [%{message: "attempt"}], source: "provider", workflow_control: control}
+
+      assert {:error, ^error} = StepRunner.run(params, %{outcome: outcome})
+      [step] = Workflows.list_step_runs(run.id)
+      assert step.status == "failed"
+      assert step.errors["type"] == "execution_error"
+      assert step.errors["message"] == "unavailable"
+      assert step.errors["details"]["code"] == 503
+      assert step.errors["retryable?"] == false
+
+      assert [
+               %{"event" => "step_failed"},
+               %{"message" => "attempt"},
+               %{"event" => "action_metadata", "metadata" => %{"source" => "provider"}}
+             ] = step.logs
+
+      refute inspect(step.logs) =~ "not-durable"
+      assert step.results == nil
+    end
+
     test "calls wrapped module and writes completed ActionResult" do
       run = create_run()
 
@@ -79,6 +205,21 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       params = wp(run, OkAction, "step", 0) |> Map.put(:extra, "value")
 
       assert {:ok, _} = StepRunner.run(params, %{})
+    end
+
+    test "normalizes schema keys for execution while preserving unknown workflow params" do
+      start_supervised!(ParamCapture)
+      run = create_run()
+
+      params =
+        wp(run, ParamProbe, "params", 0)
+        |> Map.merge(%{"input" => "hello", "who" => "world"})
+
+      assert {:ok, _} = StepRunner.run(params, %{})
+      assert %{"who" => "world", input: "hello"} = ParamCapture.get_params()
+
+      [step] = Workflows.list_step_runs(run.id)
+      assert step.input == %{"input" => "hello", "who" => "world"}
     end
 
     test "calls wrapped module returning 3-tuple with logs and writes completed StepRun" do
@@ -150,7 +291,9 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
     test "calls wrapped module and writes failed ActionResult" do
       run = create_run()
 
-      assert {:error, :test_failure} = StepRunner.run(wp(run, ErrorAction, "draft", 1), %{})
+      assert {:error, error} = StepRunner.run(wp(run, ErrorAction, "draft", 1), %{})
+      assert Error.to_map(error).type == :execution_error
+      assert Error.to_map(error).message =~ "test_failure"
 
       [ar] = Workflows.list_step_runs(run.id)
       assert ar.status == "failed"
@@ -162,10 +305,12 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       assert reason =~ "test_failure"
     end
 
-    test "error from wrapped module passes through unchanged" do
+    test "error from wrapped module is normalized" do
       run = create_run()
 
-      assert {:error, :test_failure} = StepRunner.run(wp(run, ErrorAction, "step", 0), %{})
+      assert {:error, error} = StepRunner.run(wp(run, ErrorAction, "step", 0), %{})
+      assert Error.to_map(error).type == :execution_error
+      assert Error.to_map(error).message =~ "test_failure"
     end
   end
 
@@ -181,7 +326,7 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
   end
 
   describe "run/2 — crash safety" do
-    test "StepRun row is marked failed and exception is re-raised when wrapped module raises" do
+    test "StepRun row is marked failed and exception is normalized when wrapped module raises" do
       defmodule RaisingAction do
         @moduledoc false
         use Jido.Action, name: "raising_test_action_aw", schema: []
@@ -190,9 +335,8 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
 
       run = create_run()
 
-      assert_raise RuntimeError, "boom", fn ->
-        StepRunner.run(wp(run, RaisingAction, "step", 0), %{})
-      end
+      assert {:error, error} = StepRunner.run(wp(run, RaisingAction, "step", 0), %{})
+      assert %RuntimeError{message: "boom"} = error.details.original_exception
 
       [ar] = Workflows.list_step_runs(run.id)
       assert ar.status == "failed"
@@ -299,7 +443,8 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       prior_cascade = %{"step_a" => %{value: "from_a"}}
       params = wp(run, ErrorAction, "step_b", 1) |> Map.put(:__cascade__, prior_cascade)
 
-      assert {:error, :test_failure} = StepRunner.run(params, %{})
+      assert {:error, error} = StepRunner.run(params, %{})
+      assert Error.to_map(error).message =~ "test_failure"
 
       [ar] = Workflows.list_step_runs(run.id)
       assert ar.status == "failed"
@@ -318,10 +463,13 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       assert ar.results["__cascade__"]["step_b"] == %{"value" => "done"}
     end
 
-    test "scalar action result is returned without cascade or map index injection" do
+    test "scalar output is rejected before cascade or map index injection" do
       defmodule ScalarAction do
         @moduledoc false
-        use Jido.Action, name: "scalar_action_aw", schema: []
+        use Jido.Action,
+          name: "scalar_action_aw",
+          schema: [],
+          output_schema: Zoi.object(%{value: Zoi.string()})
 
         def run(_params, _context), do: {:ok, "scalar-result"}
       end
@@ -334,7 +482,11 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
         |> Map.put(:__cascade__, %{"previous" => %{value: "done"}})
         |> Map.put(:__map_index__, 7)
 
-      assert {:ok, "scalar-result"} = StepRunner.run(params, %{})
+      assert {:error, error} = StepRunner.run(params, %{})
+      assert %BadMapError{term: "scalar-result"} = error.details.original_exception
+      [row] = Workflows.list_step_runs(run.id)
+      assert row.status == "failed"
+      assert row.results == nil
     end
 
     test "wrapped module never sees __cascade__ in its params" do
@@ -366,8 +518,8 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
     end
   end
 
-  describe "run/2 — ConditionNotMet rescue" do
-    test "StepRun is marked skipped, ConditionNotMet is re-raised" do
+  describe "run/2 — ConditionNotMet classification" do
+    test "StepRun is marked skipped and returns the structured condition" do
       defmodule ConditionRaisingAction do
         @moduledoc false
         use Jido.Action, name: "condition_raising_test_action_aw", schema: []
@@ -384,9 +536,8 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
 
       run = create_run()
 
-      assert_raise ConditionNotMet, fn ->
-        StepRunner.run(wp(run, ConditionRaisingAction, "cond_step", 0), %{})
-      end
+      assert {:error, %ConditionNotMet{field: "status", op: "eq"}} =
+               StepRunner.run(wp(run, ConditionRaisingAction, "cond_step", 0), %{})
 
       [ar] = Workflows.list_step_runs(run.id)
       assert ar.status == "skipped"
@@ -396,21 +547,21 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
     end
   end
 
-  describe "run/2 — waiting_for_human handling" do
-    test "marks StepRun as 'waiting' and returns {:error, :waiting_for_human}" do
+  describe "run/2 — durable approval handling" do
+    test "marks StepRun as waiting and returns successful typed control" do
       run = create_run()
 
-      assert {:error, :waiting_for_human} =
-               StepRunner.run(wp(run, WaitingAction, "hitl_step", 0), %{})
+      assert {:ok, %{}, workflow_control: %PendingApproval{step_name: "hitl_step"}} =
+               StepRunner.run(wp(run, HumanInTheLoop, "hitl_step", 0), %{})
 
       [ar] = Workflows.list_step_runs(run.id)
       assert ar.status == "waiting"
       assert ar.step_name == "hitl_step"
     end
 
-    test "does not mark StepRun as failed when step returns waiting_for_human" do
+    test "does not mark StepRun as failed when approval is pending" do
       run = create_run()
-      StepRunner.run(wp(run, WaitingAction, "review", 0), %{})
+      StepRunner.run(wp(run, HumanInTheLoop, "review", 0), %{})
 
       [ar] = Workflows.list_step_runs(run.id)
       refute ar.status == "failed"
@@ -474,7 +625,7 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       assert length(rows) == 1, "must not create a duplicate StepRun"
     end
 
-    test "returns {:error, :waiting_for_human} without re-executing when step is already waiting" do
+    test "returns durable control without re-executing when step is already waiting" do
       run = create_run()
 
       {:ok, sr} =
@@ -482,7 +633,13 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
 
       {:ok, _} = Workflows.wait_step_run(sr)
 
-      assert {:error, :waiting_for_human} = StepRunner.run(wp(run, OkAction, "hitl", 1), %{})
+      {:ok, approval} =
+        Workflows.ensure_pending_approval(%{workflow_run_id: run.id, step_name: "hitl"})
+
+      assert {:ok, %{}, workflow_control: control} =
+               StepRunner.run(wp(run, HumanInTheLoop, "hitl", 1), %{})
+
+      assert control.approval_token == approval.approval_token
 
       rows = Workflows.list_step_runs(run.id)
       assert length(rows) == 1, "must not create a duplicate StepRun"
@@ -519,7 +676,8 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
       run = create_run()
       params = timed_params(run, 250, 200)
 
-      assert {:error, :timeout} = StepRunner.run(params, %{})
+      assert {:error, error} = StepRunner.run(params, %{})
+      assert Error.to_map(error).type == :timeout
     end
 
     test "slow path: StepRun is marked failed with reason 'timeout'" do
@@ -530,10 +688,12 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
 
       [ar] = Workflows.list_step_runs(run.id)
       assert ar.status == "failed"
-      assert ar.errors["reason"] == "timeout"
+      assert ar.errors["type"] == "timeout"
+      assert ar.errors["reason"] =~ "timed out after 200ms"
       assert ar.finished_at != nil
 
-      assert [%{"event" => "step_failed", "reason" => "timeout"}] = ar.logs
+      assert [%{"event" => "step_failed", "reason" => reason}] = ar.logs
+      assert reason == ar.errors["reason"]
     end
 
     test "slow path: Logger.error is emitted on timeout" do
@@ -545,10 +705,11 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
           StepRunner.run(params, %{})
         end)
 
-      assert log =~ "[workflow] step timed out"
+      assert log =~ "[workflow] step failed"
+      assert log =~ "TimeoutError"
     end
 
-    test "no timeout_ms in params: action runs directly without Task wrapping" do
+    test "no timeout_ms in params: action executes without a deadline" do
       run = create_run()
 
       params =

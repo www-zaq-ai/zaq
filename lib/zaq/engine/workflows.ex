@@ -1040,6 +1040,85 @@ defmodule Zaq.Engine.Workflows do
     |> Repo.insert()
   end
 
+  @doc "Reuses a pending approval for the exact run/step, including interrupted creation."
+  @spec ensure_pending_approval(map()) :: {:ok, StepApproval.t()} | {:error, term()}
+  def ensure_pending_approval(%{workflow_run_id: run_id, step_name: step_name} = attrs) do
+    changeset =
+      StepApproval.changeset(
+        %StepApproval{},
+        Map.put_new(attrs, :approval_token, Ecto.UUID.generate())
+      )
+
+    with {:ok, _} <-
+           Repo.insert(changeset,
+             on_conflict: :nothing,
+             conflict_target: [:workflow_run_id, :step_name]
+           ) do
+      case get_step_approval(run_id, step_name) do
+        %StepApproval{status: "pending"} = approval -> {:ok, approval}
+        %StepApproval{} -> {:error, :already_decided}
+        nil -> {:error, :missing_approval}
+      end
+    end
+  end
+
+  @doc "Returns the approval for an exact effective step name (including composition/fork suffixes)."
+  @spec get_step_approval(binary(), String.t()) :: StepApproval.t() | nil
+  def get_step_approval(run_id, step_name),
+    do: Repo.get_by(StepApproval, workflow_run_id: run_id, step_name: step_name)
+
+  @doc "Reconciles a cursor interrupted after its approval was persisted, before creating another row."
+  @spec recover_pending_approval_step(binary(), String.t()) :: :ok | {:error, term()}
+  def recover_pending_approval_step(run_id, step_name) do
+    case get_step_approval(run_id, step_name) do
+      %StepApproval{status: "pending"} -> recover_approval_cursor(run_id, step_name)
+      _ -> :ok
+    end
+  end
+
+  defp recover_approval_cursor(run_id, step_name) do
+    rows =
+      Repo.all(
+        from sr in StepRun,
+          where: sr.workflow_run_id == ^run_id and sr.step_name == ^step_name
+      )
+
+    case rows do
+      [] ->
+        :ok
+
+      [%StepRun{status: "waiting"}] ->
+        :ok
+
+      [%StepRun{status: "running"} = row] ->
+        recovery_wait(row)
+
+      [%StepRun{status: "failed", errors: %{"reason" => reason}} = row]
+      when reason in [
+             "node_shutdown",
+             "graceful_shutdown",
+             "orphaned_step",
+             "process_terminated",
+             "driver_crash"
+           ] ->
+        recovery_wait(row)
+
+      _ ->
+        {:error, :inconsistent_approval_cursor}
+    end
+  end
+
+  defp recovery_wait(row) do
+    row
+    |> StepRun.changeset(%{status: "waiting", errors: nil, finished_at: nil})
+    |> Repo.update()
+    |> broadcast_step()
+    |> case do
+      {:ok, _} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
   @doc "Returns a StepApproval by its unique token, or nil."
   @spec get_approval_by_token(String.t(), keyword()) :: StepApproval.t() | nil
   def get_approval_by_token(token, _opts \\ []) do
@@ -1075,6 +1154,7 @@ defmodule Zaq.Engine.Workflows do
     with :ok <- validate_run_waiting(run),
          :ok <- validate_approval_pending(approval) do
       Repo.transaction(fn ->
+        {run, approval} = lock_pending_approval!(run, approval)
         now = DateTime.utc_now(:second)
 
         {:ok, _} =
@@ -1117,6 +1197,7 @@ defmodule Zaq.Engine.Workflows do
     with :ok <- validate_run_waiting(run),
          :ok <- validate_approval_pending(approval) do
       Repo.transaction(fn ->
+        {run, approval} = lock_pending_approval!(run, approval)
         now = DateTime.utc_now(:second)
 
         {:ok, _} =
@@ -1197,6 +1278,22 @@ defmodule Zaq.Engine.Workflows do
     end
   end
 
+  defp lock_pending_approval!(run, approval) do
+    current_run = Repo.one!(from r in WorkflowRun, where: r.id == ^run.id, lock: "FOR UPDATE")
+
+    current_approval =
+      Repo.one!(from a in StepApproval, where: a.id == ^approval.id, lock: "FOR UPDATE")
+
+    with :ok <- validate_run_waiting(current_run),
+         :ok <- validate_approval_pending(current_approval),
+         true <- current_approval.workflow_run_id == current_run.id do
+      {current_run, current_approval}
+    else
+      false -> Repo.rollback(:approval_run_mismatch)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
   defp validate_run_waiting(%WorkflowRun{status: "waiting"}), do: :ok
   defp validate_run_waiting(_), do: {:error, :not_waiting}
 
@@ -1215,14 +1312,14 @@ defmodule Zaq.Engine.Workflows do
     Repo.get_by(StepRun, workflow_run_id: run_id, step_name: step_name, status: "completed")
   end
 
-  @doc "Returns the most recent terminal StepRun (completed/failed/skipped/waiting) for a step, or nil."
+  @doc "Returns the most recent replayable StepRun (including isolated failures and waiting), or nil."
   @spec get_terminal_step_run(binary(), String.t()) :: StepRun.t() | nil
   def get_terminal_step_run(run_id, step_name) do
     Repo.one(
       from sr in StepRun,
         where:
           sr.workflow_run_id == ^run_id and sr.step_name == ^step_name and
-            sr.status in ["completed", "failed", "skipped", "waiting"],
+            sr.status in ["completed", "failed", "failed_fatal", "skipped", "waiting"],
         order_by: [desc: sr.inserted_at],
         limit: 1
     )

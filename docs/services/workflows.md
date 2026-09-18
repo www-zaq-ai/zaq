@@ -25,9 +25,9 @@ DAG-based workflow engine built on [Runic](https://hexdocs.pm/runic). Workflows 
 | `Zaq.Engine.Workflows.Steps.EdgeStep` | Infrastructure `Jido.Action` injected by `DagBuilder` on conditional/mapping edges; raises `ConditionNotMet` on false; not wrapped by `StepRunner`, but writes its own `completed`/`skipped`/`failed` guard row per edge — see Crash-Safe Cursor below |
 | `Zaq.Engine.Workflows.Steps.MapCollect` | Internal tail step for a `"map"` node; runs after the `FanIn` collects every successful per-item result; wrapped by `StepRunner` under the map node's own name and writes the single aggregate `Step.Run`; recovers per-item failures from the per-fork `Step.Run` rows |
 | `Zaq.Engine.Workflows.Conditions.ConditionNotMet` | Exception raised by `Steps.EdgeStep` when a condition evaluates to false; triggers branch pruning |
-| `Zaq.Engine.Workflows.Conditions.WaitingForApproval` | Exception struct defined for the HITL approval signal; carries `step_name`, `run_id`, `approval_token`. Currently unused at runtime — `Steps.HumanInTheLoop` returns `{:error, {:waiting_for_human, approval_token}}` instead of raising this exception. Reserved for future use. |
+| `Zaq.Engine.Workflows.PendingApproval` | Non-exception internal success metadata for durable suspension; validated against the pending approval before graph apply. |
 | `Zaq.Engine.Workflows.StepApproval` | Schema: per-step approval record for a suspended run; table `step_approvals`; fields `step_name`, `approval_token`, `message`, `decision`, `approved_by`, `approved_at`; statuses: `pending`, `approved`, `rejected` |
-| `Zaq.Engine.Workflows.Steps.HumanInTheLoop` | Jido action that suspends a run for human review; creates a `StepApproval` record and returns `{:error, {:waiting_for_human, approval_token}}` |
+| `Zaq.Engine.Workflows.Steps.HumanInTheLoop` | Jido action that creates/reuses a pending approval and returns empty business output plus typed success control metadata. |
 | `Zaq.Agent.Tools.Workflow.Batch` | Build-time translator (`@behaviour Zaq.Engine.Workflows.Node`, `enrich/2`) that lowers itself onto a `"map"` node. Not a runtime construct |
 
 > **Removed:** `Iterate`, `PipelineRunner`, the bespoke `Batch` runtime, and the standalone `WorkflowApproval` schema no longer exist. Iteration is the engine `map` primitive; approval is per-step (`StepApproval`).
@@ -35,6 +35,40 @@ DAG-based workflow engine built on [Runic](https://hexdocs.pm/runic). Workflows 
 ---
 
 ## Execution Flow
+
+### Execution result contracts
+
+Condition requires an explicit input map or a reference resolving to a map,
+including trigger-first nodes (`input: "start"`) and edge mappings into `input`.
+It accepts JSON string keys without atomizing arbitrary domain keys. Known
+parameter aliases and `halt`/`continue` values normalize before Jido validation;
+conflicting aliases, unknown modes, missing input and unresolved/non-map
+references fail deliberately. Halting business conditions are non-retryable
+structured errors. Existing snapshots lacking required input must be drained or
+explicitly managed before rolling out validated execution; do not rewrite them.
+
+Authorable actions must expose Jido's `run/2`, `validate_params/1`, and
+`__action_metadata__/0`, in addition to the non-empty schemas and workflow hooks
+checked by `Action.validate/1`. Internal infrastructure such as `MapCollect`
+continues to use its own Jido contract and is not made authorable by this check.
+
+`ExecutionOutcome` separates success/error pairs and triples into business data
+and metadata. StepRunner consumes `logs` from keyword or map metadata and records
+other JSON-safe metadata in an `action_metadata` log entry. Metadata never becomes
+business output. Normalized errors retain Jido's type, message, details and
+retryability; structured `ConditionNotMet` exceptions identify skipped steps
+without parsing messages.
+
+`PendingApproval` is reserved typed success metadata under `workflow_control`.
+Consumers must verify the producer and its exact durable pending run/step/token
+association. A validation error retaining this metadata is still an error, and
+control structs are excluded from metadata logs. The sequential driver inspects
+the ordinary ActionNode metadata carrier or the trusted composite fork carrier
+before applying it. Pending results never reach graph reducers, deferred apply
+hooks, downstream steps or FanIn; no remaining sibling executes in that pass.
+The existing authorized approval lifecycle owns continuation after process exit.
+
+### Current execution lifecycle
 
 DAG preparation is owned by the run module (`Workflows`), not the agent. `ensure_prepared_dag/1` builds the DAG before the agent ever runs; a build failure marks the run `failed` and dispatches `run.failed` **before** the run starts (so a build failure never emits `run.started`). The agent only *runs* a pre-built DAG.
 
@@ -50,13 +84,14 @@ Trigger fires → Workflows.create_run/4   # snapshot steps + settings → Workf
         └─> WorkflowRunAgent.execute/2          # requires run.prepared_dag, else {:error, :missing_prepared_dag}
               ├─ update_run status: "running"
               ├─ dispatch "run.started"
-              ├─ Runic.Workflow.react_until_satisfied(prepared_dag, input, checkpoint: ...)
+              ├─ seed root → prepare_for_dispatch → execute one runnable → inspect → apply
               │    └─ StepRunner.run/2 (per step; map forks each write their own Step.Run)
-              │         ├─ checkpoint re-reads run; if status == "paused" → throw(:pause_requested)
+              │         ├─ before dispatch re-read run; if status == "paused" → throw(:pause_requested)
               │         ├─ if terminal Step.Run exists → return stored result
               │         ├─ insert Step.Run  status: "running"
-              │         ├─ mod.run(params, context)
-              │         └─ update Step.Run  status: "completed" | "failed"
+              │         ├─ Jido.Exec.run(mod, params, context, explicit_opts)
+              │         └─ update Step.Run status: "completed" | "failed" | "waiting"
+              │    └─ pending → discard result before apply → stop this pass
               ├─ catch :pause_requested → return paused run (no dispatch)
               └─ finalize/2
                    ├─ any Step.Run "waiting"  → run = "waiting" + dispatch "run.waiting"
@@ -142,10 +177,12 @@ The triggering event's payload is preserved through the fact flow as `params.eve
 `StepRunner` implements a write-before/update-after pattern:
 
 1. Write a `Step.Run` row with `status: "running"` before calling the action.
-2. Call `mod.run(params, context)`.
+2. Call `Jido.Exec.run(mod, params, context, explicit_opts)`.
 3. On `{:ok, result}` → update to `"completed"` with `results` map.
 4. On `{:error, reason}` → update to `"failed"` with `errors` map.
-5. If the action raises → exception is caught, row marked `"failed"`, `{:error, exception}` returned.
+5. Action exceptions and timeouts are normalized by Jido, persisted as failures and returned. Infrastructure failures are re-raised after marking the cursor failed.
+
+Audit input preserves submitted parameters before Jido defaults and transforms. Output is validated before cascade/fork decoration and completion persistence. Outer StepRunner execution uses timeout `0`, zero retries/backoff and silent telemetry; actual actions use full telemetry, explicit per-attempt timeout (`nil`/`0` means untimed), zero backoff and zero retries except map `retry` (two retries, three total attempts). Jido retryability still applies: validation and deterministic business failures are not retried. Inherited wrapper deadlines are rejected. ZAQ has no parallel retry loop or Task timeout mechanism.
 
 `Steps.EdgeStep` is NOT wrapped by `StepRunner` — it is infrastructure — but it writes its own idempotent guard row per edge (same create-then-update cursor, guarded by `get_step_run_by_name/2` so a Jido retry never double-writes):
 
@@ -157,9 +194,17 @@ The triggering event's payload is preserved through the fact flow as `params.eve
 
 An edge with no `run_id` (uninstrumented evaluation) writes no row in any of the three cases.
 
-After `react_until_satisfied/3` returns, `WorkflowRunAgent.finalize/2` queries all `Step.Run` rows for the run — this includes `EdgeStep`'s own guard rows, not just `StepRunner`-wrapped node rows. Any row still at `"running"` (process crash mid-action) or `"failed"` causes the run to be marked `"failed"`.
+After the sequential execute/inspect/apply driver returns, `WorkflowRunAgent.finalize/2` queries all `Step.Run` rows for the run — this includes `EdgeStep`'s own guard rows, not just `StepRunner`-wrapped node rows. Any row still at `"running"` (process crash mid-action) or `"failed"` causes the run to be marked `"failed"`.
 
-On resume, `StepRunner` first calls `get_terminal_step_run/2` for the `(run_id, step_name)` pair. If a terminal row exists (`completed`, `failed`, `skipped`, or `waiting`), the stored result is returned immediately without calling the wrapped module. For `completed` rows the stored results are returned as `{:ok, results}`; for `failed` rows as `{:error, errors}`; for `skipped` as `{:error, :condition_not_met}`; for `waiting` as `{:error, :waiting_for_human}`. This makes resume idempotent and prevents duplicate step rows.
+On resume, `StepRunner` reads the most recent replayable row for the exact effective
+step name, including composition/fork suffixes. Completed rows replay business
+data with the current incoming cascade and fork index. Isolated `failed_fatal`
+rows replay the map failure sentinel without retrying the action. HITL waiting
+rows reconstruct typed success metadata from their durable approval, never from
+persisted control output. A pending approval with an interrupted cursor reuses
+that row; inconsistent multiple or unrelated failed cursors are rejected.
+Approval decisions lock and recheck the run/approval association and current
+status, so stale decisions cannot mutate a later lifecycle state.
 
 ---
 
@@ -382,11 +427,11 @@ The prepared DAG is built once (by `ensure_prepared_dag/1`) from `run.steps_snap
 
 **3. `StepRunner` wrapper keys must be stripped before delegating.**
 
-`StepRunner` removes `[:wrapped_module, :run_id, :step_name, :step_index, :timeout_ms]` from params before calling `mod.run/2`. It also strips `:__cascade__` and `"__cascade__"` (the result accumulator used for cross-step data flow). The wrapped module must only see its own domain params. Adding new wrapper-internal keys requires updating `@wrapper_keys`.
+`StepRunner` removes `[:wrapped_module, :run_id, :step_name, :step_index, :timeout_ms]` from params before calling inner `Jido.Exec.run/4`. It also strips `:__cascade__` and `"__cascade__"` (the result accumulator used for cross-step data flow). The wrapped module must only see its own domain params. Adding new wrapper-internal keys requires updating `@wrapper_keys`.
 
 **4. The HITL signal is a return value, not an exception.**
 
-`Steps.HumanInTheLoop.run/2` returns `{:error, {:waiting_for_human, approval_token}}`. `StepRunner` pattern-matches this in its `case` block, calls `Workflows.wait_step_run/1`, and returns `{:error, :waiting_for_human}`. The `"waiting"` detection is then done in `finalize/2` by inspecting `StepRun` statuses. `WaitingForApproval` is defined as an exception struct but is not raised by any current code path — do not add rescue clauses for it expecting it to carry HITL signals.
+`Steps.HumanInTheLoop.run/2` returns `{:ok, %{}, workflow_control: %PendingApproval{}}` after ensuring a durable pending approval. StepRunner verifies the producer and exact run/step/token association, writes the waiting cursor, and preserves the control metadata. The sequential driver inspects it before applying the runnable or executing another sibling; map composition carries the same typed control out before later body steps, forks or collection. Ordinary business data is never scanned for control, and metadata on an error cannot request suspension.
 
 **5. Module resolution uses `Module.concat/1`, never `String.to_atom/1`.**
 
@@ -410,7 +455,7 @@ The prepared DAG is built once (by `ensure_prepared_dag/1`) from `run.steps_snap
 - **Do not use `String.to_atom/1` for module resolution** from untrusted JSONB data. Always use `Module.concat/1` + `Code.ensure_loaded/1`.
 - **Do not introduce type-based trigger dispatch** — triggers are event-name-driven only. New trigger sources should dispatch a `%Zaq.Event{}` with the appropriate `name` via `NodeRouter.dispatch/1`; the existing `EventRegistry` + `TriggerNode` path handles the rest.
 - **Do not check permissions inside `Zaq.Engine.Workflows` functions** — the module doc explicitly states permission checks are the caller's responsibility.
-- **Do not set `"waiting"` status directly** on a `Step.Run` or `WorkflowRun`. Always go through `HumanInTheLoop.run/2` → `{:error, {:waiting_for_human, token}}` → `StepRunner` case-match → `wait_step_run/1`. Direct status writes bypass the approval token creation and leave the run in an unresumable state.
+- **Do not set `"waiting"` status directly** on a `Step.Run` or `WorkflowRun`. Always go through `HumanInTheLoop.run/2` → durable `PendingApproval` success metadata → StepRunner verification → `wait_step_run/1`. Direct status writes bypass the approval token creation and leave the run in an unresumable state.
 - **Do not call `approve_step/5` or `reject_step/5` outside `Engine.Api`** — these functions perform state transitions that require the permission boundary enforced by `Engine.Api.handle_event/3`.
 - **Do not build a DAG inside `WorkflowRunAgent`** — DAG preparation is owned by the run module (`ensure_prepared_dag/1`). The agent only runs a pre-built `run.prepared_dag`.
 
@@ -418,22 +463,43 @@ The prepared DAG is built once (by `ensure_prepared_dag/1`) from `run.steps_snap
 
 ## Human-in-the-Loop
 
+### Executor migration rollout (#706)
+
+Before deploying the validated executor, inventory authorable workflow definitions
+and nonterminal `WorkflowRun.steps_snapshot` values, including nested map/Batch
+bodies. Check referenced modules against `Action.validate/1`, validate their input
+and output schemas, and review Condition inputs and `on_fail` values. Missing
+static Condition input needs a mapping review: a Batch item or explicit edge/
+trigger mapping may supply it. Normalize JSON aliases in the owning Action's
+validation hook; preserve required fields and output validation.
+
+Repair authorable definitions for future runs through the normal changeset/API
+boundary. Active snapshots remain immutable: drain incompatible runs or explicitly
+manage their cancellation/restart before changing executors. Deploy the HITL
+producer, sequential driver, replay readers and Jido boundary together; old and
+new workers must not execute the same active run. Rollback must retain compatible
+readers for new suspensions or first drain those runs. Verify approval/rejection
+through Engine API after reloading a suspended run from the database.
+
+Record the target-environment inventory and disposition of incompatible snapshots
+in the rollout issue before deploying; local test success does not establish
+compatibility of deployed definitions.
+
+### Approval lifecycle
+
 Include `Steps.HumanInTheLoop` as a step to suspend a workflow at that point and wait for human approval before continuing.
 
 **Suspend flow:**
 
 ```
 WorkflowRunAgent.execute
-  └─> StepRunner wraps HumanInTheLoop
-        └─> HumanInTheLoop.run/2
-              ├─ generates approval_token (UUID)
-              ├─ Workflows.create_approval/1 → StepApproval{status: "pending"}
-              └─ returns {:error, {:waiting_for_human, approval_token}}
-        └─> StepRunner case-matches {:error, {:waiting_for_human, approval_token}}
-              ├─ Workflows.wait_step_run(step_run) → StepRun{status: "waiting"}
-              └─ returns {:error, :waiting_for_human}
-  └─> finalize/2 detects StepRun with status "waiting"
-        └─> Workflows.update_run(run, %{status: "waiting"}) + dispatch "run.waiting"
+  └─> Jido.Exec(StepRunner) → Jido.Exec(HumanInTheLoop)
+        └─> Workflows.ensure_pending_approval/1 (reuses run/step identity)
+        └─> {:ok, %{}, workflow_control: %PendingApproval{}}
+        └─> StepRunner validates association and persists waiting cursor
+  └─> driver detects suspension before applying the runnable
+        └─> finalize persists waiting, then dispatches "run.waiting"
+        └─> driver exits and releases its watcher
 ```
 
 **Approve flow:**
