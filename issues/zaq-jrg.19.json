@@ -9,9 +9,15 @@
   "id": "zaq-jrg.19",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented :remove global instruction with atomic/idempotent deletion, policy completeness rollback, auth-change compatibility, exact type and focused tests. mix test test/zaq/engine/connect/mutations_test.exs: 25 tests + 1 property, 0 failures. Left open pending commit authorization.",
+      "timestamp": "2026-09-18T10:08:52Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.19] Add atomic global grant removal",
   "type": "task",
-  "updated_at": "2026-09-18T10:07:26Z"
+  "updated_at": "2026-09-18T10:08:52Z"
 }
