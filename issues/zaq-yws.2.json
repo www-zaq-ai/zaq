@@ -15,11 +15,15 @@
     {
       "text": "Implemented strict ensure_server/4; legacy arities/raw tuples reject missing actors. Validate before touch/replacement; immutable execution_actor checked via live Jido status including already_started path. Core API/Factory/ServerManager/nested suite passed 159 tests. No commits per user request.",
       "timestamp": "2026-09-15T14:53:38Z"
+    },
+    {
+      "text": "Scope decision: do not add process-instance pinning or ask-time identity revalidation for the hypothetical ensure-to-ask registry replacement race. Trusted internal scope producers guarantee stable actor ownership for supported flows; retain existing creation binding and warm mismatch checks. Revisit only with a reproducible supported production path.",
+      "timestamp": "2026-09-18T14:00:14Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-yws] Enforce actor-bound server lifecycle",
   "type": "task",
-  "updated_at": "2026-09-15T14:53:38Z"
+  "updated_at": "2026-09-18T14:00:14Z"
 }
