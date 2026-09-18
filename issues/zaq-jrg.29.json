@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-18T13:24:26Z",
+  "description": "Introduce a static registry of OAuth behaviour implementations with Standard default and Codex customization; persist the stable behaviour ID on Connect credential metadata; expose selection in Auth Credentials and AI Credentials; route global and Person OAuth attempts through the same implementation; preserve safe account metadata; remove Codex-specific branches from central Connect OAuth. Action reuse: extend existing Connect OAuth/OAuthAttempts, credential configuration and Engine/NodeRouter operations; registry and callbacks are local-only implementation infrastructure, not Actions or agent tools. Tests: registry/default/unknown IDs, standard regressions, Codex global and Person exchange/refresh, safe metadata, persistence, and BO selection.",
+  "id": "zaq-jrg.29",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 2,
+  "status": "open",
+  "title": "Extract configurable OAuth behaviours",
+  "type": "task",
+  "updated_at": "2026-09-18T13:24:26Z"
+}
