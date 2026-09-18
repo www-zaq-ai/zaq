@@ -26,6 +26,10 @@
     {
       "text": "Added docs/services/personal-grant-sequences.md with five validated Mermaid sequence diagrams covering API-key creation, OAuth2 creation/callback, OAuth2 refresh, Person merge, and Person removal. Diagrams expose module hops, transaction/network boundaries, lifecycle collision policy, outbox behavior, and boundary assessment. Linked from Engine guide and docs index. Documentation-only; Mermaid 12 parser validates all five diagrams and source links exist.",
       "timestamp": "2026-09-17T19:58:49Z"
+    },
+    {
+      "text": "Contract-hardening review added independent prerequisites zaq-jrg.18 through zaq-jrg.22. The fan-in is intentional: separate legacy-debt, mutation, OAuth/authentication, resolver, and projection test surfaces converge on final integration validation.",
+      "timestamp": "2026-09-18T10:06:37Z"
     }
   ],
   "priority": 2,
