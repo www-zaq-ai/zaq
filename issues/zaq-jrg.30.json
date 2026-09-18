@@ -21,11 +21,15 @@
     {
       "text": "Refresh follow-up: extending the existing Connect refresh lease/Oban worker and existing AI backfill migration; no new Action or tool exposure. Approved direction: migrated legacy AI OAuth grants are deleted after canonical copy, and orphaned source Connect credentials are deleted (shared source credentials survive only if unrelated grants still reference them). No forward repair migration because this branch is pre-release/fresh-DB only. Refresh jobs become unique per grant, proactive scheduling skips active leases, and worker contention snoozes until lease expiry rather than failing.",
       "timestamp": "2026-09-18T19:49:50Z"
+    },
+    {
+      "text": "Refresh fix validation: mix q passed; migration/preflight/canonical migration plus refresh worker/scheduler/concurrency/recovery suites passed (1 property, 61 tests). Review found only a pre-deployment queued-job dedup concern; no repair was added because the approved rollout is fresh DB/pre-release and new inserts are now unique per grant. Existing focused BO/People E2E remains valid because this follow-up changes backend migration/refresh behavior only.",
+      "timestamp": "2026-09-18T19:54:51Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Admin and Person credential management UI",
   "type": "task",
-  "updated_at": "2026-09-18T19:49:50Z"
+  "updated_at": "2026-09-18T19:54:51Z"
 }
