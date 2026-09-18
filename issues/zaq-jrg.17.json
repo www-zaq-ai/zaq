@@ -30,11 +30,15 @@
     {
       "text": "Contract-hardening review added independent prerequisites zaq-jrg.18 through zaq-jrg.22. The fan-in is intentional: separate legacy-debt, mutation, OAuth/authentication, resolver, and projection test surfaces converge on final integration validation.",
       "timestamp": "2026-09-18T10:06:37Z"
+    },
+    {
+      "text": "Contract-hardening validation: mix q passes; combined focused Connect/OAuth/People/callback suite passes (263 tests, 7 properties). mix precommit reached 9,422 tests but failed 4 unrelated full-suite tests: three reproducible distributed peer connection/time-out failures in ConfidentialEventPeerTest/AuthRateLimiterPeerTest, plus one sandbox ownership/assertion failure outside the focused files. E2E not authored/run because this pass changes backend contracts only and no UI journey. Work remains uncommitted because commit was not authorized.",
+      "timestamp": "2026-09-18T10:42:54Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.17] Validate rebased self-service integration",
   "type": "task",
-  "updated_at": "2026-09-18T10:06:37Z"
+  "updated_at": "2026-09-18T10:42:54Z"
 }
