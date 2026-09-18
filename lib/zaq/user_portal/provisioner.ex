@@ -33,8 +33,11 @@ defmodule Zaq.UserPortal.Provisioner do
   @spec router_key_set?() :: boolean()
   def router_key_set? do
     case System.get_ai_provider_credential_by_name(@credential_name) do
-      %AIProviderCredential{api_key: key} when is_binary(key) -> key != ""
-      _ -> false
+      %AIProviderCredential{} = credential ->
+        System.resolve_ai_provider_api_key(credential) != ""
+
+      _ ->
+        false
     end
   end
 
@@ -75,15 +78,20 @@ defmodule Zaq.UserPortal.Provisioner do
   @spec ensure_offline_credential() :: {:ok, AIProviderCredential.t()} | {:error, term()}
   def ensure_offline_credential do
     case System.get_ai_provider_credential_by_name(@credential_name) do
-      nil -> System.create_ai_provider_credential(credential_attrs(%{}))
-      %AIProviderCredential{} = existing -> {:ok, existing}
+      nil ->
+        System.create_ai_provider_credential(
+          credential_attrs(%{metadata: %{"auth_kind" => "none"}})
+        )
+
+      %AIProviderCredential{} = existing ->
+        {:ok, existing}
     end
   end
 
   @spec provision_with_key(%{litellm_api_key: String.t()}) ::
           {:ok, AIProviderCredential.t()} | {:error, term()}
   def provision_with_key(%{litellm_api_key: api_key}) when is_binary(api_key) do
-    attrs = credential_attrs(%{api_key: api_key})
+    attrs = credential_attrs(%{api_key: api_key, metadata: %{"auth_kind" => "api_key"}})
 
     result =
       case System.get_ai_provider_credential_by_name(@credential_name) do

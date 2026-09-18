@@ -4,8 +4,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
   """
 
   alias Zaq.Config
-  alias Zaq.Utils.Map, as: MapUtils
-
   @codex_oauth_client_id "app_EMoamEEZ73f0CkXaXp7hrann"
 
   def with_provider_endpoint(params, previous_provider, provider_endpoint_fun)
@@ -128,11 +126,21 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
         "oauth2" -> oauth2_metadata(params, metadata, opts)
         _ -> metadata
       end
+      |> apply_oauth_behaviour(auth_mode, Map.get(params, "oauth_behaviour"))
 
     params
     |> Map.put("metadata", metadata)
     |> Map.delete("auth_mode")
+    |> Map.delete("oauth_behaviour")
   end
+
+  defp apply_oauth_behaviour(metadata, "oauth2", "standard"),
+    do: Map.drop(metadata, ["auth_profile", :auth_profile])
+
+  defp apply_oauth_behaviour(metadata, "oauth2", profile) when is_binary(profile),
+    do: Map.put(metadata, "auth_profile", profile)
+
+  defp apply_oauth_behaviour(metadata, _auth_mode, _profile), do: metadata
 
   defp auth_mode_for_provider(%{"provider" => "openai_codex"}, _auth_mode), do: "oauth2"
   defp auth_mode_for_provider(_params, auth_mode), do: auth_mode
@@ -152,22 +160,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
       |> Map.put_new("token_url", "https://auth.openai.com/oauth/token")
       |> Map.put_new("client_id", codex_oauth_client_id(opts))
       |> Map.put_new("scope", "openid profile email offline_access")
-      |> merge_codex_authorize_params()
     else
       metadata
     end
-  end
-
-  defp merge_codex_authorize_params(metadata) do
-    authorize_params =
-      metadata
-      |> MapUtils.metadata_value("authorize_params")
-      |> MapUtils.stringify_keys()
-      |> Map.put("id_token_add_organizations", "true")
-      |> Map.put("codex_cli_simplified_flow", "true")
-      |> Map.put_new("originator", "zaqos")
-
-    Map.put(metadata, "authorize_params", authorize_params)
   end
 
   defp codex_oauth_client_id(opts) do

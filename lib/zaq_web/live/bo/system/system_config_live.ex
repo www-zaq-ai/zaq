@@ -88,6 +88,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:connect_credential_form, nil)
      |> assign(:connect_credential_errors, [])
      |> assign(:connect_default_scopes_text, "")
+     |> assign(:oauth_behaviours, engine_connect_oauth_behaviours())
      |> assign(:selected_connect_credential, nil)
      |> assign(:selected_connect_grants, [])
      |> assign(:ai_grants, [])
@@ -318,7 +319,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     changeset =
       credential
-      |> engine_connect_change_credential(ConnectHelpers.sanitize_credential_params(params))
+      |> engine_connect_change_credential(
+        ConnectHelpers.sanitize_credential_params(params, credential.metadata)
+      )
       |> Map.put(:action, :validate)
 
     {:noreply,
@@ -330,7 +333,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     case engine_connect_update_credential(
            credential,
-           ConnectHelpers.sanitize_credential_params(params)
+           ConnectHelpers.sanitize_credential_params(params, credential.metadata)
          ) do
       {:ok, _updated} ->
         {:noreply,
@@ -360,7 +363,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     case ConnectEvents.run_grant_action(
            socket.assigns.selected_connect_grants,
            id,
-           &engine_connect_delete_grant/1
+           fn grant -> engine_connect_delete_grant(credential.id, grant.id) end
          ) do
       :not_found ->
         {:noreply, put_flash(socket, :error, "Grant not found.")}
@@ -493,7 +496,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     case ConnectEvents.run_grant_action(
            socket.assigns.selected_connect_grants,
            id,
-           &engine_connect_schedule_refresh/1
+           fn grant -> engine_connect_schedule_refresh(credential.id, grant.id) end
          ) do
       :not_found ->
         {:noreply, put_flash(socket, :error, "Grant not found.")}
@@ -1518,89 +1521,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  defp ensure_ai_connect_credential(ai_credential) do
-    attrs = ai_connect_credential_attrs(ai_credential)
+  defp ensure_ai_connect_credential(%{connect_credential_id: id}) when is_integer(id),
+    do: engine_connect_fetch_credential(id)
 
-    case ai_connect_credential_for(ai_credential) do
-      nil -> engine_connect_create_credential(attrs)
-      credential -> engine_connect_update_credential(credential, attrs)
-    end
-  end
-
-  defp ai_connect_credential_for(ai_credential) do
-    Enum.find(engine_connect_list_credentials(), fn credential ->
-      MapUtils.metadata_value(credential.metadata, "ai_provider_credential_id") ==
-        to_string(ai_credential.id)
-    end)
-  end
-
-  defp ai_connect_credential_attrs(ai_credential) do
-    metadata =
-      (ai_credential.metadata || %{})
-      |> normalize_ai_oauth_metadata(ai_credential)
-      |> Map.put("ai_provider_credential_id", to_string(ai_credential.id))
-      |> Map.put("managed_by", "system_config_ai_provider")
-
-    %{
-      name: ai_connect_credential_name(ai_credential),
-      provider: ai_oauth_provider(ai_credential),
-      auth_kind: "oauth2",
-      request_format: "bearer",
-      user_level: false,
-      metadata: metadata,
-      client_id: MapUtils.metadata_value(metadata, "client_id"),
-      scopes: ai_oauth_scopes(metadata)
-    }
-  end
-
-  defp ai_connect_credential_name(ai_credential) do
-    "AI OAuth #{ai_credential.id}: #{ai_credential.name}"
-    |> String.slice(0, 255)
-  end
-
-  defp ai_oauth_scopes(metadata) do
-    case MapUtils.metadata_value(metadata, "scope") do
-      scope when is_binary(scope) -> String.split(scope)
-      _ -> []
-    end
-  end
-
-  defp ai_oauth_provider(%{provider: "openai_codex"}), do: "openai"
-  defp ai_oauth_provider(%{provider: provider}), do: provider
-
-  defp normalize_ai_oauth_metadata(metadata, %{provider: "openai_codex"}) do
-    authorize_params =
-      metadata
-      |> MapUtils.metadata_value("authorize_params")
-      |> MapUtils.stringify_keys()
-      |> Map.put("id_token_add_organizations", "true")
-      |> Map.put("codex_cli_simplified_flow", "true")
-      |> Map.put_new("originator", "zaqos")
-
-    metadata
-    |> Map.put("auth_profile", "openai_chatgpt_codex")
-    |> Map.put("authorize_params", authorize_params)
-  end
-
-  defp normalize_ai_oauth_metadata(metadata, _ai_credential), do: metadata
+  defp ensure_ai_connect_credential(_), do: {:error, :credential_unavailable}
 
   defp codex_oauth_metadata?(metadata),
     do: MapUtils.metadata_value(metadata, "auth_profile") == "openai_chatgpt_codex"
 
-  defp build_ai_oauth_claim_url(connect_credential, ai_credential) do
-    dispatch_engine(:connect_oauth_build_authorize_url, %{
-      credential: connect_credential,
-      context: %{
-        resource_type: "ai_provider_credential",
-        resource_id: ai_credential.id,
-        owner_type: "org",
-        owner_id: nil,
-        metadata: %{
-          source: "bo_system_config_ai_credentials",
-          ai_provider_credential_id: ai_credential.id
-        }
-      }
-    })
+  defp build_ai_oauth_claim_url(connect_credential, _ai_credential) do
+    case dispatch_engine(:connect_oauth_start_global_configuration, %{
+           credential_id: connect_credential.id,
+           attrs: %{}
+         }) do
+      {:ok, %{authorize_url: url}} -> {:ok, url}
+      other -> other
+    end
   end
 
   defp ai_oauth_error(:missing_global_base_url),
@@ -2015,6 +1951,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp engine_connect_list_credentials,
     do: dispatch_engine(:system_config_connect_list_credentials)
 
+  defp engine_connect_oauth_behaviours,
+    do: dispatch_engine(:connect_oauth_behaviours)
+
   defp engine_connect_fetch_credential(id),
     do: dispatch_engine(:connect_fetch_credential, %{credential_id: id})
 
@@ -2024,9 +1963,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         credential: credential,
         attrs: attrs
       })
-
-  defp engine_connect_create_credential(attrs),
-    do: dispatch_engine(:connect_create_credential, %{attrs: attrs})
 
   defp engine_connect_update_credential(credential, attrs),
     do:
@@ -2041,17 +1977,26 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp engine_connect_list_ai_provider_grants,
     do:
       dispatch_engine(:connect_list_grants, %{
-        filters: %{resource_type: "ai_provider_credential"}
+        filters: %{resource_type: "connect_credential", owner_type: "org"},
+        projection: :summary
       })
 
   defp engine_connect_next_refresh_jobs_for_grants(grants),
     do: dispatch_engine(:system_config_connect_next_refresh_jobs_for_grants, %{grants: grants})
 
-  defp engine_connect_delete_grant(grant),
-    do: dispatch_engine(:system_config_connect_delete_grant, %{grant: grant})
+  defp engine_connect_delete_grant(credential_id, grant_id),
+    do:
+      dispatch_engine(:system_config_connect_delete_grant, %{
+        credential_id: credential_id,
+        grant_id: grant_id
+      })
 
-  defp engine_connect_schedule_refresh(grant),
-    do: dispatch_engine(:system_config_connect_schedule_refresh, %{grant: grant})
+  defp engine_connect_schedule_refresh(credential_id, grant_id),
+    do:
+      dispatch_engine(:system_config_connect_schedule_refresh, %{
+        credential_id: credential_id,
+        grant_id: grant_id
+      })
 
   defp data_source_oauth_default_scopes(provider) do
     case dispatch_channels(:data_source_oauth_default_scopes, %{provider: provider}) do

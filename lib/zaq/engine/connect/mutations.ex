@@ -25,6 +25,7 @@ defmodule Zaq.Engine.Connect.Mutations do
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{Credential, Grant, MutationEvents}
+  alias Zaq.Engine.Connect.OAuth.Registry, as: OAuthBehaviourRegistry
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
   alias Zaq.Utils.DateUtils
@@ -75,15 +76,16 @@ defmodule Zaq.Engine.Connect.Mutations do
       candidate = configuration_candidate(original, attrs)
 
       validate_auth_change(original, Changeset.apply_changes(candidate), global)
-      encrypted_attrs = encrypt_attrs(attrs, @config_secrets, opts, :invalid_configuration)
+
+      encrypted_attrs =
+        if Map.get(attrs, :auth_kind) == "none",
+          do: attrs,
+          else: encrypt_attrs(attrs, @config_secrets, opts, :invalid_configuration)
+
       credential = persist_configuration(original, encrypted_attrs)
       grant = global_grant(credential, global, opts)
 
-      ensure(
-        credential.personal_credential_policy == :required or
-          usable?(grant, credential, now(opts)),
-        :global_grant_unusable
-      )
+      ensure(valid_global_result?(credential, grant, now(opts)), :global_grant_unusable)
 
       %{
         credential_id: credential.id,
@@ -163,6 +165,7 @@ defmodule Zaq.Engine.Connect.Mutations do
       )
 
       material = normalize_attrs(material, material_fields("oauth2"), :invalid_material)
+      validate_grant_metadata(credential, material)
       attrs = Map.put(material, :status, "active")
       changeset = Grant.credential_changeset(grant, credential, attrs)
       ensure(changeset.valid?, :invalid_material)
@@ -281,6 +284,7 @@ defmodule Zaq.Engine.Connect.Mutations do
     validate_current_person(owner)
     fields = material_fields(credential.auth_kind)
     material = normalize_attrs(material, fields, :invalid_material)
+    validate_grant_metadata(credential, material)
 
     ensure(
       Enum.all?(Map.take(material, @secrets), fn {_, value} -> present?(value) end),
@@ -313,8 +317,22 @@ defmodule Zaq.Engine.Connect.Mutations do
   end
 
   defp material_fields("api_key"), do: [:api_key, :expires_at]
-  defp material_fields("oauth2"), do: [:access_token, :refresh_token, :expires_at]
+  defp material_fields("oauth2"), do: [:access_token, :refresh_token, :expires_at, :metadata]
   defp material_fields("jwt_bearer"), do: [:private_key, :expires_at]
+
+  defp material_fields("none"), do: []
+
+  defp validate_grant_metadata(%Credential{auth_kind: "oauth2"} = credential, material) do
+    metadata = Map.get(material, :metadata, %{})
+    profile = Zaq.Utils.Map.read_any(credential.metadata || %{}, ["auth_profile", :auth_profile])
+
+    case OAuthBehaviourRegistry.fetch(profile) do
+      {:ok, behaviour} -> ensure(behaviour.valid_grant_metadata?(metadata), :invalid_material)
+      {:error, _} -> Repo.rollback(:invalid_configuration)
+    end
+  end
+
+  defp validate_grant_metadata(_credential, _material), do: :ok
 
   defp validate_current_person(:org), do: :ok
 
@@ -379,6 +397,13 @@ defmodule Zaq.Engine.Connect.Mutations do
         Grant.private_key?(grant.private_key)
 
   defp required_material?(_), do: false
+
+  defp valid_global_result?(%Credential{auth_kind: "none"}, nil, _now), do: true
+
+  defp valid_global_result?(%Credential{personal_credential_policy: :required}, _grant, _now),
+    do: true
+
+  defp valid_global_result?(credential, grant, now), do: usable?(grant, credential, now)
 
   defp present?(value) when is_binary(value),
     do: String.valid?(value) and String.trim(value) not in ["", "••••••••"]

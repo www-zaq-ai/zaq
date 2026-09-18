@@ -34,8 +34,14 @@ defmodule Zaq.UserPortal.AccountSync do
 
   defp zaq_router_api_key do
     case System.get_ai_provider_credential_by_name(Provisioner.credential_name()) do
-      %{api_key: key} when is_binary(key) -> key
-      _ -> nil
+      %Zaq.System.AIProviderCredential{} = credential ->
+        case System.resolve_ai_provider_api_key(credential) do
+          "" -> nil
+          key -> key
+        end
+
+      _ ->
+        nil
     end
   end
 end

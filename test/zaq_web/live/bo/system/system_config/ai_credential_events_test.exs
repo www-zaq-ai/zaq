@@ -87,9 +87,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
     assert result["metadata"]["authorize_url"] == "https://auth.openai.com/oauth/authorize"
     assert result["metadata"]["client_id"] == "app_EMoamEEZ73f0CkXaXp7hrann"
     assert result["metadata"]["scope"] == "openid profile email offline_access"
-    assert result["metadata"]["authorize_params"]["id_token_add_organizations"] == "true"
-    assert result["metadata"]["authorize_params"]["codex_cli_simplified_flow"] == "true"
-    assert result["metadata"]["authorize_params"]["originator"] == "zaqos"
+    refute Map.has_key?(result["metadata"], "authorize_params")
     refute Map.has_key?(result["metadata"], "backend_base_url")
     refute Map.has_key?(result["metadata"], "backend_path")
     refute Map.has_key?(result["metadata"], "redirect_uri")
@@ -108,7 +106,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
     assert result["metadata"]["client_id"] == "configured-client-id"
   end
 
-  test "normalize_params/1 merges missing Codex authorize params into existing metadata" do
+  test "normalize_params/1 leaves custom authorize params for the behaviour to augment at runtime" do
     params = %{
       "provider" => "openai_codex",
       "auth_mode" => "oauth2",
@@ -118,11 +116,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
 
     result = AICredentialEvents.normalize_params(params)
 
-    assert result["metadata"]["authorize_params"] == %{
-             "originator" => "custom_originator",
-             "id_token_add_organizations" => "true",
-             "codex_cli_simplified_flow" => "true"
-           }
+    assert result["metadata"]["authorize_params"] == %{"originator" => "custom_originator"}
   end
 
   test "normalize_params/1 leaves OpenAI oauth2 metadata generic" do
@@ -135,6 +129,33 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
     result = AICredentialEvents.normalize_params(params)
 
     assert result["metadata"] == %{"audience" => "openai", "auth_kind" => "oauth2"}
+  end
+
+  test "normalize_params/1 persists the selected registered OAuth behaviour" do
+    params = %{
+      "provider" => "openai",
+      "auth_mode" => "oauth2",
+      "oauth_behaviour" => "openai_chatgpt_codex",
+      "metadata" => ~s({"audience":"openai"})
+    }
+
+    result = AICredentialEvents.normalize_params(params)
+
+    assert result["metadata"]["auth_profile"] == "openai_chatgpt_codex"
+    refute Map.has_key?(result, "oauth_behaviour")
+  end
+
+  test "normalize_params/1 stores the standard behaviour by removing a custom profile" do
+    params = %{
+      "provider" => "openai",
+      "auth_mode" => "oauth2",
+      "oauth_behaviour" => "standard",
+      "metadata" => ~s({"auth_profile":"openai_chatgpt_codex","project":"zaq"})
+    }
+
+    result = AICredentialEvents.normalize_params(params)
+
+    assert result["metadata"] == %{"auth_kind" => "oauth2", "project" => "zaq"}
   end
 
   test "normalize_params/1 forces OpenAI Codex to oauth2" do

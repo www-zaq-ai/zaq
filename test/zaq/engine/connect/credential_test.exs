@@ -3,6 +3,38 @@ defmodule Zaq.Engine.Connect.CredentialTest do
 
   alias Zaq.Engine.Connect.Credential
 
+  defp valid_oauth_attrs(metadata) do
+    %{
+      name: "OAuth credential",
+      provider: "example",
+      auth_kind: "oauth2",
+      request_format: "bearer",
+      user_level: false,
+      metadata: metadata,
+      client_id: "client-id"
+    }
+  end
+
+  test "accepts registered OAuth behaviours and defaults missing selection" do
+    assert Credential.changeset(%Credential{}, valid_oauth_attrs(%{})).valid?
+
+    assert Credential.changeset(
+             %Credential{},
+             valid_oauth_attrs(%{"auth_profile" => "openai_chatgpt_codex"})
+           ).valid?
+  end
+
+  test "rejects an explicitly unknown OAuth behaviour" do
+    changeset =
+      Credential.changeset(
+        %Credential{},
+        valid_oauth_attrs(%{"auth_profile" => "untrusted.module"})
+      )
+
+    refute changeset.valid?
+    assert "auth_profile is not a registered OAuth behaviour" in errors_on(changeset).metadata
+  end
+
   defp valid_jwt_bearer_attrs(overrides) do
     %{
       name: "Drive SA",

@@ -474,7 +474,9 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 ### Provider Spec (`Zaq.Agent.ProviderSpec`)
 - Central home for provider normalization (`reqllm_provider/1`) and fixed-URL policy (`fixed_url_provider?/1`)
 - Builds provider spec maps and generation options consumed by `Factory`
-- Resolves configured-agent provider credentials through `Zaq.System.get_ai_provider_credential/1`
+- Resolves configured-agent provider configuration through
+  `Zaq.System.get_ai_provider_credential/1`; System supplies authentication only from
+  the row's associated canonical Connect credential/grant
 - Keeps OpenAI-compatible fallback behavior centralized so other modules do not branch by provider
 
 ### Query Rewriting (`Zaq.Agent.Retrieval`)

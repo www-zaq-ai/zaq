@@ -5,7 +5,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
   import Phoenix.Component, only: [to_form: 2]
   import Phoenix.LiveViewTest
 
-  alias Zaq.Engine.Connect.Grant
   alias Zaq.System.AIProviderCredential
   alias ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab
 
@@ -30,6 +29,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
 
     assert html =~ ~s(value="oauth2" selected)
     assert html =~ "OAuth2 uses Connect grants bound to this AI credential."
+    assert html =~ "ai_credential[oauth_behaviour]"
+    assert html =~ "Standard OAuth2"
     assert html =~ "ai-credential-api-key-input"
   end
 
@@ -60,6 +61,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
   test "credential rows label oauth2 metadata and revoked grants" do
     credential = %AIProviderCredential{
       id: 101,
+      connect_credential_id: 501,
       name: "OAuth Anthropic",
       provider: "anthropic",
       endpoint: "https://api.anthropic.com",
@@ -67,9 +69,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
       metadata: %{"auth_kind" => "oauth2"}
     }
 
-    grant = %Grant{
-      resource_type: "ai_provider_credential",
-      resource_id: "101",
+    grant = %{
+      credential_id: 501,
+      resource_type: "connect_credential",
+      owner_type: "org",
       status: "revoked",
       expires_at: nil
     }
@@ -90,6 +93,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
   test "active grants with nil expiry render active bearer status" do
     credential = %AIProviderCredential{
       id: 202,
+      connect_credential_id: 502,
       name: "OpenAI Codex Active Grant",
       provider: "openai_codex",
       endpoint: "https://chatgpt.com/backend-api",
@@ -97,9 +101,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
       metadata: %{"auth_profile" => "openai_chatgpt_codex"}
     }
 
-    grant = %Grant{
-      resource_type: "ai_provider_credential",
-      resource_id: "202",
+    grant = %{
+      credential_id: 502,
+      resource_type: "connect_credential",
+      owner_type: "org",
       status: "active",
       expires_at: nil
     }
@@ -114,6 +119,54 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
 
     assert html =~ "Bearer grant active"
     assert html =~ "text-emerald-700 bg-emerald-50 border-emerald-200"
+  end
+
+  test "person grants do not satisfy the global AI credential badge" do
+    credential = %AIProviderCredential{
+      id: 203,
+      connect_credential_id: 503,
+      name: "OpenAI Codex Person Grant",
+      provider: "openai_codex",
+      endpoint: "https://chatgpt.com/backend-api",
+      api_key: "",
+      metadata: %{"auth_profile" => "openai_chatgpt_codex"}
+    }
+
+    person_grant = %{
+      credential_id: 503,
+      resource_type: "connect_credential",
+      owner_type: "person",
+      status: "active",
+      expires_at: nil
+    }
+
+    html =
+      render_panel(
+        credentials: [credential],
+        ai_grants: [person_grant],
+        modal: false,
+        provider_options: [{"OpenAI Codex", "openai_codex"}]
+      )
+
+    assert html =~ "No bearer grant"
+    refute html =~ "Bearer grant active"
+  end
+
+  test "legacy API key fields do not satisfy the canonical global badge" do
+    credential = %AIProviderCredential{
+      id: 204,
+      connect_credential_id: 504,
+      name: "Legacy API Key",
+      provider: "openai",
+      endpoint: "https://api.openai.com/v1",
+      api_key: "legacy-only-key",
+      metadata: %{"auth_kind" => "api_key"}
+    }
+
+    html = render_panel(credentials: [credential], ai_grants: [], modal: false)
+
+    assert html =~ "No bearer grant"
+    refute html =~ "API key configured"
   end
 
   test "nil metadata renders as an empty json object" do
@@ -150,7 +203,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
           modal: false,
           delete_confirm_modal: false,
           action: :new,
-          provider_options: [{"OpenAI", "openai"}, {"Anthropic", "anthropic"}]
+          provider_options: [{"OpenAI", "openai"}, {"Anthropic", "anthropic"}],
+          oauth_behaviours: [
+            %{
+              id: "standard",
+              title: "Standard OAuth2",
+              description: "Standards-compliant OAuth2."
+            },
+            %{
+              id: "openai_chatgpt_codex",
+              title: "OpenAI Codex / ChatGPT",
+              description: "ChatGPT subscription OAuth2."
+            }
+          ]
         ],
         assigns
       )

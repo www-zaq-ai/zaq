@@ -125,10 +125,13 @@ Adapter inbound path:
   changesets, not authenticated Person APIs. Atomic management uses the separate
   mutation boundary below. Authenticated self-service composes `PeopleAuth`,
   `PeoplePermissions` and the Connect management context at `PeopleAuthGateway`.
-- Legacy issue/list/filter-based resolve stay resource-bound. Scheduled refresh now
-  includes canonical OAuth grants through the shared safe refresh boundary (`zaq-jrg.7`). Canonical
-  rows do not enter existing AI, data-source or MCP consumers. No secret backfill
-  or fallback from configuration to canonical grants is performed.
+- Legacy issue/list/filter-based resolve stays resource-bound. Scheduled refresh includes
+  canonical OAuth grants through the shared safe refresh boundary (`zaq-jrg.7`). AI
+  provider credentials now associate to and resolve canonical rows through the System
+  boundary; Data Source and MCP consumers remain legacy until their own integrations.
+  No fallback from configuration secrets or legacy AI resource grants occurs at runtime.
+  See [System configuration](system-config.md#connect-backed-ai-credentials) for the
+  migration, explicit no-auth and rollback contract.
 - Migration rollback locks the tables and refuses while canonical grants (including
   revoked/expired rows) or nondefault policy/secret-binding configuration exist.
   Operators must explicitly reconcile that data before rollback; it never silently
@@ -583,9 +586,26 @@ Failed setup leaves the existing credential/global grant unchanged, or creates n
 Canonical OAuth configuration retains the existing credential fields and metadata
 (`authorize_url`, `token_url`, `auth_profile`, `pkce`, and allowlisted `authorize_params`:
 `prompt`, `access_type`, `include_granted_scopes`, `login_hint`, `audience`). Client ID,
-client secret and scopes belong in their existing credential fields. No second OAuth
-application configuration or provider registry is introduced. Unknown/secret-bearing
-metadata rejects at the canonical admin boundary; Person inputs cannot modify it.
+client secret and scopes belong in their existing credential fields. `auth_profile`
+selects a stable ID from `Zaq.Engine.Connect.OAuth.Registry`; missing selection resolves
+to Standard OAuth2 and an unknown explicit ID is invalid. Registry entries are a static
+allowlist with title/description metadata and implementation modules—never dynamic
+module names from a request. This OAuth customization registry does not replace the
+Channels provider catalog or introduce another OAuth application configuration.
+Unknown/secret-bearing metadata rejects at the canonical admin boundary; Person inputs
+cannot modify it.
+
+Implementations of `Zaq.Engine.Connect.OAuth.Behaviour` may customize only redirect URI,
+PKCE requirement, fixed authorization parameters and token-response normalization.
+Connect still owns state, trusted owner/session checks, attempt binding, HTTP exchange
+and refresh, encryption, grant writes and invalidation. Protected state, bound redirect
+and generated PKCE parameters override provider additions. The Codex implementation
+contains its loopback redirect, fixed ChatGPT authorization parameters, mandatory PKCE
+and account-claim extraction; no Codex branch remains in the central OAuth module.
+Normalized grant metadata is validated again against the selected implementation before
+canonical replacement or refresh. Standard accepts none; Codex currently admits only a
+nonblank `chatgpt_account_id`. Raw ID tokens and arbitrary provider payload fields are
+never persisted as grant metadata.
 Without explicit endpoint metadata, canonical authorization still uses the existing
 provider catalog. Its `oauth_credentials: :explicit` event option passes through
 Channels API into bridge context, making the bound client ID, redirect and scopes

@@ -50,6 +50,33 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectHelpersTest do
            }
   end
 
+  test "sanitize_credential_params/2 preserves OAuth configuration while changing behaviour" do
+    current = %{
+      "authorize_url" => "https://provider.example/authorize",
+      "token_url" => "https://provider.example/token",
+      "auth_profile" => "openai_chatgpt_codex"
+    }
+
+    custom =
+      ConnectHelpers.sanitize_credential_params(
+        %{
+          "auth_kind" => "oauth2",
+          "metadata" => %{"auth_profile" => "openai_chatgpt_codex"}
+        },
+        current
+      )
+
+    assert custom["metadata"] == current
+
+    standard =
+      ConnectHelpers.sanitize_credential_params(
+        %{"auth_kind" => "oauth2", "metadata" => %{"auth_profile" => "standard"}},
+        current
+      )
+
+    assert standard["metadata"] == Map.delete(current, "auth_profile")
+  end
+
   test "sanitize_credential_params/1 sets metadata to empty map when metadata is not a map" do
     params = %{"name" => "JWT Credential", "metadata" => "not-a-map", "scopes" => "openid"}
 
