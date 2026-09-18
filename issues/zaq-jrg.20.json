@@ -9,9 +9,15 @@
   "id": "zaq-jrg.20",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Removed sessionless Person OAuth APIs and migrated tests to the authenticated gateway via a reusable test helper. Added outer-transaction rejection at the gateway. Focused OAuth/auth/callback suites: 64 tests + 1 property, 0 failures. Left open pending commit authorization.",
+      "timestamp": "2026-09-18T10:15:05Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.20] Consolidate session-bound Person OAuth",
   "type": "task",
-  "updated_at": "2026-09-18T10:08:53Z"
+  "updated_at": "2026-09-18T10:15:05Z"
 }
