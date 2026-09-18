@@ -9,9 +9,15 @@
   "id": "zaq-jrg.21",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Moved non-OAuth clock sampling behind selection locks and made ResolvedCredential.expires_at the earliest configuration/grant deadline. Added deadline matrix and lock-blocking regression. Resolver test files: 157 tests + 3 properties passed after one assertion correction; focused concurrency rerun 18/18. Left open pending commit authorization.",
+      "timestamp": "2026-09-18T10:18:37Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.21] Finalize resolved credential expiry semantics",
   "type": "task",
-  "updated_at": "2026-09-18T10:15:06Z"
+  "updated_at": "2026-09-18T10:18:37Z"
 }
