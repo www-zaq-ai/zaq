@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-jrg.27"
+  ],
   "blocks": [],
   "created": "2026-09-18T10:58:34Z",
   "description": "Functional scope: cross-slice rollout verification, migration safety, source-of-truth audit and documentation. Immediate tests: integration acceptance for existing API key, OAuth, explicit no-auth, failed preflight and rollback; property invariants for one association/authority. Existing relevant E2E is run but no new feature E2E authored because no user journey/UI changes in this slice. Mock external HTTP edge only. Docs: Agent, Engine, System config, migration operations. Action reuse: not a new operation; verify all consumers reuse canonical Connect and existing Agent Factory path. Validation: focused tests/coverage, mix q, relevant existing E2E if applicable, final mix precommit and diff checks.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg.28] Validate Connect-backed AI cutover",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:45Z"
+  "updated_at": "2026-09-18T10:58:47Z"
 }
