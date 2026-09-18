@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-18T10:06:09Z",
+  "description": "Functional specifications/files: add the required Temporary/Tracked marker on Connect.delete_grant/1 and a tech-debt entry clarifying that it remains only for legacy resource-bound BO/event consumers; no behavior change and no canonical callers. Tests first: no new behavior test; preserve existing deletion regression coverage and verify source/track reference. Branches: legacy only. Mocking: none. Docs: tech-debt tracker. Action reuse: not applicable—documentation marker only; existing explicit-owner canonical removal remains authoritative.",
+  "id": "zaq-jrg.18",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-jrg] Mark legacy grant deletion retirement",
+  "type": "task",
+  "updated_at": "2026-09-18T10:06:09Z"
+}
