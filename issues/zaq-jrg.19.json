@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-18T10:06:10Z",
+  "description": "Functional specifications/files: extend Connect.save_credential_configuration global instruction to :remove, atomically deleting the org slot only when resulting policy is required; preserve rollback and secret-free mutation jobs. Tests first: policy/instruction matrix, absent idempotency, policy/config changes, rollback/jobs, concurrency. Branches: keep/replace/remove across disabled/optional/required. Mocking: none; real Repo/Oban. Docs: Engine/system config/module contracts. Action reuse: extend existing Connect.Mutations save/cleanup transaction; no Action/tool exposure.",
+  "id": "zaq-jrg.19",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-jrg] Add atomic global grant removal",
+  "type": "task",
+  "updated_at": "2026-09-18T10:06:10Z"
+}
