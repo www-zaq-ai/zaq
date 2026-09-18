@@ -17,11 +17,15 @@
     {
       "text": "Implementation complete pending human UX/UI approval. Added BO disabled/optional/required policy controls and validation, encrypted staged OAuth policy completion for new optional/disabled OAuth credentials, AI-only secret-free People credential eligibility, /people/credentials API-key/OAuth/revoke/remove flows, retained disabled-slot cleanup, and origin/source-validated OAuth popup messaging. Reused canonical System/Connect/PeopleAuth/NodeRouter boundaries; no new Action/tool. Validation: mix q passed; focused backend/BO/People/OAuth suites passed (4 properties, 334 tests); existing Chromium People + System Config E2E passed (83 tests). Full Playwright suite was attempted but exceeded the 850s execution timeout after 300+ passing tests; focused required areas passed. New feature E2E remains blocked on zaq-jrg.31 UX approval before zaq-jrg.32.",
       "timestamp": "2026-09-18T18:17:22Z"
+    },
+    {
+      "text": "Refresh follow-up: extending the existing Connect refresh lease/Oban worker and existing AI backfill migration; no new Action or tool exposure. Approved direction: migrated legacy AI OAuth grants are deleted after canonical copy, and orphaned source Connect credentials are deleted (shared source credentials survive only if unrelated grants still reference them). No forward repair migration because this branch is pre-release/fresh-DB only. Refresh jobs become unique per grant, proactive scheduling skips active leases, and worker contention snoozes until lease expiry rather than failing.",
+      "timestamp": "2026-09-18T19:49:50Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Admin and Person credential management UI",
   "type": "task",
-  "updated_at": "2026-09-18T18:17:22Z"
+  "updated_at": "2026-09-18T19:49:50Z"
 }
