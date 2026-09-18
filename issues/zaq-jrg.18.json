@@ -9,9 +9,15 @@
   "id": "zaq-jrg.18",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented tracked Temporary marker in Connect.delete_grant/1 and Engine tech-debt entry. Removal issue: zaq-wml. Left open because user did not authorize committing.",
+      "timestamp": "2026-09-18T10:07:25Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.18] Mark legacy grant deletion retirement",
   "type": "task",
-  "updated_at": "2026-09-18T10:06:37Z"
+  "updated_at": "2026-09-18T10:07:25Z"
 }
