@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-jrg.17"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jrg.19] Add atomic global grant removal",
   "type": "task",
-  "updated_at": "2026-09-18T10:06:36Z"
+  "updated_at": "2026-09-18T10:07:26Z"
 }
