@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.31"
+  ],
   "created": "2026-09-18T17:06:02Z",
   "description": "One-pass implementation of BO AI personal-policy administration plus authenticated Person self-service credential management for AI-associated optional/required API-key and OAuth credentials. Reuse canonical Connect atomic configuration and :people_auth gateway; derive ownership from session; preserve write-only secrets, revoke/remove semantics and session-bound OAuth. Excludes Person-aware Agent runtime resolution/invalidation. Action reuse: extend existing System AI credential configuration, Engine/NodeRouter actions and PeopleCredentials gateway; UI helpers remain local-only; no agent-tool exposure. Tests first: policy/global grant matrix, AI-only eligibility, permission and isolation, secret-free rendering, API key replace, OAuth, revoke/remove, callback failures. Mermaid: graph LR; B[Backend contracts] --\u003e BO[BO policy UI]; B --\u003e P[Person credentials UI]; BO --\u003e V[Validation]; P --\u003e V.",
   "id": "zaq-jrg.30",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Admin and Person credential management UI",
   "type": "task",
-  "updated_at": "2026-09-18T17:06:02Z"
+  "updated_at": "2026-09-18T17:06:20Z"
 }
