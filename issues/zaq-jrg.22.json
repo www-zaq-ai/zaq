@@ -9,9 +9,15 @@
   "id": "zaq-jrg.22",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented CredentialStatuses as the reusable secret-free projection, trusted explicit-owner Connect status read, exact summary/configuration/grant result types, and PersonCredentials delegation. Focused status/auth tests: 24 tests + 2 properties, 0 failures. Combined contract suite: 263 tests + 7 properties, 0 failures. mix q passes. Left open pending commit authorization.",
+      "timestamp": "2026-09-18T10:42:54Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.22] Stabilize safe credential status contracts",
   "type": "task",
-  "updated_at": "2026-09-18T10:18:38Z"
+  "updated_at": "2026-09-18T10:42:54Z"
 }
