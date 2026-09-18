@@ -1,7 +1,8 @@
 {
   "assignee": "Julien",
   "blocked_by": [
-    "zaq-jrg.16"
+    "zaq-jrg.16",
+    "zaq-jrg.18"
   ],
   "blocks": [],
   "created": "2026-09-17T17:22:09Z",
@@ -27,5 +28,5 @@
   "status": "in_progress",
   "title": "[zaq-jrg.17] Validate rebased self-service integration",
   "type": "task",
-  "updated_at": "2026-09-17T19:58:49Z"
+  "updated_at": "2026-09-18T10:06:35Z"
 }
