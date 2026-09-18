@@ -11,9 +11,15 @@
   "id": "zaq-jrg.26",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Converged System AI create/update/delete and BO global OAuth onto associated Connect credentials, canonical Mutations, OAuthAttempts and an explicit Engine dispatch action. Portal provisioning/account sync now use canonical grants; keyless scaffold is explicit no-auth. Removed parallel BO OAuth backing-credential creation. Action reuse: reused/extended System, Connect mutations and OAuthAttempts; no new business Action needed. Focused tests pass; pending commit/final validation.",
+      "timestamp": "2026-09-18T11:57:17Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.26] Converge AI credential writers",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:47Z"
+  "updated_at": "2026-09-18T11:57:17Z"
 }
