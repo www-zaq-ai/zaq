@@ -277,11 +277,17 @@ defmodule Zaq.E2E.Reset do
     Repo.query!("DELETE FROM conversations", [])
   end
 
-  defp reset_system_config! do
+  @doc "Reset system configuration and AI credentials to the E2E baseline."
+  def reset_system_config! do
     Repo.delete_all(ConfiguredAgent)
     Repo.delete_all(MCPEndpoint)
     Repo.delete_all(SystemConfig)
-    Repo.delete_all(AIProviderCredential)
+
+    AIProviderCredential
+    |> Repo.all()
+    |> Enum.each(fn credential ->
+      {:ok, _deleted} = Zaq.System.delete_ai_provider_credential(credential)
+    end)
 
     SystemConfigFixtures.seed_embedding_config(%{
       endpoint: System.get_env("EMBEDDING_ENDPOINT", "http://localhost:11434/v1"),
