@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-18T10:07:05Z",
+  "description": "Retire Connect.delete_grant/1 and its generic Engine/BO event path once every legacy resource-bound grant consumer has migrated to supported explicit-owner/resource lifecycle operations. AI credential migration alone is insufficient: verify SystemConfigLive and Engine.Api no longer dispatch legacy grant structs, remove obsolete tests/docs, and preserve canonical remove_credential_grant/2. Action reuse: removal only; canonical Connect.Mutations cleanup remains authoritative.",
+  "id": "zaq-wml",
+  "labels": [],
+  "priority": 3,
+  "status": "open",
+  "title": "Remove legacy Connect grant APIs after consumer migration",
+  "type": "task",
+  "updated_at": "2026-09-18T10:07:05Z"
+}
