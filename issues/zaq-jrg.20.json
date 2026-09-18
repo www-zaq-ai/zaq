@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-18T10:06:10Z",
+  "description": "Functional specifications/files: remove direct sessionless Person OAuth start/reconnect APIs and keep PeopleCredentials authenticated transaction -\u003e session-bound prepare -\u003e post-commit authorization; preserve separate global admin OAuth. Tests first: session expiry/revocation, permission withdrawal, replay, cancellation, failed reconnect, provider HTTP outside transaction, and removal of direct-start callers. Branches: start/reconnect/callback/error. Mocking: external OAuth HTTP only. Docs: Engine/system config/module docs. Action reuse: extend existing PeopleAuthGateway/PeopleCredentials/OAuthAttempts boundary; no parallel auth or Action.",
+  "id": "zaq-jrg.20",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-jrg] Consolidate session-bound Person OAuth",
+  "type": "task",
+  "updated_at": "2026-09-18T10:06:10Z"
+}
