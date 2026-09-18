@@ -13,11 +13,15 @@
     {
       "text": "Action reuse decision: extend existing System AIProviderCredentialConfiguration, Connect.Mutations/CredentialStatuses/PersonCredentials/OAuthAttempts, PeopleCredentials gateway, and NodeRouter :people_auth dispatch. No new Action or agent-tool exposure. Person eligibility is server-derived from AIProviderCredential.connect_credential_id; retained own slots stay cleanup-only after policy changes. New OAuth credentials must be saved first as required/no-global, then global OAuth callback atomically installs the grant and desired policy to avoid orphan/half-configured state.",
       "timestamp": "2026-09-18T17:15:05Z"
+    },
+    {
+      "text": "Implementation complete pending human UX/UI approval. Added BO disabled/optional/required policy controls and validation, encrypted staged OAuth policy completion for new optional/disabled OAuth credentials, AI-only secret-free People credential eligibility, /people/credentials API-key/OAuth/revoke/remove flows, retained disabled-slot cleanup, and origin/source-validated OAuth popup messaging. Reused canonical System/Connect/PeopleAuth/NodeRouter boundaries; no new Action/tool. Validation: mix q passed; focused backend/BO/People/OAuth suites passed (4 properties, 334 tests); existing Chromium People + System Config E2E passed (83 tests). Full Playwright suite was attempted but exceeded the 850s execution timeout after 300+ passing tests; focused required areas passed. New feature E2E remains blocked on zaq-jrg.31 UX approval before zaq-jrg.32.",
+      "timestamp": "2026-09-18T18:17:22Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Admin and Person credential management UI",
   "type": "task",
-  "updated_at": "2026-09-18T17:15:05Z"
+  "updated_at": "2026-09-18T18:17:22Z"
 }
