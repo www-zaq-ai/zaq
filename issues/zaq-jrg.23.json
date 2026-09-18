@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.24"
+  ],
   "created": "2026-09-18T10:57:40Z",
   "description": "Functional scope: add secret-free classification/preflight for legacy AI provider credentials before Connect cutover; classify API-key, legacy resource-bound OAuth, explicitly configured no-auth, corrupt/unreadable, and ambiguous rows. Files: focused System migration context plus migration tests. Tests first: deterministic classification, corrupt ciphertext vs absent secret, duplicate/ambiguous OAuth grants, rerun safety, reports contain IDs/status only. Branches: all auth kinds and failure states. Mocking: real Repo/encryption; no HTTP. Docs: System config rollout. Action reuse: local-only operator migration operation; reuse System reads, Connect status APIs and existing OAuth/grant queries; not an agent tool/workflow action because it handles privileged secret migration. Contract: bounded/restartable secret-free report, fixed errors, no writes.",
   "id": "zaq-jrg.23",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg.23] AI credential compatibility preflight",
   "type": "task",
-  "updated_at": "2026-09-18T10:57:54Z"
+  "updated_at": "2026-09-18T10:58:45Z"
 }

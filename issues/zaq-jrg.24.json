@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-jrg.23"
+  ],
   "blocks": [],
   "created": "2026-09-18T10:57:55Z",
   "description": "Functional scope: associate AIProviderCredential with canonical Connect.Credential and add explicit auth_kind none semantics; no empty-key inference. No-auth is disabled policy, grantless, non-personal and resolves explicit no-auth authentication. Extend atomic :remove validation only for explicit no-auth+disabled. Tests first: FK/deletion constraints, invalid policy/grant combinations, no-auth resolver matrix/property tests, atomic authenticated-to-no-auth transition/rollback, clock/expiry regressions. Mocking: real Repo. Docs: Engine/System config. Action reuse: extend Connect.Mutations, CredentialResolver and existing AI schema; no new Action because schema invariants/resolution are local domain contracts.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg.24] Connect association and explicit no-auth",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:32Z"
+  "updated_at": "2026-09-18T10:58:45Z"
 }
