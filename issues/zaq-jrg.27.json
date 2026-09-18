@@ -11,9 +11,15 @@
   "id": "zaq-jrg.27",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Cut global AI runtime authentication over to Connect resolution: System config readers, ProviderSpec/model discovery, LLM/embedding/image-to-text and portal checks receive canonical org auth; retained AI api_key and unrelated legacy grants are ignored. Fetched latest main first (branch already contains it; no Agent overlap). Added regression proving ProviderSpec observes changed canonical grant rather than retained AI secret. Pending commit/final validation.",
+      "timestamp": "2026-09-18T11:57:18Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.27] Cut over global AI runtime authentication",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:47Z"
+  "updated_at": "2026-09-18T11:57:18Z"
 }
