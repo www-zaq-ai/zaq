@@ -11,9 +11,15 @@
   "id": "zaq-jrg.25",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented preflight-gated transactional backfill for API-key, OAuth and explicit no-auth rows, non-null final association, OAuth metadata sanitization, retained rollback source grants, guarded down migration, and migration replay/down-up tests. Action reuse: local-only Ecto migration reusing canonical storage contracts; no Action/tool exposure. Pending commit/final validation.",
+      "timestamp": "2026-09-18T11:57:17Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.25] Restartable AI credential backfill",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:46Z"
+  "updated_at": "2026-09-18T11:57:17Z"
 }
