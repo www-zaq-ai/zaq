@@ -9,9 +9,15 @@
   "id": "zaq-jrg.28",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Final validation evidence (2026-09-18): focused aggregate passed (5 properties, 411 tests); SystemConfigLive passed (1 property, 206 tests); ProviderSpec passed (60 tests); OAuth focused suites passed (1 property, 58 tests); ProviderModels regression rerun passed (1 property, 31 tests); existing Playwright system_config.spec.js passed (54 tests); mix q passed; git diff --check passed. After resetting the isolated test DB, people_permissions_concurrency_test.exs passed alone (1 test), confirming its earlier failure was stale test-DB residue. Final mix precommit completed 48 doctests, 138 properties, 9433 tests with 4 failures and 1 skipped (86 excluded); all four remaining failures are accepted multi-node peer infrastructure failures through Zaq.TestSupport.PeopleAuthPeer/:peer (including ConfidentialEventPeerTest and both AuthRateLimiterPeerTest cases), not failures in the Connect-backed AI cutover. No peer infrastructure was changed. Action reuse evidence: changes extend/reuse canonical Connect credential/grant resolution, OAuthAttempts, NodeRouter dispatch, and the existing Agent runtime path; no duplicate operation or automatic tool exposure was introduced.",
+      "timestamp": "2026-09-18T12:27:23Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.28] Validate Connect-backed AI cutover",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:47Z"
+  "updated_at": "2026-09-18T12:27:23Z"
 }
