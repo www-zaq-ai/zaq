@@ -11,7 +11,8 @@ defmodule Zaq.Engine.Connect.ResolvedCredential do
   and configured signing identity/profile, not a minted assertion. `bearer` means
   a consumer should apply Bearer formatting; `raw` means the literal value. This
   module does not select a transport header, sign JWTs or produce provider options.
-  Metadata is limited to selected-grant account ID/name strings.
+  Metadata is limited to selected-grant account ID/name strings. `expires_at` is the
+  earliest local configuration or selected-grant deadline; `nil` means neither has one.
   """
 
   @enforce_keys [

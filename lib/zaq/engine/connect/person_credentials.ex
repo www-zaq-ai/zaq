@@ -25,8 +25,8 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
   absence semantics for the later resolver. Cleanup still requires an active Person.
 
   Writes accept API-key or JWT material via `Mutations`' auth-kind allowlists, plus
-  expiration. OAuth uses `start_oauth/3` or `reconnect_oauth/3` and opaque one-use
-  `OAuthAttempts`; People never supply OAuth client configuration. Ownership and all configuration
+  expiration. OAuth starts only through the authenticated `PeopleCredentials` gateway,
+  which creates opaque one-use `OAuthAttempts`; People never supply OAuth client configuration. Ownership and all configuration
   fields are server-derived. Success contains only credential ID/status; errors are
   fixed atoms, never changesets, provider payloads, or submitted params. Writes and
   their secret-free `MutationEvents` jobs commit or roll back together.
@@ -35,24 +35,18 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
   import Ecto.Query
 
   alias Zaq.Accounts.Person
-  alias Zaq.Engine.Connect.{Credential, Grant, Mutations, OAuthAttempts}
+  alias Zaq.Engine.Connect.{Credential, CredentialStatuses, Mutations, OAuthAttempts}
   alias Zaq.Repo
 
-  @type result :: {:ok, map()} | {:error, atom()}
-
-  @doc "Starts a one-use OAuth attempt for the trusted authenticated Person's own slot."
-  @spec start_oauth(Person.t(), pos_integer(), keyword()) :: result()
-  def start_oauth(authenticated_person, credential_id, opts \\ []) do
-    with {:ok, person} <- current_person(authenticated_person),
-         :ok <- valid_id(credential_id) do
-      OAuthAttempts.start_person(person, credential_id, opts)
-    end
-  end
-
-  @doc "Starts a fresh OAuth attempt; the previous grant remains until successful completion."
-  @spec reconnect_oauth(Person.t(), pos_integer(), keyword()) :: result()
-  def reconnect_oauth(authenticated_person, credential_id, opts \\ []),
-    do: start_oauth(authenticated_person, credential_id, opts)
+  @type mutation_result :: %{credential_id: pos_integer(), status: String.t()}
+  @type error ::
+          :encryption_failed
+          | :invalid_material
+          | :not_found
+          | :unauthorized
+          | :unsupported_auth_kind
+          | :mutation_event_enqueue_failed
+  @type result :: {:ok, CredentialStatuses.summary() | mutation_result()} | {:error, error()}
 
   @doc false
   @spec prepare_oauth(Person.t(), Ecto.UUID.t(), pos_integer(), keyword()) :: result()
@@ -64,20 +58,11 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
   end
 
   @doc "Lists eligible configurations with only the authenticated Person's own status."
-  @spec list_available(Person.t()) :: {:ok, [map()]} | {:error, :unauthorized}
+  @spec list_available(Person.t()) ::
+          {:ok, [CredentialStatuses.summary()]} | {:error, :unauthorized}
   def list_available(authenticated_person) do
     with {:ok, person} <- current_person(authenticated_person) do
-      rows =
-        person.id
-        |> summaries()
-        |> where(
-          [c],
-          c.secret_binding == :grant and c.personal_credential_policy in [:optional, :required]
-        )
-        |> order_by([c], asc: c.name, asc: c.id)
-        |> Repo.all()
-
-      {:ok, Enum.map(rows, &status/1)}
+      {:ok, CredentialStatuses.list_person(person.id)}
     end
   end
 
@@ -86,20 +71,7 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
   def get_own_status(authenticated_person, credential_id) do
     with {:ok, person} <- current_person(authenticated_person),
          :ok <- valid_id(credential_id) do
-      query =
-        person.id
-        |> summaries()
-        |> where([c, g], c.id == ^credential_id)
-        |> where(
-          [c, g],
-          (c.secret_binding == :grant and c.personal_credential_policy in [:optional, :required]) or
-            not is_nil(g.id)
-        )
-
-      case Repo.one(query) do
-        nil -> {:error, :not_found}
-        row -> {:ok, status(row)}
-      end
+      CredentialStatuses.get_person(person.id, credential_id)
     end
   end
 
@@ -148,7 +120,7 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
 
   defp current_person(%Person{id: id, __meta__: %{state: :loaded}})
        when is_integer(id) and id > 0 and id <= 9_223_372_036_854_775_807 do
-    case Repo.one(from p in Person, where: p.id == ^id and p.status == "active") do
+    case Repo.get_by(Person, id: id, status: "active") do
       nil -> {:error, :unauthorized}
       person -> {:ok, person}
     end
@@ -163,33 +135,6 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
     do:
       credential.secret_binding == :grant and
         credential.personal_credential_policy in [:optional, :required]
-
-  defp summaries(person_id) do
-    from c in Credential,
-      left_join: g in Grant,
-      on:
-        g.credential_id == c.id and g.resource_type == "connect_credential" and
-          g.owner_type == "person" and g.owner_id == ^person_id,
-      select: %{
-        credential_id: c.id,
-        name: c.name,
-        provider: c.provider,
-        auth_kind: c.auth_kind,
-        personal_credential_policy: c.personal_credential_policy,
-        status: g.status,
-        expires_at: g.expires_at
-      }
-  end
-
-  defp status(%{status: nil} = row), do: %{row | status: "absent"}
-
-  defp status(%{status: "active", expires_at: %DateTime{} = expiry} = row) do
-    if DateTime.compare(expiry, DateTime.utc_now()) == :gt,
-      do: row,
-      else: %{row | status: "expired"}
-  end
-
-  defp status(row), do: row
 
   defp unwrap({:ok, value}), do: value
   defp unwrap({:error, reason}), do: Repo.rollback(reason)

@@ -206,6 +206,62 @@ defmodule Zaq.Engine.Connect.PersonCredentialsTest do
     end
   end
 
+  test "trusted administrative status reads one explicit owner without exposing secrets" do
+    owner = person()
+    other = person()
+    config = credential(%{personal_credential_policy: :disabled})
+
+    {:ok, _} = Connect.replace_credential_grant(config, :org, %{api_key: "GLOBAL_SENTINEL"})
+
+    {:ok, personal} =
+      Connect.replace_credential_grant(config, {:person, owner.id}, %{
+        api_key: "PERSON_SENTINEL",
+        expires_at: ~U[2099-09-14 12:01:00Z]
+      })
+
+    assert {:ok, own_status} =
+             Connect.get_credential_grant_status(config, {:person, owner.id},
+               now: ~U[2026-09-14 12:00:00Z]
+             )
+
+    assert own_status == summary(config, "active", ~U[2099-09-14 12:01:00Z])
+    refute inspect(own_status) =~ "SENTINEL"
+
+    assert {:ok, %{status: "active"} = org_status} =
+             Connect.get_credential_grant_status(config.id, :org)
+
+    assert Map.keys(org_status) |> Enum.sort() ==
+             [
+               :auth_kind,
+               :credential_id,
+               :expires_at,
+               :name,
+               :personal_credential_policy,
+               :provider,
+               :status
+             ]
+
+    assert {:ok, %{status: "absent"}} =
+             Connect.get_credential_grant_status(config, {:person, other.id})
+
+    Repo.update!(Ecto.Changeset.change(Repo.get!(Grant, personal.grant_id), status: "revoked"))
+
+    assert {:ok, %{status: "revoked"}} =
+             Connect.get_credential_grant_status(config, {:person, owner.id})
+  end
+
+  test "trusted administrative status rejects invalid owners and references" do
+    config = credential()
+
+    for owner <- [nil, {:person, nil}, {:person, 0}, {:user, 1}, %{person_id: 1}] do
+      assert {:error, :invalid_owner} = Connect.get_credential_grant_status(config, owner)
+    end
+
+    for reference <- [nil, 0, -1, "1", %Grant{id: 1}, 2_147_483_647] do
+      assert {:error, :not_found} = Connect.get_credential_grant_status(reference, :org)
+    end
+  end
+
   test "cross-credential grant IDs, unknown IDs and malformed references yield safe errors" do
     owner = person()
     other = person()

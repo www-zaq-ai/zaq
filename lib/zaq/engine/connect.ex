@@ -61,11 +61,21 @@ defmodule Zaq.Engine.Connect do
   defdelegate resolve_credential(credential, trusted_actor, opts \\ []),
     to: Zaq.Engine.Connect.CredentialResolver
 
+  @doc "Trusted secret-free status read for one explicit canonical owner slot."
+  @spec get_credential_grant_status(
+          Zaq.Engine.Connect.Mutations.credential_ref(),
+          Zaq.Engine.Connect.Mutations.owner(),
+          keyword()
+        ) :: Zaq.Engine.Connect.CredentialStatuses.result()
+  defdelegate get_credential_grant_status(credential, owner, opts \\ []),
+    to: Zaq.Engine.Connect.CredentialStatuses,
+    as: :get
+
   @doc "Trusted atomic canonical configuration save; global defaults to :keep."
   @spec save_credential_configuration(
           Zaq.Engine.Connect.Mutations.credential_ref() | nil,
           map(),
-          :keep | {:replace, map()},
+          Zaq.Engine.Connect.Mutations.global_instruction(),
           keyword()
         ) :: Zaq.Engine.Connect.Mutations.result()
   defdelegate save_credential_configuration(credential, attrs, global \\ :keep, opts \\ []),
@@ -279,6 +289,9 @@ defmodule Zaq.Engine.Connect do
   end
 
   @spec delete_grant(Grant.t()) :: {:ok, Grant.t()} | {:error, mutation_error()}
+  # Temporary: this struct-based delete remains for legacy resource-bound BO/event
+  # consumers. Remove it once those callers use explicit resource/owner lifecycle APIs.
+  # Tracked: zaq-wml
   def delete_grant(%Grant{} = grant), do: MutationEvents.delete(grant)
 
   @spec get_active_grant(map()) :: Grant.t() | nil

@@ -5,9 +5,9 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
   alias Zaq.Accounts.{People, Person}
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{Credential, Grant, GrantRefreshWorker}
-  alias Zaq.Engine.Connect.{OAuthAttempts, PersonCredentials}
+  alias Zaq.Engine.Connect.OAuthAttempts
   alias Zaq.Repo
-  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP}
+  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}
 
   @opts [config: ConnectOAuthAttemptConfig]
   setup {Req.Test, :verify_on_exit!}
@@ -122,7 +122,7 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
 
           :reauthorize ->
             assert {:ok, %{authorize_url: url}} =
-                     PersonCredentials.start_oauth(person, credential.id, @opts)
+                     PersonOAuth.start(person, credential.id, @opts)
 
             state = URI.decode_query(URI.parse(url).query)["state"]
 

@@ -3,8 +3,8 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTransactionTest do
   use Zaq.DataCase, async: false
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Credential, Grant, OAuthAttempt, OAuthAttempts, PersonCredentials}
-  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP}
+  alias Zaq.Engine.Connect.{Credential, Grant, OAuthAttempt, OAuthAttempts}
+  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}
 
   setup {Req.Test, :verify_on_exit!}
 
@@ -34,7 +34,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTransactionTest do
         access_token: "previous"
       })
 
-    {:ok, %{authorize_url: url}} = PersonCredentials.start_oauth(person, credential.id, opts)
+    {:ok, %{authorize_url: url}} = PersonOAuth.start(person, credential.id, opts)
     state = URI.decode_query(URI.parse(url).query)["state"]
     before_jobs = Repo.aggregate(Oban.Job, :count)
 

@@ -200,6 +200,12 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
              )
   end
 
+  test "Person OAuth starts are available only through the authenticated gateway" do
+    refute function_exported?(OAuthAttempts, :start_person, 3)
+    refute function_exported?(Zaq.Engine.Connect.PersonCredentials, :start_oauth, 3)
+    refute function_exported?(Zaq.Engine.Connect.PersonCredentials, :reconnect_oauth, 3)
+  end
+
   defp dispatch(op, token, params \\ %{}),
     do: PeopleAuthGateway.dispatch(Map.merge(params, %{op: op, token: token}), [])
 end

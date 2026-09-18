@@ -16,9 +16,10 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsMigrationTest do
   use Zaq.DataCase, async: false
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{OAuthAttempt, PersonCredentials}
+  alias Zaq.Engine.Connect.OAuthAttempt
   alias Zaq.Repo.Migrations.BindConnectOauthAttemptsToPersonSessions
   alias Zaq.Repo.Migrations.CreateConnectOauthAttempts
+  alias Zaq.TestSupport.PersonOAuth
 
   defp migrate(direction) do
     apply(Ecto.Migrator, direction, [
@@ -62,7 +63,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsMigrationTest do
         }
       })
 
-    {:ok, _} = PersonCredentials.start_oauth(person, dto.credential_id)
+    {:ok, _} = PersonOAuth.start(person, dto.credential_id)
     attempt = Repo.get_by!(OAuthAttempt, credential_id: dto.credential_id)
 
     for {assignment, code} <- [

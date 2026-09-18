@@ -12,9 +12,7 @@ defmodule Zaq.Engine.Connect.PersonCredentialsConcurrencyTest do
   for action <- [
         :put_own_authentication,
         :revoke_own_grant,
-        :remove_own_grant,
-        :start_oauth,
-        :reconnect_oauth
+        :remove_own_grant
       ] do
     test "#{action} rechecks identity at the mutation boundary after the initial read" do
       {person, credential} =

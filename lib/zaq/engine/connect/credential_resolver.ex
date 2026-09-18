@@ -50,11 +50,10 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
   @spec resolve_credential(credential_ref(), ActorNormalizer.actor(), keyword()) :: result()
   def resolve_credential(reference, actor, opts \\ []) do
     id = credential_id(reference)
-    now = DateUtils.now(opts)
 
     result =
       with {:ok, person_id} <- actor_identity(actor),
-           {:ok, selected} <- select_credential(id, person_id, now) do
+           {:ok, selected} <- select_credential(id, person_id, opts) do
         complete(selected, person_id, opts)
       end
 
@@ -115,11 +114,12 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
       else: {:error, :person_unavailable}
   end
 
-  defp select_credential(id, person_id, now) do
+  defp select_credential(id, person_id, opts) do
     Repo.transaction(fn ->
       c = configuration(id)
       require_person(person_id)
       g = selected_grant(c, person_id)
+      now = DateUtils.now(opts)
       validate_selection(c, g, now)
 
       if g.auth_kind == "oauth2" do
@@ -265,7 +265,7 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
       auth_kind: g.auth_kind,
       request_format: g.request_format,
       authentication: auth,
-      expires_at: g.expires_at,
+      expires_at: earliest_expiry(c.expires_at, g.expires_at),
       metadata: account_metadata(g.metadata)
     }
   end
@@ -316,6 +316,14 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
   defp present?(_), do: false
   defp expired?(nil, _), do: false
   defp expired?(%DateTime{} = expiry, now), do: DateTime.compare(expiry, now) != :gt
+
+  defp earliest_expiry(nil, nil), do: nil
+  defp earliest_expiry(%DateTime{} = expiry, nil), do: expiry
+  defp earliest_expiry(nil, %DateTime{} = expiry), do: expiry
+
+  defp earliest_expiry(%DateTime{} = left, %DateTime{} = right) do
+    if DateTime.compare(left, right) == :gt, do: right, else: left
+  end
 
   # Same raw JSONB fingerprint technique as OAuth attempts/refresh; never a public revision.
   defp config_fingerprint(id) do

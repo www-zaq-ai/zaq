@@ -62,6 +62,73 @@ defmodule Zaq.Engine.Connect.CredentialResolverConcurrencyTest do
     %{person: person, c: c, personal: personal, org: org}
   end
 
+  test "non-OAuth resolution evaluates its clock only after acquiring selection locks" do
+    {credential, grant} =
+      Sandbox.unboxed_run(Repo, fn ->
+        {:ok, credential} =
+          Connect.create_credential(%{
+            name: "resolver-lock-clock-#{Ecto.UUID.generate()}",
+            provider: "example",
+            auth_kind: "api_key",
+            secret_binding: :grant,
+            personal_credential_policy: :required,
+            expires_at: DateTime.add(@now, 10)
+          })
+
+        {:ok, grant} = Connect.replace_credential_grant(credential, :org, %{api_key: "global"})
+        {credential, Repo.get!(Grant, grant.grant_id)}
+      end)
+
+    on_exit(fn ->
+      Sandbox.unboxed_run(Repo, fn ->
+        Repo.delete_all(from c in Credential, where: c.id == ^credential.id)
+      end)
+    end)
+
+    parent = self()
+
+    locker =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          Repo.transaction(fn ->
+            Repo.one!(from c in Credential, where: c.id == ^credential.id, lock: "FOR UPDATE")
+            send(parent, :credential_locked)
+
+            receive do
+              :release_credential -> :ok
+            after
+              5_000 -> flunk("credential lock release timeout")
+            end
+          end)
+        end)
+      end)
+
+    assert_receive :credential_locked, 5_000
+
+    resolver =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          Connect.resolve_credential(credential.id, nil,
+            config: ConnectOAuthAttemptConfig,
+            now: fn ->
+              send(parent, :clock_read)
+              DateTime.add(@now, 20)
+            end
+          )
+        end)
+      end)
+
+    refute_receive :clock_read, 200
+    send(locker.pid, :release_credential)
+    assert {:ok, :ok} = Task.await(locker, 5_000)
+    assert_receive :clock_read, 5_000
+
+    assert Task.await(resolver, 5_000) ==
+             {:error, %{credential_id: credential.id, reason: :credential_expired}}
+
+    assert grant.credential_id == credential.id
+  end
+
   for expiry <- [:configuration, :grant] do
     test "final OAuth validation reevaluates function clock for #{expiry} expiry", ctx do
       Sandbox.unboxed_run(Repo, fn ->

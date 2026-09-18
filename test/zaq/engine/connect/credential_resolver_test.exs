@@ -111,6 +111,24 @@ defmodule Zaq.Engine.Connect.CredentialResolverTest do
     assert resolved.credential_id == c.id
   end
 
+  test "resolved expiry is the earliest configuration or selected grant deadline" do
+    for {configuration_expiry, grant_expiry, expected} <- [
+          {nil, nil, nil},
+          {DateTime.add(@now, 60), nil, DateTime.add(@now, 60)},
+          {nil, DateTime.add(@now, 120), DateTime.add(@now, 120)},
+          {DateTime.add(@now, 180), DateTime.add(@now, 90), DateTime.add(@now, 90)},
+          {DateTime.add(@now, 30), DateTime.add(@now, 240), DateTime.add(@now, 30)}
+        ] do
+      c = credential(:required)
+      g = slot(c, :org, :active)
+      Repo.update!(Ecto.Changeset.change(c, expires_at: configuration_expiry))
+      Repo.update!(Ecto.Changeset.change(g, expires_at: grant_expiry))
+
+      assert {:ok, resolved} = Connect.resolve_credential(c, nil, @opts)
+      assert resolved.expires_at == expected
+    end
+  end
+
   test "literal active identity is required before even disabled policy", %{person: person} do
     c = credential(:disabled)
     slot(c, :org, :active)

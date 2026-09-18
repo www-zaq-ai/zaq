@@ -36,13 +36,35 @@ defmodule Zaq.Engine.Connect.Mutations do
 
   @type owner :: :org | {:person, pos_integer()}
   @type credential_ref :: Credential.t() | integer()
-  @type result :: {:ok, map()} | {:error, atom()}
+  @type global_instruction :: :keep | :remove | {:replace, map()}
+  @type grant_result :: %{
+          credential_id: pos_integer(),
+          grant_id: pos_integer() | nil,
+          status: String.t()
+        }
+  @type configuration_result :: %{
+          credential_id: pos_integer(),
+          personal_credential_policy: :disabled | :optional | :required,
+          global_grant: grant_result() | nil
+        }
+  @type error ::
+          :cleanup_failed
+          | :encryption_failed
+          | :global_grant_unusable
+          | :incompatible_live_grants
+          | :invalid_configuration
+          | :invalid_instruction
+          | :invalid_material
+          | :invalid_owner
+          | :mutation_event_enqueue_failed
+          | :not_found
+  @type result :: {:ok, configuration_result() | grant_result()} | {:error, error()}
 
   @doc "Atomically saves completed configuration; omitted global instruction means keep."
   @spec save_credential_configuration(
           credential_ref() | nil,
           map(),
-          :keep | {:replace, map()},
+          global_instruction(),
           keyword()
         ) :: result()
   def save_credential_configuration(ref, attrs, global \\ :keep, opts \\ []) do
@@ -201,6 +223,7 @@ defmodule Zaq.Engine.Connect.Mutations do
   end
 
   defp validate_instruction(:keep), do: :ok
+  defp validate_instruction(:remove), do: :ok
   defp validate_instruction({:replace, material}) when is_map(material), do: :ok
   defp validate_instruction(_), do: Repo.rollback(:invalid_instruction)
 
@@ -213,6 +236,17 @@ defmodule Zaq.Engine.Connect.Mutations do
   end
 
   defp global_grant(credential, :keep, _opts), do: lock_slot(credential.id, :org)
+
+  defp global_grant(credential, :remove, _opts) do
+    case lock_slot(credential.id, :org) do
+      nil ->
+        nil
+
+      grant ->
+        unwrap(MutationEvents.delete(grant), :cleanup_failed)
+        nil
+    end
+  end
 
   defp global_grant(credential, {:replace, material}, opts) do
     replace(credential, :org, lock_slot(credential.id, :org), material, opts)
@@ -232,12 +266,16 @@ defmodule Zaq.Engine.Connect.Mutations do
 
       incompatible =
         Enum.any?(Repo.all(query), fn grant ->
-          not (match?({:replace, _}, global) and grant.owner_type == "org")
+          not (grant.owner_type == "org" and replaces_or_removes_global?(global))
         end)
 
       ensure(not incompatible, :incompatible_live_grants)
     end
   end
+
+  defp replaces_or_removes_global?(:remove), do: true
+  defp replaces_or_removes_global?({:replace, _}), do: true
+  defp replaces_or_removes_global?(_), do: false
 
   defp replace(credential, owner, grant, material, opts) do
     validate_current_person(owner)

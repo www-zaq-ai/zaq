@@ -64,6 +64,74 @@ defmodule Zaq.Engine.Connect.MutationsTest do
     end
   end
 
+  test "global removal is atomic, idempotent, and valid only for required policy" do
+    assert {:ok, saved} =
+             Connect.save_credential_configuration(
+               nil,
+               attrs(%{personal_credential_policy: :disabled}),
+               {:replace, %{api_key: "global"}}
+             )
+
+    grant_id = saved.global_grant.grant_id
+
+    assert {:error, :global_grant_unusable} =
+             Connect.save_credential_configuration(saved.credential_id, %{}, :remove)
+
+    assert Repo.get!(Grant, grant_id).status == "active"
+
+    assert {:ok,
+            %{
+              credential_id: credential_id,
+              personal_credential_policy: :required,
+              global_grant: nil
+            }} =
+             Connect.save_credential_configuration(
+               saved.credential_id,
+               %{personal_credential_policy: :required},
+               :remove
+             )
+
+    assert credential_id == saved.credential_id
+    refute Repo.get(Grant, grant_id)
+
+    assert {:ok, %{global_grant: nil, personal_credential_policy: :required}} =
+             Connect.save_credential_configuration(saved.credential_id, %{}, :remove)
+
+    assert {:error, :global_grant_unusable} =
+             Connect.save_credential_configuration(
+               saved.credential_id,
+               %{personal_credential_policy: :optional},
+               :remove
+             )
+
+    assert Repo.get!(Credential, saved.credential_id).personal_credential_policy == :required
+  end
+
+  test "global removal permits an atomic auth change when no Person grant remains" do
+    config =
+      credential(%{
+        personal_credential_policy: :required,
+        secret_binding: :grant
+      })
+
+    assert {:ok, global} = Connect.replace_credential_grant(config, :org, %{api_key: "global"})
+
+    assert {:ok, %{global_grant: nil}} =
+             Connect.save_credential_configuration(
+               config,
+               %{
+                 auth_kind: "oauth2",
+                 client_id: "client",
+                 issuer: nil,
+                 key_id: nil
+               },
+               :remove
+             )
+
+    refute Repo.get(Grant, global.grant_id)
+    assert Repo.reload!(config).auth_kind == "oauth2"
+  end
+
   test "global grant status, expiry, corruption and auth compatibility fail closed" do
     config = credential()
     assert {:ok, dto} = Connect.replace_credential_grant(config, :org, %{api_key: "key"})
