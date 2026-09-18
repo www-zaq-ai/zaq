@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-jrg.31"
+  ],
   "blocks": [],
   "created": "2026-09-18T17:06:13Z",
   "description": "After explicit UX/UI approval, add consolidated E2E coverage for BO policy/global-grant configuration and Person credentials API-key/OAuth journeys. Reuse existing system_config specs; do not author while approval gate is open.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Finalize credential management E2E",
   "type": "task",
-  "updated_at": "2026-09-18T17:06:13Z"
+  "updated_at": "2026-09-18T17:06:20Z"
 }

@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.30"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.32"
+  ],
   "created": "2026-09-18T17:06:13Z",
   "description": "Human UX/UI approval gate for completed BO personal-policy and Person self-service credential management surfaces. Keep open until explicit approval of final routes, forms, status/error/cancel flows and revoke/remove wording.",
   "id": "zaq-jrg.31",
