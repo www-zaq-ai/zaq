@@ -11,11 +11,15 @@
     {
       "text": "Implemented static OAuth behaviour registry with Standard default and Codex customization; persisted stable auth_profile IDs; routed authorization, exchange, refresh, redirect, PKCE, and token normalization through the selected behaviour for global and Person OAuth; added allowlisted grant metadata normalization; exposed registry-backed selection in Auth Credentials and AI Credentials through Engine/NodeRouter; updated service docs and tests. Validation: focused OAuth/registry/credential/BO aggregate passed (5 properties, 436 tests); system_config_live_test passed (1 property, 206 tests); mix q passed; git diff --check passed. Final clean-DB mix precommit reached 48 doctests, 139 properties, 9442 tests with 2 failures: the accepted multi-node ConfidentialEventPeerTest peer-connect timeout and PeoplePermissionsConcurrencyTest observing committed global-suite residue. After another clean DB reset, the concurrency test passed isolated (1 test, 0 failures). The previously introduced OAuth.prepare_attempt contract regression was fixed and its isolated Jido bridge test passes.",
       "timestamp": "2026-09-18T14:19:57Z"
+    },
+    {
+      "text": "UI review found canonical OAuth grants were still read through legacy resource-bound paths. Action reuse assessment: extend existing Connect context and Engine/NodeRouter system-config actions; Connect.list_grants remains legacy-only for Channels, while new list_grant_summaries is a secret-free canonical/legacy BO projection. Existing system_config_connect_list_grants is extended to return summaries, and existing delete/refresh actions now accept credential_id + grant_id so schemas/secrets do not cross the event boundary. No agent-tool exposure: these are trusted BO administration reads/actions. Regression scope: AI badge resolves org canonical status by AI.connect_credential_id; Person grants cannot satisfy the global badge; View Grants lists canonical rows without tokens; canonical refresh/erase still work.",
+      "timestamp": "2026-09-18T15:24:37Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Extract configurable OAuth behaviours",
   "type": "task",
-  "updated_at": "2026-09-18T14:19:57Z"
+  "updated_at": "2026-09-18T15:24:37Z"
 }
