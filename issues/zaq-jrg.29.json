@@ -7,9 +7,15 @@
   "id": "zaq-jrg.29",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented static OAuth behaviour registry with Standard default and Codex customization; persisted stable auth_profile IDs; routed authorization, exchange, refresh, redirect, PKCE, and token normalization through the selected behaviour for global and Person OAuth; added allowlisted grant metadata normalization; exposed registry-backed selection in Auth Credentials and AI Credentials through Engine/NodeRouter; updated service docs and tests. Validation: focused OAuth/registry/credential/BO aggregate passed (5 properties, 436 tests); system_config_live_test passed (1 property, 206 tests); mix q passed; git diff --check passed. Final clean-DB mix precommit reached 48 doctests, 139 properties, 9442 tests with 2 failures: the accepted multi-node ConfidentialEventPeerTest peer-connect timeout and PeoplePermissionsConcurrencyTest observing committed global-suite residue. After another clean DB reset, the concurrency test passed isolated (1 test, 0 failures). The previously introduced OAuth.prepare_attempt contract regression was fixed and its isolated Jido bridge test passes.",
+      "timestamp": "2026-09-18T14:19:57Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Extract configurable OAuth behaviours",
   "type": "task",
-  "updated_at": "2026-09-18T13:24:34Z"
+  "updated_at": "2026-09-18T14:19:57Z"
 }
