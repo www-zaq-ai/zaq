@@ -10,11 +10,10 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
     Grant,
     OAuth,
     OAuthAttempts,
-    OAuthState,
-    PersonCredentials
+    OAuthState
   }
 
-  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP}
+  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}
 
   @opts [config: ConnectOAuthAttemptConfig]
   @now ~U[2026-09-14 10:00:00Z]
@@ -48,7 +47,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
 
   defp start(person, credential, opts \\ @opts) do
     assert {:ok, %{authorize_url: url}} =
-             PersonCredentials.start_oauth(person, credential.id, opts)
+             PersonOAuth.start(person, credential.id, opts)
 
     query = URI.decode_query(URI.parse(url).query)
     {query["state"], query}
@@ -157,18 +156,6 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
     end
   end
 
-  test "trusted loaded active literal Person only", ctx do
-    for person <- [nil, ctx.person.id, %Person{id: ctx.person.id}, %{person_id: ctx.person.id}] do
-      assert {:error, :unauthorized} =
-               PersonCredentials.start_oauth(person, ctx.credential.id, @opts)
-    end
-
-    Repo.update!(Person.update_changeset(ctx.person, %{status: "inactive"}))
-
-    assert {:error, :unauthorized} =
-             PersonCredentials.start_oauth(ctx.person, ctx.credential.id, @opts)
-  end
-
   test "expiry is exclusive and failed claim cannot exchange", ctx do
     {state, _} = start(ctx.person, ctx.credential, Keyword.put(@opts, :now, @now))
 
@@ -236,7 +223,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
       })
 
     {:ok, %{authorize_url: url}} =
-      PersonCredentials.reconnect_oauth(ctx.person, ctx.credential.id, @opts)
+      PersonOAuth.reconnect(ctx.person, ctx.credential.id, @opts)
 
     state = URI.decode_query(URI.parse(url).query)["state"]
 
@@ -323,7 +310,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
     before_count = Repo.aggregate(Zaq.Engine.Connect.OAuthAttempt, :count)
 
     assert {:error, :encryption_failed} =
-             PersonCredentials.start_oauth(ctx.person, ctx.credential.id, opts)
+             PersonOAuth.start(ctx.person, ctx.credential.id, opts)
 
     assert {:error, :encryption_failed} =
              OAuthAttempts.start_global_configuration(nil, attrs(), opts)
@@ -337,7 +324,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
     Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
 
     assert {:error, :oauth_failed} =
-             PersonCredentials.start_oauth(ctx.person, ctx.credential.id, @opts)
+             PersonOAuth.start(ctx.person, ctx.credential.id, @opts)
 
     attempt = Repo.get_by!(Zaq.Engine.Connect.OAuthAttempt, credential_id: ctx.credential.id)
     refute is_nil(attempt.claimed_at)
@@ -354,7 +341,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
     assert :ok = Zaq.System.set_global_base_url("https://zaq.example?redirect=evil")
 
     assert {:error, :invalid_configuration} =
-             PersonCredentials.start_oauth(ctx.person, ctx.credential.id, @opts)
+             PersonOAuth.start(ctx.person, ctx.credential.id, @opts)
   end
 
   test "clock advances during exchange: deadline is rechecked before persistence", ctx do
@@ -417,18 +404,17 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
           %{auth_kind: "api_key"}
         ] do
       changed = Repo.update!(Ecto.Changeset.change(ctx.credential, attrs))
-      assert {:error, :not_found} = PersonCredentials.start_oauth(ctx.person, changed.id, @opts)
+      assert {:error, :not_found} = PersonOAuth.start(ctx.person, changed.id, @opts)
       Repo.update!(Ecto.Changeset.change(changed, Map.take(ctx.credential, Map.keys(attrs))))
     end
 
-    assert {:error, :not_found} = PersonCredentials.start_oauth(ctx.person, -1, @opts)
-    assert {:error, :not_found} = PersonCredentials.start_oauth(ctx.person, 2_147_483_647, @opts)
-    assert {:error, :unauthorized} = OAuthAttempts.start_person(nil, ctx.credential.id, @opts)
+    assert {:error, :not_found} = PersonOAuth.start(ctx.person, -1, @opts)
+    assert {:error, :not_found} = PersonOAuth.start(ctx.person, 2_147_483_647, @opts)
     {state, _} = start(ctx.person, ctx.credential)
 
     Repo.transaction(fn ->
       assert {:error, :transaction_not_allowed} =
-               PersonCredentials.start_oauth(ctx.person, ctx.credential.id, @opts)
+               PersonOAuth.start(ctx.person, ctx.credential.id, @opts)
 
       assert {:error, :transaction_not_allowed} = finish(state)
     end)

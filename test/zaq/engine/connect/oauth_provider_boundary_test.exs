@@ -5,8 +5,8 @@ defmodule Zaq.Engine.Connect.OAuthProviderBoundaryTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.{DataSourceBridge, JidoConnectBridge}
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Credential, Grant, OAuth, OAuthAttempts, PersonCredentials}
-  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP}
+  alias Zaq.Engine.Connect.{Credential, Grant, OAuth, OAuthAttempts}
+  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}
 
   @opts [config: ConnectOAuthAttemptConfig]
   setup {Req.Test, :verify_on_exit!}
@@ -233,7 +233,7 @@ defmodule Zaq.Engine.Connect.OAuthProviderBoundaryTest do
 
   defp start(person, credential) do
     assert {:ok, %{authorize_url: url}} =
-             PersonCredentials.start_oauth(person, credential.id, @opts)
+             PersonOAuth.start(person, credential.id, @opts)
 
     URI.decode_query(URI.parse(url).query)
   end

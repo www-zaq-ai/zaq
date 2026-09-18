@@ -3,7 +3,7 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
   One-use OAuth attempts, never browser-selected owners or configuration.
 
   Self-service Person starts are authenticated and session-bound by
-  `Zaq.Engine.PeopleCredentials`; direct Person starts are trusted internal operations.
+  `Zaq.Engine.PeopleCredentials`.
   `start_global_configuration/3` is an explicit trusted admin operation: a candidate exists only encrypted in an attempt until completed canonical
   configuration/global-grant save. Neither start authenticates its caller.
 
@@ -29,25 +29,6 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
 
   @ttl 600
   @type result :: {:ok, map()} | {:error, atom()}
-
-  @doc "Internal trusted Person start; prefer PersonCredentials.start_oauth/3."
-  @spec start_person(Person.t(), pos_integer(), keyword()) :: result()
-  def start_person(person, credential_id, opts \\ [])
-
-  def start_person(%Person{id: id, __meta__: %{state: :loaded}}, credential_id, opts)
-      when is_integer(id) and id > 0 and is_integer(credential_id) and credential_id > 0 do
-    start(
-      fn ->
-        credential = lock_credential(credential_id)
-        ensure(active_person?(id), :unauthorized)
-        ensure(eligible?(credential), :not_found)
-        persist_attempt(credential, "person", id, nil, opts)
-      end,
-      opts
-    )
-  end
-
-  def start_person(_, _, _), do: {:error, :unauthorized}
 
   @doc "Persists a session-bound Person attempt inside the caller's authentication transaction."
   @spec prepare_person(Person.t(), Ecto.UUID.t(), pos_integer(), keyword()) :: result()
@@ -136,9 +117,6 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
         {:error, :oauth_failed}
     end
   end
-
-  defp persist_attempt(credential, owner_type, owner_id, candidate, opts),
-    do: persist_attempt(credential, owner_type, owner_id, nil, candidate, opts)
 
   defp persist_attempt(credential, owner_type, owner_id, session_id, candidate, opts) do
     binding = OAuth.prepare_attempt(credential)

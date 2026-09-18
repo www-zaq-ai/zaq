@@ -197,6 +197,9 @@ settings remain configuration-owned. `Connect.change_credential_grant/3` encrypt
 grant secrets using the existing strict `EncryptedString` path and reports encryption
 failures as changeset errors. Atomic configuration management now uses
 `Connect.save_credential_configuration/2..4` and the canonical mutation delegates.
+Its global instruction keeps, completely replaces, or removes the org slot in the same
+transaction. Removal is idempotent and succeeds only when the resulting policy is
+`required`; optional/disabled saves without usable global material roll back completely.
 Person self-management authenticates through the existing confidential People gateway,
 then delegates to `Connect.PersonCredentials`.
 
@@ -235,6 +238,9 @@ Only grant-owned optional/required definitions can be configured. Disabled retai
 own grants may still be revoked (erase secrets, retain revoked row) or removed (delete
 slot, restore absence), idempotently and only for the authenticated active Person.
 Legacy org/user grant and BO User semantics remain distinct from Person ownership.
+Trusted administrative status reads use the same secret-free projection with an
+explicit canonical owner. They are not Person APIs and must be authorized by any BO
+transport that adopts them.
 
 ### Runtime resolution secret lifetime (`zaq-jrg.4`)
 
@@ -254,7 +260,9 @@ reuses the shared refresh path with an expected raw snapshot, never another toke
 schema. It returns only grant API key, OAuth access token, or JWT private signing PEM
 plus required signing identity/profile. OAuth client and refresh secrets never enter
 the result. Only selected-grant account ID/name string metadata is allowed; no global
-metadata leaks into personal results. Errors contain normalized credential ID and a
+metadata leaks into personal results. Its expiry is the earliest local configuration
+or selected-grant deadline, and resolution samples the clock only after acquiring its
+selection locks. Errors contain normalized credential ID and a
 fixed reason only. Do not serialize, persist, log extracted authentication, or return
 this result through public events. See `engine.md` for exact auth shapes, expiry/error
 semantics and the final-read linearization/later server invalidation limitation.

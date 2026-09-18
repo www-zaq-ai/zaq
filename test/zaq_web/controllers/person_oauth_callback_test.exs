@@ -2,9 +2,8 @@ defmodule ZaqWeb.PersonOAuthCallbackTest do
   use ZaqWeb.ConnCase, async: true
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.PersonCredentials
   alias Zaq.Repo
-  alias Zaq.TestSupport.OpenAIStub
+  alias Zaq.TestSupport.{OpenAIStub, PersonOAuth}
 
   test "Phoenix parameter filtering hides OAuth secrets before formatting logs" do
     params =
@@ -52,7 +51,7 @@ defmodule ZaqWeb.PersonOAuthCallbackTest do
           metadata: %{"authorize_url" => "https://provider.example/authorize", "token_url" => url}
         })
 
-      {:ok, %{authorize_url: url}} = PersonCredentials.start_oauth(person, dto.credential_id)
+      {:ok, %{authorize_url: url}} = PersonOAuth.start(person, dto.credential_id)
       state = URI.decode_query(URI.parse(url).query)["state"]
       Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
 

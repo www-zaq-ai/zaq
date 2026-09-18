@@ -218,9 +218,11 @@ literal identities without alias normalization or global fallback.
 
 - `save_credential_configuration(credential_or_id_or_nil, attrs, global \\ :keep, opts \\ [])`
   creates (`nil`) or reloads/updates configuration atomically with its global slot.
-  `global` is `:keep` or `{:replace, material}`. Disabled/optional policies require a
-  locally usable canonical global grant; required permits absence or an unusable
-  retained slot. Failure rolls back configuration and grant writes together.
+  `global` is `:keep`, `:remove`, or `{:replace, material}`. Removal is idempotent and
+  valid only when the resulting policy is required. Disabled/optional policies require
+  a locally usable canonical global grant; required permits absence or an unusable
+  retained slot. Failure rolls back configuration, grant writes and notification jobs
+  together.
 - `replace_credential_grant(credential_or_id, owner, material, opts \\ [])` replaces
   the complete material, retains an existing slot ID and reactivates it. Optional
   material omitted from replacement is cleared, not inherited. Config fields omitted
@@ -242,7 +244,7 @@ slot; the credential lock serializes absent slots too. Existing partial uniquene
 constraints remain the final defense. Policy-only changes preserve Person rows.
 Changes to provider/auth kind/request format/scopes/JWT settings/OAuth client settings
 or metadata reject while active canonical grants remain, except a global slot being
-atomically replaced. Revoke/remove incompatible Person grants first. Inactive rows
+atomically replaced or removed. Revoke/remove incompatible Person grants first. Inactive rows
 retain their original auth fields and are never reinterpreted under the new kind.
 Legacy APIs retain their contracts and do not participate in this locking protocol.
 
@@ -357,7 +359,8 @@ API/private keys are never material sources. Configuration-secret columns are ex
 from the resolver's configuration projection.
 
 Success is `{:ok, %Connect.ResolvedCredential{}}`: credential/grant/owner IDs, string
-auth kind/request format, grant expiry, ephemeral `authentication`, and optional
+auth kind/request format, the earliest local configuration/selected-grant expiry,
+ephemeral `authentication`, and optional
 selected-grant `account_id`/`account_name` metadata (strings, at most 255 bytes). No
 configuration or other owner's metadata is copied. Inspection exposes only dependency
 IDs/auth kind; no JSON encoder or Ecto schema is provided. Never log extracted auth,
@@ -394,8 +397,9 @@ expected selection guard. Refresh checks it before cached use and again before c
 After preparation the resolver reacquires locks, checks raw configuration, pinned slot,
 current selection/identity and prepared material; unchanged cached material also checks
 the raw grant/config fingerprint so unreadable nil values cannot hide replacement.
-Final configuration and grant expiry checks evaluate the clock again after acquiring
-locks. `now:` accepts a fixed DateTime or a zero-argument clock; fixed timestamps stay
+Configuration/grant expiry checks evaluate the clock after acquiring selection locks;
+OAuth final validation evaluates it again after reacquiring locks. `now:` accepts a
+fixed DateTime or a zero-argument clock; fixed timestamps stay
 constant, whereas the default production clock and function overrides advance. Token
 `expires_in` conversion uses the same clock seam after the provider responds.
 Refresh's own claim fingerprint guards external work through persistence. Known stale
@@ -516,6 +520,10 @@ row whose expiration is not in the future reports expired. This is lifecycle sta
 not provider verification, secret usability, or runtime resolution. Read queries select
 only these fields and the caller's own slot; they do not load global grants or secrets.
 No account metadata is approved in this slice, so **all metadata is omitted**.
+`Connect.get_credential_grant_status(credential_or_id, owner, opts \\ [])` reuses the
+same projection for a trusted explicit `:org` or `{:person, id}` administrative read.
+It is not exposed through People dispatch and performs no caller authorization; future
+BO integration must retain its NodeRouter and BO authorization boundaries.
 
 Write success is exactly `{:ok, %{credential_id: id, status: status}}`; no grant IDs,
 submitted values or secrets are returned. API-key material permits `api_key` and
@@ -541,8 +549,9 @@ one-use trusted attempts below, never the legacy context path.
 
 The trusted backend API is:
 
-- `PersonCredentials.start_oauth(authenticated_person, credential_id, opts \\ [])`
-- `PersonCredentials.reconnect_oauth(authenticated_person, credential_id, opts \\ [])`
+- `PeopleAuthGateway.dispatch/2` operations `:start_self_credential_oauth` and
+  `:reconnect_self_credential_oauth`, carrying the existing bearer and credential ID;
+  these authenticate and authorize before preparing a session-bound attempt.
 - `OAuthAttempts.start_global_configuration(credential_or_id_or_nil, attrs, opts \\ [])`
   is **explicit trusted admin setup**, not Person authority or browser attributes.
 - `OAuthAttempts.finalize_callback(provider, params, opts \\ [])` accepts signed opaque
@@ -556,7 +565,7 @@ exception messages, token payloads and changesets never appear in these response
 Self-service start/reconnect authenticate the bearer and persist the initiating
 session ID, never its bearer or digest. Callback completion revalidates the session,
 literal active Person and both required permissions before replacing authentication.
-Direct internal starts remain outside the public self-service contract. OAuth requires `auth_kind: "oauth2"`,
+There is no sessionless Person start API. OAuth requires `auth_kind: "oauth2"`,
 grant-owned secrets and optional/required policy. There is still no Person start route,
 or UI in this foundation slice; the existing Engine gateway is the supported backend boundary.
 

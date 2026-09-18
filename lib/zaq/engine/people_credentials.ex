@@ -42,8 +42,12 @@ defmodule Zaq.Engine.PeopleCredentials do
 
   def dispatch(%{op: op, token: token, credential_id: id}, opts)
       when op in [:start_self_credential_oauth, :reconnect_self_credential_oauth] do
-    with {:ok, prepared} <- prepare_oauth(token, id, opts) do
-      OAuthAttempts.authorize_prepared(prepared, opts)
+    if Repo.in_transaction?() do
+      {:error, :transaction_not_allowed}
+    else
+      with {:ok, prepared} <- prepare_oauth(token, id, opts) do
+        OAuthAttempts.authorize_prepared(prepared, opts)
+      end
     end
   end
 

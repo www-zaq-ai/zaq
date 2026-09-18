@@ -4,11 +4,11 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Accounts.{People, Person}
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Credential, Grant, OAuthAttempts, OAuthState, PersonCredentials}
+  alias Zaq.Engine.Connect.{Credential, Grant, OAuthAttempts, OAuthState}
   alias Zaq.Engine.Connect.PersonLifecycle
   alias Zaq.Engine.Connect.SecretReconciliationWorker
   alias Zaq.Repo
-  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP}
+  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}
   @opts [config: ConnectOAuthAttemptConfig]
   setup {Req.Test, :verify_on_exit!}
 
@@ -51,7 +51,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsConcurrencyTest do
             })
 
           {:ok, %{authorize_url: url}} =
-            PersonCredentials.start_oauth(person, credential.id, @opts)
+            PersonOAuth.start(person, credential.id, @opts)
 
           {person, other, credential, original, URI.decode_query(URI.parse(url).query)["state"]}
         end)
