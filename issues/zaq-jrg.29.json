@@ -15,11 +15,15 @@
     {
       "text": "UI review found canonical OAuth grants were still read through legacy resource-bound paths. Action reuse assessment: extend existing Connect context and Engine/NodeRouter system-config actions; Connect.list_grants remains legacy-only for Channels, while new list_grant_summaries is a secret-free canonical/legacy BO projection. Existing system_config_connect_list_grants is extended to return summaries, and existing delete/refresh actions now accept credential_id + grant_id so schemas/secrets do not cross the event boundary. No agent-tool exposure: these are trusted BO administration reads/actions. Regression scope: AI badge resolves org canonical status by AI.connect_credential_id; Person grants cannot satisfy the global badge; View Grants lists canonical rows without tokens; canonical refresh/erase still work.",
       "timestamp": "2026-09-18T15:24:37Z"
+    },
+    {
+      "text": "Canonical grant UI read-path fix complete. AI credential badges now use secret-free canonical org summaries keyed by AIProviderCredential.connect_credential_id; legacy AI api_key fields and Person grants cannot satisfy the global badge. Auth Credentials View Grants now includes canonical rows through a secret-free projection (refreshability boolean only), and refresh/erase actions send credential_id + grant_id rather than Grant schemas/secrets. Regression validation: focused Engine/API/LiveView/component aggregate 1 property, 340 tests, 0 failures; mix q passed with no Credo issues; Chromium system_config E2E 54 passed; git diff --check clean. Final clean-DB mix precommit reached 48 doctests, 139 properties, 9447 tests with 4 unrelated environment/isolation failures: OAuthAttempts deadlock, PeoplePermissions committed suite residue, ConfidentialEvent peer timeout, and AuthRateLimiter peer startup timeout. OAuthAttempts + PeoplePermissions both passed after reset in isolation (2 tests, 0 failures); peer failures are the existing local multi-node blocker. Full E2E attempt exceeded 15 minutes, then the required targeted system_config journey passed.",
+      "timestamp": "2026-09-18T16:17:16Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Extract configurable OAuth behaviours",
   "type": "task",
-  "updated_at": "2026-09-18T15:24:37Z"
+  "updated_at": "2026-09-18T16:17:16Z"
 }
