@@ -127,7 +127,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
         refresh_token: "r"
       })
 
-    assert {:error, {:channel_not_configured, "google_drive"}} =
+    assert {:error, :refresh_failed} =
              GrantRefreshWorker.perform(%Job{args: %{"grant_id" => grant.id}})
   end
 

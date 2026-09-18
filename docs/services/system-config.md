@@ -196,8 +196,9 @@ material. Their changeset never copies secrets from configuration. OAuth client
 settings remain configuration-owned. `Connect.change_credential_grant/3` encrypts
 grant secrets using the existing strict `EncryptedString` path and reports encryption
 failures as changeset errors. Atomic configuration management now uses
-`Connect.save_credential_configuration/2..4` and the canonical mutation delegates;
-authenticated Person transport remains a subsequent foundation issue.
+`Connect.save_credential_configuration/2..4` and the canonical mutation delegates.
+Person self-management authenticates through the existing confidential People gateway,
+then delegates to `Connect.PersonCredentials`.
 
 The new mutation boundary never returns changesets or decrypted schemas. Results are
 allowlisted IDs/status/policy and errors are fixed atoms; encryption failure is
@@ -210,11 +211,103 @@ That prefix is not proof of trusted ciphertext. Schema inspection redacts secret
 fields and metadata; legacy APIs still return their original schema/changeset shapes.
 
 Grant mutations accept only auth-kind-specific secret fields plus expiry, with no
-client metadata or ownership/auth-field overrides. Configuration metadata is restricted
-to `auth_profile_id` and `subject`; arbitrary token payloads/nested metadata reject.
-OAuth client settings remain credential-owned and are not Person-editable. The new
-boundary accepts pre-obtained OAuth material; OAuth drafts/finalization are deferred
-to `zaq-jrg.6`, with no setup-state framework in this slice.
+client metadata or ownership/auth-field overrides. Non-OAuth configuration metadata is
+restricted to `auth_profile_id` and `subject`; canonical OAuth metadata admits the
+existing authorize/token URLs, auth profile, PKCE flag and allowlisted authorize params
+documented in `engine.md`. Arbitrary token payloads/nested metadata reject. OAuth client
+settings remain credential-owned and are not Person-editable. Canonical OAuth setup
+stages an encrypted immutable candidate in a transient attempt (`zaq-jrg.6`), then
+atomically saves completed configuration plus global grant. No incomplete credential
+row or setup-state framework weakens disabled/optional global completeness.
+
+`PeopleCredentials` authenticates a bearer with `PeopleAuth`, requires `access_profile`
+for reads and additionally `manage_credentials` for writes/OAuth, then delegates to
+`Connect.PersonCredentials`. Neither a struct nor `ActorNormalizer` authenticates a
+caller. Current literal active identity is reloaded for every call and rechecked after
+locking configuration for writes. OAuth attempts store only the initiating session ID;
+callback completion revalidates that session and current permissions.
+
+Person read DTOs contain only credential ID/name/provider/auth kind/policy and own
+lifecycle status/expiration. They omit **all metadata**, configuration secrets, OAuth
+client settings, grant IDs and global availability. Write DTOs contain only credential
+ID/status; validation and encryption errors are fixed atoms without submitted params.
+Only grant-owned optional/required definitions can be configured. Disabled retained
+own grants may still be revoked (erase secrets, retain revoked row) or removed (delete
+slot, restore absence), idempotently and only for the authenticated active Person.
+Legacy org/user grant and BO User semantics remain distinct from Person ownership.
+
+### Runtime resolution secret lifetime (`zaq-jrg.4`)
+
+`Connect.resolve_credential/3` is a privileged runtime-only API, not a public Engine
+action. It checks every claimed literal active Person before policy, including
+disabled policy; malformed/stale/alias identities never become global authorization.
+Nil/BO/system actors intentionally select org only within this trusted capability.
+Person management still requires its authenticated adapter precondition.
+
+The resolver selects one canonical owner slot before checking status, config, expiry
+and decrypted material. Selected failures never fall back, including expired/revoked
+or unreadable personal rows. Configuration API/private keys are not fallback sources;
+its local config projection excludes all secret columns. Selected OAuth preparation
+reuses the shared refresh path with an expected raw snapshot, never another token flow.
+
+`ResolvedCredential` is ephemeral, Inspect-redacted and has no JSON encoder or Ecto
+schema. It returns only grant API key, OAuth access token, or JWT private signing PEM
+plus required signing identity/profile. OAuth client and refresh secrets never enter
+the result. Only selected-grant account ID/name string metadata is allowed; no global
+metadata leaks into personal results. Errors contain normalized credential ID and a
+fixed reason only. Do not serialize, persist, log extracted authentication, or return
+this result through public events. See `engine.md` for exact auth shapes, expiry/error
+semantics and the final-read linearization/later server invalidation limitation.
+
+### OAuth refresh secret lifetime (`zaq-jrg.7`)
+
+Refresh reuses existing provider HTTP and the canonical mutation/event transaction.
+Two secret-free grant columns hold a UUID claim and 120-second lease; failures retain
+only that bounded cooldown. Raw stored ciphertext participates in the pre-HTTP and
+pre-save configuration/grant fingerprint, so unreadable/replaced material cannot be
+mistaken for unchanged nil values. Current literal active Person identity is checked
+before external token use and persistence. Revoked grants never reactivate through
+refresh; recoverable expired OAuth grants may return to active.
+
+Successful refresh retains an omitted refresh token only from the checked current row,
+rotates a supplied token and strictly encrypts provider strings, including `enc:`-prefixed
+values. Loaded token strings are consumed literally, without a second decryption pass.
+Canonical direct token-cache writes reject; they require the claimed refresh boundary.
+Canonical token HTTP reuses Connect's generic transport. Missing token URLs are
+resolved through secret-free Channels provider-profile metadata, not dependency token
+helpers that may substitute environment credentials or drop PKCE. Catalog fallback
+requires an explicit nonempty client secret; absence fails closed before exchange or
+refresh even with ambient provider secrets set. Configured generic token URLs retain
+public-client behavior and omit nil secrets. Refresh requires no callback redirect.
+Legacy org/user provider token helpers retain their existing fallback contract.
+Provider errors are fixed safe atoms and never trigger global fallback. Network calls
+run outside transaction locks, and late results lose to replacement, revocation,
+deletion, config changes or a recovered claim. See `engine.md` for resolver integration,
+bounded retries and the accepted post-check Person deletion/remote rotation limitations.
+
+### OAuth attempt secret lifetime (`zaq-jrg.6`)
+
+`connect_oauth_attempts.pkce_verifier` and `candidate_config` use strict
+`EncryptedString`/`SecretConfig` encryption before insertion and redact inspection.
+The latter holds only trusted admin setup configuration as encrypted JSON; Person
+attempts have none. OAuth client secrets remain configuration-owned. Signed browser
+state contains only a random opaque attempt ID, never PKCE, identity, config or tokens.
+The internal deterministic SHA-256 fingerprint covers stored administrative configuration
+including secret ciphertext, not a timestamp revision, and is never a public result.
+
+Attempts expire exclusively after 600 seconds. Atomic claim commits before network IO
+and clears both encrypted columns even when unreadable ciphertext loads as nil. Claims
+cannot be retried; cancellation, failure and replay require a fresh start. Unclaimed
+expired secrets remain until bounded `.8` maintenance processes them; this is not immediate
+TTL erasure. No authorization code is persisted. Final grant replacement and secret-free
+`.3` jobs commit together, retaining previous material if exchange/finalization fails.
+
+The existing callback and provider OAuth dispatches mark their NodeRouter hops
+`confidential: true` to skip workflow-stream broadcasting. Callback HTML/messages contain
+status only (numeric grant ID allowed for legacy success), target the callback's own
+origin and use no-store/no-referrer headers. Phoenix filters code/state/token/secret
+parameters from logs. Person OAuth starts only through authenticated, permission-checked
+self-service operations; the bearer itself is never persisted in the attempt.
 
 `SecretConfig.encrypt/2` accepts the established `config:` override via `Zaq.Config`
 for per-call encryption configuration; existing `encrypt/1` behavior is retained.
@@ -227,10 +320,18 @@ server-derived as `connect_credential` and the credential ID string. The trusted
 Engine changeset checks a literal current active Person but does not authenticate
 callers. There is no Person FK or trigger: concurrent deletion can leave orphan
 encrypted secrets, and synchronous erasure is not guaranteed. IDs must not be reused.
-Later lifecycle reconciliation (`zaq-jrg.8`) must remove orphan secrets in bounded,
-deterministic, idempotent batches with secret-free telemetry. Later resolver and
-OAuth/refresh work must reject stale/ineligible Person identities before policy
-selection or secret use, without global fallback or alias-based reidentification.
+`Connect.PersonLifecycle` (`zaq-jrg.8`) removes orphan secrets in bounded,
+deterministic, idempotent batches, retaining inactive literal owners. Accounts deletion
+and merge invoke transactional cleanup/owner-only transfer plus attempt cancellation;
+no secret ciphertext is decrypted or rewritten. `.4` resolution and `.5` management
+already reject stale/ineligible identities without global fallback or alias-based
+reidentification. OAuth finalization also rechecks persisted attempt existence so
+cancelled in-memory claims cannot write late. Scheduled maintenance erases expired
+attempts (including encrypted global candidates with no credential), but retains
+nonexpired claims so healthy in-flight callbacks can finish. Claiming already clears
+encrypted verifier/candidate columns; identity cancellation still removes claims
+immediately. See `engine.md` for bounds, keyset continuation,
+the separate consumed `connect_maintenance` queue and counts-only domain telemetry.
 
 All sensitive values (API keys, tokens, passwords) must follow one strict write path:
 

@@ -1223,8 +1223,16 @@ defmodule Zaq.Channels.JidoConnectBridge do
         authorize_url: param_get(params, :authorize_url) || profile.authorize_url
       ]
 
-      scope = oauth_scope_for_authorize(credential, params, config.provider)
-      opts = maybe_put_scope_opt(opts, scope)
+      opts =
+        if Map.get(config, :oauth_credentials) == :explicit do
+          Keyword.put(opts, :scope, credential.scopes)
+        else
+          maybe_put_scope_opt(
+            opts,
+            oauth_scope_for_authorize(credential, params, config.provider)
+          )
+        end
+
       opts = maybe_put_provider_authorize_opts(opts, config.provider)
 
       safe_oauth_authorize_url(fn -> oauth_module.authorize_url(opts) end)
@@ -1252,6 +1260,21 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
+  def oauth_token_endpoint(config) do
+    with {:ok, profile} <- oauth_profile_for(config.provider),
+         url when is_binary(url) and url != "" <- profile.token_url do
+      {:ok, url}
+    else
+      _ -> {:error, :unsupported}
+    end
+  end
+
+  # Explicit token operations must use Connect's generic transport. Dependency
+  # helpers may substitute environment credentials or omit PKCE from the wire.
+  @impl true
+  def oauth_exchange_code(%{oauth_credentials: :explicit}, _params),
+    do: {:error, :explicit_oauth_transport_required}
+
   def oauth_exchange_code(config, params) when is_map(config) and is_map(params) do
     with {:ok, oauth_module} <- oauth_module_for(config.provider),
          {:ok, profile} <- oauth_profile_for(config.provider),
@@ -1271,6 +1294,9 @@ defmodule Zaq.Channels.JidoConnectBridge do
   end
 
   @impl true
+  def oauth_refresh_token(%{oauth_credentials: :explicit}, _params),
+    do: {:error, :explicit_oauth_transport_required}
+
   def oauth_refresh_token(config, params) when is_map(config) and is_map(params) do
     with {:ok, oauth_module} <- oauth_module_for(config.provider),
          {:ok, profile} <- oauth_profile_for(config.provider),
@@ -1291,6 +1317,16 @@ defmodule Zaq.Channels.JidoConnectBridge do
            end) do
       {:ok, normalize_oauth_token(token)}
     end
+  end
+
+  defp oauth_credential_and_redirect_uri(%{oauth_credentials: :explicit}, params) do
+    build_oauth_credential_result(
+      param_get(params, :client_id),
+      param_get(params, :client_secret),
+      normalize_scope_input(param_get(params, :scope)),
+      param_get(params, :redirect_uri),
+      {:error, :invalid_oauth_request}
+    )
   end
 
   defp oauth_credential_and_redirect_uri(config, params) do

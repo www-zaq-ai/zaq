@@ -70,6 +70,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback oauth_exchange_code(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback oauth_refresh_token(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback oauth_default_scopes(map()) :: {:ok, [String.t()]} | {:error, term()}
+  @callback oauth_token_endpoint(map()) :: {:ok, String.t()} | {:error, term()}
   @callback list_source_scopes(map(), map()) :: {:ok, [map()]} | {:error, term()}
   @callback list_files(map(), map(), TrustedContext.t()) ::
               {:ok, RecordPage.t()} | {:error, term()}
@@ -118,6 +119,7 @@ defmodule Zaq.Channels.DataSourceBridge do
                       oauth_exchange_code: 2,
                       oauth_refresh_token: 2,
                       oauth_default_scopes: 1,
+                      oauth_token_endpoint: 1,
                       list_source_scopes: 2,
                       list_files: 3,
                       create_file: 3,
@@ -292,34 +294,65 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
-  @doc "Builds OAuth authorize URL through the configured DataSource bridge."
-  @spec oauth_authorize_url(atom() | String.t(), map()) :: {:ok, String.t()} | {:error, term()}
-  def oauth_authorize_url(provider, params) when is_map(params) do
-    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+  @doc """
+  Builds OAuth authorize URL through the configured DataSource bridge.
+  Trusted `oauth_credentials: :explicit` makes supplied credentials authoritative,
+  including absent secrets and empty scopes. This context is separate from provider
+  params; adapters must not fall back to channel credentials in explicit mode.
+  """
+  @spec oauth_authorize_url(atom() | String.t(), map(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def oauth_authorize_url(provider, params, opts \\ []) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- supports_callback?(bridge, :oauth_authorize_url, 2) || {:error, :unsupported} do
-      bridge.oauth_authorize_url(config, params)
+      bridge.oauth_authorize_url(
+        Map.put(config, :oauth_credentials, Keyword.get(opts, :oauth_credentials)),
+        params
+      )
     end
   end
 
-  @doc "Exchanges OAuth callback code through the configured DataSource bridge."
-  @spec oauth_exchange_code(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def oauth_exchange_code(provider, params) when is_map(params) do
-    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+  @doc """
+  Exchanges legacy OAuth callback codes. Jido rejects explicit token delegation;
+  canonical callers use oauth_token_endpoint/1 and Connect's generic transport so
+  client material and PKCE cannot be changed by dependency defaults.
+  """
+  @spec oauth_exchange_code(atom() | String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def oauth_exchange_code(provider, params, opts \\ []) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- supports_callback?(bridge, :oauth_exchange_code, 2) || {:error, :unsupported} do
-      bridge.oauth_exchange_code(config, params)
+      bridge.oauth_exchange_code(
+        Map.put(config, :oauth_credentials, Keyword.get(opts, :oauth_credentials)),
+        params
+      )
     end
   end
 
-  @doc "Refreshes OAuth token through the configured DataSource bridge."
+  @doc "Refreshes legacy OAuth tokens. Jido rejects explicit delegation; canonical refresh uses its profile endpoint through Connect."
   @spec oauth_refresh_token(atom() | String.t(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def oauth_refresh_token(provider, params, opts \\ []) when is_map(params) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
          {:ok, config} <- Bridge.fetch_channel_config(provider),
          true <- supports_callback?(bridge, :oauth_refresh_token, 2) || {:error, :unsupported} do
-      bridge.oauth_refresh_token(config, params)
+      bridge.oauth_refresh_token(
+        Map.put(config, :oauth_credentials, Keyword.get(opts, :oauth_credentials)),
+        params
+      )
+    end
+  end
+
+  @doc "Returns the configured bridge's secret-free OAuth token endpoint for Connect's generic token transport."
+  @spec oauth_token_endpoint(atom() | String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def oauth_token_endpoint(provider, opts \\ []) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
+         {:ok, config} <- Bridge.fetch_channel_config(provider),
+         true <- supports_callback?(bridge, :oauth_token_endpoint, 1) || {:error, :unsupported} do
+      bridge.oauth_token_endpoint(config)
     end
   end
 

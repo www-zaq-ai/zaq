@@ -144,7 +144,7 @@ defmodule Zaq.Engine.Connect.CanonicalStorageTest do
     assert reconnected.status == "active"
   end
 
-  test "canonical OAuth grants stay out of the legacy scheduled refresh selection" do
+  test "canonical OAuth grants participate in the shared scheduled refresh selection" do
     config = credential(%{auth_kind: "oauth2", client_id: "client"})
 
     assert {:ok, grant} =
@@ -155,7 +155,7 @@ defmodule Zaq.Engine.Connect.CanonicalStorageTest do
                expires_at: ~U[2020-01-01 00:00:00Z]
              })
 
-    refute Enum.any?(Connect.expiring_oauth_grants(), &(&1.id == grant.id))
+    assert Enum.any?(Connect.expiring_oauth_grants(), &(&1.id == grant.id))
   end
 
   test "trusted storage checks current active Person on creation and update without resolving aliases" do

@@ -26,6 +26,8 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
   @moduletag :onboarding_scenarios
 
   @password "StrongPass1!"
+  # Await external async completion, rather than asserting an incidental 100ms SLA.
+  @portal_async_timeout 5_000
   @email "admin@zaq.local"
   @alt_email "alt.admin@zaq.local"
 
@@ -57,7 +59,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       # stay mounted waiting for accept/decline.
       submit_bootstrap_form(view)
 
-      flash = assert_redirect(view, ~p"/bo/dashboard", 1000)
+      flash = assert_redirect(view, ~p"/bo/dashboard", @portal_async_timeout)
       assert flash["info"] =~ "Password changed"
 
       # Registration persisted
@@ -78,7 +80,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       # Dashboard shows unreachable notice, not the Activate banner. The portal
       # metadata is fetched asynchronously after connect, so await it.
       {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
-      html2 = render_async(view2)
+      html2 = render_async(view2, @portal_async_timeout)
       assert html2 =~ "ZAQ portal is not reachable in this environment"
       refute html2 =~ "Activate"
     end
@@ -107,7 +109,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       submit_bootstrap_form(view)
 
       # Consent modal appears only after async portal metadata resolves.
-      render_async(view)
+      render_async(view, @portal_async_timeout)
       assert has_element?(view, "[phx-click='accept_portal_consent']")
 
       render_click(view, "accept_portal_consent")
@@ -161,7 +163,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       {:ok, view, _html} = live(conn, ~p"/bo/change-password")
       submit_bootstrap_form(view)
 
-      render_async(view)
+      render_async(view, @portal_async_timeout)
       assert has_element?(view, "[phx-click='decline_portal_consent']")
       render_click(view, "decline_portal_consent")
 
@@ -178,7 +180,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
 
       # Dashboard: Activate banner present with offer copy (fetched async).
       {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
-      render_async(view2)
+      render_async(view2, @portal_async_timeout)
       assert has_element?(view2, "#portal-consent button", "Activate")
       assert render(view2) =~ "Claim your $2"
 
@@ -221,7 +223,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       end)
 
       {:ok, view, _html} = live(init_test_session(conn, %{user_id: user.id}), ~p"/bo/dashboard")
-      render_async(view)
+      render_async(view, @portal_async_timeout)
       view |> element("#portal-consent button", "Activate") |> render_click()
       html = view |> element("[phx-click='accept_portal_consent']") |> render_click()
 
@@ -245,7 +247,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       end)
 
       {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
-      render_async(view2)
+      render_async(view2, @portal_async_timeout)
       view2 |> element("#portal-consent button", "Activate") |> render_click()
       view2 |> element("[phx-click='accept_portal_consent']") |> render_click()
 
@@ -286,7 +288,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       end)
 
       {:ok, view, _html} = live(init_test_session(conn, %{user_id: user.id}), ~p"/bo/dashboard")
-      render_async(view)
+      render_async(view, @portal_async_timeout)
 
       view |> element("#portal-consent button", "Activate") |> render_click()
 

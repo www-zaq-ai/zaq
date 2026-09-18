@@ -7,7 +7,8 @@
 # General application configuration
 import Config
 
-config :phoenix, :filter_parameters, ["password", "secret", "token", "code"]
+# OAuth callback query values are credentials, including opaque one-use state.
+config :phoenix, :filter_parameters, ["password", "token", "secret", "code", "state"]
 
 # LiveView's mount logger inspects the entire shared cookie session without
 # Phoenix parameter filtering. Keep other diagnostics, but never compile this
@@ -62,6 +63,8 @@ config :mime, :types, %{
   "application/vnd.zaq-license" => ["zaq-license"]
 }
 
+# connect_credential_notifications is deliberately absent: persist jobs now, but
+# activate consumption only with the actual Agent receiver/fanout and replay policy.
 config :zaq, Oban,
   repo: Zaq.Repo,
   queues: [
@@ -69,6 +72,7 @@ config :zaq, Oban,
     ingestion_chunks: 6,
     default: 10,
     conversations: 5,
+    connect_maintenance: 1,
     scheduled_actions: 5,
     telemetry: 5,
     telemetry_remote: 3,
@@ -83,6 +87,7 @@ config :zaq, Oban,
        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},
        {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
        {"*/5 * * * *", Zaq.Engine.Connect.GrantRefreshSchedulerWorker},
+       {"*/5 * * * *", Zaq.Engine.Connect.SecretReconciliationWorker},
        {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker},
        {"0 3 * * *", Zaq.System.UpdateBadgeWorker}
      ]}

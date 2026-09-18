@@ -28,6 +28,13 @@ defmodule Zaq.Engine.Connect.MutationConcurrencyTest do
       on_exit(fn ->
         Sandbox.unboxed_run(Repo, fn ->
           Repo.delete_all(from c in Credential, where: c.id == ^config.id)
+
+          Repo.delete_all(
+            from j in Oban.Job,
+              where:
+                j.queue == "connect_credential_notifications" and
+                  fragment("args->>'credential_id' = ?", ^to_string(config.id))
+          )
         end)
       end)
 

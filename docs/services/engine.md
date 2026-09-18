@@ -1,5 +1,8 @@
 # Engine Service
 
+Foundation hardening evidence, acceptance map and measured coverage exceptions:
+[`connect-foundation-validation.md`](connect-foundation-validation.md) (`zaq-jrg.9`).
+
 ## Overview
 
 The Engine service is the operational backbone of ZAQ. Its responsibilities include:
@@ -120,8 +123,10 @@ Adapter inbound path:
   persistence and checks the literal Person ID currently exists with active status
   on creation/update. It never follows merged aliases. These are internal storage
   changesets, not authenticated Person APIs. Atomic management uses the separate
-  mutation boundary below; authenticated Person transport remains `zaq-jrg.5`.
-- Legacy issue/list/resolve and scheduled refresh stay resource-bound. Canonical
+  mutation boundary below. Authenticated self-service composes `PeopleAuth`,
+  `PeoplePermissions` and the Connect management context at `PeopleAuthGateway`.
+- Legacy issue/list/filter-based resolve stay resource-bound. Scheduled refresh now
+  includes canonical OAuth grants through the shared safe refresh boundary (`zaq-jrg.7`). Canonical
   rows do not enter existing AI, data-source or MCP consumers. No secret backfill
   or fallback from configuration to canonical grants is performed.
 - Migration rollback locks the tables and refuses while canonical grants (including
@@ -134,6 +139,78 @@ concurrent Person deletion/merge. Orphan grants and encrypted secrets can remain
 synchronous erasure is not guaranteed. Person IDs must not be reused operationally.
 The authoritative approved storage decision is recorded in Beadwork epic `zaq-jrg`
 and prerequisite `zaq-jrg.1` (2026-09-14).
+
+#### Person lifetime and secret reconciliation (`zaq-jrg.8`)
+
+`People.delete_person/1`, bulk deletion and the existing `PersonMerger` transaction
+orchestrate `Connect.PersonLifecycle` before removing People. Accounts never queries
+secret payloads. Single deletion still returns the deleted Person; bulk deletion
+retains the deleted-count/failed-ID summary, including repeated historical aliases.
+The whole bulk group acquires Connect locks once rather than per-Person lock passes.
+The merger uses a protected People deletion operation after group-wide cleanup.
+
+For each canonical credential, a survivor slot wins **in every status**, including
+revoked and expired; losing rows and their encrypted material are deleted. With no
+survivor slot, the lowest persisted loser ID's row transfers by changing only ownership
+(and Ecto's update timestamp). Remaining losers are removed. Survivor-only rows are
+untouched. No secret columns are loaded, decrypted, overwritten or re-encrypted.
+Inactive survivors may retain transferred material; the resolver still rejects their use.
+Existing canonical ownership CHECKs/unique indexes apply; legacy Person resource grants
+remain prohibited. No new migration, Person FK, duplicate ownership column, trigger or
+coordination row is introduced.
+
+Lock order is Accounts' existing identity advisory lock, its Person/relationship locks,
+then all discovered credential IDs ascending, grant IDs ascending, and OAuth attempt
+IDs ascending. Canonical mutations/refresh/callbacks acquire credential locks first
+and never acquire the Accounts advisory or Person locks. Merge and bulk deletion take
+one group-wide Connect pass. Newly appearing credentials/rows outside that snapshot can
+still leave the explicitly accepted concurrent orphan; no all-isolation erasure claim
+is made. Person IDs **must never be reused** operationally.
+
+All attempts for original participants, including the survivor, are deleted rather
+than rebound to aliases. This includes claimed attempts currently exchanging with the
+provider. Callback validation now requires the persisted attempt still exists under
+the credential lock, both before HTTP and final save. A late callback or refresh cannot
+overwrite transferred/deleted state. Remote provider operations already in flight
+cannot be undone; a cancelled OAuth flow requires a fresh authorization attempt.
+
+Grant identity is captured before mutation. Deletion emits `.3` `grant_deleted` jobs;
+transfer emits old-owner `grant_deleted` and new-owner `grant_created` dependencies.
+Collision also emits `grant_replaced` for the unchanged survivor slot to invalidate
+that dependency later. Thus the survivor is notified even when it previously used
+global fallback. Event kinds are dependency signals: consumers must re-read current
+state. Every event has its own UUID and the existing eight-key secret-free allowlist.
+Identity writes, grant changes, cancellation and jobs roll back together on failure.
+
+`PersonLifecycle.reconcile/1` performs one deterministic ID-keyset page, default **100
+grants plus 100 attempts**, with a hard per-kind limit of 500. Trusted callers may pass
+`limit:`, `now:` and `after: %{grant_id: integer, attempt_id: string}`; the result contains
+`grants_deleted`, `attempts_deleted` and an internal continuation cursor. Restarting
+without a cursor is idempotent. It selects canonical Person grants whose **literal**
+People row is missing, rechecks after locking, and deletes whole encrypted rows. It
+does not follow aliases, remove inactive owners' retained grants, or touch legacy
+org/user rows. Attempts are eligible when expired (`expires_at <= cutoff`) or
+Person-owned with a missing literal owner. New global candidates with NULL
+credential ID are included only when expired. Nonexpired claims stay until expiry;
+claiming already clears encrypted material. Healthy in-flight exchanges survive
+maintenance, while identity cancellation still removes claims immediately.
+
+`SecretReconciliationWorker` runs every five minutes via the existing database-leader
+`DynamicCron` plugin, with one outstanding unique worker job across pending/executing/
+retry states, three attempts, and the dedicated **`connect_maintenance: 1`** consumed
+queue on every dev/production role. It processes exactly one page, never recursively
+enqueues continuation jobs, and the next scheduled run starts at the earliest remaining
+eligible rows. Large backlogs drain over successive runs; this is not an immediate TTL
+or bounded wall-clock erasure guarantee. Maintenance does not depend on `channels`
+consumption or the deliberately unconsumed `connect_credential_notifications` queue.
+
+Domain telemetry `[:zaq, :connect, :secret_reconciliation]` includes only deletion
+counts, monotonic duration and a fixed outcome. Cursor/owner/config/grant IDs, raw
+structs, metadata and secret values are excluded. Worker errors are fixed safe atoms.
+Actual Agent invalidation/fanout, notification activation/replay policy and trusted
+Person transport/session integration remain later delivery gates; `.9` validates the
+combined foundation. Current `.4` resolver and `.5` management already reject stale
+literal identities without alias normalization or global fallback.
 
 #### Canonical mutations (`zaq-jrg.2`)
 
@@ -174,8 +251,9 @@ material and local grant expiry (strictly later than `opts[:now]`, default UTC n
 API keys/access tokens must be nonblank; JWT material must decode as an RSA or EC
 private PEM key with issuer/key ID. This does not verify provider acceptance. Corrupt
 required ciphertext is unusable. OAuth accepts pre-obtained access material only;
-**drafts and finalization are deferred to OAuth slice `zaq-jrg.6`**, without new
-setup-state columns. Required-to-optional fails until global material is supplied.
+  OAuth setup/finalization uses transient encrypted attempts (`zaq-jrg.6`, below),
+  without incomplete credential rows or setup-state columns. Required-to-optional
+  still fails until global material is supplied.
 
 Replies are `{:ok, map}` with only credential ID, policy and optional global grant
 summary for saves; grant summaries contain credential ID, grant ID and status.
@@ -185,14 +263,393 @@ Cleanup uses `"absent"` and a nil grant ID if already absent. Errors are fixed a
 `:incompatible_live_grants`, `:encryption_failed`, `:cleanup_failed`). No decrypted
 schema, changeset or submitted params leave this boundary. Nested Repo transactions
 compose: outer rollback undoes successful mutations; an inner failure aborts the outer
-transaction. No events are emitted before or after commit yet (`zaq-jrg.3`).
+transaction. Secret-free notification jobs now commit with the writes (`zaq-jrg.3`).
 
-**Required later work, unimplemented here:** the resolver must check Person existence
-and eligibility BEFORE policy selection, including disabled policy. A stale/deleted
-Person must return an error, never global fallback or silent reidentification through
-an alias. Authenticated creation/update and OAuth/refresh must recheck current identity.
-`zaq-jrg.8` must explicitly clean up/transfer grants during deletion/merge and implement
-deterministic, bounded, idempotent orphan-secret reconciliation with safe telemetry.
+#### Durable mutation notifications (`zaq-jrg.3`)
+
+`Zaq.Engine.Connect.MutationEvents.persist/2` owns changeset persistence plus Oban
+enqueue in the same `Zaq.Repo` transaction. `delete/1` reloads and locks the record
+before capturing its identity and deleting it. Canonical and legacy credential
+create/update/delete, grant issue/replace/revoke/remove, and shared token-cache/refresh
+persistence use this boundary. Raw changeset construction alone is not a mutation API;
+future OAuth and lifecycle writers must use this boundary rather than write directly.
+Outer/nested rollback removes jobs too; enqueue failure aborts the mutation. Legacy
+mutation errors retain their existing shapes, with an additional fixed
+`:mutation_event_enqueue_failed` error. Canonical replies remain sanitized.
+
+Version 1 jobs carry exactly these JSON keys:
+
+| Key | Value |
+| --- | --- |
+| `version` | `1` |
+| `event_id` | UUID, retained across delivery retries |
+| `credential_id` | integer credential ID |
+| `grant_id` | integer grant ID, or null for a configuration event |
+| `owner_type` | `org`, `user`, `person`, or null for configuration |
+| `owner_id` | integer owner ID or null (legacy nullable user/explicit org IDs retained) |
+| `kind` | `credential_created`, `credential_updated`, `credential_deleted`, `grant_created`, `grant_replaced`, `grant_revoked`, `grant_deleted`, `grant_tokens_updated` |
+| `occurred_at` | UTC ISO-8601 timestamp |
+
+There is no artificial monotonic revision. No secret, provider payload, metadata,
+raw schema, resource label or client-supplied event attribute is copied. Configuration
+events cover every scope for that credential, including grants removed by cascading
+credential deletion; those do not need individual grant events. Grant deletions retain
+the persisted owner/grant IDs in the event. Empty changeset updates and absent-slot
+cleanup enqueue nothing; replacements and forced secret erasure remain observable.
+Delegated configuration saves emit one credential event and, when replaced, one grant
+event, rather than duplicate credential notifications.
+
+`MutationEventWorker` uses queue **`connect_credential_notifications`**, three attempts
+and Oban's default jittered exponential backoff. Jobs are **always enqueued**, but this
+queue is deliberately absent from **all dev/production role consumers**. Do not enable
+it until the actual Agent receiver and owning-node fanout exist. Test configuration
+uses manual Oban: inline execution would dispatch before commit. Other tests needing
+inline workers must scope that execution explicitly. The E2E server (`E2E=1`) uses
+real asynchronous queues (`testing: :disabled`), still excluding notifications.
+
+`MutationEvents.deliver/2` validates the complete payload and synchronously invokes
+`Agent.Events.build_and_dispatch_invoke_event/3` with action
+`:connect_credential_mutated` (existing `node_router:` helper override is supported).
+Only the returned Event's `response: :ok` counts as delivery. Unsupported action,
+unavailable service, RPC failures, unexpected responses, exceptions, exits and throws
+return fixed safe errors; provider responses and exception messages are not logged or
+stored in Oban errors. Current default Agent routing returns unsupported; no stub
+receiver ships. NodeRouter's existing workflow stream sees the same safe request.
+
+Delivery attempts are at-least-once, may duplicate and arrive out of order, and stop
+after bounded retries. UUIDs allow future deduplication; timestamps are not ordering
+revisions. Future consumers must re-read current state. A successful single NodeRouter
+invocation is **neither all-node fanout nor consumer acknowledgment**. Activation must
+define backlog retention/replay, explicit handling/retry of discarded jobs, missed-event
+reconciliation and the server-creation/invalidation race. There is no automatic pruner
+for these jobs today; do not silently delete old dead jobs when activating the queue.
+Retention is not an indefinite historical replay guarantee.
+
+#### Privileged runtime credential resolution (`zaq-jrg.4`)
+
+`Connect.resolve_credential(credential_or_id, trusted_actor, opts \\ [])` delegates
+to `Connect.CredentialResolver`. IDs may be positive integers or numeric strings;
+schema inputs supply only their ID and are always reloaded. This is a **trusted
+runtime capability**, not a Person read API, public Engine action or authentication
+adapter. No consumer is integrated by this slice. Generic internal invocation remains
+trusted infrastructure and must not be exposed to browser input.
+
+`ActorNormalizer.person_id/1` supplies canonical nested and legacy flat ID compatibility,
+not authentication. Every supplied non-null nested/flat claim must be valid and agree.
+Malformed actor values, conflicting claims, direct Person structs, and IDs with no
+literal current active Person return `:person_unavailable` **before policy selection**,
+even when disabled. Merge aliases never reidentify the owner. Nil, absent/null Person
+fields and genuine BO/system actors select org intentionally in this privileged API;
+they still do not authorize `PersonCredentials` management.
+
+| Actor / policy | Selected slot |
+| --- | --- |
+| Active Person / disabled | Org; ignore all personal state |
+| Active Person / optional | Personal row if present in any status; otherwise org |
+| Active Person / required | Personal row; absence is `:personal_credential_required` regardless of org |
+| Non-Person / any policy | Org; absence is `:global_credential_missing` |
+
+Only exact canonical `connect_credential` resource/credential coordinates and exact
+org/null or person/ID ownership participate. Selection happens before usability.
+Revoked, expired, corrupt or incompatible selected rows are never treated as absent,
+and **no selected failure triggers fallback**. Legacy resource grants and configuration
+API/private keys are never material sources. Configuration-secret columns are excluded
+from the resolver's configuration projection.
+
+Success is `{:ok, %Connect.ResolvedCredential{}}`: credential/grant/owner IDs, string
+auth kind/request format, grant expiry, ephemeral `authentication`, and optional
+selected-grant `account_id`/`account_name` metadata (strings, at most 255 bytes). No
+configuration or other owner's metadata is copied. Inspection exposes only dependency
+IDs/auth kind; no JSON encoder or Ecto schema is provided. Never log extracted auth,
+persist this result, or put it into public events/DTOs.
+
+| Auth kind | Exact generic `authentication` shape and semantics |
+| --- | --- |
+| `api_key` | `%{api_key: literal_string}`; nonblank, nonmasked decrypted grant key |
+| `oauth2` | `%{access_token: literal_string}` only; no refresh token/client secret |
+| `jwt_bearer` | `%{private_key: pem, issuer: string, key_id: string, subject: string_or_nil, scopes: list, auth_profile_id: string}`; RSA/EC private PEM; service-account profile, with subject required for delegated profile |
+
+`request_format` is `"bearer"` (consumer applies Bearer formatting) or `"raw"`
+(literal value). JWT returns signing material, not a minted assertion. There are no
+ReqLLM options, Agent dependencies, provider authentication probes, or HTTP header
+construction here. Loaded `enc:`-prefixed strings are consumed literally, never
+decrypted twice. Provider acceptance and JWT signing belong to later consumers.
+
+Errors are exactly `{:error, %{credential_id: normalized_id_or_nil, reason: atom}}`.
+Reasons are `:person_unavailable`, `:personal_credential_required`,
+`:global_credential_missing`, `:credential_revoked`, `:credential_expired`,
+`:credential_unavailable`, `:credential_refresh_busy`, or `:credential_refresh_failed`.
+They contain no submitted values, provider bodies, secrets or global availability in
+personal failures. Revocation is terminal. Configuration/grant datetime expiry uses
+strictly greater than `opts[:now]`; nil means no local deadline. Configuration expiry
+is terminal; OAuth grant expiry/expired status may recover through shared refresh.
+Wrong auth/config fields, invalid JWT material and unreadable required ciphertext are
+unavailable. Missing refresh material on expired OAuth returns expired. Busy/provider
+failure is safe and distinct; there are no in-call retries.
+
+**Concurrency/linearization:** local work locks credential before selected grant and
+checks literal identity again. OAuth uses `Connect.prepare_grant_for_use/2` once,
+outside locks, with the existing raw ciphertext-inclusive refresh fingerprint as an
+expected selection guard. Refresh checks it before cached use and again before claim.
+After preparation the resolver reacquires locks, checks raw configuration, pinned slot,
+current selection/identity and prepared material; unchanged cached material also checks
+the raw grant/config fingerprint so unreadable nil values cannot hide replacement.
+Final configuration and grant expiry checks evaluate the clock again after acquiring
+locks. `now:` accepts a fixed DateTime or a zero-argument clock; fixed timestamps stay
+constant, whereas the default production clock and function overrides advance. Token
+`expires_in` conversion uses the same clock seam after the provider responds.
+Refresh's own claim fingerprint guards external work through persistence. Known stale
+results reject rather than fallback. The final locked read/identity check is the
+linearization point, not future consumer/server creation. Person deletion after that
+check, later mutation and the server-create-versus-invalidation race remain outside
+this resolver slice. `.8` supplies lifecycle cleanup above; `.9` is the remaining
+comprehensive foundation review/validation gate.
+
+#### Claimed OAuth refresh (`zaq-jrg.7`)
+
+`Connect.refresh_grant(grant, opts \\ [])` reloads the persisted grant and configuration,
+then coordinates canonical org/Person and legacy org/user resource grants through
+`Connect.Refresh`. It reuses `OAuth.refresh_token_payload/3` and the existing Channels
+provider fallback. Secret-bearing dispatch sets `confidential: true`. Generic provider
+HTTP disables automatic retries, with 15-second receive and 5-second connect timeouts.
+Provider errors, exceptions and malformed replies are sanitized before returning.
+Canonical refresh always uses that existing generic token transport. When no
+`token_url` is configured, Connect asks Channels for the existing provider profile's
+token endpoint through `:data_source_oauth_token_endpoint`; only the URL crosses back.
+It never delegates canonical token HTTP to a dependency helper with environment
+credential defaults. Catalog fallback requires a nonempty bound client secret and
+fails closed otherwise. An explicitly configured `token_url` retains generic
+public-client support, omitting an absent secret. Refresh never needs a callback
+redirect. Legacy org/user refresh retains its channel and ambient fallback behavior.
+
+Migration `20260914120057_add_connect_grant_refresh_claim.exs` adds only
+`refresh_claim` (UUID) and `refresh_claim_until` (UTC timestamp) to existing grants.
+A short transaction locks configuration before grant and claims a **120-second lease**.
+The claim commits before external IO; calling refresh inside an enclosing transaction
+returns `:refresh_requires_committed_state`. A contender returns `:refresh_busy` without
+HTTP or in-call retries. Failure retains the lease as bounded cooldown; process death
+needs no cleanup worker to recover. The next caller can reclaim at the TTL boundary.
+An old holder can remain in external IO after expiry, but cannot persist over a new
+claim. Remote token rotation followed by process death can require reconnect if the
+provider has invalidated the only stored refresh token; local leases cannot undo that.
+
+Before HTTP and again before save, local transactions reload both records and compare
+a deterministic fingerprint of **raw stored grant and configuration**, including
+ciphertext, status, ownership, auth fields, policy and claim. No timestamp revision or
+provider-wide locking is used. Revoke, removal, replacement, OAuth reauthorization and
+configuration changes defeat the in-flight response. Person ownership checks the literal
+current `status == "active"` record at both boundaries, without aliases. Missing or
+inactive People never cause global fallback. Deletion after the final identity check
+remains the accepted no-Person-FK/no-trigger race; lifecycle reconciliation is `.8`.
+
+Canonical persistence uses the internal `Mutations.persist_refreshed_grant/4` writer
+only after the claimed-refresh checks, with `MutationEvents` enqueue in that same
+transaction. Tokens are freshly encrypted, omitted refresh tokens are retained from
+the checked current row, and supplied tokens rotate. Provider scopes/metadata cannot
+rewrite canonical configuration. The OAuth provider function consumes loaded plaintext
+literally; an `enc:` prefix is never permission to decrypt a token a second time.
+Legacy direct `update_grant_token_cache/2` reloads/checks status and grant material;
+canonical use rejects with `:canonical_refresh_required`, preventing an unclaimed
+cache writer from bypassing the refresh protocol. Enqueue failure rolls back tokens.
+
+**Resolver `.4` integration:** after independently validating Person identity and
+selecting policy/grant, call `Connect.prepare_grant_for_use(selected_oauth_grant, opts)`.
+This internal API returns `{:ok, loaded_grant}` with runtime secrets, not a transport
+DTO. It reloads identity/configuration and refreshes at or within the default 60-second
+skew (`:refresh_window_seconds`). Future/no-expiry usable access tokens avoid HTTP.
+Expired status or access-token expiry may recover with valid refresh material; revoked
+is terminal. Missing refresh material returns `:authentication_required`. Other fixed
+errors include `:not_found`, `:person_unavailable`, `:stale_grant`, `:refresh_failed`,
+`:invalid_refresh_response`, `:encryption_failed`, and `:mutation_event_enqueue_failed`.
+Busy/provider failures are retryable with bounded caller backoff, never a fallback
+signal. `refresh_grant/2` is explicit refresh even for a future/no-expiry token.
+
+The existing scheduler includes active/expired OAuth rows with stored refresh material
+and expiry within its window. `GrantRefreshWorker.perform/2` carries runtime opts;
+`perform/1` is the Oban entry point. Jobs retain a maximum of three attempts, with
+120 seconds added to Oban's normal backoff so retries outlast the claim cooldown.
+Both direct and scheduled refresh use the same lease. `:now` and `config:` are per-call
+clock/runtime seams; no process-global config mutation is required. This slice does
+not itself select policy, run `.8` cleanup, or activate consumers; the `.4` resolver
+above now supplies canonical runtime selection.
+
+#### Authenticated Person credential management
+
+See [personal grant sequences](personal-grant-sequences.md) for module-by-module
+creation, OAuth refresh, Person merge and Person removal flows, including transaction
+and provider-network boundaries.
+
+`Zaq.Engine.PeopleCredentials` composes the existing `PeopleAuth` bearer/session
+boundary, `PeoplePermissions`, and the Connect-domain `PersonCredentials` operations.
+Reads require `access_profile`; mutations and OAuth start/reconnect additionally
+require `manage_credentials`. The latter is an explicit Everyone/team capability and
+is not granted automatically. Submitted Person/owner IDs never select authority.
+
+Credential requests use the fixed confidential `PeopleAuthGateway` operations. A
+loaded Person struct remains a domain argument, **not authentication or an unforgeable
+capability**. `ActorNormalizer` only normalizes runtime identity; actor maps, BO Users,
+nil and machine flags cannot authorize management. The authenticated Person is
+reloaded by literal ID and must currently exist and be active;
+merge aliases are never followed. Every write rechecks after acquiring the credential
+lock. The accepted post-check concurrent deletion/orphan limitation still applies.
+
+| Function | Contract |
+| --- | --- |
+| `list_available(authenticated_person)` | Eligible grant-owned `:optional`/`:required` configurations, ordered by name/ID, with only the caller's own status. Legacy `user_level` does not affect eligibility. |
+| `get_own_status(authenticated_person, credential_id)` | Eligible definition with own slot status, or a known retained own grant after disabling/changing binding. Unknown/ineligible-without-own-grant IDs return `:not_found`. |
+| `put_own_authentication(authenticated_person, credential_id, material, opts \\ [])` | Complete API-key/JWT replacement through canonical mutations. Requires current grant binding and optional/required policy. OAuth material is not accepted here; use the one-use start/callback lifecycle below. |
+| `revoke_own_grant(authenticated_person, credential_id)` | Clears own material, expiration and metadata; retains a revoked row. Absent slots stay absent. |
+| `remove_own_grant(authenticated_person, credential_id)` | Deletes own slot and restores absence semantics. Repeated removal succeeds. |
+
+Credential IDs are positive integers, not schema/grant references or ownership input.
+Cleanup permits retained disabled configurations and is idempotent when the own slot
+is already absent, even after policy/binding changes. It returns no configuration
+details and never touches another Person, canonical org, or legacy org/user slot.
+Missing configurations return `:not_found`; cleanup still requires an active Person.
+Revocation retains an explicit denial slot for later optional-policy resolution;
+removal permits later absence/fallback semantics. No resolver is implemented here.
+
+Read success is `{:ok, summary}` or `{:ok, [summary]}`. Each summary has exactly
+`credential_id`, `name`, `provider`, `auth_kind`, `personal_credential_policy`, `status`,
+`expires_at`. Status is `"absent"`, `"active"`, `"expired"`, or `"revoked"`; an active
+row whose expiration is not in the future reports expired. This is lifecycle status,
+not provider verification, secret usability, or runtime resolution. Read queries select
+only these fields and the caller's own slot; they do not load global grants or secrets.
+No account metadata is approved in this slice, so **all metadata is omitted**.
+
+Write success is exactly `{:ok, %{credential_id: id, status: status}}`; no grant IDs,
+submitted values or secrets are returned. API-key material permits `api_key` and
+`expires_at`; JWT permits `private_key` and `expires_at`. Canonical mutation validation
+rejects unknown/duplicate keys and malformed values with `:invalid_material`.
+Provider, scopes, issuer, key ID, subject, OAuth client settings, resource coordinates,
+credential/grant/owner IDs and metadata cannot be supplied in material. Encryption
+failure is `:encryption_failed`; canonical cleanup failures remain `:cleanup_failed`.
+Errors are fixed atoms, never secret-bearing changesets or params. Trusted `opts`
+carry the existing encryption-config/time seam, not client attributes. Nested rollback
+undoes both slot writes and `.3` notification jobs.
+
+Legacy `Connect.issue_grant/1` and `OAuth.build_authorize_url/2` explicitly reject
+Person ownership (atom/string keys, including ambiguous maps) with
+`:person_management_required`. The legacy callback rejects old signed Person-owned
+state before exchanging any code. Existing generic Engine actions inherit these
+checks through real context calls. Org/user behavior is preserved. Other generic
+admin/runtime Connect CRUD, token-cache and resolver functions remain privileged
+internal operations; none is exposed as a Person action. Person OAuth uses the
+one-use trusted attempts below, never the legacy context path.
+
+#### One-use OAuth and canonical admin setup (`zaq-jrg.6`)
+
+The trusted backend API is:
+
+- `PersonCredentials.start_oauth(authenticated_person, credential_id, opts \\ [])`
+- `PersonCredentials.reconnect_oauth(authenticated_person, credential_id, opts \\ [])`
+- `OAuthAttempts.start_global_configuration(credential_or_id_or_nil, attrs, opts \\ [])`
+  is **explicit trusted admin setup**, not Person authority or browser attributes.
+- `OAuthAttempts.finalize_callback(provider, params, opts \\ [])` accepts signed opaque
+  state and an authorization code; callback identity comes entirely from the attempt.
+
+Starts return only `{:ok, %{authorize_url: url}}`; finalization returns only
+`{:ok, %{credential_id: id, status: "active"}}`. Fixed errors include `:unauthorized`,
+`:not_found`, `:invalid_configuration`, `:incompatible_live_grants`, `:encryption_failed`,
+`:oauth_failed`, `:invalid_attempt` and `:transaction_not_allowed`. Provider errors,
+exception messages, token payloads and changesets never appear in these responses.
+Self-service start/reconnect authenticate the bearer and persist the initiating
+session ID, never its bearer or digest. Callback completion revalidates the session,
+literal active Person and both required permissions before replacing authentication.
+Direct internal starts remain outside the public self-service contract. OAuth requires `auth_kind: "oauth2"`,
+grant-owned secrets and optional/required policy. There is still no Person start route,
+or UI in this foundation slice; the existing Engine gateway is the supported backend boundary.
+
+**Admin setup decision:** the immutable candidate is encrypted only in the transient
+attempt; no incomplete credential is created or modified. This is the smallest setup
+path compatible with `.2`: after exchange, `Mutations.save_credential_configuration/4`
+atomically creates/updates the complete candidate and replaces its canonical org grant.
+Disabled/optional configurations always require a usable global grant at persistence;
+required still permits ordinary configuration save without one. Admin setup validation
+uses `Mutations.prepare_oauth_configuration/2`, an internal secret-bearing return used
+only for encrypted staging, not a transport DTO. Config changes incompatible with live
+Person grants reject before start and are checked again by canonical save at completion.
+Failed setup leaves the existing credential/global grant unchanged, or creates neither.
+
+Canonical OAuth configuration retains the existing credential fields and metadata
+(`authorize_url`, `token_url`, `auth_profile`, `pkce`, and allowlisted `authorize_params`:
+`prompt`, `access_type`, `include_granted_scopes`, `login_hint`, `audience`). Client ID,
+client secret and scopes belong in their existing credential fields. No second OAuth
+application configuration or provider registry is introduced. Unknown/secret-bearing
+metadata rejects at the canonical admin boundary; Person inputs cannot modify it.
+Without explicit endpoint metadata, canonical authorization still uses the existing
+provider catalog. Its `oauth_credentials: :explicit` event option passes through
+Channels API into bridge context, making the bound client ID, redirect and scopes
+(including empty) authoritative. Code exchange resolves the token endpoint through
+the secret-free Channels profile lookup and reuses Connect's existing generic exchange
+function. That function includes the exact server-bound PKCE verifier in the actual
+HTTP form. Dependency exchange helpers are not trusted to retain it.
+
+Catalog-based canonical exchange/refresh requires a nonempty bound client secret;
+absence fails closed before token HTTP, even when provider environment secrets exist.
+Configured generic `token_url` clients may omit a secret without consulting the
+environment. Jido rejects direct explicit exchange/refresh delegation with
+`:explicit_oauth_transport_required`. Public callback/refresh errors remain sanitized.
+Legacy channel and ambient credential fallback is unchanged. No dependency patches,
+provider-name lists, environment mutation or parallel token client were introduced.
+
+Legacy `Connect.revoke_grant/1` rejects canonical schemas with
+`:canonical_grant_requires_owner`. Trusted canonical callers use
+`Connect.revoke_credential_grant/2` with explicit current ownership; Person callers use
+`PersonCredentials.revoke_own_grant/2`. A stale pre-merge schema cannot revoke the
+survivor's canonical grant or enqueue an event identifying the old owner.
+
+`connect_oauth_attempts` binds a cryptographically random 256-bit ID to the credential
+(nullable only for new admin setup), owner type/ID, provider, configuration fingerprint,
+server redirect, expiry and claim time. Person ownership has no added Person FK or alias
+resolution. The credential FK cascades deletion. The signed-but-readable browser state
+has exactly one key, `attempt_id`. Every new attempt uses S256 PKCE; its verifier and
+optional admin candidate JSON are strictly encrypted and redacted at rest. Codes are
+never persisted. The SHA-256 fingerprint deterministically hashes the actual stored
+configuration, including encrypted secret columns, excluding insertion/update timestamps.
+It detects same-second edits and corrupt ciphertext changes; re-encryption conservatively
+invalidates attempts. Fingerprints are internal and never exposed to the browser.
+
+**Claim protocol:** expiry is exclusive at start + **600 seconds**. A short transaction
+locks and irreversibly claims the unused attempt, clearing stored verifier/candidate
+material, and **commits before network IO**. A second callback loses immediately. There
+is no lease or claim retry: cancellation, provider mismatch, expiration, malformed
+response, exchange failure, crash after claim or finalization failure require a new start.
+After claim and again in the final transaction, the context verifies current configuration
+fingerprint/provider, literal active Person, eligible policy/binding, server redirect and
+deadline. Successful replacement uses the canonical credential-first lock and `.3` event
+transaction, preserving slot uniqueness. Failed reconnect preserves the previous grant.
+Browser/provider-returned owner, resource, config, scopes and metadata cannot override
+binding; only access/refresh token and expiration are extracted from the provider result.
+The accepted post-check concurrent Person deletion/orphan limitation remains.
+
+`OAuth` reuses its existing authorize/exchange infrastructure. Generic authorization-code
+exchange has automatic HTTP retries disabled: an ambiguous failure must restart. Public
+attempt operations reject caller-owned Repo transactions to prevent network work under
+an enclosing lock. Trusted `opts[:now]` accepts a DateTime or zero-argument clock and is
+re-evaluated at finalization; `config:` uses the established `Zaq.Config` HTTP/encryption
+seam. These options never come from callback parameters.
+
+**Callback integration:** the existing `OAuth.finalize_callback/2` dispatches verified
+attempt-shaped state to this context and preserves legacy org/user grant behavior.
+`ChannelsController` uses its existing Engine invoke path, now marked `confidential: true`;
+provider OAuth dispatches carry the same flag. NodeRouter routes these synchronously
+without publishing code/state/client secrets to its workflow event stream. Callback HTML
+contains only status (plus a numeric grant ID for legacy success), never raw errors or
+reflected provider/params. Messages target `window.location.origin`, never `"*"`, with
+`no-store` and `no-referrer` headers. Phoenix parameter logging filters code/state/secrets.
+The new redirect is always `system.global.base_url` plus the existing provider callback
+path (existing localhost default when unset); it cannot be supplied by the browser.
+Legacy provider-specific redirects retain their existing behavior.
+
+**Retention and lifecycle integration:** consumed attempts retain bindings/claim time
+until `.8`'s bounded ID-keyset maintenance removes them. Expired attempts are deleted,
+never reclaimed. Pending expired verifier/candidate material can remain until that
+scheduled pass; no synchronous TTL erasure is promised. Callback validation rechecks
+persisted existence, so lifecycle/maintenance cancellation also stops in-flight claims.
+The exclusive deadline prevents late persistence. `.7` refresh compares current raw
+grant/configuration after HTTP; `.4` validates literal Person eligibility before policy,
+including disabled policy. `.8` cleanup/transfer and reconciliation are described above.
 Distributed server invalidation remains a later consumer integration.
 
 ### Supervisor (`Zaq.Engine.Supervisor`)

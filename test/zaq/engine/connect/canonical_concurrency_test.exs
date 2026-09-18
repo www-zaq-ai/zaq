@@ -32,6 +32,7 @@ defmodule Zaq.Engine.Connect.CanonicalConcurrencyTest do
     on_exit(fn ->
       Sandbox.unboxed_run(Repo, fn ->
         Repo.delete_all(from c in Credential, where: c.id == ^credential.id)
+        delete_events(credential.id)
         Repo.delete_all(from p in Person, where: p.id == ^person.id)
       end)
     end)
@@ -127,6 +128,7 @@ defmodule Zaq.Engine.Connect.CanonicalConcurrencyTest do
         assert Repo.reload!(config).secret_binding == :grant
       after
         Repo.delete_all(from c in Credential, where: c.id == ^config.id)
+        delete_events(config.id)
         Repo.delete_all(from p in Person, where: p.id == ^person.id)
       end
     end)
@@ -150,6 +152,7 @@ defmodule Zaq.Engine.Connect.CanonicalConcurrencyTest do
       on_exit(fn ->
         Sandbox.unboxed_run(Repo, fn ->
           Repo.delete_all(from c in Credential, where: c.id == ^credential.id)
+          delete_events(credential.id)
           Repo.delete_all(from p in Person, where: p.id == ^person.id)
         end)
       end)
@@ -201,5 +204,14 @@ defmodule Zaq.Engine.Connect.CanonicalConcurrencyTest do
         assert stored.api_key == "secret"
       end)
     end
+  end
+
+  defp delete_events(id) do
+    Repo.delete_all(
+      from j in Oban.Job,
+        where:
+          j.queue == "connect_credential_notifications" and
+            fragment("args->>'credential_id' = ?", ^to_string(id))
+    )
   end
 end

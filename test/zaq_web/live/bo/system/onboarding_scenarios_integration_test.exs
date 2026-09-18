@@ -26,6 +26,8 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
   @moduletag :onboarding_scenarios_integration
 
   @password "StrongPass1!"
+  # Includes real HTTP parsing and async onboarding; navigation is the completion signal.
+  @portal_async_timeout 5_000
   @email "admin@zaq.local"
   @alt_email "alt.admin@zaq.local"
 
@@ -107,7 +109,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosIntegrationTest do
 
       # Portal metadata is fetched asynchronously; the :unavailable result issues
       # the dashboard redirect once it resolves.
-      flash = assert_redirect(view, ~p"/bo/dashboard", 1000)
+      flash = assert_redirect(view, ~p"/bo/dashboard", @portal_async_timeout)
       assert flash["info"] =~ "Password changed"
 
       updated = Accounts.get_user!(user.id)

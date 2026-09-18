@@ -9,6 +9,10 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
   alias Zaq.Accounts.User
   alias Zaq.Repo
 
+  # Portal work is asynchronous, not a 100ms UI latency contract. Await its actual
+  # completion with a bounded integration timeout before inspecting dependent UI.
+  @portal_async_timeout 5_000
+
   setup do
     Zaq.PortalStubs.stub_portal_reachable()
     :ok
@@ -69,7 +73,8 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    assert render_async(view) =~ "To create your ZAQ account..."
+    assert render_async(view, @portal_async_timeout) =~ "To create your ZAQ account..."
+
     render_click(view, "accept_portal_consent")
 
     assert has_element?(
@@ -77,6 +82,41 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
              "#change-password-error .zaq-feedback-body",
              "should be at least 8 character(s)"
            )
+  end
+
+  test "registration waits for the external metadata response before consent", %{conn: conn} do
+    parent = self()
+    user = user_fixture(%{username: "metadata_barrier_user"})
+    conn = init_test_session(conn, %{user_id: user.id})
+
+    Mox.expect(Zaq.UserPortal.ClientMock, :fetch_onboarding, fn "free" ->
+      send(parent, {:metadata_requested, self()})
+
+      receive do
+        :complete_metadata -> {:ok, Zaq.PortalStubs.onboarding_message()}
+      after
+        @portal_async_timeout -> flunk("metadata response was not released")
+      end
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/bo/change-password")
+
+    view
+    |> form("#change-password-form", %{
+      "password" => "StrongPass1!",
+      "password_confirmation" => "StrongPass1!"
+    })
+    |> render_submit()
+
+    assert_receive {:metadata_requested, fetcher}, @portal_async_timeout
+    assert Accounts.get_user!(user.id).must_change_password
+    refute has_element?(view, "[phx-click='accept_portal_consent']")
+    send(fetcher, :complete_metadata)
+    assert render_async(view, @portal_async_timeout) =~ "To create your ZAQ account..."
+    render_click(view, "decline_portal_consent")
+    assert_redirect(view, ~p"/bo/dashboard")
+    refute Accounts.get_user!(user.id).must_change_password
+    Mox.verify!()
   end
 
   test "shows live checklist and confirmation feedback", %{conn: conn} do
@@ -120,7 +160,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     |> render_submit()
 
     # Portal metadata is fetched asynchronously; the consent modal appears once it resolves.
-    assert render_async(view) =~ "To create your ZAQ account..."
+    assert render_async(view, @portal_async_timeout) =~ "To create your ZAQ account..."
 
     render_click(view, "decline_portal_consent")
     assert_redirect(view, ~p"/bo/dashboard")
@@ -143,7 +183,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    assert render_async(view) =~ "To create your ZAQ account..."
+    assert render_async(view, @portal_async_timeout) =~ "To create your ZAQ account..."
     render_click(view, "accept_portal_consent")
     render_click(view, "close_post_accept_modal")
 
@@ -203,7 +243,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    assert render_async(view) =~ "To create your ZAQ account..."
+    assert render_async(view, @portal_async_timeout) =~ "To create your ZAQ account..."
     render_click(view, "accept_portal_consent")
 
     assert has_element?(
@@ -228,7 +268,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    assert render_async(view) =~ "To create your ZAQ account..."
+    assert render_async(view, @portal_async_timeout) =~ "To create your ZAQ account..."
     render_click(view, "decline_portal_consent")
     assert_redirect(view, ~p"/bo/dashboard")
 
@@ -254,8 +294,9 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    # The async portal fetch resolves shortly after submit and issues the redirect.
-    assert_redirect(view, ~p"/bo/dashboard", 1000)
+    # Navigation is this async path's completion signal. render_async can race
+    # teardown here, so await the actual redirect with the same async deadline.
+    assert_redirect(view, ~p"/bo/dashboard", @portal_async_timeout)
 
     updated_user = Accounts.get_user!(user.id)
     refute updated_user.must_change_password
@@ -288,7 +329,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    render_async(view)
+    render_async(view, @portal_async_timeout)
     render_click(view, "accept_portal_consent")
 
     flash = assert_redirect(view, ~p"/bo/dashboard")
@@ -331,7 +372,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    assert render_async(view) =~ "To create your ZAQ account..."
+    assert render_async(view, @portal_async_timeout) =~ "To create your ZAQ account..."
     render_click(view, "accept_portal_consent")
 
     flash = assert_redirect(view, ~p"/bo/dashboard")
@@ -359,7 +400,7 @@ defmodule ZaqWeb.Live.BO.System.ChangePasswordLiveTest do
     })
     |> render_submit()
 
-    assert render_async(view) =~ "To create your ZAQ account..."
+    assert render_async(view, @portal_async_timeout) =~ "To create your ZAQ account..."
     assert has_element?(view, "[phx-click='accept_portal_consent']")
 
     html = render_click(view, "close_consent_modal")

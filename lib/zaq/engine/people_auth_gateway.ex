@@ -8,14 +8,14 @@ defmodule Zaq.Engine.PeopleAuthGateway do
   invalidate only their own challenge; stale successful sends cannot select a
   superseded challenge. Only descriptors leave this orchestration.
 
-  Authenticated profile operations delegate to `Zaq.Engine.PeopleProfile`, which
-  owns profile authorization, persistence orchestration and safe projection.
+  Authenticated profile and credential operations delegate to their focused Engine
+  services, which own authorization, persistence orchestration and safe projection.
   """
 
   alias Jido.Action.Error
   alias Zaq.Accounts.{People, PeopleAuth}
   alias Zaq.Agent.Tools.People.NotifyPerson
-  alias Zaq.Engine.PeopleProfile
+  alias Zaq.Engine.{PeopleCredentials, PeopleProfile}
   require Logger
 
   @spec request_challenge(term(), term(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -60,6 +60,18 @@ defmodule Zaq.Engine.PeopleAuthGateway do
              :update_self_channel_order
            ] ->
         PeopleProfile.dispatch(request, opts)
+
+      %{op: op}
+      when op in [
+             :list_self_credentials,
+             :get_self_credential,
+             :put_self_credential,
+             :revoke_self_credential,
+             :remove_self_credential,
+             :start_self_credential_oauth,
+             :reconnect_self_credential_oauth
+           ] ->
+        PeopleCredentials.dispatch(request, opts)
 
       _ ->
         {:error, :invalid_request}

@@ -10,20 +10,24 @@ defmodule Zaq.Engine.Connect.Mutations do
   Configuration omission retains values. Global `:keep` retains the slot; replacement
   is complete, clears omitted grant material, retains the slot ID and reactivates it.
   Cleanup does not validate auth material or current Person eligibility. Transactions
-  compose with outer Repo transactions; no events or external effects are emitted.
-  Errors are fixed atoms and results contain only allowlisted IDs/status/policy.
+  compose with outer Repo transactions; secret-free Oban notifications commit with
+  writes through `MutationEvents`. No external dispatch occurs in the transaction.
+  Management errors are fixed atoms and results contain only allowlisted IDs/status/policy.
+  The internal claimed-refresh writer returns a secret-bearing runtime grant only to
+  `Connect.Refresh`, whose caller-held locks and snapshot checks precede persistence.
 
-  OAuth setup/finalization belongs to the later OAuth slice. Here access material must
-  already exist. Usability is structural/local (including expiry), not provider auth.
+  OAuth attempts may prepare an internal candidate without persisting it. Completion
+  still uses the same atomic save and global usability validation below.
   """
 
   import Ecto.Query
   alias Ecto.Changeset
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Credential, Grant}
+  alias Zaq.Engine.Connect.{Credential, Grant, MutationEvents}
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
+  alias Zaq.Utils.DateUtils
 
   @secrets ~w(api_key access_token refresh_token private_key)a
   @config_secrets ~w(api_key private_key client_secret)a
@@ -44,16 +48,9 @@ defmodule Zaq.Engine.Connect.Mutations do
   def save_credential_configuration(ref, attrs, global \\ :keep, opts \\ []) do
     transact(fn ->
       attrs = normalize_attrs(attrs, @config_fields, :invalid_configuration)
-      validate_metadata(attrs)
       validate_instruction(global)
       original = if is_nil(ref), do: %Credential{}, else: lock_credential(ref)
-      candidate = Credential.changeset(original, attrs)
-      ensure(candidate.valid?, :invalid_configuration)
-
-      ensure(
-        Enum.all?([:user_level, :scopes], &(not is_nil(Changeset.get_field(candidate, &1)))),
-        :invalid_configuration
-      )
+      candidate = configuration_candidate(original, attrs)
 
       validate_auth_change(original, Changeset.apply_changes(candidate), global)
       encrypted_attrs = encrypt_attrs(attrs, @config_secrets, opts, :invalid_configuration)
@@ -74,6 +71,47 @@ defmodule Zaq.Engine.Connect.Mutations do
     end)
   end
 
+  @doc """
+  Internal trusted admin setup validation. Returns a secret-bearing candidate only to
+  OAuthAttempts for encrypted transient storage, never to transports. No write occurs;
+  finalization must use `save_credential_configuration/4` with completed global material.
+  """
+  @spec prepare_oauth_configuration(credential_ref() | nil, map()) ::
+          {:ok, Credential.t()} | {:error, atom()}
+  def prepare_oauth_configuration(ref, attrs) do
+    transact(fn ->
+      attrs = normalize_attrs(attrs, @config_fields, :invalid_configuration)
+      original = if is_nil(ref), do: %Credential{}, else: lock_credential(ref)
+      candidate = original |> configuration_candidate(attrs) |> Changeset.apply_changes()
+
+      ensure(
+        candidate.auth_kind == "oauth2" and candidate.secret_binding == :grant,
+        :invalid_configuration
+      )
+
+      ensure(
+        Enum.all?(Map.take(attrs, @config_secrets), fn {_, value} -> present?(value) end),
+        :invalid_configuration
+      )
+
+      validate_auth_change(original, candidate, {:replace, %{}})
+      candidate
+    end)
+  end
+
+  defp configuration_candidate(original, attrs) do
+    candidate = Credential.changeset(original, attrs)
+    ensure(candidate.valid?, :invalid_configuration)
+    validate_metadata(Changeset.apply_changes(candidate))
+
+    ensure(
+      Enum.all?([:user_level, :scopes], &(not is_nil(Changeset.get_field(candidate, &1)))),
+      :invalid_configuration
+    )
+
+    candidate
+  end
+
   @doc "Replaces complete grant material in the credential/owner slot and reactivates it."
   @spec replace_credential_grant(credential_ref(), owner(), map(), keyword()) :: result()
   def replace_credential_grant(ref, owner, material, opts \\ []) do
@@ -92,6 +130,42 @@ defmodule Zaq.Engine.Connect.Mutations do
   @doc "Deletes the slot, restoring absence semantics; repeated removal succeeds."
   @spec remove_credential_grant(credential_ref(), owner()) :: result()
   def remove_credential_grant(ref, owner), do: cleanup(ref, owner, :remove)
+
+  @doc "Internal claimed-refresh writer; caller holds credential/grant locks and verifies its snapshot."
+  @spec persist_refreshed_grant(Grant.t(), Credential.t(), map(), keyword()) ::
+          {:ok, Grant.t()} | {:error, atom()}
+  def persist_refreshed_grant(grant, credential, material, opts) do
+    transact(fn ->
+      validate_current_person(
+        if grant.owner_type == "person", do: {:person, grant.owner_id}, else: :org
+      )
+
+      material = normalize_attrs(material, material_fields("oauth2"), :invalid_material)
+      attrs = Map.put(material, :status, "active")
+      changeset = Grant.credential_changeset(grant, credential, attrs)
+      ensure(changeset.valid?, :invalid_material)
+
+      ensure(
+        usable?(Changeset.apply_changes(changeset), credential, now(opts)),
+        :invalid_material
+      )
+
+      encrypted =
+        encrypt_attrs(material, [:access_token, :refresh_token], opts, :invalid_material)
+
+      changeset =
+        Enum.reduce(Map.take(encrypted, [:access_token, :refresh_token]), changeset, fn {key,
+                                                                                         value},
+                                                                                        acc ->
+          Changeset.force_change(acc, key, value)
+        end)
+
+      changeset
+      |> MutationEvents.persist("grant_tokens_updated")
+      |> unwrap(:mutation_event_enqueue_failed)
+      |> Repo.reload!()
+    end)
+  end
 
   defp transact(fun), do: Repo.transaction(fun)
 
@@ -194,7 +268,10 @@ defmodule Zaq.Engine.Connect.Mutations do
     encrypted = encrypt_attrs(material, @secrets, opts, :invalid_material)
     changeset = force_secret_changes(changeset, encrypted)
 
-    changeset |> Repo.insert_or_update() |> unwrap(:invalid_material) |> Repo.reload!()
+    changeset
+    |> MutationEvents.persist("grant_replaced")
+    |> unwrap(:invalid_material)
+    |> Repo.reload!()
   end
 
   defp material_fields("api_key"), do: [:api_key, :expires_at]
@@ -221,7 +298,7 @@ defmodule Zaq.Engine.Connect.Mutations do
   defp cleanup_slot(id, nil, _), do: %{credential_id: id, grant_id: nil, status: "absent"}
 
   defp cleanup_slot(id, grant, :remove) do
-    unwrap(Repo.delete(Changeset.change(grant)), :cleanup_failed)
+    unwrap(MutationEvents.delete(grant), :cleanup_failed)
     %{credential_id: id, grant_id: grant.id, status: "absent"}
   end
 
@@ -234,7 +311,7 @@ defmodule Zaq.Engine.Connect.Mutations do
     grant
     |> Changeset.change(attrs)
     |> force_secret_changes(%{})
-    |> Repo.update()
+    |> MutationEvents.persist("grant_revoked")
     |> unwrap(:cleanup_failed)
     |> grant_result()
   end
@@ -250,38 +327,20 @@ defmodule Zaq.Engine.Connect.Mutations do
   defp usable?(nil, _, _), do: false
 
   defp usable?(grant, credential, now) do
-    grant.status == "active" and compatible?(grant, credential) and
+    grant.status == "active" and Grant.compatible_configuration?(grant, credential) and
       (is_nil(grant.expires_at) or DateTime.compare(grant.expires_at, now) == :gt) and
       required_material?(grant)
-  end
-
-  defp compatible?(grant, credential) do
-    fields = ~w(provider auth_kind request_format scopes issuer key_id)a
-
-    Map.take(grant, fields) == Map.take(credential, fields) and
-      grant.subject == Zaq.Utils.Map.metadata_subject(credential.metadata)
   end
 
   defp required_material?(%Grant{auth_kind: "api_key"} = grant), do: present?(grant.api_key)
   defp required_material?(%Grant{auth_kind: "oauth2"} = grant), do: present?(grant.access_token)
 
   defp required_material?(%Grant{auth_kind: "jwt_bearer"} = grant),
-    do: Enum.all?([grant.issuer, grant.key_id], &present?/1) and private_key?(grant.private_key)
+    do:
+      Enum.all?([grant.issuer, grant.key_id], &present?/1) and
+        Grant.private_key?(grant.private_key)
 
   defp required_material?(_), do: false
-
-  defp private_key?(value) when is_binary(value) do
-    with [entry] <- :public_key.pem_decode(value),
-         key when is_tuple(key) <- :public_key.pem_entry_decode(entry) do
-      elem(key, 0) in [:RSAPrivateKey, :ECPrivateKey]
-    else
-      _ -> false
-    end
-  rescue
-    _ -> false
-  end
-
-  defp private_key?(_), do: false
 
   defp present?(value) when is_binary(value),
     do: String.valid?(value) and String.trim(value) not in ["", "••••••••"]
@@ -298,12 +357,33 @@ defmodule Zaq.Engine.Connect.Mutations do
 
   defp normalize_attrs(_, _, error), do: Repo.rollback(error)
 
+  defp validate_metadata(%{auth_kind: "oauth2", metadata: metadata}) do
+    allowed = [:authorize_url, :token_url, :auth_profile, :pkce, :authorize_params]
+    normalized = normalize_attrs(metadata, allowed, :invalid_configuration)
+
+    Enum.each(normalized, fn
+      {:pkce, value} ->
+        ensure(is_boolean(value), :invalid_configuration)
+
+      {:authorize_params, value} ->
+        params =
+          normalize_attrs(
+            value,
+            [:prompt, :access_type, :include_granted_scopes, :login_hint, :audience],
+            :invalid_configuration
+          )
+
+        ensure(Enum.all?(params, fn {_, v} -> present?(v) end), :invalid_configuration)
+
+      {_, value} ->
+        ensure(present?(value), :invalid_configuration)
+    end)
+  end
+
   defp validate_metadata(%{metadata: metadata}) do
     normalized = normalize_attrs(metadata, [:auth_profile_id, :subject], :invalid_configuration)
     ensure(Enum.all?(normalized, fn {_, value} -> present?(value) end), :invalid_configuration)
   end
-
-  defp validate_metadata(_), do: :ok
 
   defp encrypt_attrs(attrs, fields, opts, error) do
     Enum.reduce(Map.take(attrs, fields), attrs, fn {field, value}, acc ->
@@ -316,7 +396,7 @@ defmodule Zaq.Engine.Connect.Mutations do
     end)
   end
 
-  defp now(opts), do: Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+  defp now(opts), do: DateUtils.now(opts)
 
   defp grant_result(grant),
     do: %{credential_id: grant.credential_id, grant_id: grant.id, status: grant.status}

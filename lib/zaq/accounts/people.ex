@@ -4,6 +4,8 @@ defmodule Zaq.Accounts.People do
   Owns profile and protected merge-result persistence. Combined resource requests
   merge persisted participants first, then apply ordinary edits to the returned
   survivor within one outer transaction; explicit edits override merge precedence.
+  Permanent single/bulk deletion orchestrates Connect secret cleanup before removing
+  People, in the same identity transaction. Connect owns all secret and event queries.
   """
 
   import Ecto.Query
@@ -12,6 +14,7 @@ defmodule Zaq.Accounts.People do
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Accounts.PersonMerger
   alias Zaq.Accounts.Team
+  alias Zaq.Engine.Connect.PersonLifecycle
   alias Zaq.Repo
 
   # ── People ──────────────────────────────────────────────────────────────
@@ -484,7 +487,16 @@ defmodule Zaq.Accounts.People do
     %{changeset | action: operation}
   end
 
-  def delete_person(%Person{} = person), do: Repo.delete(person)
+  def delete_person(%Person{} = person) do
+    PersonMerger.transaction(fn ->
+      PersonLifecycle.delete_people([person.id])
+      Repo.delete(person) |> linked!()
+    end)
+  end
+
+  @doc "Protected merger deletion after group-wide Connect cleanup in the existing identity transaction."
+  @spec delete_merge_loser(Person.t()) :: {:ok, Person.t()} | {:error, Ecto.Changeset.t()}
+  def delete_merge_loser(%Person{} = person), do: Repo.delete(person)
 
   @doc """
   Deletes multiple people by ID in a single transaction and returns a summary.
@@ -504,10 +516,10 @@ defmodule Zaq.Accounts.People do
     if ids == [] do
       {:ok, %{deleted_count: 0, failed_ids: []}}
     else
-      sage = Enum.reduce(ids, Sage.new(), &add_delete_step/2)
+      result = PersonMerger.transaction(fn -> delete_people_group(ids) end)
 
-      case Sage.transaction(sage, Repo) do
-        {:ok, _, _} -> {:ok, %{deleted_count: length(ids), failed_ids: []}}
+      case result do
+        {:ok, _} -> {:ok, %{deleted_count: length(ids), failed_ids: []}}
         {:error, {:not_found, id}} -> {:ok, %{deleted_count: 0, failed_ids: [id]}}
         {:error, {:delete_failed, id}} -> {:ok, %{deleted_count: 0, failed_ids: [id]}}
         {:error, reason} -> {:error, reason}
@@ -515,22 +527,29 @@ defmodule Zaq.Accounts.People do
     end
   end
 
-  defp add_delete_step(id, sage) do
-    Sage.run(sage, {:delete, id}, fn _effects, _opts -> delete_person_step(id) end)
+  defp delete_participants(ids) do
+    {people, _seen} =
+      Enum.map_reduce(ids, MapSet.new(), fn id, seen ->
+        person = get_person(id) || Repo.rollback({:not_found, id})
+        # Sequential deletion historically reports the second alias as missing.
+        if MapSet.member?(seen, person.id), do: Repo.rollback({:not_found, id})
+        {{id, person}, MapSet.put(seen, person.id)}
+      end)
+
+    people
   end
 
-  defp delete_person_step(id) do
-    case get_person(id) do
-      nil -> {:error, {:not_found, id}}
-      person -> delete_or_error(person, id)
-    end
-  end
+  defp delete_people_group(ids) do
+    people = delete_participants(ids)
+    # Lock the whole group's credentials once to preserve canonical lock order.
+    PersonLifecycle.delete_people(Enum.map(people, fn {_, person} -> person.id end))
 
-  defp delete_or_error(person, id) do
-    case delete_person(person) do
-      {:ok, _} -> {:ok, :deleted}
-      {:error, _} -> {:error, {:delete_failed, id}}
-    end
+    Enum.each(people, fn {id, person} ->
+      case Repo.delete(person) do
+        {:ok, _} -> :ok
+        {:error, _} -> Repo.rollback({:delete_failed, id})
+      end
+    end)
   end
 
   @doc """

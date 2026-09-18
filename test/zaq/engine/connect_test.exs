@@ -31,6 +31,7 @@ defmodule Zaq.Engine.ConnectTest do
 
   defmodule StubOAuthNoScopesConfig do
     def get(:zaq, :channels, _default), do: %{google_drive: %{bridge: StubOAuthNoScopes}}
+    def get(app, key, default), do: Application.get_env(app, key, default)
   end
 
   defmodule StubOAuthMissingRefreshToken do
@@ -48,6 +49,8 @@ defmodule Zaq.Engine.ConnectTest do
   defmodule StubOAuthMissingRefreshTokenConfig do
     def get(:zaq, :channels, _default),
       do: %{google_drive: %{bridge: StubOAuthMissingRefreshToken}}
+
+    def get(app, key, default), do: Application.get_env(app, key, default)
   end
 
   setup do
@@ -973,7 +976,7 @@ defmodule Zaq.Engine.ConnectTest do
     } do
       grant = issue_oauth_grant(credential)
 
-      assert {:error, {:channel_not_configured, "google_drive"}} = Connect.refresh_grant(grant)
+      assert {:error, :refresh_failed} = Connect.refresh_grant(grant)
     end
 
     test "next_refresh_jobs_for_grants returns empty map when all grant ids are nil" do
@@ -1056,7 +1059,7 @@ defmodule Zaq.Engine.ConnectTest do
           scopes: ["scope.old"]
         })
 
-      assert {:error, {:invalid_refresh_response, :unexpected}} =
+      assert {:error, :refresh_failed} =
                Connect.refresh_grant(grant, config: StubOAuthInvalidResponseConfig)
     end
 

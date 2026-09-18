@@ -28,10 +28,12 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
   alias Zaq.Channels.JidoConnectBridge
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.OAuth
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.IngestJob
   alias Zaq.Ingestion.RecordSource
   alias Zaq.Repo
+  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP}
 
   defmodule StubIntegration do
   end
@@ -804,7 +806,9 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
     Process.put(:stub_runtime_credential, credential)
 
     assert {:ok, %{accepted: true, job_id: _job_id}} =
-             JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             Oban.Testing.with_testing_mode(:inline, fn ->
+               JidoConnectBridge.handle_webhook(config, %{"headers" => %{}, "raw_body" => "{}"})
+             end)
 
     assert_received {:ingest_records, request}
     assert [record] = request.records
@@ -1413,6 +1417,104 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
 
       assert {:error, :unsupported} =
                JidoConnectBridge.oauth_authorize_url(config, %{"state" => "state-123"})
+    end
+
+    test "canonical OAuth uses bound A settings while legacy still falls back to channel B" do
+      Code.ensure_loaded!(ConnectOAuthAttemptConfig)
+      previous = Application.get_env(:zaq, :channels)
+      previous_req = Application.get_env(:jido_connect_google, :google_oauth_req_options)
+
+      Application.put_env(:zaq, :channels, %{
+        google_drive: %{bridge: JidoConnectBridge, integration: StubOAuthIntegrationWithProfile}
+      })
+
+      Application.put_env(:jido_connect_google, :google_oauth_req_options,
+        plug: {Req.Test, __MODULE__}
+      )
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:zaq, :channels, previous),
+          else: Application.delete_env(:zaq, :channels)
+
+        if previous_req,
+          do: Application.put_env(:jido_connect_google, :google_oauth_req_options, previous_req),
+          else: Application.delete_env(:jido_connect_google, :google_oauth_req_options)
+      end)
+
+      {:ok, b} =
+        Connect.create_credential(%{
+          name: Ecto.UUID.generate(),
+          provider: "google_drive",
+          auth_kind: "oauth2",
+          client_id: "B-client",
+          client_secret: "B-secret",
+          scopes: ["broad"]
+        })
+
+      config =
+        insert_data_source_config(:google_drive, %{
+          settings: %{"connect" => %{"credential_id" => to_string(b.id)}}
+        })
+
+      for scopes <- [["read"], []] do
+        {:ok, a} =
+          Connect.create_credential(%{
+            name: Ecto.UUID.generate(),
+            provider: "google_drive",
+            auth_kind: "oauth2",
+            client_id: "A-client",
+            scopes: scopes,
+            secret_binding: :grant,
+            personal_credential_policy: :required
+          })
+
+        binding = OAuth.prepare_attempt(a)
+        assert {:ok, url} = OAuth.authorize_attempt(a, "bound-state", binding)
+        query = URI.decode_query(URI.parse(url).query)
+        assert query["client_id"] == "A-client"
+        assert (query["scope"] || "") == Enum.join(scopes, " ")
+
+        # Catalog fallback fails closed without explicit client authentication.
+        assert {:error, :oauth_client_secret_required} =
+                 OAuth.exchange_attempt(a, "code", %{
+                   redirect_uri: binding.redirect_uri,
+                   pkce_verifier: binding.pkce["code_verifier"]
+                 })
+
+        Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+          {:ok, body, _} = Plug.Conn.read_body(conn)
+          form = URI.decode_query(body)
+          assert form["client_id"] == "A-client"
+          assert form["client_secret"] == "A-secret"
+          Req.Test.json(conn, %{"access_token" => "bound-token"})
+        end)
+
+        assert {:ok, %{access_token: "bound-token"}} =
+                 OAuth.exchange_attempt(
+                   %{a | client_secret: "A-secret"},
+                   "code",
+                   %{
+                     redirect_uri: binding.redirect_uri,
+                     pkce_verifier: binding.pkce["code_verifier"]
+                   },
+                   config: ConnectOAuthAttemptConfig
+                 )
+      end
+
+      assert {:ok, url} = JidoConnectBridge.oauth_authorize_url(config, %{"state" => "legacy"})
+      assert URI.decode_query(URI.parse(url).query)["scope"] == "broad"
+
+      Req.Test.expect(__MODULE__, fn conn ->
+        {:ok, body, _} = Plug.Conn.read_body(conn)
+        form = URI.decode_query(body)
+        assert form["client_id"] == "B-client"
+        assert form["client_secret"] == "B-secret"
+        Req.Test.json(conn, %{"access_token" => "legacy-token"})
+      end)
+
+      assert {:ok, %{access_token: "legacy-token"}} =
+               JidoConnectBridge.oauth_exchange_code(config, %{"code" => "legacy-code"})
     end
 
     test "oauth_exchange_code normalizes token payloads" do

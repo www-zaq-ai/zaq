@@ -29,7 +29,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 | Domain | Guide |
 | --- | --- |
 | Agent execution, retrieval and tools | [Agent](services/agent.md) |
-| Routing, conversations and coordination | [Engine](services/engine.md) |
+| Routing, conversations and coordination | [Engine](services/engine.md), including [personal grant sequences](services/personal-grant-sequences.md) |
 | Provider bridges and integrations | [Channels](services/channels.md) |
 | Documents, chunking and search | [Ingestion](services/ingestion.md) |
 | Mounted filesystem ownership | [Storage architecture](architecture.md#storage-and-materialization) |
