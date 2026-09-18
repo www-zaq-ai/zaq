@@ -99,6 +99,7 @@ defmodule Zaq.Accounts.PeoplePermissionsTest do
     assert Enum.map(matrix.rows, &{&1.permission, &1.label}) == [
              {:access_profile, "Access profile"},
              {:edit_profile, "Edit profile"},
+             {:manage_credentials, "Manage credentials"},
              {:access_message_history, "Access message history"},
              {:share_conversations, "Share conversations"}
            ]

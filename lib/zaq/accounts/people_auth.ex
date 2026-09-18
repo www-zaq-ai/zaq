@@ -76,6 +76,32 @@ defmodule Zaq.Accounts.PeopleAuth do
     end
   end
 
+  @doc "Revalidates a trusted session reference without accepting a bearer substitute."
+  @spec revalidate_session(pos_integer(), Ecto.UUID.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def revalidate_session(person_id, session_id, opts \\ []) do
+    with {:ok, _config} <- Zaq.System.get_people_access_config(),
+         {:ok, id} <- uuid(session_id, :invalid_session) do
+      clock = Keyword.get(opts, :clock, DateTime)
+      transaction(fn -> revalidate_locked_session(person_id, id, clock) end)
+    end
+  end
+
+  defp revalidate_locked_session(person_id, session_id, clock) do
+    with %Person{} = person <- lock_owner(person_id),
+         %PersonSession{} = session <-
+           Repo.one(
+             from(s in PersonSession,
+               where: s.id == ^session_id and s.person_id == ^person.id,
+               lock: "FOR UPDATE"
+             )
+           ) do
+      authenticate_session(person, session, clock)
+    else
+      _ -> {:error, :invalid_session}
+    end
+  end
+
   @doc "Revokes a bearer session idempotently, including when ineligible or config is corrupt."
   @spec revoke_session(term()) :: {:ok, map()} | {:error, term()}
   def revoke_session(token) do

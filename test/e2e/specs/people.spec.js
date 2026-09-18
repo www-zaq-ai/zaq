@@ -75,7 +75,13 @@ test.describe("People", () => {
     // Reset leaves no user-created teams; the existing Everyone system team remains.
     await expect(page.locator("#people-permissions-table thead th")).toHaveText(["Permission", "Everyone"])
     await expect(page.locator('#people-permissions-table input[aria-checked="true"]')).toHaveCount(0)
-    await expect(page.locator("#people-permissions-table tbody tr")).toHaveCount(4)
+    await expect(page.locator("#people-permissions-table tbody th")).toHaveText([
+      "Access profile",
+      "Edit profile",
+      "Manage credentials",
+      "Access message history",
+      "Share conversations",
+    ])
     await page.locator(SEL.tabTeams).click()
     const teamNames = Array.from({ length: 5 }, (_, n) => `Permissions ${Date.now()} ${n} very long team name for responsive layout`)
     for (const name of teamNames) {

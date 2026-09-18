@@ -21,6 +21,9 @@ defmodule Zaq.System.SecretConfig do
       enc:<key_id>:<nonce_b64>:<tag_b64>:<ciphertext_b64>
 
   Backward compatibility: plaintext values remain readable via `decrypt/1`.
+  `encrypt/2` accepts a per-call `config:` source through the runtime config seam; the default
+  `encrypt/1` uses application configuration. Malformed nonce/tag lengths are rejected
+  before reaching crypto.
   """
 
   @algo :aes_256_gcm
@@ -38,9 +41,9 @@ defmodule Zaq.System.SecretConfig do
   - `{:error, :invalid_encryption_key}` when key format/size is invalid
   - `{:error, :encryption_failed}` when encryption cannot be completed
   """
-  @spec encrypt(String.t()) :: {:ok, String.t()} | {:error, atom()}
-  def encrypt(value) when is_binary(value) do
-    with {:ok, key, key_id} <- fetch_key_material(),
+  @spec encrypt(String.t(), keyword()) :: {:ok, String.t()} | {:error, atom()}
+  def encrypt(value, opts \\ []) when is_binary(value) do
+    with {:ok, key, key_id} <- fetch_key_material(opts),
          {:ok, key_id} <- validate_key_id(key_id) do
       nonce = :crypto.strong_rand_bytes(@nonce_size)
 
@@ -95,10 +98,11 @@ defmodule Zaq.System.SecretConfig do
 
   defp decrypt_encrypted(value) do
     with [@prefix, key_id, nonce_b64, tag_b64, ciphertext_b64] <- String.split(value, ":"),
-         {:ok, key, configured_key_id} <- fetch_key_material(),
+         {:ok, key, configured_key_id} <- fetch_key_material([]),
          :ok <- ensure_key_id(key_id, configured_key_id),
          {:ok, nonce} <- Base.decode64(nonce_b64, padding: false),
          {:ok, tag} <- Base.decode64(tag_b64, padding: false),
+         true <- byte_size(nonce) == @nonce_size and byte_size(tag) == 16,
          {:ok, ciphertext} <- Base.decode64(ciphertext_b64, padding: false),
          plaintext <-
            :crypto.crypto_one_time_aead(@algo, key, nonce, ciphertext, @aad, tag, false),
@@ -135,8 +139,8 @@ defmodule Zaq.System.SecretConfig do
 
   def validate_encryption_key(_), do: {:error, :missing_encryption_key}
 
-  defp fetch_key_material do
-    config = Application.get_env(:zaq, __MODULE__, [])
+  defp fetch_key_material(opts) do
+    config = Zaq.Config.get(:zaq, __MODULE__, [], opts)
     key_id = Keyword.get(config, :key_id, @default_key_id)
 
     case Keyword.get(config, :encryption_key) do

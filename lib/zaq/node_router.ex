@@ -10,6 +10,11 @@ defmodule Zaq.NodeRouter do
   - Support multi-hop event chains by recursively dispatching returned
     `next_hop` values.
 
+  Trusted callers carrying secrets set `opts: [confidential: true]`. These hops still
+  route normally but are never published to the workflow trigger stream, and async
+  failures are sanitized. The flag must remain on subsequent hops; it does not
+  authenticate the caller.
+
   This module does not own service business logic; each role API handles its
   own actions.
 

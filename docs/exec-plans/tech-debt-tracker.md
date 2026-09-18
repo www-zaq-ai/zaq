@@ -42,6 +42,13 @@ Sourced from service docs `What's Left` sections. Updated continuously.
 
 ---
 
+## Engine (`docs/services/engine.md`)
+
+### Nice to Have
+- [ ] Remove legacy `Connect.delete_grant/1` and its BO/event callers after resource-bound grant consumers migrate (`zaq-wml`)
+
+---
+
 ## Channels (`docs/services/channels.md`)
 
 ### Must Do

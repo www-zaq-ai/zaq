@@ -2,8 +2,8 @@ defmodule Zaq.Engine.Conversations.ObanEnqueueTest do
   @moduledoc """
   Tests that add_message/2 triggers TokenUsageAggregator side-effects.
 
-  Oban is configured with `testing: :inline` in test, so jobs run synchronously
-  on insert. We verify the job's side-effects (metadata updated on conversation)
+  Token aggregation is explicitly run inline for this test. We verify the job's
+  side-effects (metadata updated on conversation)
   rather than asserting the job was enqueued.
   """
 
@@ -22,13 +22,15 @@ defmodule Zaq.Engine.Conversations.ObanEnqueueTest do
       {:ok, conv} = Conversations.create_conversation(conv_attrs())
 
       {:ok, _msg} =
-        Conversations.add_message(conv, %{
-          role: "assistant",
-          content: "answer",
-          model: "gpt-4",
-          prompt_tokens: 50,
-          completion_tokens: 25
-        })
+        Oban.Testing.with_testing_mode(:inline, fn ->
+          Conversations.add_message(conv, %{
+            role: "assistant",
+            content: "answer",
+            model: "gpt-4",
+            prompt_tokens: 50,
+            completion_tokens: 25
+          })
+        end)
 
       # With testing: :inline, the job runs synchronously — metadata is updated
       updated = Conversations.get_conversation!(conv.id)

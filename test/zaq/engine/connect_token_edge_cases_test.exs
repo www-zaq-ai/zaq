@@ -6,17 +6,10 @@ defmodule Zaq.Engine.ConnectTokenEdgeCasesTest do
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{Credential, Grant}
   alias Zaq.Repo
+  alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, ConnectRefreshConfig}
+  alias Zaq.Types.EncryptedString
 
-  defmodule StubOAuthMissingAccessToken do
-    def oauth_refresh_token(_config, _params) do
-      {:ok,
-       %{
-         access_token: nil,
-         refresh_token: "r2",
-         expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
-       }}
-    end
-  end
+  setup {Req.Test, :verify_on_exit!}
 
   setup do
     original_secret = Application.get_env(:zaq, Zaq.System.SecretConfig)
@@ -45,7 +38,10 @@ defmodule Zaq.Engine.ConnectTokenEdgeCasesTest do
         auth_kind: "oauth2",
         request_format: "bearer",
         user_level: false,
-        metadata: %{"authorize_url" => "https://accounts.google.com/o/oauth2/v2/auth"},
+        metadata: %{
+          "authorize_url" => "https://accounts.google.com/o/oauth2/v2/auth",
+          "token_url" => "https://provider.example/token"
+        },
         client_id: "client-id",
         client_secret: "secret"
       })
@@ -89,82 +85,91 @@ defmodule Zaq.Engine.ConnectTokenEdgeCasesTest do
     grant
   end
 
-  defp with_node_router_stub(response_source, fun) when is_binary(response_source) do
-    {_, original_binary, original_path} = :code.get_object_code(Zaq.NodeRouter)
-
-    :code.purge(Zaq.NodeRouter)
-    :code.delete(Zaq.NodeRouter)
-
-    Code.compiler_options(ignore_module_conflict: true)
-
-    source =
-      IO.iodata_to_binary([
-        "defmodule Zaq.NodeRouter do\n",
-        "  def dispatch(event) do\n",
-        "    %{event | response: ",
-        response_source,
-        "}\n",
-        "  end\n",
-        "end\n"
-      ])
-
-    Code.compile_string(source)
-
-    Code.compiler_options(ignore_module_conflict: false)
-
-    try do
-      fun.()
-    after
-      :code.purge(Zaq.NodeRouter)
-      :code.delete(Zaq.NodeRouter)
-
-      {:module, Zaq.NodeRouter} =
-        :code.load_binary(Zaq.NodeRouter, original_path, original_binary)
-
-      Code.compiler_options(ignore_module_conflict: false)
-    end
+  defp stored_tokens(grant) do
+    Repo.query!("SELECT access_token, refresh_token FROM connect_grants WHERE id = $1", [grant.id]).rows
   end
 
   describe "token cache updates" do
-    test "refresh_grant returns a changeset error when encrypted token persistence fails" do
+    test "refresh_grant sanitizes persistence encryption failure and retains stored tokens and events" do
+      Code.ensure_loaded!(ConnectRefreshConfig)
       credential = create_oauth_credential()
       grant = issue_oauth_grant(credential)
+      before = stored_tokens(grant)
+      jobs = Repo.aggregate(Oban.Job, :count)
 
-      original_secret = Application.get_env(:zaq, Zaq.System.SecretConfig)
+      Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        assert URI.decode_query(body)["refresh_token"] == "ref"
 
-      Application.put_env(:zaq, Zaq.System.SecretConfig,
-        encryption_key: "invalid",
-        key_id: "v1"
-      )
-
-      on_exit(fn ->
-        if original_secret do
-          Application.put_env(:zaq, Zaq.System.SecretConfig, original_secret)
-        else
-          Application.delete_env(:zaq, Zaq.System.SecretConfig)
-        end
+        Req.Test.json(conn, %{
+          "access_token" => "new-access",
+          "refresh_token" => "new-refresh",
+          "expires_in" => 3600
+        })
       end)
 
-      with_node_router_stub(
-        ~s|{:ok, %{access_token: "new-access", refresh_token: "new-refresh", expires_at: DateTime.add(DateTime.utc_now(), 3600, :second), scopes: []}}|,
-        fn ->
-          assert {:error, %Ecto.Changeset{} = changeset} = Connect.refresh_grant(grant)
-          assert hd(errors_on(changeset).access_token) =~ "invalid SYSTEM_CONFIG_ENCRYPTION_KEY"
-        end
-      )
+      # Reads retain the valid application key; only writes use the invalid override.
+      # This reaches post-HTTP persistence rather than failing preflight decryption.
+      assert {:error, :invalid_refresh_response} =
+               Connect.refresh_grant(grant,
+                 config: ConnectRefreshConfig,
+                 encryption_config: [encryption_key: "invalid", key_id: "v1"]
+               )
+
+      assert stored_tokens(grant) == before
+      assert Repo.get!(Grant, grant.id).status == "active"
+      assert Repo.aggregate(Oban.Job, :count) == jobs
     end
 
-    test "refresh_grant returns missing access token when oauth bridge payload omits it" do
+    test "refresh_grant sanitizes missing provider access token without rotating material or events" do
+      Code.ensure_loaded!(ConnectOAuthAttemptConfig)
       credential = create_oauth_credential()
       grant = issue_oauth_grant(credential)
+      before = stored_tokens(grant)
+      jobs = Repo.aggregate(Oban.Job, :count)
 
-      with_node_router_stub(
-        "Zaq.Engine.ConnectTokenEdgeCasesTest.StubOAuthMissingAccessToken.oauth_refresh_token(nil, nil)",
-        fn ->
-          assert {:error, {:invalid_token_payload, :missing_access_token}} =
-                   Connect.refresh_grant(grant)
-        end
-      )
+      Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+        Req.Test.json(conn, %{"refresh_token" => "UNTRUSTED_REFRESH", "expires_in" => 3600})
+      end)
+
+      assert {:error, :invalid_refresh_response} =
+               Connect.refresh_grant(grant, config: ConnectOAuthAttemptConfig)
+
+      assert stored_tokens(grant) == before
+      assert Repo.get!(Grant, grant.id).status == "active"
+      assert Repo.aggregate(Oban.Job, :count) == jobs
+    end
+
+    test "refresh provider ciphertext-shaped strings remain literal and are never decrypted twice" do
+      Code.ensure_loaded!(ConnectOAuthAttemptConfig)
+      grant = issue_oauth_grant(create_oauth_credential())
+      {:ok, malicious} = EncryptedString.encrypt("OTHER_OWNER_SECRET")
+
+      for expected_refresh <- ["ref", malicious] do
+        Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          assert URI.decode_query(body)["refresh_token"] == expected_refresh
+
+          Req.Test.json(conn, %{
+            "access_token" => malicious,
+            "refresh_token" => malicious,
+            "expires_in" => 3600
+          })
+        end)
+
+        assert {:ok, refreshed} =
+                 Connect.refresh_grant(Repo.get!(Grant, grant.id),
+                   config: ConnectOAuthAttemptConfig
+                 )
+
+        assert refreshed.access_token == malicious
+        assert refreshed.refresh_token == malicious
+        refute inspect(refreshed) =~ "OTHER_OWNER_SECRET"
+        assert [[access, refresh]] = stored_tokens(grant)
+        assert access != malicious and refresh != malicious
+        assert {:ok, ^malicious} = EncryptedString.decrypt(access)
+        assert {:ok, ^malicious} = EncryptedString.decrypt(refresh)
+      end
     end
 
     test "update_grant_token_cache rejects oauth2 payloads with a missing access token" do

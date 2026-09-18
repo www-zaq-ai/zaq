@@ -1,5 +1,30 @@
 defmodule Zaq.Engine.Connect do
-  @moduledoc "Engine context for reusable provider credentials and resource-bound grants."
+  @moduledoc """
+  Engine context for reusable provider credentials and resource-bound grants.
+
+  `change_credential_grant/3` prepares encrypted canonical storage changesets for
+  trusted Engine callers. It does not authorize Person management. Legacy grant
+  listing and filter-based resolution select only resource-bound rows. Scheduled
+  refresh includes canonical grants through the same claimed refresh boundary.
+
+  Canonical mutation delegates use `Mutations` for atomic policy saves and trusted
+  credential/owner-bound replacement and cleanup. They return safe DTOs, not schemas.
+  Both mutation lanes persist secret-free Oban notifications in the write transaction
+  via `MutationEvents`; refresh and token-cache writes share the same persistence.
+
+  Person self-management is the separate backend-only `PersonCredentials` context.
+  Its trusted adapter authentication precondition is not satisfied by an event actor
+  or raw owner ID. Generic admin/runtime APIs here are not Person transport actions.
+  Legacy `issue_grant/1` rejects Person ownership before building a changeset.
+
+  `resolve_credential/3` is privileged runtime-only canonical selection. It returns
+  redacted ephemeral generic authentication, never a public event response. Nil
+  actors intentionally select org here and do not authorize Person management.
+
+  `PersonLifecycle` owns transactional Person grant transfer, secret erasure and
+  OAuth cancellation for Accounts, plus bounded orphan reconciliation. Its dedicated
+  maintenance worker consumes independently of deferred mutation notifications.
+  """
 
   import Ecto.Query
   import Zaq.Helpers, only: [blank?: 1]
@@ -7,17 +32,78 @@ defmodule Zaq.Engine.Connect do
   alias Ecto.Changeset
   alias Oban.Job
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Engine.Connect.{Credential, Grant, OAuth}
+  alias Zaq.Engine.Connect.{Credential, Grant, MutationEvents, Mutations, OAuth, Refresh}
   alias Zaq.Engine.Connect.GrantRefreshWorker
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
   alias Zaq.System.HttpCredentialProvider
   alias Zaq.System.HttpCredentialProviderRef
+  alias Zaq.System.SecretConfig
   alias Zaq.Types.EncryptedString
+  alias Zaq.Utils.DateUtils
   alias Zaq.Utils.Map, as: MapUtils
 
   @secret_fields ~w(client_secret api_key access_token refresh_token private_key)a
+
+  @type mutation_error ::
+          Changeset.t()
+          | :mutation_event_enqueue_failed
+          | :not_found
+          | :canonical_grant_requires_owner
+
+  @doc "Privileged runtime-only resolution; never expose as a public Engine action."
+  @spec resolve_credential(
+          Zaq.Engine.Connect.CredentialResolver.credential_ref(),
+          Zaq.Identity.ActorNormalizer.actor(),
+          keyword()
+        ) :: Zaq.Engine.Connect.CredentialResolver.result()
+  defdelegate resolve_credential(credential, trusted_actor, opts \\ []),
+    to: Zaq.Engine.Connect.CredentialResolver
+
+  @doc "Trusted secret-free status read for one explicit canonical owner slot."
+  @spec get_credential_grant_status(
+          Zaq.Engine.Connect.Mutations.credential_ref(),
+          Zaq.Engine.Connect.Mutations.owner(),
+          keyword()
+        ) :: Zaq.Engine.Connect.CredentialStatuses.result()
+  defdelegate get_credential_grant_status(credential, owner, opts \\ []),
+    to: Zaq.Engine.Connect.CredentialStatuses,
+    as: :get
+
+  @doc "Trusted atomic canonical configuration save; global defaults to :keep."
+  @spec save_credential_configuration(
+          Zaq.Engine.Connect.Mutations.credential_ref() | nil,
+          map(),
+          Zaq.Engine.Connect.Mutations.global_instruction(),
+          keyword()
+        ) :: Zaq.Engine.Connect.Mutations.result()
+  defdelegate save_credential_configuration(credential, attrs, global \\ :keep, opts \\ []),
+    to: Zaq.Engine.Connect.Mutations
+
+  @doc "Trusted complete replacement in an explicit canonical owner slot."
+  @spec replace_credential_grant(
+          Zaq.Engine.Connect.Mutations.credential_ref(),
+          Zaq.Engine.Connect.Mutations.owner(),
+          map(),
+          keyword()
+        ) :: Zaq.Engine.Connect.Mutations.result()
+  defdelegate replace_credential_grant(credential, owner, material, opts \\ []),
+    to: Zaq.Engine.Connect.Mutations
+
+  @doc "Trusted secret-clearing revocation retaining the canonical owner slot."
+  @spec revoke_credential_grant(
+          Zaq.Engine.Connect.Mutations.credential_ref(),
+          Zaq.Engine.Connect.Mutations.owner()
+        ) :: Zaq.Engine.Connect.Mutations.result()
+  defdelegate revoke_credential_grant(credential, owner), to: Zaq.Engine.Connect.Mutations
+
+  @doc "Trusted idempotent removal of the canonical owner slot."
+  @spec remove_credential_grant(
+          Zaq.Engine.Connect.Mutations.credential_ref(),
+          Zaq.Engine.Connect.Mutations.owner()
+        ) :: Zaq.Engine.Connect.Mutations.result()
+  defdelegate remove_credential_grant(credential, owner), to: Zaq.Engine.Connect.Mutations
 
   @spec list_credentials() :: [Credential.t()]
   def list_credentials do
@@ -45,17 +131,17 @@ defmodule Zaq.Engine.Connect do
     Credential.changeset(credential, attrs)
   end
 
-  @spec create_credential(map()) :: {:ok, Credential.t()} | {:error, Changeset.t()}
+  @spec create_credential(map()) :: {:ok, Credential.t()} | {:error, mutation_error()}
   def create_credential(attrs) do
     %Credential{}
     |> Credential.changeset(attrs)
     |> validate_provider_reference()
     |> encrypt_secret_fields(@secret_fields)
-    |> Repo.insert()
+    |> MutationEvents.persist("credential_created")
   end
 
   @spec update_credential(Credential.t(), map()) ::
-          {:ok, Credential.t()} | {:error, Changeset.t()}
+          {:ok, Credential.t()} | {:error, mutation_error()}
   def update_credential(%Credential{} = credential, attrs) do
     attrs = drop_blank_secret_attrs(attrs, ["client_secret", "api_key", :client_secret, :api_key])
 
@@ -63,15 +149,19 @@ defmodule Zaq.Engine.Connect do
     |> Credential.changeset(attrs)
     |> validate_provider_reference()
     |> encrypt_secret_fields(@secret_fields)
-    |> Repo.update()
+    |> MutationEvents.persist("credential_updated")
   end
 
-  @spec delete_credential(Credential.t()) :: {:ok, Credential.t()} | {:error, Changeset.t()}
-  def delete_credential(%Credential{} = credential), do: Repo.delete(credential)
+  @spec delete_credential(Credential.t()) :: {:ok, Credential.t()} | {:error, mutation_error()}
+  def delete_credential(%Credential{} = credential), do: MutationEvents.delete(credential)
 
   @spec list_grants(keyword()) :: [Grant.t()]
   def list_grants(opts \\ []) do
-    query = from(g in Grant, order_by: [desc: g.inserted_at])
+    query =
+      from(g in Grant,
+        where: g.resource_type != "connect_credential",
+        order_by: [desc: g.inserted_at]
+      )
 
     query
     |> maybe_filter_by(opts, :credential_id)
@@ -84,7 +174,43 @@ defmodule Zaq.Engine.Connect do
     |> Repo.all()
   end
 
-  @spec issue_grant(map()) :: {:ok, Grant.t()} | {:error, Changeset.t()}
+  @doc "Prepares a credential-bound grant storage changeset with strictly encrypted secrets."
+  @spec change_credential_grant(Grant.t(), Credential.t(), map()) :: Changeset.t()
+  def change_credential_grant(%Grant{} = grant, %Credential{} = credential, attrs) do
+    grant
+    |> Grant.credential_changeset(credential, attrs)
+    |> validate_current_grant_owner()
+    |> encrypt_secret_fields(@secret_fields)
+  end
+
+  # This checks current storage identity, not caller authentication. Concurrent
+  # deletion can still orphan a grant; lifecycle reconciliation is a later slice.
+  defp validate_current_grant_owner(%Changeset{valid?: true} = changeset) do
+    if Changeset.get_field(changeset, :owner_type) == "person" do
+      owner_id = Changeset.get_field(changeset, :owner_id)
+
+      if Repo.exists?(
+           from p in Zaq.Accounts.Person, where: p.id == ^owner_id and p.status == "active"
+         ),
+         do: changeset,
+         else: Changeset.add_error(changeset, :owner_id, "must reference a current active Person")
+    else
+      changeset
+    end
+  end
+
+  defp validate_current_grant_owner(changeset), do: changeset
+
+  @doc "Legacy org/user issuance only; Person management uses PersonCredentials."
+  @spec issue_grant(map()) ::
+          {:ok, Grant.t()}
+          | {:error, mutation_error() | :provider_mismatch | :person_management_required}
+  def issue_grant(%{owner_type: type}) when type in ["person", :person],
+    do: {:error, :person_management_required}
+
+  def issue_grant(%{"owner_type" => type}) when type in ["person", :person],
+    do: {:error, :person_management_required}
+
   def issue_grant(attrs) do
     attrs = Map.new(attrs)
 
@@ -97,14 +223,14 @@ defmodule Zaq.Engine.Connect do
         %Grant{}
         |> Grant.changeset(grant_attrs)
         |> encrypt_secret_fields(@secret_fields)
-        |> Repo.insert()
+        |> MutationEvents.persist("grant_created")
       end
     end
   end
 
   @spec update_grant_token_cache(Grant.t(), map()) :: {:ok, Grant.t()} | {:error, term()}
   def update_grant_token_cache(%Grant{} = grant, token_payload) when is_map(token_payload),
-    do: update_grant_tokens(grant, token_payload)
+    do: Refresh.cache(grant, &update_grant_tokens(&1, token_payload))
 
   defp validate_resource_provider(attrs, provider) do
     resource_type = Map.get(attrs, :resource_type) || Map.get(attrs, "resource_type")
@@ -151,21 +277,29 @@ defmodule Zaq.Engine.Connect do
     end
   end
 
-  @spec revoke_grant(Grant.t()) :: {:ok, Grant.t()} | {:error, Changeset.t()}
+  @doc "Legacy resource-grant revocation. Canonical grants require revoke_credential_grant/2 with explicit ownership."
+  @spec revoke_grant(Grant.t()) :: {:ok, Grant.t()} | {:error, mutation_error()}
+  def revoke_grant(%Grant{resource_type: "connect_credential"}),
+    do: {:error, :canonical_grant_requires_owner}
+
   def revoke_grant(%Grant{} = grant) do
     grant
     |> Grant.changeset(%{status: "revoked"})
-    |> Repo.update()
+    |> MutationEvents.persist("grant_revoked")
   end
 
-  @spec delete_grant(Grant.t()) :: {:ok, Grant.t()} | {:error, Changeset.t()}
-  def delete_grant(%Grant{} = grant), do: Repo.delete(grant)
+  @spec delete_grant(Grant.t()) :: {:ok, Grant.t()} | {:error, mutation_error()}
+  # Temporary: this struct-based delete remains for legacy resource-bound BO/event
+  # consumers. Remove it once those callers use explicit resource/owner lifecycle APIs.
+  # Tracked: zaq-wml
+  def delete_grant(%Grant{} = grant), do: MutationEvents.delete(grant)
 
   @spec get_active_grant(map()) :: Grant.t() | nil
   def get_active_grant(filters) when is_map(filters) do
     now = DateTime.utc_now()
 
     Grant
+    |> where([g], g.resource_type != "connect_credential")
     |> where([g], g.status == "active")
     |> where([g], is_nil(g.expires_at) or g.expires_at > ^now or g.auth_kind == "jwt_bearer")
     |> maybe_where_credential_id(Map.get(filters, :credential_id))
@@ -181,10 +315,8 @@ defmodule Zaq.Engine.Connect do
 
   @spec resolve_bearer_token(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def resolve_bearer_token(filters, opts \\ []) when is_map(filters) do
-    refresh_window_seconds = Keyword.get(opts, :refresh_window_seconds, 60)
-
     with %Grant{} = grant <- get_latest_active_grant(filters),
-         {:ok, grant} <- maybe_refresh_before_use(grant, refresh_window_seconds),
+         {:ok, grant} <- prepare_grant_for_use(grant, opts),
          token when not is_nil(token) <- present_token(grant.access_token) do
       {:ok, token}
     else
@@ -198,7 +330,7 @@ defmodule Zaq.Engine.Connect do
     threshold = DateTime.add(now, window_seconds, :second)
 
     Grant
-    |> where([g], g.status == "active" and g.auth_kind == "oauth2")
+    |> where([g], g.status in ["active", "expired"] and g.auth_kind == "oauth2")
     |> where([g], not is_nil(g.refresh_token))
     |> where([g], not is_nil(g.expires_at) and g.expires_at <= ^threshold)
     |> Repo.all()
@@ -207,7 +339,7 @@ defmodule Zaq.Engine.Connect do
   @spec schedule_refresh(Grant.t()) :: {:ok, Oban.Job.t()} | {:error, Changeset.t()}
   def schedule_refresh(%Grant{id: id}) do
     %{grant_id: id}
-    |> Job.new(worker: to_string(GrantRefreshWorker), queue: :channels)
+    |> GrantRefreshWorker.new()
     |> Oban.insert()
   end
 
@@ -248,14 +380,46 @@ defmodule Zaq.Engine.Connect do
 
   @spec refresh_grant(Grant.t(), keyword()) :: {:ok, Grant.t()} | {:error, term()}
   def refresh_grant(%Grant{} = grant, opts \\ []) do
-    with {:ok, credential} <- fetch_credential(grant.credential_id),
-         {:ok, token_payload} <- dispatch_refresh(grant, credential, opts) do
-      update_grant_tokens(grant, token_payload)
+    Refresh.run(grant, &dispatch_refresh/3, &persist_refresh/4, opts)
+  end
+
+  @doc """
+  Internal runtime API for an already selected grant, without policy selection or fallback.
+  Reloads current identity/configuration and refreshes OAuth near expiry. Returns a
+  secret-bearing runtime schema, never a management DTO. `:refresh_busy` and
+  `:refresh_failed` are retryable; callers must bound retries rather than loop.
+  The canonical resolver supplies an internal `:expected_fingerprint` captured under
+  selection locks; cached reads and refresh claims reject a changed raw snapshot.
+  """
+  @spec prepare_grant_for_use(Grant.t(), keyword()) :: {:ok, Grant.t()} | {:error, term()}
+  def prepare_grant_for_use(%Grant{} = grant, opts \\ []) do
+    with {:ok, current} <- Refresh.current(grant, opts) do
+      maybe_refresh_before_use(current, opts)
     end
   end
 
+  defp persist_refresh(
+         %Grant{resource_type: "connect_credential"} = grant,
+         credential,
+         payload,
+         opts
+       ) do
+    with {:ok, attrs} <- token_update_attrs(grant, payload) do
+      Mutations.persist_refreshed_grant(
+        grant,
+        credential,
+        Map.take(attrs, [:access_token, :refresh_token, :expires_at]),
+        opts
+      )
+    end
+  end
+
+  defp persist_refresh(grant, _credential, payload, opts),
+    do: update_grant_tokens(grant, payload, opts)
+
   defp get_latest_active_grant(filters) do
     Grant
+    |> where([g], g.resource_type != "connect_credential")
     |> where([g], g.status == "active")
     |> maybe_where_credential_id(Map.get(filters, :credential_id))
     |> maybe_where_filter(:provider, Map.get(filters, :provider))
@@ -268,22 +432,28 @@ defmodule Zaq.Engine.Connect do
     |> Repo.one()
   end
 
-  defp maybe_refresh_before_use(%Grant{} = grant, refresh_window_seconds) do
+  defp maybe_refresh_before_use(%Grant{} = grant, opts) do
+    now = DateUtils.now(opts)
+    refresh_window_seconds = Keyword.get(opts, :refresh_window_seconds, 60)
+
     cond do
+      grant.status == "expired" ->
+        refresh_grant(grant, opts)
+
       present_token(grant.access_token) == nil ->
-        refresh_grant(grant)
+        refresh_grant(grant, opts)
 
       is_nil(grant.expires_at) ->
         {:ok, grant}
 
       DateTime.compare(
         grant.expires_at,
-        DateTime.add(DateTime.utc_now(), refresh_window_seconds, :second)
+        DateTime.add(now, refresh_window_seconds, :second)
       ) == :gt ->
         {:ok, grant}
 
       true ->
-        refresh_grant(grant)
+        refresh_grant(grant, opts)
     end
   end
 
@@ -332,7 +502,7 @@ defmodule Zaq.Engine.Connect do
   defp normalize_credential_id(_), do: nil
 
   defp dispatch_refresh(%Grant{} = grant, %Credential{} = credential, opts) do
-    case OAuth.refresh_token_payload(credential, grant) do
+    case OAuth.refresh_token_payload(credential, grant, opts) do
       {:ok, _token_payload} = ok -> ok
       {:error, _reason} = error -> error
       :fallback -> dispatch_channels_refresh(grant, credential, opts)
@@ -353,7 +523,12 @@ defmodule Zaq.Engine.Connect do
         %{provider: grant.provider, params: params},
         :channels,
         opts:
-          [action: :data_source_oauth_refresh_token]
+          [
+            action: :data_source_oauth_refresh_token,
+            confidential: true,
+            oauth_credentials:
+              if(grant.resource_type == "connect_credential", do: :explicit, else: :legacy)
+          ]
           |> maybe_put_config(opts)
       )
 
@@ -370,16 +545,35 @@ defmodule Zaq.Engine.Connect do
       else: event_opts
   end
 
-  defp update_grant_tokens(%Grant{} = grant, token_payload) do
+  defp update_grant_tokens(%Grant{} = grant, token_payload, opts \\ []) do
     with {:ok, attrs} <- token_update_attrs(grant, token_payload) do
       grant
-      |> Grant.changeset(attrs)
-      |> encrypt_secret_fields(@secret_fields)
-      |> Repo.update()
+      |> Grant.changeset(Map.put(attrs, :status, "active"))
+      |> encrypt_token_changes(opts)
+      |> MutationEvents.persist("grant_tokens_updated")
       |> case do
         {:ok, updated_grant} -> {:ok, Repo.reload!(updated_grant)}
         {:error, _} = error -> error
       end
+    end
+  end
+
+  defp encrypt_token_changes(changeset, opts) do
+    Enum.reduce([:access_token, :refresh_token], changeset, fn field, acc ->
+      case Changeset.get_change(acc, field) do
+        value when is_binary(value) and value != "" ->
+          encrypt_token_change(acc, field, value, opts)
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp encrypt_token_change(changeset, field, value, opts) do
+    case SecretConfig.encrypt(value, opts) do
+      {:ok, ciphertext} -> Changeset.force_change(changeset, field, ciphertext)
+      {:error, reason} -> Changeset.add_error(changeset, field, encryption_error_message(reason))
     end
   end
 

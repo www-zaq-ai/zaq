@@ -21,6 +21,7 @@ The schema owns the ordered permission metadata and explicit atom/string casting
 | ------------------------- | ---------------------- |
 | `access_profile`          | Access profile         |
 | `edit_profile`            | Edit profile           |
+| `manage_credentials`      | Manage credentials     |
 | `access_message_history`  | Access message history |
 | `share_conversations`     | Share conversations    |
 
@@ -60,6 +61,10 @@ Each caller operation declares its own requirements: `allowed?(person,
 :share_conversations)` checks only the share grant; `allowed?(person,
 [:access_profile, :access_message_history, :share_conversations])` explicitly
 requires all three. The context does not infer operation prerequisites.
+
+Credential self-service reads use the authenticated session's required
+`access_profile`; credential writes and OAuth authorization explicitly require both
+`access_profile` and `manage_credentials`. The migration adds no grants.
 
 Invalid write coordinates return `{:error, :invalid_scope}` or
 `{:error, :invalid_permission}`. Database validation failures return

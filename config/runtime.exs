@@ -148,6 +148,8 @@ if config_env() == :prod do
   config :zaq, Zaq.Storage, base_path: storage_volumes_base
 
   # -- Oban --
+  # Keep connect_credential_notifications unconsumed on every role until the real
+  # Agent receiver/fanout ships. Retain backlog; activation requires a replay policy.
   config :zaq, Oban,
     repo: Zaq.Repo,
     queues: [
@@ -155,6 +157,7 @@ if config_env() == :prod do
       ingestion_chunks:
         String.to_integer(System.get_env("OBAN_INGESTION_CHUNKS_CONCURRENCY", "6")),
       conversations: String.to_integer(System.get_env("OBAN_CONVERSATIONS_CONCURRENCY", "5")),
+      connect_maintenance: 1,
       scheduled_actions:
         String.to_integer(System.get_env("OBAN_SCHEDULED_ACTIONS_CONCURRENCY", "5")),
       telemetry: String.to_integer(System.get_env("OBAN_TELEMETRY_CONCURRENCY", "5")),
@@ -169,6 +172,7 @@ if config_env() == :prod do
          {"* * * * *", Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker},
          {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PushRollupsWorker},
          {"*/10 * * * *", Zaq.Engine.Telemetry.Workers.PullBenchmarksWorker},
+         {"*/5 * * * *", Zaq.Engine.Connect.SecretReconciliationWorker},
          {"0 * * * *", Zaq.Engine.Telemetry.Workers.PrunePointsWorker},
          {"0 3 * * *", Zaq.System.UpdateBadgeWorker}
        ]}

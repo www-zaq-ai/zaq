@@ -1,5 +1,5 @@
 defmodule ZaqWeb.ChannelsControllerTest do
-  use ZaqWeb.ConnCase, async: true
+  use ZaqWeb.ConnCase, async: false
 
   setup do
     previous = Application.get_env(:zaq, :connect_oauth_module)

@@ -629,11 +629,13 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
       job = create_job()
 
       assert :ok =
-               IngestWorker.perform(%Oban.Job{
-                 args: %{"job_id" => job.id},
-                 attempt: 1,
-                 max_attempts: 3
-               })
+               Oban.Testing.with_testing_mode(:inline, fn ->
+                 IngestWorker.perform(%Oban.Job{
+                   args: %{"job_id" => job.id},
+                   attempt: 1,
+                   max_attempts: 3
+                 })
+               end)
 
       updated = Repo.get!(IngestJob, job.id)
       assert updated.total_chunks == 2
@@ -805,11 +807,13 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
         |> Repo.insert!()
 
       assert :ok =
-               IngestWorker.perform(%Oban.Job{
-                 args: %{"job_id" => job.id, "retry_failed_chunks" => true},
-                 attempt: 1,
-                 max_attempts: 3
-               })
+               Oban.Testing.with_testing_mode(:inline, fn ->
+                 IngestWorker.perform(%Oban.Job{
+                   args: %{"job_id" => job.id, "retry_failed_chunks" => true},
+                   attempt: 1,
+                   max_attempts: 3
+                 })
+               end)
 
       updated_chunk_job = Repo.get!(IngestChunkJob, chunk_job.id)
       assert updated_chunk_job.status == "completed"
