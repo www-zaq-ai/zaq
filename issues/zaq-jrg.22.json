@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-18T10:06:11Z",
+  "description": "Functional specifications/files: define exact credential summary/status/mutation/error types, centralize secret-free status projection, and add a trusted Connect administrative owner-status read without exposing it through People dispatch; preserve session-derived self ownership. Tests first: absent/active/expired/revoked, retained disabled grant, invalid owner/reference, exact safe projection and secret-exclusion property. Branches: org/person, eligible/disabled/unknown. Mocking: none; real Repo. Docs: Engine/system config/module contracts. Action reuse: extend existing Connect/PersonCredentials projection; no Action/tool until BO integration chooses its NodeRouter boundary.",
+  "id": "zaq-jrg.22",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-jrg] Stabilize safe credential status contracts",
+  "type": "task",
+  "updated_at": "2026-09-18T10:06:11Z"
+}
