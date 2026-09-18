@@ -130,9 +130,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: mix coveralls.github
 
-      - name: Run tests (fork PRs)
+      - name: Run tests with coverage (fork PRs)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-        run: mix test
+        run: |
+          mix coveralls | tee coverage.txt
+
+          {
+            echo "## Test Coverage"
+            echo
+            echo '```text'
+            grep -A 100 "^COV" coverage.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   test-paradedb:
     name: Test (ParadeDB)
