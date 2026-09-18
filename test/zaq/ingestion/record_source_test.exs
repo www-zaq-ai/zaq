@@ -1,5 +1,6 @@
 defmodule Zaq.Ingestion.RecordSourceTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   import Mox
 
@@ -9,6 +10,108 @@ defmodule Zaq.Ingestion.RecordSourceTest do
   alias Zaq.Ingestion.RecordSource
 
   setup :verify_on_exit!
+
+  @docx "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  @xlsx "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  @pptx "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+  for {label, original_name, original_mime, downloaded_name, downloaded_mime, extension} <- [
+        {"Google Doc export", "Budget", "application/vnd.google-apps.document", "Budget", @docx,
+         ".docx"},
+        {"Google Sheet export", "Budget", "application/vnd.google-apps.spreadsheet", "Budget",
+         @xlsx, ".xlsx"},
+        {"Google Slides export", "Budget", "application/vnd.google-apps.presentation", "Budget",
+         @pptx, ".pptx"},
+        {"artifact filename beats stale source", "Report.pdf", "application/pdf", "Report.docx",
+         @docx, ".docx"},
+        {"artifact MIME beats stale source", "Report.txt", "text/plain", "Report", @docx,
+         ".docx"},
+        {"Sheet MIME beats stale PDF", "Report.pdf", "application/pdf", "Report", @xlsx, ".xlsx"},
+        {"Slides MIME beats stale text", "Report.txt", "text/plain", "Report", @pptx, ".pptx"},
+        {"incompatible artifact suffix", "Report", nil, "Report.pdf", @docx, ".docx"},
+        {"compatible alias", "Report.pdf", nil, "Report.JPEG", "image/jpeg", ".jpeg"},
+        {"ordinary DOCX", "Report.docx", @docx, "Report.docx", @docx, ".docx"},
+        {"PDF nil name", "Report", nil, nil, "application/pdf", ".pdf"},
+        {"PDF blank name", "Report", nil, "", "application/pdf", ".pdf"},
+        {"PDF extensionless name", "Report", nil, "Report", "application/pdf", ".pdf"},
+        {"normalized MIME", "Report.txt", nil, "Report", " Application/PDF ; charset=binary",
+         ".pdf"},
+        {"missing MIME artifact", "Report.pdf", nil, "Report.DOCX", nil, ".docx"},
+        {"blank MIME artifact", "Report.pdf", nil, "Report.XLSX", "  ", ".xlsx"},
+        {"octet-stream artifact", "Report.pdf", nil, "Report.PPTX",
+         " APPLICATION/OCTET-STREAM; x=y", ".pptx"},
+        {"missing MIME source fallback", "Report.PDF", nil, nil, nil, ".pdf"},
+        {"blank MIME source fallback", "Report.pdf", nil, "Report", " ", ".pdf"},
+        {"octet-stream source fallback", "Report.pdf", nil, "Report", "application/octet-stream",
+         ".pdf"},
+        {"no representation metadata", "Report", "application/pdf", nil, nil, ".bin"},
+        {"blank metadata", "Report", nil, "", " ", ".bin"},
+        {"generic metadata", "Report", nil, nil, "application/octet-stream", ".bin"},
+        {"unknown specific MIME", "Report.docx", @docx, "Report.docx",
+         "application/x-zaq-unknown", ".bin"},
+        {"unsafe downloaded suffix", "Report", nil, "Report.pdf\\evil", "application/pdf",
+         ".pdf"},
+        {"unsafe suffix fallback", "Report.pdf", nil, "Report.bad suffix", nil, ".pdf"},
+        {"unsafe original suffix", "Report.bad suffix", nil, nil, nil, ".bin"},
+        {"trailing dot", "Report", nil, "Report.", nil, ".bin"}
+      ] do
+    test "materialize/2 artifact extension: #{label}" do
+      source = %{
+        external_record()
+        | name: unquote(original_name),
+          mime_type: unquote(original_mime)
+      }
+
+      assert_artifact(
+        source,
+        unquote(downloaded_name),
+        unquote(downloaded_mime),
+        unquote(extension)
+      )
+    end
+  end
+
+  property "stale source suffix cannot override a specific exported MIME" do
+    check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 12), max_runs: 30) do
+      source = %{external_record() | name: "Report." <> suffix}
+      assert_artifact(source, "Export", @docx, ".docx")
+    end
+  end
+
+  defp assert_artifact(source, name, mime_type, extension) do
+    bytes = <<0, 255, 42, 13, 10>>
+
+    downloaded = %Record{
+      id: "provider-file-1",
+      kind: :file,
+      name: name,
+      mime_type: mime_type,
+      content: Base.encode64(bytes),
+      attributes: %{"encoding" => "base64"}
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      assert event.next_hop.destination == :channels
+      assert event.opts[:action] == :data_source_download_document
+      assert event.request.provider == "google_drive"
+      assert event.request.params["file_id"] == "provider-file-1"
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(source, router_context())
+    root = Path.dirname(materialized.path)
+    on_exit(fn -> File.rm_rf!(root) end)
+    assert Path.extname(materialized.path) == extension
+    assert File.read!(materialized.path) == bytes
+    assert materialized.record == source
+    assert materialized.cleanup_paths == [root]
+    assert materialized.processor_opts[:document_title] == source.name
+
+    assert materialized.processor_opts[:source_override] ==
+             "data_source/google_drive/cfg-1/provider-file-1"
+
+    assert materialized.processor_opts[:document_metadata]["provider"] == "google_drive"
+  end
 
   defp external_record(attrs \\ %{}) do
     %Record{
