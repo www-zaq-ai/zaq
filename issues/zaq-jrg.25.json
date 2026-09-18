@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-18T10:58:33Z",
+  "description": "Functional scope: versioned bounded migration/backfill maps each compatible AI credential to one dedicated Connect configuration and global grant with disabled policy, preserving API key or legacy OAuth status/material/expiry without reactivation; associate atomically. Tests first: idempotent rerun, partial failure/resume, naming collisions, concurrent source edit, encrypted storage/no logging, revoked/expired OAuth preservation, rollback/down guard. Branches: API key, OAuth, explicit no-auth, unresolved preflight. Mocking: real Repo/encryption. Docs: deployment order/recovery. Action reuse: reuse canonical Mutations and OAuth storage contracts; migration orchestration stays operator-only/local, never agent-exposed.",
+  "id": "zaq-jrg.25",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 2,
+  "status": "open",
+  "title": "Restartable AI credential backfill",
+  "type": "task",
+  "updated_at": "2026-09-18T10:58:33Z"
+}
