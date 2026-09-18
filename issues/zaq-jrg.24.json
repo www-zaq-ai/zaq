@@ -11,9 +11,15 @@
   "id": "zaq-jrg.24",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented unique AIProviderCredential -\u003e Connect.Credential association and explicit auth_kind=none contract across schema, constraints, resolver and canonical mutations. No-auth is disabled/configuration-bound, secret-free, grantless and resolves empty authentication; missing key is not implicit no-auth. Action reuse: extended generic Connect CredentialResolver/Mutations rather than adding AI resolution logic. Focused tests pass; pending commit/final validation.",
+      "timestamp": "2026-09-18T11:57:16Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.24] Connect association and explicit no-auth",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:46Z"
+  "updated_at": "2026-09-18T11:57:16Z"
 }
