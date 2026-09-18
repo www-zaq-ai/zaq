@@ -9,9 +9,15 @@
   "id": "zaq-jrg.23",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented secret-free bounded preflight with deterministic API-key/OAuth/explicit-no-auth/missing/ambiguous/unreadable classification, keyset pagination, and no-write tests. Action reuse: local-only privileged migration operation; reused Repo, SecretConfig and legacy Connect grant storage; no Action/tool exposure because this is deployment migration inspection. Focused tests pass; pending commit/final validation.",
+      "timestamp": "2026-09-18T11:57:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.23] AI credential compatibility preflight",
   "type": "task",
-  "updated_at": "2026-09-18T10:58:47Z"
+  "updated_at": "2026-09-18T11:57:15Z"
 }
