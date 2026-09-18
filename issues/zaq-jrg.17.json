@@ -5,7 +5,8 @@
     "zaq-jrg.18",
     "zaq-jrg.19",
     "zaq-jrg.20",
-    "zaq-jrg.21"
+    "zaq-jrg.21",
+    "zaq-jrg.22"
   ],
   "blocks": [],
   "created": "2026-09-17T17:22:09Z",
@@ -31,5 +32,5 @@
   "status": "in_progress",
   "title": "[zaq-jrg.17] Validate rebased self-service integration",
   "type": "task",
-  "updated_at": "2026-09-18T10:06:36Z"
+  "updated_at": "2026-09-18T10:06:37Z"
 }
