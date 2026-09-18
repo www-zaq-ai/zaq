@@ -310,6 +310,32 @@ defmodule Zaq.Agent.ApiTest do
     end
   end
 
+  test "run_pipeline does not replace an explicitly invalid actor with the request Person" do
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "c1",
+      provider: :web,
+      person: %{id: 42}
+    }
+
+    event =
+      pipeline_event(incoming,
+        actor: false,
+        opts: [
+          action: :run_pipeline,
+          pipeline_module: StubPipeline,
+          node_router: SpyNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+
+    assert result.response == {:error, :invalid_execution_actor}
+    assert result.next_hop == nil
+    refute_received {:pipeline_called, _, _}
+  end
+
   test "returns invalid request for run_pipeline with malformed payload" do
     event = Event.new(%{bad: true}, :agent, opts: [action: :run_pipeline])
 

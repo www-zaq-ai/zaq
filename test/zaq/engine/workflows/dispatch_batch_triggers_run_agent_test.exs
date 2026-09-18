@@ -22,7 +22,8 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
   `"workflow:run:<run_id>:step:<step_index>"`, so every run resolves to its OWN Jido
   agent server. The test asserts all 8 runs complete, none are rejected `:busy`, and
   exactly 8 distinct `"<name>:workflow:run:<run_id>:step:0"` servers were spawned —
-  i.e. every spawned agent has a different process name.
+  i.e. every spawned agent has a different process name — and every server retains
+  the system actor that originated the producer workflow.
 
   Only the LLM HTTP edge is stubbed (the first request holds its response open to
   guarantee the 8 runs really overlap in time). Runs `async: false`: the trigger
@@ -38,6 +39,7 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
   alias Zaq.Agent.ServerManager
   alias Zaq.Engine.EventRegistry
   alias Zaq.Engine.Workflows
+  alias Zaq.Identity.ExecutionActor
   alias Zaq.TestSupport.OpenAIStub
 
   @batch_module "Zaq.Agent.Tools.Workflow.Batch"
@@ -218,7 +220,14 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
       |> Enum.map(&"#{configured_agent.name}:workflow:run:#{&1.id}:step:0")
       |> Enum.sort()
 
-    assert Enum.sort(server_ids_for(configured_agent.name)) == expected
+    server_ids = Enum.sort(server_ids_for(configured_agent.name))
+    assert server_ids == expected
+
+    for server_id <- server_ids do
+      server = Jido.AgentServer.whereis(Jido.registry_name(Zaq.Agent.Jido), server_id)
+      assert {:ok, %{raw_state: %{execution_actor: actor}}} = Jido.AgentServer.status(server)
+      assert ExecutionActor.identity(actor) == {:ok, {:system, "dispatch-batch-test"}}
+    end
   end
 
   # Workflow A definition: seed_items → Batch(prepare_item, dispatch_item). The

@@ -20,6 +20,9 @@ defmodule Zaq.Identity.ExecutionActorTest do
     end
 
     assert {:error, :invalid_execution_actor} =
+             ExecutionActor.from_event_request(%{actor: false, request: incoming})
+
+    assert {:error, :invalid_execution_actor} =
              ExecutionActor.from_event_request(%{
                request: %{incoming | person: %{"id" => 2, id: 1}}
              })

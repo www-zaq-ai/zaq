@@ -37,8 +37,8 @@ defmodule Zaq.Identity.ExecutionActor do
   @doc "Validates raw event identity before trusted Incoming enrichment can erase conflicting declarations."
   @spec from_event_request(map()) :: {:ok, map()} | {:error, error()}
   def from_event_request(event) when is_map(event) do
-    actor = Map.get(event, :actor) || Map.get(event, "actor")
-    request = Map.get(event, :request) || Map.get(event, "request")
+    actor = event_value(event, :actor)
+    request = event_value(event, :request)
 
     candidate =
       case {actor, request} do
@@ -61,6 +61,13 @@ defmodule Zaq.Identity.ExecutionActor do
         %{person: %{id: id}} -> {:ok, {:person, id}}
         %{kind: kind, subject: subject} -> {:ok, {kind, subject}}
       end
+    end
+  end
+
+  defp event_value(event, key) do
+    case Map.fetch(event, key) do
+      {:ok, value} -> value
+      :error -> Map.get(event, Atom.to_string(key))
     end
   end
 
