@@ -8,6 +8,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsConcurrencyTest do
   alias Zaq.Engine.Connect.PersonLifecycle
   alias Zaq.Engine.Connect.SecretReconciliationWorker
   alias Zaq.Repo
+  alias Zaq.System.AIProviderCredential
   alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}
   @opts [config: ConnectOAuthAttemptConfig]
   setup {Req.Test, :verify_on_exit!}
@@ -44,6 +45,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsConcurrencyTest do
             })
 
           credential = Repo.get!(Credential, dto.credential_id)
+          {:ok, _} = PersonOAuth.associate(credential.id)
 
           {:ok, original} =
             Connect.replace_credential_grant(credential, {:person, person.id}, %{
@@ -58,6 +60,11 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsConcurrencyTest do
 
       on_exit(fn ->
         Sandbox.unboxed_run(Repo, fn ->
+          Repo.delete_all(
+            from ai in AIProviderCredential,
+              where: ai.connect_credential_id == ^credential.id
+          )
+
           Repo.delete_all(from c in Credential, where: c.id == ^credential.id)
           Repo.delete_all(from p in Person, where: p.id in ^[person.id, other.id])
 

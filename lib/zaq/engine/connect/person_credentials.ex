@@ -52,7 +52,8 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
   @spec prepare_oauth(Person.t(), Ecto.UUID.t(), pos_integer(), keyword()) :: result()
   def prepare_oauth(authenticated_person, session_id, credential_id, opts \\ []) do
     with {:ok, person} <- current_person(authenticated_person),
-         :ok <- valid_id(credential_id) do
+         :ok <- valid_id(credential_id),
+         :ok <- allowed_id(credential_id, opts) do
       OAuthAttempts.prepare_person(person, session_id, credential_id, opts)
     end
   end
@@ -60,25 +61,26 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
   @doc "Lists eligible configurations with only the authenticated Person's own status."
   @spec list_available(Person.t()) ::
           {:ok, [CredentialStatuses.summary()]} | {:error, :unauthorized}
-  def list_available(authenticated_person) do
+  def list_available(authenticated_person, opts \\ []) do
     with {:ok, person} <- current_person(authenticated_person) do
-      {:ok, CredentialStatuses.list_person(person.id)}
+      {:ok, CredentialStatuses.list_person(person.id, opts)}
     end
   end
 
   @doc "Returns an eligible configuration's own status, or a known retained own grant."
   @spec get_own_status(Person.t(), pos_integer()) :: result()
-  def get_own_status(authenticated_person, credential_id) do
+  def get_own_status(authenticated_person, credential_id, opts \\ []) do
     with {:ok, person} <- current_person(authenticated_person),
-         :ok <- valid_id(credential_id) do
-      CredentialStatuses.get_person(person.id, credential_id)
+         :ok <- valid_id(credential_id),
+         :ok <- allowed_id(credential_id, opts) do
+      CredentialStatuses.get_person(person.id, credential_id, opts)
     end
   end
 
   @doc "Replaces complete API-key/JWT material in the authenticated Person's own slot."
   @spec put_own_authentication(Person.t(), pos_integer(), map(), keyword()) :: result()
   def put_own_authentication(authenticated_person, credential_id, material, opts \\ []) do
-    mutate(authenticated_person, credential_id, fn credential, owner ->
+    mutate(authenticated_person, credential_id, opts, fn credential, owner ->
       unless eligible?(credential), do: Repo.rollback(:not_found)
 
       unless credential.auth_kind in ["api_key", "jwt_bearer"],
@@ -90,19 +92,20 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
 
   @doc "Clears own secrets and retains a revoked slot; absent slots remain absent."
   @spec revoke_own_grant(Person.t(), pos_integer()) :: result()
-  def revoke_own_grant(authenticated_person, credential_id) do
-    mutate(authenticated_person, credential_id, &Mutations.revoke_credential_grant/2)
+  def revoke_own_grant(authenticated_person, credential_id, opts \\ []) do
+    mutate(authenticated_person, credential_id, opts, &Mutations.revoke_credential_grant/2)
   end
 
   @doc "Deletes only the own slot, restoring absence; repeated removal succeeds."
   @spec remove_own_grant(Person.t(), pos_integer()) :: result()
-  def remove_own_grant(authenticated_person, credential_id) do
-    mutate(authenticated_person, credential_id, &Mutations.remove_credential_grant/2)
+  def remove_own_grant(authenticated_person, credential_id, opts \\ []) do
+    mutate(authenticated_person, credential_id, opts, &Mutations.remove_credential_grant/2)
   end
 
-  defp mutate(authenticated_person, credential_id, operation) do
+  defp mutate(authenticated_person, credential_id, opts, operation) do
     with {:ok, _person} <- current_person(authenticated_person),
-         :ok <- valid_id(credential_id) do
+         :ok <- valid_id(credential_id),
+         :ok <- allowed_id(credential_id, opts) do
       Repo.transaction(fn ->
         credential =
           Repo.one(from c in Credential, where: c.id == ^credential_id, lock: "FOR UPDATE") ||
@@ -130,6 +133,13 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
 
   defp valid_id(id) when is_integer(id) and id > 0 and id <= 9_223_372_036_854_775_807, do: :ok
   defp valid_id(_), do: {:error, :not_found}
+
+  defp allowed_id(id, opts) do
+    case Keyword.get(opts, :credential_ids) do
+      ids when is_list(ids) -> if(id in ids, do: :ok, else: {:error, :not_found})
+      _ -> :ok
+    end
+  end
 
   defp eligible?(credential),
     do:

@@ -177,7 +177,11 @@ export const liveViewHooks = {
 
       this._handler = (event) => {
         const data = event && event.data
+        const payload = data && data.payload
+        if (event.origin !== window.location.origin) return
+        if (!this._popup || event.source !== this._popup) return
         if (!data || data.type !== "zaq:oauth2_result") return
+        if (!payload || !["success", "error"].includes(payload.status)) return
         this.pushEvent("oauth_popup_result", data.payload || {})
 
         if (this._popup && !this._popup.closed) {

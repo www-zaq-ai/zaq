@@ -219,6 +219,44 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
           </p>
         </div>
 
+        <div>
+          <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+            Personal credentials
+          </label>
+          <select
+            name="ai_credential[personal_credential_policy]"
+            class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+          >
+            <option
+              value="disabled"
+              selected={@form[:personal_credential_policy].value in [:disabled, "disabled"]}
+            >
+              Disabled — everyone uses the global credential
+            </option>
+            <option
+              value="optional"
+              selected={@form[:personal_credential_policy].value in [:optional, "optional"]}
+            >
+              Optional — People may use their own credential
+            </option>
+            <option
+              value="required"
+              selected={@form[:personal_credential_policy].value in [:required, "required"]}
+            >
+              Required for People
+            </option>
+          </select>
+          <p class="font-mono text-[0.7rem] text-black/45 mt-1.5">
+            Disabled and optional require a usable global credential. Required allows People to authenticate without one.
+          </p>
+          <p
+            :if={@form[:personal_credential_policy].value in [:required, "required"]}
+            class="font-mono text-[0.7rem] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mt-2"
+          >
+            Without a global credential, BO, anonymous, system, and other non-Person executions will fail.
+          </p>
+        </div>
+
         <div :if={not oauth_only_provider?(@form)}>
           <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
             API Key
