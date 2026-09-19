@@ -9,9 +9,15 @@
   "id": "zaq-jrg.40",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented-uncommitted. Executor HTTP coverage now groups disabled/optional/required, Person/system, global absent, warm reuse, provider 401 no-global-fallback, and default answering assertions against real OpenAIStub Authorization headers. Isolated executor suite: 22 tests, 0 failures; mix q passed. Action reuse remains not applicable (test-only orchestration of existing boundaries). Kept open because user requested report before any commit/push.",
+      "timestamp": "2026-09-19T20:10:30Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.40] HTTP credential policy and entry-point integration coverage",
   "type": "task",
-  "updated_at": "2026-09-19T20:05:27Z"
+  "updated_at": "2026-09-19T20:10:30Z"
 }
