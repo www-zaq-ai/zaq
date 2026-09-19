@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-19T13:18:01Z",
+  "description": "Functional specifications/files: ServerManager expiry timers and supervisor recovery; fence expired runtimes, lazy fresh resolution, guard callbacks by server identity, stop surviving untracked children after manager restart.\nTests first: expiry boundaries, refreshed/replaced grant, stale callbacks, manager restart with surviving children.\nBranches: future/past/no expiry, replaced/dead server, restart cleanup.\nMocking: injected deterministic clock/timers where existing lifecycle seam permits; real supervised children.\nDocs: Agent expiry/restart guarantees.\nAction reuse: extend existing timer, stop/drain and runtime-supervisor mechanisms; no reconciliation service or heartbeat.",
+  "id": "zaq-jrg.38",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-jrg] Harden credential expiry and Agent manager restart",
+  "type": "task",
+  "updated_at": "2026-09-19T13:18:01Z"
+}
