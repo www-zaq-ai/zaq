@@ -16,7 +16,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   alias Oban.Job
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.GrantRefreshWorker
+  alias Zaq.Engine.Connect.{Grant, GrantRefreshWorker}
   alias Zaq.Repo
   alias Zaq.Test.StubNoOAuthRefresh
   alias Zaq.Test.StubOAuthSuccess
@@ -129,6 +129,46 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
 
     assert {:error, :refresh_failed} =
              GrantRefreshWorker.perform(%Job{args: %{"grant_id" => grant.id}})
+  end
+
+  test "perform/2 snoozes until an active refresh lease expires" do
+    now = ~U[2026-09-18 18:00:00Z]
+
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "Leased OAuth credential",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "id",
+        client_secret: "secret"
+      })
+
+    {:ok, grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        resource_type: "mcp",
+        resource_id: "leased-1",
+        owner_type: "org",
+        metadata: %{},
+        status: "active",
+        access_token: "a",
+        refresh_token: "r"
+      })
+
+    Repo.update!(
+      Ecto.Changeset.change(grant,
+        refresh_claim: Ecto.UUID.generate(),
+        refresh_claim_until: DateTime.add(now, 75)
+      )
+    )
+
+    assert {:snooze, 75} =
+             GrantRefreshWorker.perform(%Job{args: %{"grant_id" => grant.id}}, now: now)
+
+    assert Repo.get!(Grant, grant.id).refresh_claim_until == DateTime.add(now, 75)
   end
 
   test "perform/1 returns ok when oauth2 refresh succeeds" do

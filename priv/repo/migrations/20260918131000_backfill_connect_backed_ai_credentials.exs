@@ -203,6 +203,44 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
     )
     """
 
+    execute "DROP TABLE IF EXISTS zaq_ai_migrated_oauth_sources"
+
+    execute """
+    CREATE TEMP TABLE zaq_ai_migrated_oauth_sources ON COMMIT DROP AS
+    SELECT grant_row.id AS grant_id, grant_row.credential_id
+    FROM connect_grants grant_row
+    JOIN ai_provider_credentials ai
+      ON grant_row.resource_type = 'ai_provider_credential'
+     AND grant_row.resource_id = ai.id::text
+    WHERE grant_row.owner_type = 'org'
+      AND grant_row.owner_id IS NULL
+      AND grant_row.auth_kind = 'oauth2'
+      AND ai.connect_credential_id IS NOT NULL
+      AND grant_row.credential_id <> ai.connect_credential_id
+    """
+
+    execute """
+    DELETE FROM connect_grants grant_row
+    USING zaq_ai_migrated_oauth_sources source
+    WHERE grant_row.id = source.grant_id
+    """
+
+    execute """
+    DELETE FROM connect_credentials credential
+    USING zaq_ai_migrated_oauth_sources source
+    WHERE credential.id = source.credential_id
+      AND NOT EXISTS (
+        SELECT 1 FROM connect_grants grant_row
+        WHERE grant_row.credential_id = credential.id
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM ai_provider_credentials ai
+        WHERE ai.connect_credential_id = credential.id
+      )
+    """
+
+    execute "DROP TABLE zaq_ai_migrated_oauth_sources"
+
     alter table(:ai_provider_credentials) do
       modify :connect_credential_id, :bigint, null: false
     end
@@ -237,9 +275,32 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
 
     execute """
     CREATE TEMP TABLE zaq_ai_connect_rollback_ids ON COMMIT DROP AS
-    SELECT DISTINCT connect_credential_id AS id
-    FROM ai_provider_credentials
-    WHERE connect_credential_id IS NOT NULL
+    SELECT ai.id AS ai_id, ai.connect_credential_id AS id, credential.auth_kind
+    FROM ai_provider_credentials ai
+    JOIN connect_credentials credential ON credential.id = ai.connect_credential_id
+    WHERE ai.connect_credential_id IS NOT NULL
+    """
+
+    execute """
+    UPDATE connect_grants grant_row
+    SET resource_type = 'ai_provider_credential',
+        resource_id = rollback.ai_id::text,
+        updated_at = now()
+    FROM zaq_ai_connect_rollback_ids rollback
+    WHERE rollback.auth_kind = 'oauth2'
+      AND grant_row.credential_id = rollback.id
+      AND grant_row.resource_type = 'connect_credential'
+      AND grant_row.owner_type = 'org'
+      AND grant_row.owner_id IS NULL
+    """
+
+    execute """
+    UPDATE connect_credentials credential
+    SET name = LEFT('Legacy AI OAuth ' || rollback.ai_id::text || ': ' || credential.name, 255),
+        updated_at = now()
+    FROM zaq_ai_connect_rollback_ids rollback
+    WHERE rollback.auth_kind = 'oauth2'
+      AND credential.id = rollback.id
     """
 
     execute """
@@ -252,6 +313,11 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
     DELETE FROM connect_credentials credential
     USING zaq_ai_connect_rollback_ids rollback
     WHERE credential.id = rollback.id
+      AND NOT EXISTS (
+        SELECT 1 FROM connect_grants grant_row
+        WHERE grant_row.credential_id = credential.id
+          AND grant_row.resource_type = 'ai_provider_credential'
+      )
     """
 
     execute "DROP TABLE zaq_ai_connect_rollback_ids"

@@ -3,12 +3,16 @@ defmodule Zaq.TestSupport.PersonOAuth do
 
   alias Zaq.Accounts.{PeopleAuth, PeoplePermissions}
   alias Zaq.Engine.PeopleAuthGateway
+  alias Zaq.Repo
+  alias Zaq.System.AIProviderCredential
 
   def start(person, credential_id, opts \\ []),
     do: dispatch(person, credential_id, :start_self_credential_oauth, opts)
 
   def reconnect(person, credential_id, opts \\ []),
     do: dispatch(person, credential_id, :reconnect_self_credential_oauth, opts)
+
+  def associate(credential_id), do: ensure_ai_association(credential_id)
 
   defp dispatch(person, credential_id, operation, opts) do
     with {:ok, _} <- PeoplePermissions.grant(:everyone, :access_profile),
@@ -18,6 +22,28 @@ defmodule Zaq.TestSupport.PersonOAuth do
         %{op: operation, token: token, credential_id: credential_id},
         opts
       )
+    end
+  end
+
+  defp ensure_ai_association(credential_id) do
+    case Repo.get_by(AIProviderCredential, connect_credential_id: credential_id) do
+      %AIProviderCredential{} = association ->
+        {:ok, association}
+
+      nil ->
+        %AIProviderCredential{}
+        |> AIProviderCredential.changeset(%{
+          name: "OAuth test #{Ecto.UUID.generate()}",
+          provider: "example",
+          endpoint: "https://provider.example/v1",
+          metadata: %{"auth_kind" => "oauth2"},
+          connect_credential_id: credential_id
+        })
+        |> Repo.insert()
+        |> case do
+          {:ok, association} -> {:ok, association}
+          {:error, _} -> {:error, :not_found}
+        end
     end
   end
 
