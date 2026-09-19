@@ -189,7 +189,7 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
     ensure(attempt.config_fingerprint == fingerprint(attempt.credential_id), :invalid_attempt)
     credential = candidate(attempt, current)
     ensure(credential.provider == provider and credential.auth_kind == "oauth2", :invalid_attempt)
-    ensure(attempt.redirect_uri == OAuth.redirect_uri_for(provider), :invalid_attempt)
+    ensure(attempt.redirect_uri == OAuth.redirect_uri_for(credential), :invalid_attempt)
 
     if attempt.owner_type == "person" do
       ensure(active_person?(attempt.owner_id) and eligible?(credential), :invalid_attempt)
@@ -223,7 +223,7 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
   end
 
   defp token_material(payload) do
-    Enum.reduce([:access_token, :refresh_token, :expires_at], %{}, fn key, acc ->
+    Enum.reduce([:access_token, :refresh_token, :expires_at, :metadata], %{}, fn key, acc ->
       value = Map.get(payload, key) || Map.get(payload, Atom.to_string(key))
       if is_nil(value), do: acc, else: Map.put(acc, key, value)
     end)

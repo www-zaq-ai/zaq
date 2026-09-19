@@ -53,6 +53,11 @@ defmodule Zaq.Engine.ApiTest do
     def redirect_uri_for(provider), do: "https://example.test/oauth/#{provider}/callback"
   end
 
+  defmodule StubOAuthAttempts do
+    def start_global_configuration(credential_id, attrs),
+      do: {:ok, %{credential_id: credential_id, attrs: attrs}}
+  end
+
   defmodule StubNotifications do
     def notify_person(person_id, attrs, _opts) do
       send(self(), {:notify_person_called, person_id, attrs})
@@ -472,6 +477,14 @@ defmodule Zaq.Engine.ApiTest do
     assert result.response == {:ok, %{id: 42}}
   end
 
+  test "lists public OAuth behaviours without exposing implementation modules" do
+    result = Api.handle_event(Event.new(%{}, :engine), :connect_oauth_behaviours, nil)
+
+    assert Enum.map(result.response, & &1.id) == ["standard", "openai_chatgpt_codex"]
+    assert Enum.all?(result.response, &(is_binary(&1.title) and is_binary(&1.description)))
+    refute Enum.any?(result.response, &Map.has_key?(&1, :module))
+  end
+
   test "handles connect_oauth_redirect_uri_for action" do
     event =
       Event.new(%{provider: "google_drive"}, :engine, opts: [connect_oauth_module: StubOAuth])
@@ -596,6 +609,30 @@ defmodule Zaq.Engine.ApiTest do
       )
 
     assert result.response == {:error, {:invalid_request, %{credential: %{}, context: :bad}}}
+  end
+
+  test "starts canonical global OAuth configuration through the explicit Engine action" do
+    event =
+      Event.new(%{credential_id: 42, attrs: %{client_id: "client"}}, :engine,
+        opts: [connect_oauth_attempts_module: StubOAuthAttempts]
+      )
+
+    result = Api.handle_event(event, :connect_oauth_start_global_configuration, nil)
+
+    assert result.response == {:ok, %{credential_id: 42, attrs: %{client_id: "client"}}}
+  end
+
+  test "rejects malformed canonical global OAuth configuration requests" do
+    request = %{credential_id: "42", attrs: %{}}
+
+    result =
+      Api.handle_event(
+        Event.new(request, :engine),
+        :connect_oauth_start_global_configuration,
+        nil
+      )
+
+    assert result.response == {:error, {:invalid_request, request}}
   end
 
   test "returns not_found for system_config_get_ai_provider_credential_bang with unknown id" do

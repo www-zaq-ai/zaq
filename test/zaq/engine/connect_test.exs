@@ -703,6 +703,33 @@ defmodule Zaq.Engine.ConnectTest do
       assert [revoked.id] == Enum.map(Connect.list_grants(status: "revoked"), & &1.id)
     end
 
+    test "list_grant_summaries includes canonical grants without secret material", %{
+      credential: credential
+    } do
+      {:ok, credential} =
+        Connect.update_credential(credential, %{secret_binding: :grant, scopes: ["scope.read"]})
+
+      assert {:ok, %{grant_id: grant_id}} =
+               Connect.replace_credential_grant(credential, :org, %{
+                 access_token: "canonical-access-token",
+                 refresh_token: "canonical-refresh-token",
+                 expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+               })
+
+      assert [summary] = Connect.list_grant_summaries(credential_id: credential.id)
+      assert summary.id == grant_id
+      assert summary.credential_id == credential.id
+      assert summary.resource_type == "connect_credential"
+      assert summary.resource_id == to_string(credential.id)
+      assert summary.owner_type == "org"
+      assert summary.owner_id == nil
+      assert summary.status == "active"
+      assert summary.scopes == ["scope.read"]
+      assert summary.refreshable
+      refute Map.has_key?(summary, :access_token)
+      refute Map.has_key?(summary, :refresh_token)
+    end
+
     test "get_active_grant with owner_id: nil returns org-level grant", %{credential: credential} do
       grant = issue_oauth_grant(credential, owner_type: "org", owner_id: nil)
 

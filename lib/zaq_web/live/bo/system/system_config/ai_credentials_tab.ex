@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
   attr :action, :atom, required: true
   attr :credential_id, :any, default: nil
   attr :provider_options, :list, required: true
+  attr :oauth_behaviours, :list, required: true
 
   def panel(assigns) do
     ~H"""
@@ -190,6 +191,31 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
             <% else %>
               API keys are preferred when present. OAuth2 uses Connect grants bound to this AI credential.
             <% end %>
+          </p>
+        </div>
+
+        <div :if={auth_mode(@form) == "oauth2"}>
+          <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
+            OAuth behaviour
+          </label>
+          <select
+            name="ai_credential[oauth_behaviour]"
+            class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa]"
+          >
+            <option
+              :for={behaviour <- @oauth_behaviours}
+              value={behaviour.id}
+              selected={oauth_behaviour(@form) == behaviour.id}
+            >
+              {behaviour.title}
+            </option>
+          </select>
+          <p
+            :for={behaviour <- @oauth_behaviours}
+            :if={oauth_behaviour(@form) == behaviour.id}
+            class="font-mono text-[0.7rem] text-black/45 mt-1.5"
+          >
+            {behaviour.description}
           </p>
         </div>
 
@@ -392,6 +418,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
 
   defp oauth_only_provider?(form), do: form[:provider].value == "openai_codex"
 
+  defp oauth_behaviour(form) do
+    MapUtils.metadata_value(form[:metadata].value, "auth_profile") ||
+      if(form[:provider].value == "openai_codex",
+        do: "openai_chatgpt_codex",
+        else: "standard"
+      )
+  end
+
   defp auth_mode_label(%{provider: "openai_codex"}), do: "OAuth2"
 
   defp auth_mode_label(%{api_key: api_key}) when is_binary(api_key) and api_key != "",
@@ -411,22 +445,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
     end
   end
 
-  defp bearer_status(%{provider: "openai_codex"} = credential, grants),
-    do: bearer_grant_status(credential, grants)
-
-  defp bearer_status(%{api_key: api_key}, _grants) when is_binary(api_key) and api_key != "" do
-    {"API key configured", "text-emerald-700 bg-emerald-50 border-emerald-200"}
-  end
-
   defp bearer_status(credential, grants), do: bearer_grant_status(credential, grants)
 
-  defp bearer_grant_status(%{id: id}, grants) do
+  defp bearer_grant_status(%{connect_credential_id: credential_id} = credential, grants) do
     grant =
       Enum.find(grants, fn grant ->
-        grant.resource_type == "ai_provider_credential" and
-          to_string(grant.resource_id) == to_string(id)
+        grant.resource_type == "connect_credential" and grant.owner_type == "org" and
+          to_string(grant.credential_id) == to_string(credential_id)
       end)
 
+    grant_status(credential, grant)
+  end
+
+  defp grant_status(credential, grant) do
     cond do
       is_nil(grant) ->
         {"No bearer grant", "text-amber-700 bg-amber-50 border-amber-200"}
@@ -436,6 +467,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
 
       expired?(grant.expires_at) ->
         {"Grant expired", "text-red-700 bg-red-50 border-red-200"}
+
+      is_nil(grant.expires_at) and auth_mode_label(credential) == "API key" ->
+        {"API key configured", "text-emerald-700 bg-emerald-50 border-emerald-200"}
 
       is_nil(grant.expires_at) ->
         {"Bearer grant active", "text-emerald-700 bg-emerald-50 border-emerald-200"}

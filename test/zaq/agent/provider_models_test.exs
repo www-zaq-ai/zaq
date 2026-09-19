@@ -230,13 +230,13 @@ defmodule Zaq.Agent.ProviderModelsTest do
     end
 
     test "returns no models when the credential has no api key" do
-      credential = %AIProviderCredential{provider: "zaq_router", endpoint: "https://llm.test/v1"}
+      credential = %{provider: "zaq_router", endpoint: "https://llm.test/v1"}
 
       assert ProviderModels.models_for_credential(credential) == []
     end
 
     test "returns no models when the api key is blank" do
-      credential = %AIProviderCredential{
+      credential = %{
         provider: "zaq_router",
         endpoint: "https://llm.test/v1",
         api_key: ""
@@ -246,19 +246,19 @@ defmodule Zaq.Agent.ProviderModelsTest do
     end
 
     test "returns the injected ZAQ Router model only when endpoint and api key are present" do
-      credential = %AIProviderCredential{provider: "zaq_router", endpoint: "https://llm.test/v1"}
+      credential = %{provider: "zaq_router", endpoint: "https://llm.test/v1"}
       opts = adapter_opts(ZAQRouterAuthAdapter)
 
       assert ProviderModels.models_for_credential(credential, opts) == []
 
-      credential = %{credential | api_key: "sk-test-123"}
+      credential = Map.put(credential, :api_key, "sk-test-123")
 
       assert [%LLMDB.Model{id: "router-model", provider: :zaq_router}] =
                ProviderModels.models_for_credential(credential, opts)
     end
 
     test "returns the catalog once an api key is present" do
-      credential = %AIProviderCredential{
+      credential = %{
         provider: "zaq_router",
         endpoint: "https://llm.test/v1",
         api_key: "sk-test-123"

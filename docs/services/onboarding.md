@@ -109,9 +109,10 @@ Persisted on `users.portal_consent`:
   the "ZAQ Router" credential and wires first-run `LLMConfig`, `EmbeddingConfig`,
   and `ImageToTextConfig`.
 - `ensure_offline_credential/0` — creates the "ZAQ Router" credential with **no**
-  API key (does not wire model configs, does not overwrite an existing
-  credential). A later successful claim updates the same credential by name and
-  fills in the key.
+  API key using explicit no-auth configuration (does not wire model configs and does
+  not overwrite an existing credential). A later successful claim updates the same
+  credential by name, switches its associated Connect credential to API-key auth and
+  fills the canonical org grant.
 
 ## Portal HTTP API (`Client`)
 
@@ -130,7 +131,8 @@ Persisted on `users.portal_consent`:
 
 `AccountSync.sync_email/1` pushes email changes to the portal **only** for
 `portal_consent: "accepted"` users. Failures are logged but never block the
-local DB write — the portal is best-effort.
+local DB write — the portal is best-effort. The ZAQ Router key is resolved from its
+associated canonical Connect org grant, not the retained legacy AI key field.
 
 ## Tests
 

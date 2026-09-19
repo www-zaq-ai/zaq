@@ -55,8 +55,42 @@ persisted in `system_configs`.
 These keys are no longer configured through `LLM_*`, `EMBEDDING_*`, or
 `IMAGE_TO_TEXT_*` environment variables.
 
-Connection fields (`provider`, `endpoint`, `api_key`) are sourced from
-`ai_provider_credentials` referenced by each `*.credential_id`.
+Provider and endpoint fields are sourced from the `ai_provider_credentials` row
+referenced by each `*.credential_id`. Runtime authentication is resolved from that
+row's associated canonical Connect credential and org grant; the legacy AI `api_key`
+column is not a runtime source.
+
+### Connect-backed AI credentials
+
+Every AI provider credential has one unique `connect_credential_id`. System owns the
+AI-specific provider/endpoint record and maps administrator authentication writes to
+`Connect.save_credential_configuration/4`; Connect owns authentication configuration,
+encryption, the canonical org grant and mutation notifications. Creation, update and
+deletion compose in one database transaction. BO OAuth starts reuse the associated
+credential through `OAuthAttempts.start_global_configuration/3`, so callback completion
+also writes the canonical org slot rather than a legacy resource-bound grant.
+
+OAuth credentials select an administrator-controlled behavior by stable
+`metadata["auth_profile"]` ID. The Auth Credentials and AI Credentials forms list the
+secret-free entries returned by the static Engine registry; Standard OAuth2 is the
+default, while existing OpenAI Codex credentials retain `openai_chatgpt_codex`. The
+selection belongs to the Connect credential, so global and Person grants use the same
+redirect, PKCE, authorization-parameter and token-normalization behavior. Submitted
+module names are never accepted or converted to atoms.
+
+Keyless endpoints require explicit `metadata["auth_kind"] == "none"`. Their Connect
+credential is constrained to disabled personal policy, configuration binding and no
+secret fields, has no grant, and resolves to empty authentication. A missing or blank
+API key without that marker is invalid; it is never interpreted as no-auth.
+
+The rollout first adds the nullable association and no-auth constraints, then runs the
+secret-free bounded preflight. Backfill proceeds only when every legacy row is an
+already-associated row, readable/nonblank API key, exactly one legacy OAuth org grant,
+or explicit no-auth row. It creates disabled Connect definitions, copies API-key or
+OAuth material into canonical org slots, associates each AI row, and finally makes the
+association non-null. Legacy OAuth source rows and the encrypted AI key remain only for
+guarded rollback; runtime and portal provisioning do not read them. Rollback refuses
+after personal policy/grants exist and never deletes the retained OAuth source grant.
 
 ## People Access
 
@@ -213,8 +247,9 @@ All supplied secrets are freshly encrypted, even client strings beginning `enc:`
 That prefix is not proof of trusted ciphertext. Schema inspection redacts secret
 fields and metadata; legacy APIs still return their original schema/changeset shapes.
 
-Grant mutations accept only auth-kind-specific secret fields plus expiry, with no
-client metadata or ownership/auth-field overrides. Non-OAuth configuration metadata is
+Grant mutations accept only auth-kind-specific secret fields plus expiry and the
+selected OAuth behavior's allowlisted non-secret account metadata, with no client
+metadata or ownership/auth-field overrides. Non-OAuth configuration metadata is
 restricted to `auth_profile_id` and `subject`; canonical OAuth metadata admits the
 existing authorize/token URLs, auth profile, PKCE flag and allowlisted authorize params
 documented in `engine.md`. Arbitrary token payloads/nested metadata reject. OAuth client
@@ -266,6 +301,12 @@ selection locks. Errors contain normalized credential ID and a
 fixed reason only. Do not serialize, persist, log extracted authentication, or return
 this result through public events. See `engine.md` for exact auth shapes, expiry/error
 semantics and the final-read linearization/later server invalidation limitation.
+
+Global AI consumers call the System association boundary, which delegates to
+`Connect.resolve_credential/3` with the org actor. `ProviderSpec`, model discovery,
+LLM, embedding, image-to-text, ZAQ Router activation checks and portal account sync
+therefore consume the same canonical result. Unrelated legacy resource grants and the
+AI row's retained migration key are ignored.
 
 ### OAuth refresh secret lifetime (`zaq-jrg.7`)
 
@@ -352,7 +393,7 @@ There is no fallback to plaintext persistence.
 
 ### Current sensitive fields
 
-- `ai_provider_credentials.api_key`
+- `ai_provider_credentials.api_key` (legacy migration/rollback field; not runtime authority)
 - `email.password`
 - `channel_configs.token`
 

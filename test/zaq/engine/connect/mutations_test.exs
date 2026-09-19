@@ -179,6 +179,13 @@ defmodule Zaq.Engine.Connect.MutationsTest do
                expires_at: ~U[2000-01-01 00:00:00Z]
              })
 
+    assert {:error, :invalid_material} =
+             Connect.replace_credential_grant(config, :org, %{
+               access_token: "access",
+               refresh_token: "refresh",
+               metadata: %{"provider_payload" => "not-allowlisted"}
+             })
+
     assert {:ok, _} =
              Connect.save_credential_configuration(
                config,

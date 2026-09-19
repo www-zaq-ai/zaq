@@ -4,8 +4,9 @@ defmodule Zaq.Engine.Connect.OAuth do
 
   Raw Person owner contexts and old Person-owned signed states reject before signing
   or exchanging codes. Opaque attempt states route only to `OAuthAttempts`, which owns
-  trusted Person/admin authorization and canonical finalization. Provider HTTP behavior
-  is shared with legacy OAuth; no second provider registry or application config exists.
+  trusted Person/admin authorization and canonical finalization. Generic provider HTTP
+  behavior is shared with legacy OAuth. The static OAuth behavior registry customizes
+  protocol details without taking ownership of state, transport or grant persistence.
   Secret-bearing provider dispatches suppress NodeRouter workflow broadcasts.
   Refresh receives freshly loaded plaintext from the claimed Connect boundary; token
   strings are literal provider material and must never be decrypted a second time.
@@ -19,6 +20,7 @@ defmodule Zaq.Engine.Connect.OAuth do
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Engine.Connect.Grant
+  alias Zaq.Engine.Connect.OAuth.Registry, as: OAuthBehaviourRegistry
   alias Zaq.Engine.Connect.OAuthAttempts
   alias Zaq.Engine.Connect.OAuthState
   alias Zaq.Event
@@ -26,42 +28,53 @@ defmodule Zaq.Engine.Connect.OAuth do
   alias Zaq.Utils.DateUtils
   alias Zaq.Utils.Map, as: MapUtils
 
-  @codex_redirect_uri "http://localhost:1455/auth/callback"
-
   @doc "Internal provider preparation shared by trusted attempts; contains a plaintext verifier."
   @spec prepare_attempt(Credential.t()) :: map()
   def prepare_attempt(%Credential{} = credential) do
-    %{redirect_uri: redirect_uri_for(credential.provider), pkce: pkce_params(credential, true)}
+    case oauth_behaviour(credential) do
+      {:ok, behaviour} ->
+        %{
+          redirect_uri: oauth_redirect_uri(credential, behaviour),
+          pkce: pkce_params(credential, behaviour, true)
+        }
+
+      {:error, _} ->
+        %{redirect_uri: "", pkce: %{}}
+    end
   end
 
   @doc "Authorizes a persisted attempt using the existing provider infrastructure."
   @spec authorize_attempt(Credential.t(), String.t(), map(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def authorize_attempt(credential, state, binding, opts \\ []) do
-    {:ok, params} = authorize_params(credential, state, binding.pkce)
-    params = Map.put(params, "redirect_uri", binding.redirect_uri)
+    with {:ok, behaviour} <- oauth_behaviour(credential),
+         {:ok, params} <- authorize_params(credential, state, binding.pkce, behaviour) do
+      params = Map.put(params, "redirect_uri", binding.redirect_uri)
 
-    dispatch_data_source_oauth_action(
-      credential.provider,
-      params,
-      :data_source_oauth_authorize_url,
-      Keyword.put(opts, :oauth_credentials, :explicit)
-    )
+      dispatch_data_source_oauth_action(
+        credential.provider,
+        params,
+        :data_source_oauth_authorize_url,
+        Keyword.put(opts, :oauth_credentials, :explicit)
+      )
+    end
   end
 
   @doc "Exchanges a claimed attempt using only server-bound configuration and redirect/PKCE."
   @spec exchange_attempt(Credential.t(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def exchange_attempt(credential, code, binding, opts \\ []) do
-    params =
-      callback_params(credential, %{"code" => code}, %{})
-      |> Map.delete("state")
-      |> Map.put("redirect_uri", binding.redirect_uri)
-      |> maybe_put_param("code_verifier", binding.pkce_verifier)
+    with {:ok, behaviour} <- oauth_behaviour(credential) do
+      params =
+        callback_params(credential, %{"code" => code}, %{}, behaviour)
+        |> Map.delete("state")
+        |> Map.put("redirect_uri", binding.redirect_uri)
+        |> maybe_put_param("code_verifier", binding.pkce_verifier)
 
-    with {:ok, token_url} <- token_endpoint(credential, true, opts),
-         {:ok, payload} <- generic_exchange_code(token_url, params, opts) do
-      {:ok, maybe_put_chatgpt_account_metadata(params, payload)}
+      with {:ok, token_url} <- token_endpoint(credential, true, opts),
+           {:ok, payload} <- generic_exchange_code(token_url, params, opts) do
+        {:ok, behaviour.normalize_token_payload(payload)}
+      end
     end
   end
 
@@ -75,16 +88,18 @@ defmodule Zaq.Engine.Connect.OAuth do
 
   def build_authorize_url(%Credential{auth_kind: "oauth2"} = credential, context)
       when is_map(context) do
-    pkce_params = pkce_params(credential)
-    state = OAuthState.sign(build_state_payload(credential, context, pkce_params))
+    with {:ok, behaviour} <- oauth_behaviour(credential) do
+      pkce_params = pkce_params(credential, behaviour)
+      state = OAuthState.sign(build_state_payload(credential, context, pkce_params))
 
-    case authorize_params(credential, state, pkce_params) do
-      {:ok, authorize_params} ->
-        dispatch_data_source_oauth_action(
-          credential.provider,
-          authorize_params,
-          :data_source_oauth_authorize_url
-        )
+      case authorize_params(credential, state, pkce_params, behaviour) do
+        {:ok, authorize_params} ->
+          dispatch_data_source_oauth_action(
+            credential.provider,
+            authorize_params,
+            :data_source_oauth_authorize_url
+          )
+      end
     end
   end
 
@@ -107,12 +122,14 @@ defmodule Zaq.Engine.Connect.OAuth do
          :ok <- validate_legacy_owner(state_payload),
          :ok <- validate_provider(provider, state_payload),
          {:ok, credential} <- Connect.fetch_credential(state_payload["credential_id"]),
+         {:ok, behaviour} <- oauth_behaviour(credential),
          {:ok, token_payload} <-
            dispatch_data_source_oauth_action(
              provider,
-             callback_params(credential, params, state_payload),
+             callback_params(credential, params, state_payload, behaviour),
              :data_source_oauth_exchange_code
            ) do
+      token_payload = behaviour.normalize_token_payload(token_payload)
       Connect.issue_grant(build_oauth_grant_attrs(credential, state_payload, token_payload))
     end
   end
@@ -124,16 +141,12 @@ defmodule Zaq.Engine.Connect.OAuth do
   def refresh_token_payload(%Credential{} = credential, %Grant{} = grant, opts \\ []) do
     metadata = credential.metadata || %{}
 
-    case token_endpoint(credential, grant.resource_type == "connect_credential", opts) do
-      {:ok, token_url} ->
-        params = refresh_params(credential, grant, metadata)
-
-        with {:ok, token_payload} <- generic_refresh_token(token_url, params, opts) do
-          {:ok, maybe_put_chatgpt_account_metadata(params, token_payload)}
-        end
-
-      other ->
-        other
+    with {:ok, behaviour} <- oauth_behaviour(credential),
+         {:ok, token_url} <-
+           token_endpoint(credential, grant.resource_type == "connect_credential", opts),
+         params = refresh_params(credential, grant, metadata),
+         {:ok, token_payload} <- generic_refresh_token(token_url, params, opts) do
+      {:ok, behaviour.normalize_token_payload(token_payload)}
     end
   end
 
@@ -166,7 +179,14 @@ defmodule Zaq.Engine.Connect.OAuth do
     end
   end
 
-  @spec redirect_uri_for(String.t()) :: String.t()
+  @spec redirect_uri_for(Credential.t() | String.t()) :: String.t()
+  def redirect_uri_for(%Credential{} = credential) do
+    case oauth_behaviour(credential) do
+      {:ok, behaviour} -> oauth_redirect_uri(credential, behaviour)
+      {:error, _} -> redirect_uri_for(credential.provider)
+    end
+  end
+
   def redirect_uri_for(provider) do
     base =
       Zaq.System.get_global_base_url() || "http://localhost:4000"
@@ -188,30 +208,33 @@ defmodule Zaq.Engine.Connect.OAuth do
     }
   end
 
-  defp authorize_params(%Credential{} = credential, state, pkce_params) do
+  defp authorize_params(%Credential{} = credential, state, pkce_params, behaviour) do
     metadata = credential.metadata || %{}
 
-    {:ok,
-     (MapUtils.read_any(metadata, ["authorize_params", :authorize_params]) || %{})
-     |> MapUtils.stringify_keys()
-     |> Map.merge(%{
-       "authorize_url" => MapUtils.read_any(metadata, ["authorize_url", :authorize_url]),
-       "client_id" => oauth_client_id(credential),
-       "redirect_uri" => oauth_redirect_uri(credential),
-       "scope" => oauth_scope(credential),
-       "state" => state,
-       "response_type" => "code"
-     })
-     |> Map.merge(Map.drop(pkce_params, ["code_verifier"]))}
+    params =
+      (MapUtils.read_any(metadata, ["authorize_params", :authorize_params]) || %{})
+      |> MapUtils.stringify_keys()
+      |> Map.merge(behaviour.authorize_params(credential))
+      |> Map.merge(%{
+        "authorize_url" => MapUtils.read_any(metadata, ["authorize_url", :authorize_url]),
+        "client_id" => oauth_client_id(credential),
+        "redirect_uri" => oauth_redirect_uri(credential, behaviour),
+        "scope" => oauth_scope(credential),
+        "state" => state,
+        "response_type" => "code"
+      })
+      |> Map.merge(Map.drop(pkce_params, ["code_verifier"]))
+
+    {:ok, params}
   end
 
-  defp callback_params(%Credential{} = credential, params, state_payload) do
+  defp callback_params(%Credential{} = credential, params, state_payload, behaviour) do
     metadata = credential.metadata || %{}
 
     %{
       "code" => Map.get(params, "code"),
       "state" => Map.get(params, "state"),
-      "redirect_uri" => oauth_redirect_uri(credential),
+      "redirect_uri" => oauth_redirect_uri(credential, behaviour),
       "client_id" => oauth_client_id(credential),
       "client_secret" => credential.client_secret,
       "auth_profile" => MapUtils.read_any(metadata, ["auth_profile", :auth_profile]),
@@ -235,15 +258,8 @@ defmodule Zaq.Engine.Connect.OAuth do
       credential.client_id
   end
 
-  defp oauth_redirect_uri(%Credential{} = credential) do
-    metadata = credential.metadata || %{}
-
-    if MapUtils.read_any(metadata, ["auth_profile", :auth_profile]) == "openai_chatgpt_codex" do
-      @codex_redirect_uri
-    else
-      redirect_uri_for(credential.provider)
-    end
-  end
+  defp oauth_redirect_uri(%Credential{} = credential, behaviour),
+    do: behaviour.redirect_uri(credential, redirect_uri_for(credential.provider))
 
   defp oauth_scope(%Credential{} = credential) do
     metadata = credential.metadata || %{}
@@ -255,10 +271,10 @@ defmodule Zaq.Engine.Connect.OAuth do
     scope
   end
 
-  defp pkce_params(%Credential{} = credential, required \\ false) do
+  defp pkce_params(%Credential{} = credential, behaviour, required \\ false) do
     metadata = credential.metadata || %{}
 
-    if required or pkce_enabled?(metadata) do
+    if required or pkce_enabled?(metadata, credential, behaviour) do
       verifier = pkce_verifier()
 
       %{
@@ -271,10 +287,9 @@ defmodule Zaq.Engine.Connect.OAuth do
     end
   end
 
-  defp pkce_enabled?(metadata),
+  defp pkce_enabled?(metadata, credential, behaviour),
     do:
-      MapUtils.read_any(metadata, ["pkce", :pkce]) == true or
-        MapUtils.read_any(metadata, ["auth_profile", :auth_profile]) == "openai_chatgpt_codex"
+      MapUtils.read_any(metadata, ["pkce", :pkce]) == true or behaviour.pkce_required?(credential)
 
   defp pkce_verifier do
     32
@@ -371,9 +386,7 @@ defmodule Zaq.Engine.Connect.OAuth do
          opts
        )
        when is_binary(token_url) and token_url != "" do
-    with {:ok, token_payload} <- generic_exchange_code(token_url, params, opts) do
-      {:ok, maybe_put_chatgpt_account_metadata(params, token_payload)}
-    end
+    generic_exchange_code(token_url, params, opts)
   end
 
   defp dispatch_generic_oauth_action(_params, _action, _opts), do: :fallback
@@ -465,22 +478,6 @@ defmodule Zaq.Engine.Connect.OAuth do
     end
   end
 
-  defp maybe_put_chatgpt_account_metadata(
-         %{"auth_profile" => "openai_chatgpt_codex"},
-         token_payload
-       ) do
-    case chatgpt_account_id(token_payload) do
-      account_id when is_binary(account_id) and account_id != "" ->
-        metadata = Map.get(token_payload, :metadata) || %{}
-        Map.put(token_payload, :metadata, Map.put(metadata, "chatgpt_account_id", account_id))
-
-      _ ->
-        token_payload
-    end
-  end
-
-  defp maybe_put_chatgpt_account_metadata(_params, token_payload), do: token_payload
-
   defp normalize_generic_token_payload(body, opts) do
     %{
       id_token: generic_token_value(body, "id_token"),
@@ -507,30 +504,9 @@ defmodule Zaq.Engine.Connect.OAuth do
     end
   end
 
-  defp chatgpt_account_id(token_payload) do
-    token_payload
-    |> chatgpt_account_tokens()
-    |> Enum.find_value(&chatgpt_account_id_from_token/1)
-  end
-
-  defp chatgpt_account_tokens(token_payload) do
-    [
-      Map.get(token_payload, :id_token) || Map.get(token_payload, "id_token"),
-      Map.get(token_payload, :access_token) || Map.get(token_payload, "access_token")
-    ]
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-  end
-
-  defp chatgpt_account_id_from_token(token) do
-    with [_header, payload, _signature] <- String.split(token, "."),
-         {:ok, decoded} <- Base.url_decode64(payload, padding: false),
-         {:ok, claims} <- Jason.decode(decoded) do
-      claims["chatgpt_account_id"] ||
-        get_in(claims, ["https://api.openai.com/auth", "chatgpt_account_id"]) ||
-        get_in(claims, ["organizations", Access.at(0), "id"])
-    else
-      _ -> nil
-    end
+  defp oauth_behaviour(%Credential{} = credential) do
+    profile = MapUtils.read_any(credential.metadata || %{}, ["auth_profile", :auth_profile])
+    OAuthBehaviourRegistry.fetch(profile)
   end
 
   defp oauth_http_client(opts),

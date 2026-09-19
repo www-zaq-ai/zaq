@@ -14,7 +14,7 @@ defmodule Zaq.System do
   alias Zaq.Ingestion.Chunk
   alias Zaq.NodeRouter
   alias Zaq.Repo
-  alias Zaq.System.AIProviderCredential
+  alias Zaq.System.{AIProviderCredential, AIProviderCredentialConfiguration}
   alias Zaq.System.Config
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.HttpCredentialProvider
@@ -576,34 +576,28 @@ defmodule Zaq.System do
     Repo.get_by(AIProviderCredential, name: name)
   end
 
-  @doc "Returns the configured API key, or a resolved Connect bearer token when no API key is stored."
+  @doc "Resolves the associated canonical Connect authentication for global runtime use."
+  @spec resolve_ai_provider_authentication(AIProviderCredential.t() | nil) ::
+          {:ok, Zaq.Engine.Connect.ResolvedCredential.t()} | {:error, map()}
+  def resolve_ai_provider_authentication(%AIProviderCredential{connect_credential_id: id})
+      when is_integer(id),
+      do: Connect.resolve_credential(id, nil)
+
+  def resolve_ai_provider_authentication(_),
+    do: {:error, %{credential_id: nil, reason: :credential_unavailable}}
+
+  @doc "Returns the canonical Connect API key/access token, or blank for no-auth/unavailable."
   @spec resolve_ai_provider_api_key(AIProviderCredential.t() | nil) :: String.t()
   def resolve_ai_provider_api_key(nil), do: ""
 
-  def resolve_ai_provider_api_key(%AIProviderCredential{provider: "openai_codex"} = credential),
-    do: resolve_ai_provider_bearer_token(credential)
-
-  def resolve_ai_provider_api_key(%AIProviderCredential{api_key: api_key})
-      when is_binary(api_key) and api_key != "",
-      do: api_key
-
-  def resolve_ai_provider_api_key(%AIProviderCredential{} = credential),
-    do: resolve_ai_provider_bearer_token(credential)
-
-  defp resolve_ai_provider_bearer_token(%AIProviderCredential{} = credential) do
-    case Connect.resolve_bearer_token(%{
-           provider: ai_provider_oauth_provider(credential),
-           resource_type: "ai_provider_credential",
-           resource_id: credential.id,
-           owner_type: "org"
-         }) do
-      {:ok, token} -> token
+  def resolve_ai_provider_api_key(%AIProviderCredential{} = credential) do
+    case resolve_ai_provider_authentication(credential) do
+      {:ok, %{authentication: %{api_key: key}}} -> key
+      {:ok, %{authentication: %{access_token: token}}} -> token
+      {:ok, %{auth_kind: "none", authentication: %{}}} -> ""
       {:error, _} -> ""
     end
   end
-
-  defp ai_provider_oauth_provider(%AIProviderCredential{provider: "openai_codex"}), do: "openai"
-  defp ai_provider_oauth_provider(%AIProviderCredential{provider: provider}), do: provider
 
   @doc "Returns a changeset for AI provider credentials."
   def change_ai_provider_credential(%AIProviderCredential{} = credential, attrs \\ %{}) do
@@ -612,25 +606,32 @@ defmodule Zaq.System do
 
   @doc "Creates an AI provider credential."
   def create_ai_provider_credential(attrs \\ %{}) do
-    %AIProviderCredential{}
-    |> AIProviderCredential.changeset(attrs)
-    |> save_ai_provider_credential(:insert)
+    initial = AIProviderCredential.changeset(%AIProviderCredential{}, attrs)
+
+    if initial.valid? or errors_only_for_connection?(initial) do
+      Repo.transaction(fn -> create_ai_provider_credential_transaction(attrs) end)
+    else
+      {:error, initial}
+    end
   end
 
   @doc "Updates an AI provider credential."
   def update_ai_provider_credential(%AIProviderCredential{} = credential, attrs) do
     attrs = maybe_drop_blank_api_key(attrs)
+    initial = AIProviderCredential.changeset(credential, attrs)
 
-    credential
-    |> AIProviderCredential.changeset(attrs)
-    |> save_ai_provider_credential(:update)
+    if initial.valid? do
+      Repo.transaction(fn -> update_ai_provider_credential_transaction(credential.id, attrs) end)
+    else
+      {:error, initial}
+    end
   end
 
   @doc "Deletes an AI provider credential unless referenced by system configs."
   def delete_ai_provider_credential(%AIProviderCredential{} = credential) do
     case credential_usage_keys(credential.id) do
       [] ->
-        Repo.delete(credential)
+        Repo.transaction(fn -> delete_ai_provider_credential_transaction(credential.id) end)
 
       _in_use_keys ->
         {:error,
@@ -640,6 +641,50 @@ defmodule Zaq.System do
            "cannot delete credential currently used by system configuration"
          )}
     end
+  end
+
+  defp create_ai_provider_credential_transaction(attrs) do
+    with {:ok, connect_id} <- AIProviderCredentialConfiguration.save(nil, attrs),
+         {:ok, credential} <-
+           attrs
+           |> Map.put(connection_key(attrs), connect_id)
+           |> then(&AIProviderCredential.changeset(%AIProviderCredential{}, &1))
+           |> save_ai_provider_credential(:insert) do
+      credential
+    else
+      {:error, %Ecto.Changeset{} = changeset} -> Repo.rollback(changeset)
+      {:error, reason} -> Repo.rollback(ai_credential_error(attrs, reason))
+    end
+  end
+
+  defp update_ai_provider_credential_transaction(id, attrs) do
+    current = lock_ai_provider_credential(id)
+
+    with {:ok, connect_id} <- AIProviderCredentialConfiguration.save(current, attrs),
+         {:ok, updated} <-
+           current
+           |> AIProviderCredential.changeset(Map.put(attrs, connection_key(attrs), connect_id))
+           |> save_ai_provider_credential(:update) do
+      updated
+    else
+      {:error, %Ecto.Changeset{} = changeset} -> Repo.rollback(changeset)
+      {:error, reason} -> Repo.rollback(ai_credential_error(attrs, reason))
+    end
+  end
+
+  defp delete_ai_provider_credential_transaction(id) do
+    current = lock_ai_provider_credential(id)
+    connect_credential = Connect.get_credential!(current.connect_credential_id)
+    deleted = Repo.delete!(current)
+
+    case Connect.delete_credential(connect_credential) do
+      {:ok, _} -> deleted
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp lock_ai_provider_credential(id) do
+    Repo.one!(from c in AIProviderCredential, where: c.id == ^id, lock: "FOR UPDATE")
   end
 
   defp save_ai_provider_credential(%Ecto.Changeset{} = changeset, operation) do
@@ -659,6 +704,39 @@ defmodule Zaq.System do
 
   defp persist_ai_provider_credential(changeset, :insert), do: Repo.insert(changeset)
   defp persist_ai_provider_credential(changeset, :update), do: Repo.update(changeset)
+
+  defp connection_key(attrs) when is_map_key(attrs, "name"), do: "connect_credential_id"
+  defp connection_key(_attrs), do: :connect_credential_id
+
+  defp ai_credential_error(attrs, reason) do
+    changeset =
+      attrs
+      |> Map.put(connection_key(attrs), 0)
+      |> then(&AIProviderCredential.changeset(%AIProviderCredential{}, &1))
+
+    case reason do
+      :encryption_failed ->
+        case encrypt_secret_field(
+               changeset,
+               :api_key,
+               Ecto.Changeset.get_change(changeset, :api_key)
+             ) do
+          {:error, failed} -> failed
+          _ -> Ecto.Changeset.add_error(changeset, :api_key, "could not be encrypted")
+        end
+
+      _ ->
+        Ecto.Changeset.add_error(
+          changeset,
+          :base,
+          "authentication configuration is invalid",
+          reason: reason
+        )
+    end
+  end
+
+  defp errors_only_for_connection?(%Ecto.Changeset{errors: errors}),
+    do: Enum.all?(errors, fn {field, _} -> field == :connect_credential_id end)
 
   defp maybe_drop_blank_api_key(attrs) when is_map(attrs) do
     attrs

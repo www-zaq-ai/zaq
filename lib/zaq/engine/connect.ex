@@ -174,6 +174,34 @@ defmodule Zaq.Engine.Connect do
     |> Repo.all()
   end
 
+  @doc "Lists secret-free grant summaries, including canonical credential-bound grants."
+  @spec list_grant_summaries(keyword()) :: [map()]
+  def list_grant_summaries(opts \\ []) do
+    Grant
+    |> order_by([g], desc: g.inserted_at)
+    |> maybe_filter_by(opts, :credential_id)
+    |> maybe_filter_by(opts, :provider)
+    |> maybe_filter_by(opts, :resource_type)
+    |> maybe_filter_by(opts, :resource_id)
+    |> maybe_filter_by(opts, :owner_type)
+    |> maybe_filter_by(opts, :owner_id)
+    |> maybe_filter_by(opts, :status)
+    |> select([g], %{
+      id: g.id,
+      credential_id: g.credential_id,
+      resource_type: g.resource_type,
+      resource_id: g.resource_id,
+      owner_type: g.owner_type,
+      owner_id: g.owner_id,
+      request_format: g.request_format,
+      status: g.status,
+      scopes: g.scopes,
+      expires_at: g.expires_at,
+      refreshable: not is_nil(g.refresh_token)
+    })
+    |> Repo.all()
+  end
+
   @doc "Prepares a credential-bound grant storage changeset with strictly encrypted secrets."
   @spec change_credential_grant(Grant.t(), Credential.t(), map()) :: Changeset.t()
   def change_credential_grant(%Grant{} = grant, %Credential{} = credential, attrs) do
@@ -294,6 +322,35 @@ defmodule Zaq.Engine.Connect do
   # Tracked: zaq-wml
   def delete_grant(%Grant{} = grant), do: MutationEvents.delete(grant)
 
+  @doc "Removes one grant constrained to its credential without exposing its schema or secrets."
+  @spec remove_grant_for_credential(integer(), integer()) ::
+          {:ok, map() | Grant.t()} | {:error, mutation_error()}
+  def remove_grant_for_credential(credential_id, grant_id) do
+    case Repo.get_by(Grant, id: grant_id, credential_id: credential_id) do
+      %Grant{resource_type: "connect_credential", owner_type: "person", owner_id: owner_id} ->
+        remove_credential_grant(credential_id, {:person, owner_id})
+
+      %Grant{resource_type: "connect_credential"} ->
+        remove_credential_grant(credential_id, :org)
+
+      %Grant{} = grant ->
+        delete_grant(grant)
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc "Queues refresh for one grant constrained to its credential."
+  @spec schedule_grant_refresh(integer(), integer()) ::
+          {:ok, Oban.Job.t()} | {:error, Changeset.t() | :not_found}
+  def schedule_grant_refresh(credential_id, grant_id) do
+    case Repo.get_by(Grant, id: grant_id, credential_id: credential_id) do
+      %Grant{} = grant -> schedule_refresh(grant)
+      nil -> {:error, :not_found}
+    end
+  end
+
   @spec get_active_grant(map()) :: Grant.t() | nil
   def get_active_grant(filters) when is_map(filters) do
     now = DateTime.utc_now()
@@ -333,6 +390,7 @@ defmodule Zaq.Engine.Connect do
     |> where([g], g.status in ["active", "expired"] and g.auth_kind == "oauth2")
     |> where([g], not is_nil(g.refresh_token))
     |> where([g], not is_nil(g.expires_at) and g.expires_at <= ^threshold)
+    |> where([g], is_nil(g.refresh_claim_until) or g.refresh_claim_until <= ^now)
     |> Repo.all()
   end
 
@@ -386,8 +444,10 @@ defmodule Zaq.Engine.Connect do
   @doc """
   Internal runtime API for an already selected grant, without policy selection or fallback.
   Reloads current identity/configuration and refreshes OAuth near expiry. Returns a
-  secret-bearing runtime schema, never a management DTO. `:refresh_busy` and
-  `:refresh_failed` are retryable; callers must bound retries rather than loop.
+  secret-bearing runtime schema, never a management DTO. `:refresh_busy`,
+  `:refresh_failed`, and sanitized `:oauth_refresh_failed` tuples are retryable;
+  callers must bound retries rather than loop. OAuth failures may include an HTTP
+  status and safe provider error code, but never raw provider bodies or messages.
   The canonical resolver supplies an internal `:expected_fingerprint` captured under
   selection locks; cached reads and refresh claims reject a changed raw snapshot.
   """
@@ -408,7 +468,7 @@ defmodule Zaq.Engine.Connect do
       Mutations.persist_refreshed_grant(
         grant,
         credential,
-        Map.take(attrs, [:access_token, :refresh_token, :expires_at]),
+        Map.take(attrs, [:access_token, :refresh_token, :expires_at, :metadata]),
         opts
       )
     end
