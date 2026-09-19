@@ -9,9 +9,15 @@
   "id": "zaq-87p.1",
   "labels": [],
   "parent": "zaq-87p",
+  "comments": [
+    {
+      "text": "Implemented HEEx-based component rendering for all four CardShell tests, retained required inner_block, added body assertions and header/footer forwarding coverage. Focused result: 4 tests, 0 failures on Elixir 1.19.5. Changes remain uncommitted pending explicit Git authorization.",
+      "timestamp": "2026-09-19T15:52:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-87p.1] Repair CardShell component test rendering",
   "type": "task",
-  "updated_at": "2026-09-19T15:49:59Z"
+  "updated_at": "2026-09-19T15:52:15Z"
 }
