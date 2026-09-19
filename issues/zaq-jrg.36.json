@@ -11,9 +11,15 @@
   "id": "zaq-jrg.36",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented synchronous Agent receiver and ServerManager invalidation with credential/person/grant matching, draining reuse exclusion, bounded stop behavior, duplicate/reordered safety, and lazy recreation. Person invalidation includes org-fallback runtimes.",
+      "timestamp": "2026-09-19T16:53:30Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-jrg] Add synchronous local Agent credential invalidation",
   "type": "task",
-  "updated_at": "2026-09-19T13:18:03Z"
+  "updated_at": "2026-09-19T16:53:30Z"
 }
