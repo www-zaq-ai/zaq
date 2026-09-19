@@ -33,11 +33,15 @@
     {
       "text": "Implemented approved People credentials UI enhancements on top of the existing working tree: labeled policy/status table badges, secondary Add/Connect actions for absent API-key/OAuth credentials, and extracted DesignSystem.FeedbackBanner reused by BOLayout and PersonLayout. Updated Storybook and focused component/LiveView tests. Validation: targeted suite 50 tests, 0 failures; mix q passed on repeat; Storybook feedback/flash rendered successfully in browser. Existing E2E authoring remains unchanged; this correction is covered at component/LiveView level.",
       "timestamp": "2026-09-19T14:16:56Z"
+    },
+    {
+      "text": "Follow-up badge color rule: Personal policy Required uses danger/red; credential Status uses danger/red only when status is absent and policy is required; all other policy and status badges use neutral/grey.",
+      "timestamp": "2026-09-19T14:22:16Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Admin and Person credential management UI",
   "type": "task",
-  "updated_at": "2026-09-19T14:16:56Z"
+  "updated_at": "2026-09-19T14:22:16Z"
 }
