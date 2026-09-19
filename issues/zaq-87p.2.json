@@ -11,9 +11,15 @@
   "id": "zaq-87p.2",
   "labels": [],
   "parent": "zaq-87p",
+  "comments": [
+    {
+      "text": "Test-first implementation complete in working tree: added concrete omitted/blank/equal/distinct ID cases and a generated uniqueness invariant across split/whole and internal/external navigation; focused suite passes (1 property, 6 tests). CardShell now omits redundant surface IDs in whole-card mode and redundant primary-link IDs in split-footer mode while preserving distinct caller IDs. Changes remain uncommitted.",
+      "timestamp": "2026-09-19T15:54:18Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-87p.2] Enforce unique CardShell DOM IDs",
   "type": "task",
-  "updated_at": "2026-09-19T15:49:59Z"
+  "updated_at": "2026-09-19T15:54:18Z"
 }
