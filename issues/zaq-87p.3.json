@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-87p.2"
+  ],
   "blocks": [],
   "created": "2026-09-19T15:49:44Z",
   "description": "Strengthen Channels LiveView assertions for card identity and navigation while preserving modal/refresh behavior. Run focused suites on available Elixir, mix q, and compare clean Elixir 1.19.5/1.20 CI where available. No new E2E authoring: component and LiveView tests directly prove the regressions. Action reuse: not applicable — integration verification only; no operation changes.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-87p.3] Validate CardShell Channels integration",
   "type": "task",
-  "updated_at": "2026-09-19T15:49:57Z"
+  "updated_at": "2026-09-19T15:49:59Z"
 }

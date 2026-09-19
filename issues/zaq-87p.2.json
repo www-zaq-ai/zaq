@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-87p.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-87p.3"
+  ],
   "created": "2026-09-19T15:49:32Z",
   "description": "Define and implement unique DOM-ID ownership for whole-card and split-footer layouts. Test omitted, blank, equal, and distinct primary IDs plus navigation variants and a generated uniqueness invariant. Extend the existing CardShell private rendering helpers; no caller-specific workaround. Action reuse: local-only — DOM identity is a private presentation detail with no composable business Action contract, side effects, permissions, retries, or external consumers. Verification: focused CardShell and Channels LiveView tests, including original duplicate-ID regressions.",
   "id": "zaq-87p.2",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-87p.2] Enforce unique CardShell DOM IDs",
   "type": "task",
-  "updated_at": "2026-09-19T15:49:58Z"
+  "updated_at": "2026-09-19T15:49:59Z"
 }
