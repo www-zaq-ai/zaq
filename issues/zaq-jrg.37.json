@@ -11,9 +11,15 @@
   "id": "zaq-jrg.37",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Extended NodeRouter with discovered-node acknowledged dispatch_all fanout and routed the existing Connect mutation worker through it. Partial, zero-target, discovery, and remote delivery failures remain retryable; no parallel notification path was added.",
+      "timestamp": "2026-09-19T16:53:31Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-jrg] Fan out credential notifications to all Agent nodes",
   "type": "task",
-  "updated_at": "2026-09-19T13:18:03Z"
+  "updated_at": "2026-09-19T16:53:31Z"
 }
