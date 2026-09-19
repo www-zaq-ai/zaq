@@ -107,6 +107,21 @@ defmodule Zaq.Agent.SkillTest do
       assert "is too long (max 1024 characters)" in errors_on(changeset).description
       assert Repo.aggregate(Skill, :count) == 0
     end
+
+    test "rejects a body that Jido would trim" do
+      changeset = Skill.changeset(%Skill{}, %{@valid_attrs | body: "body\u200A"})
+
+      refute changeset.valid?
+      assert "could not be encoded without changing whitespace" in errors_on(changeset).body
+    end
+
+    test "preserves internal body whitespace" do
+      body = "first\u200Asecond\tvalue\nnext line"
+      changeset = Skill.changeset(%Skill{}, %{@valid_attrs | body: body})
+
+      assert changeset.valid?
+      assert get_field(changeset, :body) == body
+    end
   end
 
   describe "changeset/2 provided_tool_keys" do
@@ -375,7 +390,7 @@ defmodule Zaq.Agent.SkillTest do
     # and byte size ≈ 5N. "w " repeated is a cheap knob for both.
     defp body_of_tokens(target_tokens) do
       words = ceil(target_tokens / 1.3)
-      String.duplicate("w ", words)
+      List.duplicate("w", words) |> Enum.join(" ")
     end
 
     test "a normal-sized body is accepted with no warning" do

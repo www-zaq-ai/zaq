@@ -59,6 +59,29 @@ defmodule Zaq.Agent.Skills.ValidationTest do
       assert spec.metadata == @valid.metadata
     end
 
+    test "rejects bodies whose boundary whitespace is changed by parsing" do
+      for body <- [
+            "\u200Abody",
+            "body\u200A",
+            " body",
+            "body ",
+            "\tbody",
+            "body\t",
+            "\nbody",
+            "body\n"
+          ] do
+        assert {:error, errors} = Validation.validate(%{@valid | body: body})
+        assert {:body, "could not be encoded without changing whitespace"} in errors
+      end
+    end
+
+    test "preserves internal whitespace in bodies" do
+      body = "first\u200Asecond\tvalue\nnext line"
+
+      assert {:ok, %Spec{body_ref: {:inline, ^body}}} =
+               Validation.validate(%{@valid | body: body})
+    end
+
     test "the serialized document is parseable SKILL.md" do
       content =
         Validation.to_skill_md(

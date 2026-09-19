@@ -63,7 +63,7 @@ defmodule Zaq.Agent.Skills.Validation do
              compatibility,
              metadata
            ),
-         [] <- round_trip_errors(spec, allowed_tools, license, compatibility, metadata) do
+         [] <- round_trip_errors(spec, body, allowed_tools, license, compatibility, metadata) do
       {:ok, spec}
     else
       {:error, error} -> {:error, [error]}
@@ -192,8 +192,21 @@ defmodule Zaq.Agent.Skills.Validation do
 
   # Compare fields whose SKILL.md encoding can be lossy and refuse to persist any
   # value that does not parse back to the submitted shape.
-  defp round_trip_errors(%Spec{} = spec, allowed_tools, license, compatibility, metadata) do
+  defp round_trip_errors(
+         %Spec{} = spec,
+         body,
+         allowed_tools,
+         license,
+         compatibility,
+         metadata
+       ) do
     [
+      field_mismatch(
+        :body,
+        spec.body_ref,
+        {:inline, body},
+        "could not be encoded without changing whitespace"
+      ),
       field_mismatch(:license, spec.license, blank_to_nil(license), "could not be encoded"),
       field_mismatch(
         :compatibility,

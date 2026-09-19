@@ -1029,7 +1029,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
         %{
           name: "coverage-skill-#{unique}",
           description: "Coverage skill #{unique}",
-          body: "# Coverage Skill\nUse for coverage.\n",
+          body: "# Coverage Skill\nUse for coverage.",
           tags: ["coverage-default"]
         },
         attrs
