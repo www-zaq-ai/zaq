@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.36"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.38"
+  ],
   "created": "2026-09-19T13:18:01Z",
   "description": "Functional specifications/files: existing Connect.MutationEvents/MutationEventWorker delivery, NodeRouter, Agent receiver; acknowledged fanout to all discovered Agent nodes, aggregate all acknowledgments, retry partial/discovery/zero-target failures, duplicates safe. No parallel jobs.\nTests first: multi-node targets, partial failure, lost acknowledgment, failed discovery, zero target, duplicate/reordered replay.\nBranches: all success, partial, timeout, no target, malformed payload.\nMocking: injected NodeRouter discovery/dispatch seam; real Event and local receiver.\nDocs: Engine delivery pipeline and explicit eventual consistency limitations.\nAction reuse: extend existing transactional mutation notification and worker plus NodeRouter; no new queue or operation.",
   "id": "zaq-jrg.37",
