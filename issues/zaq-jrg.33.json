@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-19T09:59:28Z",
+  "description": "Repair seed 316490 failures: freeze the existing refresh clock and ensure PersonOAuth permission grants created during unboxed concurrency scenarios are restored without deleting pre-existing grants. Action reuse: local-only test-fixture correction; reuse DateUtils opts carrier and PeoplePermissions grant/revoke APIs; no executable production operation changes. Verify exact seed, repetitions, isolated suites, and mix q.",
+  "id": "zaq-jrg.33",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 2,
+  "status": "open",
+  "title": "Fix concurrency test isolation",
+  "type": "task",
+  "updated_at": "2026-09-19T09:59:28Z"
+}
