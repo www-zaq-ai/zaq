@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-19T20:05:24Z",
+  "description": "Functional specifications/files: add focused Agent credential runtime integration tests covering real Connect mutation persistence, existing MutationEventWorker/NodeRouter/Agent receiver delivery, ServerManager invalidation and next LLM request.\nTests first: one Alice/Bob fixture validates personal replacement/revocation and unrelated-owner survival; one policy sequence validates optional→required→disabled and retained personal grant; one global replacement validates dependent invalidation and lazy recreation. Assert outgoing Authorization values and no eager LLM call.\nBranches: Person grant replace/revoke, org grant replace, policy/config mutation, targeted versus conservative invalidation, lazy recreation, absent/invalid personal grant no fallback.\nMocking: only OpenAIStub at external provider boundary. Use actual persisted notification jobs selected by worker/event identity and moved to a unique test queue; never fabricate events or drain unrelated jobs. Use manager acknowledgments/process monitors, no sleeps.\nDocs: update Agent/Engine test-contract prose only if behavior differs.\nAction reuse: not applicable — tests orchestrate existing Connect mutation, Oban worker, NodeRouter, Agent receiver, ServerManager and Executor operations without production changes or new tools.",
+  "id": "zaq-jrg.41",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "Mutation-driven credential lifecycle HTTP integration coverage",
+  "type": "task",
+  "updated_at": "2026-09-19T20:05:24Z"
+}
