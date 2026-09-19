@@ -63,6 +63,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsMigrationTest do
         }
       })
 
+    {:ok, association} = PersonOAuth.associate(dto.credential_id)
     {:ok, _} = PersonOAuth.start(person, dto.credential_id)
     attempt = Repo.get_by!(OAuthAttempt, credential_id: dto.credential_id)
 
@@ -82,6 +83,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsMigrationTest do
     end
 
     {:ok, credential} = Connect.fetch_credential(dto.credential_id)
+    Repo.delete!(association)
     {:ok, _} = Connect.delete_credential(credential)
     refute Repo.get(OAuthAttempt, attempt.id)
   end

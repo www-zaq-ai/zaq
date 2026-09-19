@@ -417,9 +417,9 @@ defmodule Zaq.Engine.Connect.PersonCredentialsTest do
              PersonCredentials.put_own_authentication(owner, config.id, %{api_key: "key"})
 
     {:ok, config} = Connect.update_credential(config, %{personal_credential_policy: :disabled})
-    assert {:ok, []} = PersonCredentials.list_available(owner)
     assert {:ok, dto} = PersonCredentials.get_own_status(owner, config.id)
     assert dto == summary(config, "active")
+    assert {:ok, [^dto]} = PersonCredentials.list_available(owner)
 
     assert {:error, :not_found} =
              PersonCredentials.put_own_authentication(owner, config.id, %{api_key: "new"})
@@ -437,6 +437,7 @@ defmodule Zaq.Engine.Connect.PersonCredentialsTest do
       assert result == %{credential_id: config.id, status: "absent"}
     end
 
+    assert {:ok, []} = PersonCredentials.list_available(owner)
     assert {:ok, %{status: "absent"}} = PersonCredentials.revoke_own_grant(owner, config.id)
     assert {:error, :not_found} = PersonCredentials.get_own_status(owner, config.id)
   end

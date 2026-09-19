@@ -11,15 +11,23 @@ defmodule Zaq.Engine.PeopleCredentials do
   alias Zaq.Accounts.{PeopleAuth, PeoplePermissions}
   alias Zaq.Engine.Connect.{OAuthAttempts, PersonCredentials}
   alias Zaq.Repo
+  alias Zaq.System
 
   @write_permissions [:access_profile, :manage_credentials]
 
   @spec dispatch(map(), keyword()) :: {:ok, term()} | {:error, term()}
   def dispatch(%{op: :list_self_credentials, token: token}, opts),
-    do: authenticated(token, opts, :read, &PersonCredentials.list_available/1)
+    do:
+      authenticated(token, opts, :read, &PersonCredentials.list_available(&1, person_opts(opts)))
 
   def dispatch(%{op: :get_self_credential, token: token, credential_id: id}, opts),
-    do: authenticated(token, opts, :read, &PersonCredentials.get_own_status(&1, id))
+    do:
+      authenticated(
+        token,
+        opts,
+        :read,
+        &PersonCredentials.get_own_status(&1, id, person_opts(opts))
+      )
 
   def dispatch(
         %{op: :put_self_credential, token: token, credential_id: id, material: material},
@@ -31,14 +39,26 @@ defmodule Zaq.Engine.PeopleCredentials do
           token,
           opts,
           :write,
-          &PersonCredentials.put_own_authentication(&1, id, material, opts)
+          &PersonCredentials.put_own_authentication(&1, id, material, person_opts(opts))
         )
 
   def dispatch(%{op: :revoke_self_credential, token: token, credential_id: id}, opts),
-    do: authenticated(token, opts, :write, &PersonCredentials.revoke_own_grant(&1, id))
+    do:
+      authenticated(
+        token,
+        opts,
+        :write,
+        &PersonCredentials.revoke_own_grant(&1, id, person_opts(opts))
+      )
 
   def dispatch(%{op: :remove_self_credential, token: token, credential_id: id}, opts),
-    do: authenticated(token, opts, :write, &PersonCredentials.remove_own_grant(&1, id))
+    do:
+      authenticated(
+        token,
+        opts,
+        :write,
+        &PersonCredentials.remove_own_grant(&1, id, person_opts(opts))
+      )
 
   def dispatch(%{op: op, token: token, credential_id: id}, opts)
       when op in [:start_self_credential_oauth, :reconnect_self_credential_oauth] do
@@ -74,7 +94,7 @@ defmodule Zaq.Engine.PeopleCredentials do
                auth.person,
                auth.session.id,
                credential_id,
-               opts
+               person_opts(opts)
              ) do
         prepared
       else
@@ -89,5 +109,9 @@ defmodule Zaq.Engine.PeopleCredentials do
     if PeoplePermissions.allowed?(person, @write_permissions),
       do: :ok,
       else: {:error, :forbidden}
+  end
+
+  defp person_opts(opts) do
+    Keyword.put(opts, :credential_ids, System.list_ai_provider_connect_credential_ids())
   end
 end

@@ -1961,6 +1961,37 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert credential.metadata["auth_profile"] == "openai_chatgpt_codex"
     end
 
+    test "stages a new optional OAuth policy until the global grant callback succeeds", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='new_ai_credential']")
+      |> render_click()
+
+      render_submit(view, "save_ai_credential", %{
+        "ai_credential" => %{
+          "name" => "Optional Codex Staged",
+          "provider" => "openai_codex",
+          "endpoint" => "https://chatgpt.com/backend-api",
+          "auth_mode" => "oauth2",
+          "oauth_behaviour" => "openai_chatgpt_codex",
+          "personal_credential_policy" => "optional",
+          "metadata" => "{}"
+        }
+      })
+
+      assert_push_event(view, "open_oauth_popup", %{url: url})
+      assert url =~ "https://auth.openai.com/oauth/authorize"
+      assert render(view) =~ "Complete OAuth2 to apply the selected policy"
+
+      ai = System.get_ai_provider_credential_by_name("Optional Codex Staged")
+      connect = Connect.get_credential!(ai.connect_credential_id)
+      assert connect.personal_credential_policy == :required
+      assert Connect.list_grants(credential_id: connect.id) == []
+    end
+
     test "editing row opens modal", %{conn: conn} do
       {:ok, credential} =
         System.create_ai_provider_credential(%{

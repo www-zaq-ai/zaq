@@ -4,6 +4,7 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissionGrant, PeoplePermissions}
   alias Zaq.Engine.{Api, Connect, Events, PeopleAuthGateway}
   alias Zaq.Engine.Connect.{Credential, OAuthAttempt, OAuthAttempts, OAuthState}
+  alias Zaq.System.AIProviderCredential
   alias Zaq.TestSupport.ConnectOAuthAttemptConfig
 
   setup do
@@ -29,6 +30,8 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
         secret_binding: :grant,
         personal_credential_policy: :required
       })
+
+    associate_with_ai(credential)
 
     %{person: person, token: token, session: session, credential: credential}
   end
@@ -65,6 +68,28 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
 
     assert {:error, :forbidden} =
              dispatch(:revoke_self_credential, ctx.token, %{credential_id: id})
+  end
+
+  test "lists only credentials associated with AI provider credentials", ctx do
+    {:ok, unrelated} =
+      Connect.create_credential(%{
+        name: "unrelated-#{Ecto.UUID.generate()}",
+        provider: "example",
+        auth_kind: "api_key",
+        secret_binding: :grant,
+        personal_credential_policy: :required
+      })
+
+    assert {:ok, summaries} = dispatch(:list_self_credentials, ctx.token)
+    assert Enum.map(summaries, & &1.credential_id) == [ctx.credential.id]
+
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+
+    assert {:error, :not_found} =
+             dispatch(:put_self_credential, ctx.token, %{
+               credential_id: unrelated.id,
+               material: %{api_key: "DENIED"}
+             })
   end
 
   test "revoked sessions and inactive People cannot manage credentials", ctx do
@@ -137,6 +162,8 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
         }
       })
 
+    associate_with_ai(credential)
+
     request = %{
       op: :start_self_credential_oauth,
       token: ctx.token,
@@ -179,6 +206,8 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
         }
       })
 
+    associate_with_ai(credential)
+
     assert {:ok, %{authorize_url: url}} =
              PeopleAuthGateway.dispatch(
                %{
@@ -208,4 +237,16 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
 
   defp dispatch(op, token, params \\ %{}),
     do: PeopleAuthGateway.dispatch(Map.merge(params, %{op: op, token: token}), [])
+
+  defp associate_with_ai(credential) do
+    %AIProviderCredential{}
+    |> AIProviderCredential.changeset(%{
+      name: "AI #{Ecto.UUID.generate()}",
+      provider: credential.provider,
+      endpoint: "https://example.test/v1",
+      metadata: %{"auth_kind" => credential.auth_kind},
+      connect_credential_id: credential.id
+    })
+    |> Repo.insert!()
+  end
 end

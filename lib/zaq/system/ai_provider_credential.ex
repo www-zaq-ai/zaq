@@ -20,6 +20,11 @@ defmodule Zaq.System.AIProviderCredential do
     field :sovereign, :boolean, default: false
     field :description, :string
 
+    field :personal_credential_policy, Ecto.Enum,
+      values: [:disabled, :optional, :required],
+      virtual: true,
+      default: :disabled
+
     belongs_to :connect_credential, Zaq.Engine.Connect.Credential
 
     timestamps(type: :utc_datetime)
@@ -35,6 +40,7 @@ defmodule Zaq.System.AIProviderCredential do
       :metadata,
       :sovereign,
       :description,
+      :personal_credential_policy,
       :connect_credential_id
     ])
     |> validate_required([:name, :provider, :endpoint, :connect_credential_id])

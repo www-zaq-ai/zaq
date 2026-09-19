@@ -178,6 +178,57 @@ defmodule Zaq.System.AIProviderCredentialTest do
     assert loaded.endpoint == "https://api.openai.com/v3"
   end
 
+  test "personal credential policy is stored on Connect and enforces global grant requirements" do
+    assert {:ok, required} =
+             System.create_ai_provider_credential(%{
+               name: "Required BYOK",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               personal_credential_policy: "required"
+             })
+
+    required_connect = Connect.get_credential!(required.connect_credential_id)
+    assert required_connect.personal_credential_policy == :required
+    assert [] == Connect.list_grants(credential_id: required_connect.id)
+
+    assert {:error, %Ecto.Changeset{} = changeset} =
+             System.create_ai_provider_credential(%{
+               name: "Optional Without Global",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               personal_credential_policy: "optional"
+             })
+
+    assert "a usable global credential is required for disabled or optional personal credentials" in errors_on(
+             changeset
+           ).base
+
+    assert {:ok, optional} =
+             System.create_ai_provider_credential(%{
+               name: "Optional With Global",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               api_key: "sk-company",
+               personal_credential_policy: "optional"
+             })
+
+    assert Connect.get_credential!(optional.connect_credential_id).personal_credential_policy ==
+             :optional
+
+    assert optional
+           |> System.change_ai_provider_credential()
+           |> Ecto.Changeset.get_field(:personal_credential_policy) == :optional
+
+    assert {:ok, updated} =
+             System.update_ai_provider_credential(optional, %{
+               personal_credential_policy: :required,
+               api_key: ""
+             })
+
+    assert Connect.get_credential!(updated.connect_credential_id).personal_credential_policy ==
+             :required
+  end
+
   test "resolve_ai_provider_api_key uses the associated grant and ignores unrelated legacy grants" do
     assert {:ok, ai_credential} =
              System.create_ai_provider_credential(%{

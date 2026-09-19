@@ -13,6 +13,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
     OAuthState
   }
 
+  alias Zaq.System.AIProviderCredential
   alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}
 
   @opts [config: ConnectOAuthAttemptConfig]
@@ -24,7 +25,9 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
     Code.ensure_loaded!(ConnectOAuthAttemptConfig)
     person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "OAuth owner"}))
     {:ok, dto} = Connect.save_credential_configuration(nil, attrs())
-    %{person: person, credential: Repo.get!(Credential, dto.credential_id)}
+    credential = Repo.get!(Credential, dto.credential_id)
+    {:ok, _} = PersonOAuth.associate(credential.id)
+    %{person: person, credential: credential}
   end
 
   defp attrs do
@@ -251,6 +254,11 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
           Repo.delete!(ctx.person)
 
         :deleted_config ->
+          Repo.delete_all(
+            from ai in AIProviderCredential,
+              where: ai.connect_credential_id == ^ctx.credential.id
+          )
+
           Repo.delete!(ctx.credential)
       end
 

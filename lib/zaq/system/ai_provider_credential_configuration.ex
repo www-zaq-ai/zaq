@@ -29,7 +29,7 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
 
     config =
       candidate
-      |> connect_attrs(existing, auth_kind)
+      |> connect_attrs(existing, auth_kind, attrs)
       |> maybe_drop_nil_configuration(auth_kind)
 
     global = global_instruction(candidate, attrs, existing, auth_kind)
@@ -55,7 +55,7 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
     end
   end
 
-  defp connect_attrs(ai, existing, "none") do
+  defp connect_attrs(ai, existing, "none", _attrs) do
     base_attrs(ai, existing, "none")
     |> Map.merge(%{
       personal_credential_policy: :disabled,
@@ -69,12 +69,12 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
     })
   end
 
-  defp connect_attrs(ai, existing, "oauth2") do
+  defp connect_attrs(ai, existing, "oauth2", attrs) do
     metadata = ai.metadata || %{}
 
     base_attrs(ai, existing, "oauth2")
     |> Map.merge(%{
-      personal_credential_policy: policy(existing, :required),
+      personal_credential_policy: policy(attrs, existing, :required),
       secret_binding: :grant,
       metadata: oauth_metadata(metadata),
       client_id: MapUtils.metadata_value(metadata, "client_id"),
@@ -83,10 +83,10 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
     })
   end
 
-  defp connect_attrs(ai, existing, "api_key") do
+  defp connect_attrs(ai, existing, "api_key", attrs) do
     base_attrs(ai, existing, "api_key")
     |> Map.merge(%{
-      personal_credential_policy: policy(existing, :disabled),
+      personal_credential_policy: policy(attrs, existing, :disabled),
       secret_binding: :grant,
       metadata: %{}
     })
@@ -112,14 +112,24 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
   defp global_instruction(_candidate, _attrs, _existing, "oauth2"), do: :remove
 
   defp global_instruction(candidate, attrs, existing, "api_key") do
-    if submitted_secret?(attrs, :api_key) or is_nil(existing),
-      do: {:replace, %{api_key: candidate.api_key}},
-      else: :keep
+    cond do
+      submitted_secret?(attrs, :api_key) -> {:replace, %{api_key: candidate.api_key}}
+      is_nil(existing) -> :remove
+      true -> :keep
+    end
   end
 
   defp submitted_secret?(attrs, field) do
     value = Map.get(attrs, field, Map.get(attrs, Atom.to_string(field)))
     is_binary(value) and String.trim(value) != ""
+  end
+
+  defp policy(attrs, existing, default) do
+    case Map.get(attrs, :personal_credential_policy, Map.get(attrs, "personal_credential_policy")) do
+      value when value in [:disabled, :optional, :required] -> value
+      value when value in ["disabled", "optional", "required"] -> String.to_existing_atom(value)
+      _ -> policy(existing, default)
+    end
   end
 
   defp policy(%Credential{personal_credential_policy: policy}, _default), do: policy

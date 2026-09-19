@@ -28,6 +28,7 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTransactionTest do
       })
 
     credential = Repo.get!(Credential, dto.credential_id)
+    {:ok, _} = PersonOAuth.associate(credential.id)
 
     {:ok, original} =
       Connect.replace_credential_grant(credential, {:person, person.id}, %{

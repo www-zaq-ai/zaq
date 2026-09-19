@@ -14,6 +14,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
   attr :description, :string, default: nil
   attr :display_name, :string, default: nil
   attr :history_access, :boolean, default: false
+  attr :credentials_access, :boolean, default: true
 
   def person_header(assigns) do
     ~H"""
@@ -45,7 +46,13 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
                 navigate="/people/history"
                 class="zaq-btn zaq-btn-ghost"
               >Conversations</.link>
-              <p :if={!@history_access} class="zaq-text-body-sm">
+              <.link
+                :if={@credentials_access}
+                id="people-credentials-link"
+                navigate="/people/credentials"
+                class="zaq-btn zaq-btn-ghost"
+              >Credentials</.link>
+              <p :if={!@history_access && !@credentials_access} class="zaq-text-body-sm">
                 No personal settings available yet.
               </p>
             </div>
