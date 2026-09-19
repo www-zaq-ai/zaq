@@ -9,9 +9,15 @@
   "id": "zaq-jrg.35",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented actor-bound synchronous Connect resolution at Agent server creation, canonical default-answering credential loading, provider translation, and secret-free credential dependency tracking. Warm execution now fails closed without cached runtime config. Covered by Factory, ProviderSpec, nested Agent, and ServerManager tests.",
+      "timestamp": "2026-09-19T16:53:29Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg] Resolve Person authentication during Agent startup",
   "type": "task",
-  "updated_at": "2026-09-19T13:18:04Z"
+  "updated_at": "2026-09-19T16:53:29Z"
 }
