@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-19T20:05:25Z",
+  "description": "Functional specifications/files: extend OAuth/runtime and nested workflow integration tests to assert effective Authorization at OpenAIStub across refresh, Actor propagation and nested Agents; add deterministic expiry HTTP evidence through existing lifecycle seams.\nTests first: old OAuth token request→refresh→delivered mutation→new token request; refresh failure never falls back globally; Alice/Bob/system workflow and nested calls assert outer/inner headers and opaque-scope isolation; stale expiry callback preserves current incarnation, matching expiry fences, expired cold start makes no request.\nBranches: OAuth success/failure/revocation, nested configured agents, workflow Person/non-Person, stale/current expiry callbacks, expired grant.\nMocking: reuse Req.Test only for external OAuth token endpoint and OpenAIStub for external LLM; all ZAQ boundaries real. No production clock hook or sleeps; document that callback injection proves fencing rather than scheduler timing.\nDocs: tests document entry-point parity; update service docs only for discovered drift.\nAction reuse: not applicable — coverage reuses Connect.refresh_grant, workflow run_agent, Executor, ServerManager and existing external-edge mocks; adds no production operation, Action or tool.",
+  "id": "zaq-jrg.42",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "OAuth workflow and nested Agent authentication HTTP coverage",
+  "type": "task",
+  "updated_at": "2026-09-19T20:05:25Z"
+}
