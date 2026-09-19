@@ -18,6 +18,7 @@ defmodule ZaqWeb.Components.DesignSystem.AccountMenu do
   attr :logout_button_id, :string, default: nil
   attr :profile_label, :string, default: "Profile"
   attr :logout_label, :string, default: "Logout"
+  attr :name_class, :any, default: nil
 
   def account_menu(assigns) do
     name = String.trim(assigns.display_name || "")
@@ -33,7 +34,7 @@ defmodule ZaqWeb.Components.DesignSystem.AccountMenu do
         aria-controls={@panel_id || "#{@id}-panel"}
       >
         <span class="zaq-text-body-sm zaq-account-avatar" aria-hidden="true">{@initial}</span>
-        <span class="zaq-text-body-sm zaq-account-name">{@name}</span>
+        <span class={["zaq-text-body-sm zaq-account-name", @name_class]}>{@name}</span>
       </summary>
       <div id={@panel_id || "#{@id}-panel"} class="zaq-account-panel">
         <a

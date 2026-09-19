@@ -40,9 +40,10 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
           "Engineer",
           "123",
           "active",
-          "No teams",
+          "Your details, your teams, and how ZAQ can reach you.",
+          "You’re not part of a team yet.",
           "email",
-          "We try your channels in the order shown"
+          "ZAQ sends notifications to your first contact channel. If delivery fails, ZAQ uses the next channel in this list."
         ],
         do: assert(html =~ text)
 
@@ -52,7 +53,29 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     refute html =~ "Review scenarios"
     refute html =~ "/bo/"
     assert has_element?(view, "#people-profile-menu", "Self Person")
+    assert has_element?(view, ".zaq-person-header-heading #people-page-subtitle")
+    assert has_element?(view, "#people-page-subtitle.hidden.sm\\:block")
+    assert has_element?(view, "#people-settings-menu .zaq-toggle-group")
+    assert has_element?(view, "#people-profile-menu .zaq-account-name.hidden.sm\\:inline")
+    refute has_element?(view, "#people-header > .zaq-page-header-actions > .zaq-toggle-group")
     assert has_element?(view, ".zaq-pill.zaq-pill--success", "active")
+    assert has_element?(view, "#information-heading", person.full_name)
+    refute has_element?(view, "#information-heading + #edit-name[aria-label='Edit name']")
+
+    assert has_element?(
+             view,
+             "section[aria-labelledby=information-heading].zaq-card-hover.zaq-border-default"
+           )
+
+    assert has_element?(
+             view,
+             "section[aria-labelledby=teams-heading].zaq-card-hover.zaq-border-default"
+           )
+
+    assert has_element?(view, "section[aria-labelledby=information-heading] dt.sr-only", "Email")
+    assert has_element?(view, "section[aria-labelledby=information-heading] .hero-envelope")
+    assert has_element?(view, "section[aria-labelledby=information-heading] dt.sr-only", "Phone")
+    assert has_element?(view, "section[aria-labelledby=information-heading] .hero-phone")
     assert has_element?(view, "#people-profile-menu a[href='/people/profile']")
     assert has_element?(view, "#person-logout[action='/people/session']")
     refute has_element?(view, "#self-profile-form")
@@ -86,7 +109,14 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
 
     {:ok, view, _} = live(conn, "/people/profile")
     refute has_element?(view, "#self-profile-form")
+    assert has_element?(view, "#information-heading", "Self Person")
+    assert has_element?(view, "#information-heading + #edit-name[aria-label='Edit name']")
     view |> element("#edit-name") |> render_click()
+    assert has_element?(view, "#self-profile-form.zaq-layout-inline.items-start")
+    assert has_element?(view, "#self-profile-form #profile-name")
+    assert has_element?(view, "#self-profile-form .zaq-layout-inline.shrink-0.mt-5")
+    assert has_element?(view, "#self-profile-form button[type=submit]", "Save name")
+    assert has_element?(view, "#self-profile-form button[phx-click=cancel]", "Cancel")
 
     assert view |> form("#self-profile-form", profile: %{full_name: "Updated"}) |> render_submit() =~
              "Profile saved"
@@ -94,11 +124,25 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     assert People.get_person(person.id).full_name == "Updated"
 
     view |> element("#edit-order") |> render_click()
+
+    assert has_element?(
+             view,
+             "#order-instructions",
+             "Move your preferred contact channel to the top"
+           )
+
+    assert has_element?(view, "button[phx-click=save_order]", "Save preferences")
+
+    assert has_element?(
+             view,
+             "#channel-priority-table tr[data-channel-id][tabindex='-1'] [data-drag-handle][draggable='true']"
+           )
+
     view |> element("#channel-priority-#{second.id}-up") |> render_click()
     assert People.get_channel(channel.id).weight == 0
 
     assert view |> element("button[phx-click=save_order]") |> render_click() =~
-             "Channel order saved"
+             "Contact preferences saved"
 
     assert Enum.map(People.list_person_channels(person.id), &{&1.id, &1.weight}) == [
              {second.id, 0},
@@ -250,7 +294,12 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     {:ok, view, _} = live(conn, "/people/profile")
     assert has_element?(view, "section[aria-labelledby=teams-heading] li:first-child", "Alpha")
     refute has_element?(view, "section[aria-labelledby=teams-heading] button")
-    assert has_element?(view, "#channel-priority-#{second.id} svg")
+
+    assert has_element?(
+             view,
+             "#channel-priority-#{second.id} svg[class~='w-3.5'][class~='h-3.5']"
+           )
+
     view |> element("#edit-order") |> render_click()
     assert has_element?(view, "#edit-name[disabled]")
     render_click(view, "edit_name")
@@ -259,7 +308,8 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
     view |> element("#channel-priority-#{second.id}-up") |> render_click()
     focus_id = "channel-priority-#{second.id}"
     assert_push_event(view, "profile-focus", %{id: ^focus_id})
-    assert has_element?(view, "#channel-priority li:first-child", "microsoft_teams")
+    assert has_element?(view, "#channel-priority-table")
+    assert has_element?(view, "#channel-priority tbody tr:first-child", "microsoft_teams")
     render_click(view, "cancel")
     assert_push_event(view, "profile-focus", %{id: "edit-order"})
     render_click(view, "save_order")

@@ -38,6 +38,13 @@ defmodule ZaqWeb.Components.DesignSystem.StatusPill do
   def status_pill_classes("skipped"), do: @pill_base ++ ~w(zaq-pill--elevated)
   def status_pill_classes(_), do: @pill_base ++ ~w(zaq-pill--elevated)
 
+  @doc "Class list for an explicitly selected semantic tone."
+  def tone_pill_classes(:neutral), do: @pill_base ++ ~w(zaq-pill--elevated)
+  def tone_pill_classes(:accent), do: @pill_base ++ ~w(zaq-pill--accent)
+  def tone_pill_classes(:success), do: @pill_base ++ ~w(zaq-pill--success)
+  def tone_pill_classes(:warning), do: @pill_base ++ ~w(zaq-pill--warning)
+  def tone_pill_classes(:danger), do: @pill_base ++ ~w(zaq-pill--danger)
+
   @doc """
   Folder row aggregate `ingested/total` chip: all files ingested vs partial progress.
   """

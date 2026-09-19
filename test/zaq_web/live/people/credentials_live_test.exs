@@ -38,11 +38,21 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
         personal_credential_policy: "disabled"
       })
 
+    {:ok, optional_ai} =
+      System.create_ai_provider_credential(%{
+        name: "Optional OpenAI",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "OPTIONAL_GLOBAL_SECRET",
+        personal_credential_policy: "optional"
+      })
+
     %{
       conn: init_test_session(conn, %{person_session_token: token}),
       person: person,
       token: token,
       credential: Connect.get_credential!(api_ai.connect_credential_id),
+      optional: Connect.get_credential!(optional_ai.connect_credential_id),
       disabled: Connect.get_credential!(disabled_ai.connect_credential_id)
     }
   end
@@ -53,10 +63,14 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
 
     assert html =~ "Personal OpenAI"
     assert html =~ "Required"
+    assert html =~ "Optional"
     assert html =~ "Not configured"
     refute html =~ "Company OpenAI"
     refute html =~ "GLOBAL_SECRET"
+    refute html =~ "OPTIONAL_GLOBAL_SECRET"
+    assert has_element?(view, "#people-credentials-table", "Credential type")
     refute has_element?(view, "#credential-form-#{ctx.credential.id}")
+    refute has_element?(view, "#credential-edit-#{ctx.credential.id}")
 
     assert has_element?(
              view,
@@ -70,12 +84,47 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {:ok, view, _html} = live(ctx.conn, "/people/credentials")
     selector = "#credential-form-#{ctx.credential.id}"
 
+    assert has_element?(
+             view,
+             "#credential-edit-#{ctx.credential.id}.zaq-btn-secondary",
+             "Add"
+           )
+
+    assert has_element?(
+             view,
+             "#credential-status-#{ctx.credential.id}.zaq-pill--danger",
+             "Not configured"
+           )
+
+    assert has_element?(view, ".zaq-pill--danger", "Required")
+
+    assert has_element?(
+             view,
+             "#credential-status-#{ctx.optional.id}.zaq-pill--elevated",
+             "Not configured"
+           )
+
+    html = view |> element("#credential-edit-#{ctx.credential.id}") |> render_click()
+    assert html =~ "Add AI: Personal OpenAI"
+    view |> element("#credential-form-dialog button[aria-label='Close dialog']") |> render_click()
+    refute has_element?(view, "#credential-form-dialog")
+    view |> element("#credential-edit-#{ctx.credential.id}") |> render_click()
+
     assert view
            |> form(selector, credential: %{api_key: "PERSON_SECRET"})
            |> render_submit() =~ "Credential saved"
 
     refute render(view) =~ "PERSON_SECRET"
-    assert has_element?(view, "#credential-status-#{ctx.credential.id}", "Configured")
+    assert has_element?(view, "#flash-info.zaq-feedback-banner.zaq-success", "Credential saved")
+
+    assert has_element?(
+             view,
+             "#credential-status-#{ctx.credential.id}.zaq-pill--success[aria-label='Configured']",
+             "Configured"
+           )
+
+    view |> element("#credential-edit-#{ctx.credential.id}") |> render_click()
+    assert has_element?(view, "#credential-form-dialog", "Edit AI: Personal OpenAI")
 
     assert view
            |> form(selector, credential: %{api_key: "REPLACEMENT_SECRET"})
@@ -85,20 +134,32 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
 
     assert view
            |> element("#credential-revoke-#{ctx.credential.id}")
+           |> render_click() =~ "Revoke credential?"
+
+    assert view
+           |> element("#credential-revoke-dialog button[phx-click=confirm_credential_action]")
            |> render_click() =~ "Credential revoked"
 
-    assert has_element?(view, "#credential-status-#{ctx.credential.id}", "Revoked")
+    assert has_element?(view, "#credential-status-#{ctx.credential.id}[aria-label='Revoked']")
 
     assert view
            |> element("#credential-remove-#{ctx.credential.id}")
+           |> render_click() =~ "Remove credential?"
+
+    assert view
+           |> element("#credential-remove-dialog button[phx-click=confirm_credential_action]")
            |> render_click() =~ "Credential removed"
 
-    assert has_element?(view, "#credential-status-#{ctx.credential.id}", "Not configured")
+    assert has_element?(
+             view,
+             "#credential-status-#{ctx.credential.id}[aria-label='Not configured']"
+           )
   end
 
   test "permission revocation is authoritative on the next mutation", ctx do
     {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
     {:ok, view, _} = live(ctx.conn, "/people/credentials")
+    view |> element("#credential-edit-#{ctx.credential.id}") |> render_click()
     {:ok, _} = PeoplePermissions.revoke(:everyone, :manage_credentials)
 
     assert view
@@ -107,6 +168,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
 
     refute render(view) =~ "DENIED"
     refute has_element?(view, "#credential-form-#{ctx.credential.id}")
+    assert has_element?(view, "#flash-error.zaq-feedback-banner.zaq-danger", "permission")
   end
 
   test "retained grants remain cleanup-only after personal credentials are disabled", ctx do
@@ -149,6 +211,10 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     oauth_id = oauth_ai.connect_credential_id
     {:ok, view, _} = live(ctx.conn, "/people/credentials")
 
+    assert has_element?(view, "#credential-edit-#{oauth_id}.zaq-btn-secondary", "Connect")
+
+    html = view |> element("#credential-edit-#{oauth_id}") |> render_click()
+    assert html =~ "Add AI: Personal Codex"
     view |> element("#credential-oauth-#{oauth_id}") |> render_click()
     assert_push_event(view, "open_oauth_popup", %{url: url})
     assert url =~ "https://auth.openai.com/oauth/authorize"
@@ -158,6 +224,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
 
     assert html =~ "Connection status refreshed"
     refute html =~ "IGNORED"
-    assert has_element?(view, "#credential-status-#{oauth_id}", "Not configured")
+    refute has_element?(view, "#credential-form-dialog")
+    assert has_element?(view, "#credential-status-#{oauth_id}[aria-label='Not configured']")
   end
 end

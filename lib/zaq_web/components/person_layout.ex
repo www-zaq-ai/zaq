@@ -2,7 +2,7 @@ defmodule ZaqWeb.Components.PersonLayout do
   @moduledoc "Minimal public People shell, composed from ZAQ design-system primitives."
   use Phoenix.Component
 
-  alias ZaqWeb.Components.DesignSystem.Button
+  alias ZaqWeb.Components.DesignSystem.{Button, FeedbackBanner}
 
   attr :flash, :map, required: true
   attr :authenticated, :boolean, default: false
@@ -17,7 +17,10 @@ defmodule ZaqWeb.Components.PersonLayout do
 
     ~H"""
     <div
-      class={["min-h-screen zaq-layout-stack", @header == [] && "zaq-layout-content-inset"]}
+      class={[
+        "min-h-screen zaq-layout-stack zaq-text-body",
+        @header == [] && "zaq-layout-content-inset"
+      ]}
       style="background: var(--zaq-surface-color-base); color: var(--zaq-text-color-body-default)"
     >
       {render_slot(@header)}
@@ -35,22 +38,16 @@ defmodule ZaqWeb.Components.PersonLayout do
         @header != [] && "zaq-layout-content-inset",
         if(@content_width == :wide, do: "max-w-6xl", else: "max-w-lg")
       ]}>
-        <p
-          :if={Phoenix.Flash.get(@flash, :info)}
-          role="status"
-          class="zaq-text-body"
-          style="color: var(--zaq-text-color-body-success)"
-        >
-          {Phoenix.Flash.get(@flash, :info)}
-        </p>
-        <p
-          :if={Phoenix.Flash.get(@flash, :error)}
-          role="alert"
-          class="zaq-text-body"
-          style="color: var(--zaq-text-color-body-danger)"
-        >
-          {Phoenix.Flash.get(@flash, :error)}
-        </p>
+        <FeedbackBanner.feedback_banner
+          :if={message = Phoenix.Flash.get(@flash, :info)}
+          kind={:info}
+          message={message}
+        />
+        <FeedbackBanner.feedback_banner
+          :if={message = Phoenix.Flash.get(@flash, :error)}
+          kind={:error}
+          message={message}
+        />
         {render_slot(@inner_block)}
       </main>
     </div>

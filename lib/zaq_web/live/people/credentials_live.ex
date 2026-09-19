@@ -4,7 +4,8 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
   use ZaqWeb, :live_view
 
   alias Zaq.Engine.Events
-  alias ZaqWeb.Components.DesignSystem.{Button, PersonHeader, SecretInput}
+  alias ZaqWeb.Components.BOModal
+  alias ZaqWeb.Components.DesignSystem.{Button, PersonHeader, SecretInput, Table}
   alias ZaqWeb.Components.PersonLayout
 
   @impl true
@@ -12,7 +13,13 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
     {:ok,
      socket
      |> put_private(:person_credentials_token, session["person_session_token"])
-     |> assign(page_title: "Credentials", credentials: [], manageable: false)
+     |> assign(
+       page_title: "Credentials",
+       credentials: [],
+       manageable: false,
+       credential_modal: nil,
+       confirm_action: nil
+     )
      |> load_credentials()}
   end
 
@@ -27,12 +34,61 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
     )
   end
 
-  def handle_event("revoke_credential", %{"id" => id}, socket) do
-    mutate(socket, id, :revoke_self_credential, %{}, "Credential revoked.")
+  def handle_event("open_credential_modal", %{"id" => id}, socket) do
+    with true <- socket.assigns.manageable,
+         {:ok, _credential_id, credential} <- credential(socket, id),
+         true <- configurable?(credential) do
+      {:noreply, assign(socket, credential_modal: credential, confirm_action: nil)}
+    else
+      _ -> denied(socket)
+    end
   end
 
-  def handle_event("remove_credential", %{"id" => id}, socket) do
-    mutate(socket, id, :remove_self_credential, %{}, "Credential removed.")
+  def handle_event("close_credential_modal", _params, socket),
+    do: {:noreply, assign(socket, credential_modal: nil)}
+
+  def handle_event("open_credential_action", %{"id" => id, "action" => action}, socket)
+      when action in ["revoke", "remove"] do
+    with true <- socket.assigns.manageable,
+         {:ok, _credential_id, credential} <- credential(socket, id),
+         true <- credential.status != "absent",
+         true <- action != "revoke" or credential.status != "revoked" do
+      {:noreply,
+       assign(socket,
+         credential_modal: nil,
+         confirm_action: %{action: action, credential: credential}
+       )}
+    else
+      _ -> denied(socket)
+    end
+  end
+
+  def handle_event("close_credential_action", _params, socket),
+    do: {:noreply, assign(socket, confirm_action: nil)}
+
+  def handle_event("confirm_credential_action", _params, socket) do
+    case socket.assigns.confirm_action do
+      %{action: "revoke", credential: credential} ->
+        mutate(
+          socket,
+          credential.credential_id,
+          :revoke_self_credential,
+          %{},
+          "Credential revoked."
+        )
+
+      %{action: "remove", credential: credential} ->
+        mutate(
+          socket,
+          credential.credential_id,
+          :remove_self_credential,
+          %{},
+          "Credential removed."
+        )
+
+      _ ->
+        denied(socket)
+    end
   end
 
   def handle_event("connect_oauth", %{"id" => id}, socket) do
@@ -57,6 +113,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
   def handle_event("oauth_popup_result", _params, socket) do
     {:noreply,
      socket
+     |> assign(credential_modal: nil)
      |> load_credentials()
      |> put_flash(:info, "Connection status refreshed.")}
   end
@@ -73,6 +130,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
          {:ok, _status} <- command(socket, op, Map.put(params, :credential_id, credential_id)) do
       {:noreply,
        socket
+       |> assign(credential_modal: nil, confirm_action: nil)
        |> load_credentials()
        |> put_flash(:info, message)}
     else
@@ -85,6 +143,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
   defp denied(socket) do
     {:noreply,
      socket
+     |> assign(credential_modal: nil, confirm_action: nil)
      |> load_credentials()
      |> put_flash(:error, "You do not have permission to manage credentials.")}
   end
@@ -148,6 +207,29 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
   defp policy_label(:optional), do: "Optional"
   defp policy_label(_), do: "Disabled"
 
+  defp policy_badge_tone(:required), do: :danger
+  defp policy_badge_tone(_), do: :neutral
+
+  defp status_badge_tone(%{
+         status: "absent",
+         personal_credential_policy: :required
+       }),
+       do: :danger
+
+  defp status_badge_tone(%{status: "active"}), do: :success
+  defp status_badge_tone(_), do: :neutral
+
+  defp credential_type_label("api_key"), do: "API key"
+  defp credential_type_label("oauth2"), do: "OAuth 2"
+  defp credential_type_label(type), do: type
+
+  defp credential_modal_title(%{status: "absent", name: name}), do: "Add #{name}"
+  defp credential_modal_title(%{name: name}), do: "Edit #{name}"
+
+  defp credential_action_label(%{status: "absent", auth_kind: "oauth2"}), do: "Connect"
+  defp credential_action_label(%{status: "absent"}), do: "Add"
+  defp credential_action_label(_), do: "Edit credential"
+
   defp configurable?(credential),
     do: credential.personal_credential_policy in [:optional, :required]
 
@@ -165,94 +247,203 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
       </:header>
 
       <section id="people-credentials" phx-hook="OAuthPopupListener" class="zaq-layout-stack">
-        <div :if={@credentials == []} class="zaq-card-default zaq-layout-stack">
-          <h2 class="zaq-text-h3">No personal credentials available</h2>
-          <p class="zaq-text-body-sm">Your administrator has not enabled personal authentication.</p>
-        </div>
-
-        <article
-          :for={credential <- @credentials}
-          id={"credential-#{credential.credential_id}"}
-          class="zaq-card-default zaq-layout-stack"
+        <Table.table
+          id="people-credentials-table"
+          min_width="760px"
+          wrapper_class="overflow-x-auto"
         >
-          <div class="zaq-layout-inline justify-between flex-wrap">
-            <div>
-              <h2 class="zaq-text-h3">{credential.name}</h2>
-              <p class="zaq-text-body-sm">{credential.provider} · {credential.auth_kind}</p>
-            </div>
-            <div class="zaq-layout-inline">
-              <span class="zaq-pill">{policy_label(credential.personal_credential_policy)}</span>
-              <span id={"credential-status-#{credential.credential_id}"} class="zaq-pill">
-                {status_label(credential.status)}
-              </span>
-            </div>
-          </div>
-
-          <p :if={credential.personal_credential_policy == :required} class="zaq-text-body-sm">
-            This credential is required when ZAQ acts on your behalf.
-          </p>
-
-          <.form
-            :if={@manageable && configurable?(credential) && credential.auth_kind == "api_key"}
-            for={to_form(%{}, as: :credential)}
-            id={"credential-form-#{credential.credential_id}"}
-            phx-submit="save_api_key"
-            class="zaq-layout-stack"
-          >
-            <input type="hidden" name="credential_id" value={credential.credential_id} />
-            <SecretInput.secret_input
-              id={"credential-api-key-#{credential.credential_id}"}
-              name="credential[api_key]"
-              label="API key"
-              required
-              autocomplete="new-password"
-            />
-            <div class="zaq-layout-inline flex-wrap">
-              <Button.button type="submit">{if credential.status == "absent",
-                do: "Add API key",
-                else: "Replace API key"}</Button.button>
-            </div>
-          </.form>
-
-          <div
-            :if={@manageable && configurable?(credential) && credential.auth_kind == "oauth2"}
-            class="zaq-layout-inline"
-          >
-            <Button.button
-              id={"credential-oauth-#{credential.credential_id}"}
-              phx-click="connect_oauth"
-              phx-value-id={credential.credential_id}
+          <:caption>
+            <%= if @manageable do %>
+              Configure credentials that ZAQ may use on your behalf.
+            <% else %>
+              You can view credential status, but you do not have permission to make changes.
+            <% end %>
+          </:caption>
+          <:head>
+            <Table.table_head_row>
+              <Table.table_cell element={:th}>
+                <Table.table_text label="Name" tone={:tertiary} />
+              </Table.table_cell>
+              <Table.table_cell element={:th}>
+                <Table.table_text label="Provider" tone={:tertiary} />
+              </Table.table_cell>
+              <Table.table_cell element={:th}>
+                <Table.table_text label="Credential type" tone={:tertiary} />
+              </Table.table_cell>
+              <Table.table_cell element={:th} align={:center}>
+                <Table.table_text label="Personal policy" tone={:tertiary} />
+              </Table.table_cell>
+              <Table.table_cell element={:th} align={:center}>
+                <Table.table_text label="Status" tone={:tertiary} />
+              </Table.table_cell>
+              <Table.table_cell element={:th} align={:right}>
+                <span class="sr-only">Actions</span>
+              </Table.table_cell>
+            </Table.table_head_row>
+          </:head>
+          <:body>
+            <Table.table_empty :if={@credentials == []} colspan={6}>
+              No personal credentials available. Your administrator has not enabled personal authentication.
+            </Table.table_empty>
+            <Table.table_row
+              :for={credential <- @credentials}
+              id={"credential-#{credential.credential_id}"}
             >
-              {if credential.status == "absent", do: "Connect", else: "Reconnect"}
-            </Button.button>
-          </div>
-
-          <div :if={@manageable && credential.status != "absent"} class="zaq-layout-inline flex-wrap">
-            <Button.button
-              :if={credential.status != "revoked"}
-              id={"credential-revoke-#{credential.credential_id}"}
-              variant={:secondary}
-              phx-click="revoke_credential"
-              phx-value-id={credential.credential_id}
-            >Revoke</Button.button>
-            <Button.button
-              id={"credential-remove-#{credential.credential_id}"}
-              variant={:tertiary}
-              danger
-              phx-click="remove_credential"
-              phx-value-id={credential.credential_id}
-            >Remove</Button.button>
-          </div>
-
-          <p :if={!configurable?(credential)} class="zaq-text-body-sm">
-            Personal use is disabled. You can remove retained authentication material.
-          </p>
-
-          <p :if={!@manageable} class="zaq-text-body-sm">
-            You can view status, but you do not have permission to change this credential.
-          </p>
-        </article>
+              <Table.table_cell>
+                <Table.table_text label={credential.name} />
+                <p
+                  :if={!configurable?(credential)}
+                  class="zaq-text-caption"
+                  style="color: var(--zaq-text-color-body-tertiary)"
+                >
+                  Personal use is disabled. You can remove retained authentication material.
+                </p>
+              </Table.table_cell>
+              <Table.table_cell>
+                <Table.table_text label={credential.provider} tone={:secondary} />
+              </Table.table_cell>
+              <Table.table_cell>
+                <Table.table_text
+                  label={credential_type_label(credential.auth_kind)}
+                  tone={:secondary}
+                />
+              </Table.table_cell>
+              <Table.table_cell align={:center}>
+                <Table.table_badge
+                  status={to_string(credential.personal_credential_policy)}
+                  tone={policy_badge_tone(credential.personal_credential_policy)}
+                  aria-label={policy_label(credential.personal_credential_policy)}
+                >
+                  {policy_label(credential.personal_credential_policy)}
+                </Table.table_badge>
+              </Table.table_cell>
+              <Table.table_cell align={:center}>
+                <Table.table_badge
+                  id={"credential-status-#{credential.credential_id}"}
+                  status={credential.status}
+                  tone={status_badge_tone(credential)}
+                  aria-label={status_label(credential.status)}
+                >
+                  {status_label(credential.status)}
+                </Table.table_badge>
+              </Table.table_cell>
+              <Table.table_cell align={:right}>
+                <Table.table_actions>
+                  <Button.button
+                    :if={@manageable && configurable?(credential)}
+                    id={"credential-edit-#{credential.credential_id}"}
+                    variant={if(credential.status == "absent", do: :secondary, else: :ghost)}
+                    icon={if(credential.status == "absent", do: nil, else: "hero-pencil-square")}
+                    icon_only={credential.status != "absent"}
+                    title={credential_action_label(credential)}
+                    aria-label={credential_action_label(credential)}
+                    phx-click="open_credential_modal"
+                    phx-value-id={credential.credential_id}
+                  >
+                    {credential_action_label(credential)}
+                  </Button.button>
+                  <Button.button
+                    :if={@manageable && credential.status not in ["absent", "revoked"]}
+                    id={"credential-revoke-#{credential.credential_id}"}
+                    variant={:ghost}
+                    icon="hero-no-symbol"
+                    icon_only
+                    title="Revoke credential"
+                    aria-label="Revoke credential"
+                    phx-click="open_credential_action"
+                    phx-value-action="revoke"
+                    phx-value-id={credential.credential_id}
+                  />
+                  <Button.button
+                    :if={@manageable && credential.status != "absent"}
+                    id={"credential-remove-#{credential.credential_id}"}
+                    variant={:tertiary}
+                    danger
+                    icon="hero-trash"
+                    icon_only
+                    title="Remove credential"
+                    aria-label="Remove credential"
+                    phx-click="open_credential_action"
+                    phx-value-action="remove"
+                    phx-value-id={credential.credential_id}
+                  />
+                </Table.table_actions>
+              </Table.table_cell>
+            </Table.table_row>
+          </:body>
+        </Table.table>
       </section>
+
+      <BOModal.form_dialog
+        :if={@credential_modal}
+        id="credential-form-dialog"
+        title={credential_modal_title(@credential_modal)}
+        cancel_event="close_credential_modal"
+        max_width_class="zaq-modal--width-sm"
+      >
+        <.form
+          :if={@credential_modal.auth_kind == "api_key"}
+          for={to_form(%{}, as: :credential)}
+          id={"credential-form-#{@credential_modal.credential_id}"}
+          phx-submit="save_api_key"
+          class="zaq-layout-stack"
+        >
+          <input type="hidden" name="credential_id" value={@credential_modal.credential_id} />
+          <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
+            Saved secrets are write-only. Enter the API key you want ZAQ to use on your behalf.
+          </p>
+          <SecretInput.secret_input
+            id={"credential-api-key-#{@credential_modal.credential_id}"}
+            name="credential[api_key]"
+            label="API key"
+            required
+            autocomplete="new-password"
+          />
+        </.form>
+        <div :if={@credential_modal.auth_kind == "oauth2"} class="zaq-layout-stack-tight">
+          <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
+            Continue to {@credential_modal.provider} to authorize ZAQ. Authentication details are never displayed.
+          </p>
+        </div>
+        <:actions>
+          <Button.button variant={:secondary} phx-click="close_credential_modal">Cancel</Button.button>
+          <Button.button
+            :if={@credential_modal.auth_kind == "api_key"}
+            type="submit"
+            form={"credential-form-#{@credential_modal.credential_id}"}
+          >
+            {if @credential_modal.status == "absent", do: "Add credential", else: "Save credential"}
+          </Button.button>
+          <Button.button
+            :if={@credential_modal.auth_kind == "oauth2"}
+            id={"credential-oauth-#{@credential_modal.credential_id}"}
+            phx-click="connect_oauth"
+            phx-value-id={@credential_modal.credential_id}
+          >
+            {if @credential_modal.status == "absent", do: "Connect", else: "Reconnect"}
+          </Button.button>
+        </:actions>
+      </BOModal.form_dialog>
+
+      <BOModal.confirm_dialog
+        :if={@confirm_action && @confirm_action.action == "revoke"}
+        id="credential-revoke-dialog"
+        title="Revoke credential?"
+        message="ZAQ will stop using this personal authentication until you add or reconnect it again."
+        confirm_label="Revoke"
+        cancel_event="close_credential_action"
+        confirm_event="confirm_credential_action"
+      />
+
+      <BOModal.confirm_dialog
+        :if={@confirm_action && @confirm_action.action == "remove"}
+        id="credential-remove-dialog"
+        title="Remove credential?"
+        message="This removes your retained personal authentication material. The administrator-managed credential definition remains available."
+        confirm_label="Remove"
+        cancel_event="close_credential_action"
+        confirm_event="confirm_credential_action"
+      />
     </PersonLayout.person_layout>
     """
   end

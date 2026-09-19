@@ -125,6 +125,7 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
   attr :click, :any, default: nil
   attr :click_values, :map, default: %{}
   attr :class, :any, default: nil
+  attr :rest, :global
   slot :inner_block, required: true
 
   def table_row(assigns) do
@@ -140,6 +141,7 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
       class={row_class(@variant, @row_click?, @class)}
       phx-click={@row_phx_click}
       {@row_value_attrs}
+      {@rest}
     >
       {render_slot(@inner_block)}
     </tr>
@@ -198,13 +200,31 @@ defmodule ZaqWeb.Components.DesignSystem.Table do
 
   @doc "Status pill — delegates to `StatusPill.status_pill_classes/1`."
   attr :status, :string, required: true
+
+  attr :tone, :atom,
+    default: nil,
+    values: [nil, :neutral, :accent, :success, :warning, :danger]
+
   attr :pulse, :boolean, default: false
   attr :class, :any, default: nil
+  attr :id, :string, default: nil
+  attr :rest, :global, include: ~w(aria-label data-testid title)
   slot :inner_block
 
   def table_badge(assigns) do
+    classes =
+      if assigns.tone,
+        do: StatusPill.tone_pill_classes(assigns.tone),
+        else: StatusPill.status_pill_classes(assigns.status)
+
+    assigns = assign(assigns, :classes, classes)
+
     ~H"""
-    <span class={StatusPill.status_pill_classes(@status) ++ pulse_class(@pulse) ++ List.wrap(@class)}>
+    <span
+      id={@id}
+      class={@classes ++ pulse_class(@pulse) ++ List.wrap(@class)}
+      {@rest}
+    >
       <%= if @inner_block != [] do %>
         {render_slot(@inner_block)}
       <% else %>

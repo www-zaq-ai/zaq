@@ -5,7 +5,7 @@ defmodule Storybook.Components.DesignSystem.PersonHeader do
 
   def description,
     do:
-      "Shared PageHeader and AccountMenu on People: branding, theme, capability-gated Conversations settings and independent People destinations; no sidebar."
+      "Shared People header: branding, mobile-aware heading, theme controls inside Settings, capability-gated destinations, and account actions; no sidebar."
 
   def variations do
     variations =
@@ -18,7 +18,7 @@ defmodule Storybook.Components.DesignSystem.PersonHeader do
           id: id,
           attributes: %{
             title: "Profile",
-            description: "Your information and how we contact you.",
+            description: "Your details, your teams, and how ZAQ can reach you.",
             display_name: name
           }
         }
