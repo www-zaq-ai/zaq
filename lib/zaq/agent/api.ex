@@ -27,10 +27,12 @@ defmodule Zaq.Agent.Api do
     PromptGuard,
     RequestRegistry,
     RuntimeSync,
+    ServerManager,
     Status
   }
 
   alias Zaq.Channels.EventNames
+  alias Zaq.Contracts.CredentialMutation
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.EventHop
@@ -57,6 +59,9 @@ defmodule Zaq.Agent.Api do
 
   - `:configured_agent_deleted` — delegates to `RuntimeSync.configured_agent_deleted/2`.
     Expects `event.request` to carry `:id` (integer).
+
+  - `:connect_credential_mutated` — validates the secret-free Connect notification and
+    synchronously asks the local `ServerManager` to fence and stop affected runtimes.
 
   - `:mcp_endpoint_updated` — delegates to `RuntimeSync.mcp_endpoint_updated/2`.
     Expects `event.request` to be a map with an `:action` key.
@@ -121,6 +126,15 @@ defmodule Zaq.Agent.Api do
 
   def handle_event(%Event{} = event, :invoke, _context),
     do: InternalBoundaries.invoke_request(event)
+
+  def handle_event(%Event{} = event, :connect_credential_mutated, _context) do
+    server_manager = Keyword.get(event.opts, :server_manager_module, ServerManager)
+
+    case CredentialMutation.validate(event.request) do
+      :ok -> %{event | response: server_manager.invalidate_credential(event.request)}
+      {:error, reason} -> %{event | response: {:error, {:invalid_request, reason}}}
+    end
+  end
 
   def handle_event(%Event{} = event, :mcp_test_list_tools, _context) do
     mcp_module = Keyword.get(event.opts, :mcp_module, MCP)

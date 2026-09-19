@@ -1,7 +1,7 @@
 defmodule Zaq.Engine.Connect.MutationEventConfigTest do
   use ExUnit.Case, async: true
 
-  test "dev and production configs never consume credential notifications under any role" do
+  test "dev and production configs consume credential notifications under every role" do
     # Evaluate real configs in an isolated VM: synthetic production secrets and
     # role overrides never mutate this test VM or the user's environment.
     script = """
@@ -11,8 +11,8 @@ defmodule Zaq.Engine.Connect.MutationEventConfigTest do
       base = Config.Reader.read!("config/config.exs", env: env, target: :host)
       runtime = Config.Reader.read!("config/runtime.exs", env: env, target: :host)
       oban = Config.Reader.merge(base, runtime) |> Keyword.fetch!(:zaq) |> Keyword.fetch!(Oban)
-      if Keyword.has_key?(Keyword.fetch!(oban, :queues), :connect_credential_notifications),
-        do: raise("notification queue unexpectedly consumed")
+      unless oban[:queues][:connect_credential_notifications] == 1,
+        do: raise("credential notifications require one consumer on every role")
       unless oban[:queues][:connect_maintenance] == 1,
         do: raise("maintenance needs its own consumed queue on every role")
       schedules = for {Zaq.Oban.DynamicCron, opts} <- oban[:plugins], entry <- opts[:crontab],
@@ -28,9 +28,9 @@ defmodule Zaq.Engine.Connect.MutationEventConfigTest do
     e2e = Config.Reader.read!("config/config.exs", env: :test, target: :host)
       |> Keyword.fetch!(:zaq) |> Keyword.fetch!(Oban)
     unless e2e[:testing] == :disabled, do: raise("E2E must use real asynchronous queues")
-    if Keyword.has_key?(e2e[:queues], :connect_credential_notifications),
-      do: raise("E2E must not consume notifications")
-    IO.puts("all queue configurations deferred")
+    unless e2e[:queues][:connect_credential_notifications] == 1,
+      do: raise("E2E must consume credential notifications")
+    IO.puts("runtime queues enabled and unit-test queues deferred")
     """
 
     {output, status} =
@@ -45,7 +45,7 @@ defmodule Zaq.Engine.Connect.MutationEventConfigTest do
       )
 
     assert status == 0, output
-    assert output =~ "all queue configurations deferred"
+    assert output =~ "runtime queues enabled and unit-test queues deferred"
   end
 
   test "test configuration uses manual Oban to prevent precommit dispatch" do
