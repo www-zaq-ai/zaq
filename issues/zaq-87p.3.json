@@ -13,11 +13,15 @@
     {
       "text": "Strengthened Channels selectors to assert whole-card anchor ownership, split-footer surface ownership, omitted primary anchor IDs, preserved destinations, and footer CTA IDs. Focused component + Channels suites pass: 1 property, 28 tests, 0 failures on Elixir 1.19.5. Local Elixir 1.20 availability still to be checked; CI matrix remains authoritative for 1.20.",
       "timestamp": "2026-09-19T15:55:26Z"
+    },
+    {
+      "text": "Cross-version focused validation complete after final source documentation update: Elixir 1.19.5 =\u003e 1 property + 28 tests, 0 failures; Elixir 1.20.1 with isolated MIX_BUILD_PATH =\u003e 29 passed (1 property, 28 tests). mix q passes; diagnostics and git diff --check are clean. Elixir 1.20 emits existing dependency/application warnings unrelated to these three edited files.",
+      "timestamp": "2026-09-19T16:08:18Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-87p.3] Validate CardShell Channels integration",
   "type": "task",
-  "updated_at": "2026-09-19T15:55:26Z"
+  "updated_at": "2026-09-19T16:08:18Z"
 }
