@@ -12,7 +12,7 @@ defmodule ZaqWeb.Components.BOLayout do
   alias Zaq.Addons.FeatureStore
   alias Zaq.System
   alias ZaqWeb.Components.ChannelIcons
-  alias ZaqWeb.Components.DesignSystem.PageHeader
+  alias ZaqWeb.Components.DesignSystem.{FeedbackBanner, PageHeader}
   use ZaqWeb, :verified_routes
 
   attr :current_user, :map, required: true
@@ -644,93 +644,25 @@ defmodule ZaqWeb.Components.BOLayout do
         </PageHeader.page_header>
         <!-- Content -->
         <div class="p-8">
-          <div
-            :if={Phoenix.Flash.get(@flash, :info)}
-            id="flash-info"
-            class="zaq-feedback-banner zaq-success zaq-text-body"
-            phx-hook="FlashAutoDismiss"
-            data-auto-dismiss-duration={if @auto_dismiss, do: @auto_dismiss_duration, else: 0}
-          >
-            <span class="zaq-feedback-icon">
-              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M5 13l4 4L19 7" />
-              </svg>
-            </span>
-            <span class="zaq-feedback-body">{flash_body(Phoenix.Flash.get(@flash, :info))}</span>
-            <button
-              type="button"
-              phx-click="lv:clear-flash"
-              phx-value-key="info"
-              data-flash-dismiss
-              class="zaq-feedback-dismiss"
-              aria-label="Dismiss"
-            >
-              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div
-            :if={Phoenix.Flash.get(@flash, :error)}
-            id="flash-error"
-            class="zaq-feedback-banner zaq-danger zaq-text-body"
-            phx-hook="FlashAutoDismiss"
-            data-auto-dismiss-duration={if @auto_dismiss, do: @auto_dismiss_duration, else: 0}
-          >
-            <span class="zaq-feedback-icon">
-              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
-              </svg>
-            </span>
-            <span class="zaq-feedback-body">{flash_body(Phoenix.Flash.get(@flash, :error))}</span>
-            <button
-              type="button"
-              phx-click="lv:clear-flash"
-              phx-value-key="error"
-              data-flash-dismiss
-              class="zaq-feedback-dismiss"
-              aria-label="Dismiss"
-            >
-              <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+          <FeedbackBanner.feedback_banner
+            :if={message = Phoenix.Flash.get(@flash, :info)}
+            kind={:info}
+            message={message}
+            auto_dismiss={@auto_dismiss}
+            auto_dismiss_duration={@auto_dismiss_duration}
+          />
+          <FeedbackBanner.feedback_banner
+            :if={message = Phoenix.Flash.get(@flash, :error)}
+            kind={:error}
+            message={message}
+            auto_dismiss={@auto_dismiss}
+            auto_dismiss_duration={@auto_dismiss_duration}
+          />
           {render_slot(@inner_block)}
         </div>
       </main>
     </div>
     """
-  end
-
-  # Renders a flash message, turning the literal phrase "user portal" into a link
-  # to the configured portal. The message is HTML-escaped first, so interpolated
-  # values (folder names, agent names, …) can never inject markup — only the
-  # trusted anchor is added afterwards.
-  #
-  # This is a deliberate heuristic coupled to the wording of
-  # `Zaq.UserPortal.provision_error/1` (which emits "… user portal …"). Flashes
-  # that rephrase the term ("ZAQ portal", "the portal") are intentionally left
-  # un-linkified — the split simply finds no match and returns the escaped text.
-  defp flash_body(nil), do: nil
-
-  defp flash_body(message) when is_binary(message) do
-    escaped = message |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
-
-    case String.split(escaped, "user portal", parts: 2) do
-      [before, rest] ->
-        href =
-          Zaq.UserPortal.base_url() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
-
-        Phoenix.HTML.raw(
-          before <>
-            ~s(<a href="#{href}" target="_blank" rel="noopener noreferrer" class="underline">user portal</a>) <>
-            rest
-        )
-
-      _ ->
-        Phoenix.HTML.raw(escaped)
-    end
   end
 
   # ── Nav Section with dropdown ────────────────────────────────────────

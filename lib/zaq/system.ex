@@ -565,6 +565,13 @@ defmodule Zaq.System do
     |> Repo.all()
   end
 
+  @doc "Lists canonical credential IDs exposed by AI provider configurations."
+  def list_ai_provider_connect_credential_ids do
+    AIProviderCredential
+    |> select([credential], credential.connect_credential_id)
+    |> Repo.all()
+  end
+
   @doc "Gets an AI provider credential by id, raising if not found."
   def get_ai_provider_credential!(id), do: Repo.get!(AIProviderCredential, id)
 
@@ -601,8 +608,25 @@ defmodule Zaq.System do
 
   @doc "Returns a changeset for AI provider credentials."
   def change_ai_provider_credential(%AIProviderCredential{} = credential, attrs \\ %{}) do
-    AIProviderCredential.changeset(credential, attrs)
+    credential
+    |> with_personal_credential_policy()
+    |> AIProviderCredential.changeset(attrs)
   end
+
+  defp with_personal_credential_policy(
+         %AIProviderCredential{connect_credential_id: id} = credential
+       )
+       when is_integer(id) do
+    case Connect.fetch_credential(id) do
+      {:ok, %{personal_credential_policy: policy}} ->
+        %{credential | personal_credential_policy: policy}
+
+      _ ->
+        credential
+    end
+  end
+
+  defp with_personal_credential_policy(credential), do: credential
 
   @doc "Creates an AI provider credential."
   def create_ai_provider_credential(attrs \\ %{}) do
@@ -724,6 +748,13 @@ defmodule Zaq.System do
           {:error, failed} -> failed
           _ -> Ecto.Changeset.add_error(changeset, :api_key, "could not be encrypted")
         end
+
+      :global_grant_unusable ->
+        Ecto.Changeset.add_error(
+          changeset,
+          :base,
+          "a usable global credential is required for disabled or optional personal credentials"
+        )
 
       _ ->
         Ecto.Changeset.add_error(

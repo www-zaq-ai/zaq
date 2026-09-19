@@ -76,6 +76,7 @@ defmodule ZaqWeb.Router do
 
     live_session :people, on_mount: {ZaqWeb.Live.People.AuthHook, :default} do
       live "/profile", Live.People.ProfileLive
+      live "/credentials", Live.People.CredentialsLive
       live "/history", Live.People.HistoryLive
       live "/conversations/:id", Live.People.ConversationDetailLive
     end

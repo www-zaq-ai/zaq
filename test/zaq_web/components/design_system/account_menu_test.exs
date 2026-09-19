@@ -61,6 +61,7 @@ defmodule ZaqWeb.Components.DesignSystem.AccountMenuTest do
       assert html =~ "Account menu: #{if name in [nil, ""], do: "Profile", else: name}"
       assert html =~ "action=\"/people/session\""
       assert html =~ "href=\"/people/profile\""
+      assert html =~ "zaq-account-name hidden sm:inline"
     end
   end
 

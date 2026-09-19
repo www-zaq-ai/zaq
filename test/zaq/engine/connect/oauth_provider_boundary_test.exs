@@ -232,6 +232,8 @@ defmodule Zaq.Engine.Connect.OAuthProviderBoundaryTest do
   end
 
   defp start(person, credential) do
+    {:ok, _} = PersonOAuth.associate(credential.id)
+
     assert {:ok, %{authorize_url: url}} =
              PersonOAuth.start(person, credential.id, @opts)
 

@@ -51,6 +51,7 @@ defmodule ZaqWeb.PersonOAuthCallbackTest do
           metadata: %{"authorize_url" => "https://provider.example/authorize", "token_url" => url}
         })
 
+      {:ok, _} = PersonOAuth.associate(dto.credential_id)
       {:ok, %{authorize_url: url}} = PersonOAuth.start(person, dto.credential_id)
       state = URI.decode_query(URI.parse(url).query)["state"]
       Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")

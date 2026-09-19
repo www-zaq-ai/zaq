@@ -47,9 +47,11 @@ defmodule Zaq.Engine.Connect.CredentialStatuses do
       "person"
       |> status_query(person_id)
       |> where(
-        [c],
-        c.secret_binding == :grant and c.personal_credential_policy in [:optional, :required]
+        [c, g],
+        (c.secret_binding == :grant and c.personal_credential_policy in [:optional, :required]) or
+          not is_nil(g.id)
       )
+      |> maybe_limit_credentials(opts)
       |> order_by([c], asc: c.name, asc: c.id)
       |> Repo.all()
 
@@ -65,6 +67,7 @@ defmodule Zaq.Engine.Connect.CredentialStatuses do
              "person"
              |> status_query(person_id)
              |> where([c], c.id == ^id)
+             |> maybe_limit_credentials(opts)
              |> where(
                [c, g],
                (c.secret_binding == :grant and
@@ -119,6 +122,13 @@ defmodule Zaq.Engine.Connect.CredentialStatuses do
   end
 
   defp project(row, _now), do: row
+
+  defp maybe_limit_credentials(query, opts) do
+    case Keyword.get(opts, :credential_ids) do
+      ids when is_list(ids) -> where(query, [c], c.id in ^ids)
+      _ -> query
+    end
+  end
 
   defp credential_id(%Credential{id: id}), do: credential_id(id)
 

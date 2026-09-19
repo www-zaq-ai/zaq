@@ -33,13 +33,14 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeaderTest do
     assert render_component(&PageHeader.page_heading/1, title: "Profile") =~ "zaq-text-body-lg"
   end
 
-  test "People header has brand, named theme controls and only People account destinations" do
+  test "People header nests mobile-aware theme controls in Settings and keeps People destinations" do
     html =
       render_component(&PersonHeader.person_header/1, title: "Profile", description: "About you")
 
     assert html =~ "/images/zaq.png"
     assert html =~ "alt=\"ZAQ\""
-    assert html =~ "No personal settings available yet."
+    assert html =~ "Appearance"
+    refute html =~ "No personal settings available yet."
     assert html =~ "zaq-card-hover zaq-border-default zaq-header-menu-panel"
     assert html =~ "zaq-layout-inline relative"
     refute html =~ "id=\"people-settings-menu\" class=\"relative\""
@@ -49,6 +50,8 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeaderTest do
     assert html =~ "aria-label=\"Use dark theme\""
     assert html =~ "aria-label=\"Use light theme\""
     assert html =~ "aria-label=\"Use system theme\""
+    assert html =~ "hidden sm:block"
+    assert html =~ "flex-nowrap gap-2 sm:flex-wrap sm:gap-4"
     refute html =~ "/bo/"
     refute html =~ "bo-sidebar"
   end

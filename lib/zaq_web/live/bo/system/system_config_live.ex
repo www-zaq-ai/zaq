@@ -879,35 +879,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   def handle_event("save_ai_credential", %{"ai_credential" => params}, socket) do
     params = AICredentialEvents.normalize_params(params)
 
-    result =
-      AICredentialEvents.save(
-        socket.assigns.ai_credential_action,
-        socket.assigns.ai_credential_id,
-        params,
-        &engine_get_ai_provider_credential!/1,
-        &engine_update_ai_provider_credential/2,
-        &engine_create_ai_provider_credential/1
-      )
-
-    case result do
-      {:ok, _credential} ->
-        {:noreply,
-         socket
-         |> AICredentialEvents.close_modal()
-         |> load_ai_credentials()
-         |> load_ai_grants()
-         |> load_llm_form()
-         |> load_embedding_form()
-         |> load_image_to_text_form()
-         |> put_flash(:info, "AI credential saved.")}
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply,
-         assign(
-           socket,
-           :ai_credential_form,
-           to_form(Map.put(changeset, :action, :validate), as: :ai_credential)
-         )}
+    if staged_new_oauth_policy?(socket, params) do
+      {:noreply, save_new_oauth_and_connect(socket, params)}
+    else
+      save_ai_credential(socket, params)
     end
   end
 
@@ -1501,6 +1476,77 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     :image in input
   end
 
+  defp save_ai_credential(socket, params) do
+    result =
+      AICredentialEvents.save(
+        socket.assigns.ai_credential_action,
+        socket.assigns.ai_credential_id,
+        params,
+        &engine_get_ai_provider_credential!/1,
+        &engine_update_ai_provider_credential/2,
+        &engine_create_ai_provider_credential/1
+      )
+
+    case result do
+      {:ok, _credential} ->
+        {:noreply,
+         socket
+         |> AICredentialEvents.close_modal()
+         |> load_ai_credentials()
+         |> load_ai_grants()
+         |> load_llm_form()
+         |> load_embedding_form()
+         |> load_image_to_text_form()
+         |> put_flash(:info, "AI credential saved.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         assign(
+           socket,
+           :ai_credential_form,
+           to_form(Map.put(changeset, :action, :validate), as: :ai_credential)
+         )}
+    end
+  end
+
+  defp staged_new_oauth_policy?(socket, params) do
+    socket.assigns.ai_credential_action == :new and
+      MapUtils.metadata_value(params["metadata"] || %{}, "auth_kind") == "oauth2" and
+      params["personal_credential_policy"] in ["disabled", "optional"]
+  end
+
+  defp save_new_oauth_and_connect(socket, params) do
+    desired_policy = params["personal_credential_policy"]
+    persisted_params = Map.put(params, "personal_credential_policy", "required")
+
+    with {:ok, ai_credential} <- engine_create_ai_provider_credential(persisted_params),
+         {:ok, connect_credential} <- ensure_ai_connect_credential(ai_credential),
+         {:ok, url} <-
+           build_ai_oauth_claim_url(connect_credential, ai_credential, %{
+             personal_credential_policy: desired_policy
+           }) do
+      socket
+      |> AICredentialEvents.close_modal()
+      |> load_ai_credentials()
+      |> load_ai_grants()
+      |> OAuthPopupUI.open(url)
+      |> put_flash(:info, "AI credential saved. Complete OAuth2 to apply the selected policy.")
+    else
+      {:error, %Ecto.Changeset{} = changeset} ->
+        assign(
+          socket,
+          :ai_credential_form,
+          to_form(Map.put(changeset, :action, :validate), as: :ai_credential)
+        )
+
+      {:error, reason} ->
+        socket
+        |> AICredentialEvents.close_modal()
+        |> load_ai_credentials()
+        |> put_flash(:error, ai_oauth_error(reason))
+    end
+  end
+
   defp fetch_ai_credential(id) do
     case engine_get_ai_provider_credential(id) do
       nil -> {:error, :not_found}
@@ -1529,10 +1575,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp codex_oauth_metadata?(metadata),
     do: MapUtils.metadata_value(metadata, "auth_profile") == "openai_chatgpt_codex"
 
-  defp build_ai_oauth_claim_url(connect_credential, _ai_credential) do
+  defp build_ai_oauth_claim_url(connect_credential, _ai_credential, attrs \\ %{}) do
     case dispatch_engine(:connect_oauth_start_global_configuration, %{
            credential_id: connect_credential.id,
-           attrs: %{}
+           attrs: attrs
          }) do
       {:ok, %{authorize_url: url}} -> {:ok, url}
       other -> other
