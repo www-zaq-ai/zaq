@@ -8,10 +8,24 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelPriorityListTest do
 
   test "read mode shows platform icons and identifiers without move controls" do
     html = render_list(false)
-    assert html =~ "<ol"
-    assert html =~ "Mattermost"
+
+    assert html =~ ~s(<table id="test-priority-table")
+
+    assert_in_order(html, [
+      "Priority 1",
+      "Mattermost",
+      "alex.morgan",
+      "Priority 2",
+      "Email",
+      "alex@example.test",
+      "Priority 3",
+      "Slack",
+      "alex · Product workspace"
+    ])
+
     assert html =~ "<svg"
     refute html =~ "Move up"
+    refute html =~ "Move down"
     refute html =~ "draggable=\"true\""
   end
 
@@ -63,5 +77,16 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelPriorityListTest do
       ],
       editing: editing
     )
+  end
+
+  defp assert_in_order(html, values) do
+    offsets =
+      Enum.map(values, fn value ->
+        assert html =~ value
+        {offset, _length} = :binary.match(html, value)
+        offset
+      end)
+
+    assert offsets == Enum.sort(offsets)
   end
 end

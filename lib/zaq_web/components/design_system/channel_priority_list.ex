@@ -8,7 +8,7 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelPriorityList do
   use Phoenix.Component
 
   alias ZaqWeb.Components.ChannelIcons
-  alias ZaqWeb.Components.DesignSystem.Button
+  alias ZaqWeb.Components.DesignSystem.{Button, Table}
 
   attr :id, :string, required: true
   attr :channels, :list, required: true
@@ -16,62 +16,103 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelPriorityList do
 
   def channel_priority_list(assigns) do
     ~H"""
-    <ol
+    <div
       id={@id}
-      class="zaq-layout-stack"
       phx-hook=".PriorityDrag"
       data-editing={to_string(@editing)}
-      aria-label="Contact priority"
     >
-      <li
-        :for={{channel, index} <- Enum.with_index(@channels)}
-        id={"#{@id}-#{channel.id}"}
-        data-channel-id={channel.id}
-        tabindex="-1"
-        class="zaq-card-default zaq-layout-stack-tight min-w-0"
-      >
-        <div class="zaq-layout-inline min-w-0">
-          <span
-            :if={@editing}
-            draggable="true"
-            data-drag-handle
-            class="cursor-grab shrink-0"
-            aria-hidden="true"
-            title="Drag to change priority, or use the move buttons"
+      <Table.table id={"#{@id}-table"}>
+        <:head>
+          <Table.table_head_row>
+            <Table.table_cell element={:th} align={:center}>
+              <Table.table_text label="Priority" tone={:tertiary} />
+            </Table.table_cell>
+            <Table.table_cell element={:th}>
+              <Table.table_text label="Channel" tone={:tertiary} />
+            </Table.table_cell>
+            <Table.table_cell element={:th}>
+              <Table.table_text label="Contact" tone={:tertiary} />
+            </Table.table_cell>
+            <Table.table_cell :if={@editing} element={:th} align={:right}>
+              <span class="sr-only">Reorder actions</span>
+            </Table.table_cell>
+          </Table.table_head_row>
+        </:head>
+        <:body>
+          <Table.table_row
+            :for={{channel, index} <- Enum.with_index(@channels)}
+            id={"#{@id}-#{channel.id}"}
+            data-channel-id={channel.id}
+            tabindex="-1"
           >
-            <span class="hero-bars-3 zaq-icon-sm" />
-          </span>
-          <span class="zaq-text-h3 shrink-0" aria-label={"Priority #{index + 1}"}>{index + 1}</span>
-          <span aria-hidden="true" class="shrink-0">
-            <ChannelIcons.icon provider={channel.provider} class="zaq-icon-md" />
-          </span>
-          <h3 class="zaq-text-h3 min-w-0 break-words">{channel.platform}</h3>
-        </div>
-        <p class="zaq-text-body break-all">{channel.identifier}</p>
-        <div :if={@editing} class="zaq-layout-inline flex-wrap">
-          <Button.button
-            id={"#{@id}-#{channel.id}-up"}
-            variant={:ghost}
-            icon="hero-arrow-up"
-            phx-click="move_channel"
-            phx-value-id={channel.id}
-            phx-value-action="up"
-            disabled={index == 0}
-            aria-label={"Move up #{channel.platform}, #{channel.identifier}"}
-          >Move up</Button.button>
-          <Button.button
-            id={"#{@id}-#{channel.id}-down"}
-            variant={:ghost}
-            icon="hero-arrow-down"
-            phx-click="move_channel"
-            phx-value-id={channel.id}
-            phx-value-action="down"
-            disabled={index == length(@channels) - 1}
-            aria-label={"Move down #{channel.platform}, #{channel.identifier}"}
-          >Move down</Button.button>
-        </div>
-      </li>
-    </ol>
+            <Table.table_cell align={:center} nowrap>
+              <div class="zaq-layout-inline justify-center">
+                <span
+                  :if={@editing}
+                  draggable="true"
+                  data-drag-handle
+                  class="cursor-grab shrink-0"
+                  aria-hidden="true"
+                  title="Drag to change priority, or use the move buttons"
+                >
+                  <span class="hero-bars-3 zaq-icon-sm" />
+                </span>
+                <span class="zaq-text-body" aria-label={"Priority #{index + 1}"}>
+                  {index + 1}
+                </span>
+              </div>
+            </Table.table_cell>
+            <Table.table_cell>
+              <div class="zaq-layout-inline min-w-0">
+                <span
+                  aria-hidden="true"
+                  class="w-6 h-6 rounded-md grid place-items-center shrink-0"
+                  style="background: var(--zaq-surface-color-elevated)"
+                >
+                  <ChannelIcons.icon provider={channel.provider} class="w-3.5 h-3.5" />
+                </span>
+                <Table.table_text label={channel.platform} />
+              </div>
+            </Table.table_cell>
+            <Table.table_cell>
+              <Table.table_text
+                label={channel.identifier}
+                tone={:secondary}
+                class="break-all"
+              />
+            </Table.table_cell>
+            <Table.table_cell :if={@editing} align={:right} nowrap>
+              <Table.table_actions>
+                <Button.button
+                  id={"#{@id}-#{channel.id}-up"}
+                  variant={:ghost}
+                  icon="hero-arrow-up"
+                  icon_only
+                  title="Move up"
+                  phx-click="move_channel"
+                  phx-value-id={channel.id}
+                  phx-value-action="up"
+                  disabled={index == 0}
+                  aria-label={"Move up #{channel.platform}, #{channel.identifier}"}
+                />
+                <Button.button
+                  id={"#{@id}-#{channel.id}-down"}
+                  variant={:ghost}
+                  icon="hero-arrow-down"
+                  icon_only
+                  title="Move down"
+                  phx-click="move_channel"
+                  phx-value-id={channel.id}
+                  phx-value-action="down"
+                  disabled={index == length(@channels) - 1}
+                  aria-label={"Move down #{channel.platform}, #{channel.identifier}"}
+                />
+              </Table.table_actions>
+            </Table.table_cell>
+          </Table.table_row>
+        </:body>
+      </Table.table>
+    </div>
     <script :type={Phoenix.LiveView.ColocatedHook} name=".PriorityDrag">
       export default {
         mounted() {

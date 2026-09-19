@@ -110,7 +110,7 @@ defmodule ZaqWeb.Live.People.ProfileLive do
     }
 
     result = command(socket, :update_self_channel_order, params)
-    {:noreply, save_result(socket, result, "Channel order saved.", "edit-order")}
+    {:noreply, save_result(socket, result, "Contact preferences saved.", "edit-order")}
   end
 
   defp edit_event(event, _, socket)
@@ -234,7 +234,7 @@ defmodule ZaqWeb.Live.People.ProfileLive do
       |> load_profile()
       |> put_flash(
         :error,
-        "Your channels changed since you started editing. Review the current order and try again."
+        "Your channels changed since you started editing. Review the current contact priority and try again."
       )
       |> focus("edit-order")
 
@@ -287,7 +287,7 @@ defmodule ZaqWeb.Live.People.ProfileLive do
           }
           display_name={@current_person && @current_person.full_name}
           title="Profile"
-          description="Your information and how we contact you."
+          description="Your details, your teams, and how ZAQ can reach you."
         />
       </:header>
       <p :if={@profile && !@editable} class="zaq-text-body" role="status">

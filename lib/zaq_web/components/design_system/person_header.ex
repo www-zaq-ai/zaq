@@ -18,13 +18,24 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
 
   def person_header(assigns) do
     ~H"""
-    <PageHeader.page_header id="people-header">
+    <PageHeader.page_header
+      id="people-header"
+      class="flex-nowrap gap-2 sm:flex-wrap sm:gap-4"
+      identity_class="gap-2 sm:gap-4"
+      actions_class="flex-nowrap gap-2 sm:gap-4"
+    >
       <:brand><img src="/images/zaq.png" alt="ZAQ" class="zaq-header-brand" /></:brand>
       <:heading>
-        <PageHeader.page_heading id="people-page" title={@title} description={@description} />
+        <div class="zaq-person-header-heading min-w-0 flex-1">
+          <PageHeader.page_heading
+            id="people-page"
+            title={@title}
+            description={@description}
+            description_class="hidden sm:block"
+          />
+        </div>
       </:heading>
       <:actions>
-        <.theme_toggle />
         <nav
           id="people-header-menus"
           class="zaq-layout-inline relative"
@@ -39,7 +50,17 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
               <.icon name="hero-cog-6-tooth" class="zaq-icon-sm" />
             </summary>
             <div class="zaq-card-default zaq-card-hover zaq-border-default zaq-header-menu-panel">
-              <p class="zaq-text-h4">Personal settings</p>
+              <div class="zaq-layout-stack-tight">
+                <p class="zaq-text-h4">Appearance</p>
+                <.theme_toggle />
+              </div>
+              <div
+                :if={@history_access || @credentials_access}
+                class="zaq-account-divider"
+              />
+              <p :if={@history_access || @credentials_access} class="zaq-text-h4">
+                Personal settings
+              </p>
               <.link
                 :if={@history_access}
                 id="people-conversations-link"
@@ -52,9 +73,6 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
                 navigate="/people/credentials"
                 class="zaq-btn zaq-btn-ghost"
               >Credentials</.link>
-              <p :if={!@history_access && !@credentials_access} class="zaq-text-body-sm">
-                No personal settings available yet.
-              </p>
             </div>
           </details>
           <AccountMenu.account_menu
@@ -65,6 +83,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
             logout_form_id="person-logout"
             profile_label="My profile"
             logout_label="Sign out"
+            name_class="hidden sm:inline"
           />
         </nav>
       </:actions>

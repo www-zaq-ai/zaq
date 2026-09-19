@@ -24,21 +24,25 @@ defmodule ZaqWeb.Components.DesignSystem.PersonProfile do
       class="grid grid-cols-1 lg:grid-cols-2 zaq-layout-section-gap items-start"
     >
       <div class="zaq-layout-stack min-w-0">
-        <section class="zaq-card-default zaq-layout-stack" aria-labelledby="information-heading">
-          <h2 id="information-heading" class="zaq-text-h2">Basic information</h2>
-          <div :if={@mode != :name} class="zaq-layout-inline justify-between items-start flex-wrap">
-            <dl class="min-w-0 flex-1">
-              <dt class="zaq-text-h4">Full name</dt>
-              <dd class="zaq-text-body break-words">{display(@profile.person.full_name)}</dd>
-            </dl>
+        <section
+          class="zaq-card-default zaq-card-hover zaq-border-default zaq-layout-stack"
+          aria-labelledby="information-heading"
+        >
+          <div class="zaq-layout-inline items-center flex-wrap min-w-0">
+            <h2 id="information-heading" class="zaq-text-h2 break-words min-w-0">
+              {profile_title(@profile.person.full_name)}
+            </h2>
             <Button.button
-              :if={@profile.editable}
+              :if={@profile.editable && @mode != :name}
               id="edit-name"
               variant={:ghost}
               icon="hero-pencil-square"
+              icon_only
+              title="Edit name"
+              aria-label="Edit name"
               phx-click="edit_name"
               disabled={@mode != :read}
-            >Edit name</Button.button>
+            />
           </div>
           <.form
             :if={@mode == :name}
@@ -46,48 +50,73 @@ defmodule ZaqWeb.Components.DesignSystem.PersonProfile do
             id={@form_id}
             phx-submit={@save_name_event}
             phx-change="validate_name"
-            class="zaq-layout-stack"
+            class="zaq-layout-inline items-start flex-wrap"
           >
-            <Input.input
-              id="profile-name"
-              name="profile[full_name]"
-              value={@name_form[:full_name].value}
-              label="Full name"
-              autocomplete="name"
-              errors={@name_errors}
-            />
-            <div class="zaq-layout-inline flex-wrap">
+            <div class="min-w-0 flex-1">
+              <Input.input
+                id="profile-name"
+                name="profile[full_name]"
+                value={@name_form[:full_name].value}
+                label="Full name"
+                autocomplete="name"
+                errors={@name_errors}
+              />
+            </div>
+            <div class="zaq-layout-inline shrink-0 mt-5">
               <Button.button type="submit" phx-disable-with="Saving…">Save name</Button.button>
               <Button.button variant={:secondary} phx-click="cancel">Cancel</Button.button>
             </div>
           </.form>
           <dl class="grid grid-cols-1 sm:grid-cols-2 zaq-layout-grid-gap">
-            <div
-              :for={
-                {field, label} <- [email: "Email", phone: "Phone", role: "Role", status: "Status"]
-              }
-              class="min-w-0"
-            >
-              <dt class="zaq-text-h4">{label}</dt>
-              <dd :if={field != :status} class="zaq-text-body break-all">
-                {display(Map.fetch!(@profile.person, field))}
+            <div class="min-w-0">
+              <dt class="sr-only">Email</dt>
+              <dd class="zaq-layout-inline min-w-0">
+                <span class="hero-envelope zaq-icon-sm shrink-0" aria-hidden="true" />
+                <span class="zaq-text-body break-all min-w-0">
+                  {display(@profile.person.email)}
+                </span>
               </dd>
-              <dd :if={field == :status}>
-                <Table.table_badge status={Map.fetch!(@profile.person, field)} />
+            </div>
+            <div class="min-w-0">
+              <dt class="sr-only">Phone</dt>
+              <dd class="zaq-layout-inline min-w-0">
+                <span class="hero-phone zaq-icon-sm shrink-0" aria-hidden="true" />
+                <span class="zaq-text-body break-all min-w-0">
+                  {display(@profile.person.phone)}
+                </span>
+              </dd>
+            </div>
+            <div class="min-w-0">
+              <dt class="zaq-text-h4">Role</dt>
+              <dd class="zaq-text-body break-all">{display(@profile.person.role)}</dd>
+            </div>
+            <div class="min-w-0">
+              <dt class="zaq-text-h4">Status</dt>
+              <dd>
+                <Table.table_badge status={@profile.person.status} />
               </dd>
             </div>
           </dl>
         </section>
-        <section class="zaq-card-default zaq-layout-stack" aria-labelledby="teams-heading">
+        <section
+          class="zaq-card-default zaq-card-hover zaq-border-default zaq-layout-stack"
+          aria-labelledby="teams-heading"
+        >
           <h2 id="teams-heading" class="zaq-text-h2">Teams ({length(@profile.teams)})</h2>
-          <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
+          <p
+            :if={@profile.teams != []}
+            class="zaq-text-body-sm"
+            style="color: var(--zaq-text-color-body-secondary)"
+          >
             Your current team memberships.
           </p>
-          <EmptyState.empty_state
+          <p
             :if={@profile.teams == []}
-            title="No teams"
-            hint="You are not currently a member of a team."
-          />
+            class="zaq-text-body-sm"
+            style="color: var(--zaq-text-color-body-tertiary)"
+          >
+            You’re not part of a team yet.
+          </p>
           <ul :if={@profile.teams != []} class="zaq-layout-stack-tight">
             <li :for={team <- @profile.teams} class="zaq-layout-inline min-w-0">
               <span class="hero-user-group zaq-icon-sm shrink-0" aria-hidden="true" />
@@ -100,7 +129,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonProfile do
         <div class="zaq-layout-stack-tight">
           <h2 id="channels-heading" class="zaq-text-h2">Contact channels</h2>
           <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
-            We try your channels in the order shown.
+            ZAQ sends notifications to your first contact channel. If delivery fails, ZAQ uses the next channel in this list.
           </p>
         </div>
         <EmptyState.empty_state
@@ -109,7 +138,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonProfile do
           hint="There are no contact channels linked to your profile."
         />
         <p :if={@mode == :order} id="order-instructions" tabindex="-1" class="zaq-text-body-sm">
-          Drag a handle or use Move up and Move down. Changes apply only when you save.
+          Move your preferred contact channel to the top. Drag a channel or use the arrow buttons, then save your preferences.
         </p>
         <ChannelPriorityList.channel_priority_list
           :if={@profile.channels != []}
@@ -127,14 +156,14 @@ defmodule ZaqWeb.Components.DesignSystem.PersonProfile do
           {@announcement}
         </p>
         <p :if={@mode == :order && @draft_channels != @profile.channels} class="zaq-text-body-sm">
-          Order changed. Save to apply your preferences.
+          Your contact priority has changed. Save to apply your preferences.
         </p>
         <div :if={@mode == :order} class="zaq-layout-inline flex-wrap">
           <Button.button
             phx-click="save_order"
             phx-disable-with="Saving…"
             disabled={@draft_channels == @profile.channels}
-          >Save order</Button.button>
+          >Save preferences</Button.button>
           <Button.button variant={:secondary} phx-click="cancel">Cancel</Button.button>
         </div>
         <Button.button
@@ -144,7 +173,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonProfile do
           icon="hero-arrows-up-down"
           phx-click="edit_order"
           disabled={@mode != :read}
-        >Change order</Button.button>
+        >Change contact priority</Button.button>
       </section>
     </div>
     <script :type={Phoenix.LiveView.ColocatedHook} name=".ProfileFocus">
@@ -167,4 +196,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonProfile do
 
   defp display(value) when value in [nil, ""], do: "Not provided"
   defp display(value), do: value
+
+  defp profile_title(value) when value in [nil, ""], do: "Your profile"
+  defp profile_title(value), do: value
 end

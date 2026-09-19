@@ -59,6 +59,20 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
     assert String.contains?(html, ~s(id="agent-row-42"))
   end
 
+  test "table_row/1 forwards global attributes used by interactive table rows" do
+    html =
+      render_component(&Table.table_row/1,
+        id: "channel-row-7",
+        tabindex: "-1",
+        "data-channel-id": "7",
+        inner_block: [%{inner_block: fn _, _ -> "Channel" end}]
+      )
+
+    assert String.contains?(html, ~s(id="channel-row-7"))
+    assert String.contains?(html, ~s(tabindex="-1"))
+    assert String.contains?(html, ~s(data-channel-id="7"))
+  end
+
   test "table_row/1 with navigate adds cursor-pointer and phx-click" do
     html =
       render_component(&Table.table_row/1,
@@ -202,12 +216,26 @@ defmodule ZaqWeb.Components.DesignSystem.TableTest do
 
   test "table_badge/1 uses StatusPill classes" do
     active = render_component(&Table.table_badge/1, status: "active")
-    inactive = render_component(&Table.table_badge/1, status: "inactive")
+
+    failed =
+      render_component(&Table.table_badge/1,
+        id: "credential-status-1",
+        status: "failed",
+        rest: %{"aria-label" => "Failed"}
+      )
 
     assert String.contains?(active, "zaq-pill--success")
     assert String.contains?(active, "active")
-    assert String.contains?(inactive, "zaq-pill--elevated")
-    assert String.contains?(inactive, "inactive")
+    assert String.contains?(failed, "zaq-pill--danger")
+    assert String.contains?(failed, ~s(id="credential-status-1"))
+    assert String.contains?(failed, ~s(aria-label="Failed"))
+  end
+
+  test "table_badge/1 allows an explicit tone to override status styling" do
+    html = render_component(&Table.table_badge/1, status: "active", tone: :neutral)
+
+    assert html =~ "zaq-pill--elevated"
+    refute html =~ "zaq-pill--success"
   end
 
   test "table_empty/1 renders plain row with colspan" do

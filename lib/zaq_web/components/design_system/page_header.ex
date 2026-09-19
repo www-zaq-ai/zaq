@@ -7,6 +7,9 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeader do
   use Phoenix.Component
 
   attr :id, :string, default: nil
+  attr :class, :any, default: nil
+  attr :identity_class, :any, default: nil
+  attr :actions_class, :any, default: nil
   slot :brand
   slot :heading, required: true
   slot :context
@@ -14,13 +17,15 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeader do
 
   def page_header(assigns) do
     ~H"""
-    <header id={@id} class="zaq-page-header">
-      <div class="zaq-page-header-identity">
+    <header id={@id} class={["zaq-page-header", @class]}>
+      <div class={["zaq-page-header-identity", @identity_class]}>
         <div :if={@brand != []} class="shrink-0">{render_slot(@brand)}</div>
         {render_slot(@heading)}
       </div>
       <div :if={@context != []} class="flex-1 min-w-0">{render_slot(@context)}</div>
-      <div :if={@actions != []} class="zaq-page-header-actions">{render_slot(@actions)}</div>
+      <div :if={@actions != []} class={["zaq-page-header-actions", @actions_class]}>
+        {render_slot(@actions)}
+      </div>
     </header>
     """
   end
@@ -28,6 +33,7 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeader do
   attr :id, :string, default: "page"
   attr :title, :string, required: true
   attr :description, :string, default: nil
+  attr :description_class, :any, default: nil
   attr :heading_testid, :string, default: nil
   slot :icon
   slot :tag
@@ -65,7 +71,7 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeader do
         <%= if @subtitle != [] do %>
           <div
             id={"#{@id}-subtitle"}
-            class="zaq-text-body-sm break-words"
+            class={["zaq-text-body-sm break-words", @description_class]}
             style="color: var(--zaq-text-color-body-tertiary);"
           >
             {render_slot(@subtitle)}
@@ -74,7 +80,7 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeader do
           <p
             :if={@description}
             id={"#{@id}-subtitle"}
-            class="zaq-text-body-sm break-words"
+            class={["zaq-text-body-sm break-words", @description_class]}
             style="color: var(--zaq-text-color-body-tertiary);"
           >
             {@description}
