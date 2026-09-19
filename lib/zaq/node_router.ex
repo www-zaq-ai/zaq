@@ -68,6 +68,54 @@ defmodule Zaq.NodeRouter do
   def dispatch(%Event{} = event), do: dispatch(event, %{})
 
   @doc """
+  Synchronously dispatches one event to every discovered node owning its target role.
+
+  Discovery or zero-target failures are explicit. The returned events are the
+  acknowledgments from each target; callers define which application responses count
+  as success.
+  """
+  @spec dispatch_all(Event.t()) :: {:ok, [Event.t()]} | {:error, term()}
+  def dispatch_all(%Event{} = event), do: dispatch_all(event, %{})
+
+  @spec dispatch_all(Event.t(), map()) :: {:ok, [Event.t()]} | {:error, term()}
+  def dispatch_all(%Event{next_hop: %EventHop{destination: role}} = event, runtime)
+      when is_map(runtime) do
+    broadcast_event(event)
+    {event, hop_type} = consume_current_hop(event)
+
+    with :sync <- hop_type,
+         {:ok, targets} <- discover_nodes(Map.fetch!(@supervisor_map, role), runtime),
+         false <- targets == [] do
+      dispatch_ctx = %{
+        event: event,
+        action: action_for(event),
+        api_module: Map.fetch!(@role_api_map, role),
+        current: current_node(runtime),
+        role: role,
+        runtime: runtime
+      }
+
+      {:ok,
+       Enum.map(targets, fn target ->
+         dispatch_ctx
+         |> Map.put(:target, target)
+         |> do_dispatch_sync()
+       end)}
+    else
+      :async -> {:error, {:invalid_fanout, :async_hop}}
+      true -> {:error, {:service_unavailable, role}}
+      {:error, _} = error -> error
+    end
+  rescue
+    _ -> {:error, {:node_discovery_failed, role}}
+  catch
+    _, _ -> {:error, {:node_discovery_failed, role}}
+  end
+
+  def dispatch_all(%Event{}, _runtime),
+    do: {:error, {:invalid_event, :missing_or_invalid_next_hop}}
+
+  @doc """
   Publishes an event to the workflow trigger stream without routing it.
 
   This is for events that should be observable by `Zaq.Engine.EventRegistry`
@@ -132,6 +180,35 @@ defmodule Zaq.NodeRouter do
     Enum.find(all_nodes, &supervisor_running?(&1, supervisor, runtime))
   end
 
+  defp discover_nodes(supervisor, runtime) do
+    current = current_node(runtime)
+
+    with local <- local_supervisor_node(current, supervisor, runtime) do
+      runtime
+      |> node_list()
+      |> Enum.reduce_while(
+        {:ok, local},
+        &discover_remote_node(&1, &2, supervisor, runtime)
+      )
+      |> case do
+        {:ok, nodes} -> {:ok, Enum.reverse(nodes)}
+        error -> error
+      end
+    end
+  end
+
+  defp local_supervisor_node(current, supervisor, runtime) do
+    if is_pid(whereis(runtime, supervisor)), do: [current], else: []
+  end
+
+  defp discover_remote_node(target, {:ok, found}, supervisor, runtime) do
+    case rpc_call(runtime, target, Process, :whereis, [supervisor]) do
+      pid when is_pid(pid) -> {:cont, {:ok, [target | found]}}
+      nil -> {:cont, {:ok, found}}
+      _ -> {:halt, {:error, {:node_discovery_failed, target}}}
+    end
+  end
+
   defp supervisor_running?(n, supervisor, runtime) do
     if n == current_node(runtime) do
       whereis(runtime, supervisor) != nil
@@ -164,7 +241,9 @@ defmodule Zaq.NodeRouter do
 
   defp rpc_call(runtime, n, mod, fun, args) do
     runtime
-    |> Map.get(:rpc_call_fn, &:rpc.call/4)
+    |> Map.get(:rpc_call_fn, fn node, module, function, arguments ->
+      :rpc.call(node, module, function, arguments, 30_000)
+    end)
     |> then(& &1.(n, mod, fun, args))
   end
 
@@ -338,4 +417,6 @@ defmodule Zaq.NodeRouter.Behaviour do
   @callback fire(Zaq.Event.t()) :: Zaq.Event.t()
   @callback dispatch(Zaq.Event.t()) :: Zaq.Event.t()
   @callback dispatch(Zaq.Event.t(), map()) :: Zaq.Event.t()
+  @callback dispatch_all(Zaq.Event.t()) :: {:ok, [Zaq.Event.t()]} | {:error, term()}
+  @callback dispatch_all(Zaq.Event.t(), map()) :: {:ok, [Zaq.Event.t()]} | {:error, term()}
 end

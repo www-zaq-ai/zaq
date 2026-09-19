@@ -42,6 +42,7 @@ defmodule Zaq.Agent.ServerManager do
   alias Zaq.Identity.ExecutionActor
 
   @dynamic_supervisor Zaq.Agent.AgentServerSupervisor
+  @lifecycle_call_timeout 60_000
   @jido_instance Zaq.Agent.Jido
   @jido_registry Jido.registry_name(@jido_instance)
 
@@ -49,6 +50,7 @@ defmodule Zaq.Agent.ServerManager do
           fingerprints: %{optional(String.t()) => binary()},
           agent_servers: %{optional(integer()) => MapSet.t(String.t())},
           server_to_agent: %{optional(String.t()) => integer()},
+          credential_dependencies: %{optional(String.t()) => map()},
           draining: %{optional(String.t()) => reference()},
           monitors: %{optional(String.t()) => reference()}
         }
@@ -90,7 +92,7 @@ defmodule Zaq.Agent.ServerManager do
     no server restart.
   """
   def sync_runtime(%ConfiguredAgent{} = configured_agent) do
-    GenServer.call(__MODULE__, {:sync_runtime, configured_agent})
+    GenServer.call(__MODULE__, {:sync_runtime, configured_agent}, @lifecycle_call_timeout)
   end
 
   @spec ensure_server(ConfiguredAgent.t(), String.t(), AIContext.t() | nil) ::
@@ -113,23 +115,56 @@ defmodule Zaq.Agent.ServerManager do
   def ensure_server(%ConfiguredAgent{} = configured_agent, server_id, context, opts)
       when is_binary(server_id) and (is_nil(context) or is_struct(context, AIContext)) and
              is_list(opts) do
-    GenServer.call(__MODULE__, {:ensure_server, configured_agent, server_id, context, opts})
+    GenServer.call(
+      __MODULE__,
+      {:ensure_server, configured_agent, server_id, context, opts},
+      @lifecycle_call_timeout
+    )
   end
 
   @spec stop_server(ConfiguredAgent.t()) :: :ok
   def stop_server(%ConfiguredAgent{} = configured_agent) do
-    GenServer.call(__MODULE__, {:stop_server, configured_agent})
+    GenServer.call(__MODULE__, {:stop_server, configured_agent}, @lifecycle_call_timeout)
   end
 
   @spec stop_server(ConfiguredAgent.t(), String.t()) :: :ok
   def stop_server(%ConfiguredAgent{} = configured_agent, server_id) do
-    GenServer.call(__MODULE__, {:stop_server, configured_agent, server_id})
+    GenServer.call(
+      __MODULE__,
+      {:stop_server, configured_agent, server_id},
+      @lifecycle_call_timeout
+    )
+  end
+
+  @doc """
+  Synchronously fences and begins stopping servers affected by a Connect mutation.
+
+  Person grant mutations match the effective Person and credential, including
+  runtimes using the org fallback. Credential and non-Person grant mutations
+  conservatively match every runtime depending on the credential.
+  """
+  @spec invalidate_credential(map()) :: :ok
+  def invalidate_credential(notification) when is_map(notification) do
+    GenServer.call(
+      __MODULE__,
+      {:invalidate_credential, notification},
+      @lifecycle_call_timeout
+    )
   end
 
   @impl true
   def init(_opts) do
+    stop_surviving_servers()
+
     {:ok,
-     %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}, draining: %{}, monitors: %{}}}
+     %{
+       fingerprints: %{},
+       agent_servers: %{},
+       server_to_agent: %{},
+       credential_dependencies: %{},
+       draining: %{},
+       monitors: %{}
+     }}
   end
 
   @impl true
@@ -157,13 +192,13 @@ defmodule Zaq.Agent.ServerManager do
     result =
       with {:ok, actor} <- ExecutionActor.validate(Keyword.get(opts, :actor)),
            :ok <- validate_binding(safe_whereis(server_id), actor) do
-        do_ensure_server(
-          configured_agent,
-          clear_stale_drain(state, server_id),
-          server_id,
-          context,
-          actor
-        )
+        next_state = clear_stale_drain(state, server_id)
+
+        if draining?(next_state, server_id) do
+          {:error, :server_draining, next_state}
+        else
+          do_ensure_server(configured_agent, next_state, server_id, context, actor, opts)
+        end
       end
 
     case result do
@@ -209,11 +244,31 @@ defmodule Zaq.Agent.ServerManager do
     {:reply, :ok, next_state}
   end
 
+  def handle_call({:invalidate_credential, notification}, _from, state) do
+    next_state =
+      state
+      |> Map.get(:credential_dependencies, %{})
+      |> Enum.reduce(state, fn {server_id, dependency}, acc_state ->
+        if affected_dependency?(dependency, notification),
+          do: begin_stop(acc_state, server_id),
+          else: acc_state
+      end)
+
+    {:reply, :ok, next_state}
+  end
+
   # A supplied `context` (caller-built `Jido.AI.Context`) is consumed only when a
   # server is cold-started below — a warm/reused server keeps the context it spawned
   # with. This is exactly right for `run_agent`: each step derives a unique per-step
   # scope, so its first (and only) ask always cold-starts with the fresh context.
-  defp do_ensure_server(%ConfiguredAgent{} = configured_agent, state, server_id, context, actor) do
+  defp do_ensure_server(
+         %ConfiguredAgent{} = configured_agent,
+         state,
+         server_id,
+         context,
+         actor,
+         opts
+       ) do
     fingerprint = fingerprint(configured_agent)
 
     case {Map.get(state.fingerprints, server_id), safe_whereis(server_id)} do
@@ -223,10 +278,10 @@ defmodule Zaq.Agent.ServerManager do
 
       {_previous, pid} when is_pid(pid) ->
         _ = stop_server_if_running(server_id)
-        start_server(configured_agent, server_id, state, fingerprint, context, actor)
+        start_server(configured_agent, server_id, state, fingerprint, context, actor, opts)
 
       _ ->
-        start_server(configured_agent, server_id, state, fingerprint, context, actor)
+        start_server(configured_agent, server_id, state, fingerprint, context, actor, opts)
     end
   end
 
@@ -236,17 +291,19 @@ defmodule Zaq.Agent.ServerManager do
          state,
          fingerprint,
          context,
-         actor
+         actor,
+         opts
        ) do
-    case spawn_agent_server(configured_agent, server_id, context, actor) do
-      :ok ->
+    case spawn_agent_server(configured_agent, server_id, context, actor, opts) do
+      {:ok, credential_dependency} ->
         _ = hydrate_mcp_assignments(configured_agent, server_id)
 
         next_state =
           state
           |> put_in([:fingerprints, server_id], fingerprint)
-          |> track_server(configured_agent.id, server_id)
+          |> track_server(configured_agent.id, server_id, credential_dependency)
           |> monitor_server(server_id)
+          |> schedule_authentication_expiry(server_id, credential_dependency)
 
         {:ok, server_id, next_state}
 
@@ -260,6 +317,21 @@ defmodule Zaq.Agent.ServerManager do
     _ = stop_server_if_running(server_id)
     OpaqueAliases.clear_scope(server_id)
     {:noreply, untrack_server(state, server_id)}
+  end
+
+  def handle_info({:expire_authentication, server_id, expected_pid}, state) do
+    dependency = Map.get(state.credential_dependencies, server_id)
+
+    cond do
+      safe_whereis(server_id) != expected_pid ->
+        {:noreply, state}
+
+      authentication_expired?(dependency) ->
+        {:noreply, begin_stop(state, server_id)}
+
+      true ->
+        {:noreply, schedule_authentication_expiry(state, server_id, dependency)}
+    end
   end
 
   def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
@@ -285,20 +357,26 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, context, actor) do
+  defp spawn_agent_server(%ConfiguredAgent{} = configured_agent, server_id, context, actor, opts) do
     with {:ok, model_spec} <- ProviderSpec.build(configured_agent),
-         {:ok, runtime_config} <- Factory.runtime_config(configured_agent, actor: actor) do
-      spawn_server(server_id, configured_agent, %{
-        model: model_spec,
-        runtime_config: runtime_config,
-        execution_actor: actor,
-        tool_context:
-          Map.merge(runtime_config.tool_context, %{
-            configured_agent_id: configured_agent.id,
-            opaque_alias_scope: server_id
-          }),
-        context: Factory.build_initial_context(configured_agent, server_id, context)
-      })
+         {:ok, runtime_config} <-
+           Factory.runtime_config(
+             configured_agent,
+             opts |> Keyword.take([:connect_module]) |> Keyword.put(:actor, actor)
+           ),
+         :ok <-
+           spawn_server(server_id, configured_agent, %{
+             model: model_spec,
+             runtime_config: runtime_config,
+             execution_actor: actor,
+             tool_context:
+               Map.merge(runtime_config.tool_context, %{
+                 configured_agent_id: configured_agent.id,
+                 opaque_alias_scope: server_id
+               }),
+             context: Factory.build_initial_context(configured_agent, server_id, context)
+           }) do
+      {:ok, Map.get(runtime_config, :credential_dependency)}
     end
   end
 
@@ -428,7 +506,10 @@ defmodule Zaq.Agent.ServerManager do
 
   defp safe_whereis(server_id) do
     # Registry lookup can race with shutdown during replacement windows.
-    Jido.AgentServer.whereis(@jido_registry, server_id)
+    case Jido.AgentServer.whereis(@jido_registry, server_id) do
+      pid when is_pid(pid) -> if(Process.alive?(pid), do: pid)
+      _ -> nil
+    end
   rescue
     ArgumentError ->
       Logger.warning("Jido registry #{@jido_registry} is not available yet")
@@ -474,6 +555,52 @@ defmodule Zaq.Agent.ServerManager do
       _ ->
         state
     end
+  end
+
+  defp schedule_authentication_expiry(state, _server_id, nil), do: state
+
+  defp schedule_authentication_expiry(state, server_id, %{expires_at: %DateTime{} = expires_at}) do
+    case safe_whereis(server_id) do
+      pid when is_pid(pid) ->
+        delay = max(DateTime.diff(expires_at, DateTime.utc_now(), :millisecond), 0)
+        _ = Process.send_after(self(), {:expire_authentication, server_id, pid}, delay)
+        state
+
+      _ ->
+        state
+    end
+  end
+
+  defp schedule_authentication_expiry(state, _server_id, _dependency), do: state
+
+  defp authentication_expired?(%{expires_at: %DateTime{} = expires_at}),
+    do: DateTime.compare(expires_at, DateTime.utc_now()) != :gt
+
+  defp authentication_expired?(_), do: false
+
+  defp stop_surviving_servers do
+    @dynamic_supervisor
+    |> DynamicSupervisor.which_children()
+    |> Enum.each(fn
+      {_id, pid, _type, _modules} when is_pid(pid) ->
+        stop_surviving_server(pid)
+
+      _ ->
+        :ok
+    end)
+  catch
+    :exit, _ -> :ok
+  end
+
+  defp stop_surviving_server(pid) do
+    monitor_ref = Process.monitor(pid)
+
+    case DynamicSupervisor.terminate_child(@dynamic_supervisor, pid) do
+      :ok -> :ok
+      {:error, _} -> force_kill_if_alive(pid)
+    end
+
+    await_process_down(pid, monitor_ref)
   end
 
   defp demonitor_server(state, server_id) do
@@ -526,6 +653,19 @@ defmodule Zaq.Agent.ServerManager do
   end
 
   defp draining?(state, server_id), do: Map.has_key?(state.draining, server_id)
+
+  defp affected_dependency?(nil, _notification), do: false
+
+  defp affected_dependency?(dependency, notification) do
+    credential_id = event_value(notification, "credential_id")
+    owner_type = event_value(notification, "owner_type")
+    owner_id = event_value(notification, "owner_id")
+
+    dependency.credential_id == credential_id and
+      (owner_type != "person" or dependency.effective_person_id == owner_id)
+  end
+
+  defp event_value(event, key), do: Map.get(event, key) || Map.get(event, String.to_atom(key))
 
   defp clear_drain(state, server_id),
     do: %{state | draining: Map.delete(state.draining, server_id)}
@@ -666,16 +806,28 @@ defmodule Zaq.Agent.ServerManager do
     }
   end
 
+  defp track_server(state, agent_id, server_id, credential_dependency) do
+    state
+    |> track_server(agent_id, server_id)
+    |> Map.update(
+      :credential_dependencies,
+      %{server_id => credential_dependency},
+      &Map.put(&1, server_id, credential_dependency)
+    )
+  end
+
   defp untrack_server(state, server_id) do
     state = demonitor_server(state, server_id)
     agent_id = Map.get(state.server_to_agent, server_id)
 
-    state = %{
-      state
-      | fingerprints: Map.delete(state.fingerprints, server_id),
-        server_to_agent: Map.delete(state.server_to_agent, server_id),
-        draining: Map.delete(state.draining, server_id)
-    }
+    state =
+      %{
+        state
+        | fingerprints: Map.delete(state.fingerprints, server_id),
+          server_to_agent: Map.delete(state.server_to_agent, server_id),
+          draining: Map.delete(state.draining, server_id)
+      }
+      |> delete_credential_dependency(server_id)
 
     case agent_id do
       nil ->
@@ -696,6 +848,14 @@ defmodule Zaq.Agent.ServerManager do
 
         %{state | agent_servers: agent_servers}
     end
+  end
+
+  defp delete_credential_dependency(state, server_id) do
+    Map.put(
+      state,
+      :credential_dependencies,
+      state |> Map.get(:credential_dependencies, %{}) |> Map.delete(server_id)
+    )
   end
 
   defp tracked_server_ids(state, agent_id) do

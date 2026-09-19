@@ -64,7 +64,7 @@ sequenceDiagram
     API-->>NR: {:ok, DTO}
     NR-->>Caller: {:ok, DTO}
 
-    Note over Events,Oban: The job is persisted atomically, but the notification queue is<br>currently intentionally unconsumed, do not infer active cache invalidation.
+    Note over Events,Oban: After commit the consumed notification job fans out to all<br>discovered Agent nodes and retries unless every local ServerManager acknowledges fencing.
 ```
 
 API-key submission does not call the provider. Validation is structural and policy-based;
@@ -340,7 +340,7 @@ sequenceDiagram
     GW-->>Live: result
 
     Note over Life,DB: A survivor slot wins regardless of active/revoked/expired status.<br>Transferred ciphertext is not loaded, decrypted or re-encrypted.
-    Note over Events,Oban: Event jobs commit atomically with the merge, but the notification<br>queue currently has no active consumer.
+    Note over Events,Oban: Event jobs commit atomically with the merge, then acknowledged<br>Agent-node fanout invalidates matching Person/credential runtimes.
 ```
 
 All in-flight OAuth attempts for every original participant are cancelled rather than
@@ -420,7 +420,7 @@ sequenceDiagram
 | `OAuth` → Channels modules | Mostly sound but asymmetric. Channels resolves provider authorization/endpoint behavior; Engine performs canonical exchange/refresh HTTP. The split avoids ambient provider credentials, but should remain explicit because “Channels OAuth” does not mean Channels owns token transport. |
 | `CredentialResolver` → `Refresh` → `Mutations` | Sound. Selection, lease/snapshot protocol, provider transport and persistence are separately testable; final resolver revalidation prevents a refreshed stale selection from being returned. |
 | `PersonMerger`/`People` → `PersonLifecycle` | Deliberate but architecturally sharp. Accounts depends directly on an Engine Connect lifecycle module. This preserves one database transaction and prevents identity deletion from racing secret cleanup; replacing it with `NodeRouter` would break that atomicity. If the dependency direction becomes problematic, move orchestration to a higher in-process lifecycle coordinator rather than introducing RPC. |
-| `MutationEvents` → Oban worker | Persistence boundary is sound: domain writes and outbox jobs commit together. End-to-end invalidation is incomplete because the queue is intentionally unconsumed, so diagrams and callers must not assume notification delivery yet. |
+| `MutationEvents` → Oban worker → Agent fanout | Sound eventual invalidation boundary: domain writes and outbox jobs commit together; the worker requires acknowledgments from every discovered Agent node after synchronous local fencing. Partitions and undiscovered owners remain the explicit #775 infrastructure scope. |
 | Production Person caller → credential gateway | Incomplete integration rather than a bad internal split. The authenticated backend boundary exists, but no Person-facing start/write route or UI currently invokes it. |
 
 ## Source entry points

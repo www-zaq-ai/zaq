@@ -1,15 +1,18 @@
 defmodule Zaq.Agent.ServerManagerTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   import Zaq.SystemConfigFixtures
   import ExUnit.CaptureLog
 
   alias Jido.AI.Context, as: AIContext
+  alias Zaq.Accounts.Person
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
+  alias Zaq.Engine.Connect
   alias Zaq.TestSupport.OpenAIStub
 
   @execution_actor %{kind: :system, subject: "server-manager-test"}
@@ -105,6 +108,76 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert Jido.AgentServer.whereis(registry, scope) == pid
   end
 
+  test "a draining server is fenced against warm reuse" do
+    config = valid_configured_agent(System.unique_integer([:positive]))
+    scope = "draining-reuse:#{config.id}"
+    assert {:ok, ref} = ServerManager.ensure_server(config, scope, nil, actor: @execution_actor)
+    pid = GenServer.whereis(ref)
+
+    :sys.replace_state(ServerManager, fn state ->
+      put_in(state, [:draining, scope], make_ref())
+    end)
+
+    assert {:error, :server_draining} =
+             ServerManager.ensure_server(config, scope, nil, actor: @execution_actor)
+
+    assert GenServer.whereis(ref) == pid
+
+    :sys.replace_state(ServerManager, fn state ->
+      update_in(state, [:draining], &Map.delete(&1, scope))
+    end)
+
+    assert :ok = ServerManager.stop_server(config, scope)
+  end
+
+  property "duplicate and reordered personal notifications never invalidate another Person" do
+    target = %{"credential_id" => 10, "owner_type" => "person", "owner_id" => 1}
+
+    irrelevant = [
+      %{"credential_id" => 10, "owner_type" => "person", "owner_id" => 3},
+      %{"credential_id" => 99, "owner_type" => nil, "owner_id" => nil}
+    ]
+
+    check all(
+            before_target <- list_of(member_of(irrelevant), max_length: 8),
+            after_target <- list_of(member_of([target | irrelevant]), max_length: 8)
+          ) do
+      state = %{
+        fingerprints: %{"target" => "a", "other" => "b"},
+        agent_servers: %{1 => MapSet.new(["target", "other"])},
+        server_to_agent: %{"target" => 1, "other" => 1},
+        credential_dependencies: %{
+          "target" => %{
+            credential_id: 10,
+            effective_person_id: 1,
+            grant_id: 11,
+            expires_at: nil
+          },
+          "other" => %{
+            credential_id: 10,
+            effective_person_id: 2,
+            grant_id: 12,
+            expires_at: nil
+          }
+        },
+        draining: %{},
+        monitors: %{}
+      }
+
+      final_state =
+        Enum.reduce(before_target ++ [target] ++ after_target, state, fn event, acc ->
+          {:reply, :ok, next} =
+            ServerManager.handle_call({:invalidate_credential, event}, self(), acc)
+
+          next
+        end)
+
+      refute Map.has_key?(final_state.credential_dependencies, "target")
+      assert final_state.credential_dependencies["other"].effective_person_id == 2
+      assert final_state.agent_servers[1] == MapSet.new(["other"])
+    end
+  end
+
   @tag :execution_identity
   test "warm non-Person bindings reject changed subjects, categories and Person identities" do
     config = valid_configured_agent(System.unique_integer([:positive]))
@@ -191,6 +264,27 @@ defmodule Zaq.Agent.ServerManagerTest do
     def sync_agent_runtime(_agent, _server_ref, _opts \\ []), do: {:error, :runtime_sync_failed}
   end
 
+  defmodule BlockingConnect do
+    alias Zaq.Engine.Connect.ResolvedCredential
+
+    def resolve_credential(credential_id, _actor) do
+      test_pid = Process.whereis(:server_manager_credential_resolution_test)
+      send(test_pid, {:credential_resolution_blocked, self()})
+      receive do: (:release_credential_resolution -> :ok)
+
+      {:ok,
+       %ResolvedCredential{
+         credential_id: credential_id,
+         grant_id: 99,
+         owner_type: "org",
+         owner_id: nil,
+         auth_kind: "api_key",
+         request_format: "bearer",
+         authentication: %{api_key: "resolved-key"}
+       }}
+    end
+  end
+
   defmodule FakeDynamicSupervisor do
     use GenServer
 
@@ -260,6 +354,145 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert status.raw_state.tool_context.opaque_alias_scope ==
              "configured_agent_#{configured_agent.id}"
+  end
+
+  test "cold startup resolves one Person grant, tracks its identity, and warm reuse does not resolve again" do
+    person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Runtime Person"}))
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Person Runtime #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "legacy-key"
+      })
+
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    assert {:ok, personal_grant} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, person.id},
+               %{api_key: "person-key"}
+             )
+
+    {:ok, configured_agent} =
+      Agent.create_agent(%{
+        name: "Person Runtime Agent #{System.unique_integer([:positive])}",
+        job: "Test",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: false,
+        active: true,
+        advanced_options: %{}
+      })
+
+    scope = "person-runtime:#{configured_agent.id}:#{person.id}"
+    actor = %{person: %{id: person.id}}
+    assert {:ok, ref} = ServerManager.ensure_server(configured_agent, scope, nil, actor: actor)
+    on_exit(fn -> ServerManager.stop_server(configured_agent, scope) end)
+
+    assert :sys.get_state(ServerManager).credential_dependencies[scope] == %{
+             credential_id: connect_credential.id,
+             effective_person_id: person.id,
+             grant_id: personal_grant.grant_id,
+             expires_at: nil
+           }
+
+    assert {:ok, status} = Jido.AgentServer.status(ref)
+    assert status.raw_state.runtime_config.llm_opts[:api_key] == "person-key"
+
+    assert {:ok, _} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, person.id},
+               %{api_key: "replacement-key"}
+             )
+
+    pid = GenServer.whereis(ref)
+    assert {:ok, ^ref} = ServerManager.ensure_server(configured_agent, scope, nil, actor: actor)
+    assert GenServer.whereis(ref) == pid
+    assert {:ok, warm_status} = Jido.AgentServer.status(ref)
+    assert warm_status.raw_state.runtime_config.llm_opts[:api_key] == "person-key"
+
+    monitor_ref = Process.monitor(pid)
+
+    assert :ok =
+             ServerManager.invalidate_credential(%{
+               "credential_id" => connect_credential.id,
+               "owner_type" => "person",
+               "owner_id" => person.id
+             })
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
+    assert GenServer.whereis(ref) == nil
+
+    assert {:ok, ^ref} = ServerManager.ensure_server(configured_agent, scope, nil, actor: actor)
+    refute GenServer.whereis(ref) == pid
+    assert {:ok, recreated_status} = Jido.AgentServer.status(ref)
+    assert recreated_status.raw_state.runtime_config.llm_opts[:api_key] == "replacement-key"
+  end
+
+  test "invalidation queued during synchronous startup runs after dependency registration" do
+    Process.register(self(), :server_manager_credential_resolution_test)
+
+    credential =
+      ai_credential_fixture(%{
+        name: "Ordered Startup #{System.unique_integer([:positive, :monotonic])}",
+        provider: "openai",
+        endpoint: "https://api.openai.com/v1",
+        api_key: "global-key"
+      })
+
+    configured_agent = %ConfiguredAgent{
+      id: System.unique_integer([:positive]),
+      name: "Ordered Startup Agent",
+      job: "Test",
+      model: "gpt-4.1-mini",
+      credential_id: credential.id,
+      credential: credential,
+      strategy: "react",
+      enabled_tool_keys: [],
+      conversation_enabled: false,
+      active: true,
+      advanced_options: %{}
+    }
+
+    scope = "ordered-startup:#{configured_agent.id}"
+
+    ensure_task =
+      Task.async(fn ->
+        ServerManager.ensure_server(configured_agent, scope, nil,
+          actor: @execution_actor,
+          connect_module: BlockingConnect
+        )
+      end)
+
+    assert_receive {:credential_resolution_blocked, manager_pid}, 1_000
+
+    invalidation_task =
+      Task.async(fn ->
+        ServerManager.invalidate_credential(%{
+          "credential_id" => credential.connect_credential_id,
+          "owner_type" => "org",
+          "owner_id" => nil
+        })
+      end)
+
+    assert Task.yield(invalidation_task, 20) == nil
+    send(manager_pid, :release_credential_resolution)
+
+    assert {:ok, ref} = Task.await(ensure_task, 1_000)
+    assert :ok = Task.await(invalidation_task, 1_000)
+    assert GenServer.whereis(ref) == nil
+    refute Map.has_key?(:sys.get_state(ServerManager).credential_dependencies, scope)
   end
 
   test "ensure_server supports catalog-only provider via openai runtime fallback" do
@@ -757,6 +990,7 @@ defmodule Zaq.Agent.ServerManagerTest do
              fingerprints: %{},
              agent_servers: %{},
              server_to_agent: %{},
+             credential_dependencies: %{},
              draining: %{},
              monitors: %{}
            }
@@ -821,6 +1055,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       fingerprints: %{},
       agent_servers: %{},
       server_to_agent: %{},
+      credential_dependencies: %{},
       draining: %{},
       monitors: %{}
     }
@@ -920,6 +1155,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       fingerprints: %{},
       agent_servers: %{},
       server_to_agent: %{},
+      credential_dependencies: %{},
       draining: %{server_id => make_ref()},
       monitors: %{}
     }
@@ -1007,9 +1243,63 @@ defmodule Zaq.Agent.ServerManagerTest do
              fingerprints: %{},
              agent_servers: %{},
              server_to_agent: %{},
+             credential_dependencies: %{},
              draining: %{},
              monitors: %{}
            }
+  end
+
+  test "authentication expiry fences the matching incarnation and ignores stale callbacks" do
+    configured_agent = valid_configured_agent(123_459_001)
+    server_id = "configured_agent_123459001:auth-expiry"
+
+    assert {:ok, ref} =
+             ServerManager.ensure_server(configured_agent, server_id, nil,
+               actor: @execution_actor
+             )
+
+    pid = GenServer.whereis(ref)
+    monitor_ref = Process.monitor(pid)
+    stale_pid = spawn(fn -> :ok end)
+
+    :sys.replace_state(ServerManager, fn state ->
+      put_in(state, [:credential_dependencies, server_id], %{
+        credential_id: 1,
+        effective_person_id: nil,
+        grant_id: 2,
+        expires_at: DateTime.add(DateTime.utc_now(), -1, :second)
+      })
+    end)
+
+    send(ServerManager, {:expire_authentication, server_id, stale_pid})
+    Process.sleep(10)
+    assert Process.alive?(pid)
+
+    send(ServerManager, {:expire_authentication, server_id, pid})
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, _reason}, 1_000
+    assert GenServer.whereis(ref) == nil
+  end
+
+  test "manager restart stops surviving untracked Agent servers before reuse" do
+    configured_agent = valid_configured_agent(123_459_002)
+    server_id = "configured_agent_123459002:manager-restart"
+
+    assert {:ok, ref} =
+             ServerManager.ensure_server(configured_agent, server_id, nil,
+               actor: @execution_actor
+             )
+
+    server_pid = GenServer.whereis(ref)
+    manager_pid = Process.whereis(ServerManager)
+    server_monitor = Process.monitor(server_pid)
+    manager_monitor = Process.monitor(manager_pid)
+
+    Process.exit(manager_pid, :kill)
+
+    assert_receive {:DOWN, ^manager_monitor, :process, ^manager_pid, :killed}, 1_000
+    assert_receive {:DOWN, ^server_monitor, :process, ^server_pid, _reason}, 1_000
+    assert eventually(fn -> is_pid(Process.whereis(ServerManager)) end)
+    assert GenServer.whereis(ref) == nil
   end
 
   test "handle_info force_stop_server ignores stale drain refs" do
@@ -1061,6 +1351,7 @@ defmodule Zaq.Agent.ServerManagerTest do
              fingerprints: %{},
              agent_servers: %{},
              server_to_agent: %{},
+             credential_dependencies: %{},
              draining: %{},
              monitors: %{}
            }
@@ -1091,6 +1382,7 @@ defmodule Zaq.Agent.ServerManagerTest do
              fingerprints: %{},
              agent_servers: %{},
              server_to_agent: %{},
+             credential_dependencies: %{},
              draining: %{},
              monitors: %{}
            }
@@ -1190,6 +1482,7 @@ defmodule Zaq.Agent.ServerManagerTest do
              fingerprints: %{},
              agent_servers: %{},
              server_to_agent: %{},
+             credential_dependencies: %{},
              draining: %{},
              monitors: %{}
            }
@@ -1214,6 +1507,7 @@ defmodule Zaq.Agent.ServerManagerTest do
                fingerprints: %{},
                agent_servers: %{},
                server_to_agent: %{},
+               credential_dependencies: %{},
                draining: %{},
                monitors: %{}
              }
@@ -2190,7 +2484,14 @@ defmodule Zaq.Agent.ServerManagerTest do
   defp extract_request_content(_), do: ""
 
   defp empty_server_manager_state do
-    %{fingerprints: %{}, agent_servers: %{}, server_to_agent: %{}, draining: %{}, monitors: %{}}
+    %{
+      fingerprints: %{},
+      agent_servers: %{},
+      server_to_agent: %{},
+      credential_dependencies: %{},
+      draining: %{},
+      monitors: %{}
+    }
   end
 
   defp valid_configured_agent(id) do
@@ -2199,7 +2500,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       name: "Fake Supervisor Agent #{id}",
       job: "test job",
       model: "gpt-4.1-mini",
-      credential: %{provider: "openai", endpoint: "https://api.openai.com/v1", api_key: "x"},
+      credential: %{provider: "openai", endpoint: "https://api.openai.com/v1"},
       credential_id: nil,
       strategy: "react",
       enabled_tool_keys: [],
@@ -2285,4 +2586,17 @@ defmodule Zaq.Agent.ServerManagerTest do
   defp stop_registered_dummy_server(pid) when is_pid(pid) do
     if Process.alive?(pid), do: send(pid, :stop)
   end
+
+  defp eventually(fun, attempts \\ 50)
+
+  defp eventually(fun, attempts) when attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
+  end
+
+  defp eventually(_fun, 0), do: false
 end

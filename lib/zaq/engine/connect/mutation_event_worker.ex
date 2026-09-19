@@ -2,8 +2,7 @@ defmodule Zaq.Engine.Connect.MutationEventWorker do
   @moduledoc """
   Delivers a committed Connect mutation notification to the Agent role.
 
-  Queue consumption is deferred until the real receiver/fanout integration. Uses
-  Connect's three-attempt convention and Oban's default exponential jittered backoff.
+  Uses Connect's three-attempt convention and Oban's default exponential jittered backoff.
   Errors contain only fixed atoms; Oban never receives provider response bodies or
   exception messages. Exhausted jobs require explicit later operational replay.
   """

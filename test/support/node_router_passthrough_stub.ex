@@ -13,4 +13,10 @@ defmodule Zaq.TestSupport.NodeRouterPassthroughStub do
 
   @impl true
   def dispatch(%Zaq.Event{} = event, _runtime), do: event
+
+  @impl true
+  def dispatch_all(%Zaq.Event{} = event), do: {:ok, [event]}
+
+  @impl true
+  def dispatch_all(%Zaq.Event{} = event, _runtime), do: {:ok, [event]}
 end

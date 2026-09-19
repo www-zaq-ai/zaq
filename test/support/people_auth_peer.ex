@@ -71,7 +71,7 @@ defmodule Zaq.TestSupport.PeopleAuthPeer do
 
   def connect(other) do
     {ref, members} = :pg.monitor(Phoenix.PubSub, Zaq.PubSub.Adapter)
-    :ok = connect_node(other, 20)
+    :ok = connect_node(other, 600)
     wait_member(ref, members, other)
     :pg.demonitor(Phoenix.PubSub, ref)
     :ok

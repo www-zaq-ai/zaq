@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
 
   alias Ecto.Changeset
   alias Zaq.Accounts
+  alias Zaq.Accounts.People
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
@@ -1195,6 +1196,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
   end
 
   test "edit notice pluralizes stopped runtime server count", %{conn: conn} do
+    {:ok, person} = People.create_person(%{full_name: "Plural Notice Person"})
+
     credential =
       ai_credential_fixture(%{
         name: "Plural Notice Credential #{System.unique_integer([:positive, :monotonic])}",
@@ -1220,13 +1223,13 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
       })
 
     assert {:ok, _ref} =
-             ServerManager.ensure_server(agent, "agent:mattermost:person:#{agent.id}", nil,
-               actor: %{person: %{id: agent.id}}
+             ServerManager.ensure_server(agent, "agent:mattermost:person:#{person.id}", nil,
+               actor: %{person: %{id: person.id}}
              )
 
     assert {:ok, _ref} =
-             ServerManager.ensure_server(agent, "agent:slack:person:#{agent.id}", nil,
-               actor: %{person: %{id: agent.id}}
+             ServerManager.ensure_server(agent, "agent:slack:person:#{person.id}", nil,
+               actor: %{person: %{id: person.id}}
              )
 
     {:ok, view, _html} = live(conn, ~p"/bo/agents")
@@ -1257,6 +1260,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
   end
 
   test "edit shows MCP warnings when runtime sync returns warnings", %{conn: conn} do
+    {:ok, person} = People.create_person(%{full_name: "Warning Runtime Person"})
+
     credential =
       ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
 
@@ -1275,8 +1280,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
       })
 
     assert {:ok, _ref} =
-             ServerManager.ensure_server(agent, "agent:mattermost:person:#{agent.id}", nil,
-               actor: %{person: %{id: agent.id}}
+             ServerManager.ensure_server(agent, "agent:mattermost:person:#{person.id}", nil,
+               actor: %{person: %{id: person.id}}
              )
 
     previous_runtime_sync_module = Application.get_env(:zaq, :agent_runtime_sync_module)

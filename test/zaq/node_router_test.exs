@@ -629,6 +629,64 @@ defmodule Zaq.NodeRouterTest do
     end
   end
 
+  describe "dispatch_all/2" do
+    test "fans out synchronously to every discovered role owner" do
+      event =
+        Event.new(%{module: String, function: :upcase, args: ["hello"]}, :agent,
+          opts: [action: :invoke]
+        )
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote_a@host, :remote_b@host] end,
+        whereis_fn: fn Zaq.Agent.Supervisor -> self() end,
+        rpc_call_fn: fn
+          remote, Process, :whereis, [Zaq.Agent.Supervisor]
+          when remote in [:remote_a@host, :remote_b@host] ->
+            self()
+
+          remote, Zaq.Agent.Api, :handle_event, [%Event{} = routed, :invoke, nil] ->
+            %{routed | response: {:ack, remote}}
+        end
+      }
+
+      assert {:ok, acknowledgments} = NodeRouter.dispatch_all(event, runtime)
+
+      assert Enum.map(acknowledgments, & &1.response) == [
+               "HELLO",
+               {:ack, :remote_a@host},
+               {:ack, :remote_b@host}
+             ]
+
+      assert Enum.all?(acknowledgments, &is_nil(&1.next_hop))
+    end
+
+    test "returns explicit errors for failed discovery and zero targets" do
+      event = Event.new(%{}, :agent, opts: [action: :connect_credential_mutated])
+
+      failed = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:partitioned@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_fn: fn :partitioned@host, Process, :whereis, [_] ->
+          {:badrpc, :nodedown}
+        end
+      }
+
+      assert NodeRouter.dispatch_all(event, failed) ==
+               {:error, {:node_discovery_failed, :partitioned@host}}
+
+      zero = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [] end,
+        whereis_fn: fn _ -> nil end
+      }
+
+      assert NodeRouter.dispatch_all(event, zero) ==
+               {:error, {:service_unavailable, :agent}}
+    end
+  end
+
   describe "PubSub broadcast side-channel" do
     setup do
       Phoenix.PubSub.subscribe(@pubsub, @topic)

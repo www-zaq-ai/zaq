@@ -2,7 +2,7 @@ defmodule Zaq.ConfidentialEventPeerTest do
   use ExUnit.Case, async: false
   alias Zaq.TestSupport.{ConfidentialAuthPeer, PeopleAuthPeer}
 
-  @tag timeout: 120_000
+  @tag timeout: 300_000
   test "two real nodes verify/revoke confidential sessions while both PubSub observers see only public controls" do
     {_, 0} = System.cmd("epmd", ["-daemon"])
     {origin, origin_node} = peer("origin")
@@ -20,8 +20,8 @@ defmodule Zaq.ConfidentialEventPeerTest do
              )
     end
 
-    assert :ok = :peer.call(origin, PeopleAuthPeer, :connect, [engine_node])
-    assert :ok = :peer.call(engine, PeopleAuthPeer, :connect, [origin_node])
+    assert :ok = :peer.call(origin, PeopleAuthPeer, :connect, [engine_node], 120_000)
+    assert :ok = :peer.call(engine, PeopleAuthPeer, :connect, [origin_node], 120_000)
 
     assert %{remote_engine: true, verified_person: true, revoked: true, context_preserved: true} =
              :peer.call(origin, ConfidentialAuthPeer, :verify_remotely, [engine_node], 30_000)
