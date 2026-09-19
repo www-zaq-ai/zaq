@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.36"
+  ],
   "created": "2026-09-19T13:18:00Z",
   "description": "Functional specifications/files: ServerManager, Factory, ProviderSpec and Connect resolver; synchronously resolve once from trusted effective Actor, build one runtime config, track credential/person/grant/expiry without secrets, no legacy/global fallback or warm-path resolution.\nTests first: Actor/policy matrix integration, Person isolation, one resolver call, startup errors, zero warm-path resolution.\nBranches: Person/global grant, required/optional/disabled, missing/invalid/expired grants, unsupported auth.\nMocking: real Connect boundaries; injected edge OAuth client/timeouts only.\nDocs: Agent and Engine service contracts.\nAction reuse: reuse Connect.resolve_credential, Factory runtime_config, ProviderSpec translation, ServerManager lifecycle; extend these owners, no Action/tool exposure.",
   "id": "zaq-jrg.35",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg] Resolve Person authentication during Agent startup",
   "type": "task",
-  "updated_at": "2026-09-19T13:18:00Z"
+  "updated_at": "2026-09-19T13:18:02Z"
 }
