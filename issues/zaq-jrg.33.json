@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-19T09:59:28Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jrg.33] Fix concurrency test isolation",
   "type": "task",
-  "updated_at": "2026-09-19T09:59:38Z"
+  "updated_at": "2026-09-19T09:59:39Z"
 }
