@@ -11,9 +11,15 @@
   "id": "zaq-jrg.41",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented-uncommitted in grouped lifecycle scenario using actual persisted Connect mutation jobs drained through existing Oban worker/NodeRouter/Agent receiver. Covers Person replacement/revocation targeting, optional→required→disabled, global replacement, no eager LLM calls, Bob survival and fresh Authorization after lazy recreation. Executor integration suite: 23 tests, 0 failures; mix q passed. Kept open pending user review before commit/push.",
+      "timestamp": "2026-09-19T20:13:17Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.41] Mutation-driven credential lifecycle HTTP integration coverage",
   "type": "task",
-  "updated_at": "2026-09-19T20:10:30Z"
+  "updated_at": "2026-09-19T20:13:17Z"
 }
