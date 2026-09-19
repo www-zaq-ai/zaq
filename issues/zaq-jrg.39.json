@@ -9,9 +9,15 @@
   "id": "zaq-jrg.39",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Enabled connect_credential_notifications on the existing runtime Oban instance, documented exhausted-job inspection/replay, and covered retry, discard, and successful Oban.retry_job/1 replay with stable event_id. Validation: mix q passed; focused Agent/NodeRouter/Connect suite passed (2085 tests); full stale suite passed serially (9504 tests); final mix precommit passed with no stale tests.",
+      "timestamp": "2026-09-19T16:53:32Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-jrg] Validate and enable Agent credential notifications",
   "type": "task",
-  "updated_at": "2026-09-19T13:18:04Z"
+  "updated_at": "2026-09-19T16:53:32Z"
 }
