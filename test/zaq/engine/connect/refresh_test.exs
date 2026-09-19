@@ -3,7 +3,7 @@ defmodule Zaq.Engine.Connect.RefreshTest do
   use ExUnitProperties
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Credential, Grant}
+  alias Zaq.Engine.Connect.{Credential, Grant, GrantRefreshWorker}
   alias Zaq.System.SecretConfig
   alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP}
 
@@ -120,7 +120,14 @@ defmodule Zaq.Engine.Connect.RefreshTest do
             Req.Test.transport_error(conn, :timeout)
 
           :unauthorized ->
-            conn |> Plug.Conn.put_status(401) |> Req.Test.json(%{"secret" => "never-expose"})
+            conn
+            |> Plug.Conn.put_status(401)
+            |> Req.Test.json(%{
+              "error" => %{
+                "code" => "secret_token_value",
+                "message" => "never-expose"
+              }
+            })
 
           :malformed ->
             Req.Test.json(conn, %{"access_token" => ["never-expose"]})
@@ -128,10 +135,39 @@ defmodule Zaq.Engine.Connect.RefreshTest do
       end)
 
       assert {:error, reason} = Connect.refresh_grant(grant, @opts)
-      assert reason in [:refresh_failed, :invalid_material, :invalid_refresh_response]
+
+      if unquote(response) == :unauthorized do
+        assert reason == {:oauth_refresh_failed, 401}
+      else
+        assert reason in [:refresh_failed, :invalid_material, :invalid_refresh_response]
+      end
+
       assert {:error, :refresh_busy} = Connect.refresh_grant(grant, @opts)
       assert Repo.get!(Grant, grant.id).access_token == "old-access"
     end
+  end
+
+  test "worker surfaces a safe provider refresh code without its response body", %{grant: grant} do
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      conn
+      |> Plug.Conn.put_status(401)
+      |> Req.Test.json(%{
+        "error" => %{
+          "code" => "refresh_token_reused",
+          "message" => "secret response detail",
+          "param" => "refresh_token"
+        }
+      })
+    end)
+
+    result =
+      GrantRefreshWorker.perform(%Oban.Job{args: %{"grant_id" => grant.id}}, @opts)
+
+    assert result ==
+             {:error, {:oauth_refresh_failed, 401, %{code: "refresh_token_reused"}}}
+
+    refute inspect(result) =~ "secret response detail"
+    refute inspect(result) =~ "param"
   end
 
   test "expired lease recovers without trusting old claim", %{grant: grant} do

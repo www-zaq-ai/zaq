@@ -232,6 +232,10 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
   defp refresh_reason(:revoked, _, _), do: :credential_revoked
   defp refresh_reason(:refresh_busy, _, _), do: :credential_refresh_busy
   defp refresh_reason(:refresh_failed, _, _), do: :credential_refresh_failed
+  defp refresh_reason({:oauth_refresh_failed, _status}, _, _), do: :credential_refresh_failed
+
+  defp refresh_reason({:oauth_refresh_failed, _status, %{code: _code}}, _, _),
+    do: :credential_refresh_failed
 
   defp refresh_reason(:authentication_required, grant, now) do
     if grant.status == "expired" or expired?(grant.expires_at, now),

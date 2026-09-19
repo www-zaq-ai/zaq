@@ -2,7 +2,7 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
   use ExUnit.Case, async: false
   import Ecto.Query
   alias Ecto.Adapters.SQL.Sandbox
-  alias Zaq.Accounts.{People, Person}
+  alias Zaq.Accounts.{People, PeoplePermissions, Person}
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{Credential, Grant, GrantRefreshWorker}
   alias Zaq.Engine.Connect.OAuthAttempts
@@ -10,7 +10,8 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
   alias Zaq.System.AIProviderCredential
   alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}
 
-  @opts [config: ConnectOAuthAttemptConfig]
+  @now ~U[2026-09-19 09:00:00Z]
+  @opts [config: ConnectOAuthAttemptConfig, now: @now]
   setup {Req.Test, :verify_on_exit!}
 
   for mutation <- [
@@ -64,8 +65,27 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
           {person, other, credential, grant}
         end)
 
+      permissions_to_restore =
+        if unquote(mutation) == :reauthorize do
+          Sandbox.unboxed_run(Repo, fn ->
+            everyone_id = People.everyone_team().id
+
+            for permission <- [:access_profile, :manage_credentials],
+                not Enum.any?(PeoplePermissions.list_grants(), fn grant ->
+                  grant.scope_id == everyone_id and grant.permission == to_string(permission)
+                end),
+                do: permission
+          end)
+        else
+          []
+        end
+
       on_exit(fn ->
         Sandbox.unboxed_run(Repo, fn ->
+          for permission <- permissions_to_restore do
+            PeoplePermissions.revoke(:everyone, permission)
+          end
+
           Repo.delete_all(
             from ai in AIProviderCredential,
               where: ai.connect_credential_id == ^credential.id
@@ -145,6 +165,10 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
                        %{"state" => state, "code" => "reauth-code"},
                        @opts
                      )
+
+            for permission <- permissions_to_restore do
+              assert {:ok, 1} = PeoplePermissions.revoke(:everyone, permission)
+            end
 
           :credential_delete ->
             assert {:ok, _} = Connect.delete_credential(credential)
