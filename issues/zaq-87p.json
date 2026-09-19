@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-19T15:49:14Z",
+  "description": "Land the CardShell required-slot test repair and unique DOM-ID ownership fix. Preserve styling, destinations, slot behavior, and Channels interactions. Action reuse: not applicable — this changes presentation rendering and tests only; no executable business operation, Action, tool, workflow, or dispatch boundary is affected. E2E: no new E2E needed because component and LiveView tests directly exercise the regressions.",
+  "id": "zaq-87p",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Fix CardShell rendering regressions",
+  "type": "epic",
+  "updated_at": "2026-09-19T15:49:14Z"
+}
