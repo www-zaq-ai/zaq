@@ -58,7 +58,8 @@ defmodule Zaq.Agent.Factory do
   }
 
   alias Zaq.Agent.Tools.Registry
-  alias Zaq.Identity.ExecutionActor
+  alias Zaq.Engine.Connect
+  alias Zaq.Identity.{ActorNormalizer, ExecutionActor}
   alias Zaq.System
 
   def strategy_opts do
@@ -119,11 +120,15 @@ defmodule Zaq.Agent.Factory do
   Returns `{:ok, %{tools: [...], llm_opts: [...], system_prompt: binary()}}` or
   `{:error, reason}` if tool resolution fails.
 
-  This is the fallback path used by `ask_with_config/4` when the live server has no cached
-  `runtime_config` in its state (e.g. first call after a cold start).
+  This path is for structural inspection only. Live execution uses the immutable runtime
+  configuration cached when `ServerManager` creates the server.
   """
   @spec runtime_config(ConfiguredAgent.t()) :: {:ok, map()} | {:error, term()}
   def runtime_config(%ConfiguredAgent{} = configured_agent) do
+    build_runtime_config(configured_agent, ProviderSpec.llm_opts(configured_agent))
+  end
+
+  defp build_runtime_config(%ConfiguredAgent{} = configured_agent, llm_opts) do
     skills = Skills.enabled_for_agent(configured_agent)
 
     with {:ok, skill_integration} <- skill_runtime_integration(skills),
@@ -134,7 +139,7 @@ defmodule Zaq.Agent.Factory do
          tools: Enum.uniq(tools ++ skill_integration.tools),
          # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
          # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
-         llm_opts: Keyword.merge(generation_opts(), ProviderSpec.llm_opts(configured_agent)),
+         llm_opts: Keyword.merge(generation_opts(), llm_opts),
          system_prompt: runtime_system_prompt(configured_agent, skill_integration),
          tool_context: skill_integration.tool_context,
          context_window: context_window_config(configured_agent)
@@ -145,17 +150,66 @@ defmodule Zaq.Agent.Factory do
   @doc """
   Builds lifecycle runtime configuration with an explicit, validated execution actor.
   The actor is retained independently from per-request tool context. `runtime_config/1`
-  remains available for structural configuration inspection and legacy runtime fallback.
+  remains available for structural configuration inspection.
   """
   @spec runtime_config(ConfiguredAgent.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def runtime_config(%ConfiguredAgent{} = configured_agent, opts) do
     with {:ok, actor} <- ExecutionActor.validate(Keyword.get(opts, :actor)),
-         {:ok, config} <- runtime_config(configured_agent) do
+         {:ok, resolved} <- resolve_authentication(configured_agent, actor, opts),
+         {:ok, llm_opts} <- resolved_llm_opts(configured_agent, resolved),
+         {:ok, config} <- build_runtime_config(configured_agent, llm_opts) do
       {:ok,
        config
        |> Map.put(:execution_actor, actor)
+       |> put_credential_dependency(resolved, actor)
        |> Map.update!(:tool_context, &Map.put(&1, :actor, actor))}
     end
+  end
+
+  defp resolve_authentication(%ConfiguredAgent{} = configured_agent, actor, opts) do
+    credential =
+      case configured_agent.credential do
+        %System.AIProviderCredential{} = attached -> attached
+        _ -> load_ai_credential(configured_agent.credential_id)
+      end
+
+    case credential do
+      nil ->
+        {:ok, nil}
+
+      %{connect_credential_id: id} when is_integer(id) ->
+        connect_module = Keyword.get(opts, :connect_module, Connect)
+        connect_module.resolve_credential(id, actor)
+
+      %System.AIProviderCredential{} ->
+        {:error, %{credential_id: nil, reason: :credential_unavailable}}
+
+      %{} ->
+        {:ok, nil}
+
+      _ ->
+        {:error, %{credential_id: nil, reason: :credential_unavailable}}
+    end
+  end
+
+  defp load_ai_credential(id) when is_integer(id), do: System.get_ai_provider_credential(id)
+  defp load_ai_credential(_), do: nil
+
+  defp resolved_llm_opts(configured_agent, nil),
+    do: ProviderSpec.llm_opts(configured_agent, nil)
+
+  defp resolved_llm_opts(configured_agent, resolved),
+    do: ProviderSpec.llm_opts(configured_agent, resolved)
+
+  defp put_credential_dependency(config, nil, _actor), do: config
+
+  defp put_credential_dependency(config, resolved, actor) do
+    Map.put(config, :credential_dependency, %{
+      credential_id: resolved.credential_id,
+      effective_person_id: ActorNormalizer.person_id(actor),
+      grant_id: resolved.grant_id,
+      expires_at: resolved.expires_at
+    })
   end
 
   defp skill_runtime_integration([]), do: {:ok, %{tools: [], index: "", tool_context: %{}}}
@@ -272,8 +326,10 @@ defmodule Zaq.Agent.Factory do
       when is_binary(query) do
     skills = Skills.enabled_for_agent(configured_agent)
 
-    with {:ok, config} <- server_runtime_config(server, configured_agent),
+    with {:ok, _tools} <-
+           Registry.resolve_modules(Skills.provisioned_tool_keys(configured_agent, skills)),
          {:ok, skill_integration} <- skill_runtime_integration(skills),
+         {:ok, config} <- server_runtime_config(server, configured_agent),
          :ok <- ensure_native_skill_tools_registered(server, skill_integration),
          prompt <- runtime_system_prompt(configured_agent, skill_integration),
          :ok <- ensure_system_prompt(server, prompt) do
@@ -356,16 +412,13 @@ defmodule Zaq.Agent.Factory do
   def await(%{request: request}, opts), do: await(request, opts)
   def await(request, opts), do: super(request, opts)
 
-  defp server_runtime_config(server, configured_agent) do
+  defp server_runtime_config(server, _configured_agent) do
     case Jido.AgentServer.status(server) do
       {:ok, %{raw_state: %{runtime_config: %{} = config}}} ->
         {:ok, config}
 
-      {:ok, %{raw_state: %{execution_actor: actor}}} ->
-        runtime_config(configured_agent, actor: actor)
-
       _ ->
-        runtime_config(configured_agent)
+        {:error, :missing_runtime_config}
     end
   end
 

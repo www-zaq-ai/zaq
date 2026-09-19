@@ -12,23 +12,18 @@ defmodule Zaq.Engine.Connect.MutationEvents do
   must use these persistence functions rather than enqueue after committing. Test
   callers must use manual Oban, since inline execution precedes commit.
 
-  The dedicated queue is deliberately unconsumed until an actual Agent receiver and
-  owning-node fanout ship. Delivery is synchronous and only explicit `:ok` succeeds;
-  this is not consumer acknowledgment or a fanout guarantee. Retries retain the UUID,
-  may duplicate or reorder events, and future consumers must read current state.
-  Activation must explicitly address backlog retention/replay and exhausted jobs;
-  there is no silent pruning or historical replay guarantee here.
+  The existing worker fans out synchronously through `NodeRouter` to every discovered
+  Agent node. Every local receiver must acknowledge after `ServerManager` fences matching
+  runtimes; partial delivery fails for durable Oban retry. Retries retain the UUID and may
+  duplicate or reorder events, so invalidation is idempotent and state-independent.
   """
 
   import Ecto.Query
   alias Ecto.Changeset
   alias Zaq.Agent.Events
+  alias Zaq.Contracts.CredentialMutation
   alias Zaq.Engine.Connect.{Credential, Grant, MutationEventWorker}
   alias Zaq.Repo
-
-  @credential_kinds ~w(credential_created credential_updated credential_deleted)
-  @grant_kinds ~w(grant_created grant_replaced grant_revoked grant_deleted grant_tokens_updated)
-  @keys ~w(version event_id credential_id grant_id owner_type owner_id kind occurred_at)
 
   @doc "Persists a Connect changeset and its notification atomically; empty updates are silent."
   @spec persist(Changeset.t(), String.t()) :: {:ok, Credential.t() | Grant.t()} | {:error, term()}
@@ -106,64 +101,32 @@ defmodule Zaq.Engine.Connect.MutationEvents do
 
   @doc "Validates the complete durable allowlist before dispatch, rejecting additional keys."
   @spec validate(term()) :: :ok | {:error, :invalid_mutation_event}
-  def validate(
-        %{
-          "version" => 1,
-          "event_id" => event_id,
-          "credential_id" => id,
-          "occurred_at" => timestamp
-        } = payload
-      )
-      when map_size(payload) == 8 do
-    with true <- Enum.all?(@keys, &Map.has_key?(payload, &1)),
-         true <- positive_id?(id),
-         {:ok, ^event_id} <- Ecto.UUID.cast(event_id),
-         true <- is_binary(timestamp),
-         {:ok, _, 0} <- DateTime.from_iso8601(timestamp),
-         true <- valid_identity?(payload) do
-      :ok
-    else
-      _ -> {:error, :invalid_mutation_event}
-    end
-  end
-
-  def validate(_), do: {:error, :invalid_mutation_event}
-
-  defp valid_identity?(%{
-         "kind" => kind,
-         "grant_id" => nil,
-         "owner_type" => nil,
-         "owner_id" => nil
-       }),
-       do: kind in @credential_kinds
-
-  defp valid_identity?(%{
-         "kind" => kind,
-         "grant_id" => id,
-         "owner_type" => owner,
-         "owner_id" => owner_id
-       }) do
-    kind in @grant_kinds and positive_id?(id) and
-      ((owner in ["org", "user"] and (is_nil(owner_id) or is_integer(owner_id))) or
-         (owner == "person" and positive_id?(owner_id)))
-  end
-
-  defp positive_id?(id), do: is_integer(id) and id > 0
+  defdelegate validate(payload), to: CredentialMutation
 
   @doc "Synchronously delivers a validated notification through the existing Agent routing boundary."
   @spec deliver(term(), keyword()) :: :ok | {:error, atom()}
   def deliver(payload, opts \\ []) do
     with :ok <- validate(payload) do
-      case Events.build_and_dispatch_invoke_event(payload, :connect_credential_mutated,
-             node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter)
-           ) do
-        %Zaq.Event{response: :ok} -> :ok
-        _ -> {:error, :mutation_event_delivery_failed}
+      event = Events.build_invoke_event(payload, :connect_credential_mutated)
+      node_router = Keyword.get(opts, :node_router, Zaq.NodeRouter)
+
+      case node_router.dispatch_all(event) do
+        {:ok, acknowledgments} when acknowledgments != [] ->
+          delivery_result(acknowledgments)
+
+        _ ->
+          {:error, :mutation_event_delivery_failed}
       end
     end
   rescue
     _ -> {:error, :mutation_event_delivery_failed}
   catch
     _, _ -> {:error, :mutation_event_delivery_failed}
+  end
+
+  defp delivery_result(acknowledgments) do
+    if Enum.all?(acknowledgments, &match?(%Zaq.Event{response: :ok}, &1)),
+      do: :ok,
+      else: {:error, :mutation_event_delivery_failed}
   end
 end

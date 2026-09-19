@@ -60,7 +60,7 @@ defmodule Zaq.Materialization do
     do: {:error, :invalid_materialization_locator}
 
   defp materialization_options(handler) do
-    if function_exported?(handler, :materialization_options, 0),
+    if Code.ensure_loaded?(handler) and function_exported?(handler, :materialization_options, 0),
       do: handler.materialization_options(),
       else: []
   end

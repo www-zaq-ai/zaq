@@ -56,6 +56,13 @@ defmodule Zaq.Agent.ApiTest do
     def mcp_endpoint_updated(_request), do: {:error, :mcp_failed}
   end
 
+  defmodule StubCredentialServerManager do
+    def invalidate_credential(notification) do
+      send(self(), {:credential_invalidated, notification})
+      :ok
+    end
+  end
+
   defmodule StubFactory do
     def steer(server_id, content, opts) do
       send(self(), {:steer_called, server_id, content, opts})
@@ -1063,6 +1070,37 @@ defmodule Zaq.Agent.ApiTest do
     result = Api.handle_event(event, :invoke, nil)
 
     assert result.response == "HI"
+  end
+
+  test "credential mutation receiver validates and synchronously acknowledges local invalidation" do
+    payload = %{
+      "version" => 1,
+      "event_id" => Ecto.UUID.generate(),
+      "credential_id" => 12,
+      "grant_id" => 34,
+      "owner_type" => "person",
+      "owner_id" => 56,
+      "kind" => "grant_replaced",
+      "occurred_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+    }
+
+    event =
+      Event.new(payload, :agent,
+        opts: [
+          action: :connect_credential_mutated,
+          server_manager_module: StubCredentialServerManager
+        ]
+      )
+
+    assert Api.handle_event(event, :connect_credential_mutated, nil).response == :ok
+    assert_received {:credential_invalidated, ^payload}
+
+    invalid = Map.put(payload, "credential_id", nil)
+
+    assert Api.handle_event(%{event | request: invalid}, :connect_credential_mutated, nil).response ==
+             {:error, {:invalid_request, :invalid_mutation_event}}
+
+    refute_received {:credential_invalidated, ^invalid}
   end
 
   test "returns unsupported action" do

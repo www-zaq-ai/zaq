@@ -11,6 +11,7 @@ defmodule Zaq.Agent.ProviderSpec do
   """
 
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Engine.Connect.ResolvedCredential
   alias Zaq.System
   alias Zaq.Utils.Map, as: MapUtils
   require Logger
@@ -103,9 +104,7 @@ defmodule Zaq.Agent.ProviderSpec do
 
   @spec build(ConfiguredAgent.t()) :: {:ok, map()} | {:error, atom()}
   def build(%ConfiguredAgent{} = configured_agent) do
-    credential =
-      configured_agent.credential ||
-        Zaq.System.get_ai_provider_credential(configured_agent.credential_id)
+    credential = resolve_credential(configured_agent)
 
     with {:ok, runtime_provider} <- resolve_configured_provider(configured_agent, credential) do
       spec = %{provider: runtime_provider, id: configured_agent.model}
@@ -219,6 +218,53 @@ defmodule Zaq.Agent.ProviderSpec do
   end
 
   @doc """
+  Builds ReqLLM options from one already-resolved Connect authentication result.
+
+  This lifecycle entrypoint translates authentication only. Connect remains
+  responsible for selecting the effective Person or org grant.
+  """
+  @spec llm_opts(ConfiguredAgent.t(), ResolvedCredential.t() | nil) ::
+          {:ok, keyword()} | {:error, {:unsupported_ai_authentication, String.t()}}
+  def llm_opts(%ConfiguredAgent{} = configured_agent, nil) do
+    {:ok, advanced_options_as_keyword(configured_agent)}
+  end
+
+  def llm_opts(%ConfiguredAgent{} = configured_agent, %ResolvedCredential{} = resolved) do
+    credential = resolve_credential(configured_agent)
+    base_opts = advanced_options_as_keyword(configured_agent)
+
+    case resolved.auth_kind do
+      "api_key" ->
+        {:ok,
+         put_credential_opts(base_opts, %{
+           provider: credential_value(credential, :provider),
+           endpoint: credential_value(credential, :endpoint),
+           api_key: resolved.authentication.api_key
+         })}
+
+      "oauth2" ->
+        {:ok,
+         put_credential_opts(base_opts, %{
+           provider: credential_value(credential, :provider),
+           endpoint: credential_value(credential, :endpoint),
+           metadata: credential_metadata(credential),
+           api_key: resolved.authentication.access_token,
+           access_token: resolved.authentication.access_token
+         })}
+
+      "none" ->
+        {:ok,
+         put_credential_opts(base_opts, %{
+           provider: credential_value(credential, :provider),
+           endpoint: credential_value(credential, :endpoint)
+         })}
+
+      unsupported ->
+        {:error, {:unsupported_ai_authentication, unsupported}}
+    end
+  end
+
+  @doc """
   Builds ReqLLM keyword opts from one AI provider credential.
   """
   @spec credential_opts(Zaq.System.AIProviderCredential.t() | map() | nil) :: keyword()
@@ -238,7 +284,7 @@ defmodule Zaq.Agent.ProviderSpec do
   defp put_credential_opts(opts, credential) do
     opts
     |> maybe_put(:api_key, credential_api_key(credential))
-    |> maybe_put(:base_url, credential && credential.endpoint)
+    |> maybe_put(:base_url, credential_value(credential, :endpoint))
   end
 
   defp credential_oauth_token(%Zaq.System.AIProviderCredential{} = credential),
@@ -283,13 +329,22 @@ defmodule Zaq.Agent.ProviderSpec do
     end
   end
 
-  defp resolve_credential(%ConfiguredAgent{credential: credential}) when not is_nil(credential),
-    do: credential
+  defp resolve_credential(%ConfiguredAgent{
+         credential: %System.AIProviderCredential{} = credential
+       }),
+       do: credential
+
+  defp resolve_credential(%ConfiguredAgent{credential: credential})
+       when is_map(credential) and not is_struct(credential),
+       do: credential
 
   defp resolve_credential(%ConfiguredAgent{credential_id: id}) when is_integer(id),
     do: Zaq.System.get_ai_provider_credential(id)
 
   defp resolve_credential(_), do: nil
+
+  defp credential_value(credential, key) when is_map(credential), do: Map.get(credential, key)
+  defp credential_value(_, _), do: nil
 
   defp advanced_options_as_keyword(%ConfiguredAgent{advanced_options: options})
        when is_map(options) do

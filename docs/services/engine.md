@@ -304,31 +304,45 @@ cleanup enqueue nothing; replacements and forced secret erasure remain observabl
 Delegated configuration saves emit one credential event and, when replaced, one grant
 event, rather than duplicate credential notifications.
 
-`MutationEventWorker` uses queue **`connect_credential_notifications`**, three attempts
-and Oban's default jittered exponential backoff. Jobs are **always enqueued**, but this
-queue is deliberately absent from **all dev/production role consumers**. Do not enable
-it until the actual Agent receiver and owning-node fanout exist. Test configuration
-uses manual Oban: inline execution would dispatch before commit. Other tests needing
-inline workers must scope that execution explicitly. The E2E server (`E2E=1`) uses
-real asynchronous queues (`testing: :disabled`), still excluding notifications.
+`MutationEventWorker` consumes queue **`connect_credential_notifications`** at concurrency
+one, with three attempts and Oban's default jittered exponential backoff. Test
+configuration remains manual because inline execution would dispatch before commit.
 
-`MutationEvents.deliver/2` validates the complete payload and synchronously invokes
-`Agent.Events.build_and_dispatch_invoke_event/3` with action
-`:connect_credential_mutated` (existing `node_router:` helper override is supported).
-Only the returned Event's `response: :ok` counts as delivery. Unsupported action,
-unavailable service, RPC failures, unexpected responses, exceptions, exits and throws
-return fixed safe errors; provider responses and exception messages are not logged or
-stored in Oban errors. Current default Agent routing returns unsupported; no stub
-receiver ships. NodeRouter's existing workflow stream sees the same safe request.
+`MutationEvents.deliver/2` validates the complete payload, builds the existing synchronous
+`:connect_credential_mutated` Agent event, and calls `NodeRouter.dispatch_all/1`. NodeRouter
+discovers every currently connected Agent-role owner, applies a 30-second bound to each
+remote RPC, and returns one acknowledgment per target. Zero targets, failed discovery,
+lost acknowledgments, partial application failures, unexpected responses, exceptions,
+exits, and throws all become fixed delivery errors so Oban retries the original job.
+The Agent receiver validates again and synchronously calls its local `ServerManager`;
+only acknowledgment after local admission fencing and stop/drain application is success.
 
-Delivery attempts are at-least-once, may duplicate and arrive out of order, and stop
-after bounded retries. UUIDs allow future deduplication; timestamps are not ordering
-revisions. Future consumers must re-read current state. A successful single NodeRouter
-invocation is **neither all-node fanout nor consumer acknowledgment**. Activation must
-define backlog retention/replay, explicit handling/retry of discarded jobs, missed-event
-reconciliation and the server-creation/invalidation race. There is no automatic pruner
-for these jobs today; do not silently delete old dead jobs when activating the queue.
-Retention is not an indefinite historical replay guarantee.
+Delivery remains at-least-once: duplicate and reordered notifications safely reapply
+state-independent invalidation. The synchronous ServerManager mailbox orders delivered
+invalidation against startup and dependency registration. Mutation-commit-to-processing
+latency is accepted, and already-issued provider calls cannot be recalled.
+
+Discarded jobs remain visible in `oban_jobs` with their safe fixed errors. Operators inspect
+and replay them in a remote console using existing Oban APIs:
+
+```elixir
+import Ecto.Query
+
+jobs =
+  Zaq.Repo.all(
+    from j in Oban.Job,
+      where: j.queue == "connect_credential_notifications" and j.state == "discarded"
+  )
+
+Enum.each(jobs, &Oban.retry_job/1)
+```
+
+Confirm Agent-node discovery/connectivity before replay. Fanout covers discovered nodes
+only; it does not guarantee delivery to an undiscovered or partitioned owner. There is no
+bounded stale-authentication guarantee during those gaps or after exhausted retries.
+Infrastructure issue #775 owns authoritative membership, partition admission policy, and
+recovery before a node resumes service; it must use replay or service-specific state reset,
+not heartbeat presence alone.
 
 #### Privileged runtime credential resolution (`zaq-jrg.4`)
 

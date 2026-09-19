@@ -24,13 +24,13 @@ defmodule Zaq.Engine.Connect.MutationEventWorkerTest do
   test "retry and duplicate attempts dispatch the same secret-free synchronous event" do
     args = payload()
 
-    expect(Zaq.NodeRouterMock, :dispatch, 2, fn event ->
+    expect(Zaq.NodeRouterMock, :dispatch_all, 2, fn event ->
       assert event.request == args
       assert event.next_hop.destination == :agent
       assert event.next_hop.type == :sync
       assert event.opts == [action: :connect_credential_mutated]
       assert event.actor == nil
-      %{event | response: :ok}
+      {:ok, [%{event | response: :ok}]}
     end)
 
     assert :ok = MutationEvents.deliver(args, node_router: Zaq.NodeRouterMock)
@@ -46,7 +46,9 @@ defmodule Zaq.Engine.Connect.MutationEventWorkerTest do
           {:error, {:rpc_failed, :node, "SECRET"}},
           "SECRET"
         ] do
-      expect(Zaq.NodeRouterMock, :dispatch, fn event -> %{event | response: response} end)
+      expect(Zaq.NodeRouterMock, :dispatch_all, fn event ->
+        {:ok, [%{event | response: response}]}
+      end)
 
       log =
         capture_log(fn ->
@@ -58,7 +60,7 @@ defmodule Zaq.Engine.Connect.MutationEventWorkerTest do
     end
 
     for failure <- [fn -> raise "SECRET" end, fn -> exit("SECRET") end, fn -> throw("SECRET") end] do
-      expect(Zaq.NodeRouterMock, :dispatch, fn _ -> failure.() end)
+      expect(Zaq.NodeRouterMock, :dispatch_all, fn _ -> failure.() end)
 
       refute capture_log(fn ->
                assert {:error, :mutation_event_delivery_failed} =
@@ -67,12 +69,35 @@ defmodule Zaq.Engine.Connect.MutationEventWorkerTest do
     end
   end
 
-  test "default routing reaches actual unsupported Agent action and workflow stream contains only safe payload" do
+  test "partial delivery, lost acknowledgments, and zero targets remain retryable failures" do
+    expect(Zaq.NodeRouterMock, :dispatch_all, fn event ->
+      {:ok,
+       [
+         %{event | response: :ok},
+         %{event | response: {:error, {:rpc_failed, :remote, :timeout}}}
+       ]}
+    end)
+
+    assert {:error, :mutation_event_delivery_failed} =
+             MutationEvents.deliver(payload(), node_router: Zaq.NodeRouterMock)
+
+    for failure <- [
+          {:error, {:node_discovery_failed, :remote}},
+          {:error, {:service_unavailable, :agent}}
+        ] do
+      expect(Zaq.NodeRouterMock, :dispatch_all, fn _event -> failure end)
+
+      assert {:error, :mutation_event_delivery_failed} =
+               MutationEvents.deliver(payload(), node_router: Zaq.NodeRouterMock)
+    end
+  end
+
+  test "default routing reaches the local Agent receiver and workflow stream contains only safe payload" do
     Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
     args = payload()
     event = Events.build_and_dispatch_invoke_event(args, :connect_credential_mutated)
-    assert event.response == {:error, {:unsupported_action, :connect_credential_mutated}}
-    assert {:error, :mutation_event_delivery_failed} = perform_job(MutationEventWorker, args)
+    assert event.response == :ok
+    assert :ok = perform_job(MutationEventWorker, args)
     assert_receive {:node_router_event, %{request: ^args}}
   end
 
@@ -96,7 +121,7 @@ defmodule Zaq.Engine.Connect.MutationEventWorkerTest do
   end
 
   test "real Oban retries retain UUID and eventually retain a discarded job with safe errors" do
-    args = payload()
+    args = Map.put(payload(), "credential_id", -1)
     queue = "connect-test-#{Ecto.UUID.generate()}"
     {:ok, job} = args |> MutationEventWorker.new(queue: queue) |> Oban.insert()
 
@@ -113,8 +138,38 @@ defmodule Zaq.Engine.Connect.MutationEventWorkerTest do
 
       assert Enum.all?(
                current.errors,
-               &String.contains?(&1["error"], "mutation_event_delivery_failed")
+               &String.contains?(&1["error"], "invalid_mutation_event")
              )
     end
+  end
+
+  test "an exhausted job can be replayed successfully without changing its event identity" do
+    args = payload()
+    queue = "connect-replay-test-#{Ecto.UUID.generate()}"
+    {:ok, job} = args |> MutationEventWorker.new(queue: queue) |> Oban.insert()
+
+    job =
+      job
+      |> Ecto.Changeset.change(state: "discarded", attempt: job.max_attempts)
+      |> Repo.update!()
+
+    assert :ok = Oban.retry_job(job)
+
+    retried = Repo.reload!(job)
+    assert retried.state == "available"
+    assert retried.args == args
+    assert retried.args["event_id"] == args["event_id"]
+    assert retried.max_attempts > retried.attempt
+
+    assert %{success: 1, failure: 0, discard: 0} = Oban.drain_queue(queue: queue)
+
+    completed = Repo.reload!(job)
+    assert completed.state == "completed"
+    assert completed.args["event_id"] == args["event_id"]
+  end
+
+  test "credential notification queue is enabled only on the existing Oban instance" do
+    queues = Application.fetch_env!(:zaq, Oban) |> Keyword.fetch!(:queues)
+    assert queues[:connect_credential_notifications] == 1
   end
 end

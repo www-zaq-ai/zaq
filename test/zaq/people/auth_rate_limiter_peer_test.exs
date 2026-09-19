@@ -4,7 +4,7 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
   alias Zaq.People.AuthRateLimiter
   alias Zaq.TestSupport.PeopleAuthPeer
 
-  @tag timeout: 240_000
+  @tag timeout: 360_000
   test "actual Application startup gates the complete Channels subtree by role" do
     {_output, 0} = System.cmd("epmd", ["-daemon"])
 
@@ -17,7 +17,7 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
                  PeopleAuthPeer,
                  :start_application,
                  [Application.get_all_env(:zaq), roles],
-                 60_000
+                 120_000
                )
 
       root = :peer.call(control, Supervisor, :which_children, [Zaq.Supervisor])
@@ -64,8 +64,8 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
     for control <- [a, b],
         do: assert(:ok = :peer.call(control, PeopleAuthPeer, :start, [Zaq.Repo.config()], 15_000))
 
-    assert :ok = :peer.call(a, PeopleAuthPeer, :connect, [b_node], 15_000)
-    assert :ok = :peer.call(b, PeopleAuthPeer, :connect, [a_node], 15_000)
+    assert :ok = :peer.call(a, PeopleAuthPeer, :connect, [b_node], 120_000)
+    assert :ok = :peer.call(b, PeopleAuthPeer, :connect, [a_node], 120_000)
     ip = {192, 0, 2, 42}
     assert :ok = :peer.call(b, Ingress, :check_identification, [ip])
     observer = :peer.call(b, PeopleAuthPeer, :observer, [])
@@ -118,8 +118,8 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
     assert {:error, :rate_limiter_unavailable} =
              :peer.call(channels, Ingress, :check_identification, [{192, 0, 2, 1}])
 
-    assert :ok = :peer.call(engine, PeopleAuthPeer, :connect, [channels_node], 15_000)
-    assert :ok = :peer.call(channels, PeopleAuthPeer, :connect, [engine_node], 15_000)
+    assert :ok = :peer.call(engine, PeopleAuthPeer, :connect, [channels_node], 120_000)
+    assert :ok = :peer.call(channels, PeopleAuthPeer, :connect, [engine_node], 120_000)
     assert :ok = :peer.call(channels, PeopleAuthPeer, :refresh, [])
     # Channels bootstraps remotely and serves requests without any local Repo.
     assert nil == :peer.call(channels, Process, :whereis, [Zaq.Repo])

@@ -6,6 +6,7 @@ defmodule Zaq.Agent.ProviderSpecTest do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.ResolvedCredential
 
   # Minimal ConfiguredAgent map used across tests — only the fields ProviderSpec touches.
   defp agent_base do
@@ -632,6 +633,55 @@ defmodule Zaq.Agent.ProviderSpecTest do
       agent = %{agent_base() | advanced_options: nil, credential: nil, credential_id: nil}
       opts = ProviderSpec.llm_opts(agent)
       assert opts == []
+    end
+  end
+
+  describe "llm_opts/2" do
+    test "translates one resolved Person authentication without consulting legacy secrets" do
+      credential = %{
+        provider: "openai",
+        endpoint: "https://person.example.com/v1",
+        api_key: "legacy-must-not-win"
+      }
+
+      agent = %{agent_base() | credential: credential}
+
+      resolved = %ResolvedCredential{
+        credential_id: 10,
+        grant_id: 20,
+        owner_type: "person",
+        owner_id: 30,
+        auth_kind: "api_key",
+        request_format: "bearer",
+        authentication: %{api_key: "person-key"}
+      }
+
+      assert {:ok, opts} = ProviderSpec.llm_opts(agent, resolved)
+      assert opts[:api_key] == "person-key"
+      assert opts[:base_url] == "https://person.example.com/v1"
+      refute opts[:api_key] == credential.api_key
+    end
+
+    test "rejects authentication kinds unsupported by the AI runtime" do
+      resolved = %ResolvedCredential{
+        credential_id: 10,
+        grant_id: 20,
+        owner_type: "org",
+        owner_id: nil,
+        auth_kind: "jwt_bearer",
+        request_format: "bearer",
+        authentication: %{
+          private_key: "private",
+          issuer: "issuer",
+          key_id: "key",
+          subject: nil,
+          scopes: [],
+          auth_profile_id: "service_account"
+        }
+      }
+
+      assert {:error, {:unsupported_ai_authentication, "jwt_bearer"}} =
+               ProviderSpec.llm_opts(agent_base(), resolved)
     end
   end
 end

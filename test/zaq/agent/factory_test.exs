@@ -7,6 +7,7 @@ defmodule Zaq.Agent.FactoryTest do
   alias Jido.AI.Actions.Skill.LoadSkill
   alias Jido.AI.Context, as: AIContext
   alias Jido.AI.Skill.Resources
+  alias Zaq.Accounts.Person
   alias Zaq.Agent
   alias Zaq.Agent.Answering
   alias Zaq.Agent.ConfiguredAgent
@@ -17,6 +18,7 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Agent.Tools.Web.Browsing
+  alias Zaq.Engine.Connect
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.TestSupport.OpenAIStub
 
@@ -33,6 +35,95 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert Map.delete(runtime, :execution_actor) ==
              Map.update!(structural, :tool_context, &Map.put(&1, :actor, @execution_actor))
+  end
+
+  test "lifecycle config resolves the effective Person grant once and records only dependency identity" do
+    person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Factory Person"}))
+
+    credential =
+      ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://person.example.com/v1",
+        api_key: "legacy-key"
+      })
+
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    assert {:ok, personal_grant} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, person.id},
+               %{api_key: "person-key"}
+             )
+
+    agent = %ConfiguredAgent{
+      job: "Lifecycle",
+      model: "gpt-4.1-mini",
+      enabled_tool_keys: [],
+      credential_id: credential.id,
+      credential: credential,
+      advanced_options: %{}
+    }
+
+    actor = %{person: %{id: person.id}}
+    assert {:ok, runtime} = Factory.runtime_config(agent, actor: actor)
+    assert runtime.llm_opts[:api_key] == "person-key"
+
+    assert runtime.credential_dependency == %{
+             credential_id: connect_credential.id,
+             effective_person_id: person.id,
+             grant_id: personal_grant.grant_id,
+             expires_at: nil
+           }
+
+    refute inspect(runtime.credential_dependency) =~ "person-key"
+  end
+
+  test "lifecycle config propagates Connect selection errors without a global fallback" do
+    person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Required Person"}))
+    credential = ai_credential_fixture(%{api_key: "legacy-key"})
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+
+    assert {:ok, _} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :required
+             })
+
+    agent = %ConfiguredAgent{
+      job: "Lifecycle",
+      model: "gpt-4.1-mini",
+      enabled_tool_keys: [],
+      credential_id: credential.id,
+      credential: credential,
+      advanced_options: %{}
+    }
+
+    assert {:error, %{credential_id: credential_id, reason: :personal_credential_required}} =
+             Factory.runtime_config(agent, actor: %{person: %{id: person.id}})
+
+    assert credential_id == connect_credential.id
+  end
+
+  test "lifecycle config loads an unloaded AI credential association before resolving" do
+    credential = ai_credential_fixture(%{api_key: "canonical-key"})
+
+    agent = %ConfiguredAgent{
+      job: "Lifecycle",
+      model: "gpt-4.1-mini",
+      enabled_tool_keys: [],
+      credential_id: credential.id,
+      advanced_options: %{}
+    }
+
+    assert %Ecto.Association.NotLoaded{} = agent.credential
+    assert {:ok, runtime} = Factory.runtime_config(agent, actor: @execution_actor)
+    assert runtime.llm_opts[:api_key] == "canonical-key"
+    assert runtime.credential_dependency.credential_id == credential.connect_credential_id
   end
 
   defmodule MCPProbeTool do
@@ -85,6 +176,18 @@ defmodule Zaq.Agent.FactoryTest do
       agent = Answering.answering_configured_agent()
 
       assert agent.model_max_context_tokens == 128_000
+    end
+
+    test "loads the canonical credential used by lifecycle authentication resolution" do
+      credential = seed_llm_config(%{api_key: "answering-key"})
+
+      agent = Answering.answering_configured_agent()
+
+      assert agent.credential_id == credential.id
+      assert agent.credential.id == credential.id
+      assert agent.credential.connect_credential_id == credential.connect_credential_id
+      assert {:ok, runtime} = Factory.runtime_config(agent, actor: @execution_actor)
+      assert runtime.llm_opts[:api_key] == "answering-key"
     end
   end
 
@@ -637,7 +740,27 @@ defmodule Zaq.Agent.FactoryTest do
     refute body =~ "New body."
   end
 
-  test "ask_with_config wraps native skill tool inspection errors" do
+  test "ask_with_config fails closed instead of rebuilding missing server runtime config" do
+    server =
+      start_supervised!(
+        {Jido.AgentServer,
+         agent: Factory,
+         jido: Zaq.Agent.Jido,
+         registry: Jido.registry_name(Zaq.Agent.Jido),
+         initial_state: %{execution_actor: @execution_actor}}
+      )
+
+    configured_agent = %ConfiguredAgent{
+      job: "No runtime fallback",
+      enabled_tool_keys: [],
+      credential: nil
+    }
+
+    assert {:error, :missing_runtime_config} =
+             Factory.ask_with_config(server, "hello", configured_agent)
+  end
+
+  test "ask_with_config fails before native skill inspection when runtime config is missing" do
     {:ok, skill} =
       Skills.create_skill(%{
         name: "tool-sync-skill",
@@ -653,9 +776,7 @@ defmodule Zaq.Agent.FactoryTest do
       credential: nil
     }
 
-    assert {:error, reason} = Jido.AI.list_tools(:missing_factory_server)
-
-    assert {:error, {:runtime_sync_check_failed, ^reason}} =
+    assert {:error, :missing_runtime_config} =
              Factory.ask_with_config(:missing_factory_server, "hello", configured_agent)
   end
 

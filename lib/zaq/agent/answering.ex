@@ -10,7 +10,6 @@ defmodule Zaq.Agent.Answering do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.ProviderSpec
   alias Zaq.System
-  alias Zaq.System.AIProviderCredential
 
   @answering_tools [
     Zaq.Agent.Tools.SearchKnowledgeBase,
@@ -64,13 +63,13 @@ defmodule Zaq.Agent.Answering do
       advanced_options: ProviderSpec.default_advanced_options(cfg),
       model: cfg.model,
       model_max_context_tokens: cfg.max_context_window,
-      credential: %AIProviderCredential{
-        provider: cfg.provider,
-        api_key: cfg.api_key,
-        endpoint: cfg.endpoint
-      }
+      credential_id: cfg.credential_id,
+      credential: load_credential(cfg.credential_id)
     }
   end
+
+  defp load_credential(id) when is_integer(id), do: System.get_ai_provider_credential(id)
+  defp load_credential(_), do: nil
 
   @doc """
   Renders the hardcoded answering system prompt.

@@ -19,6 +19,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
   import Zaq.SystemConfigFixtures
 
   alias Jido.AI.Context, as: AIContext
+  alias Zaq.Accounts.Person
   alias Zaq.Agent
   alias Zaq.Agent.Executor
   alias Zaq.Agent.ServerManager
@@ -209,6 +210,8 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
 
     start_supervised!(child)
     {unused_x, agent} = create_x_and_y(endpoint)
+    first_person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "First Actor"}))
+    second_person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Second Actor"}))
 
     on_exit(fn ->
       ServerManager.stop_server(unused_x)
@@ -233,8 +236,8 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
       })
 
     for actor <- [
-          %{person: %{id: 42}},
-          %{person: %{id: 43}},
+          %{person: %{id: first_person.id}},
+          %{person: %{id: second_person.id}},
           %{kind: :system, subject: "workflow-system-test"}
         ] do
       assert {:ok, run} = Workflows.create_and_start_run(workflow, source_event(actor))
@@ -362,6 +365,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
 
   test "T1: workflow → agent(X) → tool call run_agent(Y)" do
     {agent_x, agent_y} = setup_nested(self())
+    person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Workflow Actor"}))
 
     {:ok, workflow_b} =
       Workflows.create_workflow(%{
@@ -379,7 +383,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
         edges: []
       })
 
-    actor = %{person: %{id: 42}}
+    actor = %{person: %{id: person.id}}
     assert {:ok, run} = Workflows.create_and_start_run(workflow_b, source_event(actor))
     assert run.status == "completed"
 
@@ -405,6 +409,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
 
   test "T2: channel message → agent(X) → tool call run_agent(Y)" do
     {agent_x, agent_y} = setup_nested(self())
+    person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Channel Actor"}))
 
     # A channel-origin incoming (provider + person). The channel bridge ultimately
     # routes to Executor.run via :run_pipeline; we drive that directly so the
@@ -413,7 +418,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
       content: "consult Y for me",
       channel_id: "chan-1",
       provider: :web,
-      person: %{id: 7}
+      person: %{id: person.id}
     }
 
     outgoing = Executor.run(incoming, agent_id: to_string(agent_x.id))
@@ -429,10 +434,10 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     # distinct spawned servers — different names, so they cannot collide.
     assert [x_server] = server_ids_for(agent_x.name)
     assert [y_server] = server_ids_for(agent_y.name)
-    assert x_server == "#{agent_x.name}:scope:bo:person:7"
+    assert x_server == "#{agent_x.name}:scope:bo:person:#{person.id}"
     assert x_server != y_server
-    assert_server_actor(x_server, %{provider: :web, person: %{id: 7}})
-    assert_server_actor(y_server, %{provider: :web, person: %{id: 7}})
+    assert_server_actor(x_server, %{provider: :web, person: %{id: person.id}})
+    assert_server_actor(y_server, %{provider: :web, person: %{id: person.id}})
   end
 
   # Carrier through the agent-tool-call seam (Issue 1): when Agent X's LLM calls
@@ -449,6 +454,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     start_supervised!(child_spec)
 
     {agent_x, agent_y} = create_x_and_y(endpoint)
+    person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Carrier Actor"}))
     :atomics.put(y_id_ref, 1, agent_y.id)
 
     on_exit(fn ->
@@ -463,7 +469,7 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
       content: "consult Y for me",
       channel_id: "chan-1",
       provider: :web,
-      person: %{id: 7}
+      person: %{id: person.id}
     }
 
     # Route X's run through the capture router so the nested run_agent(Y) dispatch is
