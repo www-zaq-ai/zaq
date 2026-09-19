@@ -11,9 +11,15 @@
   "id": "zaq-jrg.38",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Added authentication-expiry fencing with incarnation-safe timers plus manager-restart cleanup of surviving runtime children. Covered future/past/no-expiry, stale callback, replacement, restart, and fresh lazy-resolution branches.",
+      "timestamp": "2026-09-19T16:53:32Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-jrg] Harden credential expiry and Agent manager restart",
   "type": "task",
-  "updated_at": "2026-09-19T13:18:04Z"
+  "updated_at": "2026-09-19T16:53:32Z"
 }
