@@ -7,9 +7,15 @@
   "id": "zaq-jrg.33",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented deterministic clock injection, explicit Everyone permission ownership cleanup for reauthorization, and self-contained People permission concurrency setup/restore. Exact seed 316490 focused command passes: 15 tests, 0 failures. Changes remain uncommitted per current-session authorization.",
+      "timestamp": "2026-09-19T10:01:49Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.33] Fix concurrency test isolation",
   "type": "task",
-  "updated_at": "2026-09-19T09:59:39Z"
+  "updated_at": "2026-09-19T10:01:49Z"
 }
