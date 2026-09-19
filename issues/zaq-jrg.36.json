@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.35"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.37"
+  ],
   "created": "2026-09-19T13:18:01Z",
   "description": "Functional specifications/files: Agent receiver/API and ServerManager; synchronously match credential/person/grant dependencies, fence before stop/drain acknowledgment, exclude draining reuse, lazy recreation, bounded drain and stale timer safety.\nTests first: startup-before/after invalidation ordering, Person targeting including global fallback, global/config invalidation, duplicate/reordered events, targeted shutdown, draining exclusion, lazy recreation.\nBranches: no matches, one/many matches, already draining/dead, stop failure.\nMocking: real manager/process lifecycle with deterministic barriers.\nDocs: Agent lifecycle and consistency boundary.\nAction reuse: extend ServerManager stop/drain and Agent event API; existing Oban job remains sole durability mechanism; no local queue or Action/tool.",
   "id": "zaq-jrg.36",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-jrg] Add synchronous local Agent credential invalidation",
   "type": "task",
-  "updated_at": "2026-09-19T13:18:02Z"
+  "updated_at": "2026-09-19T13:18:03Z"
 }
