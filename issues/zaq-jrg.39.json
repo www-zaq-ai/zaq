@@ -4,6 +4,8 @@
     "zaq-jrg.38"
   ],
   "blocks": [],
+  "closed_at": "2026-09-19T16:53:33Z",
+  "close_reason": "Implemented and validated",
   "created": "2026-09-19T13:18:02Z",
   "description": "Functional specifications/files: queue configuration, worker observability and operator replay docs; enable existing connect_credential_notifications queue only after receiver/fanout/retry tests pass; verify bounded OAuth/provider and GenServer/worker timeouts.\nTests first: exhausted job visibility and replay, configured queue consumption, timeout compatibility, full lifecycle regressions.\nBranches: exhausted/replayed/successful jobs and queue role configuration.\nMocking: existing Oban test infrastructure and injected edge timeouts.\nDocs: explicit Oban inspection/replay runbook, no bounded stale-auth guarantee across partitions; #775 owns cluster health/recovery.\nAction reuse: existing Oban queue/jobs and operational tooling only; no parallel scheduler or notification system.",
   "id": "zaq-jrg.39",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-jrg] Validate and enable Agent credential notifications",
   "type": "task",
-  "updated_at": "2026-09-19T16:53:32Z"
+  "updated_at": "2026-09-19T16:53:33Z"
 }
