@@ -6,9 +6,15 @@
   "description": "Fix Zaq.Agent.Skills.Validation so accepted skill bodies round-trip byte-for-byte through Jido. Tests first: deterministic leading/trailing Unicode and ASCII whitespace rejection, internal whitespace preservation, existing property unchanged, and Skill changeset integration. Implementation: extend Validation.round_trip_errors with the submitted body and compare spec.body_ref to {:inline, body}. Action reuse: local-only extension of lib/zaq/agent/skills/validation.ex; existing Validation.validate/2, round_trip_errors/5, field_mismatch/4, and Skill.validate_against_spec/1 are the applicable candidates. This pure internal fidelity check has no standalone Action contract, permissions, side effects, retries, agent-tool consumer, or workflow consumer; verify through validation/property/changeset tests. E2E not applicable because no UI or external execution path changes. Validate isolated tests and mix q; after review perform coverage handoff and final mix precommit per workflow.",
   "id": "zaq-gsq",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented on branch zaq-gsq/reject-lossy-skill-body. Added deterministic boundary-whitespace regressions (HAIR SPACE, ASCII space, tab, newline), internal-whitespace preservation tests, and Skill changeset coverage; preserved the property unchanged. Extended Validation.round_trip_errors to compare spec.body_ref with {:inline, body}. Adjusted the body-size test fixture to avoid an incidental trailing space. Validation: 103 isolated tests / 3 properties pass; mix q passes; git diff --check clean. Coverage handoff and final mix precommit remain deferred until the post-review final gate.",
+      "timestamp": "2026-09-19T18:24:44Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-gsq] Reject lossy Unicode whitespace in skill bodies",
   "type": "bug",
-  "updated_at": "2026-09-19T18:20:19Z"
+  "updated_at": "2026-09-19T18:24:44Z"
 }
