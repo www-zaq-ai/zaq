@@ -2,6 +2,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   use ZaqWeb.ConnCase, async: false
   use ExUnitProperties
 
+  import Ecto.Query
   import Mox
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
@@ -1966,6 +1967,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           name: "Primary",
           provider: "openai",
           endpoint: "https://api.openai.com/v1",
+          metadata: %{"auth_kind" => "none"},
           description: "main"
         })
 
@@ -2005,22 +2007,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       render_click(view, "connect_ai_credential_oauth", %{"id" => to_string(credential.id)})
 
-      connect_credential =
-        Connect.list_credentials()
-        |> Enum.find(fn connect_credential ->
-          connect_credential.metadata["ai_provider_credential_id"] == to_string(credential.id)
-        end)
+      connect_credential = Connect.get_credential!(credential.connect_credential_id)
 
       assert credential.provider == "openai_codex"
       assert connect_credential.provider == "openai"
       assert connect_credential.auth_kind == "oauth2"
       assert connect_credential.client_id == "app_EMoamEEZ73f0CkXaXp7hrann"
-
-      assert connect_credential.metadata["authorize_params"]["id_token_add_organizations"] ==
-               "true"
-
-      assert connect_credential.metadata["authorize_params"]["codex_cli_simplified_flow"] ==
-               "true"
 
       assert_push_event(view, "open_oauth_popup", %{url: url})
       assert url =~ "https://auth.openai.com/oauth/authorize"
@@ -2154,6 +2146,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           name: "Unsupported OAuth",
           provider: "openai",
           endpoint: "https://api.openai.com/v1",
+          api_key: "unsupported-oauth-key",
           metadata: %{
             "auth_kind" => "api_key",
             "client_id" => "client-id",
@@ -2204,7 +2197,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       :ok = System.set_global_base_url(previous_base_url)
     end
 
-    test "connect_ai_credential_oauth updates an existing backing Connect credential", %{
+    test "connect_ai_credential_oauth reuses the associated canonical Connect credential", %{
       conn: conn
     } do
       credential =
@@ -2223,22 +2216,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      {:ok, existing_connect_credential} =
-        Connect.create_credential(%{
-          name: "Existing AI OAuth backing credential",
-          provider: "openai",
-          auth_kind: "oauth2",
-          request_format: "bearer",
-          client_id: "old-client-id",
-          client_secret: "old-client-secret",
-          metadata: %{
-            "ai_provider_credential_id" => to_string(credential.id),
-            "managed_by" => "system_config_ai_provider",
-            "client_id" => "old-client-id",
-            "scope" => "old.scope"
-          },
-          scopes: ["old.scope"]
-        })
+      count_before = length(Connect.list_credentials())
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
@@ -2255,25 +2233,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "oauth-claim-modal"
 
-      connect_credentials =
-        Connect.list_credentials()
-        |> Enum.filter(fn connect_credential ->
-          connect_credential.metadata["ai_provider_credential_id"] == to_string(credential.id)
-        end)
+      assert length(Connect.list_credentials()) == count_before
 
-      assert length(connect_credentials) == 1
+      associated = Connect.get_credential!(credential.connect_credential_id)
+      assert associated.provider == "openai"
+      assert associated.auth_kind == "oauth2"
+      assert associated.client_id == "app_EMoamEEZ73f0CkXaXp7hrann"
+      assert associated.scopes == ["openid", "profile", "email", "offline_access"]
 
-      updated = hd(connect_credentials)
-      assert updated.id == existing_connect_credential.id
-      assert updated.name == "AI OAuth #{credential.id}: #{credential.name}"
-      assert updated.provider == "openai"
-      assert updated.auth_kind == "oauth2"
-      assert updated.request_format == "bearer"
-      assert updated.client_id == "app_EMoamEEZ73f0CkXaXp7hrann"
-      assert updated.scopes == ["openid", "profile", "email", "offline_access"]
-      assert updated.metadata["authorize_params"]["id_token_add_organizations"] == "true"
-      assert updated.metadata["authorize_params"]["codex_cli_simplified_flow"] == "true"
-      assert updated.metadata["managed_by"] == "system_config_ai_provider"
+      attempt =
+        Repo.one!(from a in Zaq.Engine.Connect.OAuthAttempt, order_by: [desc: a.inserted_at])
+
+      assert attempt.credential_id == associated.id
     end
 
     test "connect_ai_credential_oauth reports dispatch failures from the OAuth URL builder", %{
@@ -2293,16 +2264,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      {:ok, existing_connect_credential} =
-        Connect.create_credential(%{
-          name: "Existing OpenAI OAuth",
-          provider: "openai",
-          auth_kind: "oauth2",
-          request_format: "bearer",
-          client_id: "client-id",
-          client_secret: "client-secret",
-          metadata: %{"ai_provider_credential_id" => to_string(credential.id)}
-        })
+      associated_credential = Connect.get_credential!(credential.connect_credential_id)
 
       stub_fn = fn %Zaq.Event{} = event ->
         case event.opts[:action] do
@@ -2315,8 +2277,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           :system_config_get_ai_provider_credential ->
             %Zaq.Event{event | response: credential}
 
+          :connect_oauth_behaviours ->
+            %Zaq.Event{event | response: oauth_behaviour_entries()}
+
           :system_config_connect_list_credentials ->
-            %Zaq.Event{event | response: [existing_connect_credential]}
+            %Zaq.Event{event | response: [associated_credential]}
+
+          :connect_fetch_credential ->
+            %Zaq.Event{event | response: {:ok, associated_credential}}
 
           :system_config_connect_list_grants ->
             %Zaq.Event{event | response: []}
@@ -2330,10 +2298,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           :system_config_get_global_base_url ->
             %Zaq.Event{event | response: "https://zaq.example"}
 
-          :system_config_connect_update_credential ->
-            %Zaq.Event{event | response: {:ok, existing_connect_credential}}
-
-          :connect_oauth_build_authorize_url ->
+          :connect_oauth_start_global_configuration ->
             %Zaq.Event{event | response: {:error, :boom}}
 
           _ ->
@@ -2347,7 +2312,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
         case event.opts[:action] do
-          :connect_oauth_build_authorize_url ->
+          :connect_oauth_start_global_configuration ->
             %Zaq.Event{event | response: {:error, :boom}}
 
           _ ->
@@ -2427,7 +2392,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         System.create_ai_provider_credential(%{
           name: "LLM Credential",
           provider: "openai",
-          endpoint: "https://api.openai.com/v1"
+          endpoint: "https://api.openai.com/v1",
+          metadata: %{"auth_kind" => "none"}
         })
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
@@ -2815,7 +2781,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         System.create_ai_provider_credential(%{
           name: "Embedding Credential",
           provider: "openai",
-          endpoint: "https://api.openai.com/v1"
+          endpoint: "https://api.openai.com/v1",
+          metadata: %{"auth_kind" => "none"}
         })
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
@@ -3165,6 +3132,40 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "AI credentials" do
+    test "shows the canonical global OAuth grant for the associated Connect credential", %{
+      conn: conn
+    } do
+      credential =
+        ai_credential_fixture(%{
+          name: "Canonical Codex",
+          provider: "openai_codex",
+          endpoint: "https://chatgpt.com/backend-api",
+          metadata: %{
+            "auth_kind" => "oauth2",
+            "auth_profile" => "openai_chatgpt_codex",
+            "client_id" => "client-id"
+          }
+        })
+
+      connect_credential = Connect.get_credential!(credential.connect_credential_id)
+
+      assert {:ok, _result} =
+               Connect.replace_credential_grant(connect_credential, :org, %{
+                 access_token: "canonical-access-token",
+                 refresh_token: "canonical-refresh-token",
+                 expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+                 metadata: %{"chatgpt_account_id" => "account-123"}
+               })
+
+      {:ok, _view, html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      assert html =~ "Canonical Codex"
+      assert html =~ "Bearer until"
+      refute html =~ "No bearer grant"
+      refute html =~ "canonical-access-token"
+      refute html =~ "canonical-refresh-token"
+    end
+
     test "close_ai_credential_modal hides modal", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
@@ -3569,7 +3570,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         System.create_ai_provider_credential(%{
           name: "LLM Fusion Weights",
           provider: "openai",
-          endpoint: "https://api.openai.com/v1"
+          endpoint: "https://api.openai.com/v1",
+          metadata: %{"auth_kind" => "none"}
         })
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
@@ -4363,6 +4365,63 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "connect grants modal" do
+    test "lists a canonical OAuth grant without exposing its secrets", %{conn: conn} do
+      {:ok, credential} =
+        Connect.create_credential(%{
+          name: "Canonical OAuth #{:erlang.unique_integer([:positive])}",
+          provider: "openai",
+          auth_kind: "oauth2",
+          request_format: "bearer",
+          client_id: "cid",
+          client_secret: "csecret",
+          scopes: ["openid"],
+          secret_binding: :grant
+        })
+
+      assert {:ok, %{grant_id: grant_id}} =
+               Connect.replace_credential_grant(credential, :org, %{
+                 access_token: "canonical-access-token",
+                 refresh_token: "canonical-refresh-token",
+                 expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+               })
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      html =
+        view
+        |> element("button[phx-click='open_connect_grants'][phx-value-id='#{credential.id}']")
+        |> render_click()
+
+      assert html =~ "connect_credential:#{credential.id}"
+      assert html =~ "owner=org:nil"
+      assert html =~ "scopes: openid"
+
+      assert has_element?(
+               view,
+               "button[phx-click='trigger_connect_grant_refresh'][phx-value-id='#{grant_id}']"
+             )
+
+      refute html =~ "canonical-access-token"
+      refute html =~ "canonical-refresh-token"
+
+      html =
+        view
+        |> element(
+          "button[phx-click='trigger_connect_grant_refresh'][phx-value-id='#{grant_id}']"
+        )
+        |> render_click()
+
+      assert html =~ "Grant refresh queued."
+
+      html =
+        view
+        |> element("button[phx-click='delete_connect_grant'][phx-value-id='#{grant_id}']")
+        |> render_click()
+
+      assert html =~ "Grant erased."
+      refute Repo.get(Zaq.Engine.Connect.Grant, grant_id)
+    end
+
     test "edits connect credential from auth credentials tab", %{conn: conn} do
       {:ok, credential} =
         Connect.create_credential(%{
@@ -4371,7 +4430,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           auth_kind: "oauth2",
           request_format: "bearer",
           client_id: "cid",
-          client_secret: "csecret"
+          client_secret: "csecret",
+          metadata: %{"auth_profile" => "openai_chatgpt_codex"}
         })
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
@@ -4382,6 +4442,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert has_element?(view, "#edit-connect-credential-modal")
 
+      assert has_element?(
+               view,
+               "select[name='credential[metadata][auth_profile]'] option[value='openai_chatgpt_codex'][selected]"
+             )
+
       html =
         render_submit(view, "save_connect_credential", %{
           "credential" => %{
@@ -4391,7 +4456,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             "auth_kind" => "oauth2",
             "client_id" => "cid-updated",
             "client_secret" => "",
-            "scopes" => "scope.read, scope.write\nscope.admin"
+            "scopes" => "scope.read, scope.write\nscope.admin",
+            "metadata" => %{"auth_profile" => "openai_chatgpt_codex"}
           }
         })
 
@@ -4400,6 +4466,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       updated = Repo.get!(Zaq.Engine.Connect.Credential, credential.id)
       assert updated.scopes == ["scope.read", "scope.write", "scope.admin"]
+      assert updated.metadata["auth_profile"] == "openai_chatgpt_codex"
     end
 
     test "shows expired status, allows erase, and queues manual refresh", %{conn: conn} do
@@ -5415,6 +5482,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       stub_fn = fn %Zaq.Event{} = event ->
         case event.opts[:action] do
+          :connect_oauth_behaviours ->
+            %Zaq.Event{event | response: oauth_behaviour_entries()}
+
           :system_config_connect_list_credentials ->
             %Zaq.Event{event | response: [credential]}
 
@@ -5490,6 +5560,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       stub_fn = fn %Zaq.Event{} = event ->
         case event.opts[:action] do
+          :connect_oauth_behaviours ->
+            %Zaq.Event{event | response: oauth_behaviour_entries()}
+
           :system_config_connect_list_credentials ->
             %Zaq.Event{event | response: [credential]}
 
@@ -5548,6 +5621,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       stub_fn = fn %Zaq.Event{} = event ->
         case event.opts[:action] do
+          :connect_oauth_behaviours ->
+            %Zaq.Event{event | response: oauth_behaviour_entries()}
+
           :system_config_connect_list_credentials ->
             %Zaq.Event{event | response: [credential]}
 
@@ -5587,6 +5663,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       stub_fn = fn %Zaq.Event{} = event ->
         case event.opts[:action] do
+          :connect_oauth_behaviours ->
+            %Zaq.Event{event | response: oauth_behaviour_entries()}
+
           :system_config_connect_list_credentials ->
             %Zaq.Event{event | response: [credential]}
 
@@ -6095,6 +6174,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   defp stub_response_for_action(:system_config_list_ai_provider_credentials), do: []
+  defp stub_response_for_action(:connect_oauth_behaviours), do: oauth_behaviour_entries()
   defp stub_response_for_action(:system_config_connect_list_credentials), do: []
   defp stub_response_for_action(:system_config_agent_list_active_agents), do: []
   defp stub_response_for_action(:system_config_mcp_filter_endpoints), do: {stub_mcp_entries(), 1}
@@ -6250,6 +6330,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
               :system_config_change_ai_provider_credential,
               :system_config_list_ai_provider_credentials,
               :connect_list_grants,
+              :connect_oauth_behaviours,
               :system_config_connect_list_credentials,
               :system_config_connect_next_refresh_jobs_for_grants,
               :system_config_mcp_change_endpoint,
@@ -6297,6 +6378,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
        ),
        do: %Zaq.Event{event | response: System.get_skill_resource_config()}
 
+  defp skill_router_allowed_response(:connect_oauth_behaviours, %Zaq.Event{} = event),
+    do: %Zaq.Event{event | response: oauth_behaviour_entries()}
+
   defp skill_router_allowed_response(action, %Zaq.Event{} = event)
        when action in [
               :system_config_change_ai_provider_credential,
@@ -6326,6 +6410,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
          %Zaq.Event{} = event
        ),
        do: %Zaq.Event{event | response: %{}}
+
+  defp oauth_behaviour_entries do
+    [
+      %{
+        id: "standard",
+        title: "Standard OAuth2",
+        description: "Standards-compliant OAuth2 authorization, exchange, and refresh."
+      },
+      %{
+        id: "openai_chatgpt_codex",
+        title: "OpenAI Codex / ChatGPT",
+        description:
+          "ChatGPT subscription OAuth2 with Codex redirect, PKCE, and account metadata."
+      }
+    ]
+  end
 
   defp tmp_volume(name) do
     path =
@@ -7074,15 +7174,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       _html =
         render_click(view, "connect_ai_credential_oauth", %{"id" => to_string(credential.id)})
 
-      connect_credential =
-        Enum.find(
-          Connect.list_credentials(),
-          &(&1.metadata["ai_provider_credential_id"] == to_string(credential.id))
-        )
+      connect_credential = Connect.get_credential!(credential.connect_credential_id)
 
       assert connect_credential.provider == "openai"
       assert connect_credential.scopes == []
-      assert connect_credential.metadata["ai_provider_credential_id"] == to_string(credential.id)
       :ok = System.set_global_base_url(previous)
     end
 
@@ -7095,6 +7190,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           name: "Unsupported",
           provider: "openai",
           endpoint: "https://api.openai.com/v1",
+          api_key: "unsupported-oauth-key",
           metadata: %{"auth_kind" => "api_key"}
         })
 

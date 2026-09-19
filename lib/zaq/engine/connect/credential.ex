@@ -12,9 +12,10 @@ defmodule Zaq.Engine.Connect.Credential do
 
   import Ecto.Changeset
 
+  alias Zaq.Engine.Connect.OAuth.Registry, as: OAuthBehaviourRegistry
   alias Zaq.Utils.Map, as: MapUtils
 
-  @auth_kinds ~w(api_key oauth2 jwt_bearer)
+  @auth_kinds ~w(api_key oauth2 jwt_bearer none)
   @request_formats ~w(bearer raw)
 
   schema "connect_credentials" do
@@ -93,6 +94,7 @@ defmodule Zaq.Engine.Connect.Credential do
       name: :connect_credentials_personal_policy_check
     )
     |> check_constraint(:secret_binding, name: :connect_credentials_secret_binding_check)
+    |> check_constraint(:auth_kind, name: :connect_credentials_no_auth_check)
   end
 
   defp validate_auth_fields(changeset) do
@@ -101,6 +103,7 @@ defmodule Zaq.Engine.Connect.Credential do
         changeset
         |> validate_required([:client_id])
         |> validate_length(:client_id, min: 2, max: 255)
+        |> validate_oauth_behaviour()
 
       "api_key" ->
         changeset
@@ -113,6 +116,10 @@ defmodule Zaq.Engine.Connect.Credential do
         |> validate_length(:key_id, min: 2, max: 255)
         |> validate_metadata_auth_profile()
 
+      "none" ->
+        changeset
+        |> validate_no_auth_contract()
+
       _ ->
         changeset
     end
@@ -122,6 +129,17 @@ defmodule Zaq.Engine.Connect.Credential do
     if get_field(changeset, :secret_binding) == :grant,
       do: changeset,
       else: validate_required(changeset, [:private_key])
+  end
+
+  defp validate_oauth_behaviour(changeset) do
+    metadata = get_field(changeset, :metadata) || %{}
+    profile = MapUtils.read_any(metadata, ["auth_profile", :auth_profile])
+
+    if OAuthBehaviourRegistry.registered?(profile) do
+      changeset
+    else
+      add_error(changeset, :metadata, "auth_profile is not a registered OAuth behaviour")
+    end
   end
 
   defp validate_metadata_auth_profile(changeset) do
@@ -149,4 +167,17 @@ defmodule Zaq.Engine.Connect.Credential do
   end
 
   defp validate_delegation_subject(changeset, _profile, _subject), do: changeset
+
+  defp validate_no_auth_contract(changeset) do
+    invalid? =
+      get_field(changeset, :personal_credential_policy) != :disabled or
+        get_field(changeset, :secret_binding) != :configuration or
+        Enum.any?([:api_key, :client_id, :client_secret, :private_key], fn field ->
+          not is_nil(get_field(changeset, field))
+        end)
+
+    if invalid?,
+      do: add_error(changeset, :auth_kind, "none requires disabled, secret-free configuration"),
+      else: changeset
+  end
 end

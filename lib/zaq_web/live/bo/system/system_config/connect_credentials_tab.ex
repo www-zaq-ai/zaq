@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab do
   attr :credential_changeset, :any, required: true
   attr :credential_errors, :list, required: true
   attr :connect_default_scopes_text, :string, required: true
+  attr :oauth_behaviours, :list, required: true
 
   def panel(assigns) do
     ~H"""
@@ -107,7 +108,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab do
               expires: {if grant.expires_at, do: format_grant_datetime(grant.expires_at), else: "none"}
             </p>
             <button
-              :if={grant.refresh_token}
+              :if={refreshable?(grant)}
               type="button"
               phx-click="trigger_connect_grant_refresh"
               phx-value-id={grant.id}
@@ -147,6 +148,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab do
         submit_label="Save"
         restore_scopes_event="restore_connect_credential_scopes_defaults"
         default_scopes_text={@connect_default_scopes_text}
+        oauth_behaviours={@oauth_behaviours}
       />
     </BOModal.form_dialog>
     """
@@ -161,7 +163,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab do
   end
 
   defp next_refresh_label(refresh_schedule, grant) do
-    if grant.refresh_token do
+    if refreshable?(grant) do
       case Map.get(refresh_schedule, grant.id) do
         %DateTime{} = dt -> format_grant_datetime(dt)
         _ -> "none"
@@ -169,6 +171,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab do
     else
       "n/a"
     end
+  end
+
+  defp refreshable?(grant) do
+    Map.get(grant, :refreshable, not is_nil(Map.get(grant, :refresh_token)))
   end
 
   defp format_grant_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%SZ")

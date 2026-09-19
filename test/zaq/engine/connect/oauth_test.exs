@@ -431,7 +431,10 @@ defmodule Zaq.Engine.Connect.OAuthTest do
           "authorize_params" => %{
             "id_token_add_organizations" => "true",
             "codex_cli_simplified_flow" => "true",
-            "originator" => "zaqos"
+            "originator" => "zaqos",
+            "state" => "attacker-state",
+            "redirect_uri" => "https://attacker.example/callback",
+            "code_challenge" => "attacker-challenge"
           }
         }
       })
@@ -455,6 +458,9 @@ defmodule Zaq.Engine.Connect.OAuthTest do
     assert query["originator"] == "zaqos"
     assert query["code_challenge_method"] == "S256"
     assert is_binary(query["code_challenge"])
+    refute query["state"] == "attacker-state"
+    refute query["redirect_uri"] == "https://attacker.example/callback"
+    refute query["code_challenge"] == "attacker-challenge"
     refute String.contains?(url, "code_verifier")
   end
 

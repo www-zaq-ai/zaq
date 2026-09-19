@@ -29,6 +29,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: "OpenAI EU #{unique}",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
+               metadata: %{"auth_kind" => "none"},
                sovereign: true,
                description: "EU sovereign endpoint"
              })
@@ -49,7 +50,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                endpoint: "https://api.openai.com/v1",
                metadata: %{
                  "auth_kind" => "oauth2",
-                 "auth_profile" => "openai_chatgpt_codex"
+                 "auth_profile" => "openai_chatgpt_codex",
+                 "client_id" => "client-id"
                }
              })
 
@@ -176,7 +178,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
     assert loaded.endpoint == "https://api.openai.com/v3"
   end
 
-  test "resolve_ai_provider_api_key prefers stored api key over connect grant" do
+  test "resolve_ai_provider_api_key uses the associated grant and ignores unrelated legacy grants" do
     assert {:ok, ai_credential} =
              System.create_ai_provider_credential(%{
                name: "OpenAI API Key Preferred",
@@ -194,12 +196,40 @@ defmodule Zaq.System.AIProviderCredentialTest do
              "sk-preferred"
   end
 
-  test "resolve_ai_provider_api_key falls back to active connect bearer token" do
+  test "explicit no-auth removes the canonical grant and resolves empty authentication" do
+    assert {:ok, ai_credential} =
+             System.create_ai_provider_credential(%{
+               name: "OpenAI Explicit No Auth",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               api_key: "sk-before-no-auth"
+             })
+
+    assert {:ok, updated} =
+             System.update_ai_provider_credential(ai_credential, %{
+               metadata: %{"auth_kind" => "none"}
+             })
+
+    connect_credential = Connect.get_credential!(updated.connect_credential_id)
+    assert connect_credential.auth_kind == "none"
+    assert connect_credential.personal_credential_policy == :disabled
+    assert connect_credential.secret_binding == :configuration
+    assert [] == Connect.list_grants(credential_id: connect_credential.id)
+
+    assert {:ok, resolved} = System.resolve_ai_provider_authentication(updated)
+    assert resolved.auth_kind == "none"
+    assert resolved.grant_id == nil
+    assert resolved.authentication == %{}
+    assert System.resolve_ai_provider_api_key(updated) == ""
+  end
+
+  test "resolve_ai_provider_api_key does not fall back to legacy resource-bound grants" do
     assert {:ok, ai_credential} =
              System.create_ai_provider_credential(%{
                name: "OpenAI Bearer Fallback",
                provider: "openai",
-               endpoint: "https://api.openai.com/v1"
+               endpoint: "https://api.openai.com/v1",
+               metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"}
              })
 
     connect_credential = create_connect_token_credential("openai")
@@ -207,8 +237,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
 
     assert System.resolve_ai_provider_api_key(
              System.get_ai_provider_credential!(ai_credential.id)
-           ) ==
-             "grant-token"
+           ) == ""
   end
 
   test "resolve_ai_provider_api_key returns blank for missing connect grant" do
@@ -216,7 +245,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
              System.create_ai_provider_credential(%{
                name: "OpenAI Missing Grant",
                provider: "openai",
-               endpoint: "https://api.openai.com/v1"
+               endpoint: "https://api.openai.com/v1",
+               metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"}
              })
 
     assert System.resolve_ai_provider_api_key(
@@ -233,7 +263,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
              System.create_ai_provider_credential(%{
                name: "In Use Credential",
                provider: "openai",
-               endpoint: "https://api.openai.com/v1"
+               endpoint: "https://api.openai.com/v1",
+               metadata: %{"auth_kind" => "none"}
              })
 
     System.set_config("llm.credential_id", credential.id)

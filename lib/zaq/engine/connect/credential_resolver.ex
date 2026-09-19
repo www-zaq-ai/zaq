@@ -118,22 +118,30 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
     Repo.transaction(fn ->
       c = configuration(id)
       require_person(person_id)
-      g = selected_grant(c, person_id)
       now = DateUtils.now(opts)
-      validate_selection(c, g, now)
-
-      if g.auth_kind == "oauth2" do
-        %{
-          credential: c,
-          grant: g,
-          fingerprint: config_fingerprint(c.id),
-          grant_fingerprint: Refresh.fingerprint(g.id)
-        }
-      else
-        resolved(c, g, now)
-      end
+      select_loaded_credential(c, person_id, now)
     end)
   end
+
+  defp select_loaded_credential(%Credential{auth_kind: "none"} = credential, _person_id, now),
+    do: resolved_without_auth(credential, now)
+
+  defp select_loaded_credential(credential, person_id, now) do
+    grant = selected_grant(credential, person_id)
+    validate_selection(credential, grant, now)
+    selected_grant_result(credential, grant, now)
+  end
+
+  defp selected_grant_result(credential, %Grant{auth_kind: "oauth2"} = grant, _now) do
+    %{
+      credential: credential,
+      grant: grant,
+      fingerprint: config_fingerprint(credential.id),
+      grant_fingerprint: Refresh.fingerprint(grant.id)
+    }
+  end
+
+  defp selected_grant_result(credential, grant, now), do: resolved(credential, grant, now)
 
   defp configuration(nil), do: Repo.rollback(:credential_unavailable)
 
@@ -267,6 +275,25 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
       authentication: auth,
       expires_at: earliest_expiry(c.expires_at, g.expires_at),
       metadata: account_metadata(g.metadata)
+    }
+  end
+
+  defp resolved_without_auth(c, now) do
+    ensure(c.personal_credential_policy == :disabled, :credential_unavailable)
+    ensure(c.secret_binding == :configuration, :credential_unavailable)
+    ensure(not expired?(c.expires_at, now), :credential_expired)
+    ensure(present?(c.provider), :credential_unavailable)
+
+    %ResolvedCredential{
+      credential_id: c.id,
+      grant_id: nil,
+      owner_type: "org",
+      owner_id: nil,
+      auth_kind: "none",
+      request_format: c.request_format,
+      authentication: %{},
+      expires_at: c.expires_at,
+      metadata: %{}
     }
   end
 

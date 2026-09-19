@@ -150,6 +150,72 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
     assert DateTime.compare(grant.expires_at, DateTime.add(@now, 3630)) == :eq
   end
 
+  test "canonical Person attempt persists only Codex allowlisted account metadata", ctx do
+    metadata =
+      Map.merge(ctx.credential.metadata, %{
+        "auth_profile" => "openai_chatgpt_codex",
+        "authorize_url" => "https://provider.example/authorize",
+        "token_url" => "https://provider.example/token"
+      })
+
+    credential = Repo.update!(Ecto.Changeset.change(ctx.credential, metadata: metadata))
+    {state, query} = start(ctx.person, credential)
+
+    assert query["redirect_uri"] == "http://localhost:1455/auth/callback"
+    assert query["codex_cli_simplified_flow"] == "true"
+
+    id_token =
+      [
+        Base.url_encode64(Jason.encode!(%{"alg" => "none"}), padding: false),
+        Base.url_encode64(
+          Jason.encode!(%{
+            "https://api.openai.com/auth" => %{"chatgpt_account_id" => "acct_person"}
+          }),
+          padding: false
+        ),
+        "signature"
+      ]
+      |> Enum.join(".")
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      Req.Test.json(conn, %{
+        "id_token" => id_token,
+        "access_token" => "ACCESS_SENTINEL",
+        "refresh_token" => "REFRESH_SENTINEL",
+        "unexpected" => "must-not-persist"
+      })
+    end)
+
+    assert {:ok, %{status: "active"}} = finish(state)
+    grant = Repo.get_by!(Grant, credential_id: credential.id, owner_type: "person")
+    assert grant.metadata == %{"chatgpt_account_id" => "acct_person"}
+    refute inspect(grant.metadata) =~ id_token
+
+    refreshed_id_token =
+      [
+        Base.url_encode64(Jason.encode!(%{"alg" => "none"}), padding: false),
+        Base.url_encode64(Jason.encode!(%{"organizations" => [%{"id" => "acct_refreshed"}]}),
+          padding: false
+        ),
+        "signature"
+      ]
+      |> Enum.join(".")
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      Req.Test.json(conn, %{
+        "id_token" => refreshed_id_token,
+        "access_token" => "REFRESHED_ACCESS",
+        "refresh_token" => "REFRESHED_REFRESH",
+        "expires_in" => 3600
+      })
+    end)
+
+    assert {:ok, refreshed} = Connect.refresh_grant(grant, @opts)
+    assert refreshed.owner_id == ctx.person.id
+    assert refreshed.metadata == %{"chatgpt_account_id" => "acct_refreshed"}
+    refute inspect(refreshed.metadata) =~ refreshed_id_token
+  end
+
   property "unsigned state cannot authorize a callback" do
     check all(state <- string(:alphanumeric, max_length: 100)) do
       assert {:error, :invalid_attempt} = finish(state)

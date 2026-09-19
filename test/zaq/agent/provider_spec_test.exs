@@ -5,6 +5,7 @@ defmodule Zaq.Agent.ProviderSpecTest do
 
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.ProviderSpec
+  alias Zaq.Engine.Connect
 
   # Minimal ConfiguredAgent map used across tests — only the fields ProviderSpec touches.
   defp agent_base do
@@ -169,7 +170,11 @@ defmodule Zaq.Agent.ProviderSpecTest do
           provider: "openai_codex",
           endpoint: "https://chatgpt.com/backend-api",
           api_key: nil,
-          metadata: %{"auth_profile" => "openai_chatgpt_codex"}
+          metadata: %{
+            "auth_kind" => "oauth2",
+            "auth_profile" => "openai_chatgpt_codex",
+            "client_id" => "client-id"
+          }
         })
 
       configured_agent = %{
@@ -532,6 +537,27 @@ defmodule Zaq.Agent.ProviderSpecTest do
       opts = ProviderSpec.llm_opts(agent)
       assert opts[:api_key] == "db-api-key"
       assert opts[:base_url] == "https://db.example.com/v1"
+    end
+
+    test "uses the canonical associated Connect grant instead of the legacy AI secret" do
+      db_credential =
+        ai_credential_fixture(%{
+          api_key: "legacy-ai-key",
+          endpoint: "https://canonical.example.com/v1"
+        })
+
+      assert {:ok, _grant} =
+               Connect.replace_credential_grant(
+                 db_credential.connect_credential_id,
+                 :org,
+                 %{api_key: "canonical-connect-key"}
+               )
+
+      agent = %{agent_base() | credential: nil, credential_id: db_credential.id}
+
+      opts = ProviderSpec.llm_opts(agent)
+      assert opts[:api_key] == "canonical-connect-key"
+      refute opts[:api_key] == db_credential.api_key
     end
 
     test "returns empty list when no credential and no credential_id" do

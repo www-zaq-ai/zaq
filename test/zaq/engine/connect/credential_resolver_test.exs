@@ -455,6 +455,58 @@ defmodule Zaq.Engine.Connect.CredentialResolverTest do
     assert {:ok, %{metadata: %{}}} = Connect.resolve_credential(c, %{person_id: person.id}, @opts)
   end
 
+  test "explicit no-auth resolves without a grant for Person and non-Person actors", %{
+    person: person
+  } do
+    attrs = %{
+      name: "no-auth-#{Ecto.UUID.generate()}",
+      provider: "local",
+      auth_kind: "none",
+      request_format: "raw",
+      user_level: false,
+      metadata: %{},
+      personal_credential_policy: :disabled,
+      secret_binding: :configuration
+    }
+
+    assert {:ok, %{credential_id: id, global_grant: nil}} =
+             Connect.save_credential_configuration(nil, attrs, :remove, @opts)
+
+    for actor <- [nil, %{person_id: person.id}] do
+      assert {:ok, resolved} = Connect.resolve_credential(id, actor, @opts)
+      assert resolved.grant_id == nil
+      assert resolved.owner_type == "org"
+      assert resolved.auth_kind == "none"
+      assert resolved.authentication == %{}
+    end
+  end
+
+  test "no-auth cannot enable personal policy or persist grant material" do
+    attrs = %{
+      name: "invalid-no-auth-#{Ecto.UUID.generate()}",
+      provider: "local",
+      auth_kind: "none",
+      request_format: "raw",
+      user_level: false,
+      metadata: %{},
+      personal_credential_policy: :optional,
+      secret_binding: :configuration
+    }
+
+    assert {:error, :invalid_configuration} =
+             Connect.save_credential_configuration(nil, attrs, :remove, @opts)
+
+    assert {:error, :invalid_configuration} =
+             Connect.save_credential_configuration(
+               nil,
+               attrs
+               |> Map.put(:personal_credential_policy, :disabled)
+               |> Map.put(:api_key, "forbidden"),
+               :remove,
+               @opts
+             )
+  end
+
   property "disabled and nonperson ignore arbitrary personal material", %{person: person} do
     c = credential(:disabled)
     org = slot(c, :org, :active)

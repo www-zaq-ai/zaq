@@ -178,6 +178,7 @@
         action={@ai_credential_action}
         credential_id={@ai_credential_id}
         provider_options={@ai_provider_options}
+        oauth_behaviours={@oauth_behaviours}
       />
       <ZaqWeb.Live.BO.System.SystemConfig.ConnectCredentialsTab.panel
         :if={@active_tab == :auth_credentials}
@@ -191,6 +192,7 @@
         credential_changeset={@connect_credential_changeset}
         credential_errors={@connect_credential_errors}
         connect_default_scopes_text={@connect_default_scopes_text}
+        oauth_behaviours={@oauth_behaviours}
       />
       <ZaqWeb.Live.BO.System.SystemConfig.MCPTab.panel
         :if={@active_tab == :mcps}

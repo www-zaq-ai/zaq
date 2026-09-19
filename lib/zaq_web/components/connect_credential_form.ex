@@ -19,6 +19,7 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
   attr :restore_scopes_event, :string, default: nil
   attr :default_scopes_text, :string, default: ""
   attr :global_settings_path, :string, default: nil
+  attr :oauth_behaviours, :list, default: []
 
   def credential_form(assigns) do
     ~H"""
@@ -160,6 +161,31 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
         />
       </div>
 
+      <div :if={auth_kind(@changeset) == "oauth2" and @oauth_behaviours != []}>
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          OAuth behaviour
+        </label>
+        <select
+          name="credential[metadata][auth_profile]"
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        >
+          <option
+            :for={behaviour <- @oauth_behaviours}
+            value={behaviour.id}
+            selected={oauth_behaviour(@changeset) == behaviour.id}
+          >
+            {behaviour.title}
+          </option>
+        </select>
+        <p
+          :for={behaviour <- @oauth_behaviours}
+          :if={oauth_behaviour(@changeset) == behaviour.id}
+          class="mt-1 font-mono text-[0.65rem] text-black/45"
+        >
+          {behaviour.description}
+        </p>
+      </div>
+
       <div :if={auth_kind(@changeset) == "oauth2"}>
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           Client ID
@@ -290,6 +316,20 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
   end
 
   defp jwt_subject(_), do: ""
+
+  defp oauth_behaviour(%Ecto.Changeset{} = changeset) do
+    changeset
+    |> Ecto.Changeset.get_field(:metadata, %{})
+    |> oauth_behaviour_from_metadata()
+  end
+
+  defp oauth_behaviour(_), do: "standard"
+
+  defp oauth_behaviour_from_metadata(metadata) when is_map(metadata) do
+    Map.get(metadata, "auth_profile") || Map.get(metadata, :auth_profile) || "standard"
+  end
+
+  defp oauth_behaviour_from_metadata(_), do: "standard"
 
   defp scopes_input_value(scopes) when is_list(scopes) do
     scopes

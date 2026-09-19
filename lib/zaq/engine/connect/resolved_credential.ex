@@ -11,6 +11,7 @@ defmodule Zaq.Engine.Connect.ResolvedCredential do
   and configured signing identity/profile, not a minted assertion. `bearer` means
   a consumer should apply Bearer formatting; `raw` means the literal value. This
   module does not select a transport header, sign JWTs or produce provider options.
+  Explicit no-auth configurations carry `%{}` authentication and no grant dependency.
   Metadata is limited to selected-grant account ID/name strings. `expires_at` is the
   earliest local configuration or selected-grant deadline; `nil` means neither has one.
   """
@@ -28,7 +29,8 @@ defmodule Zaq.Engine.Connect.ResolvedCredential do
   defstruct @enforce_keys ++ [metadata: %{}, expires_at: nil]
 
   @type authentication ::
-          %{api_key: String.t()}
+          %{}
+          | %{api_key: String.t()}
           | %{access_token: String.t()}
           | %{
               private_key: String.t(),
@@ -40,7 +42,7 @@ defmodule Zaq.Engine.Connect.ResolvedCredential do
             }
   @type t :: %__MODULE__{
           credential_id: pos_integer(),
-          grant_id: pos_integer(),
+          grant_id: pos_integer() | nil,
           owner_type: String.t(),
           owner_id: pos_integer() | nil,
           auth_kind: String.t(),

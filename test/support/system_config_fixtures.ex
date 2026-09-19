@@ -18,8 +18,21 @@ defmodule Zaq.SystemConfigFixtures do
         attrs
       )
 
-    {:ok, credential} = System.create_ai_provider_credential(params)
+    {:ok, credential} =
+      params
+      |> explicit_test_authentication()
+      |> System.create_ai_provider_credential()
+
     credential
+  end
+
+  defp explicit_test_authentication(%{metadata: _metadata} = params), do: params
+
+  defp explicit_test_authentication(params) do
+    case Map.get(params, :api_key) do
+      value when is_binary(value) and value != "" -> params
+      _ -> params |> Map.delete(:api_key) |> Map.put(:metadata, %{"auth_kind" => "none"})
+    end
   end
 
   def seed_embedding_config(attrs \\ %{}) do

@@ -27,12 +27,23 @@ defmodule ZaqWeb.Components.ConnectCredentialFormTest do
         changeset: changeset,
         submit_event: "save_connect_credential",
         change_event: "validate_connect_credential",
-        cancel_event: "close_connect_credential_modal"
+        cancel_event: "close_connect_credential_modal",
+        oauth_behaviours: [
+          %{id: "standard", title: "Standard OAuth2", description: "Standards-compliant OAuth2."},
+          %{
+            id: "openai_chatgpt_codex",
+            title: "OpenAI Codex / ChatGPT",
+            description: "ChatGPT subscription OAuth2."
+          }
+        ]
       )
 
     assert html =~ "credential[client_id]"
     assert html =~ "credential[client_secret]"
     assert html =~ "credential[scopes]"
+    assert html =~ "credential[metadata][auth_profile]"
+    assert html =~ "Standard OAuth2"
+    assert html =~ "OpenAI Codex / ChatGPT"
     refute html =~ "credential[api_key]"
   end
 

@@ -10,6 +10,8 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.OAuth
+  alias Zaq.Engine.Connect.OAuth.Registry, as: OAuthBehaviourRegistry
+  alias Zaq.Engine.Connect.OAuthAttempts
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.DataSources
   alias Zaq.Engine.IncomingMessageRouter
@@ -254,6 +256,9 @@ defmodule Zaq.Engine.Api do
   def handle_event(%Event{} = event, :connect_list_credentials, _context),
     do: %{event | response: Connect.list_credentials()}
 
+  def handle_event(%Event{} = event, :connect_oauth_behaviours, _context),
+    do: %{event | response: OAuthBehaviourRegistry.public_entries()}
+
   def handle_event(%Event{} = event, :connect_change_credential, _context) do
     case event.request do
       %{credential: credential, attrs: attrs} when is_map(attrs) ->
@@ -276,6 +281,9 @@ defmodule Zaq.Engine.Api do
 
   def handle_event(%Event{} = event, :connect_list_grants, _context) do
     case event.request do
+      %{filters: filters, projection: :summary} when is_map(filters) ->
+        %{event | response: Connect.list_grant_summaries(Map.to_list(filters))}
+
       %{filters: filters} when is_map(filters) ->
         %{event | response: Connect.list_grants(Map.to_list(filters))}
 
@@ -556,7 +564,10 @@ defmodule Zaq.Engine.Api do
   def handle_event(%Event{} = event, :system_config_connect_list_grants, _context) do
     case event.request do
       %{credential_id: credential_id} ->
-        %{event | response: Connect.list_grants(credential_id: credential_id)}
+        %{event | response: Connect.list_grant_summaries(credential_id: credential_id)}
+
+      %{filters: filters} when is_map(filters) ->
+        %{event | response: Connect.list_grant_summaries(Map.to_list(filters))}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}
@@ -579,15 +590,25 @@ defmodule Zaq.Engine.Api do
 
   def handle_event(%Event{} = event, :system_config_connect_delete_grant, _context) do
     case event.request do
-      %{grant: grant} -> %{event | response: Connect.delete_grant(grant)}
-      other -> %{event | response: {:error, {:invalid_request, other}}}
+      %{credential_id: credential_id, grant_id: grant_id}
+      when is_integer(credential_id) and credential_id > 0 and is_integer(grant_id) and
+             grant_id > 0 ->
+        %{event | response: Connect.remove_grant_for_credential(credential_id, grant_id)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
     end
   end
 
   def handle_event(%Event{} = event, :system_config_connect_schedule_refresh, _context) do
     case event.request do
-      %{grant: grant} -> %{event | response: Connect.schedule_refresh(grant)}
-      other -> %{event | response: {:error, {:invalid_request, other}}}
+      %{credential_id: credential_id, grant_id: grant_id}
+      when is_integer(credential_id) and credential_id > 0 and is_integer(grant_id) and
+             grant_id > 0 ->
+        %{event | response: Connect.schedule_grant_refresh(credential_id, grant_id)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
     end
   end
 
@@ -607,6 +628,22 @@ defmodule Zaq.Engine.Api do
       %{credential: credential, context: context} when is_map(context) ->
         oauth_module = Keyword.get(event.opts, :connect_oauth_module, OAuth)
         %{event | response: oauth_module.build_authorize_url(credential, context)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :connect_oauth_start_global_configuration, _context) do
+    case event.request do
+      %{credential_id: credential_id, attrs: attrs}
+      when is_integer(credential_id) and is_map(attrs) ->
+        attempts_module = Keyword.get(event.opts, :connect_oauth_attempts_module, OAuthAttempts)
+
+        %{
+          event
+          | response: attempts_module.start_global_configuration(credential_id, attrs)
+        }
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}
