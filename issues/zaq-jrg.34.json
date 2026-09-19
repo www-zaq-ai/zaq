@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-19T09:59:38Z",
+  "description": "Preserve actionable OAuth refresh failure diagnostics through Connect.Refresh and GrantRefreshWorker while maintaining the existing public credential resolver contract and never exposing raw provider bodies/messages or secrets. Action reuse: extend existing OAuth post_token, Connect.Refresh, worker, and resolver flow; no new Action/tool/HTTP path. Add structured allowlisted errors, Oban serialization and redaction tests; validate focused suites and mix q.",
+  "id": "zaq-jrg.34",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 2,
+  "status": "open",
+  "title": "Surface sanitized refresh diagnostics",
+  "type": "task",
+  "updated_at": "2026-09-19T09:59:38Z"
+}
