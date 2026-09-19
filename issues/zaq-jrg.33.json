@@ -9,7 +9,7 @@
   "parent": "zaq-jrg",
   "priority": 2,
   "status": "open",
-  "title": "Fix concurrency test isolation",
+  "title": "[zaq-jrg.33] Fix concurrency test isolation",
   "type": "task",
-  "updated_at": "2026-09-19T09:59:28Z"
+  "updated_at": "2026-09-19T09:59:38Z"
 }
