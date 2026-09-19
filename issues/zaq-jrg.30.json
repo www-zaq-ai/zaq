@@ -25,11 +25,15 @@
     {
       "text": "Refresh fix validation: mix q passed; migration/preflight/canonical migration plus refresh worker/scheduler/concurrency/recovery suites passed (1 property, 61 tests). Review found only a pre-deployment queued-job dedup concern; no repair was added because the approved rollout is fresh DB/pre-release and new inserts are now unique per grant. Existing focused BO/People E2E remains valid because this follow-up changes backend migration/refresh behavior only.",
       "timestamp": "2026-09-18T19:54:51Z"
+    },
+    {
+      "text": "Approved enhancement pass on existing working tree. Action reuse: not applicable — presentation-only changes; credential operations and dispatch boundaries remain unchanged. Extract existing BO feedback banner into a shared DesignSystem component, reuse in BOLayout and PersonLayout, replace People credential policy/status icons with labeled badges, and make absent credential action a secondary Add/Connect button. Add focused LiveView/component coverage and run mix q.",
+      "timestamp": "2026-09-19T14:09:35Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Admin and Person credential management UI",
   "type": "task",
-  "updated_at": "2026-09-18T19:54:51Z"
+  "updated_at": "2026-09-19T14:09:35Z"
 }
