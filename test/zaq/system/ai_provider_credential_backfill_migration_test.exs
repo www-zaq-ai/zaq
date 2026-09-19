@@ -27,7 +27,7 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
     apply(Ecto.Migrator, direction, [Repo, version, module, @migration_opts])
   end
 
-  test "backfills API-key, explicit no-auth and OAuth rows and preserves rollback sources" do
+  test "backfills API-key, explicit no-auth and OAuth rows and retires migrated sources" do
     assert :ok = migrate(:down, @backfill_version, BackfillConnectBackedAiCredentials)
     assert :ok = migrate(:down, @association_version, AddConnectBackedAiCredentials)
 
@@ -99,11 +99,13 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
              ^encrypted_refresh_token
            ] = projected[oauth_id]
 
-    assert [[legacy_grant_id, source_credential_id]] ==
-             Repo.query!(
-               "SELECT id, credential_id FROM connect_grants WHERE id = $1",
-               [legacy_grant_id]
-             ).rows
+    assert [] ==
+             Repo.query!("SELECT id FROM connect_grants WHERE id = $1", [legacy_grant_id]).rows
+
+    assert [] ==
+             Repo.query!("SELECT id FROM connect_credentials WHERE id = $1", [
+               source_credential_id
+             ]).rows
 
     assert [[%{}]] ==
              Repo.query!(
@@ -131,19 +133,29 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
                [[api_id, none_id, oauth_id]]
              ).rows
 
-    assert [[legacy_grant_id, source_credential_id]] ==
+    assert [["ai_provider_credential", ^encrypted_access_token, ^encrypted_refresh_token]] =
              Repo.query!(
-               "SELECT id, credential_id FROM connect_grants WHERE id = $1",
-               [legacy_grant_id]
+               """
+               SELECT resource_type, access_token, refresh_token
+               FROM connect_grants
+               WHERE resource_type = 'ai_provider_credential' AND resource_id = $1
+               """,
+               [to_string(oauth_id)]
              ).rows
 
-    assert [[0]] ==
+    assert [[1]] ==
              Repo.query!(
                "SELECT COUNT(*) FROM connect_credentials WHERE id = ANY($1)",
                [generated_ids]
              ).rows
 
     assert :ok = migrate(:up, @backfill_version, BackfillConnectBackedAiCredentials)
+
+    assert [] ==
+             Repo.query!(
+               "SELECT id FROM connect_grants WHERE resource_type = 'ai_provider_credential' AND resource_id = $1",
+               [to_string(oauth_id)]
+             ).rows
   end
 
   defp insert_ai(name, api_key, metadata) do

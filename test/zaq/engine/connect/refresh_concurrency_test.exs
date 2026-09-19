@@ -7,6 +7,7 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
   alias Zaq.Engine.Connect.{Credential, Grant, GrantRefreshWorker}
   alias Zaq.Engine.Connect.OAuthAttempts
   alias Zaq.Repo
+  alias Zaq.System.AIProviderCredential
   alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}
 
   @opts [config: ConnectOAuthAttemptConfig]
@@ -65,6 +66,11 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
 
       on_exit(fn ->
         Sandbox.unboxed_run(Repo, fn ->
+          Repo.delete_all(
+            from ai in AIProviderCredential,
+              where: ai.connect_credential_id == ^credential.id
+          )
+
           Repo.delete_all(from c in Credential, where: c.id == ^credential.id)
           Repo.delete_all(from p in Person, where: p.id in ^[person.id, other.id])
 
@@ -98,7 +104,7 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
 
       assert_receive {:refresh_entered, refresher}, 5_000
 
-      assert {:error, :refresh_busy} =
+      assert {:snooze, 120} =
                Sandbox.unboxed_run(Repo, fn ->
                  GrantRefreshWorker.perform(%Oban.Job{args: %{"grant_id" => grant.id}}, @opts)
                end)
@@ -121,6 +127,8 @@ defmodule Zaq.Engine.Connect.RefreshConcurrencyTest do
             assert {:ok, _} = Connect.remove_credential_grant(credential, {:person, person.id})
 
           :reauthorize ->
+            {:ok, _} = PersonOAuth.associate(credential.id)
+
             assert {:ok, %{authorize_url: url}} =
                      PersonOAuth.start(person, credential.id, @opts)
 

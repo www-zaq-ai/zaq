@@ -233,6 +233,31 @@ defmodule Zaq.Engine.Connect.RefreshTest do
     assert Connect.GrantRefreshWorker.backoff(%Oban.Job{attempt: 1}) >= 120
   end
 
+  test "scheduling is unique per grant while a refresh job is pending", %{grant: grant} do
+    assert {:ok, first} = Connect.schedule_refresh(grant)
+    assert {:ok, second} = Connect.schedule_refresh(grant)
+    assert second.id == first.id
+    assert second.conflict?
+  end
+
+  test "proactive scheduling excludes grants with an active refresh lease", %{grant: grant} do
+    grant =
+      Repo.update!(
+        Ecto.Changeset.change(grant,
+          expires_at: @now,
+          refresh_claim: Ecto.UUID.generate(),
+          refresh_claim_until: DateTime.add(@now, 120)
+        )
+      )
+
+    refute Enum.any?(Connect.expiring_oauth_grants(@now, 600), &(&1.id == grant.id))
+
+    assert Enum.any?(
+             Connect.expiring_oauth_grants(DateTime.add(@now, 120), 600),
+             &(&1.id == grant.id)
+           )
+  end
+
   for mode <- [:raise, :throw] do
     test "HTTP #{mode} never exposes secrets", %{grant: grant} do
       Req.Test.expect(ConnectOAuthAttemptHTTP, fn _conn ->

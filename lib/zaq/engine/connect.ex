@@ -390,6 +390,7 @@ defmodule Zaq.Engine.Connect do
     |> where([g], g.status in ["active", "expired"] and g.auth_kind == "oauth2")
     |> where([g], not is_nil(g.refresh_token))
     |> where([g], not is_nil(g.expires_at) and g.expires_at <= ^threshold)
+    |> where([g], is_nil(g.refresh_claim_until) or g.refresh_claim_until <= ^now)
     |> Repo.all()
   end
 
