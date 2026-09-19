@@ -7,9 +7,15 @@
   "id": "zaq-jrg.34",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented sanitized OAuth refresh diagnostics: worker now receives status plus allowlisted provider code (including refresh_token_reused), while raw bodies/messages/params/unknown codes are discarded; resolver public failure remains credential_refresh_failed. Focused refresh/worker/resolver suite passes 177 tests + 4 properties; mix q passes. Docs updated. Uncommitted on current branch.",
+      "timestamp": "2026-09-19T10:11:11Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.34] Surface sanitized refresh diagnostics",
   "type": "task",
-  "updated_at": "2026-09-19T10:01:50Z"
+  "updated_at": "2026-09-19T10:11:11Z"
 }
