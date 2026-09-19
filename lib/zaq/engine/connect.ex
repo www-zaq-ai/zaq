@@ -444,8 +444,10 @@ defmodule Zaq.Engine.Connect do
   @doc """
   Internal runtime API for an already selected grant, without policy selection or fallback.
   Reloads current identity/configuration and refreshes OAuth near expiry. Returns a
-  secret-bearing runtime schema, never a management DTO. `:refresh_busy` and
-  `:refresh_failed` are retryable; callers must bound retries rather than loop.
+  secret-bearing runtime schema, never a management DTO. `:refresh_busy`,
+  `:refresh_failed`, and sanitized `:oauth_refresh_failed` tuples are retryable;
+  callers must bound retries rather than loop. OAuth failures may include an HTTP
+  status and safe provider error code, but never raw provider bodies or messages.
   The canonical resolver supplies an internal `:expected_fingerprint` captured under
   selection locks; cached reads and refresh claims reject a changed raw snapshot.
   """

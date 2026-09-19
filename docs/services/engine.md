@@ -420,6 +420,9 @@ then coordinates canonical org/Person and legacy org/user resource grants throug
 provider fallback. Secret-bearing dispatch sets `confidential: true`. Generic provider
 HTTP disables automatic retries, with 15-second receive and 5-second connect timeouts.
 Provider errors, exceptions and malformed replies are sanitized before returning.
+HTTP refresh failures retain the status and an allowlisted OAuth error code (for
+example `refresh_token_reused`) for worker diagnostics. Raw provider bodies, messages,
+parameters and unknown codes are discarded.
 Canonical refresh always uses that existing generic token transport. When no
 `token_url` is configured, Connect asks Channels for the existing provider profile's
 token endpoint through `:data_source_oauth_token_endpoint`; only the URL crosses back.
@@ -467,7 +470,8 @@ skew (`:refresh_window_seconds`). Future/no-expiry usable access tokens avoid HT
 Expired status or access-token expiry may recover with valid refresh material; revoked
 is terminal. Missing refresh material returns `:authentication_required`. Other fixed
 errors include `:not_found`, `:person_unavailable`, `:stale_grant`, `:refresh_failed`,
-`:invalid_refresh_response`, `:encryption_failed`, and `:mutation_event_enqueue_failed`.
+sanitized `{:oauth_refresh_failed, status}` tuples, `:invalid_refresh_response`,
+`:encryption_failed`, and `:mutation_event_enqueue_failed`.
 Busy/provider failures are retryable with bounded caller backoff, never a fallback
 signal. `refresh_grant/2` is explicit refresh even for a future/no-expiry token.
 

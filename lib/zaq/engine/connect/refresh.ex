@@ -30,14 +30,43 @@ defmodule Zaq.Engine.Connect.Refresh do
 
   @lease_seconds 120
   @ignored [:__meta__, :credential, :refresh_claim, :refresh_claim_until, :updated_at]
+  @safe_oauth_error_codes ~w(
+    invalid_request
+    invalid_client
+    invalid_grant
+    unauthorized_client
+    unsupported_grant_type
+    invalid_scope
+    invalid_token
+    server_error
+    temporarily_unavailable
+    refresh_token_reused
+  )
 
   @doc "Runs one refresh using the existing provider and persistence functions."
-  @spec run(Grant.t(), function(), function(), keyword()) :: {:ok, Grant.t()} | {:error, atom()}
+  @type oauth_failure ::
+          {:oauth_refresh_failed, integer()}
+          | {:oauth_refresh_failed, integer(), %{code: String.t()}}
+
+  @spec run(Grant.t(), function(), function(), keyword()) ::
+          {:ok, Grant.t()} | {:error, atom() | oauth_failure()}
   def run(grant, dispatch, persist, opts) do
     case run_refresh(grant, dispatch, persist, opts) do
-      {:ok, _} = result -> result
-      {:error, reason} when is_atom(reason) -> {:error, reason}
-      _ -> {:error, :invalid_refresh_response}
+      {:ok, _} = result ->
+        result
+
+      {:error, reason} when is_atom(reason) ->
+        {:error, reason}
+
+      {:error, {:oauth_refresh_failed, status} = reason} when is_integer(status) ->
+        {:error, reason}
+
+      {:error, {:oauth_refresh_failed, status, %{code: code}} = reason}
+      when is_integer(status) and is_binary(code) ->
+        {:error, reason}
+
+      _ ->
+        {:error, :invalid_refresh_response}
     end
   end
 
@@ -184,15 +213,43 @@ defmodule Zaq.Engine.Connect.Refresh do
 
   defp request(dispatch, grant, credential, opts) do
     case dispatch.(grant, credential, opts) do
-      {:ok, payload} when is_map(payload) -> {:ok, payload}
-      {:error, :unsupported} -> {:error, :unsupported}
-      _ -> {:error, :refresh_failed}
+      {:ok, payload} when is_map(payload) ->
+        {:ok, payload}
+
+      {:error, :unsupported} ->
+        {:error, :unsupported}
+
+      {:error, {:oauth_refresh_failed, status, body}} when is_integer(status) ->
+        {:error, sanitize_oauth_failure(status, body)}
+
+      _ ->
+        {:error, :refresh_failed}
     end
   rescue
     _ -> {:error, :refresh_failed}
   catch
     _, _ -> {:error, :refresh_failed}
   end
+
+  defp sanitize_oauth_failure(status, body) do
+    case oauth_error_code(body) do
+      code when is_binary(code) -> {:oauth_refresh_failed, status, %{code: code}}
+      _ -> {:oauth_refresh_failed, status}
+    end
+  end
+
+  defp oauth_error_code(%{"error" => %{} = error}), do: safe_error_code(error["code"])
+  defp oauth_error_code(%{error: %{} = error}), do: safe_error_code(error[:code])
+  defp oauth_error_code(%{"error" => code}), do: safe_error_code(code)
+  defp oauth_error_code(%{error: code}), do: safe_error_code(code)
+  defp oauth_error_code(_), do: nil
+
+  defp safe_error_code(code) when is_binary(code) do
+    code = String.trim(code)
+    if code in @safe_oauth_error_codes, do: code
+  end
+
+  defp safe_error_code(_), do: nil
 
   defp same_material?(left, right) do
     fields = [:access_token, :refresh_token, :api_key, :private_key]
