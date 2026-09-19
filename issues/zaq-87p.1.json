@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-87p.2"
+  ],
   "created": "2026-09-19T15:49:25Z",
   "description": "Replace unsupported render_component do-block usage with real HEEx component rendering. Preserve the required inner_block contract and cover forwarded header/body/footer content. Action reuse: not applicable — test harness correction only; no executable operation changes. Verification: focused CardShell component tests, then mix q.",
   "id": "zaq-87p.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-87p.1] Repair CardShell component test rendering",
   "type": "task",
-  "updated_at": "2026-09-19T15:49:56Z"
+  "updated_at": "2026-09-19T15:49:58Z"
 }
