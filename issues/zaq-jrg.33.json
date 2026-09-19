@@ -11,11 +11,15 @@
     {
       "text": "Implemented deterministic clock injection, explicit Everyone permission ownership cleanup for reauthorization, and self-contained People permission concurrency setup/restore. Exact seed 316490 focused command passes: 15 tests, 0 failures. Changes remain uncommitted per current-session authorization.",
       "timestamp": "2026-09-19T10:01:49Z"
+    },
+    {
+      "text": "Final validation: exact CI command seed 316490 passes 15/15; additional seeds 1 and 999999 pass; mix q passes. Permission setup now snapshots/restores Everyone access state, and reauthorization revokes only grants it created with on_exit fallback. Uncommitted on current branch.",
+      "timestamp": "2026-09-19T10:11:10Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.33] Fix concurrency test isolation",
   "type": "task",
-  "updated_at": "2026-09-19T10:01:49Z"
+  "updated_at": "2026-09-19T10:11:10Z"
 }
