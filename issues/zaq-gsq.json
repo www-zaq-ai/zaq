@@ -10,11 +10,15 @@
     {
       "text": "Implemented on branch zaq-gsq/reject-lossy-skill-body. Added deterministic boundary-whitespace regressions (HAIR SPACE, ASCII space, tab, newline), internal-whitespace preservation tests, and Skill changeset coverage; preserved the property unchanged. Extended Validation.round_trip_errors to compare spec.body_ref with {:inline, body}. Adjusted the body-size test fixture to avoid an incidental trailing space. Validation: 103 isolated tests / 3 properties pass; mix q passes; git diff --check clean. Coverage handoff and final mix precommit remain deferred until the post-review final gate.",
       "timestamp": "2026-09-19T18:24:44Z"
+    },
+    {
+      "text": "Committed as 80df2136 and pushed branch zaq-gsq/reject-lossy-skill-body to origin. Ticket remains in progress pending PR review, final coverage/precommit gate, and landing.",
+      "timestamp": "2026-09-19T18:52:41Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-gsq] Reject lossy Unicode whitespace in skill bodies",
   "type": "bug",
-  "updated_at": "2026-09-19T18:24:44Z"
+  "updated_at": "2026-09-19T18:52:41Z"
 }
