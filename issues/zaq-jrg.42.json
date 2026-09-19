@@ -9,9 +9,15 @@
   "id": "zaq-jrg.42",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented-uncommitted. OAuth scenario now proves old token→refresh mutation delivery→new Authorization and refresh failure retains Person token without org fallback. Workflow matrix proves two People and system select distinct credentials across opaque run/step scopes; nested X→Y→X sends the Person credential on all three LLM calls. Expiry scenario proves stale callback survival via HTTP, matching-incarnation fencing, and expired cold resolution makes no LLM request. Executor suite 25/25 and nested suite 6/6 pass; final mix q passes. Natural timer scheduling remains covered separately; this test intentionally validates deterministic fencing callbacks. Action reuse remains not applicable. Kept open pending user review before commit/push.",
+      "timestamp": "2026-09-19T20:20:49Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.42] OAuth workflow and nested Agent authentication HTTP coverage",
   "type": "task",
-  "updated_at": "2026-09-19T20:13:18Z"
+  "updated_at": "2026-09-19T20:20:49Z"
 }
