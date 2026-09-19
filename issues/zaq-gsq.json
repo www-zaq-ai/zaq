@@ -14,11 +14,15 @@
     {
       "text": "Committed as 80df2136 and pushed branch zaq-gsq/reject-lossy-skill-body to origin. Ticket remains in progress pending PR review, final coverage/precommit gate, and landing.",
       "timestamp": "2026-09-19T18:52:41Z"
+    },
+    {
+      "text": "Follow-up: reproduced the two QueryResources failures, then removed the incidental trailing newline from its valid skill fixture while preserving the internal newline. Audited test skill fixtures for other newline-terminated literals; no additional valid skill fixtures found. Validation: full QueryResources module plus validation/changeset/skills suites pass (151 tests, 3 properties); mix q passes; diff check clean. Follow-up change remains uncommitted.",
+      "timestamp": "2026-09-19T19:15:22Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-gsq] Reject lossy Unicode whitespace in skill bodies",
   "type": "bug",
-  "updated_at": "2026-09-19T18:52:41Z"
+  "updated_at": "2026-09-19T19:15:22Z"
 }
