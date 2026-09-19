@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-19T20:05:23Z",
+  "description": "Functional specifications/files: extend test/support/openai_stub.ex only if needed for reusable synchronous Authorization capture; add grouped configured/default answering HTTP integration cases in test/zaq/agent/executor_integration_test.exs and factory coverage where appropriate.\nTests first: disabled Person/system global auth; optional Alice personal plus Bob/system global; required Alice success and Bob/system failures; provider 401 never retries with global; warm reuse remains stable. Group response, header, request count, identity isolation and structured-error assertions per fixture.\nBranches: Person/non-Person, personal present/absent, global present/absent, provider rejection, configured/default answering entry points.\nMocking: reuse OpenAIStub real local HTTP edge and inspect Plug request headers; Connect, Factory, Executor and ServerManager remain real. Negative request assertions use synchronous completion/barriers, never sleeps.\nDocs: test names are executable documentation; update service docs only if implementation exposes a contract mismatch.\nAction reuse: not applicable — test-only coverage reuses existing Executor/Factory/OpenAIStub operations and adds no executable production operation, Action or agent tool.",
+  "id": "zaq-jrg.40",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "HTTP credential policy and entry-point integration coverage",
+  "type": "task",
+  "updated_at": "2026-09-19T20:05:23Z"
+}
