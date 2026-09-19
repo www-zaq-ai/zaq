@@ -29,6 +29,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     assert has_element?(view, "#category-card-retrieval")
     assert has_element?(view, "#category-card-data-source")
     assert has_element?(view, "#category-card-ai-agents")
+
+    assert has_element?(
+             view,
+             "a#category-card-data-source[href='/bo/channels/data_source'] > article:not([id])"
+           )
   end
 
   test "renders provider cards on retrieval sub-page", %{conn: conn} do
@@ -41,6 +46,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     assert has_element?(view, "#channel-card-webhook")
     assert has_element?(view, "#ingress-status-dot-mattermost")
     refute has_element?(view, "#ingress-status-dot-slack")
+
+    assert has_element?(
+             view,
+             "article#channel-card-mattermost > a:not([id])[href='/bo/channels/retrieval/mattermost']"
+           )
+
+    assert has_element?(
+             view,
+             "#channel-card-mattermost-configure[href='/bo/channels/retrieval/mattermost']"
+           )
   end
 
   test "does not render ingress status dot for disabled retrieval config", %{conn: conn} do
@@ -115,6 +130,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     assert has_element?(view, "#channel-card-disk", "Disk")
     assert has_element?(view, "#channel-card-google_drive")
     assert has_element?(view, "#channel-card-sharepoint")
+
+    assert has_element?(
+             view,
+             "article#channel-card-google_drive > a:not([id])[href='/bo/channels/data_source/google_drive']"
+           )
   end
 
   describe "handle_params" do

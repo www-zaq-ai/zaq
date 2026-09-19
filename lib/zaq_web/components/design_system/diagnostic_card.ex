@@ -6,6 +6,7 @@ defmodule ZaqWeb.Components.DesignSystem.DiagnosticCard do
 
   use Phoenix.Component
 
+  import ZaqWeb.Components.DesignSystem.CardShell, only: [card_shell: 1]
   import ZaqWeb.Components.DesignSystem.StatusBadge, only: [status_badge: 1]
 
   attr :label, :string, required: true
@@ -16,20 +17,26 @@ defmodule ZaqWeb.Components.DesignSystem.DiagnosticCard do
   slot :footer_extra
 
   def diagnostic_card(assigns) do
+    assigns = assign(assigns, :shell_id, diagnostic_shell_id(assigns.label))
+
     ~H"""
-    <div
-      class="zaq-card-default zaq-border-default flex flex-col"
+    <.card_shell
+      id={@shell_id}
+      as={:div}
+      variant={:muted}
       style="background-color: var(--zaq-surface-color-raised)"
     >
-      <div class="flex items-center justify-between">
-        <p
-          class="zaq-text-caption uppercase tracking-wider"
-          style="color: var(--zaq-text-color-body-tertiary)"
-        >
-          {@label}
-        </p>
-        <.status_badge :if={@status != nil} status={@status} />
-      </div>
+      <:header>
+        <div class="flex items-center justify-between">
+          <p
+            class="zaq-text-caption uppercase tracking-wider"
+            style="color: var(--zaq-text-color-body-tertiary)"
+          >
+            {@label}
+          </p>
+          <.status_badge :if={@status != nil} status={@status} />
+        </div>
+      </:header>
       <div class="space-y-2">
         {render_slot(@inner_block)}
       </div>
@@ -50,7 +57,17 @@ defmodule ZaqWeb.Components.DesignSystem.DiagnosticCard do
         </p>
         {render_slot(@footer_extra)}
       </div>
-    </div>
+    </.card_shell>
     """
+  end
+
+  defp diagnostic_shell_id(label) do
+    slug =
+      label
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/u, "-")
+      |> String.trim("-")
+
+    "diagnostic-card-#{slug}"
   end
 end

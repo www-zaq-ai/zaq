@@ -506,6 +506,7 @@ Shell classes consume semantic tokens and adapt in dark mode automatically.
 | Component | Module | Function | Notes |
 |---|---|---|---|
 | Card shell (CSS) | — | — | `.zaq-card-default`, `.zaq-card-hover` |
+| Card shell (component) | `ZaqWeb.Components.DesignSystem.CardShell` | `card_shell/1` | Navigable or muted wrapper; primary / footer / secondary links |
 | Metric card | `ZaqWeb.Components.DesignSystem.MetricCard` | `metric_card/1` | KPI display |
 | Diagnostic card | `ZaqWeb.Components.DesignSystem.DiagnosticCard` | `diagnostic_card/1` | system health summary |
 | Addon upsell card | `ZaqWeb.Components.DesignSystem.AddonUpsellCard` | `addon_upsell_card/1` | feature gating / upsell |

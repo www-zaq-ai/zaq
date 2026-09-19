@@ -12,6 +12,7 @@
   "/storybook/chat/user_bubble",
   "/storybook/history/history_browser",
   "/storybook/history/conversation_detail",
+  "/storybook/components/cards/card_shell",
   "/storybook/components/cards/diagnostic_card",
   "/storybook/components/cards/metric_card",
   "/storybook/components/charts/charts",

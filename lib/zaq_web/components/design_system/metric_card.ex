@@ -16,7 +16,7 @@ defmodule ZaqWeb.Components.DesignSystem.MetricCard do
 
   use Phoenix.Component
 
-  import ZaqWeb.Components.DesignSystem.Link, only: [nav_link: 1]
+  alias ZaqWeb.Components.DesignSystem.CardShell
 
   alias Zaq.Engine.Telemetry.Contracts.DisplayMeta
   alias Zaq.Engine.Telemetry.Contracts.Payloads.ScalarPayload
@@ -53,90 +53,12 @@ defmodule ZaqWeb.Components.DesignSystem.MetricCard do
       |> assign(:resolved_secondary, resolved_secondary_link(assigns))
 
     ~H"""
-    <div :if={@resolved_secondary} class="space-y-2">
-      <.linked_metric_card_article
-        id={@id}
-        primary={@resolved_primary}
-        label={@label}
-        value={@value}
-        unit={@unit}
-        trend={@trend}
-        display={@display}
-        range={@range}
-        hint={@hint}
-      />
-      <.metric_card_secondary_link link={@resolved_secondary} />
-    </div>
-    <.linked_metric_card_article
-      :if={!@resolved_secondary}
+    <CardShell.card_shell
       id={@id}
-      primary={@resolved_primary}
-      label={@label}
-      value={@value}
-      unit={@unit}
-      trend={@trend}
-      display={@display}
-      range={@range}
-      hint={@hint}
-    />
-    """
-  end
-
-  attr :id, :string, required: true
-  attr :primary, :map, default: nil
-  attr :label, :string, default: nil
-  attr :value, :any, default: nil
-  attr :unit, :string, default: nil
-  attr :trend, :float, default: nil
-  attr :display, :map, default: nil
-  attr :range, :string, default: nil
-  attr :hint, :string, default: nil
-
-  defp linked_metric_card_article(assigns) do
-    ~H"""
-    <.link
-      :if={@primary}
-      id={@primary.id}
-      class="group block"
-      {primary_destination_attrs(@primary)}
+      as={:article}
+      primary_link={@resolved_primary}
+      secondary_link={@resolved_secondary}
     >
-      <.metric_card_article
-        id={@id}
-        label={@label}
-        value={@value}
-        unit={@unit}
-        trend={@trend}
-        display={@display}
-        range={@range}
-        hint={@hint}
-      />
-    </.link>
-    <.metric_card_article
-      :if={!@primary}
-      id={@id}
-      label={@label}
-      value={@value}
-      unit={@unit}
-      trend={@trend}
-      display={@display}
-      range={@range}
-      hint={@hint}
-    />
-    """
-  end
-
-  attr :id, :string, required: true
-  attr :label, :string, default: nil
-  attr :value, :any, default: nil
-  attr :unit, :string, default: nil
-  attr :trend, :float, default: nil
-  attr :display, :map, default: nil
-  attr :range, :string, default: nil
-  attr :hint, :string, default: nil
-
-  defp metric_card_article(assigns) do
-    ~H"""
-    <article id={@id} class="zaq-card-default zaq-border-default zaq-card-hover">
       <p
         class="zaq-text-caption uppercase tracking-[0.18em]"
         style="color: var(--zaq-text-color-body-secondary);"
@@ -171,31 +93,11 @@ defmodule ZaqWeb.Components.DesignSystem.MetricCard do
       >
         {metadata_line(@display, @range, @hint)}
       </p>
-    </article>
+    </CardShell.card_shell>
     """
   end
 
-  attr :link, :map, required: true
-
-  defp metric_card_secondary_link(assigns) do
-    ~H"""
-    <.nav_link
-      id={@link.id}
-      destination={@link.destination}
-      external={@link.external}
-      tone={@link.tone}
-      size={@link.size}
-      icon={@link.icon}
-      icon_position={@link.icon_position}
-    >
-      {@link.label}
-    </.nav_link>
-    """
-  end
-
-  defp resolved_primary_link(%{primary_link: link}) when is_map(link) do
-    normalize_primary_link(link)
-  end
+  defp resolved_primary_link(%{primary_link: link}) when is_map(link), do: link
 
   defp resolved_primary_link(%{
          primary_link: nil,
@@ -209,50 +111,9 @@ defmodule ZaqWeb.Components.DesignSystem.MetricCard do
 
   defp resolved_primary_link(_assigns), do: nil
 
-  defp resolved_secondary_link(%{secondary_link: link}) when is_map(link) do
-    normalize_secondary_link(link)
-  end
+  defp resolved_secondary_link(%{secondary_link: link}) when is_map(link), do: link
 
   defp resolved_secondary_link(_assigns), do: nil
-
-  defp normalize_primary_link(link) do
-    destination = map_get(link, :destination)
-
-    if blank_meta_value?(destination) do
-      nil
-    else
-      %{
-        destination: destination,
-        id: map_get(link, :id),
-        external: map_get(link, :external) || false
-      }
-    end
-  end
-
-  defp normalize_secondary_link(link) do
-    destination = map_get(link, :destination)
-    label = map_get(link, :label)
-
-    if blank_meta_value?(destination) or blank_meta_value?(label) do
-      nil
-    else
-      %{
-        destination: destination,
-        label: label,
-        id: map_get(link, :id),
-        external: map_get(link, :external) || false,
-        tone: map_get(link, :tone) || :accent,
-        size: map_get(link, :size) || :sm,
-        icon: map_get(link, :icon) || "hero-arrow-right",
-        icon_position: map_get(link, :icon_position) || :right
-      }
-    end
-  end
-
-  defp primary_destination_attrs(%{external: true, destination: destination}),
-    do: %{href: destination}
-
-  defp primary_destination_attrs(%{destination: destination}), do: %{navigate: destination}
 
   defp assign_from_card(%{card: %ScalarPayload{} = card} = assigns) do
     assigns
@@ -319,8 +180,4 @@ defmodule ZaqWeb.Components.DesignSystem.MetricCard do
 
   defp blank_meta_value?(value) when value in [nil, ""], do: true
   defp blank_meta_value?(_value), do: false
-
-  defp map_get(map, key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
 end

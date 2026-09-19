@@ -45,6 +45,27 @@
   border-color: var(--zaq-border-color-accent);
 }
 
+/* Split card shell: raised surface on outer article; primary link is a child. */
+.zaq-card-hover:has(> :is(a, button, [role="button"], [role="link"]):hover),
+.zaq-card-hover:has(> :is(a, button, [role="button"], [role="link"]):focus-visible) {
+  border-color: var(--zaq-border-color-accent);
+}
+
+/* CardShell variant :muted — raised surface + dashed border (no .zaq-card-hover) */
+.zaq-card-shell-muted {
+  background-color: var(--zaq-surface-color-raised);
+  border-style: dashed;
+}
+
+/* Channels hub — category/provider icon well (48×48) */
+.zaq-channel-card-icon-tile {
+  width: var(--zaq-scale-48);
+  height: var(--zaq-scale-48);
+  border-radius: var(--zaq-scale-8);
+  display: grid;
+  place-items: center;
+}
+
 /* ── Border ────────────────────────────────────────────────────────────────── */
 .zaq-border-default {
   border:var(--zaq-border-color-default) solid var(--zaq-border-thickness-default);

@@ -8,6 +8,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
+  alias ZaqWeb.Components.DesignSystem.CardShell
+  alias ZaqWeb.Components.DesignSystem.Table
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
 
   import Ecto.Query
@@ -176,6 +178,26 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
      |> assign(:current_path, current_path)
      |> assign(:kind, kind)
      |> assign(:cards, cards)}
+  end
+
+  attr :count, :integer, required: true
+
+  @doc """
+  Hub card chip — configured count or \"Not configured\" (`DesignSystem.Table.table_badge/1`).
+  """
+  def hub_config_count_badge(assigns) do
+    ~H"""
+    <Table.table_badge status={if @count > 0, do: "active", else: "pending"}>
+      {if @count > 0, do: "#{@count} active", else: "Not configured"}
+    </Table.table_badge>
+    """
+  end
+
+  @doc "Muted hub chip for unreleased categories."
+  def hub_coming_soon_badge(assigns) do
+    ~H"""
+    <Table.table_badge status="archived">Coming soon</Table.table_badge>
+    """
   end
 
   attr :kind, :atom, required: true
