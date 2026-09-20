@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.48"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.50"
+  ],
   "created": "2026-09-20T08:39:23Z",
   "description": "Functional specification/files: preserve canonical error classification through Executor/Pipeline, Agent API/Outgoing, Channels formatting/bridges and BO Chat; render channel-appropriate actionable text and the People credentials link only for trusted personal-grant recovery cases. Reuse existing deliver_outgoing/upsert events. Preserve partial stream content, request/status identifiers where safe, and exactly one terminal failure; never replay a request or expose internal metadata. Tests before implementation: Mattermost/Jido chat, email and BO parity; zero LLM calls for startup rejection; escaped links; global failures without portal links; partial streaming, persistence refusal and duplicate prevention. Branches: pre-token, post-token, suppressed stream, dispatch/persist/delivery failures. Mocking: external bridge/provider edges only; real internal routing. Docs: Channels and Agent service behavior. Action reuse: REUSE Outgoing.from_pipeline_result/2, Channels.Events and MessageFormatter; EXTEND shared formatter rather than bridge-specific copies. NotifyPerson/NotifyUsers are rejected because this is the originating response, not an independent notification. No new Action or agent exposure.",
   "id": "zaq-jrg.49",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-jrg.49] Render actionable failures across channels",
   "type": "task",
-  "updated_at": "2026-09-20T08:39:25Z"
+  "updated_at": "2026-09-20T08:39:26Z"
 }
