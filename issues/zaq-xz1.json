@@ -6,9 +6,15 @@
   "description": "Replace the approved profile and People settings card wrappers with ZaqWeb.Components.DesignSystem.CardShell while preserving accessibility, behavior, and stable hooks. Action reuse: not applicable — presentation-only component replacement with no executable operation changes.",
   "id": "zaq-xz1",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented all four approved CardShell replacements in PersonProfile and PersonHeader; preserved labelled section semantics and hooks. Updated LiveView/component assertions plus stale real-browser selectors exposed by main rebase. Validation: focused CardShell/profile 1 property + 19 tests pass; affected header/People DB 2 properties + 20 tests pass; People real-browser Chromium/Firefox/WebKit at 390/1280 pass; mix q passes. mix precommit was attempted: the related PageHeader assertion was fixed, while the remaining repeatable failures are unrelated distributed peer connection/timeouts in ConfidentialEventPeerTest and AuthRateLimiterPeerTest; two initial concurrent DB deadlocks passed on isolated retry. Work remains uncommitted as requested.",
+      "timestamp": "2026-09-20T08:13:59Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Migrate People cards to shared CardShell",
   "type": "task",
-  "updated_at": "2026-09-20T07:44:15Z"
+  "updated_at": "2026-09-20T08:13:59Z"
 }
