@@ -15,11 +15,15 @@
     {
       "text": "Implemented Engine dispatch action, LiveView rankings with independent token/call sorts, configured-agent selector and filtered call/token charts while preserving global charts and range/refresh state. Reused DS table/button/select and BO telemetry charts. Targeted suite passes (84 tests, 2 properties); mix q passes after one transient unrelated parallel component-check failure. Browser route is available at port 4011 but redirects to BO login, so final authenticated UX review remains in zaq-uy9.4.",
       "timestamp": "2026-09-20T14:15:00Z"
+    },
+    {
+      "text": "Addressed human review feedback. Retrieval effectiveness now renders immediately below global API/token charts. API-call history now combines legacy request estimates with exact attributed calls per 10-minute bucket: new metrics carry llm_usage_attribution=v1 so their request totals are excluded; unversioned overlap uses max(legacy requests, explicit calls), avoiding both the observed reset and additive double-counting. Regression coverage includes legacy-to-versioned transition and mixed same-bucket overlap. Targeted: 87 tests, 2 properties pass; mix q passes.",
+      "timestamp": "2026-09-20T16:44:48Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-uy9] Extend LLM performance dashboard",
   "type": "task",
-  "updated_at": "2026-09-20T16:38:44Z"
+  "updated_at": "2026-09-20T16:44:48Z"
 }
