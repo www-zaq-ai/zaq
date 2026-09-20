@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T08:40:44Z",
+  "description": "Preserve recognized local protected People page destinations across the existing signed-cookie OTP flow without changing authentication or authorization. Tests first; reject unsafe redirect inputs; clear continuation after use/logout; preserve BO/Person isolation. Action reuse: extend existing PersonAuth plug and PersonSessionController flow; destination policy is web-local because it governs Phoenix routes/session redirects, has no domain/workflow contract, and must not be agent-exposed. Existing auth dispatch remains authoritative. E2E scope is coordinated through zaq-jrg.31 -\u003e zaq-jrg.32.",
+  "id": "zaq-ba7",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Preserve People portal destinations through login",
+  "type": "epic",
+  "updated_at": "2026-09-20T08:40:44Z"
+}
