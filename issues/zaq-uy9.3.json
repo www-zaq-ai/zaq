@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-uy9.4"
   ],
+  "closed_at": "2026-09-20T14:15:00Z",
   "created": "2026-09-20T13:47:52Z",
   "description": "Functional specification: preserve global API/token charts, add sortable top-five models and people tables, and an agent dropdown with API/token charts filtered by configured agent. Range and 15s refresh apply throughout; selected agent and sorts persist; loading/empty/error states. Reuse BOLayout, DesignSystem table/form controls and BOTelemetryComponents. BO calls Engine through NodeRouter dispatch contract, not generic invoke. Tests first: LiveView rendering/events/state preservation and global charts unaffected. Action reuse: reuse telemetry context and existing components; no new Action. E2E journey is deferred to zaq-uy9-e2e pending final UX approval.",
   "id": "zaq-uy9.3",
@@ -18,7 +19,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-uy9] Extend LLM performance dashboard",
   "type": "task",
   "updated_at": "2026-09-20T14:15:00Z"
