@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-uy9.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-uy9.3"
+  ],
   "created": "2026-09-20T13:47:52Z",
   "description": "Functional specification: add bounded Engine Telemetry queries for top five models and people by tokens/calls plus configured-agent time series under the selected dashboard range. Define calls as distinct persisted logical LLM calls; stable tie-breaking; anonymous/system excluded only from people ranking; resolve person display labels without leaking identity to benchmark export. Tests first: sorting changes top-five membership, combined provider+model grouping, deleted-person fallback, range boundaries, agent isolation, no global-total changes. Action reuse: extend Telemetry/DashboardData public context and existing dashboard contracts; no Action because read aggregation is telemetry-domain API.",
   "id": "zaq-uy9.2",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-uy9] Query attributed LLM usage",
   "type": "task",
-  "updated_at": "2026-09-20T13:48:02Z"
+  "updated_at": "2026-09-20T13:48:03Z"
 }
