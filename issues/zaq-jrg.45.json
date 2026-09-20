@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.44"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.46"
+  ],
   "created": "2026-09-20T03:03:32Z",
   "description": "Functional specifications/files: extend nested/workflow integration to originate one X→Y→X case at real Mattermost ingress and to deliver real credential mutations across workflow-scoped runtimes.\nTests first: channel identity/credential reaches X and Y; Alice replacement invalidates opaque workflow/nested servers while Bob survives; subsequent calls use replacement; default answering global/required negative parity.\nBranches: channel-selected configured/default Agent, nested run_agent, Person/system workflow, opaque scopes, targeted invalidation.\nMocking: external channel and LLM edges only.\nDocs: executable test documentation unless contract drift.\nAction reuse: not applicable — reuses channel routing, workflow run_agent, Connect notifications and Agent lifecycle.",
   "id": "zaq-jrg.45",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-jrg.45] Channel nested and workflow mutation credential integration",
   "type": "task",
-  "updated_at": "2026-09-20T03:03:34Z"
+  "updated_at": "2026-09-20T03:03:35Z"
 }
