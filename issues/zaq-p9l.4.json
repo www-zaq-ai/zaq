@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-p9l.7"
   ],
+  "closed_at": "2026-09-20T14:01:08Z",
+  "close_reason": "Implemented and migration suites pass; final mix q remains.",
   "created": "2026-09-20T13:46:13Z",
   "description": "Make preflight/backfill choose authentication from declared credential type rather than secret presence, reject inconsistent records, and make downgrade restore old structure with legacy-compatible bindings without promising key continuity or reactivating stale keys. Confirm deployment-history-safe migration strategy before edits. Tests first: OAuth plus leftover API key, all types, ambiguity, full down chain, rotated/revoked state, personal guards and re-upgrade. Reuse migration classifier and canonical Connect storage.",
   "id": "zaq-p9l.4",
@@ -16,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-p9l.4] Type-driven AI credential migration and rollback",
   "type": "task",
-  "updated_at": "2026-09-20T14:01:07Z"
+  "updated_at": "2026-09-20T14:01:08Z"
 }
