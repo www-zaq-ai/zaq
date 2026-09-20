@@ -10,6 +10,8 @@ defmodule ZaqWeb.PersonSessionControllerTest do
   alias Zaq.Repo
   alias Zaq.TestSupport.{PeopleAuthClock, PeopleAuthDelivery}
   alias ZaqWeb.Live.People.AuthHook
+  alias ZaqWeb.PersonSessionController
+  alias ZaqWeb.Plugs.PersonAuth, as: PersonAuthPlug
   import Mox
 
   defmodule RaisingRouter do
@@ -99,6 +101,152 @@ defmodule ZaqWeb.PersonSessionControllerTest do
     assert html =~ "One-time code"
     refute html =~ "wrong-secret"
     assert get_session(conn, :person_session_token) == nil
+  end
+
+  test "credentials destination survives login and recoverable verification failure", %{
+    conn: conn,
+    challenge: c
+  } do
+    redirected = get(conn, "/people/credentials")
+    assert redirected_to(redirected) == "/people/login"
+    assert get_session(redirected, :person_login_return_to) == "/people/credentials"
+
+    failed =
+      post(recycle(redirected), "/people/session", %{
+        "challenge_id" => c.challenge_id,
+        "code" => "wrong-secret"
+      })
+
+    assert redirected_to(failed) == "/people/login"
+    assert get_session(failed, :person_login_return_to) == "/people/credentials"
+
+    authenticated =
+      post(recycle(failed), "/people/session", %{
+        "challenge_id" => c.challenge_id,
+        "code" => c.code
+      })
+
+    assert redirected_to(authenticated) == "/people/credentials"
+    assert get_session(authenticated, :person_login_return_to) == nil
+    assert {:ok, _view, _html} = live(recycle(authenticated), "/people/credentials")
+  end
+
+  test "another recognized People section survives login", %{conn: conn, challenge: c} do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_message_history)
+    redirected = get(conn, "/people/history")
+    assert redirected_to(redirected) == "/people/login"
+
+    authenticated =
+      post(recycle(redirected), "/people/session", %{
+        "challenge_id" => c.challenge_id,
+        "code" => c.code
+      })
+
+    assert redirected_to(authenticated) == "/people/history"
+    assert {:ok, _view, _html} = live(recycle(authenticated), "/people/history")
+  end
+
+  test "unsafe continuation falls back to profile and is consumed", %{conn: conn, challenge: c} do
+    authenticated =
+      conn
+      |> init_test_session(%{person_login_return_to: "https://evil.test/people/credentials"})
+      |> post("/people/session", %{
+        "challenge_id" => c.challenge_id,
+        "code" => c.code,
+        "return_to" => "/people/credentials"
+      })
+
+    assert redirected_to(authenticated) == "/people/profile"
+    assert get_session(authenticated, :person_login_return_to) == nil
+  end
+
+  test "continuation does not bypass destination authorization", %{conn: conn, challenge: c} do
+    redirected = get(conn, "/people/history")
+
+    authenticated =
+      post(recycle(redirected), "/people/session", %{
+        "challenge_id" => c.challenge_id,
+        "code" => c.code
+      })
+
+    assert redirected_to(authenticated) == "/people/history"
+
+    assert {:error, {:redirect, %{to: "/people/profile", flash: flash}}} =
+             live(recycle(authenticated), "/people/history")
+
+    assert flash["error"] == "You do not have permission to view conversation history."
+  end
+
+  test "authenticated requests stay direct and logout clears stale continuation without clearing BO",
+       %{
+         conn: conn,
+         challenge: c,
+         person: person
+       } do
+    authenticated =
+      conn
+      |> init_test_session(%{user_id: 123, person_login_return_to: "/people/history"})
+      |> post("/people/session", %{"challenge_id" => c.challenge_id, "code" => c.code})
+
+    direct = get(recycle(authenticated), "/people/credentials")
+    assert direct.status == 200
+    assert get_session(direct, :person_login_return_to) == nil
+    token = get_session(direct, :person_session_token)
+
+    logged_out =
+      direct
+      |> recycle()
+      |> init_test_session(%{
+        user_id: 123,
+        person_session_token: token,
+        person_login_return_to: "/people/credentials"
+      })
+      |> delete("/people/session")
+
+    assert get_session(logged_out, :person_login_return_to) == nil
+    assert get_session(logged_out, :user_id) == 123
+
+    PeopleAuthClock.put(DateTime.utc_now(:second))
+
+    {:ok, next_challenge} =
+      PeopleAuth.issue_challenge(person, {127, 8, 8, 10}, clock: PeopleAuthClock)
+
+    later_login =
+      logged_out
+      |> recycle()
+      |> post("/people/session", %{
+        "challenge_id" => next_challenge.challenge_id,
+        "code" => next_challenge.code
+      })
+
+    assert redirected_to(later_login) == "/people/profile"
+  end
+
+  test "continuation redirects honor the request script name", %{conn: conn, challenge: c} do
+    redirected =
+      conn
+      |> init_test_session(%{})
+      |> Map.merge(%{
+        method: "GET",
+        path_info: ["people", "credentials"],
+        script_name: ["zaq"]
+      })
+      |> PersonAuthPlug.call([])
+
+    assert redirected_to(redirected) == "/zaq/people/login"
+    assert get_session(redirected, :person_login_return_to) == "/people/credentials"
+
+    authenticated =
+      conn
+      |> recycle()
+      |> init_test_session(%{person_login_return_to: "/people/credentials"})
+      |> Map.put(:script_name, ["zaq"])
+      |> PersonSessionController.create(%{
+        "challenge_id" => c.challenge_id,
+        "code" => c.code
+      })
+
+    assert redirected_to(authenticated) == "/zaq/people/credentials"
   end
 
   test "BO logout preserves Person credential", %{conn: conn} do

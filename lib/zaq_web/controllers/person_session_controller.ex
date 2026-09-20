@@ -11,6 +11,7 @@ defmodule ZaqWeb.PersonSessionController do
   alias Zaq.Config
   alias Zaq.Engine.Events
   alias Zaq.NodeRouter
+  alias ZaqWeb.PersonLoginContinuation
 
   def request(conn, params) do
     email = Map.get(params, "email", get_session(conn, :person_login_email))
@@ -20,17 +21,17 @@ defmodule ZaqWeb.PersonSessionController do
         conn
         |> put_session(:person_login_email, email)
         |> put_session(:person_login_challenge, challenge)
-        |> redirect(to: ~p"/people/login")
+        |> redirect_to_login()
 
       {:error, {:resend_limited, _}} when not is_map_key(params, "email") ->
         conn
         |> put_flash(:error, "Please wait before requesting another code.")
-        |> redirect(to: ~p"/people/login")
+        |> redirect_to_login()
 
       error ->
         conn
         |> put_flash(:error, request_error_message(error))
-        |> redirect(to: ~p"/people/login")
+        |> redirect_to_login()
     end
   end
 
@@ -39,12 +40,15 @@ defmodule ZaqWeb.PersonSessionController do
 
     case auth(%{op: :verify, challenge_id: id, code: Map.get(params, "code")}, conn) do
       {:ok, %{token: token}} ->
-        conn
-        |> configure_session(renew: true)
-        |> put_session(:person_session_token, token)
-        |> delete_session(:person_login_challenge)
-        |> delete_session(:person_login_email)
-        |> redirect(to: ~p"/people/profile")
+        conn =
+          conn
+          |> configure_session(renew: true)
+          |> put_session(:person_session_token, token)
+          |> delete_session(:person_login_challenge)
+          |> delete_session(:person_login_email)
+
+        {conn, destination} = PersonLoginContinuation.pop(conn)
+        redirect(conn, to: PersonLoginContinuation.prefixed_path(conn, destination))
 
       _ ->
         conn
@@ -53,7 +57,7 @@ defmodule ZaqWeb.PersonSessionController do
           :error,
           "The code is incorrect or has expired. Try again or request a new code."
         )
-        |> redirect(to: ~p"/people/login")
+        |> redirect_to_login()
     end
   end
 
@@ -65,6 +69,7 @@ defmodule ZaqWeb.PersonSessionController do
       |> delete_session(:person_session_token)
       |> delete_session(:person_login_challenge)
       |> delete_session(:person_login_email)
+      |> PersonLoginContinuation.clear()
       |> configure_session(renew: true)
 
     conn =
@@ -74,7 +79,7 @@ defmodule ZaqWeb.PersonSessionController do
         _ -> put_flash(conn, :error, "Signed out here. Server revocation could not be confirmed.")
       end
 
-    redirect(conn, to: ~p"/people/login")
+    redirect_to_login(conn)
   end
 
   defp request_error_message({:error, :failed_identification}),
@@ -124,4 +129,7 @@ defmodule ZaqWeb.PersonSessionController do
       node_router: router
     ).response
   end
+
+  defp redirect_to_login(conn),
+    do: redirect(conn, to: PersonLoginContinuation.prefixed_path(conn, "/people/login"))
 end

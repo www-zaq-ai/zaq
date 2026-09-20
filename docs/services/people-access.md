@@ -502,6 +502,17 @@ live sessions from BO. `PersonAuth` protects HTTP and `People.AuthHook` checks
 current identity, active status, access_profile and expiry on mount/reconnect and
 every event. No periodic polling or idle-page revocation broadcast is required.
 
+Anonymous requests for recognized protected People pages retain their canonical
+application-relative path in the existing signed session. Successful OTP verification
+consumes that continuation; direct login and invalid state fall back to
+`/people/profile`, and logout clears pending state. The allowlist covers only People
+page routes (including a canonical conversation UUID), never login/session endpoints,
+resource downloads, query strings, fragments or external URLs. Redirect construction
+retains Phoenix's configured deployment path prefix. Continuation changes navigation
+only: each destination's current authentication and authorization checks remain
+authoritative, and callers link directly to the protected page rather than constructing
+authentication URLs.
+
 `Zaq.Channels.PeopleAuth.request_challenge/2` performs its local precheck before
 **one** confidential Engine request. `PeopleAuthGateway.request_challenge/3`
 uses read-only `People.match_person/1` for profile/email-channel identity, then

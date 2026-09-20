@@ -3,6 +3,7 @@ defmodule ZaqWeb.Plugs.PersonAuth do
   import Plug.Conn
   import Phoenix.Controller
   alias Zaq.Engine.Events
+  alias ZaqWeb.PersonLoginContinuation
 
   def init(opts), do: opts
 
@@ -24,14 +25,19 @@ defmodule ZaqWeb.Plugs.PersonAuth do
       {:error, :invalid_session} ->
         conn
         |> delete_session(:person_session_token)
-        |> redirect(to: "/people/login")
+        |> redirect_to_login()
         |> halt()
 
       _ ->
         conn
         |> put_flash(:error, "People sign-in is unavailable. Please try again.")
-        |> redirect(to: "/people/login")
+        |> redirect_to_login()
         |> halt()
     end
+  end
+
+  defp redirect_to_login(conn) do
+    conn = PersonLoginContinuation.remember(conn)
+    redirect(conn, to: PersonLoginContinuation.prefixed_path(conn, "/people/login"))
   end
 end
