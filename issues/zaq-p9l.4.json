@@ -9,9 +9,15 @@
   "id": "zaq-p9l.4",
   "labels": [],
   "parent": "zaq-p9l",
+  "comments": [
+    {
+      "text": "Backfill preflight/SQL now prioritizes a declared legacy OAuth grant over leftover key material, rejects ambiguous sets, clears retained AI keys on structural rollback, and restores OAuth secret_binding for full downgrade. Full down/up requires explicit replacement key and migration suites pass (5 tests). Uncommitted pending authorization.",
+      "timestamp": "2026-09-20T14:01:07Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p9l.4] Type-driven AI credential migration and rollback",
   "type": "task",
-  "updated_at": "2026-09-20T13:58:23Z"
+  "updated_at": "2026-09-20T14:01:07Z"
 }
