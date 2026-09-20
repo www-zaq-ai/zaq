@@ -13,11 +13,15 @@
     {
       "text": "Validation: focused continuation + credentials/history/conversation/profile routing suite passed (2 properties, 46 tests, 0 failures); mix q passed; git diff --check passed; Serena reports no warnings/errors in changed production files. Updated people-access service contract and added continuation journey notes to zaq-jrg.31/.32; no browser E2E authored. Final mix precommit did NOT pass: 48 doctests, 146 properties, 9508 tests, 4 unrelated failures (PortalConsent async timeout plus distributed People auth peer startup/connect failures). Targeted reruns cleared PortalConsent and most peer cases, but confidential_event_peer_test still times out in PeopleAuthPeer.connect after two attempts. No changed file participates in that distributed peer test. Per workflow, leaving validation issue in_progress and escalating rather than altering unrelated tests.",
       "timestamp": "2026-09-20T09:08:34Z"
+    },
+    {
+      "text": "Human approved implementation and explicitly authorized commit/push. Committed as 9d2d6dec (feat(people): preserve destinations through login (zaq-ba7)) and pushed to origin/feat/UI-to-administer-credentials-for-admins-and-people. Validation issue remains open solely for the previously recorded unrelated confidential_event_peer_test timeout blocking a green final precommit.",
+      "timestamp": "2026-09-20T10:39:43Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ba7] Validate People continuation and coordinate E2E",
   "type": "task",
-  "updated_at": "2026-09-20T09:08:34Z"
+  "updated_at": "2026-09-20T10:39:43Z"
 }
