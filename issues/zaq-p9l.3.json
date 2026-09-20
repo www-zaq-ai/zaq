@@ -9,9 +9,15 @@
   "id": "zaq-p9l.3",
   "labels": [],
   "parent": "zaq-p9l",
+  "comments": [
+    {
+      "text": "Implemented behavior-owned runtime identity: OAuth Behaviour callback, Codex allowlist, Standard empty identity, resolver projection from selected grant only, and ProviderSpec pairing with selected token. Regression/property suites pass: 206 tests, 4 properties. Changes remain uncommitted pending user authorization.",
+      "timestamp": "2026-09-20T13:51:29Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p9l.3] Behavior-owned OAuth runtime identity",
   "type": "task",
-  "updated_at": "2026-09-20T13:46:38Z"
+  "updated_at": "2026-09-20T13:51:29Z"
 }
