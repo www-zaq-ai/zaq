@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-p9l.1"
+  ],
   "blocks": [],
   "created": "2026-09-20T13:46:28Z",
   "description": "After all correction steps: run each isolated regression suite and mix q, review final diff and Action reuse boundaries, update PR validation notes, then hand off to PR re-review/coverage lifecycle. Existing required E2E may be run; no new feature E2E is needed because fixes preserve existing UX and are covered below browser level.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-p9l.7] Review-fix integration validation",
   "type": "task",
-  "updated_at": "2026-09-20T13:46:35Z"
+  "updated_at": "2026-09-20T13:46:36Z"
 }

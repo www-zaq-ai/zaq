@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-p9l.7"
+  ],
   "created": "2026-09-20T13:46:12Z",
   "description": "Fix callback lock ordering and prevent pending OAuth creation from publishing a live required personal policy. Tests first: callback versus revoke/reconnect on independent connections; pending disabled/optional visibility; cancellation/expiry/provider failure/replay; atomic success. Reuse existing PeopleAuthGateway, PeopleCredentials, OAuthAttempts, Connect mutations and confidential Engine event boundaries. External OAuth HTTP is the only mock boundary. Update Engine/System docs where contracts change.",
   "id": "zaq-p9l.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-p9l.1] OAuth callback and staging correctness",
   "type": "task",
-  "updated_at": "2026-09-20T13:46:26Z"
+  "updated_at": "2026-09-20T13:46:36Z"
 }
