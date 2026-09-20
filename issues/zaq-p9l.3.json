@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-p9l.7"
   ],
+  "closed_at": "2026-09-20T13:51:29Z",
+  "close_reason": "Implemented and isolated tests pass; final mix q remains in zaq-p9l.7.",
   "created": "2026-09-20T13:46:13Z",
   "description": "Extend OAuth Behaviour with a pure validated runtime identity projection selected through Registry auth_profile. Resolver applies it only to selected grant; ProviderSpec translates identity to ReqLLM options. Codex exports chatgpt_account_id only; Standard never leaks arbitrary/Codex metadata. Tests first include person/org mismatch, ID-token-only identity, missing identity, invalid metadata and property allowlist checks. Extend existing behavior/registry/resolver APIs; no new Action/tool.",
   "id": "zaq-p9l.3",
@@ -16,7 +18,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-p9l.3] Behavior-owned OAuth runtime identity",
   "type": "task",
   "updated_at": "2026-09-20T13:51:29Z"
