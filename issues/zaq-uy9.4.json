@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-uy9.5"
   ],
+  "closed_at": "2026-09-20T16:49:38Z",
   "created": "2026-09-20T13:47:53Z",
   "description": "Human gate: inspect completed /bo/dashboard/llm-performance UX at supported viewports and approve top-model/top-person rankings, sort controls and configured-agent charts for E2E finalization. Keep open until explicit final approval is recorded.",
   "id": "zaq-uy9.4",
@@ -30,8 +31,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-uy9] Final UX approval",
   "type": "task",
-  "updated_at": "2026-09-20T16:49:37Z"
+  "updated_at": "2026-09-20T16:49:38Z"
 }
