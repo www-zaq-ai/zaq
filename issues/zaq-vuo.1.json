@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T16:13:53Z",
+  "description": "Tests first for existing build/base URL/credential/runtime option behavior and all callers. Action reuse: extend ProviderSpec and existing Engine credential resolution; no new Action.",
+  "id": "zaq-vuo.1",
+  "labels": [],
+  "parent": "zaq-vuo",
+  "priority": 2,
+  "status": "open",
+  "title": "Characterize ProviderSpec contracts",
+  "type": "task",
+  "updated_at": "2026-09-20T16:13:53Z"
+}
