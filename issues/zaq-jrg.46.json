@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T03:03:33Z",
+  "description": "Functional specifications/files: add cold expired-person OAuth resolution with real persisted token_url and refresh HTTP rejection, plus natural near-future API-key expiry timer integration through ServerManager and OpenAIStub.\nTests first: expired personal OAuth + valid org never reaches LLM or falls back; exact refresh/config error; scheduled expiry stops matching runtime, then cold resolution rejects and makes no request; retain stale callback test separately.\nBranches: expired OAuth refresh failure, optional no fallback, scheduled timer identity, expired cold start.\nMocking: external OAuth and LLM HTTP only; no production clock hook/private timer injection for scheduled case.\nDocs: distinguish scheduler timing from deterministic callback coverage.\nAction reuse: not applicable — tests reuse resolver refresh, ServerManager expiry and existing edge stubs.",
+  "id": "zaq-jrg.46",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "Expired OAuth refresh and scheduled authentication expiry integration",
+  "type": "task",
+  "updated_at": "2026-09-20T03:03:33Z"
+}
