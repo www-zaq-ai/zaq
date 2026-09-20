@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.52"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.50"
+  ],
   "created": "2026-09-20T12:05:33Z",
   "description": "Branch-only boundary fix. Functional/files: replace new Channels PeoplePortalUrl direct Zaq.System persisted-config read with NodeRouter dispatch to existing Engine :system_config_get_global_base_url action while keeping URL validation/composition local to Channels. Handle Engine unavailable/error/malformed responses as nil so existing administrator guidance renders; no login/redirection changes. Tests first: exact confidential/non-confidential event contract as appropriate, configured/missing/error/malformed responses, deployment prefix and unsafe URL properties, final channel link rendering. Mock only NodeRouter boundary. Docs update. Action reuse: REUSE existing Engine action and NodeRouter; local-only URL composition remains justified; no new Action/tool.",
   "id": "zaq-jrg.53",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-jrg.53] Route People recovery URL configuration lookup",
   "type": "task",
-  "updated_at": "2026-09-20T12:05:34Z"
+  "updated_at": "2026-09-20T12:05:35Z"
 }

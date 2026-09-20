@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "zaq-jrg.49"
+    "zaq-jrg.49",
+    "zaq-jrg.53"
   ],
   "blocks": [],
   "created": "2026-09-20T08:39:24Z",
@@ -19,5 +20,5 @@
   "status": "open",
   "title": "[zaq-jrg.50] Approve and finalize actionable channel errors",
   "type": "task",
-  "updated_at": "2026-09-20T11:08:09Z"
+  "updated_at": "2026-09-20T12:05:35Z"
 }
