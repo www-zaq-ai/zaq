@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-vuo.3"
+  ],
   "blocks": [],
   "created": "2026-09-20T16:13:54Z",
   "description": "Run focused ProviderSpec/Factory/ProviderModels/ServerManager suites and mix q; review diff for provider-specific leakage and preserve prior PR fixes.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-vuo.4] Validate ProviderSpec extraction",
   "type": "task",
-  "updated_at": "2026-09-20T16:14:09Z"
+  "updated_at": "2026-09-20T16:14:10Z"
 }
