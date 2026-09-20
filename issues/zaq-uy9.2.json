@@ -11,9 +11,15 @@
   "id": "zaq-uy9.2",
   "labels": [],
   "parent": "zaq-uy9",
+  "comments": [
+    {
+      "text": "Extended LLM performance payload with top-five model/person rankings (tokens or calls), used-agent options, and agent-filtered call/input/output time series. Person labels resolve locally with deleted-person fallback. Added benchmark export guard for actor/person/conversation/session dimensions. DashboardData + push worker tests pass (18 tests); mix q passes.",
+      "timestamp": "2026-09-20T14:02:54Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-uy9] Query attributed LLM usage",
   "type": "task",
-  "updated_at": "2026-09-20T13:55:48Z"
+  "updated_at": "2026-09-20T14:02:54Z"
 }
