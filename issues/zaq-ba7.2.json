@@ -11,9 +11,15 @@
   "id": "zaq-ba7.2",
   "labels": [],
   "parent": "zaq-ba7",
+  "comments": [
+    {
+      "text": "Implemented ZaqWeb.PersonLoginContinuation as a fail-closed local route/session policy; PersonAuth captures recognized protected GET/HEAD People pages; PersonSessionController consumes after successful OTP, preserves on recoverable failures, clears on logout, and uses conn-aware script_name paths. Existing authorization/auth dispatch and BO session state remain unchanged. Focused result: 2 properties + 30 tests, 0 failures. mix q passed after alias-order cleanup.",
+      "timestamp": "2026-09-20T08:50:14Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ba7] Implement People login continuation",
   "type": "task",
-  "updated_at": "2026-09-20T08:43:35Z"
+  "updated_at": "2026-09-20T08:50:14Z"
 }
