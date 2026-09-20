@@ -64,12 +64,17 @@ defmodule ZaqWeb.Live.People.ProfileLiveTest do
 
     assert has_element?(
              view,
-             "section[aria-labelledby=information-heading].zaq-card-hover.zaq-border-default"
+             "section[aria-labelledby=information-heading] > #person-information-card.zaq-card-hover.zaq-border-default"
            )
 
     assert has_element?(
              view,
-             "section[aria-labelledby=teams-heading].zaq-card-hover.zaq-border-default"
+             "section[aria-labelledby=teams-heading] > #person-teams-card.zaq-card-hover.zaq-border-default"
+           )
+
+    assert has_element?(
+             view,
+             "section[aria-labelledby=channels-heading] > #person-channels-card.zaq-card-hover.zaq-border-default"
            )
 
     assert has_element?(view, "section[aria-labelledby=information-heading] dt.sr-only", "Email")

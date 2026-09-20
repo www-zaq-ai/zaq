@@ -8,7 +8,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
 
   import ZaqWeb.CoreComponents, only: [icon: 1, theme_toggle: 1]
 
-  alias ZaqWeb.Components.DesignSystem.{AccountMenu, PageHeader}
+  alias ZaqWeb.Components.DesignSystem.{AccountMenu, CardShell, PageHeader}
 
   attr :title, :string, required: true
   attr :description, :string, default: nil
@@ -49,7 +49,11 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
             >
               <.icon name="hero-cog-6-tooth" class="zaq-icon-sm" />
             </summary>
-            <div class="zaq-card-default zaq-card-hover zaq-border-default zaq-header-menu-panel">
+            <CardShell.card_shell
+              id="people-settings-panel"
+              as={:div}
+              class="zaq-card-hover zaq-header-menu-panel"
+            >
               <div class="zaq-layout-stack-tight">
                 <p class="zaq-text-h4">Appearance</p>
                 <.theme_toggle />
@@ -73,7 +77,7 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
                 navigate="/people/credentials"
                 class="zaq-btn zaq-btn-ghost"
               >Credentials</.link>
-            </div>
+            </CardShell.card_shell>
           </details>
           <AccountMenu.account_menu
             id="people-profile-menu"
