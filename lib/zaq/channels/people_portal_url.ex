@@ -2,6 +2,10 @@ defmodule Zaq.Channels.PeoplePortalUrl do
   @moduledoc """
   Builds fixed People portal destinations from the configured global base URL.
 
+  Channels reads the persisted base URL through Engine's existing System
+  configuration action. URL validation and fixed-path composition remain local and
+  never perform persistence access.
+
   The global base URL may include a deployment path prefix. Unsafe or ambiguous
   values return `nil`; callers must then provide configuration guidance rather
   than emitting a broken link.
@@ -11,8 +15,15 @@ defmodule Zaq.Channels.PeoplePortalUrl do
 
   @spec credentials(keyword()) :: String.t() | nil
   def credentials(opts \\ []) do
-    system_module = Keyword.get(opts, :system_module, Zaq.System)
-    build(system_module.get_global_base_url())
+    event =
+      Zaq.Event.new(%{}, :engine, opts: [action: :system_config_get_global_base_url])
+
+    node_router = Keyword.get(opts, :node_router_module, Zaq.NodeRouter)
+
+    case node_router.dispatch(event).response do
+      base_url when is_binary(base_url) -> build(base_url)
+      _missing_or_error -> nil
+    end
   end
 
   @doc "Builds the fixed People credentials destination from a validated base URL."

@@ -3,20 +3,36 @@ defmodule Zaq.Channels.PeoplePortalUrlTest do
   use ExUnitProperties
 
   alias Zaq.Channels.PeoplePortalUrl
+  alias Zaq.Event
 
-  defmodule ConfiguredSystem do
-    def get_global_base_url, do: "https://zaq.example.test/prefix/"
-  end
-
-  defmodule MissingSystem do
-    def get_global_base_url, do: nil
+  defmodule EngineRouter do
+    def dispatch(%Event{} = event) do
+      send(self(), {:global_base_url_event, event})
+      %{event | response: Process.get(:global_base_url_response)}
+    end
   end
 
   test "builds the fixed credentials destination from the configured global base URL" do
-    assert PeoplePortalUrl.credentials(system_module: ConfiguredSystem) ==
+    Process.put(:global_base_url_response, "https://zaq.example.test/prefix/")
+    on_exit(fn -> Process.delete(:global_base_url_response) end)
+
+    assert PeoplePortalUrl.credentials(node_router_module: EngineRouter) ==
              "https://zaq.example.test/prefix/people/credentials"
 
-    assert PeoplePortalUrl.credentials(system_module: MissingSystem) == nil
+    assert_received {:global_base_url_event, event}
+    assert event.request == %{}
+    assert event.next_hop.destination == :engine
+    assert event.opts[:action] == :system_config_get_global_base_url
+    refute Keyword.has_key?(event.opts, :confidential)
+  end
+
+  test "returns nil for missing, unavailable, failed, or malformed Engine responses" do
+    on_exit(fn -> Process.delete(:global_base_url_response) end)
+
+    for response <- [nil, {:error, {:service_unavailable, :engine}}, {:error, :failed}, %{}] do
+      Process.put(:global_base_url_response, response)
+      assert PeoplePortalUrl.credentials(node_router_module: EngineRouter) == nil
+    end
   end
 
   test "rejects unsafe or ambiguous base URLs" do

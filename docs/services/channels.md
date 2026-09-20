@@ -206,8 +206,11 @@ provider-specific credential guidance.
 
 For `:personal_credentials` recovery, `MessageFormatter` appends the fixed
 `/people/credentials` destination built by `Zaq.Channels.PeoplePortalUrl` from Global
-settings → global base URL. Deployment path prefixes are preserved. Missing or unsafe
-base URLs produce administrator guidance instead of a broken link. This formatting
+settings → global base URL. Channels obtains the persisted value through the existing
+Engine `:system_config_get_global_base_url` action; only validation and fixed-path
+composition remain local. Deployment path prefixes are preserved. Missing, unsafe,
+malformed or unavailable Engine responses produce administrator guidance instead of a
+broken link. The non-secret lookup uses a normal observable event. This formatting
 contract does not own People authentication or post-login redirection.
 
 ### Communication media attachments
