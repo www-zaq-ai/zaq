@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-20T16:40:22Z",
@@ -8,7 +8,7 @@
   "labels": [],
   "parent": "zaq-vuo",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-vuo.5] Remove ProviderSpec option micro-helper",
   "type": "task",
   "updated_at": "2026-09-20T16:40:30Z"
