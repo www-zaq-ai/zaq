@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-p9l.7"
+  ],
   "created": "2026-09-20T13:46:14Z",
   "description": "Normalize string/atom attrs consistently and preserve canonical Connect authentication unless an auth change is explicit. Tests first: endpoint-only and key-only string updates, migrated OAuth ordinary edits, explicit auth transitions and rollback errors; property-test key normalization invariant. Reuse System changesets and AIProviderCredentialConfiguration/Connect mutations.",
   "id": "zaq-p9l.5",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-p9l.5] Preserve AI credential updates",
   "type": "task",
-  "updated_at": "2026-09-20T13:46:28Z"
+  "updated_at": "2026-09-20T13:46:37Z"
 }
