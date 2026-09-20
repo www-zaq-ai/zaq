@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T13:45:56Z",
+  "description": "Address accepted /pr-review findings for person-scoped Connect credentials. Scope: OAuth lock ordering and safe staging, role-specific RPC timeouts, behavior-owned OAuth runtime identity, type-driven AI credential backfill and structurally safe rollback, AI CRUD update preservation, and effective Agent recovery scope. Finding 10 is intentionally accepted as current manual Codex callback workflow; finding 12 was completed in zaq-jrg.54. Action reuse: extend OAuthAttempts/PeopleCredentials, NodeRouter, OAuth Behaviour/Registry, AIProviderCredentialMigration/System configuration, and Executor; no new Actions or agent-tool exposure. Security boundaries and NodeRouter dispatch remain unchanged.",
+  "id": "zaq-p9l",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "PR #776 review fixes",
+  "type": "epic",
+  "updated_at": "2026-09-20T13:45:56Z"
+}
