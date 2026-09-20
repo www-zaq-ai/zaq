@@ -23,11 +23,15 @@
     {
       "text": "Corrections are ready for renewed review: retrieval effectiveness moved below global charts; API-call history transition no longer replaces legacy history when new explicit metrics arrive. Please verify layout and send another agent message to confirm the historical API-call line remains.",
       "timestamp": "2026-09-20T16:44:49Z"
+    },
+    {
+      "text": "Approved by the user in chat on 2026-09-20: 'LGTM, let's ship it'. Approved scope includes global chart order, retrieval effectiveness placement, rankings, agent filtering, and corrected mixed-history API-call behavior.",
+      "timestamp": "2026-09-20T16:49:37Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-uy9] Final UX approval",
   "type": "task",
-  "updated_at": "2026-09-20T16:44:49Z"
+  "updated_at": "2026-09-20T16:49:37Z"
 }
