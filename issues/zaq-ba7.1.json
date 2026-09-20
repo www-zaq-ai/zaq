@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T08:40:56Z",
+  "description": "Write failing controller/auth integration and property tests before implementation. Cover credentials and another eligible People page, no-destination default, invalid OTP preservation, unsafe destination fallback, authorization remaining authoritative, consumption/logout clearing, authenticated direct access, BO/Person isolation, and deployment script_name prefix behavior. Action reuse: local-only web policy; searched lib/zaq Actions/tools and found no authentication redirect operation. Existing People auth/gateway operations remain unchanged. Contract: accept only canonical application-relative protected People page routes, no query/fragment; pure validation has no side effects and fails closed.",
+  "id": "zaq-ba7.1",
+  "labels": [],
+  "parent": "zaq-ba7",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-ba7] Specify People continuation security contract",
+  "type": "task",
+  "updated_at": "2026-09-20T08:40:56Z"
+}
