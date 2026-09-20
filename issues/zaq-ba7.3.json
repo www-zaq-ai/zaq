@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-ba7.2"
+  ],
   "blocks": [],
   "created": "2026-09-20T08:40:57Z",
   "description": "Run focused controller/auth/LiveView/property tests, mix q, inspect diff and document validation. Update existing credential UX approval/E2E tracking zaq-jrg.31 and zaq-jrg.32 with the direct-link continuation scenario; do not author browser E2E before approval. Action reuse: not applicable, validation/tracking only.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-ba7] Validate People continuation and coordinate E2E",
   "type": "task",
-  "updated_at": "2026-09-20T08:40:57Z"
+  "updated_at": "2026-09-20T08:41:03Z"
 }
