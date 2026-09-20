@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-uy9.2"
+  ],
   "created": "2026-09-20T13:47:51Z",
   "description": "Functional specification: add idempotent local persistence for per-logical-LLM-call token usage while preserving existing qa.tokens.* global execution totals. Capture request/run/call IDs, effective provider/model, configured agent, validated person identity and available conversation/session correlation; unknown remains nil. StreamEvents owns reduction; Executor relays trusted context; Engine Telemetry owns persistence. Tests first: multi-turn/model/provider changes, duplicate completions, tool-only calls, terminal cumulative totals not double-counted, malformed/missing usage, anonymous actor, retries. Action reuse: extend StreamEvents/Executor/Telemetry; ProviderSpec normalization reused; local-only instrumentation, no Action or registry exposure.",
   "id": "zaq-uy9.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-uy9] Persist attributed LLM call usage",
   "type": "task",
-  "updated_at": "2026-09-20T13:47:51Z"
+  "updated_at": "2026-09-20T13:48:02Z"
 }
