@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-p9l.7"
+  ],
   "created": "2026-09-20T13:46:14Z",
   "description": "Carry the effective runtime scope into provider-authentication error enrichment so implicit Person scope resolves the correct credential dependency. Tests first: Person 401 without explicit scope, global/anonymous errors and cross-Person isolation. Extend Executor/ServerManager existing contract; no new Action.",
   "id": "zaq-p9l.6",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-p9l.6] Preserve effective Agent recovery scope",
   "type": "task",
-  "updated_at": "2026-09-20T13:46:28Z"
+  "updated_at": "2026-09-20T13:46:38Z"
 }

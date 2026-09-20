@@ -5,7 +5,8 @@
     "zaq-p9l.2",
     "zaq-p9l.3",
     "zaq-p9l.4",
-    "zaq-p9l.5"
+    "zaq-p9l.5",
+    "zaq-p9l.6"
   ],
   "blocks": [],
   "created": "2026-09-20T13:46:28Z",
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "[zaq-p9l.7] Review-fix integration validation",
   "type": "task",
-  "updated_at": "2026-09-20T13:46:37Z"
+  "updated_at": "2026-09-20T13:46:38Z"
 }
