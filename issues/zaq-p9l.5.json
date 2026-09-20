@@ -9,9 +9,15 @@
   "id": "zaq-p9l.5",
   "labels": [],
   "parent": "zaq-p9l",
+  "comments": [
+    {
+      "text": "Normalized connection-key selection for partial string maps and preserved existing Connect auth/config unless auth material is explicitly submitted. Added partial string and migrated OAuth edit regressions. AI credential suite: 20 tests pass. Uncommitted pending authorization.",
+      "timestamp": "2026-09-20T13:58:22Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p9l.5] Preserve AI credential updates",
   "type": "task",
-  "updated_at": "2026-09-20T13:56:16Z"
+  "updated_at": "2026-09-20T13:58:22Z"
 }
