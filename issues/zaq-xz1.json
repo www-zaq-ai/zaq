@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-20T08:17:58Z",
   "created": "2026-09-20T07:44:14Z",
   "description": "Replace the approved profile and People settings card wrappers with ZaqWeb.Components.DesignSystem.CardShell while preserving accessibility, behavior, and stable hooks. Action reuse: not applicable — presentation-only component replacement with no executable operation changes.",
   "id": "zaq-xz1",
@@ -13,8 +14,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Migrate People cards to shared CardShell",
   "type": "task",
-  "updated_at": "2026-09-20T08:13:59Z"
+  "updated_at": "2026-09-20T08:17:58Z"
 }
