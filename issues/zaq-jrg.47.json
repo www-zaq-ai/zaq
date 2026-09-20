@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-jrg.48"
   ],
+  "closed_at": "2026-09-20T11:08:08Z",
+  "close_reason": "Landed in cacd185e: canonical safe actionable credential classification, trusted owner provenance, and regression/property coverage.",
   "created": "2026-09-20T08:39:20Z",
   "description": "Functional specification/files: extend Zaq.Agent.ErrorMessage and the existing credential/runtime propagation boundary so public failures retain an allowlisted category, retryability and trusted personal/global provenance; cover required personal grant missing, invalid/revoked/expired/unavailable grants, OAuth refresh busy/failed, global credential missing, identity failures, provider auth/access, rate/quota/outage, oversized input, persistence/runtime/unknown failures. Never infer personal ownership from HTTP status alone; redact raw provider bodies, credential/grant IDs and secrets. Tests before implementation: error_message and Executor/Pipeline mapping tests, wrapped-reason tests, unknown fallback, and property tests proving secret/provider-body non-disclosure. Branches: pre-request denial, provider response, transient/permanent refresh, fallback and nested errors. Mocking: external provider errors only; internal boundaries real. Docs: Agent and Channels service error-contract sections. Action reuse: EXTEND lib/zaq/agent/error_message.ex and existing CredentialResolver/Executor contracts; no new Action/tool because classification is a local presentation concern. Preserve current callers and side effects; verify all consumers share the canonical formatter. Coordinate with zaq-jrg.34 refresh diagnostics without duplicating its producer logic.",
   "id": "zaq-jrg.47",
@@ -20,8 +22,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-jrg.47] Classify actionable channel failures",
   "type": "task",
-  "updated_at": "2026-09-20T09:29:10Z"
+  "updated_at": "2026-09-20T11:08:08Z"
 }
