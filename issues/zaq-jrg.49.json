@@ -11,9 +11,15 @@
   "id": "zaq-jrg.49",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Partially implemented in the shared uncommitted working tree: MessageFormatter appends clickable People credentials links for :personal_credentials across markdown/HTML channels; Executor classifies provider 401/403 as personal only from the running credential dependency's trusted owner_type. Mattermost missing/revoked/provider-rejected integration scenarios assert final delivered links; global/retry errors do not receive links. Focused validation: 737 tests, 19 properties, 6 doctests pass; mix q passes.",
+      "timestamp": "2026-09-20T09:29:11Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-jrg.49] Render actionable failures across channels",
   "type": "task",
-  "updated_at": "2026-09-20T08:39:26Z"
+  "updated_at": "2026-09-20T09:29:11Z"
 }
