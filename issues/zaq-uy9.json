@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T13:47:35Z",
+  "description": "Preserve global multi-turn token totals while collecting per-logical-call provider/model/person/agent attribution and exposing model/person rankings plus configured-agent filtered charts on the LLM Performance BO page. Architecture approval: user approved the implementation plan and instructed Go. Action reuse: extend StreamEvents, Executor, Engine Telemetry and existing BO telemetry components; no new Action/tool because instrumentation and dashboard queries are local domain operations. E2E: required for the new interactive dashboard journey; tracked behind final human UX/UI approval.",
+  "id": "zaq-uy9",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Attributed LLM usage and dashboard",
+  "type": "epic",
+  "updated_at": "2026-09-20T13:47:35Z"
+}
