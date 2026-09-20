@@ -9,9 +9,15 @@
   "id": "zaq-vuo.1",
   "labels": [],
   "parent": "zaq-vuo",
+  "comments": [
+    {
+      "text": "Existing ProviderSpec suite plus new registry contract characterization covers provider selection, Codex/default translation and public option behavior. 66 focused tests pass.",
+      "timestamp": "2026-09-20T16:18:27Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-vuo.1] Characterize ProviderSpec contracts",
   "type": "task",
-  "updated_at": "2026-09-20T16:14:10Z"
+  "updated_at": "2026-09-20T16:18:27Z"
 }
