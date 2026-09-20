@@ -11,9 +11,15 @@
   "id": "zaq-jrg.48",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented in the shared uncommitted working tree per user direction, while dependency .47 remains open: added Zaq.Channels.PeoplePortalUrl using Global settings global base URL, safe HTTP(S) validation, deployment-prefix preservation, fixed /people/credentials target, and explicit admin guidance for missing/unsafe configuration. Unit/property tests pass. No login/redirection changes.",
+      "timestamp": "2026-09-20T09:29:11Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-jrg.48] Compose safe People credential recovery links",
   "type": "task",
-  "updated_at": "2026-09-20T08:39:25Z"
+  "updated_at": "2026-09-20T09:29:11Z"
 }
