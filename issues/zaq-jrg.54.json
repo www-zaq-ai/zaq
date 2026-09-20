@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T12:52:19Z",
+  "description": "Final branch-only audit regression from zaq-jrg.51. ServerManager still forwards :connect_module to Factory after Factory migrated to :node_router_module, so the branch-added startup/invalidation ordering test no longer blocks at the credential boundary. Update ServerManager to forward only the NodeRouter boundary seam and replace BlockingConnect with a blocking NodeRouter stub that returns the confidential Engine action response shape. Tests first/acceptance: ordering test observes block, queued invalidation completes after dependency registration, no direct Connect override remains, focused server-manager suite and mix q pass. Action reuse: reuse the new :resolve_ai_runtime_credential Engine action contract; no new action.",
+  "id": "zaq-jrg.54",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "Preserve ServerManager credential dispatch test seam",
+  "type": "bug",
+  "updated_at": "2026-09-20T12:52:19Z"
+}
