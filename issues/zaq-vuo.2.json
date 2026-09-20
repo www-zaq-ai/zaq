@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-vuo.3"
   ],
+  "closed_at": "2026-09-20T16:18:32Z",
+  "close_reason": "Behavior and implementations added with contract tests.",
   "created": "2026-09-20T16:13:53Z",
   "description": "Add Agent-owned pure behavior, static registry, Default and Codex implementations. Separate non-secret configuration, resolved authentication and selected identity. No lookups, HTTP, persistence, Actions or tool exposure in adapters.",
   "id": "zaq-vuo.2",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-vuo.2] Add Agent provider runtime behavior",
   "type": "task",
-  "updated_at": "2026-09-20T16:18:30Z"
+  "updated_at": "2026-09-20T16:18:32Z"
 }
