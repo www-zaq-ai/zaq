@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T14:07:33Z",
+  "description": "Fix ZaqWeb.Helpers.Timezone so an absent system timezone is cached as a valid result instead of causing one Engine/DB lookup per formatted timestamp. Preserve the existing Engine action boundary and process-local cache. Add a regression test proving repeated shifts issue one lookup. Action reuse assessment: reuse existing :system_config_get_system_timezone Engine operation; local-only cache-state distinction in the presentation helper because it has no standalone operation contract. Verify targeted timezone tests and mix q.",
+  "id": "zaq-k1y",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Cache missing system timezone per render process",
+  "type": "bug",
+  "updated_at": "2026-09-20T14:07:33Z"
+}
