@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.52"
+  ],
   "created": "2026-09-20T12:05:31Z",
   "description": "Branch-only boundary fix. Functional/files: add an explicit Engine domain action for actor-bound AI runtime credential resolution/config projection; migrate Zaq.Agent.Factory branch-added Connect.resolve_credential and direct AI credential read to NodeRouter dispatch. Preserve selected personal/global policy, no fallback after selected failure, OAuth refresh, owner provenance and ephemeral authentication. Event must be confidential and actor must come from trusted execution context; no generic :invoke and no public secret persistence/logging/broadcast. Tests first: Engine API action request/actor validation, confidential routing, local/remote response contract, missing/invalid actor, personal/global selection and secret-redaction metadata; Factory proves no direct Engine module default. Mock only NodeRouter boundary. Docs: Agent/System/Engine credential runtime contract. Action reuse: EXTEND Engine.Api and existing Connect resolver/System association rather than duplicate selection; new domain action is required because no existing action exposes this privileged operation safely.",
   "id": "zaq-jrg.51",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg.51] Add confidential Engine runtime credential resolution action",
   "type": "task",
-  "updated_at": "2026-09-20T12:05:32Z"
+  "updated_at": "2026-09-20T12:05:34Z"
 }
