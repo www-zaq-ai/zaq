@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T13:46:13Z",
+  "description": "Preserve long-running role dispatch while bounding discovery/invalidation operations. Tests first: delayed remote Agent response and return hop, bounded unavailable peer behavior. Extend NodeRouter; no new Action. Preserve confidential routing and NodeRouter boundary.",
+  "id": "zaq-p9l.2",
+  "labels": [],
+  "parent": "zaq-p9l",
+  "priority": 2,
+  "status": "open",
+  "title": "Separate NodeRouter RPC timeout classes",
+  "type": "task",
+  "updated_at": "2026-09-20T13:46:13Z"
+}
