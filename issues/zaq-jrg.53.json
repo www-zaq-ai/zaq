@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-jrg.52"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-jrg",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-jrg.53] Route People recovery URL configuration lookup",
   "type": "task",
-  "updated_at": "2026-09-20T12:05:35Z"
+  "updated_at": "2026-09-20T12:32:22Z"
 }
