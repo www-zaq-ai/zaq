@@ -11,9 +11,15 @@
   "id": "zaq-jrg.31",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Login-continuation implementation zaq-ba7 adds the direct protected-link journey to approval scope: signed-out visitor opens /people/credentials, completes OTP, and lands on Credentials. Review that navigation behavior with final credential routes/forms; callers continue linking directly to the protected destination.",
+      "timestamp": "2026-09-20T08:53:57Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Approve combined credential management UX",
   "type": "task",
-  "updated_at": "2026-09-18T17:06:20Z"
+  "updated_at": "2026-09-20T08:53:57Z"
 }
