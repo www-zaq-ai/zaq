@@ -11,9 +11,15 @@
   "id": "zaq-vuo.3",
   "labels": [],
   "parent": "zaq-vuo",
+  "comments": [
+    {
+      "text": "ProviderSpec now normalizes one context and delegates provider atom, fixed URL, model spec, credential options and defaults through the static registry. Removed all Codex references/helpers from facade. Resolved options override conflicting advanced auth/account fields. Updated Agent service ownership docs.",
+      "timestamp": "2026-09-20T16:28:12Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-vuo.3] Delegate ProviderSpec and remove special cases",
   "type": "task",
-  "updated_at": "2026-09-20T16:18:32Z"
+  "updated_at": "2026-09-20T16:28:12Z"
 }
