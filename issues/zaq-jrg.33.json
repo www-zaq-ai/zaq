@@ -15,11 +15,15 @@
     {
       "text": "Final validation: exact CI command seed 316490 passes 15/15; additional seeds 1 and 999999 pass; mix q passes. Permission setup now snapshots/restores Everyone access state, and reauthorization revokes only grants it created with on_exit fallback. Uncommitted on current branch.",
       "timestamp": "2026-09-19T10:11:10Z"
+    },
+    {
+      "text": "Backported the exact people_permissions_concurrency_test.exs isolation patch from downstream commit 87f129e3 onto feat/allow-credentials-override-per-people (PR #764). Isolated test passes (1 test, 0 failures), mix q passes, and the resulting patch matches the downstream commit exactly. Left uncommitted per authorization.",
+      "timestamp": "2026-09-20T03:15:13Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.33] Fix concurrency test isolation",
   "type": "task",
-  "updated_at": "2026-09-19T10:11:10Z"
+  "updated_at": "2026-09-20T03:15:13Z"
 }
