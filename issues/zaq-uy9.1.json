@@ -9,9 +9,15 @@
   "id": "zaq-uy9.1",
   "labels": [],
   "parent": "zaq-uy9",
+  "comments": [
+    {
+      "text": "Implemented per-call LLM usage reduction keyed by request/run/call identity, duplicate completion replacement, preserved terminal global totals, and attributed qa.llm.call.count plus qa.llm.tokens.* metrics carrying provider/model, validated actor/person, configured agent and available conversation/session. Tests: stream events + executor integration (59 tests, 1 property) pass; mix q passes. No migration needed because existing telemetry dimensions/rollups are reused.",
+      "timestamp": "2026-09-20T13:55:47Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-uy9] Persist attributed LLM call usage",
   "type": "task",
-  "updated_at": "2026-09-20T13:48:04Z"
+  "updated_at": "2026-09-20T13:55:47Z"
 }
