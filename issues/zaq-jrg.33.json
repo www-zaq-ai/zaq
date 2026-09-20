@@ -19,11 +19,15 @@
     {
       "text": "Backported the exact people_permissions_concurrency_test.exs isolation patch from downstream commit 87f129e3 onto feat/allow-credentials-override-per-people (PR #764). Isolated test passes (1 test, 0 failures), mix q passes, and the resulting patch matches the downstream commit exactly. Left uncommitted per authorization.",
       "timestamp": "2026-09-20T03:15:13Z"
+    },
+    {
+      "text": "Committed exact backport as a021cd53 on feat/allow-credentials-override-per-people. Push blocked: origin SSH has no loaded identity; authenticated jfayad HTTPS token receives 403 for www-zaq-ai/zaq. Targeted test and mix q pass. mix precommit attempted twice but is blocked by unrelated peer-distribution infrastructure failures (:peer_connection_failed), reproducible in the two peer test files alone (4 tests, 2 failures).",
+      "timestamp": "2026-09-20T03:42:09Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.33] Fix concurrency test isolation",
   "type": "task",
-  "updated_at": "2026-09-20T03:15:13Z"
+  "updated_at": "2026-09-20T03:42:09Z"
 }
