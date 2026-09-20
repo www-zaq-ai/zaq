@@ -13,11 +13,15 @@
     {
       "text": "Implemented and validated in the working tree, pending authorization to commit/close. Added canonical actionable credential/provider messages, trusted selected-grant owner_type provenance, safe public reason/recovery/retry metadata, and removed raw credential IDs/provider bodies from outgoing error metadata. Added ingress and resolver regression/property coverage; updated Agent/Channels/System Config contracts. Validation passed: error-message + Executor suites (93 tests, 6 properties, 6 doctests), full Connect + Factory suites (465 tests, 11 properties), Mattermost Person credential ingress (8 tests), Serena diagnostics clean, mix q passed, git diff --check clean. No login/redirection changes. Next issue zaq-jrg.48 remains blocked until this issue is committed and closed.",
       "timestamp": "2026-09-20T09:00:22Z"
+    },
+    {
+      "text": "Follow-up correction completed in the same working tree: personal recovery now renders an actual channel link rather than only a recovery category. No login or post-login redirection code changed.",
+      "timestamp": "2026-09-20T09:29:10Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.47] Classify actionable channel failures",
   "type": "task",
-  "updated_at": "2026-09-20T09:00:22Z"
+  "updated_at": "2026-09-20T09:29:10Z"
 }
