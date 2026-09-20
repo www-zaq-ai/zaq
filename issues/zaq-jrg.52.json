@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-jrg.53"
   ],
+  "closed_at": "2026-09-20T12:32:12Z",
+  "close_reason": "Routed global System credential resolution and UserPortal credential mutations through Engine; removed Answering direct credential load. Focused 335 tests/4 properties and mix q passed. Committed as a888a26e.",
   "created": "2026-09-20T12:05:32Z",
   "description": "Branch-only boundary fix. Functional/files: migrate branch-added Answering/Factory and portal runtime credential reads whose System wrappers now execute Connect; separate pure config reads from credential resolution; move branch-added AI provider configuration mutation orchestration behind an Engine domain action so BO/Onboarding/UserPortal callers do not execute Connect locally. Preserve transaction atomicity, encryption, mutation jobs, DTO/error contracts and existing global behavior. Tests first: consumers dispatch exact actions, Engine-unavailable failures, create/update rollback and notification atomicity, no direct Connect aliases/calls in off-role new code. Mock NodeRouter only; internal Engine dependencies real. Docs update. Action reuse: REUSE existing system-config get actions where contracts suffice; EXTEND Engine API with a focused atomic provisioning operation where existing CRUD cannot preserve the transaction; no generic invoke/tool exposure.",
   "id": "zaq-jrg.52",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-jrg.52] Route branch-added credential consumers and provisioning",
   "type": "task",
-  "updated_at": "2026-09-20T12:30:01Z"
+  "updated_at": "2026-09-20T12:32:12Z"
 }
