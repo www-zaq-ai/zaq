@@ -9,9 +9,15 @@
   "id": "zaq-uy9.5",
   "labels": [],
   "parent": "zaq-uy9",
+  "comments": [
+    {
+      "text": "Approved E2E coverage implemented and validated across Chromium, Firefox, and WebKit: 12 tests passed. Final coverage gate is blocked because the required fresh mix coveralls.json run timed out at the authoritative 600-second limit; per workflow, no stale report may be used and shipping must stop before precommit/commit.",
+      "timestamp": "2026-09-20T17:12:41Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-uy9] LLM dashboard E2E",
   "type": "task",
-  "updated_at": "2026-09-20T16:49:38Z"
+  "updated_at": "2026-09-20T17:12:41Z"
 }
