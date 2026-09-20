@@ -11,9 +11,15 @@
   "id": "zaq-jrg.53",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented in working tree: PeoplePortalUrl now reuses Engine :system_config_get_global_base_url via NodeRouter; URL validation/composition remains Channels-local; missing/unavailable/error/malformed responses return nil. Focused 35 tests/1 property and mix q pass. Awaiting commit authorization.",
+      "timestamp": "2026-09-20T12:34:40Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.53] Route People recovery URL configuration lookup",
   "type": "task",
-  "updated_at": "2026-09-20T12:32:22Z"
+  "updated_at": "2026-09-20T12:34:40Z"
 }
