@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-jrg.42"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-jrg.44"
+  ],
   "created": "2026-09-20T03:03:30Z",
   "description": "Functional specifications/files: strengthen current uncommitted executor credential HTTP tests with exact structured credential errors, selective persisted Oban mutation-job processing, and explicit warm-server authentication stability before/after delivery. Add a supervised test-only request capture helper only if mailbox capture cannot provide deterministic barriers.\nTests first: persisted grant changes without notification retain old key on same PID; selected job delivery completes then new PID/key; exact personal-required/global-missing/revoked/expired reasons; no unrelated jobs drained.\nBranches: warm reuse, targeted job selection, absent/revoked/expired errors, provider 401 retries.\nMocking: OpenAIStub only at external LLM edge; all ZAQ operations real.\nDocs: test names only unless contract drift is found.\nAction reuse: not applicable — test-only orchestration reuses existing Connect, Oban, NodeRouter, Executor and ServerManager operations.",
   "id": "zaq-jrg.43",

@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-jrg.43"
+  ],
   "blocks": [],
   "created": "2026-09-20T03:03:31Z",
   "description": "Functional specifications/files: add a thin Mattermost posted-frame integration suite through WebSocket receiver callback, bridge state/adapter, identity resolver, routing, NodeRouter, Agent, persistence and OpenAIStub. Mock only external Mattermost and LLM HTTP.\nTests first: grouped disabled/optional/required Alice/Bob policy matrix; required without global; provider 401 no fallback; personal replacement/revocation; policy/global changes; assert resolved Person, selected Agent, exact Authorization and persisted answer/error.\nBranches: valid DM ingress, Person identity match, routing rule, personal/global/no grant, targeted invalidation, lazy recreation.\nMocking: existing Mattermost request stub plus OpenAIStub; no internal identity/router stubs. Deterministic PubSub/outbound completion barriers; no sleeps.\nDocs: clarify receiver boundary does not test WebSocket establishment if needed.\nAction reuse: not applicable — integration coverage invokes existing channel/Engine/Agent operations and adds no production Action/tool.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-jrg.44] Mattermost ingress Person credential integration matrix",
   "type": "task",
-  "updated_at": "2026-09-20T03:03:31Z"
+  "updated_at": "2026-09-20T03:03:34Z"
 }
