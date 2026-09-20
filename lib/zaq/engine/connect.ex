@@ -18,7 +18,8 @@ defmodule Zaq.Engine.Connect do
   Legacy `issue_grant/1` rejects Person ownership before building a changeset.
 
   `resolve_credential/3` is privileged runtime-only canonical selection. It returns
-  redacted ephemeral generic authentication, never a public event response. Nil
+  redacted ephemeral generic authentication. Cross-role runtime consumers may receive
+  it only through Engine's synchronous confidential runtime-credential action. Nil
   actors intentionally select org here and do not authorize Person management.
 
   `PersonLifecycle` owns transactional Person grant transfer, secret erasure and
@@ -52,7 +53,7 @@ defmodule Zaq.Engine.Connect do
           | :not_found
           | :canonical_grant_requires_owner
 
-  @doc "Privileged runtime-only resolution; never expose as a public Engine action."
+  @doc "Privileged runtime-only resolution; expose cross-role only through the confidential Engine action."
   @spec resolve_credential(
           Zaq.Engine.Connect.CredentialResolver.credential_ref(),
           Zaq.Identity.ActorNormalizer.actor(),

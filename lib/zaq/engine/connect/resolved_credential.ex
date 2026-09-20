@@ -2,9 +2,11 @@ defmodule Zaq.Engine.Connect.ResolvedCredential do
   @moduledoc """
   Ephemeral authentication for trusted in-process runtime consumers only.
 
-  This is not an Ecto schema or a transport DTO and intentionally has no JSON
+  This is not an Ecto schema or a public transport DTO and intentionally has no JSON
   encoder. Inspection exposes dependency IDs and auth kind only. Callers must not
-  serialize, persist, log `authentication`, or put this value into public events.
+  serialize, persist, log `authentication`, or put this value into observable events.
+  The one cross-role exception is Engine's synchronous confidential runtime-credential
+  action, which is excluded from observer and workflow broadcasts.
 
   API keys are literal `api_key` strings; OAuth supplies only a literal access
   token, never refresh tokens or client secrets. JWT supplies a private PEM key

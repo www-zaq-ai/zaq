@@ -49,6 +49,13 @@ defmodule Zaq.Engine.ApiTest do
     def fetch_credential(credential_id), do: {:ok, %{id: credential_id}}
   end
 
+  defmodule StubAIRuntimeCredentials do
+    def resolve(credential_id, actor, opts) do
+      send(self(), {:resolve_ai_runtime_credential, credential_id, actor, opts})
+      {:ok, %{credential: %{id: credential_id}, resolved_credential: :resolved}}
+    end
+  end
+
   defmodule StubOAuth do
     def redirect_uri_for(provider), do: "https://example.test/oauth/#{provider}/callback"
   end
@@ -644,6 +651,74 @@ defmodule Zaq.Engine.ApiTest do
       )
 
     assert result.response == {:error, :not_found}
+  end
+
+  describe "resolve_ai_runtime_credential action" do
+    test "requires a confidential event" do
+      event =
+        Event.new(%{credential_id: 42}, :engine,
+          actor: %{kind: :system, subject: "api-test"},
+          opts: [ai_runtime_credentials_module: StubAIRuntimeCredentials]
+        )
+
+      assert Api.handle_event(event, :resolve_ai_runtime_credential, nil).response ==
+               {:error, :confidential_event_required}
+
+      refute_received {:resolve_ai_runtime_credential, _, _, _}
+    end
+
+    test "passes the trusted event actor to the Engine resolver" do
+      actor = %{kind: :system, subject: "api-test"}
+
+      event =
+        Event.new(%{credential_id: 42}, :engine,
+          actor: actor,
+          opts: [
+            action: :resolve_ai_runtime_credential,
+            confidential: true,
+            ai_runtime_credentials_module: StubAIRuntimeCredentials
+          ]
+        )
+
+      result = Api.handle_event(event, :resolve_ai_runtime_credential, nil)
+
+      assert result.response ==
+               {:ok, %{credential: %{id: 42}, resolved_credential: :resolved}}
+
+      assert_received {:resolve_ai_runtime_credential, 42, ^actor, opts}
+      assert opts[:confidential] == true
+    end
+
+    test "rejects malformed requests before credential resolution" do
+      event =
+        Event.new(%{credential_id: nil}, :engine,
+          actor: %{kind: :system, subject: "api-test"},
+          opts: [
+            confidential: true,
+            ai_runtime_credentials_module: StubAIRuntimeCredentials
+          ]
+        )
+
+      assert Api.handle_event(event, :resolve_ai_runtime_credential, nil).response ==
+               {:error, {:invalid_request, %{credential_id: nil}}}
+
+      refute_received {:resolve_ai_runtime_credential, _, _, _}
+    end
+
+    test "rejects missing trusted actor before credential resolution" do
+      event =
+        Event.new(%{credential_id: 42}, :engine,
+          opts: [
+            confidential: true,
+            ai_runtime_credentials_module: StubAIRuntimeCredentials
+          ]
+        )
+
+      assert Api.handle_event(event, :resolve_ai_runtime_credential, nil).response ==
+               {:error, :missing_execution_actor}
+
+      refute_received {:resolve_ai_runtime_credential, _, _, _}
+    end
   end
 
   test "returns invalid request for malformed connect payloads" do

@@ -58,7 +58,7 @@ defmodule Zaq.Agent.Factory do
   }
 
   alias Zaq.Agent.Tools.Registry
-  alias Zaq.Engine.Connect
+  alias Zaq.Event
   alias Zaq.Identity.{ActorNormalizer, ExecutionActor}
   alias Zaq.System
 
@@ -155,51 +155,65 @@ defmodule Zaq.Agent.Factory do
   @spec runtime_config(ConfiguredAgent.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def runtime_config(%ConfiguredAgent{} = configured_agent, opts) do
     with {:ok, actor} <- ExecutionActor.validate(Keyword.get(opts, :actor)),
-         {:ok, resolved} <- resolve_authentication(configured_agent, actor, opts),
-         {:ok, llm_opts} <- resolved_llm_opts(configured_agent, resolved),
+         {:ok, runtime_credential} <- resolve_authentication(configured_agent, actor, opts),
+         {:ok, llm_opts} <- resolved_llm_opts(configured_agent, runtime_credential),
          {:ok, config} <- build_runtime_config(configured_agent, llm_opts) do
       {:ok,
        config
        |> Map.put(:execution_actor, actor)
-       |> put_credential_dependency(resolved, actor)
+       |> put_credential_dependency(resolved_credential(runtime_credential), actor)
        |> Map.update!(:tool_context, &Map.put(&1, :actor, actor))}
     end
   end
 
   defp resolve_authentication(%ConfiguredAgent{} = configured_agent, actor, opts) do
-    credential =
-      case configured_agent.credential do
-        %System.AIProviderCredential{} = attached -> attached
-        _ -> load_ai_credential(configured_agent.credential_id)
-      end
-
-    case credential do
+    case ai_provider_credential_id(configured_agent) do
       nil ->
         {:ok, nil}
 
-      %{connect_credential_id: id} when is_integer(id) ->
-        connect_module = Keyword.get(opts, :connect_module, Connect)
-        connect_module.resolve_credential(id, actor)
+      credential_id ->
+        event =
+          Event.new(%{credential_id: credential_id}, :engine,
+            actor: actor,
+            opts: [action: :resolve_ai_runtime_credential, confidential: true]
+          )
 
-      %System.AIProviderCredential{} ->
-        {:error, %{credential_id: nil, reason: :credential_unavailable}}
+        node_router = Keyword.get(opts, :node_router_module, Zaq.NodeRouter)
 
-      %{} ->
-        {:ok, nil}
+        case node_router.dispatch(event).response do
+          {:ok, %{credential: credential, resolved_credential: %{} = resolved}}
+          when is_map(credential) ->
+            {:ok, %{credential: credential, resolved_credential: resolved}}
 
-      _ ->
-        {:error, %{credential_id: nil, reason: :credential_unavailable}}
+          {:ok, nil} ->
+            {:ok, nil}
+
+          {:error, _} = error ->
+            error
+
+          other ->
+            {:error, {:invalid_runtime_credential_response, other}}
+        end
     end
   end
 
-  defp load_ai_credential(id) when is_integer(id), do: System.get_ai_provider_credential(id)
-  defp load_ai_credential(_), do: nil
+  defp ai_provider_credential_id(%ConfiguredAgent{credential: %{id: id}}) when is_integer(id),
+    do: id
+
+  defp ai_provider_credential_id(%ConfiguredAgent{credential_id: id}) when is_integer(id), do: id
+  defp ai_provider_credential_id(_configured_agent), do: nil
 
   defp resolved_llm_opts(configured_agent, nil),
     do: ProviderSpec.llm_opts(configured_agent, nil)
 
-  defp resolved_llm_opts(configured_agent, resolved),
-    do: ProviderSpec.llm_opts(configured_agent, resolved)
+  defp resolved_llm_opts(
+         configured_agent,
+         %{credential: credential, resolved_credential: resolved}
+       ),
+       do: ProviderSpec.llm_opts(%{configured_agent | credential: credential}, resolved)
+
+  defp resolved_credential(nil), do: nil
+  defp resolved_credential(%{resolved_credential: resolved}), do: resolved
 
   defp put_credential_dependency(config, nil, _actor), do: config
 

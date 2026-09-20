@@ -279,8 +279,12 @@ transport that adopts them.
 
 ### Runtime resolution secret lifetime (`zaq-jrg.4`)
 
-`Connect.resolve_credential/3` is a privileged runtime-only API, not a public Engine
-action. It checks every claimed literal active Person before policy, including
+`Connect.resolve_credential/3` is a privileged runtime-only API, not a public/general
+Engine action. Cross-role Agent startup can reach it only through the synchronous
+confidential `:resolve_ai_runtime_credential` domain action. That action requires a
+validated trusted actor, loads the AI-provider association inside Engine, and returns a
+secret-free provider projection beside the Inspect-redacted ephemeral result. It checks
+every claimed literal active Person before policy, including
 disabled policy; malformed/stale/alias identities never become global authorization.
 Nil/BO/system actors intentionally select org only within this trusted capability.
 Person management still requires its authenticated adapter precondition.
@@ -303,7 +307,8 @@ tied to an already-selected grant also carry its trusted `owner_type` (`"person"
 guessing from an HTTP status. This internal provenance must not expose owner IDs or
 global-grant availability and is removed from public metadata. Do not serialize,
 persist, log extracted authentication, or return the resolved credential through public
-events. See `engine.md` for exact auth shapes, expiry/error semantics and the final-read
+or observable events. The confidential runtime action is the sole cross-role exception;
+it is never broadcast. See `engine.md` for exact auth shapes, expiry/error semantics and the final-read
 linearization/later server invalidation limitation.
 
 Global AI consumers call the System association boundary, which delegates to

@@ -19,10 +19,20 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Agent.Tools.Web.Browsing
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.ResolvedCredential
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Event
   alias Zaq.TestSupport.OpenAIStub
 
   @execution_actor %{kind: :system, subject: "factory-test"}
+
+  defmodule RuntimeCredentialRouter do
+    def dispatch(%Event{} = event) do
+      routed = %{event | response: Process.get(:runtime_credential_response)}
+      send(self(), {:runtime_credential_event, event, routed})
+      routed
+    end
+  end
 
   test "lifecycle config requires an actor while structural inspection remains supported" do
     config = %ConfiguredAgent{job: "Lifecycle", enabled_tool_keys: [], credential: nil}
@@ -125,6 +135,80 @@ defmodule Zaq.Agent.FactoryTest do
     assert {:ok, runtime} = Factory.runtime_config(agent, actor: @execution_actor)
     assert runtime.llm_opts[:api_key] == "canonical-key"
     assert runtime.credential_dependency.credential_id == credential.connect_credential_id
+  end
+
+  test "lifecycle config resolves credentials through a confidential Engine event" do
+    credential = ai_credential_fixture(%{api_key: "stored-secret"})
+
+    resolved = %ResolvedCredential{
+      credential_id: credential.connect_credential_id,
+      grant_id: 44,
+      owner_type: "system",
+      owner_id: nil,
+      auth_kind: "api_key",
+      request_format: "bearer",
+      authentication: %{api_key: "routed-secret"}
+    }
+
+    Process.put(
+      :runtime_credential_response,
+      {:ok,
+       %{
+         credential: %{
+           id: credential.id,
+           provider: credential.provider,
+           endpoint: credential.endpoint,
+           metadata: credential.metadata,
+           sovereign: credential.sovereign,
+           connect_credential_id: credential.connect_credential_id
+         },
+         resolved_credential: resolved
+       }}
+    )
+
+    on_exit(fn -> Process.delete(:runtime_credential_response) end)
+
+    agent = %ConfiguredAgent{
+      job: "Lifecycle",
+      model: "gpt-4.1-mini",
+      enabled_tool_keys: [],
+      credential_id: credential.id,
+      advanced_options: %{}
+    }
+
+    assert {:ok, runtime} =
+             Factory.runtime_config(agent,
+               actor: @execution_actor,
+               node_router_module: RuntimeCredentialRouter
+             )
+
+    assert runtime.llm_opts[:api_key] == "routed-secret"
+    assert_received {:runtime_credential_event, event, routed}
+    assert event.request == %{credential_id: credential.id}
+    assert event.next_hop.destination == :engine
+    assert event.actor == @execution_actor
+    assert event.opts[:action] == :resolve_ai_runtime_credential
+    assert event.opts[:confidential] == true
+    refute inspect(routed) =~ "routed-secret"
+  end
+
+  test "lifecycle config propagates Engine unavailability" do
+    credential = ai_credential_fixture(%{api_key: "stored-secret"})
+    Process.put(:runtime_credential_response, {:error, {:service_unavailable, :engine}})
+    on_exit(fn -> Process.delete(:runtime_credential_response) end)
+
+    agent = %ConfiguredAgent{
+      job: "Lifecycle",
+      model: "gpt-4.1-mini",
+      enabled_tool_keys: [],
+      credential_id: credential.id,
+      advanced_options: %{}
+    }
+
+    assert Factory.runtime_config(agent,
+             actor: @execution_actor,
+             node_router_module: RuntimeCredentialRouter
+           ) == {:error, {:service_unavailable, :engine}}
   end
 
   defmodule MCPProbeTool do

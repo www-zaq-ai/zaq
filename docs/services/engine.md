@@ -349,8 +349,11 @@ not heartbeat presence alone.
 `Connect.resolve_credential(credential_or_id, trusted_actor, opts \\ [])` delegates
 to `Connect.CredentialResolver`. IDs may be positive integers or numeric strings;
 schema inputs supply only their ID and are always reloaded. This is a **trusted
-runtime capability**, not a Person read API, public Engine action or authentication
-adapter. No consumer is integrated by this slice. Generic internal invocation remains
+runtime capability**, not a Person read API, general public Engine action or
+authentication adapter. Agent cold starts use the explicit synchronous
+`:resolve_ai_runtime_credential` action with a persisted AI-provider configuration ID,
+a validated trusted actor and `confidential: true`. Engine loads and projects the
+provider configuration before canonical resolution. Generic internal invocation remains
 trusted infrastructure and must not be exposed to browser input.
 
 `ActorNormalizer.person_id/1` supplies canonical nested and legacy flat ID compatibility,
@@ -381,7 +384,8 @@ ephemeral `authentication`, and optional
 selected-grant `account_id`/`account_name` metadata (strings, at most 255 bytes). No
 configuration or other owner's metadata is copied. Inspection exposes only dependency
 IDs/auth kind; no JSON encoder or Ecto schema is provided. Never log extracted auth,
-persist this result, or put it into public events/DTOs.
+persist this result, or put it into public/observable events or DTOs. The confidential
+runtime action is the sole cross-role transport and is excluded from broadcasts.
 
 | Auth kind | Exact generic `authentication` shape and semantics |
 | --- | --- |

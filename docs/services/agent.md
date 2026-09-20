@@ -434,8 +434,11 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 - Supports per-request runtime tool/module selection and LLM options
 - Supports runtime server configuration via system-prompt signal
 - `runtime_config/1` builds structural inspection configuration. Actor-bound
-  `runtime_config/2` is the lifecycle entrypoint: it resolves the associated Connect
-  credential once and translates that single result into runtime authentication.
+  `runtime_config/2` is the lifecycle entrypoint: it dispatches the persisted
+  AI-provider configuration ID and trusted actor to Engine's confidential
+  `:resolve_ai_runtime_credential` action. Engine loads provider configuration and
+  resolves the associated Connect credential once; Factory translates that single
+  result into runtime authentication without calling Engine/System contexts locally.
 - Stores `context_window` runtime state (`max_context_tokens`, fixed `tokens_per_character`, safety margin) and forwards it through Jido `tool_context` for each request transformer run
 
 ### Server Manager (`Zaq.Agent.ServerManager`)
@@ -443,8 +446,9 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 - `ensure_server/4` requires `actor:` alongside configured agent, opaque server ID and optional `Jido.AI.Context`. Older arities return `{:error, :missing_execution_actor}`; they never create an anonymous runtime.
 - `Zaq.Identity.ExecutionActor` validates the shared contract: canonical `person.id`, or explicit `kind` (`bo_user`, `channel_subject`, `anonymous`, `system`) plus nonblank `subject`. JSON string-key actors normalize to the same identity. Conflicting/malformed declarations return `:invalid_execution_actor`, not a fallback identity. This validates identity shape, not authentication; only trusted origins may assert actors.
 - Executor passes one effective actor to scope derivation, server creation and request tool context. API rejects missing/invalid raw declarations before deriving permissions or invoking retrieval/Pipeline; permissive enrichment cannot discard conflicting aliases first.
-- Cold starts pass actor context to `Factory.runtime_config/2`, which resolves Connect
-  authentication synchronously before spawn. The server retains the resulting runtime
+- Cold starts pass actor context to `Factory.runtime_config/2`, which synchronously asks
+  Engine to resolve Connect authentication before spawn. The confidential envelope is
+  excluded from observer/workflow broadcasts. The server retains the resulting runtime
   options while `ServerManager` tracks only credential, effective Person, selected grant,
   and expiry identifiers. Supplied history remains cold-start-only; warm requests never
   resolve credentials again.
@@ -495,8 +499,9 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 - Central home for provider normalization (`reqllm_provider/1`) and fixed-URL policy (`fixed_url_provider?/1`)
 - Builds provider spec maps and generation options consumed by `Factory`
 - Resolves configured-agent provider configuration through
-  `Zaq.System.get_ai_provider_credential/1`; during lifecycle startup it translates the
-  already-resolved Connect result and does not select Person versus global grants
+  `Zaq.System.get_ai_provider_credential/1` only on legacy/local paths; during lifecycle
+  startup it translates Engine's secret-free provider projection plus the already-resolved
+  Connect result and does not query System or select Person versus global grants
 - Keeps OpenAI-compatible fallback behavior centralized so other modules do not branch by provider
 
 ### Query Rewriting (`Zaq.Agent.Retrieval`)

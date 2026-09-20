@@ -24,6 +24,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.PeopleGateway
   alias Zaq.Engine.Workflows
   alias Zaq.Event
+  alias Zaq.Identity.ExecutionActor
   alias Zaq.InternalBoundaries
   alias Zaq.Permissions
   alias Zaq.System
@@ -42,6 +43,31 @@ defmodule Zaq.Engine.Api do
     response =
       if Keyword.get(event.opts, :confidential) == true do
         PeopleAuthGateway.dispatch(event.request, event.opts)
+      else
+        {:error, :confidential_event_required}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :resolve_ai_runtime_credential, _context) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true do
+        with {:ok, actor} <- ExecutionActor.validate(event.actor),
+             %{credential_id: credential_id} when is_integer(credential_id) and credential_id > 0 <-
+               event.request do
+          resolver =
+            Keyword.get(
+              event.opts,
+              :ai_runtime_credentials_module,
+              Zaq.Engine.Connect.AIRuntimeCredentials
+            )
+
+          resolver.resolve(credential_id, actor, event.opts)
+        else
+          {:error, _} = error -> error
+          _ -> {:error, {:invalid_request, event.request}}
+        end
       else
         {:error, :confidential_event_required}
       end
