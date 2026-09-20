@@ -2,13 +2,24 @@ defmodule Zaq.Accounts.PeoplePermissionsConcurrencyTest do
   # Separate connections must observe committed data. Serialize this narrow suite
   # so its global grant cannot enter another test's default-deny snapshot.
   use ExUnit.Case, async: false
+  import Ecto.Query
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Accounts.{People, PeoplePermissionGrant, PeoplePermissions}
   alias Zaq.Repo
 
   test "concurrent grants converge and opposing desired writes retain uniqueness" do
     Sandbox.unboxed_run(Repo, fn ->
-      assert Repo.all(PeoplePermissionGrant) == []
+      everyone_id = People.everyone_team().id
+
+      restore_everyone_access? =
+        Repo.exists?(
+          from grant in PeoplePermissionGrant,
+            where: grant.scope_id == ^everyone_id and grant.permission == "access_profile"
+        )
+
+      if restore_everyone_access? do
+        assert {:ok, 1} = PeoplePermissions.revoke(:everyone, :access_profile)
+      end
 
       {:ok, team} =
         People.create_team(%{name: "Permission race #{System.unique_integer([:positive])}"})
@@ -39,6 +50,11 @@ defmodule Zaq.Accounts.PeoplePermissionsConcurrencyTest do
         end
       after
         PeoplePermissions.revoke(:everyone, :access_profile)
+
+        if restore_everyone_access? do
+          PeoplePermissions.grant(:everyone, :access_profile)
+        end
+
         People.delete_team(team)
       end
     end)
