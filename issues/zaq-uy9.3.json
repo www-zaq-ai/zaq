@@ -11,9 +11,15 @@
   "id": "zaq-uy9.3",
   "labels": [],
   "parent": "zaq-uy9",
+  "comments": [
+    {
+      "text": "Implemented Engine dispatch action, LiveView rankings with independent token/call sorts, configured-agent selector and filtered call/token charts while preserving global charts and range/refresh state. Reused DS table/button/select and BO telemetry charts. Targeted suite passes (84 tests, 2 properties); mix q passes after one transient unrelated parallel component-check failure. Browser route is available at port 4011 but redirects to BO login, so final authenticated UX review remains in zaq-uy9.4.",
+      "timestamp": "2026-09-20T14:15:00Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-uy9] Extend LLM performance dashboard",
   "type": "task",
-  "updated_at": "2026-09-20T14:02:55Z"
+  "updated_at": "2026-09-20T14:15:00Z"
 }
