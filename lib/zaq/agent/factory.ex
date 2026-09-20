@@ -208,6 +208,7 @@ defmodule Zaq.Agent.Factory do
       credential_id: resolved.credential_id,
       effective_person_id: ActorNormalizer.person_id(actor),
       grant_id: resolved.grant_id,
+      owner_type: resolved.owner_type,
       expires_at: resolved.expires_at
     })
   end

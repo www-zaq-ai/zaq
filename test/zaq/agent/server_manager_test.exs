@@ -403,8 +403,11 @@ defmodule Zaq.Agent.ServerManagerTest do
              credential_id: connect_credential.id,
              effective_person_id: person.id,
              grant_id: personal_grant.grant_id,
+             owner_type: "person",
              expires_at: nil
            }
+
+    assert ServerManager.credential_dependency(scope).owner_type == "person"
 
     assert {:ok, status} = Jido.AgentServer.status(ref)
     assert status.raw_state.runtime_config.llm_opts[:api_key] == "person-key"

@@ -78,6 +78,7 @@ defmodule Zaq.Agent.FactoryTest do
              credential_id: connect_credential.id,
              effective_person_id: person.id,
              grant_id: personal_grant.grant_id,
+             owner_type: "person",
              expires_at: nil
            }
 

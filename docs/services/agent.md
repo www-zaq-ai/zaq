@@ -684,6 +684,24 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 - **NodeRouter for cross-node calls** — BO uses the [Event/dispatch contract](../architecture.md#noderouter--critical), never direct remote Agent calls; generic invoke helpers are legacy
 - **Answering.Result struct** — canonical shape shared across channels; `normalize_result/1` converts legacy maps
 
+### Public error contract
+
+`Zaq.Agent.ErrorMessage` is the canonical translation boundary for failures returned
+to Channels. Credential resolution errors become actionable messages, safe reason
+atoms, recovery categories and retryability hints. Personal recovery is selected only
+from `:personal_credential_required` or trusted resolver `owner_type: "person"`
+provenance; provider HTTP status alone must not classify a failure as personal.
+
+Public result metadata must not contain credential/grant IDs, raw provider response
+bodies, exception details or secrets. Provider authentication failures without trusted
+ownership provenance give neutral credential guidance rather than disclosing whether a
+personal or organization grant exists.
+
+Factory records the selected credential `owner_type` in the runtime's secret-free
+credential dependency. Executor uses that trusted value only to classify provider
+authentication rejection; Channels owns appending the People credentials URL. Login
+and post-login continuation remain People portal concerns.
+
 ### Harness-Critical Checks for Coding Agents
 - **Doc ↔ code parity**: service docs must only reference real modules.
 - **Single execution path**: before implementing LLM calls, agent lifecycle or response builders, check `Factory`, `Executor`, `Outgoing` and `History`. Use/extend existing infrastructure, never create a parallel path; follow the Entry Point Decision Tree above.

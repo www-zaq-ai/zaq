@@ -687,9 +687,9 @@ defmodule Zaq.Agent.ExecutorTest do
     test "error telemetry classifies tuple and struct reasons" do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 14}}
 
-      for {reason, expected_error_type} <- [
-            {{:timeout, 5000}, "timeout"},
-            {%RuntimeError{message: "boom"}, "RuntimeError"}
+      for {reason, expected_public_reason} <- [
+            {{:timeout, 5000}, ":timeout"},
+            {%RuntimeError{message: "boom"}, ":agent_execution_failed"}
           ] do
         Process.put(:coverage_await_result, {:error, reason})
 
@@ -705,7 +705,9 @@ defmodule Zaq.Agent.ExecutorTest do
           )
 
         assert outgoing.metadata[:error] == true
-        assert String.contains?(outgoing.metadata[:reason], expected_error_type)
+        assert outgoing.metadata[:reason] == expected_public_reason
+        refute outgoing.metadata[:reason] =~ "5000"
+        refute outgoing.metadata[:reason] =~ "boom"
       end
     end
 

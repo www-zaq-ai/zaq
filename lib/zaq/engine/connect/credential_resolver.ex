@@ -58,8 +58,14 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
       end
 
     case result do
-      {:ok, _} = success -> success
-      {:error, reason} -> {:error, %{credential_id: id, reason: reason}}
+      {:ok, _} = success ->
+        success
+
+      {:error, {reason, owner_type}} ->
+        {:error, %{credential_id: id, reason: reason, owner_type: owner_type}}
+
+      {:error, reason} ->
+        {:error, %{credential_id: id, reason: reason}}
     end
   end
 
@@ -204,29 +210,37 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
   end
 
   defp finish_oauth(snapshot, {:ok, prepared}, person_id, opts) do
-    Repo.transaction(fn ->
-      c = configuration(snapshot.credential.id)
-      require_person(person_id)
-      ensure(config_fingerprint(c.id) == snapshot.fingerprint, :credential_unavailable)
-      # Never reinterpret a disappeared personal row as permission to use org.
-      g = slot(c.id, snapshot.grant.owner_type, snapshot.grant.owner_id)
-      ensure(not is_nil(g) and g.id == snapshot.grant.id, :credential_unavailable)
-      ensure(selected_grant(c, person_id).id == g.id, :credential_unavailable)
-      now = DateUtils.now(opts)
-      validate_selection(c, g, now)
-      ensure(Map.from_struct(g) == Map.from_struct(prepared), :credential_unavailable)
+    result =
+      Repo.transaction(fn ->
+        c = configuration(snapshot.credential.id)
+        require_person(person_id)
+        ensure(config_fingerprint(c.id) == snapshot.fingerprint, :credential_unavailable)
+        # Never reinterpret a disappeared personal row as permission to use org.
+        g = slot(c.id, snapshot.grant.owner_type, snapshot.grant.owner_id)
+        ensure(not is_nil(g) and g.id == snapshot.grant.id, :credential_unavailable)
+        ensure(selected_grant(c, person_id).id == g.id, :credential_unavailable)
+        now = DateUtils.now(opts)
+        validate_selection(c, g, now)
+        ensure(Map.from_struct(g) == Map.from_struct(prepared), :credential_unavailable)
 
-      ensure(
-        prepared != snapshot.grant or Refresh.fingerprint(g.id) == snapshot.grant_fingerprint,
-        :credential_unavailable
-      )
+        ensure(
+          prepared != snapshot.grant or Refresh.fingerprint(g.id) == snapshot.grant_fingerprint,
+          :credential_unavailable
+        )
 
-      resolved(c, g, now)
-    end)
+        resolved(c, g, now)
+      end)
+
+    add_owner_type(result, snapshot.grant)
   end
 
-  defp finish_oauth(snapshot, {:error, reason}, _, opts),
-    do: {:error, refresh_reason(reason, snapshot.grant, DateUtils.now(opts))}
+  defp finish_oauth(snapshot, {:error, reason}, _, opts) do
+    resolved_reason = refresh_reason(reason, snapshot.grant, DateUtils.now(opts))
+
+    if resolved_reason == :person_unavailable,
+      do: {:error, resolved_reason},
+      else: {:error, {resolved_reason, snapshot.grant.owner_type}}
+  end
 
   defp refresh_reason(:person_unavailable, _, _), do: :person_unavailable
   defp refresh_reason(:revoked, _, _), do: :credential_revoked
@@ -246,27 +260,34 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
   defp refresh_reason(_, _, _), do: :credential_unavailable
 
   defp validate_selection(c, g, now) do
-    ensure(g.status != "revoked", :credential_revoked)
-    ensure(g.status in ["active", "expired"], :credential_unavailable)
+    ensure(g.status != "revoked", :credential_revoked, g)
+    ensure(g.status in ["active", "expired"], :credential_unavailable, g)
 
     ensure(
       c.auth_kind in ["api_key", "oauth2", "jwt_bearer"] and
         c.request_format in ["bearer", "raw"],
-      :credential_unavailable
+      :credential_unavailable,
+      g
     )
 
-    ensure(Grant.compatible_configuration?(g, c), :credential_unavailable)
+    ensure(Grant.compatible_configuration?(g, c), :credential_unavailable, g)
 
-    ensure(not expired?(c.expires_at, now), :credential_expired)
+    ensure(not expired?(c.expires_at, now), :credential_expired, g)
 
     ensure(
       present?(c.provider) and (c.auth_kind != "oauth2" or present?(c.client_id)),
-      :credential_unavailable
+      :credential_unavailable,
+      g
     )
   end
 
   defp resolved(c, g, now) do
-    ensure(g.status != "expired" and not expired?(g.expires_at, now), :credential_expired)
+    ensure(
+      g.status != "expired" and not expired?(g.expires_at, now),
+      :credential_expired,
+      g
+    )
+
     auth = authentication(c, g)
 
     %ResolvedCredential{
@@ -283,10 +304,10 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
   end
 
   defp resolved_without_auth(c, now) do
-    ensure(c.personal_credential_policy == :disabled, :credential_unavailable)
-    ensure(c.secret_binding == :configuration, :credential_unavailable)
-    ensure(not expired?(c.expires_at, now), :credential_expired)
-    ensure(present?(c.provider), :credential_unavailable)
+    ensure(c.personal_credential_policy == :disabled, :credential_unavailable, "org")
+    ensure(c.secret_binding == :configuration, :credential_unavailable, "org")
+    ensure(not expired?(c.expires_at, now), :credential_expired, "org")
+    ensure(present?(c.provider), :credential_unavailable, "org")
 
     %ResolvedCredential{
       credential_id: c.id,
@@ -301,13 +322,13 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
     }
   end
 
-  defp authentication(_, %Grant{auth_kind: "api_key", api_key: key}) do
-    ensure(present?(key), :credential_unavailable)
+  defp authentication(_, %Grant{auth_kind: "api_key", api_key: key} = grant) do
+    ensure(present?(key), :credential_unavailable, grant)
     %{api_key: key}
   end
 
-  defp authentication(_, %Grant{auth_kind: "oauth2", access_token: token}) do
-    ensure(present?(token), :credential_unavailable)
+  defp authentication(_, %Grant{auth_kind: "oauth2", access_token: token} = grant) do
+    ensure(present?(token), :credential_unavailable, grant)
     %{access_token: token}
   end
 
@@ -316,17 +337,20 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
 
     ensure(
       profile in ["service_account", "domain_delegated_service_account"],
-      :credential_unavailable
+      :credential_unavailable,
+      g
     )
 
     ensure(
       profile != "domain_delegated_service_account" or present?(g.subject),
-      :credential_unavailable
+      :credential_unavailable,
+      g
     )
 
     ensure(
       present?(g.issuer) and present?(g.key_id) and Grant.private_key?(g.private_key),
-      :credential_unavailable
+      :credential_unavailable,
+      g
     )
 
     Map.take(g, [:private_key, :issuer, :key_id, :subject, :scopes])
@@ -362,6 +386,21 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
   end
 
   defp ensure(valid?, reason), do: unless(valid?, do: Repo.rollback(reason))
+
+  defp ensure(valid?, reason, %Grant{owner_type: owner_type}),
+    do: ensure(valid?, reason, owner_type)
+
+  defp ensure(valid?, reason, owner_type),
+    do: unless(valid?, do: Repo.rollback({reason, owner_type}))
+
+  defp add_owner_type({:error, reason}, %Grant{owner_type: owner_type}) when is_atom(reason),
+    do:
+      if(reason == :person_unavailable,
+        do: {:error, reason},
+        else: {:error, {reason, owner_type}}
+      )
+
+  defp add_owner_type(result, _grant), do: result
 
   defp require_person(id) do
     ensure(current_person(id) == {:ok, id}, :person_unavailable)

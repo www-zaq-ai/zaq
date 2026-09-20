@@ -338,7 +338,9 @@ defmodule Zaq.Agent.Pipeline do
     %{
       answer: ErrorMessage.from_reason(reason),
       error_type: ErrorMessage.error_type_for(reason),
-      error_reason: reason,
+      error_reason: ErrorMessage.public_reason_for(reason),
+      error_recovery: ErrorMessage.recovery_for(reason),
+      error_retryable: ErrorMessage.retryable?(reason),
       confidence_score: 0.0,
       latency_ms: nil,
       prompt_tokens: nil,

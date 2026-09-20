@@ -525,11 +525,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
     assert outgoing.metadata.error == true
 
-    assert outgoing.metadata.reason ==
-             inspect(%{
-               credential_id: connect_credential.id,
-               reason: :personal_credential_required
-             })
+    assert outgoing.metadata.reason == ":personal_credential_required"
+    refute outgoing.metadata.reason =~ to_string(connect_credential.id)
 
     refute_received {:answering_authorization, _authorization}
   end
@@ -1574,7 +1571,17 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert outgoing.metadata.error == true
 
     if expected_reason do
-      assert outgoing.metadata.reason == inspect(expected_reason)
+      public_reason =
+        case expected_reason do
+          %{reason: reason} -> reason
+          reason -> reason
+        end
+
+      assert outgoing.metadata.reason == inspect(public_reason)
+
+      if is_map(expected_reason) and expected_reason[:credential_id] do
+        refute outgoing.metadata.reason =~ to_string(expected_reason.credential_id)
+      end
     end
 
     outgoing

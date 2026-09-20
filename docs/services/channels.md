@@ -198,6 +198,18 @@ defstruct [
 
 `Outgoing.from_pipeline_result/2` builds an `%Outgoing{}` from an `%Incoming{}` and a pipeline result map, copying routing fields and merging metadata.
 
+Agent failure payloads use the canonical `Zaq.Agent.ErrorMessage` mapping. Their
+metadata may include an allowlisted reason, recovery category and retryability flag,
+but never credential/grant IDs or raw provider diagnostics. Channels format and
+transport the canonical message; bridges must not reclassify failures or construct
+provider-specific credential guidance.
+
+For `:personal_credentials` recovery, `MessageFormatter` appends the fixed
+`/people/credentials` destination built by `Zaq.Channels.PeoplePortalUrl` from Global
+settings → global base URL. Deployment path prefixes are preserved. Missing or unsafe
+base URLs produce administrator guidance instead of a broken link. This formatting
+contract does not own People authentication or post-login redirection.
+
 ### Communication media attachments
 
 Communication bridges map inbound media to lazy `Zaq.Contracts.Record` values in

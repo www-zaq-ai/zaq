@@ -152,6 +152,12 @@ defmodule Zaq.Agent.ServerManager do
     )
   end
 
+  @doc "Returns the secret-free credential dependency for a running scoped runtime."
+  @spec credential_dependency(String.t()) :: map() | nil
+  def credential_dependency(server_id) when is_binary(server_id) do
+    GenServer.call(__MODULE__, {:credential_dependency, server_id}, @lifecycle_call_timeout)
+  end
+
   @impl true
   def init(_opts) do
     stop_surviving_servers()
@@ -255,6 +261,11 @@ defmodule Zaq.Agent.ServerManager do
       end)
 
     {:reply, :ok, next_state}
+  end
+
+  def handle_call({:credential_dependency, server_id}, _from, state) do
+    dependency = state |> Map.get(:credential_dependencies, %{}) |> Map.get(server_id)
+    {:reply, dependency, state}
   end
 
   # A supplied `context` (caller-built `Jido.AI.Context`) is consumed only when a

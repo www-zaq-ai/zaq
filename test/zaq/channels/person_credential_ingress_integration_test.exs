@@ -15,6 +15,10 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
   alias Zaq.Repo
   alias Zaq.TestSupport.{CredentialMutationJob, MultiAgentOpenAIStub, OpenAIStub}
 
+  @people_credentials_url "https://zaq.example.test/zaq/people/credentials"
+  @missing_personal_message "Personal AI credentials are required for this agent. Add them in the People portal and try again.\n\nManage your personal AI credentials: <#{@people_credentials_url}>"
+  @revoked_personal_message "Your personal AI credentials were revoked. Update or reconnect them in the People portal and try again.\n\nManage your personal AI credentials: <#{@people_credentials_url}>"
+
   @environment_keys [
     :channels,
     :chat_bridge_pipeline_module,
@@ -28,6 +32,7 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
 
   setup do
     Phoenix.PubSub.subscribe(Zaq.PubSub, "node_router:events")
+    :ok = Zaq.System.set_global_base_url("https://zaq.example.test/zaq/")
 
     previous_environment =
       Map.new(@environment_keys, fn key -> {key, Application.fetch_env(:zaq, key)} end)
@@ -100,8 +105,7 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
     assert_receive {:mattermost_update,
                     %{
                       "id" => ^post_id,
-                      "message" =>
-                        "Sorry, something went wrong while executing the selected agent."
+                      "message" => @missing_personal_message
                     }},
                    5_000
 
@@ -125,8 +129,7 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
     assert_receive {:mattermost_update,
                     %{
                       "id" => ^post_id,
-                      "message" =>
-                        "Sorry, something went wrong while executing the selected agent."
+                      "message" => @missing_personal_message
                     }},
                    5_000
 
@@ -147,7 +150,10 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
         nil
       )
 
-    assert outgoing.body =~ "The AI provider rejected the request."
+    assert outgoing.body ==
+             "Your personal AI credentials were rejected by the provider. Update or reconnect them in the People portal and try again.\n\nManage your personal AI credentials: <#{@people_credentials_url}>"
+
+    assert outgoing.metadata.error_recovery == :personal_credentials
 
     authorizations = drain_messages(:llm_authorization)
     assert authorizations != []
@@ -212,10 +218,19 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
 
     send_posted_frame(fixture, alice, "after revocation")
 
-    assert_delivered_error(
-      alice.channel_id,
-      %{credential_id: fixture.connect_credential.id, reason: :credential_revoked}
-    )
+    outgoing =
+      assert_delivered_error(
+        alice.channel_id,
+        %{
+          credential_id: fixture.connect_credential.id,
+          reason: :credential_revoked,
+          owner_type: "person"
+        }
+      )
+
+    assert outgoing.body == @revoked_personal_message
+
+    assert outgoing.metadata.error_recovery == :personal_credentials
 
     refute_received {:llm_authorization, _authorization}
     assert Process.alive?(bob_pid)
@@ -254,10 +269,15 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
 
     send_posted_frame(fixture, bob, "required without personal")
 
-    assert_delivered_error(
-      bob.channel_id,
-      %{credential_id: fixture.connect_credential.id, reason: :personal_credential_required}
-    )
+    outgoing =
+      assert_delivered_error(
+        bob.channel_id,
+        %{credential_id: fixture.connect_credential.id, reason: :personal_credential_required}
+      )
+
+    assert outgoing.body == @missing_personal_message
+
+    assert outgoing.metadata.error_recovery == :personal_credentials
 
     refute_received {:llm_authorization, _authorization}
 
@@ -567,15 +587,33 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
     assert outgoing.metadata.error == true
 
     if expected_reason do
-      assert outgoing.metadata.reason == inspect(expected_reason)
+      public_reason =
+        case expected_reason do
+          %{reason: reason} -> reason
+          reason -> reason
+        end
+
+      assert outgoing.metadata.reason == inspect(public_reason)
+
+      if is_map(expected_reason) and expected_reason[:credential_id] do
+        refute outgoing.metadata.reason =~ to_string(expected_reason.credential_id)
+      end
     end
 
-    body = outgoing.body
+    delivered_body = await_final_mattermost_update(post_id)
+    %{outgoing | body: delivered_body}
+  end
 
-    assert_receive {:mattermost_update, %{"id" => ^post_id, "message" => ^body}},
-                   5_000
+  defp await_final_mattermost_update(post_id) do
+    receive do
+      {:mattermost_update, %{"id" => ^post_id, "message" => "Formulating your answer…"}} ->
+        await_final_mattermost_update(post_id)
 
-    outgoing
+      {:mattermost_update, %{"id" => ^post_id, "message" => body}} ->
+        body
+    after
+      5_000 -> flunk("timed out waiting for final Mattermost error update")
+    end
   end
 
   defp assert_persisted_answer(person_id, content, configured_agent_id) do

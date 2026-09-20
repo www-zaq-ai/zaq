@@ -51,11 +51,11 @@ defmodule Zaq.Engine.Connect.CredentialResolverTest do
         {:org, :absent} ->
           assert result == error(c, :global_credential_missing)
 
-        {_, :revoked} ->
-          assert result == error(c, :credential_revoked)
+        {owner, :revoked} ->
+          assert result == error(c, :credential_revoked, to_string(owner))
 
-        {_, :expired} ->
-          assert result == error(c, :credential_expired)
+        {owner, :expired} ->
+          assert result == error(c, :credential_expired, to_string(owner))
 
         {owner, :active} ->
           selected = Map.fetch!(%{person: p, org: g}, owner)
@@ -197,7 +197,7 @@ defmodule Zaq.Engine.Connect.CredentialResolverTest do
   test "missing and invalid credential references return safe IDs" do
     c = credential(:required)
     Repo.delete!(c)
-    assert Connect.resolve_credential(c, nil, @opts) == error(c, :credential_unavailable)
+    assert Connect.resolve_credential(c, nil, @opts) == error(c, :credential_unavailable, nil)
 
     for ref <- [nil, "bad", %{}, -1] do
       assert Connect.resolve_credential(ref, nil, @opts) ==
@@ -569,7 +569,20 @@ defmodule Zaq.Engine.Connect.CredentialResolverTest do
     %Grant{} |> Connect.change_credential_grant(c, attrs) |> Repo.insert!()
   end
 
-  defp error(c, reason), do: {:error, %{credential_id: c.id, reason: reason}}
+  defp error(c, reason, owner_type \\ "person")
+
+  defp error(c, reason, _owner_type)
+       when reason in [
+              :personal_credential_required,
+              :global_credential_missing,
+              :person_unavailable
+            ],
+       do: {:error, %{credential_id: c.id, reason: reason}}
+
+  defp error(c, reason, nil), do: {:error, %{credential_id: c.id, reason: reason}}
+
+  defp error(c, reason, owner_type),
+    do: {:error, %{credential_id: c.id, reason: reason, owner_type: owner_type}}
 
   defp change_records(c, g, {target, field, value}) do
     if target in [:grant, :both], do: Repo.update!(Ecto.Changeset.change(g, [{field, value}]))

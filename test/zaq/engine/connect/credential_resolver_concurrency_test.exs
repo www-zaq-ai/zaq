@@ -124,7 +124,8 @@ defmodule Zaq.Engine.Connect.CredentialResolverConcurrencyTest do
     assert_receive :clock_read, 5_000
 
     assert Task.await(resolver, 5_000) ==
-             {:error, %{credential_id: credential.id, reason: :credential_expired}}
+             {:error,
+              %{credential_id: credential.id, reason: :credential_expired, owner_type: "org"}}
 
     assert grant.credential_id == credential.id
   end
@@ -223,7 +224,14 @@ defmodule Zaq.Engine.Connect.CredentialResolverConcurrencyTest do
       result = Task.await(task, 5_000)
 
       if @reason do
-        assert result == {:error, %{credential_id: ctx.c.id, reason: @reason}}
+        expected = %{credential_id: ctx.c.id, reason: @reason}
+
+        expected =
+          if @reason == :person_unavailable,
+            do: expected,
+            else: Map.put(expected, :owner_type, "person")
+
+        assert result == {:error, expected}
       else
         assert {:ok, r} = result
 
@@ -298,7 +306,16 @@ defmodule Zaq.Engine.Connect.CredentialResolverConcurrencyTest do
       end)
 
       send(pid, :continue)
-      assert Task.await(task, 5_000) == {:error, %{credential_id: ctx.c.id, reason: @reason}}
+      expected = %{credential_id: ctx.c.id, reason: @reason}
+
+      expected =
+        cond do
+          @reason == :person_unavailable -> expected
+          @mutation == :new_personal -> Map.put(expected, :owner_type, "org")
+          true -> Map.put(expected, :owner_type, "person")
+        end
+
+      assert Task.await(task, 5_000) == {:error, expected}
     end
   end
 

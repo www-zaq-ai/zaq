@@ -233,13 +233,35 @@ defmodule Zaq.Agent.Executor do
         Outgoing.from_pipeline_result(incoming, result)
       else
         {:error, %ReqLLM.Error.API.Stream{} = reason, partial} ->
-          handle_stream_error(incoming, reason, partial, dims, selected_agent_result)
+          handle_stream_error(
+            incoming,
+            reason,
+            partial,
+            dims,
+            selected_agent_result,
+            opts,
+            server_manager_module
+          )
 
         {:error, reason, _partial} ->
-          surface_execution_error(incoming, reason, dims, selected_agent_result)
+          surface_execution_error(
+            incoming,
+            reason,
+            dims,
+            selected_agent_result,
+            opts,
+            server_manager_module
+          )
 
         {:error, reason} ->
-          surface_execution_error(incoming, reason, dims, selected_agent_result)
+          surface_execution_error(
+            incoming,
+            reason,
+            dims,
+            selected_agent_result,
+            opts,
+            server_manager_module
+          )
       end
 
     result
@@ -249,7 +271,15 @@ defmodule Zaq.Agent.Executor do
   # visible; suppress the error bubble so we don't overlay a complete response.
   # Otherwise (failed before any content — e.g. budget/rate limit on the first
   # token) surface the error instead of an empty bubble.
-  defp handle_stream_error(incoming, reason, partial, dims, selected_agent_result) do
+  defp handle_stream_error(
+         incoming,
+         reason,
+         partial,
+         dims,
+         selected_agent_result,
+         opts,
+         server_manager_module
+       ) do
     if suppress_stream_error?(incoming, partial) do
       Logger.warning(
         "Stream ended with error after content was delivered (suppressing error bubble): #{inspect(reason)}"
@@ -258,7 +288,14 @@ defmodule Zaq.Agent.Executor do
       record_execution_error(dims, reason)
       Outgoing.from_pipeline_result(incoming, suppressed_stream_error_result(reason))
     else
-      surface_execution_error(incoming, reason, dims, selected_agent_result)
+      surface_execution_error(
+        incoming,
+        reason,
+        dims,
+        selected_agent_result,
+        opts,
+        server_manager_module
+      )
     end
   end
 
@@ -274,7 +311,22 @@ defmodule Zaq.Agent.Executor do
 
   defp content_delivered?(_), do: false
 
-  defp surface_execution_error(incoming, reason, dims, selected_agent_result) do
+  defp surface_execution_error(
+         incoming,
+         reason,
+         dims,
+         selected_agent_result,
+         opts,
+         server_manager_module
+       ) do
+    reason =
+      enrich_provider_authentication_error(
+        reason,
+        selected_agent_result,
+        opts,
+        server_manager_module
+      )
+
     Logger.error("Configured agent execution failed: #{inspect(reason)}")
     record_execution_error(dims, reason)
 
@@ -283,6 +335,30 @@ defmodule Zaq.Agent.Executor do
       error_result(reason, maybe_configured_agent(selected_agent_result))
     )
   end
+
+  defp enrich_provider_authentication_error(
+         reason,
+         {:ok, configured_agent},
+         opts,
+         server_manager_module
+       ) do
+    if function_exported?(server_manager_module, :credential_dependency, 1) do
+      configured_agent
+      |> agent_server_id(opts)
+      |> server_manager_module.credential_dependency()
+      |> then(&ErrorMessage.with_credential_owner(reason, owner_type(&1)))
+    else
+      reason
+    end
+  catch
+    :exit, _reason -> reason
+  end
+
+  defp enrich_provider_authentication_error(reason, _selected, _opts, _server_manager),
+    do: reason
+
+  defp owner_type(%{owner_type: owner_type}), do: owner_type
+  defp owner_type(_dependency), do: nil
 
   defp record_execution_error(dims, reason) do
     :ok =
@@ -400,6 +476,8 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp error_result(reason, _configured_agent) do
+    public_reason = ErrorMessage.public_reason_for(reason)
+
     %{
       answer:
         ErrorMessage.from_reason(
@@ -407,13 +485,15 @@ defmodule Zaq.Agent.Executor do
           "Sorry, something went wrong while executing the selected agent."
         ),
       error_type: ErrorMessage.error_type_for(reason),
+      error_recovery: ErrorMessage.recovery_for(reason),
+      error_retryable: ErrorMessage.retryable?(reason),
       confidence_score: nil,
       latency_ms: nil,
       prompt_tokens: nil,
       completion_tokens: nil,
       total_tokens: nil,
       error: true,
-      reason: inspect(reason),
+      reason: inspect(public_reason),
       sources: []
     }
   end

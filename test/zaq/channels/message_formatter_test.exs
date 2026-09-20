@@ -9,6 +9,88 @@ defmodule Zaq.Channels.MessageFormatterTest do
     def raise_error(_text), do: raise("boom")
   end
 
+  defmodule PeoplePortalUrl do
+    def credentials, do: "https://zaq.example.test/prefix/people/credentials"
+  end
+
+  defmodule MissingPeoplePortalUrl do
+    def credentials, do: nil
+  end
+
+  test "appends the People credentials link for personal credential recovery" do
+    outgoing = %Outgoing{
+      provider: :mattermost,
+      channel_id: "c1",
+      body: "Personal AI credentials are required.",
+      metadata: %{error_recovery: :personal_credentials}
+    }
+
+    formatted =
+      MessageFormatter.format_outgoing(outgoing, people_portal_url_module: PeoplePortalUrl)
+
+    assert formatted.body ==
+             "Personal AI credentials are required.\n\nManage your personal AI credentials: <https://zaq.example.test/prefix/people/credentials>"
+  end
+
+  test "explains missing global base URL instead of emitting a broken recovery link" do
+    outgoing = %Outgoing{
+      provider: :mattermost,
+      channel_id: "c1",
+      body: "Personal AI credentials are required.",
+      metadata: %{error_recovery: :personal_credentials}
+    }
+
+    formatted =
+      MessageFormatter.format_outgoing(outgoing,
+        people_portal_url_module: MissingPeoplePortalUrl
+      )
+
+    assert formatted.body ==
+             "Personal AI credentials are required.\n\nThe People portal link is unavailable. Ask an administrator to configure the global base URL."
+  end
+
+  test "does not append a People link to organization credential or retry errors" do
+    for recovery <- [:contact_administrator, :retry, nil] do
+      outgoing = %Outgoing{
+        provider: :mattermost,
+        channel_id: "c1",
+        body: "Credential failure.",
+        metadata: %{error_recovery: recovery}
+      }
+
+      assert MessageFormatter.format_outgoing(outgoing,
+               people_portal_url_module: PeoplePortalUrl
+             ).body == "Credential failure."
+    end
+  end
+
+  test "renders personal recovery as a clickable link for HTML channels" do
+    original = Application.get_env(:zaq, :channels)
+
+    try do
+      Application.put_env(
+        :zaq,
+        :channels,
+        Map.put(original, :email, %{bridge: Zaq.Channels.EmailBridge, message_format: :html})
+      )
+
+      outgoing = %Outgoing{
+        provider: :email,
+        channel_id: "c1",
+        body: "Personal AI credentials are required.",
+        metadata: %{error_recovery: :personal_credentials}
+      }
+
+      formatted =
+        MessageFormatter.format_outgoing(outgoing, people_portal_url_module: PeoplePortalUrl)
+
+      assert formatted.body =~
+               ~s(href="https://zaq.example.test/prefix/people/credentials")
+    after
+      Application.put_env(:zaq, :channels, original)
+    end
+  end
+
   test "keeps markdown unchanged and stamps markdown when format is not configured" do
     outgoing = %Outgoing{provider: :web, channel_id: "c1", body: "**hello**", metadata: %{a: 1}}
 

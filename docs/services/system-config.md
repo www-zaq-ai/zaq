@@ -297,10 +297,14 @@ plus required signing identity/profile. OAuth client and refresh secrets never e
 the result. Only selected-grant account ID/name string metadata is allowed; no global
 metadata leaks into personal results. Its expiry is the earliest local configuration
 or selected-grant deadline, and resolution samples the clock only after acquiring its
-selection locks. Errors contain normalized credential ID and a
-fixed reason only. Do not serialize, persist, log extracted authentication, or return
-this result through public events. See `engine.md` for exact auth shapes, expiry/error
-semantics and the final-read linearization/later server invalidation limitation.
+selection locks. Errors contain a normalized credential ID and fixed reason. Failures
+tied to an already-selected grant also carry its trusted `owner_type` (`"person"` or
+`"org"`) so the Agent presentation boundary can choose recovery guidance without
+guessing from an HTTP status. This internal provenance must not expose owner IDs or
+global-grant availability and is removed from public metadata. Do not serialize,
+persist, log extracted authentication, or return the resolved credential through public
+events. See `engine.md` for exact auth shapes, expiry/error semantics and the final-read
+linearization/later server invalidation limitation.
 
 Global AI consumers call the System association boundary, which delegates to
 `Connect.resolve_credential/3` with the org actor. `ProviderSpec`, model discovery,

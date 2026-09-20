@@ -29,10 +29,11 @@ defmodule Zaq.Channels.MessageFormatter do
 
   On formatting errors, the original body is kept unchanged.
 
-  `format_outgoing/1` is the canonical public entrypoint.
+  `format_outgoing/1` is the canonical public entrypoint. `format_outgoing/2`
+  accepts dependency overrides for isolated tests.
   """
 
-  alias Zaq.Channels.Bridge
+  alias Zaq.Channels.{Bridge, PeoplePortalUrl}
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Utils.HtmlUtils
 
@@ -40,23 +41,46 @@ defmodule Zaq.Channels.MessageFormatter do
   Formats an outbound message body according to provider `:message_format`
   channel config while preserving all routing and metadata fields.
   """
-  @spec format_outgoing(Outgoing.t()) :: Outgoing.t()
-  def format_outgoing(%Outgoing{} = outgoing) do
+  @spec format_outgoing(Outgoing.t(), keyword()) :: Outgoing.t()
+  def format_outgoing(%Outgoing{} = outgoing, opts \\ []) do
     provider_config = provider_channel_config(outgoing.provider)
     format = provider_message_format(provider_config)
     formatter = provider_message_formatter(provider_config)
     metadata = ensure_metadata_map(outgoing.metadata)
+    people_portal_url_module = Keyword.get(opts, :people_portal_url_module, PeoplePortalUrl)
 
     body =
       case outgoing.body do
-        text when is_binary(text) -> format_text(text, format, formatter)
-        other -> other
+        text when is_binary(text) ->
+          text
+          |> maybe_append_personal_credentials_link(metadata, people_portal_url_module)
+          |> format_text(format, formatter)
+
+        other ->
+          other
       end
 
     body = maybe_append_budget_exceeded_link(body, outgoing)
 
     %{outgoing | body: body, metadata: put_format_metadata(metadata, format)}
   end
+
+  defp maybe_append_personal_credentials_link(
+         body,
+         %{error_recovery: :personal_credentials},
+         people_portal_url_module
+       ) do
+    case people_portal_url_module.credentials() do
+      url when is_binary(url) ->
+        body <> "\n\nManage your personal AI credentials: <#{url}>"
+
+      _ ->
+        body <>
+          "\n\nThe People portal link is unavailable. Ask an administrator to configure the global base URL."
+    end
+  end
+
+  defp maybe_append_personal_credentials_link(body, _metadata, _module), do: body
 
   # Web bridge renders budget exceeded via BO component — no link needed.
   # All other channels get a plain-text URL appended after format conversion

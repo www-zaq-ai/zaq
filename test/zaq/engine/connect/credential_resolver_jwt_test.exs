@@ -75,7 +75,8 @@ defmodule Zaq.Engine.Connect.CredentialResolverJWTTest do
       Repo.update!(Ecto.Changeset.change(g, private_key: @value))
 
       assert Connect.resolve_credential(c, actor, now: @now) ==
-               {:error, %{credential_id: c.id, reason: :credential_unavailable}}
+               {:error,
+                %{credential_id: c.id, reason: :credential_unavailable, owner_type: "person"}}
     end
   end
 
@@ -87,7 +88,8 @@ defmodule Zaq.Engine.Connect.CredentialResolverJWTTest do
     )
 
     assert Connect.resolve_credential(c, actor, now: @now) ==
-             {:error, %{credential_id: c.id, reason: :credential_unavailable}}
+             {:error,
+              %{credential_id: c.id, reason: :credential_unavailable, owner_type: "person"}}
   end
 
   test "RSA private material and service account profile are supported", %{
@@ -121,7 +123,8 @@ defmodule Zaq.Engine.Connect.CredentialResolverJWTTest do
       Repo.update!(Ecto.Changeset.change(g, private_key: pem))
 
       assert Connect.resolve_credential(c, actor, now: @now) ==
-               {:error, %{credential_id: c.id, reason: :credential_unavailable}}
+               {:error,
+                %{credential_id: c.id, reason: :credential_unavailable, owner_type: "person"}}
     end
   end
 
@@ -135,6 +138,7 @@ defmodule Zaq.Engine.Connect.CredentialResolverJWTTest do
     Repo.update!(Ecto.Changeset.change(g, subject: nil))
 
     assert Connect.resolve_credential(c, actor, now: @now) ==
-             {:error, %{credential_id: c.id, reason: :credential_unavailable}}
+             {:error,
+              %{credential_id: c.id, reason: :credential_unavailable, owner_type: "person"}}
   end
 end
