@@ -373,7 +373,7 @@ defmodule Zaq.Agent.ServerManager do
          {:ok, runtime_config} <-
            Factory.runtime_config(
              configured_agent,
-             opts |> Keyword.take([:connect_module]) |> Keyword.put(:actor, actor)
+             opts |> Keyword.take([:node_router_module]) |> Keyword.put(:actor, actor)
            ),
          :ok <-
            spawn_server(server_id, configured_agent, %{

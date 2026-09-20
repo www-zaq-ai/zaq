@@ -13,6 +13,8 @@ defmodule Zaq.Agent.ServerManagerTest do
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.ResolvedCredential
+  alias Zaq.Event
   alias Zaq.TestSupport.OpenAIStub
 
   @execution_actor %{kind: :system, subject: "server-manager-test"}
@@ -264,24 +266,17 @@ defmodule Zaq.Agent.ServerManagerTest do
     def sync_agent_runtime(_agent, _server_ref, _opts \\ []), do: {:error, :runtime_sync_failed}
   end
 
-  defmodule BlockingConnect do
-    alias Zaq.Engine.Connect.ResolvedCredential
-
-    def resolve_credential(credential_id, _actor) do
+  defmodule BlockingNodeRouter do
+    def dispatch(%Event{} = event) do
       test_pid = Process.whereis(:server_manager_credential_resolution_test)
-      send(test_pid, {:credential_resolution_blocked, self()})
-      receive do: (:release_credential_resolution -> :ok)
+      send(test_pid, {:credential_resolution_blocked, self(), event})
 
-      {:ok,
-       %ResolvedCredential{
-         credential_id: credential_id,
-         grant_id: 99,
-         owner_type: "org",
-         owner_id: nil,
-         auth_kind: "api_key",
-         request_format: "bearer",
-         authentication: %{api_key: "resolved-key"}
-       }}
+      response =
+        receive do
+          {:release_credential_resolution, response} -> response
+        end
+
+      %{event | response: response}
     end
   end
 
@@ -474,11 +469,15 @@ defmodule Zaq.Agent.ServerManagerTest do
       Task.async(fn ->
         ServerManager.ensure_server(configured_agent, scope, nil,
           actor: @execution_actor,
-          connect_module: BlockingConnect
+          node_router_module: BlockingNodeRouter
         )
       end)
 
-    assert_receive {:credential_resolution_blocked, manager_pid}, 1_000
+    assert_receive {:credential_resolution_blocked, manager_pid, event}, 1_000
+    assert event.request == %{credential_id: credential.id}
+    assert event.next_hop.destination == :engine
+    assert event.opts[:action] == :resolve_ai_runtime_credential
+    assert event.opts[:confidential] == true
 
     invalidation_task =
       Task.async(fn ->
@@ -490,7 +489,32 @@ defmodule Zaq.Agent.ServerManagerTest do
       end)
 
     assert Task.yield(invalidation_task, 20) == nil
-    send(manager_pid, :release_credential_resolution)
+
+    resolved = %ResolvedCredential{
+      credential_id: credential.connect_credential_id,
+      grant_id: 99,
+      owner_type: "org",
+      owner_id: nil,
+      auth_kind: "api_key",
+      request_format: "bearer",
+      authentication: %{api_key: "resolved-key"}
+    }
+
+    response =
+      {:ok,
+       %{
+         credential: %{
+           id: credential.id,
+           provider: credential.provider,
+           endpoint: credential.endpoint,
+           metadata: credential.metadata,
+           sovereign: credential.sovereign,
+           connect_credential_id: credential.connect_credential_id
+         },
+         resolved_credential: resolved
+       }}
+
+    send(manager_pid, {:release_credential_resolution, response})
 
     assert {:ok, ref} = Task.await(ensure_task, 1_000)
     assert :ok = Task.await(invalidation_task, 1_000)
