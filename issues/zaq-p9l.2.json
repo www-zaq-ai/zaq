@@ -9,9 +9,15 @@
   "id": "zaq-p9l.2",
   "labels": [],
   "parent": "zaq-p9l",
+  "comments": [
+    {
+      "text": "Separated discovery RPC timeout (30s) from role execution (:infinity), retained legacy 4-arity test seam and added timeout-aware 5-arity seam. NodeRouter suite: 32 tests pass. Uncommitted pending authorization.",
+      "timestamp": "2026-09-20T13:53:02Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p9l.2] Separate NodeRouter RPC timeout classes",
   "type": "task",
-  "updated_at": "2026-09-20T13:51:30Z"
+  "updated_at": "2026-09-20T13:53:02Z"
 }
