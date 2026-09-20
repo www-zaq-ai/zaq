@@ -7,9 +7,15 @@
   "id": "zaq-vuo.5",
   "labels": [],
   "parent": "zaq-vuo",
+  "comments": [
+    {
+      "text": "Removed ProviderSpec.Options. Default/Codex now express endpoint and reserved-option semantics locally; Codex clears stale identity/auth values before applying selected runtime data. Added missing-identity conflict regression. Focused suites: 204 tests and 2 properties pass; mix q passes.",
+      "timestamp": "2026-09-20T16:47:12Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-vuo.5] Remove ProviderSpec option micro-helper",
   "type": "task",
-  "updated_at": "2026-09-20T16:40:30Z"
+  "updated_at": "2026-09-20T16:47:12Z"
 }
