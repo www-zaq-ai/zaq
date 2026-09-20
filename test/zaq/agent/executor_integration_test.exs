@@ -5,16 +5,29 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   import Zaq.SystemConfigFixtures
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Zaq.Accounts.People
   alias Zaq.Agent
+  alias Zaq.Agent.Answering
   alias Zaq.Agent.Executor
   alias Zaq.Agent.ServerManager
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.{Credential, Grant}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Telemetry.Buffer
   alias Zaq.Engine.Telemetry.Point
   alias Zaq.{Event, NodeRouter}
   alias Zaq.Repo
-  alias Zaq.TestSupport.OpenAIStub
+  alias Zaq.System.AIProviderCredential
+
+  alias Zaq.TestSupport.{
+    ConnectOAuthAttemptConfig,
+    ConnectOAuthAttemptHTTP,
+    CredentialMutationJob,
+    OpenAIStub
+  }
+
+  setup {Req.Test, :verify_on_exit!}
 
   defmodule StubAgent do
     def get_active_agent(_agent_id), do: {:ok, %{id: 77, name: "Stub Agent"}}
@@ -165,6 +178,675 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert outgoing.metadata.configured_agent_name == configured_agent.name
 
     assert_receive {:openai_request, "POST", "/v1/responses", "", _body}, 1_000
+  end
+
+  test "sends the policy-selected Person or global authentication to the LLM" do
+    {configured_agent, credential, endpoint} = credential_agent_fixture(self())
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+    {:ok, alice} = People.create_person(%{full_name: "Credential Alice"})
+    {:ok, bob} = People.create_person(%{full_name: "Credential Bob"})
+
+    assert {:ok, _grant} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, alice.id},
+               %{api_key: "alice-key"}
+             )
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer org-key"]}
+
+    assert_successful_execution(configured_agent, %{kind: :system, subject: "policy-matrix"})
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer org-key"]}
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    stop_agent_servers(configured_agent)
+
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer alice-key"]}
+
+    # A second request proves warm reuse keeps the authentication selected at startup.
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer alice-key"]}
+
+    assert_successful_execution(configured_agent, %{person: %{id: bob.id}}, bob)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer org-key"]}
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :required
+             })
+
+    stop_agent_servers(configured_agent)
+
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer alice-key"]}
+
+    assert_failed_execution(
+      configured_agent,
+      %{person: %{id: bob.id}},
+      bob,
+      %{credential_id: connect_credential.id, reason: :personal_credential_required}
+    )
+
+    refute_received {:llm_authorization, ^endpoint, _headers}
+
+    assert_successful_execution(configured_agent, %{kind: :system, subject: "policy-matrix"})
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer org-key"]}
+
+    assert {:ok, _} = Connect.remove_credential_grant(connect_credential, :org)
+    stop_agent_servers(configured_agent)
+
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer alice-key"]}
+
+    assert_failed_execution(
+      configured_agent,
+      %{kind: :system, subject: "policy-matrix"},
+      nil,
+      %{credential_id: connect_credential.id, reason: :global_credential_missing}
+    )
+
+    refute_received {:llm_authorization, ^endpoint, _headers}
+  end
+
+  test "a rejected personal credential is never retried with the global credential" do
+    test_pid = self()
+
+    handler = fn conn, _body ->
+      authorization = Plug.Conn.get_req_header(conn, "authorization")
+      send(test_pid, {:rejected_authorization, authorization})
+
+      {401,
+       %{
+         "error" => %{
+           "message" => "invalid credential",
+           "type" => "authentication_error"
+         }
+       }}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, test_pid)
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "org-key"
+      })
+
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    {:ok, alice} = People.create_person(%{full_name: "Rejected Credential Alice"})
+
+    assert {:ok, _grant} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, alice.id},
+               %{api_key: "rejected-alice-key"}
+             )
+
+    {:ok, configured_agent} = create_http_agent(credential)
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    assert_failed_execution(configured_agent, %{person: %{id: alice.id}}, alice, nil)
+
+    authorizations = drain_messages(:rejected_authorization)
+    assert authorizations != []
+    assert Enum.uniq(authorizations) == [["Bearer rejected-alice-key"]]
+  end
+
+  test "persisted credential mutations fence targeted runtimes before the next LLM request" do
+    {configured_agent, credential, endpoint} = credential_agent_fixture(self())
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+    {:ok, alice} = People.create_person(%{full_name: "Lifecycle Alice"})
+    {:ok, bob} = People.create_person(%{full_name: "Lifecycle Bob"})
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    assert {:ok, _grant} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, alice.id},
+               %{api_key: "alice-original-key"}
+             )
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer alice-original-key"]}
+    [alice_pid] = agent_server_pids(configured_agent)
+
+    assert_successful_execution(configured_agent, %{person: %{id: bob.id}}, bob)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer org-key"]}
+    [bob_pid] = agent_server_pids(configured_agent) -- [alice_pid]
+
+    alice_ref = Process.monitor(alice_pid)
+
+    {{:ok, _grant}, replacement_job} =
+      capture_credential_notification(connect_credential.id, fn ->
+        Connect.replace_credential_grant(
+          connect_credential,
+          {:person, alice.id},
+          %{api_key: "alice-replaced-key"}
+        )
+      end)
+
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer alice-original-key"]}
+    assert [alice_pid] == agent_server_pids(configured_agent) -- [bob_pid]
+
+    deliver_credential_notification(replacement_job)
+    assert_receive {:DOWN, ^alice_ref, :process, ^alice_pid, _reason}, 5_000
+    assert Process.alive?(bob_pid)
+    refute_received {:llm_authorization, ^endpoint, _headers}
+
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer alice-replaced-key"]}
+
+    [replacement_alice_pid] = agent_server_pids(configured_agent) -- [bob_pid]
+    replacement_ref = Process.monitor(replacement_alice_pid)
+
+    {{:ok, _}, revocation_job} =
+      capture_credential_notification(connect_credential.id, fn ->
+        Connect.revoke_credential_grant(connect_credential, {:person, alice.id})
+      end)
+
+    deliver_credential_notification(revocation_job)
+    assert_receive {:DOWN, ^replacement_ref, :process, ^replacement_alice_pid, _reason}, 5_000
+    assert Process.alive?(bob_pid)
+
+    assert_failed_execution(
+      configured_agent,
+      %{person: %{id: alice.id}},
+      alice,
+      %{credential_id: connect_credential.id, reason: :credential_revoked}
+    )
+
+    refute_received {:llm_authorization, ^endpoint, _headers}
+
+    bob_ref = Process.monitor(bob_pid)
+
+    {{:ok, connect_credential}, required_policy_job} =
+      capture_credential_notification(connect_credential.id, fn ->
+        Connect.update_credential(connect_credential, %{
+          personal_credential_policy: :required
+        })
+      end)
+
+    deliver_credential_notification(required_policy_job)
+    assert_receive {:DOWN, ^bob_ref, :process, ^bob_pid, _reason}, 5_000
+
+    assert_failed_execution(
+      configured_agent,
+      %{person: %{id: bob.id}},
+      bob,
+      %{credential_id: connect_credential.id, reason: :personal_credential_required}
+    )
+
+    refute_received {:llm_authorization, ^endpoint, _headers}
+
+    {{:ok, connect_credential}, disabled_policy_job} =
+      capture_credential_notification(connect_credential.id, fn ->
+        Connect.update_credential(connect_credential, %{
+          personal_credential_policy: :disabled
+        })
+      end)
+
+    deliver_credential_notification(disabled_policy_job)
+
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer org-key"]}
+
+    assert_successful_execution(configured_agent, %{person: %{id: bob.id}}, bob)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer org-key"]}
+
+    old_global_pids = agent_server_pids(configured_agent)
+    global_refs = Enum.map(old_global_pids, &Process.monitor/1)
+
+    {{:ok, _grant}, global_replacement_job} =
+      capture_credential_notification(connect_credential.id, fn ->
+        Connect.replace_credential_grant(connect_credential, :org, %{api_key: "org-key-2"})
+      end)
+
+    deliver_credential_notification(global_replacement_job)
+
+    Enum.zip(global_refs, old_global_pids)
+    |> Enum.each(fn {ref, pid} ->
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5_000
+    end)
+
+    assert_successful_execution(configured_agent, %{person: %{id: alice.id}}, alice)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer org-key-2"]}
+  end
+
+  test "the default answering Agent sends its Person-selected authentication to the LLM" do
+    test_pid = self()
+
+    handler = fn conn, _body ->
+      send(test_pid, {:answering_authorization, Plug.Conn.get_req_header(conn, "authorization")})
+      {200, streamed_reply(conn.request_path, "Answered", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, test_pid)
+    start_supervised!(child_spec)
+
+    credential =
+      seed_llm_config(%{
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "answering-org-key",
+        model: "gpt-4.1-mini"
+      })
+
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+    answering_agent = Answering.answering_configured_agent()
+    on_exit(fn -> _ = ServerManager.stop_server(answering_agent) end)
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    {:ok, person} = People.create_person(%{full_name: "Default Answering Person"})
+
+    assert {:ok, _grant} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, person.id},
+               %{api_key: "answering-person-key"}
+             )
+
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "answering-credential-test",
+      provider: :web,
+      person: person
+    }
+
+    outgoing = Executor.run(incoming, event: execution_event(%{person: %{id: person.id}}))
+
+    assert outgoing.metadata.error == false
+    assert_receive {:answering_authorization, ["Bearer answering-person-key"]}
+
+    {:ok, fallback_person} = People.create_person(%{full_name: "Default Answering Fallback"})
+
+    fallback_incoming = %Incoming{
+      content: "hello",
+      channel_id: "answering-credential-fallback-test",
+      provider: :web,
+      person: fallback_person
+    }
+
+    outgoing =
+      Executor.run(fallback_incoming,
+        event: execution_event(%{person: %{id: fallback_person.id}})
+      )
+
+    assert outgoing.metadata.error == false
+    assert_receive {:answering_authorization, ["Bearer answering-org-key"]}
+
+    old_answering_pids = agent_server_pids(answering_agent)
+    answering_refs = Enum.map(old_answering_pids, &Process.monitor/1)
+
+    {{:ok, _credential}, required_job} =
+      capture_credential_notification(connect_credential.id, fn ->
+        Connect.update_credential(connect_credential, %{
+          personal_credential_policy: :required
+        })
+      end)
+
+    deliver_credential_notification(required_job)
+
+    Enum.zip(answering_refs, old_answering_pids)
+    |> Enum.each(fn {ref, pid} ->
+      assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5_000
+    end)
+
+    outgoing =
+      Executor.run(fallback_incoming,
+        event: execution_event(%{person: %{id: fallback_person.id}})
+      )
+
+    assert outgoing.metadata.error == true
+
+    assert outgoing.metadata.reason ==
+             inspect(%{
+               credential_id: connect_credential.id,
+               reason: :personal_credential_required
+             })
+
+    refute_received {:answering_authorization, _authorization}
+  end
+
+  test "OAuth refresh invalidates the runtime and refresh failure never selects the global token" do
+    test_pid = self()
+
+    handler = fn conn, _body ->
+      send(test_pid, {:oauth_llm_authorization, Plug.Conn.get_req_header(conn, "authorization")})
+      {200, streamed_reply(conn.request_path, "OAuth authorized", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, test_pid)
+    start_supervised!(child_spec)
+    Code.ensure_loaded!(ConnectOAuthAttemptConfig)
+
+    {:ok, credential_dto} =
+      Connect.save_credential_configuration(nil, %{
+        name: "OAuth runtime #{Ecto.UUID.generate()}",
+        provider: "openai",
+        auth_kind: "oauth2",
+        secret_binding: :grant,
+        personal_credential_policy: :required,
+        client_id: "runtime-client",
+        client_secret: "runtime-client-secret",
+        scopes: ["responses"],
+        metadata: %{
+          "authorize_url" => "https://provider.example/authorize",
+          "token_url" => "https://provider.example/token"
+        }
+      })
+
+    connect_credential = Repo.get!(Credential, credential_dto.credential_id)
+
+    {:ok, ai_credential} =
+      %AIProviderCredential{}
+      |> AIProviderCredential.changeset(%{
+        name: "OAuth runtime AI #{Ecto.UUID.generate()}",
+        provider: "openai",
+        endpoint: endpoint,
+        metadata: %{"auth_kind" => "oauth2"},
+        connect_credential_id: connect_credential.id
+      })
+      |> Repo.insert()
+
+    {:ok, person} = People.create_person(%{full_name: "OAuth Runtime Person"})
+
+    assert {:ok, _} =
+             Connect.replace_credential_grant(connect_credential, :org, %{
+               access_token: "oauth-org-token",
+               refresh_token: "oauth-org-refresh"
+             })
+
+    assert {:ok, personal_dto} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, person.id},
+               %{
+                 access_token: "oauth-person-old",
+                 refresh_token: "oauth-person-refresh",
+                 expires_at: DateTime.add(DateTime.utc_now(), 3_600, :second)
+               }
+             )
+
+    assert {:ok, _} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    {:ok, configured_agent} = create_http_agent(ai_credential)
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    assert_successful_execution(configured_agent, %{person: %{id: person.id}}, person)
+    assert_receive {:oauth_llm_authorization, ["Bearer oauth-person-old"]}
+
+    [old_server] = agent_server_pids(configured_agent)
+    old_server_ref = Process.monitor(old_server)
+    personal_grant = Repo.get!(Grant, personal_dto.grant_id)
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      Req.Test.json(conn, %{
+        "access_token" => "oauth-person-new",
+        "refresh_token" => "oauth-person-refresh-2",
+        "expires_in" => 3_600
+      })
+    end)
+
+    {{:ok, refreshed}, refresh_job} =
+      capture_credential_notification(connect_credential.id, fn ->
+        Connect.refresh_grant(personal_grant, config: ConnectOAuthAttemptConfig)
+      end)
+
+    assert refreshed.id == personal_grant.id
+    deliver_credential_notification(refresh_job)
+    assert_receive {:DOWN, ^old_server_ref, :process, ^old_server, _reason}, 5_000
+
+    assert_successful_execution(configured_agent, %{person: %{id: person.id}}, person)
+    assert_receive {:oauth_llm_authorization, ["Bearer oauth-person-new"]}
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      conn
+      |> Plug.Conn.put_status(400)
+      |> Req.Test.json(%{"error" => "refresh rejected"})
+    end)
+
+    assert {:error, {:oauth_refresh_failed, 400}} =
+             Connect.refresh_grant(Repo.reload!(personal_grant),
+               config: ConnectOAuthAttemptConfig
+             )
+
+    assert_successful_execution(configured_agent, %{person: %{id: person.id}}, person)
+    assert_receive {:oauth_llm_authorization, ["Bearer oauth-person-new"]}
+    refute_received {:oauth_llm_authorization, ["Bearer oauth-org-token"]}
+  end
+
+  test "cold expired Person OAuth refresh failure never reaches the LLM or falls back globally" do
+    test_pid = self()
+
+    handler = fn conn, body ->
+      case conn.request_path do
+        "/oauth/token" ->
+          send(test_pid, {:oauth_refresh_attempt, body})
+          {400, %{"error" => "invalid_grant"}}
+
+        path when path in ["/v1/responses", "/v1/chat/completions"] ->
+          send(
+            test_pid,
+            {:expired_oauth_llm_request, Plug.Conn.get_req_header(conn, "authorization")}
+          )
+
+          {200, streamed_reply(path, "unexpected", "gpt-4.1-mini")}
+      end
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, test_pid)
+    start_supervised!(child_spec)
+    token_url = String.trim_trailing(endpoint, "/v1") <> "/oauth/token"
+
+    {:ok, credential_dto} =
+      Connect.save_credential_configuration(nil, %{
+        name: "Expired OAuth #{Ecto.UUID.generate()}",
+        provider: "openai",
+        auth_kind: "oauth2",
+        secret_binding: :grant,
+        personal_credential_policy: :required,
+        client_id: "expired-client",
+        client_secret: "expired-client-secret",
+        scopes: ["responses"],
+        metadata: %{
+          "authorize_url" => "https://provider.example/authorize",
+          "token_url" => token_url
+        }
+      })
+
+    connect_credential = Repo.get!(Credential, credential_dto.credential_id)
+
+    {:ok, ai_credential} =
+      %AIProviderCredential{}
+      |> AIProviderCredential.changeset(%{
+        name: "Expired OAuth AI #{Ecto.UUID.generate()}",
+        provider: "openai",
+        endpoint: endpoint,
+        metadata: %{"auth_kind" => "oauth2"},
+        connect_credential_id: connect_credential.id
+      })
+      |> Repo.insert()
+
+    {:ok, person} = People.create_person(%{full_name: "Expired OAuth Person"})
+
+    assert {:ok, _grant} =
+             Connect.replace_credential_grant(connect_credential, :org, %{
+               access_token: "oauth-org-token",
+               refresh_token: "oauth-org-refresh",
+               expires_at: DateTime.add(DateTime.utc_now(), 3_600, :second)
+             })
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    assert {:ok, personal_dto} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, person.id},
+               %{
+                 access_token: "expired-person-token",
+                 refresh_token: "expired-person-refresh",
+                 expires_at: DateTime.add(DateTime.utc_now(), 3_600, :second)
+               }
+             )
+
+    personal_grant = Repo.get!(Grant, personal_dto.grant_id)
+
+    Repo.update!(
+      Ecto.Changeset.change(personal_grant,
+        expires_at:
+          DateTime.utc_now()
+          |> DateTime.add(-60, :second)
+          |> DateTime.truncate(:second)
+      )
+    )
+
+    {:ok, configured_agent} = create_http_agent(ai_credential)
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    assert_failed_execution(
+      configured_agent,
+      %{person: %{id: person.id}},
+      person,
+      %{credential_id: connect_credential.id, reason: :credential_refresh_failed}
+    )
+
+    assert_receive {:oauth_refresh_attempt, refresh_body}, 5_000
+    assert URI.decode_query(refresh_body)["grant_type"] == "refresh_token"
+    refute_received {:expired_oauth_llm_request, _authorization}
+  end
+
+  test "natural authentication expiry timer stops the runtime before expired cold resolution" do
+    {configured_agent, credential, endpoint} = credential_agent_fixture(self())
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+    {:ok, person} = People.create_person(%{full_name: "Scheduled Expiry Person"})
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    assert {:ok, _grant} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, person.id},
+               %{
+                 api_key: "scheduled-expiry-key",
+                 expires_at: DateTime.add(DateTime.utc_now(), 2, :second)
+               }
+             )
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+    actor = %{person: %{id: person.id}}
+
+    assert_successful_execution(configured_agent, actor, person)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer scheduled-expiry-key"]}
+
+    [server_pid] = agent_server_pids(configured_agent)
+    server_ref = Process.monitor(server_pid)
+    assert_receive {:DOWN, ^server_ref, :process, ^server_pid, _reason}, 5_000
+
+    assert_failed_execution(
+      configured_agent,
+      actor,
+      person,
+      %{credential_id: connect_credential.id, reason: :credential_expired}
+    )
+
+    refute_received {:llm_authorization, ^endpoint, _authorization}
+  end
+
+  test "authentication expiry fences only the matching runtime incarnation before cold resolution" do
+    {configured_agent, credential, endpoint} = credential_agent_fixture(self())
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+    {:ok, person} = People.create_person(%{full_name: "Expiring Credential Person"})
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    assert {:ok, personal_dto} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, person.id},
+               %{
+                 api_key: "expiring-person-key",
+                 expires_at: DateTime.add(DateTime.utc_now(), 3_600, :second)
+               }
+             )
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    actor = %{person: %{id: person.id}}
+    assert_successful_execution(configured_agent, actor, person)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer expiring-person-key"]}
+
+    [server_id] = server_ids_for(configured_agent.name)
+    [server_pid] = agent_server_pids(configured_agent)
+    server_ref = Process.monitor(server_pid)
+    stale_pid = spawn(fn -> :ok end)
+
+    send(ServerManager, {:expire_authentication, server_id, stale_pid})
+    _state_after_stale_callback = :sys.get_state(ServerManager)
+    assert Process.alive?(server_pid)
+
+    assert_successful_execution(configured_agent, actor, person)
+    assert_receive {:llm_authorization, ^endpoint, ["Bearer expiring-person-key"]}
+
+    expired_at = DateTime.utc_now() |> DateTime.add(-1, :second) |> DateTime.truncate(:second)
+    personal_grant = Repo.get!(Grant, personal_dto.grant_id)
+    Repo.update!(Ecto.Changeset.change(personal_grant, expires_at: expired_at))
+
+    :sys.replace_state(ServerManager, fn state ->
+      update_in(state, [:credential_dependencies, server_id], fn dependency ->
+        %{dependency | expires_at: expired_at}
+      end)
+    end)
+
+    send(ServerManager, {:expire_authentication, server_id, server_pid})
+    assert_receive {:DOWN, ^server_ref, :process, ^server_pid, _reason}, 5_000
+
+    assert_failed_execution(
+      configured_agent,
+      actor,
+      person,
+      %{credential_id: connect_credential.id, reason: :credential_expired}
+    )
+
+    refute_received {:llm_authorization, ^endpoint, _headers}
   end
 
   # Base server ids in the Jido agent registry, shaped "<agent_name>:<scope>".
@@ -782,8 +1464,132 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     end
   end
 
-  defp execution_event do
-    Event.new(nil, :agent, actor: %{kind: :anonymous, subject: "executor-integration-test"})
+  defp credential_agent_fixture(test_pid) do
+    handler = fn conn, _body ->
+      request_endpoint = "http://#{conn.host}:#{conn.port}/v1"
+
+      send(
+        test_pid,
+        {:llm_authorization, request_endpoint, Plug.Conn.get_req_header(conn, "authorization")}
+      )
+
+      {200, streamed_reply(conn.request_path, "Authorized", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, test_pid)
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "org-key"
+      })
+
+    {:ok, configured_agent} = create_http_agent(credential)
+    {configured_agent, credential, endpoint}
+  end
+
+  defp stop_agent_servers(configured_agent) do
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+
+    monitors =
+      configured_agent.name
+      |> server_ids_for()
+      |> Enum.flat_map(&Registry.lookup(registry, &1))
+      |> Enum.map(fn {pid, _value} -> Process.monitor(pid) end)
+
+    assert :ok = ServerManager.stop_server(configured_agent)
+
+    Enum.each(monitors, fn ref ->
+      assert_receive {:DOWN, ^ref, :process, _pid, _reason}, 5_000
+    end)
+  end
+
+  defp agent_server_pids(configured_agent) do
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+
+    configured_agent.name
+    |> server_ids_for()
+    |> Enum.flat_map(&Registry.lookup(registry, &1))
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp capture_credential_notification(credential_id, mutation) do
+    CredentialMutationJob.capture!(credential_id, mutation)
+  end
+
+  defp deliver_credential_notification(job) do
+    assert :ok = CredentialMutationJob.deliver!(job, "credential-runtime-test")
+  end
+
+  defp create_http_agent(credential) do
+    Agent.create_agent(%{
+      name: "Credential HTTP Agent #{System.unique_integer([:positive, :monotonic])}",
+      description: "",
+      job: "Reply with Authorized.",
+      model: "gpt-4.1-mini",
+      credential_id: credential.id,
+      strategy: "react",
+      enabled_tool_keys: [],
+      conversation_enabled: false,
+      active: true,
+      advanced_options: %{"stream" => false}
+    })
+  end
+
+  defp assert_successful_execution(configured_agent, actor, person \\ nil) do
+    incoming = %Incoming{
+      content: "credential check",
+      channel_id: "credential-http-test",
+      provider: :web,
+      person: person
+    }
+
+    outgoing =
+      Executor.run(incoming,
+        agent_id: to_string(configured_agent.id),
+        event: execution_event(actor)
+      )
+
+    assert outgoing.metadata.error == false
+    assert is_binary(outgoing.body)
+    outgoing
+  end
+
+  defp assert_failed_execution(configured_agent, actor, person, expected_reason) do
+    incoming = %Incoming{
+      content: "credential check",
+      channel_id: "credential-http-test",
+      provider: :web,
+      person: person
+    }
+
+    outgoing =
+      Executor.run(incoming,
+        agent_id: to_string(configured_agent.id),
+        event: execution_event(actor)
+      )
+
+    assert outgoing.metadata.error == true
+
+    if expected_reason do
+      assert outgoing.metadata.reason == inspect(expected_reason)
+    end
+
+    outgoing
+  end
+
+  defp drain_messages(tag, acc \\ []) do
+    receive do
+      {^tag, value} -> drain_messages(tag, [value | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defp execution_event(actor \\ %{kind: :anonymous, subject: "executor-integration-test"}) do
+    Event.new(nil, :agent, actor: actor)
   end
 
   defp streamed_reply("/v1/chat/completions", text, model) do

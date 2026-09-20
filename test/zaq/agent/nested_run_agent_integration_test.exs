@@ -24,10 +24,12 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
   alias Zaq.Agent.Executor
   alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Tools.Workflow.RunAgent
+  alias Zaq.Engine.Connect
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Workflows
   alias Zaq.Identity.ExecutionActor
-  alias Zaq.TestSupport.{MultiAgentOpenAIStub, OpenAIStub}
+  alias Zaq.System, as: ZaqSystem
+  alias Zaq.TestSupport.{CredentialMutationJob, MultiAgentOpenAIStub, OpenAIStub}
 
   setup do
     # Workflow lifecycle events (T1) dispatch through Zaq.NodeRouterMock in test;
@@ -42,8 +44,13 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
   # Y's LLM: answer. `y_id_ref` is an :atomics cell filled once Y exists, so one
   # stub can be started before the agents are created.
   defp nested_handler(test_pid, y_id_ref) do
-    fn _conn, body ->
+    fn conn, body ->
       send(test_pid, {:llm_request, body})
+
+      send(
+        test_pid,
+        {:nested_llm_authorization, Plug.Conn.get_req_header(conn, "authorization")}
+      )
 
       sse =
         cond do
@@ -173,6 +180,14 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     end
   end
 
+  defp drain_authorizations(tag, acc \\ []) do
+    receive do
+      {^tag, authorization} -> drain_authorizations(tag, [authorization | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   # Base server ids registered in the Jido agent registry, each shaped
   # "<agent_name>:<scope>". The react strategy also registers internal worker
   # children under "<server_id>/react_worker"; those are excluded so we assert on
@@ -199,19 +214,61 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
              ExecutionActor.identity(expected)
   end
 
+  defp server_pid(server_id) do
+    registry = Jido.registry_name(Zaq.Agent.Jido)
+    assert [{pid, _value}] = Registry.lookup(registry, server_id)
+    pid
+  end
+
+  defp capture_credential_notification(credential_id, mutation) do
+    CredentialMutationJob.capture!(credential_id, mutation)
+  end
+
+  defp deliver_credential_notification(job) do
+    assert :ok = CredentialMutationJob.deliver!(job, "workflow-credential-test")
+  end
+
   test "workflow runs preserve distinct originating identities and per-step isolation" do
+    test_pid = self()
+
     {child, endpoint} =
       OpenAIStub.server(
-        fn _conn, _body ->
+        fn conn, _body ->
+          send(
+            test_pid,
+            {:workflow_llm_authorization, Plug.Conn.get_req_header(conn, "authorization")}
+          )
+
           {200, MultiAgentOpenAIStub.text_sse("STEP_OK", "gpt-4.1-mini")}
         end,
-        self()
+        test_pid
       )
 
     start_supervised!(child)
     {unused_x, agent} = create_x_and_y(endpoint)
     first_person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "First Actor"}))
     second_person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Second Actor"}))
+    ai_credential = ZaqSystem.get_ai_provider_credential(agent.credential_id)
+    connect_credential = Connect.get_credential!(ai_credential.connect_credential_id)
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    assert {:ok, _} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, first_person.id},
+               %{api_key: "workflow-first-key"}
+             )
+
+    assert {:ok, _} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, second_person.id},
+               %{api_key: "workflow-second-key"}
+             )
 
     on_exit(fn ->
       ServerManager.stop_server(unused_x)
@@ -235,14 +292,17 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
         edges: [%{from: "step0", to: "step1", mapping: %{}}]
       })
 
-    for actor <- [
-          %{person: %{id: first_person.id}},
-          %{person: %{id: second_person.id}},
-          %{kind: :system, subject: "workflow-system-test"}
+    for {actor, expected_authorization} <- [
+          {%{person: %{id: first_person.id}}, "Bearer workflow-first-key"},
+          {%{person: %{id: second_person.id}}, "Bearer workflow-second-key"},
+          {%{kind: :system, subject: "workflow-system-test"}, "Bearer test-key"}
         ] do
       assert {:ok, run} = Workflows.create_and_start_run(workflow, source_event(actor))
       assert run.status == "completed"
       assert Enum.map(Workflows.list_step_runs(run.id), & &1.status) == ["completed", "completed"]
+
+      assert drain_authorizations(:workflow_llm_authorization) ==
+               List.duplicate([expected_authorization], 2)
 
       for index <- 0..1 do
         assert_server_actor("#{agent.name}:workflow:run:#{run.id}:step:#{index}", actor)
@@ -250,6 +310,120 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     end
 
     assert length(server_ids_for(agent.name)) == 6
+  end
+
+  test "Person grant replacement invalidates only matching opaque workflow runtimes" do
+    test_pid = self()
+
+    {child, endpoint} =
+      OpenAIStub.server(
+        fn conn, _body ->
+          send(
+            test_pid,
+            {:workflow_mutation_authorization, Plug.Conn.get_req_header(conn, "authorization")}
+          )
+
+          {200, MultiAgentOpenAIStub.text_sse("STEP_OK", "gpt-4.1-mini")}
+        end,
+        test_pid
+      )
+
+    start_supervised!(child)
+    {unused_x, agent} = create_x_and_y(endpoint)
+    alice = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Workflow Mutation Alice"}))
+    bob = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Workflow Mutation Bob"}))
+    ai_credential = ZaqSystem.get_ai_provider_credential(agent.credential_id)
+    connect_credential = Connect.get_credential!(ai_credential.connect_credential_id)
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    assert {:ok, _grant} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, alice.id},
+               %{api_key: "workflow-alice-original"}
+             )
+
+    assert {:ok, _grant} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, bob.id},
+               %{api_key: "workflow-bob-key"}
+             )
+
+    on_exit(fn ->
+      ServerManager.stop_server(unused_x)
+      ServerManager.stop_server(agent)
+    end)
+
+    {:ok, workflow} =
+      Workflows.create_workflow(%{
+        name: "Credential mutation #{System.unique_integer([:positive])}",
+        status: "active",
+        nodes: [
+          %{
+            name: "run_agent",
+            type: "action",
+            module: "Zaq.Agent.Tools.Workflow.RunAgent",
+            params: %{"agent_id" => agent.id, "input" => "hello"},
+            index: 0
+          }
+        ],
+        edges: []
+      })
+
+    assert {:ok, alice_run} =
+             Workflows.create_and_start_run(
+               workflow,
+               source_event(%{person: %{id: alice.id}})
+             )
+
+    assert alice_run.status == "completed"
+    assert_receive {:workflow_mutation_authorization, ["Bearer workflow-alice-original"]}
+    alice_server_id = "#{agent.name}:workflow:run:#{alice_run.id}:step:0"
+    alice_pid = server_pid(alice_server_id)
+
+    assert {:ok, bob_run} =
+             Workflows.create_and_start_run(
+               workflow,
+               source_event(%{person: %{id: bob.id}})
+             )
+
+    assert bob_run.status == "completed"
+    assert_receive {:workflow_mutation_authorization, ["Bearer workflow-bob-key"]}
+    bob_server_id = "#{agent.name}:workflow:run:#{bob_run.id}:step:0"
+    bob_pid = server_pid(bob_server_id)
+    alice_ref = Process.monitor(alice_pid)
+
+    {{:ok, _grant}, replacement_job} =
+      capture_credential_notification(connect_credential.id, fn ->
+        Connect.replace_credential_grant(
+          connect_credential,
+          {:person, alice.id},
+          %{api_key: "workflow-alice-replaced"}
+        )
+      end)
+
+    deliver_credential_notification(replacement_job)
+    assert_receive {:DOWN, ^alice_ref, :process, ^alice_pid, _reason}, 5_000
+    assert Process.alive?(bob_pid)
+
+    assert {:ok, replacement_run} =
+             Workflows.create_and_start_run(
+               workflow,
+               source_event(%{person: %{id: alice.id}})
+             )
+
+    assert replacement_run.status == "completed"
+    assert_receive {:workflow_mutation_authorization, ["Bearer workflow-alice-replaced"]}
+    assert Process.alive?(bob_pid)
+
+    replacement_server_id = "#{agent.name}:workflow:run:#{replacement_run.id}:step:0"
+    refute server_pid(replacement_server_id) == alice_pid
+    assert_server_actor(replacement_server_id, %{person: %{id: alice.id}})
   end
 
   test "RunAgent cannot start a server when its originating actor is missing or malformed" do
@@ -366,6 +540,20 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
   test "T1: workflow → agent(X) → tool call run_agent(Y)" do
     {agent_x, agent_y} = setup_nested(self())
     person = Repo.insert!(Person.changeset(%Person{}, %{full_name: "Workflow Actor"}))
+    ai_credential = ZaqSystem.get_ai_provider_credential(agent_x.credential_id)
+    connect_credential = Connect.get_credential!(ai_credential.connect_credential_id)
+
+    assert {:ok, connect_credential} =
+             Connect.update_credential(connect_credential, %{
+               personal_credential_policy: :optional
+             })
+
+    assert {:ok, _} =
+             Connect.replace_credential_grant(
+               connect_credential,
+               {:person, person.id},
+               %{api_key: "nested-workflow-person-key"}
+             )
 
     {:ok, workflow_b} =
       Workflows.create_workflow(%{
@@ -394,6 +582,9 @@ defmodule Zaq.Agent.NestedRunAgentIntegrationTest do
     bodies = drain_llm_bodies([])
     assert Enum.any?(bodies, &(&1 =~ "MARKER_AGENT_Y")), "agent Y must run via the run_agent tool"
     assert Enum.any?(bodies, &(&1 =~ "ANSWER_FROM_Y")), "Y's answer must feed back to X"
+
+    assert drain_authorizations(:nested_llm_authorization) ==
+             List.duplicate(["Bearer nested-workflow-person-key"], 3)
 
     # Parent X and nested Y are spawned as DISTINCT Jido servers — if their
     # server ids (`<name>:<scope>`) collided, one run would reject the other as
