@@ -32,6 +32,8 @@ defmodule Zaq.NodeRouter do
 
   alias Zaq.{Event, EventHop}
 
+  @discovery_rpc_timeout 30_000
+  @execution_rpc_timeout :infinity
   @pubsub Zaq.PubSub
   @trigger_topic "node_router:events"
 
@@ -202,7 +204,7 @@ defmodule Zaq.NodeRouter do
   end
 
   defp discover_remote_node(target, {:ok, found}, supervisor, runtime) do
-    case rpc_call(runtime, target, Process, :whereis, [supervisor]) do
+    case rpc_call(runtime, target, Process, :whereis, [supervisor], @discovery_rpc_timeout) do
       pid when is_pid(pid) -> {:cont, {:ok, [target | found]}}
       nil -> {:cont, {:ok, found}}
       _ -> {:halt, {:error, {:node_discovery_failed, target}}}
@@ -213,7 +215,7 @@ defmodule Zaq.NodeRouter do
     if n == current_node(runtime) do
       whereis(runtime, supervisor) != nil
     else
-      case rpc_call(runtime, n, Process, :whereis, [supervisor]) do
+      case rpc_call(runtime, n, Process, :whereis, [supervisor], @discovery_rpc_timeout) do
         {:badrpc, _} -> false
         nil -> false
         _pid -> true
@@ -239,12 +241,17 @@ defmodule Zaq.NodeRouter do
     |> then(& &1.(supervisor))
   end
 
-  defp rpc_call(runtime, n, mod, fun, args) do
-    runtime
-    |> Map.get(:rpc_call_fn, fn node, module, function, arguments ->
-      :rpc.call(node, module, function, arguments, 30_000)
-    end)
-    |> then(& &1.(n, mod, fun, args))
+  defp rpc_call(runtime, n, mod, fun, args, timeout) do
+    cond do
+      callback = Map.get(runtime, :rpc_call_with_timeout_fn) ->
+        callback.(n, mod, fun, args, timeout)
+
+      callback = Map.get(runtime, :rpc_call_fn) ->
+        callback.(n, mod, fun, args)
+
+      true ->
+        :rpc.call(n, mod, fun, args, timeout)
+    end
   end
 
   defp async_start(runtime, fun) when is_function(fun, 0) do
@@ -325,7 +332,14 @@ defmodule Zaq.NodeRouter do
     if target == current do
       api_module.handle_event(event, action, nil)
     else
-      case rpc_call(runtime, target, api_module, :handle_event, [event, action, nil]) do
+      case rpc_call(
+             runtime,
+             target,
+             api_module,
+             :handle_event,
+             [event, action, nil],
+             @execution_rpc_timeout
+           ) do
         {:badrpc, reason} ->
           %{event | response: {:error, {:rpc_failed, target, reason}}}
 

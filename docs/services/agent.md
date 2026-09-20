@@ -15,8 +15,9 @@ When `Executor` passes an explicit scope, that scope is encoded in `server_id`
 (`<agent_name>:<scope>`) and `ServerManager` manages that runtime too.
 
 Provider normalization and model-spec assembly are centralized in
-`Zaq.Agent.ProviderSpec` + `Zaq.Agent.Factory` — no other module should read
-or construct provider details directly.
+`Zaq.Agent.ProviderSpec` + `Zaq.Agent.Factory`. Provider-specific ReqLLM translation
+lives behind the static `Zaq.Agent.ProviderSpec.Registry`; consumers do not branch on
+provider identity.
 
 **Important**: Agent modules must never be called directly from BO LiveViews.
 All calls from BO use `Zaq.NodeRouter.dispatch/1` with `%Zaq.Event{}` and supported
@@ -37,7 +38,7 @@ Before writing any new agent-service code, verify which entry point already cove
 | Build a response from pipeline output | `Outgoing.from_pipeline_result/2` — do not construct response maps inline |
 | Store or read conversation turns | `Zaq.Agent.History` — `build/1`, `entry_key/2` |
 | Resolve provider credentials or endpoint URL | `get_ai_provider_credential/1` then `Factory.build_model_spec/1` — nowhere else |
-| Translate a provider name to a ReqLLM atom | `ProviderSpec.reqllm_provider/1` — called by `Factory`; other modules must not call it directly |
+| Translate a provider name to a ReqLLM atom | `ProviderSpec.reqllm_provider/1`; model discovery may use this narrow contract, while generation uses `Factory` |
 
 If the existing entry point does not cover your case, **extend it** — do not create a parallel path.
 
@@ -59,7 +60,8 @@ Use this to decide where new code belongs. When a function would violate the "Do
 
 | Module | Owns | Does NOT own |
 |---|---|---|
-| `ProviderSpec` | Provider-atom normalisation (`reqllm_provider/1`), fixed-URL detection, base-URL injection, `build/1` for configured agents | Agent lifecycle, LLM calls, credential storage |
+| `ProviderSpec` | Generic provider facade, normalized runtime context, model/option assembly and static runtime-behavior selection | Agent lifecycle, LLM calls, credential storage, provider-specific branches |
+| `ProviderSpec.Registry` and provider implementations | Static provider selection and pure provider-specific ReqLLM translation | Credential lookup/selection, authorization, OAuth protocol, HTTP, persistence |
 | `Factory` | Model spec assembly (`build_model_spec/0,1`), `ask/ask_with_config`, generation opts | Provider/URL logic (delegated to `ProviderSpec`), credential resolution, pipeline orchestration |
 | `Executor` | Configured-agent lifecycle, config loading, factory delegation, `:answering` status broadcast | LLM call details, response struct construction |
 | `StreamEvents` | Request-local stream reduction, realtime buffered updates, trace/tool capture, model/measurement extraction | Server lifecycle, provider config, persistence |
@@ -499,13 +501,17 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 - Registers request-local inspection state in `Zaq.Agent.RequestRegistry` for inspect/steer/inject actions.
 
 ### Provider Spec (`Zaq.Agent.ProviderSpec`)
-- Central home for provider normalization (`reqllm_provider/1`) and fixed-URL policy (`fixed_url_provider?/1`)
+- Generic facade for provider normalization, model specs and runtime options
+- Selects pure Agent-owned implementations through `Zaq.Agent.ProviderSpec.Registry`;
+  adding provider-specific ReqLLM behavior does not add branches to the facade
+- Keeps OAuth protocol and selected-grant identity in Connect's separate OAuth behavior
 - Builds provider spec maps and generation options consumed by `Factory`
 - Resolves configured-agent provider configuration through
   `Zaq.System.get_ai_provider_credential/1` only on legacy/local paths; during lifecycle
   startup it translates Engine's secret-free provider projection plus the already-resolved
   Connect result and does not query System or select Person versus global grants
-- Keeps OpenAI-compatible fallback behavior centralized so other modules do not branch by provider
+- Keeps OpenAI-compatible fallback behavior in the default runtime implementation so
+  other modules do not branch by provider
 
 ### Query Rewriting (`Zaq.Agent.Retrieval`)
 - Rewrites user question into structured JSON search queries via LLM
@@ -685,7 +691,9 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 - **`Api` is the only supported cross-role entrypoint** — dispatch a `%Zaq.Event{}` to `:agent` with action `:run_pipeline`; incoming channel messages first pass through Engine routing. Follow the [dispatch contract](../architecture.md#noderouter--critical), not generic invoke helpers; direct `Pipeline.run/2` calls are deprecated outside agent internals
 - **All sub-modules injectable** — Pipeline accepts module overrides for every dependency, enabling isolated unit tests without mocking globals
 - **Hook system** — sync and async hooks dispatched at pipeline stage boundaries; external features attach via hooks without modifying core pipeline logic
-- **Provider policy has one home** — provider normalization and URL behavior live in `ProviderSpec`; callers use `Factory` entrypoints only
+- **Provider policy has one boundary** — `ProviderSpec` is the generic facade and its
+  static Agent-owned implementations contain provider-specific ReqLLM translation;
+  generation callers use Factory while model discovery uses narrow ProviderSpec APIs
 - **Prompt templates in DB** — editable at runtime without deploys; agents raise if missing
 - **ChunkTitle is injectable** — `Application.get_env(:zaq, :chunk_title_module, Zaq.Agent.ChunkTitle)` allows test mocking
 - **Confidence is optional** — gracefully skipped when `supports_logprobs?` is false
@@ -713,7 +721,10 @@ and post-login continuation remain People portal concerns.
 ### Harness-Critical Checks for Coding Agents
 - **Doc ↔ code parity**: service docs must only reference real modules.
 - **Single execution path**: before implementing LLM calls, agent lifecycle or response builders, check `Factory`, `Executor`, `Outgoing` and `History`. Use/extend existing infrastructure, never create a parallel path; follow the Entry Point Decision Tree above.
-- **Provider ownership**: normalization, fixed-URL detection and base-URL injection belong in `ProviderSpec`; credentials resolve through `get_ai_provider_credential/1`; `Factory` assembles model specs. Other modules receive pre-built specs, never construct or inspect provider URLs/credentials directly.
+- **Provider ownership**: ProviderSpec orchestrates normalized runtime context; its
+  registered implementations own provider-specific ReqLLM options and endpoint policy.
+  Connect resolves authentication/identity and Factory assembles generation runtimes.
+  Do not add provider branches to ProviderSpec, Factory or consumers.
 - **Configured-agent parity**: the default answering agent is a configured agent with defaults, not a special case. `ServerManager` must not branch by agent type; answering-only behavior must fit the general path or be removed.
 - **Minimal lifecycle state**: if state exists only to trigger future behavior, use `Process.send_after/3` instead.
 - **Provider catalog**: read provider names, endpoint configuration and capability flags from `llm_db` at runtime, not hardcoded source lists.

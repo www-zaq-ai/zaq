@@ -171,15 +171,21 @@ defmodule Zaq.Agent.Executor do
     :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
 
     question = Keyword.get(opts, :question, incoming.content)
+    execution_opts = effective_execution_opts(opts, incoming, actor_result)
 
     result =
       with {:ok, actor} <- actor_result,
-           opts <- ensure_scope_for_answering_path(opts, incoming, actor),
            {:ok, configured_agent} <- selected_agent_result,
-           configured_agent <- apply_system_prompt_override(configured_agent, opts),
-           server_id <- agent_server_id(configured_agent, opts),
+           configured_agent <- apply_system_prompt_override(configured_agent, execution_opts),
+           server_id <- agent_server_id(configured_agent, execution_opts),
            {:ok, server_ref} <-
-             ensure_agent_server(server_manager_module, configured_agent, server_id, opts, actor),
+             ensure_agent_server(
+               server_manager_module,
+               configured_agent,
+               server_id,
+               execution_opts,
+               actor
+             ),
            question <-
              question
              |> append_attachments(incoming.attachments, server_id)
@@ -191,25 +197,25 @@ defmodule Zaq.Agent.Executor do
                opts: [action: :send_typing],
                type: :async
              )
-             |> node_router(opts).dispatch(),
+             |> node_router(execution_opts).dispatch(),
            status_result <-
-             status_mod(opts).broadcast(
+             status_mod(execution_opts).broadcast(
                incoming,
                :answering,
                "Formulating your answer…",
-               node_router(opts)
+               node_router(execution_opts)
              ),
            %Incoming{} = incoming <- normalize_status_result(status_result, incoming),
            {:ok, %{request: _request, events: events}} <-
              factory_module.ask_with_config(server_ref, question, configured_agent,
                tool_context: %{
                  incoming: incoming,
-                 person_id: Keyword.get(opts, :person_id),
-                 team_ids: Keyword.get(opts, :team_ids, []),
-                 source_filter: Keyword.get(opts, :source_filter),
-                 skip_permissions: Keyword.get(opts, :skip_permissions, false),
+                 person_id: Keyword.get(execution_opts, :person_id),
+                 team_ids: Keyword.get(execution_opts, :team_ids, []),
+                 source_filter: Keyword.get(execution_opts, :source_filter),
+                 skip_permissions: Keyword.get(execution_opts, :skip_permissions, false),
                  actor: actor,
-                 node_router: Keyword.get(opts, :node_router, Zaq.NodeRouter)
+                 node_router: Keyword.get(execution_opts, :node_router, Zaq.NodeRouter)
                }
              ),
            {:ok, stream_result} <-
@@ -217,8 +223,8 @@ defmodule Zaq.Agent.Executor do
                started_at: started_at,
                server_id: server_ref,
                agent: configured_agent,
-               node_router: node_router(opts),
-               status_module: status_mod(opts)
+               node_router: node_router(execution_opts),
+               status_module: status_mod(execution_opts)
              ) do
         incoming = stream_result.incoming
         answer = %{result: stream_result.answer, usage: stream_result.usage}
@@ -239,7 +245,7 @@ defmodule Zaq.Agent.Executor do
             partial,
             dims,
             selected_agent_result,
-            opts,
+            execution_opts,
             server_manager_module
           )
 
@@ -249,7 +255,7 @@ defmodule Zaq.Agent.Executor do
             reason,
             dims,
             selected_agent_result,
-            opts,
+            execution_opts,
             server_manager_module
           )
 
@@ -259,7 +265,7 @@ defmodule Zaq.Agent.Executor do
             reason,
             dims,
             selected_agent_result,
-            opts,
+            execution_opts,
             server_manager_module
           )
       end
@@ -395,6 +401,11 @@ defmodule Zaq.Agent.Executor do
       do: Keyword.put(opts, :scope, derive_scope(incoming, actor)),
       else: opts
   end
+
+  defp effective_execution_opts(opts, incoming, {:ok, actor}),
+    do: ensure_scope_for_answering_path(opts, incoming, actor)
+
+  defp effective_execution_opts(opts, _incoming, _actor_result), do: opts
 
   defp execution_actor(opts, incoming) do
     case event_actor(opts) do

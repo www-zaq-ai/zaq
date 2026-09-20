@@ -78,6 +78,14 @@ defmodule Zaq.Engine.Connect.OAuth do
     end
   end
 
+  @doc "Projects selected-grant metadata through the credential's registered behavior."
+  @spec runtime_identity(Credential.t(), map()) :: {:ok, map()} | {:error, term()}
+  def runtime_identity(%Credential{} = credential, metadata) when is_map(metadata) do
+    with {:ok, behaviour} <- oauth_behaviour(credential) do
+      {:ok, behaviour.runtime_identity(metadata)}
+    end
+  end
+
   @spec build_authorize_url(Credential.t(), map()) :: {:ok, String.t()} | {:error, term()}
   def build_authorize_url(%Credential{}, %{owner_type: type}) when type in ["person", :person],
     do: {:error, :person_management_required}

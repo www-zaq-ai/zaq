@@ -49,9 +49,9 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
       LEFT('AI ' || ai_id::text || ': ' || ai_name, 255),
       CASE WHEN ai_provider = 'openai_codex' THEN 'openai' ELSE ai_provider END,
       CASE
-        WHEN NULLIF(BTRIM(ai_api_key), '') IS NOT NULL THEN 'api_key'
+        WHEN grant_id IS NOT NULL THEN 'oauth2'
         WHEN COALESCE(ai_metadata->>'auth_kind', '') = 'none' THEN 'none'
-        ELSE 'oauth2'
+        ELSE 'api_key'
       END,
       FALSE,
       CASE WHEN grant_id IS NOT NULL THEN COALESCE(source_request_format, 'bearer') ELSE 'bearer' END,
@@ -298,6 +298,21 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
     UPDATE connect_credentials credential
     SET name = LEFT('Legacy AI OAuth ' || rollback.ai_id::text || ': ' || credential.name, 255),
         updated_at = now()
+    FROM zaq_ai_connect_rollback_ids rollback
+    WHERE rollback.auth_kind = 'oauth2'
+      AND credential.id = rollback.id
+    """
+
+    execute """
+    UPDATE ai_provider_credentials ai
+    SET api_key = NULL, updated_at = now()
+    FROM zaq_ai_connect_rollback_ids rollback
+    WHERE ai.id = rollback.ai_id
+    """
+
+    execute """
+    UPDATE connect_credentials credential
+    SET secret_binding = 'configuration', updated_at = now()
     FROM zaq_ai_connect_rollback_ids rollback
     WHERE rollback.auth_kind = 'oauth2'
       AND credential.id = rollback.id

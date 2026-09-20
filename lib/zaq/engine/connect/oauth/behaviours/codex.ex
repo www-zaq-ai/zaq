@@ -50,6 +50,19 @@ defmodule Zaq.Engine.Connect.OAuth.Behaviours.Codex do
 
   def valid_grant_metadata?(_), do: false
 
+  @impl true
+  def runtime_identity(metadata) when is_map(metadata) do
+    case Map.get(metadata, "chatgpt_account_id") do
+      value when is_binary(value) and value != "" and byte_size(value) <= 255 ->
+        %{"chatgpt_account_id" => value}
+
+      _ ->
+        %{}
+    end
+  end
+
+  def runtime_identity(_), do: %{}
+
   defp chatgpt_account_id(payload) do
     payload
     |> account_tokens()

@@ -17,4 +17,15 @@ defmodule Zaq.Engine.Connect.OAuth.Behaviours.Standard do
 
   @impl true
   def valid_grant_metadata?(metadata), do: metadata == %{}
+
+  @impl true
+  def runtime_identity(metadata) when is_map(metadata) do
+    metadata
+    |> Map.take(["account_id", "account_name"])
+    |> Map.filter(fn {_key, value} ->
+      is_binary(value) and String.valid?(value) and value != "" and byte_size(value) <= 255
+    end)
+  end
+
+  def runtime_identity(_metadata), do: %{}
 end

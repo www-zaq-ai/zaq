@@ -1517,7 +1517,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp save_new_oauth_and_connect(socket, params) do
     desired_policy = params["personal_credential_policy"]
-    persisted_params = Map.put(params, "personal_credential_policy", "required")
+
+    persisted_params =
+      params
+      |> Map.put("personal_credential_policy", "required")
+      |> mark_oauth_setup_pending()
 
     with {:ok, ai_credential} <- engine_create_ai_provider_credential(persisted_params),
          {:ok, connect_credential} <- ensure_ai_connect_credential(ai_credential),
@@ -1545,6 +1549,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         |> load_ai_credentials()
         |> put_flash(:error, ai_oauth_error(reason))
     end
+  end
+
+  defp mark_oauth_setup_pending(params) do
+    metadata =
+      case params["metadata"] do
+        metadata when is_map(metadata) -> Map.put(metadata, "oauth_setup_pending", true)
+        _ -> %{"oauth_setup_pending" => true}
+      end
+
+    Map.put(params, "metadata", metadata)
   end
 
   defp fetch_ai_credential(id) do

@@ -662,6 +662,74 @@ defmodule Zaq.Agent.ProviderSpecTest do
       refute opts[:api_key] == credential.api_key
     end
 
+    test "pairs Codex access token with the selected grant runtime identity" do
+      credential = %{
+        provider: "openai_codex",
+        endpoint: "https://chatgpt.com/backend-api",
+        metadata: %{
+          "auth_profile" => "openai_chatgpt_codex",
+          "chatgpt_account_id" => "acct_configuration"
+        }
+      }
+
+      agent = %{agent_base() | credential: credential}
+
+      resolved = %ResolvedCredential{
+        credential_id: 10,
+        grant_id: 20,
+        owner_type: "person",
+        owner_id: 30,
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        authentication: %{access_token: "person-token"},
+        metadata: %{"chatgpt_account_id" => "acct_person"}
+      }
+
+      assert {:ok, opts} = ProviderSpec.llm_opts(agent, resolved)
+      assert opts[:access_token] == "person-token"
+      assert opts[:provider_options][:chatgpt_account_id] == "acct_person"
+      refute opts[:provider_options][:chatgpt_account_id] == "acct_configuration"
+    end
+
+    test "resolved Codex authentication overrides conflicting advanced options" do
+      credential = %{
+        provider: "openai_codex",
+        endpoint: "https://ignored.example",
+        metadata: %{"auth_profile" => "openai_chatgpt_codex"}
+      }
+
+      agent = %{
+        agent_base()
+        | credential: credential,
+          advanced_options: %{
+            api_key: "wrong-key",
+            access_token: "wrong-token",
+            auth_mode: :api_key,
+            base_url: "https://wrong.example",
+            provider_options: [auth_mode: :api_key, chatgpt_account_id: "wrong-account"]
+          }
+      }
+
+      resolved = %ResolvedCredential{
+        credential_id: 10,
+        grant_id: 20,
+        owner_type: "person",
+        owner_id: 30,
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        authentication: %{access_token: "person-token"},
+        metadata: %{"chatgpt_account_id" => "acct_person"}
+      }
+
+      assert {:ok, opts} = ProviderSpec.llm_opts(agent, resolved)
+      refute Keyword.has_key?(opts, :api_key)
+      assert opts[:access_token] == "person-token"
+      assert opts[:auth_mode] == :oauth
+      assert opts[:base_url] == "https://chatgpt.com/backend-api"
+      assert opts[:provider_options][:auth_mode] == :oauth
+      assert opts[:provider_options][:chatgpt_account_id] == "acct_person"
+    end
+
     test "rejects authentication kinds unsupported by the AI runtime" do
       resolved = %ResolvedCredential{
         credential_id: 10,

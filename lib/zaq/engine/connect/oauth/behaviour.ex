@@ -14,4 +14,5 @@ defmodule Zaq.Engine.Connect.OAuth.Behaviour do
   @callback authorize_params(Credential.t()) :: map()
   @callback normalize_token_payload(map()) :: map()
   @callback valid_grant_metadata?(map()) :: boolean()
+  @callback runtime_identity(map()) :: map()
 end

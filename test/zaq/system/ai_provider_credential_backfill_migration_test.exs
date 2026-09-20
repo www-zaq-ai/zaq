@@ -37,7 +37,8 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
 
     api_id = insert_ai("migration-api", encrypted_api_key, %{})
     none_id = insert_ai("migration-none", nil, %{"auth_kind" => "none"})
-    oauth_id = insert_ai("migration-oauth", nil, %{})
+    # A retained key does not change the declared OAuth source credential type.
+    oauth_id = insert_ai("migration-oauth", encrypted_api_key, %{})
     source_credential_id = insert_oauth_credential()
 
     %{rows: [[legacy_grant_id]]} =
@@ -148,6 +149,34 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
                "SELECT COUNT(*) FROM connect_credentials WHERE id = ANY($1)",
                [generated_ids]
              ).rows
+
+    assert [[nil], [nil], [nil]] ==
+             Repo.query!(
+               "SELECT api_key FROM ai_provider_credentials WHERE id = ANY($1) ORDER BY id",
+               [[api_id, none_id, oauth_id]]
+             ).rows
+
+    assert [["configuration"]] ==
+             Repo.query!(
+               """
+               SELECT credential.secret_binding
+               FROM connect_credentials credential
+               JOIN connect_grants grant_row ON grant_row.credential_id = credential.id
+               WHERE grant_row.resource_type = 'ai_provider_credential'
+                 AND grant_row.resource_id = $1
+               """,
+               [to_string(oauth_id)]
+             ).rows
+
+    assert :ok = migrate(:down, @association_version, AddConnectBackedAiCredentials)
+    assert :ok = migrate(:up, @association_version, AddConnectBackedAiCredentials)
+
+    {:ok, replacement_api_key} = SecretConfig.encrypt("replacement-after-rollback")
+
+    Repo.query!("UPDATE ai_provider_credentials SET api_key = $1 WHERE id = $2", [
+      replacement_api_key,
+      api_id
+    ])
 
     assert :ok = migrate(:up, @backfill_version, BackfillConnectBackedAiCredentials)
 

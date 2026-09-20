@@ -11,7 +11,9 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
   and candidate material before network IO. Every failure consumes the claimed attempt;
   a new start is required. Finalization rechecks configuration, literal active identity,
   policy, redirect and expiry under the canonical credential lock. Existing grants and
-  notification jobs change atomically only after successful exchange. Calls must not be
+  notification jobs change atomically only after successful exchange. Person callback
+  validation locks the authenticated Person/session before credential and attempt rows,
+  matching authenticated mutation lock order. Calls must not be
   wrapped in caller transactions. PersonLifecycle cancels attempts on merge/deletion
   and reconciles expired rows, retaining live claims. Validation rechecks the persisted attempt under
   the credential lock, so cancellation wins over an in-memory claimed candidate.
@@ -169,6 +171,10 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
     do: Repo.transaction(fn -> validate_locked(attempt, provider, opts) end)
 
   defp validate_locked(attempt, provider, opts) do
+    if attempt.owner_type == "person" do
+      validate_bound_session(attempt, opts)
+    end
+
     current = if attempt.credential_id, do: lock_credential(attempt.credential_id)
     # Lifecycle cancellation deletes even claimed attempts. Lock after configuration
     # so a callback holding an in-memory candidate cannot outlive cancellation.
@@ -193,7 +199,6 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
 
     if attempt.owner_type == "person" do
       ensure(active_person?(attempt.owner_id) and eligible?(credential), :invalid_attempt)
-      validate_bound_session(attempt, opts)
     end
 
     credential

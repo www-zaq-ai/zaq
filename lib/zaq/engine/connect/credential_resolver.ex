@@ -24,7 +24,7 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
   import Ecto.Query
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Credential, Grant, Refresh, ResolvedCredential, Snapshot}
+  alias Zaq.Engine.Connect.{Credential, Grant, OAuth, Refresh, ResolvedCredential, Snapshot}
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.Repo
   alias Zaq.Utils.DateUtils
@@ -299,7 +299,7 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
       request_format: g.request_format,
       authentication: auth,
       expires_at: earliest_expiry(c.expires_at, g.expires_at),
-      metadata: account_metadata(g.metadata)
+      metadata: runtime_metadata(c, g)
     }
   end
 
@@ -357,8 +357,15 @@ defmodule Zaq.Engine.Connect.CredentialResolver do
     |> Map.put(:auth_profile_id, profile)
   end
 
-  defp account_metadata(metadata) do
-    metadata
+  defp runtime_metadata(%Credential{auth_kind: "oauth2"} = credential, grant) do
+    case OAuth.runtime_identity(credential, grant.metadata || %{}) do
+      {:ok, identity} -> identity
+      {:error, _} -> Repo.rollback({:credential_unavailable, grant.owner_type})
+    end
+  end
+
+  defp runtime_metadata(_credential, grant) do
+    grant.metadata
     |> Map.take(["account_id", "account_name"])
     |> Map.filter(fn {_, value} ->
       is_binary(value) and String.valid?(value) and byte_size(value) <= 255

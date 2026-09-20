@@ -185,6 +185,51 @@ defmodule Zaq.System.AIProviderCredentialTest do
     assert loaded.endpoint == "https://api.openai.com/v3"
   end
 
+  test "partial string-key update preserves canonical authentication" do
+    assert {:ok, credential} =
+             System.create_ai_provider_credential(%{
+               name: "Partial String Update",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               api_key: "first-secret"
+             })
+
+    assert {:ok, updated} =
+             System.update_ai_provider_credential(credential, %{
+               "endpoint" => "https://api.openai.com/v4"
+             })
+
+    assert updated.endpoint == "https://api.openai.com/v4"
+    assert {:ok, resolved} = System.resolve_ai_provider_authentication(updated)
+    assert resolved.authentication == %{api_key: "first-secret"}
+  end
+
+  test "ordinary edits preserve migrated OAuth configuration absent from AI metadata" do
+    assert {:ok, credential} =
+             System.create_ai_provider_credential(%{
+               name: "Migrated OAuth Edit",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               metadata: %{
+                 "auth_kind" => "oauth2",
+                 "client_id" => "client-id",
+                 "token_url" => "https://provider.example/token"
+               }
+             })
+
+    migrated = Repo.update!(Ecto.Changeset.change(credential, metadata: %{}))
+
+    assert {:ok, updated} =
+             System.update_ai_provider_credential(migrated, %{
+               "endpoint" => "https://api.openai.com/v2"
+             })
+
+    connect = Connect.get_credential!(updated.connect_credential_id)
+    assert connect.auth_kind == "oauth2"
+    assert connect.client_id == "client-id"
+    assert connect.metadata["token_url"] == "https://provider.example/token"
+  end
+
   test "personal credential policy is stored on Connect and enforces global grant requirements" do
     assert {:ok, required} =
              System.create_ai_provider_credential(%{

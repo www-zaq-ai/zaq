@@ -86,15 +86,19 @@ defmodule Zaq.System.AIProviderCredentialMigration do
   end
 
   defp classify([id, raw, metadata, nil]) do
-    cond do
-      explicit_no_auth?(metadata) and is_nil(raw) ->
-        item(id, :no_auth)
+    case legacy_grants(id) do
+      [%{id: grant_id, credential_id: credential_id, auth_kind: "oauth2"}] ->
+        item(id, :oauth2, nil, grant_id, credential_id)
 
-      present_raw?(raw) ->
-        classify_api_key(id, raw)
+      [] ->
+        cond do
+          explicit_no_auth?(metadata) and is_nil(raw) -> item(id, :no_auth)
+          present_raw?(raw) -> classify_api_key(id, raw)
+          true -> item(id, :missing_auth, :no_explicit_authentication)
+        end
 
-      true ->
-        classify_legacy_grants(id)
+      _ ->
+        item(id, :ambiguous, :legacy_grant_set)
     end
   end
 
@@ -110,27 +114,15 @@ defmodule Zaq.System.AIProviderCredentialMigration do
     end
   end
 
-  defp classify_legacy_grants(id) do
-    grants =
-      Repo.all(
-        from g in Grant,
-          where:
-            g.resource_type == "ai_provider_credential" and g.resource_id == ^to_string(id) and
-              g.owner_type == "org" and is_nil(g.owner_id),
-          order_by: g.id,
-          select: %{id: g.id, credential_id: g.credential_id, auth_kind: g.auth_kind}
-      )
-
-    case grants do
-      [%{id: grant_id, credential_id: credential_id, auth_kind: "oauth2"}] ->
-        item(id, :oauth2, nil, grant_id, credential_id)
-
-      [] ->
-        item(id, :missing_auth, :no_explicit_authentication)
-
-      _ ->
-        item(id, :ambiguous, :legacy_grant_set)
-    end
+  defp legacy_grants(id) do
+    Repo.all(
+      from g in Grant,
+        where:
+          g.resource_type == "ai_provider_credential" and g.resource_id == ^to_string(id) and
+            g.owner_type == "org" and is_nil(g.owner_id),
+        order_by: g.id,
+        select: %{id: g.id, credential_id: g.credential_id, auth_kind: g.auth_kind}
+    )
   end
 
   defp item(id, classification, reason \\ nil, grant_id \\ nil, credential_id \\ nil) do

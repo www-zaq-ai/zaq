@@ -25,7 +25,7 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
       |> Ecto.Changeset.apply_changes()
 
     existing = existing_connect(current)
-    auth_kind = auth_kind(candidate)
+    auth_kind = auth_kind(candidate, attrs, existing)
 
     config =
       candidate
@@ -47,11 +47,26 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
 
   defp existing_connect(_), do: nil
 
-  defp auth_kind(%AIProviderCredential{metadata: metadata, api_key: api_key}) do
-    case MapUtils.metadata_value(metadata || %{}, "auth_kind") do
-      kind when kind in ["oauth2", "none"] -> kind
-      _ when is_binary(api_key) and api_key != "" -> "api_key"
-      _ -> "api_key"
+  defp auth_kind(%AIProviderCredential{metadata: metadata, api_key: api_key}, attrs, existing) do
+    submitted_kind = submitted_auth_kind(attrs)
+    candidate_kind = MapUtils.metadata_value(metadata || %{}, "auth_kind")
+
+    cond do
+      submitted_kind in ["oauth2", "none"] -> submitted_kind
+      submitted_secret?(attrs, :api_key) -> "api_key"
+      not is_nil(existing) -> existing.auth_kind
+      is_binary(api_key) and api_key != "" -> "api_key"
+      candidate_kind in ["oauth2", "none"] -> candidate_kind
+      true -> "api_key"
+    end
+  end
+
+  defp submitted_auth_kind(attrs) do
+    attrs
+    |> Map.get(:metadata, Map.get(attrs, "metadata"))
+    |> case do
+      metadata when is_map(metadata) -> MapUtils.metadata_value(metadata, "auth_kind")
+      _ -> nil
     end
   end
 
@@ -70,7 +85,7 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
   end
 
   defp connect_attrs(ai, existing, "oauth2", attrs) do
-    metadata = ai.metadata || %{}
+    metadata = oauth_source_metadata(ai, existing, attrs)
 
     base_attrs(ai, existing, "oauth2")
     |> Map.merge(%{
@@ -91,6 +106,14 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
       metadata: %{}
     })
   end
+
+  defp oauth_source_metadata(ai, %Credential{} = existing, attrs) do
+    if Map.has_key?(attrs, :metadata) or Map.has_key?(attrs, "metadata"),
+      do: ai.metadata || %{},
+      else: existing.metadata || %{}
+  end
+
+  defp oauth_source_metadata(ai, _existing, _attrs), do: ai.metadata || %{}
 
   defp base_attrs(ai, existing, auth_kind) do
     %{

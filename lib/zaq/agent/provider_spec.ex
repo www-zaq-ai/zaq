@@ -1,26 +1,21 @@
 defmodule Zaq.Agent.ProviderSpec do
   @moduledoc """
-  Translates AIProviderCredential and system LLM config into ReqLLM model spec maps.
+  Generic facade translating AI provider configuration into ReqLLM model specs/options.
 
-  Centralises all provider-identity normalization (`reqllm_provider/1`,
-  `fixed_url_provider?/1`) and base-URL injection logic that was previously
-  scattered across `Factory`.
+  Provider-specific endpoint and authentication translation is selected through
+  `Zaq.Agent.ProviderSpec.Registry`; this module owns orchestration and public contracts.
+  Connect remains responsible for authorization, grant selection and OAuth identity.
 
-  `Factory` is the only caller for model spec assembly. Other modules should use
-  `Factory.build_model_spec/0,1` rather than calling this module directly.
+  Factory owns configured-agent model assembly. ProviderModels and system generation
+  consumers use the narrower public option/configuration functions directly.
   """
 
   alias Zaq.Agent.ConfiguredAgent
+  alias Zaq.Agent.ProviderSpec.Registry
   alias Zaq.Engine.Connect.ResolvedCredential
   alias Zaq.System
   alias Zaq.Utils.Map, as: MapUtils
   require Logger
-
-  # Providers that manage their own base URL inside ReqLLM — never override with a custom base_url.
-  # This list cannot be derived automatically from the llm_db catalog: the catalog's `base_url`
-  # field marks a provider's default endpoint, not whether it is user-overridable. For example,
-  # both `openai` (overridable) and `anthropic` (not overridable) have `base_url` in the catalog.
-  @fixed_url_providers ~w(anthropic google xai mistral)a
 
   @doc """
   Maps a provider string or atom to the atom ReqLLM expects.
@@ -30,34 +25,9 @@ defmodule Zaq.Agent.ProviderSpec do
   have no direct API endpoint managed by ReqLLM and fall back to `:openai` for
   OpenAI-compatible routing. Also falls back for unknown providers.
   """
-  def reqllm_provider(:openai_codex), do: :openai_codex
-  def reqllm_provider("openai_codex"), do: :openai_codex
-
-  def reqllm_provider(p) do
-    with {:ok, atom} <- reqllm_provider_atom(p),
-         {:ok, _provider_module} <- ReqLLM.provider(atom) do
-      atom
-    else
-      _ -> reqllm_provider_from_llmdb(p)
-    end
-  end
-
-  defp reqllm_provider_from_llmdb(p) do
-    with {:ok, atom} <- LLMDB.Spec.parse_provider(p),
-         {:ok, %LLMDB.Provider{catalog_only: false}} <- LLMDB.provider(atom),
-         {:ok, _provider_module} <- ReqLLM.provider(atom) do
-      atom
-    else
-      _ -> :openai
-    end
-  end
-
-  defp reqllm_provider_atom(provider) when is_atom(provider), do: {:ok, provider}
-
-  defp reqllm_provider_atom(provider) when is_binary(provider) do
-    {:ok, String.to_existing_atom(provider)}
-  rescue
-    ArgumentError -> :error
+  def reqllm_provider(provider) do
+    implementation = Registry.fetch(provider)
+    implementation.reqllm_provider(provider)
   end
 
   @doc """
@@ -67,13 +37,9 @@ defmodule Zaq.Agent.ProviderSpec do
   built-in default endpoint. Accepts both atoms (`:anthropic`) and strings
   (`"anthropic"`).
   """
-  def fixed_url_provider?(provider) when is_atom(provider),
-    do: provider in @fixed_url_providers
-
-  def fixed_url_provider?(provider) when is_binary(provider) do
-    fixed_url_provider?(String.to_existing_atom(provider))
-  rescue
-    ArgumentError -> false
+  def fixed_url_provider?(provider) do
+    implementation = Registry.fetch(provider)
+    implementation.fixed_url_provider?(provider)
   end
 
   @doc """
@@ -118,14 +84,17 @@ defmodule Zaq.Agent.ProviderSpec do
   Skips providers that manage their own URL inside ReqLLM.
   """
   def put_base_url(spec, %{provider: p} = cfg) do
-    if fixed_url_provider?(reqllm_provider(p)) do
-      spec
-    else
-      case cfg do
-        %{endpoint: url} when is_binary(url) and url != "" -> Map.put(spec, :base_url, url)
-        _ -> spec
-      end
-    end
+    implementation = Registry.fetch(p)
+
+    implementation.put_model_spec(spec, %{
+      provider: p,
+      runtime_provider: implementation.reqllm_provider(p),
+      endpoint: Map.get(cfg, :endpoint),
+      metadata: Map.get(cfg, :metadata, %{}),
+      auth_kind: nil,
+      authentication: %{},
+      runtime_identity: %{}
+    })
   end
 
   def put_base_url(spec, _), do: spec
@@ -136,14 +105,9 @@ defmodule Zaq.Agent.ProviderSpec do
   Used when the provider has already been normalised via `reqllm_provider/1`.
   """
   def put_base_url(spec, provider, credential) when is_atom(provider) do
-    if fixed_url_provider?(provider) do
-      spec
-    else
-      case credential do
-        %{endpoint: url} when is_binary(url) and url != "" -> Map.put(spec, :base_url, url)
-        _ -> spec
-      end
-    end
+    context = model_context(credential, provider)
+    implementation = Registry.fetch(context.provider)
+    implementation.put_model_spec(spec, context)
   end
 
   # Falls back to :openai only when the provider is unknown to both ReqLLM and LLMDB
@@ -193,11 +157,13 @@ defmodule Zaq.Agent.ProviderSpec do
   config reports logprob support.
   """
   def default_advanced_options(%{supports_logprobs: true} = cfg) do
-    if reqllm_provider(cfg.provider) == :openai do
-      %{provider_options: [openai_logprobs: true]}
-    else
-      %{}
-    end
+    implementation = Registry.fetch(cfg.provider)
+    implementation.default_advanced_options(cfg)
+  end
+
+  def default_advanced_options(%{provider: provider} = cfg) do
+    implementation = Registry.fetch(provider)
+    implementation.default_advanced_options(cfg)
   end
 
   def default_advanced_options(_cfg), do: %{}
@@ -211,10 +177,9 @@ defmodule Zaq.Agent.ProviderSpec do
   @spec llm_opts(ConfiguredAgent.t()) :: keyword()
   def llm_opts(%ConfiguredAgent{} = configured_agent) do
     credential = resolve_credential(configured_agent)
-
-    configured_agent
-    |> advanced_options_as_keyword()
-    |> put_credential_opts(credential)
+    context = provider_context(credential, nil)
+    implementation = Registry.fetch(context.provider)
+    implementation.put_credential_opts(advanced_options_as_keyword(configured_agent), context)
   end
 
   @doc """
@@ -232,32 +197,12 @@ defmodule Zaq.Agent.ProviderSpec do
   def llm_opts(%ConfiguredAgent{} = configured_agent, %ResolvedCredential{} = resolved) do
     credential = resolve_credential(configured_agent)
     base_opts = advanced_options_as_keyword(configured_agent)
+    context = provider_context(credential, resolved)
+    implementation = Registry.fetch(context.provider)
 
     case resolved.auth_kind do
-      "api_key" ->
-        {:ok,
-         put_credential_opts(base_opts, %{
-           provider: credential_value(credential, :provider),
-           endpoint: credential_value(credential, :endpoint),
-           api_key: resolved.authentication.api_key
-         })}
-
-      "oauth2" ->
-        {:ok,
-         put_credential_opts(base_opts, %{
-           provider: credential_value(credential, :provider),
-           endpoint: credential_value(credential, :endpoint),
-           metadata: credential_metadata(credential),
-           api_key: resolved.authentication.access_token,
-           access_token: resolved.authentication.access_token
-         })}
-
-      "none" ->
-        {:ok,
-         put_credential_opts(base_opts, %{
-           provider: credential_value(credential, :provider),
-           endpoint: credential_value(credential, :endpoint)
-         })}
+      kind when kind in ["api_key", "oauth2", "none"] ->
+        {:ok, implementation.put_credential_opts(base_opts, context)}
 
       unsupported ->
         {:error, {:unsupported_ai_authentication, unsupported}}
@@ -268,66 +213,82 @@ defmodule Zaq.Agent.ProviderSpec do
   Builds ReqLLM keyword opts from one AI provider credential.
   """
   @spec credential_opts(Zaq.System.AIProviderCredential.t() | map() | nil) :: keyword()
-  def credential_opts(credential), do: put_credential_opts([], credential)
-
-  defp put_credential_opts(opts, %{provider: "openai_codex"} = credential) do
-    token = credential_oauth_token(credential)
-    metadata = credential_metadata(credential)
-
-    opts
-    |> maybe_put(:access_token, token)
-    |> maybe_put(:auth_mode, :oauth)
-    |> maybe_put(:base_url, codex_base_url(metadata))
-    |> put_codex_provider_options(metadata)
+  def credential_opts(credential) do
+    context = provider_context(credential, nil)
+    implementation = Registry.fetch(context.provider)
+    implementation.put_credential_opts([], context)
   end
-
-  defp put_credential_opts(opts, credential) do
-    opts
-    |> maybe_put(:api_key, credential_api_key(credential))
-    |> maybe_put(:base_url, credential_value(credential, :endpoint))
-  end
-
-  defp credential_oauth_token(%Zaq.System.AIProviderCredential{} = credential),
-    do: System.resolve_ai_provider_api_key(credential)
-
-  defp credential_oauth_token(%{access_token: token}), do: token
-  defp credential_oauth_token(%{"access_token" => token}), do: token
-  defp credential_oauth_token(_), do: nil
-
-  defp credential_api_key(%Zaq.System.AIProviderCredential{} = credential),
-    do: System.resolve_ai_provider_api_key(credential)
-
-  defp credential_api_key(%{api_key: api_key}), do: api_key
-  defp credential_api_key(%{"api_key" => api_key}), do: api_key
-  defp credential_api_key(_), do: nil
 
   defp credential_metadata(%{metadata: metadata}) when is_map(metadata), do: metadata
   defp credential_metadata(_), do: %{}
 
-  defp codex_base_url(metadata) do
-    MapUtils.metadata_value(metadata, "backend_base_url") || "https://chatgpt.com/backend-api"
+  defp model_context(credential, runtime_provider) do
+    %{
+      provider: credential_value(credential, :provider) || runtime_provider,
+      runtime_provider: runtime_provider,
+      endpoint: credential_value(credential, :endpoint),
+      metadata: credential_metadata(credential),
+      auth_kind: nil,
+      authentication: %{},
+      runtime_identity: %{}
+    }
   end
 
-  defp put_codex_provider_options(opts, metadata) do
-    provider_options = Keyword.get(opts, :provider_options, [])
+  defp provider_context(credential, resolved, runtime_provider \\ nil) do
+    provider = credential_value(credential, :provider)
+    metadata = credential_metadata(credential)
 
-    provider_options =
-      provider_options
-      |> Keyword.put_new(:auth_mode, :oauth)
-      |> maybe_put(:codex_originator, codex_originator(metadata))
-      |> maybe_put(:chatgpt_account_id, MapUtils.metadata_value(metadata, "chatgpt_account_id"))
-
-    Keyword.put(opts, :provider_options, provider_options)
+    %{
+      provider: provider || runtime_provider,
+      runtime_provider: runtime_provider || reqllm_provider(provider),
+      endpoint: credential_value(credential, :endpoint),
+      metadata: metadata,
+      auth_kind: auth_kind(credential, resolved, metadata),
+      authentication: authentication(credential, resolved, metadata),
+      runtime_identity: runtime_identity(credential, resolved, metadata)
+    }
   end
 
-  defp codex_originator(metadata) do
-    metadata
-    |> MapUtils.metadata_value("authorize_params")
-    |> case do
-      %{} = params -> MapUtils.metadata_value(params, "originator")
-      _ -> nil
+  defp auth_kind(_credential, %ResolvedCredential{auth_kind: kind}, _metadata), do: kind
+
+  defp auth_kind(credential, nil, metadata) do
+    MapUtils.metadata_value(metadata, "auth_kind") ||
+      if(present?(credential_value(credential, :access_token)), do: "oauth2", else: "api_key")
+  end
+
+  defp authentication(
+         _credential,
+         %ResolvedCredential{authentication: authentication},
+         _metadata
+       ),
+       do: authentication
+
+  defp authentication(credential, nil, metadata) do
+    secret = legacy_secret(credential)
+
+    case auth_kind(credential, nil, metadata) do
+      "oauth2" -> maybe_authentication(:access_token, secret)
+      "none" -> %{}
+      _ -> maybe_authentication(:api_key, secret)
     end
   end
+
+  defp runtime_identity(_credential, %ResolvedCredential{metadata: metadata}, _configuration),
+    do: metadata
+
+  defp runtime_identity(credential, nil, metadata),
+    do: credential_value(credential, :runtime_identity) || metadata
+
+  defp legacy_secret(%System.AIProviderCredential{} = credential),
+    do: System.resolve_ai_provider_api_key(credential)
+
+  defp legacy_secret(credential),
+    do: credential_value(credential, :access_token) || credential_value(credential, :api_key)
+
+  defp maybe_authentication(_key, value) when value in [nil, ""], do: %{}
+  defp maybe_authentication(key, value), do: %{key => value}
+
+  defp present?(value), do: is_binary(value) and value != ""
 
   defp resolve_credential(%ConfiguredAgent{
          credential: %System.AIProviderCredential{} = credential
@@ -343,7 +304,9 @@ defmodule Zaq.Agent.ProviderSpec do
 
   defp resolve_credential(_), do: nil
 
-  defp credential_value(credential, key) when is_map(credential), do: Map.get(credential, key)
+  defp credential_value(credential, key) when is_map(credential),
+    do: Map.get(credential, key, Map.get(credential, Atom.to_string(key)))
+
   defp credential_value(_, _), do: nil
 
   defp advanced_options_as_keyword(%ConfiguredAgent{advanced_options: options})
@@ -371,8 +334,4 @@ defmodule Zaq.Agent.ProviderSpec do
   end
 
   defp normalize_option_key(_), do: nil
-
-  defp maybe_put(opts, _key, nil), do: opts
-  defp maybe_put(opts, _key, ""), do: opts
-  defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
 end

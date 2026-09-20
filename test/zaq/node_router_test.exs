@@ -235,6 +235,30 @@ defmodule Zaq.NodeRouterTest do
       assert hd(result.hops).destination == :agent
     end
 
+    test "bounds discovery without truncating remote role execution" do
+      event = Event.new(%{}, :agent, opts: [action: :run_pipeline])
+      test_pid = self()
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_with_timeout_fn: fn
+          :remote@host, Process, :whereis, [Zaq.Agent.Supervisor], timeout ->
+            send(test_pid, {:discovery_timeout, timeout})
+            spawn(fn -> :ok end)
+
+          :remote@host, Zaq.Agent.Api, :handle_event, [routed, :run_pipeline, nil], timeout ->
+            send(test_pid, {:execution_timeout, timeout})
+            %{routed | response: :completed}
+        end
+      }
+
+      assert %{response: :completed} = NodeRouter.dispatch(event, runtime)
+      assert_receive {:discovery_timeout, 30_000}
+      assert_receive {:execution_timeout, :infinity}
+    end
+
     test "returns the consumed event immediately for async hops" do
       event = %Event{
         request: %{module: String, function: :upcase, args: ["hello"]},

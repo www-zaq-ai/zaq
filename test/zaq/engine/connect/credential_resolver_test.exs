@@ -455,6 +455,40 @@ defmodule Zaq.Engine.Connect.CredentialResolverTest do
     assert {:ok, %{metadata: %{}}} = Connect.resolve_credential(c, %{person_id: person.id}, @opts)
   end
 
+  test "OAuth runtime identity comes only from the selected behavior and grant", %{person: person} do
+    c = credential(:optional, "oauth2")
+
+    c =
+      Repo.update!(
+        Ecto.Changeset.change(c,
+          metadata: Map.put(c.metadata, "auth_profile", "openai_chatgpt_codex")
+        )
+      )
+
+    org = slot(c, :org, :active)
+    personal = slot(c, {:person, person.id}, :active)
+
+    Repo.update!(
+      Ecto.Changeset.change(org,
+        metadata: %{"chatgpt_account_id" => "acct_org"}
+      )
+    )
+
+    Repo.update!(
+      Ecto.Changeset.change(personal,
+        metadata: %{
+          "chatgpt_account_id" => "acct_person",
+          "account_id" => "not-codex-identity",
+          "secret" => "hidden"
+        }
+      )
+    )
+
+    assert {:ok, resolved} = Connect.resolve_credential(c, %{person_id: person.id}, @opts)
+    assert resolved.grant_id == personal.id
+    assert resolved.metadata == %{"chatgpt_account_id" => "acct_person"}
+  end
+
   test "explicit no-auth resolves without a grant for Person and non-Person actors", %{
     person: person
   } do

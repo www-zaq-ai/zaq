@@ -8,6 +8,7 @@ defmodule Zaq.System do
   import Ecto.Query
 
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.Grant
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Telemetry.Collector
   alias Zaq.Event
@@ -25,6 +26,7 @@ defmodule Zaq.System do
   alias Zaq.System.PeopleAccessConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.Types.EncryptedString
+  alias Zaq.Utils.Map, as: MapUtils
   alias Zaq.Utils.ParseUtils
 
   @telemetry_fields ~w(
@@ -567,9 +569,32 @@ defmodule Zaq.System do
 
   @doc "Lists canonical credential IDs exposed by AI provider configurations."
   def list_ai_provider_connect_credential_ids do
-    AIProviderCredential
-    |> select([credential], credential.connect_credential_id)
-    |> Repo.all()
+    credentials =
+      AIProviderCredential
+      |> select([credential], {
+        credential.connect_credential_id,
+        credential.metadata
+      })
+      |> Repo.all()
+
+    {pending, available} =
+      Enum.reduce(credentials, {[], []}, fn {id, metadata}, {pending, available} ->
+        if MapUtils.metadata_value(metadata || %{}, "oauth_setup_pending") == true,
+          do: {[id | pending], available},
+          else: {pending, [id | available]}
+      end)
+
+    completed_pending =
+      Grant
+      |> where(
+        [grant],
+        grant.credential_id in ^pending and grant.resource_type == "connect_credential" and
+          grant.owner_type == "org" and is_nil(grant.owner_id) and grant.status == "active"
+      )
+      |> select([grant], grant.credential_id)
+      |> Repo.all()
+
+    available ++ completed_pending
   end
 
   @doc "Gets an AI provider credential by id, raising if not found."
@@ -745,8 +770,11 @@ defmodule Zaq.System do
   defp persist_ai_provider_credential(changeset, :insert), do: Repo.insert(changeset)
   defp persist_ai_provider_credential(changeset, :update), do: Repo.update(changeset)
 
-  defp connection_key(attrs) when is_map_key(attrs, "name"), do: "connect_credential_id"
-  defp connection_key(_attrs), do: :connect_credential_id
+  defp connection_key(attrs) do
+    if attrs != %{} and Enum.all?(Map.keys(attrs), &is_binary/1),
+      do: "connect_credential_id",
+      else: :connect_credential_id
+  end
 
   defp ai_credential_error(attrs, reason) do
     changeset =

@@ -14,8 +14,10 @@ defmodule Zaq.Engine.Connect.ResolvedCredential do
   a consumer should apply Bearer formatting; `raw` means the literal value. This
   module does not select a transport header, sign JWTs or produce provider options.
   Explicit no-auth configurations carry `%{}` authentication and no grant dependency.
-  Metadata is limited to selected-grant account ID/name strings. `expires_at` is the
-  earliest local configuration or selected-grant deadline; `nil` means neither has one.
+  Metadata is limited to the selected grant's identity fields projected by the
+  registered OAuth behavior (or generic account ID/name for non-OAuth credentials).
+  `expires_at` is the earliest local configuration or selected-grant deadline; `nil`
+  means neither has one.
   """
 
   @enforce_keys [

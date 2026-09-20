@@ -69,6 +69,9 @@ encryption, the canonical org grant and mutation notifications. Creation, update
 deletion compose in one database transaction. BO OAuth starts reuse the associated
 credential through `OAuthAttempts.start_global_configuration/3`, so callback completion
 also writes the canonical org slot rather than a legacy resource-bound grant.
+New optional/disabled OAuth rows are marked as setup-pending and excluded from Person
+self-service discovery until their canonical org grant is active. Failed, expired or
+abandoned setup therefore cannot expose the temporary required-policy staging state.
 
 OAuth credentials select an administrator-controlled behavior by stable
 `metadata["auth_profile"]` ID. The Auth Credentials and AI Credentials forms list the

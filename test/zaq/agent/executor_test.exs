@@ -46,6 +46,18 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
+  defmodule CredentialOwnerServerManager do
+    def ensure_server(configured_agent, server_id, context, actor: actor) do
+      send(self(), {:credential_owner_server, configured_agent, server_id, context, actor})
+      {:ok, :credential_owner_server}
+    end
+
+    def credential_dependency(server_id) do
+      send(self(), {:credential_dependency_lookup, server_id})
+      %{owner_type: "person"}
+    end
+  end
+
   defmodule ViaTupleServerManager do
     def ensure_server(configured_agent, server_id, context, actor: actor) do
       send(self(), {:ensured_actor, actor})
@@ -709,6 +721,30 @@ defmodule Zaq.Agent.ExecutorTest do
         refute outgoing.metadata[:reason] =~ "5000"
         refute outgoing.metadata[:reason] =~ "boom"
       end
+    end
+
+    test "provider authentication recovery uses the derived Person runtime scope" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 14}}
+
+      Process.put(
+        :coverage_await_result,
+        {:error, %ReqLLM.Error.API.Request{reason: "invalid", status: 401}}
+      )
+
+      outgoing =
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: CredentialOwnerServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter
+        )
+
+      expected_server_id = "Stub Agent:scope:bo:person:14"
+      assert_received {:credential_dependency_lookup, ^expected_server_id}
+      assert outgoing.metadata.error_recovery == :personal_credentials
+      assert outgoing.metadata.answer =~ "People portal"
     end
 
     test "surfaces context-window transformer failures as actionable user errors" do

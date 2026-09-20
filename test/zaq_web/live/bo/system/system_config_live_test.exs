@@ -1990,6 +1990,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       connect = Connect.get_credential!(ai.connect_credential_id)
       assert connect.personal_credential_policy == :required
       assert Connect.list_grants(credential_id: connect.id) == []
+      refute connect.id in System.list_ai_provider_connect_credential_ids()
+
+      assert {:ok, _grant} =
+               Connect.replace_credential_grant(connect, :org, %{
+                 access_token: "completed-token",
+                 refresh_token: "completed-refresh"
+               })
+
+      assert connect.id in System.list_ai_provider_connect_credential_ids()
     end
 
     test "editing row opens modal", %{conn: conn} do
