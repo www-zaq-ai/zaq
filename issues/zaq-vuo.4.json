@@ -9,9 +9,15 @@
   "id": "zaq-vuo.4",
   "labels": [],
   "parent": "zaq-vuo",
+  "comments": [
+    {
+      "text": "Validation: ProviderSpec/Factory/ProviderModels/ServerManager plus all prior review regressions pass (477 tests, 9 properties, 6 doctests; 209 unrelated LiveView tests excluded by line targeting). mix q passes. ProviderSpec facade contains zero Codex references; provider-specific code exists only in static registry/implementation namespace. Cached and working-tree diff checks pass. Changes remain uncommitted.",
+      "timestamp": "2026-09-20T16:29:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-vuo.4] Validate ProviderSpec extraction",
   "type": "task",
-  "updated_at": "2026-09-20T16:28:13Z"
+  "updated_at": "2026-09-20T16:29:28Z"
 }
