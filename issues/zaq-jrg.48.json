@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-20T08:39:21Z",
+  "description": "Functional specification/files: add a presentation-owned helper that reads the existing Global settings global base URL through the canonical System API and composes the fixed /people/credentials destination, preserving deployment prefixes and normalizing trailing slashes. Accept safe absolute HTTP(S) URLs only; on missing/invalid configuration omit the link and provide administrator guidance. Include no IDs, secrets, provider payloads, redirect parameters or login handling; authentication and post-login return are explicitly out of scope and owned by the separate login worktree. Tests before implementation: table/property tests for prefix/trailing slash and unsafe/missing URL rejection plus personal-vs-global link eligibility. Branches: valid URL, missing URL, malformed scheme/host/userinfo/query/fragment/control/traversal. Mocking: none; inject/configure the canonical base URL seam without global mutation. Docs: Channels recovery-link contract. Action reuse: REUSE Zaq.System.get_global_base_url/0; local-only deterministic URL composition, not a new Action/tool. Verify no BO direct call or new credential-management path.",
+  "id": "zaq-jrg.48",
+  "labels": [],
+  "parent": "zaq-jrg",
+  "priority": 1,
+  "status": "open",
+  "title": "Compose safe People credential recovery links",
+  "type": "task",
+  "updated_at": "2026-09-20T08:39:21Z"
+}
