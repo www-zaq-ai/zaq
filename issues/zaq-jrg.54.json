@@ -7,9 +7,15 @@
   "id": "zaq-jrg.54",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Final audit found ServerManager still forwarded obsolete :connect_module after Factory moved to :node_router_module. Reproduced ordering-test failure, repaired seam and blocking NodeRouter test response contract. Focused test now passes; full ServerManager 55 tests/1 property and mix q pass. Awaiting commit authorization.",
+      "timestamp": "2026-09-20T12:55:05Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.54] Preserve ServerManager credential dispatch test seam",
   "type": "bug",
-  "updated_at": "2026-09-20T12:52:20Z"
+  "updated_at": "2026-09-20T12:55:05Z"
 }
