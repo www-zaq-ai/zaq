@@ -2,13 +2,15 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-20T16:29:30Z",
+  "close_reason": "Agent-owned ProviderSpec runtime behavior extraction implemented and validated.",
   "created": "2026-09-20T16:13:39Z",
   "description": "Extract provider-specific ReqLLM runtime translation from Zaq.Agent.ProviderSpec into an Agent-owned static behavior/registry with Default and Codex implementations. Preserve Connect OAuth behavior ownership of protocol and selected-grant identity. Reuse ProviderSpec, Factory and confidential Engine credential resolution; pure adapters require no Action or agent-tool exposure.",
   "id": "zaq-vuo",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-vuo] ProviderSpec runtime behavior extraction",
   "type": "epic",
-  "updated_at": "2026-09-20T16:13:52Z"
+  "updated_at": "2026-09-20T16:29:30Z"
 }
