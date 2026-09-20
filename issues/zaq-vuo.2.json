@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-vuo.1"
+  ],
   "blocks": [],
   "created": "2026-09-20T16:13:53Z",
   "description": "Add Agent-owned pure behavior, static registry, Default and Codex implementations. Separate non-secret configuration, resolved authentication and selected identity. No lookups, HTTP, persistence, Actions or tool exposure in adapters.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-vuo.2] Add Agent provider runtime behavior",
   "type": "task",
-  "updated_at": "2026-09-20T16:14:08Z"
+  "updated_at": "2026-09-20T16:14:09Z"
 }
