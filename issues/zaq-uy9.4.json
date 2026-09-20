@@ -15,11 +15,15 @@
     {
       "text": "Implementation is ready for human UX review. Review /bo/dashboard/llm-performance at desktop/mobile: top-model and top-person tables, independent Tokens/Calls sorts, agent selector, filtered lower charts, and unchanged global charts. Automated LiveView coverage passes. Agent browser reached the running app on port 4011 but was redirected to /bo/login, so authenticated visual approval cannot be self-recorded. Explicit human approval is required before zaq-uy9.5 E2E authoring.",
       "timestamp": "2026-09-20T14:21:00Z"
+    },
+    {
+      "text": "Human review requested two changes: move retrieval effectiveness directly below global charts; fix API-call history transition where first explicit qa.llm.call.count hid legacy qa.tokens.total-derived history. Approval is reopened pending correction.",
+      "timestamp": "2026-09-20T16:38:44Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-uy9] Final UX approval",
   "type": "task",
-  "updated_at": "2026-09-20T14:21:00Z"
+  "updated_at": "2026-09-20T16:38:44Z"
 }
