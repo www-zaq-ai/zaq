@@ -9,9 +9,15 @@
   "id": "zaq-p9l.6",
   "labels": [],
   "parent": "zaq-p9l",
+  "comments": [
+    {
+      "text": "Executor now computes effective execution opts before the with/else boundary, so derived Person scope is used for credential dependency recovery. Executor suite: 40 tests, 6 doctests, 2 properties pass. Uncommitted pending authorization.",
+      "timestamp": "2026-09-20T13:56:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p9l.6] Preserve effective Agent recovery scope",
   "type": "task",
-  "updated_at": "2026-09-20T13:53:03Z"
+  "updated_at": "2026-09-20T13:56:15Z"
 }
