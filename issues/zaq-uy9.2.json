@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-uy9.1"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-uy9",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-uy9] Query attributed LLM usage",
   "type": "task",
-  "updated_at": "2026-09-20T13:48:03Z"
+  "updated_at": "2026-09-20T13:55:48Z"
 }
