@@ -9,9 +9,15 @@
   "id": "zaq-jrg.32",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Add approved browser coverage for direct /people/credentials link -\u003e People login -\u003e OTP -\u003e Credentials, including failed OTP preservation and no stale continuation after logout. Implementation-level regression coverage lives under zaq-ba7; do not author this browser journey until zaq-jrg.31 is explicitly approved.",
+      "timestamp": "2026-09-20T08:53:57Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Finalize credential management E2E",
   "type": "task",
-  "updated_at": "2026-09-18T17:06:20Z"
+  "updated_at": "2026-09-20T08:53:57Z"
 }
