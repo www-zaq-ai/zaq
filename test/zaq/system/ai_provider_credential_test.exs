@@ -6,6 +6,13 @@ defmodule Zaq.System.AIProviderCredentialTest do
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
 
+  defmodule RuntimeCredentialRouter do
+    def dispatch(%Zaq.Event{} = event) do
+      send(self(), {:runtime_credential_event, event})
+      %{event | response: Process.get(:runtime_credential_response)}
+    end
+  end
+
   setup do
     prev_secret = Application.get_env(:zaq, Zaq.System.SecretConfig, [])
 
@@ -307,6 +314,48 @@ defmodule Zaq.System.AIProviderCredentialTest do
 
   test "resolve_ai_provider_api_key returns blank string for nil credential" do
     assert System.resolve_ai_provider_api_key(nil) == ""
+  end
+
+  test "global authentication resolution uses the confidential Engine boundary" do
+    credential = %AIProviderCredential{id: 42, connect_credential_id: 84}
+
+    resolved = %Zaq.Engine.Connect.ResolvedCredential{
+      credential_id: 84,
+      grant_id: 126,
+      owner_type: "org",
+      owner_id: nil,
+      auth_kind: "api_key",
+      request_format: "bearer",
+      authentication: %{api_key: "boundary-secret"}
+    }
+
+    Process.put(
+      :runtime_credential_response,
+      {:ok, %{credential: %{id: 42}, resolved_credential: resolved}}
+    )
+
+    on_exit(fn -> Process.delete(:runtime_credential_response) end)
+
+    assert System.resolve_ai_provider_authentication(credential,
+             node_router_module: RuntimeCredentialRouter
+           ) == {:ok, resolved}
+
+    assert_received {:runtime_credential_event, event}
+    assert event.request == %{credential_id: 42}
+    assert event.next_hop.destination == :engine
+    assert event.actor == %{kind: :system, subject: "system-ai-runtime"}
+    assert event.opts[:action] == :resolve_ai_runtime_credential
+    assert event.opts[:confidential] == true
+  end
+
+  test "global authentication resolution propagates Engine unavailability" do
+    credential = %AIProviderCredential{id: 42, connect_credential_id: 84}
+    Process.put(:runtime_credential_response, {:error, {:service_unavailable, :engine}})
+    on_exit(fn -> Process.delete(:runtime_credential_response) end)
+
+    assert System.resolve_ai_provider_authentication(credential,
+             node_router_module: RuntimeCredentialRouter
+           ) == {:error, {:service_unavailable, :engine}}
   end
 
   test "cannot delete credential currently used by system configuration" do

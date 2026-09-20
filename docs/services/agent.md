@@ -439,6 +439,9 @@ the provider delete succeeds. Runtime resource listing never scans directories.
   `:resolve_ai_runtime_credential` action. Engine loads provider configuration and
   resolves the associated Connect credential once; Factory translates that single
   result into runtime authentication without calling Engine/System contexts locally.
+- The built-in Answering agent retains only the configured provider ID; it does not load
+  the System credential row. Factory's Engine action performs the lifecycle read and
+  canonical resolution together.
 - Stores `context_window` runtime state (`max_context_tokens`, fixed `tokens_per_character`, safety margin) and forwards it through Jido `tool_context` for each request transformer run
 
 ### Server Manager (`Zaq.Agent.ServerManager`)

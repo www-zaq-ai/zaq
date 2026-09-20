@@ -4,10 +4,13 @@ defmodule Zaq.UserPortal.Provisioner do
 
   This module owns the portal-specific bootstrap behavior: creating or updating
   the "ZAQ Router" credential, and wiring first-run model configs when the
-  portal returns a LiteLLM API key. It delegates all persistence to `Zaq.System`.
+  portal returns a LiteLLM API key. Secret-bearing credential mutations are dispatched
+  to Engine; local System calls are limited to existing configuration reads/writes.
   """
 
   alias Zaq.Agent.ZAQRouter
+  alias Zaq.Event
+  alias Zaq.NodeRouter
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.EmbeddingConfig
@@ -18,6 +21,7 @@ defmodule Zaq.UserPortal.Provisioner do
 
   @credential_name "ZAQ Router"
   @description "ZAQ Router gives you the ability to access different models."
+  @engine_actor %{kind: :system, subject: "user-portal-provisioner"}
 
   @doc "The canonical name of the ZAQ Router credential."
   @spec credential_name() :: String.t()
@@ -75,28 +79,28 @@ defmodule Zaq.UserPortal.Provisioner do
   configs and does **not** overwrite an existing credential. A later successful
   portal claim updates the same credential by name and fills in the API key.
   """
-  @spec ensure_offline_credential() :: {:ok, AIProviderCredential.t()} | {:error, term()}
-  def ensure_offline_credential do
+  @spec ensure_offline_credential(keyword()) ::
+          {:ok, AIProviderCredential.t()} | {:error, term()}
+  def ensure_offline_credential(opts \\ []) do
     case System.get_ai_provider_credential_by_name(@credential_name) do
       nil ->
-        System.create_ai_provider_credential(
-          credential_attrs(%{metadata: %{"auth_kind" => "none"}})
-        )
+        credential_attrs(%{metadata: %{"auth_kind" => "none"}})
+        |> create_credential(opts)
 
       %AIProviderCredential{} = existing ->
         {:ok, existing}
     end
   end
 
-  @spec provision_with_key(%{litellm_api_key: String.t()}) ::
+  @spec provision_with_key(%{litellm_api_key: String.t()}, keyword()) ::
           {:ok, AIProviderCredential.t()} | {:error, term()}
-  def provision_with_key(%{litellm_api_key: api_key}) when is_binary(api_key) do
+  def provision_with_key(%{litellm_api_key: api_key}, opts \\ []) when is_binary(api_key) do
     attrs = credential_attrs(%{api_key: api_key, metadata: %{"auth_kind" => "api_key"}})
 
     result =
       case System.get_ai_provider_credential_by_name(@credential_name) do
-        nil -> System.create_ai_provider_credential(attrs)
-        existing -> System.update_ai_provider_credential(existing, attrs)
+        nil -> create_credential(attrs, opts)
+        existing -> update_credential(existing, attrs, opts)
       end
 
     case result do
@@ -120,6 +124,34 @@ defmodule Zaq.UserPortal.Provisioner do
       },
       extra
     )
+  end
+
+  defp create_credential(attrs, opts) do
+    dispatch_engine(
+      %{attrs: attrs},
+      :system_config_create_ai_provider_credential,
+      opts
+    )
+  end
+
+  defp update_credential(credential, attrs, opts) do
+    dispatch_engine(
+      %{credential: credential, attrs: attrs},
+      :system_config_update_ai_provider_credential,
+      opts
+    )
+  end
+
+  defp dispatch_engine(request, action, opts) do
+    event =
+      Event.new(request, :engine,
+        actor: @engine_actor,
+        opts: [action: action, confidential: true]
+      )
+
+    opts
+    |> Keyword.get(:node_router_module, NodeRouter)
+    |> then(& &1.dispatch(event).response)
   end
 
   defp provision_system_configs(%AIProviderCredential{id: cred_id}) do

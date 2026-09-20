@@ -64,12 +64,9 @@ defmodule Zaq.Agent.Answering do
       model: cfg.model,
       model_max_context_tokens: cfg.max_context_window,
       credential_id: cfg.credential_id,
-      credential: load_credential(cfg.credential_id)
+      credential: nil
     }
   end
-
-  defp load_credential(id) when is_integer(id), do: System.get_ai_provider_credential(id)
-  defp load_credential(_), do: nil
 
   @doc """
   Renders the hardcoded answering system prompt.

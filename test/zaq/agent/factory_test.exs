@@ -263,14 +263,13 @@ defmodule Zaq.Agent.FactoryTest do
       assert agent.model_max_context_tokens == 128_000
     end
 
-    test "loads the canonical credential used by lifecycle authentication resolution" do
+    test "leaves canonical credential loading to lifecycle authentication resolution" do
       credential = seed_llm_config(%{api_key: "answering-key"})
 
       agent = Answering.answering_configured_agent()
 
       assert agent.credential_id == credential.id
-      assert agent.credential.id == credential.id
-      assert agent.credential.connect_credential_id == credential.connect_credential_id
+      assert agent.credential == nil
       assert {:ok, runtime} = Factory.runtime_config(agent, actor: @execution_actor)
       assert runtime.llm_opts[:api_key] == "answering-key"
     end

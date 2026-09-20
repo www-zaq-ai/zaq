@@ -1,10 +1,54 @@
 defmodule Zaq.UserPortal.ProvisionerTest do
   use Zaq.DataCase, async: false
 
+  alias Zaq.Engine.Api
+  alias Zaq.Event
   alias Zaq.System
   alias Zaq.UserPortal.Provisioner
 
+  defmodule EngineRouter do
+    def dispatch(%Event{} = event) do
+      send(self(), {:engine_event, event})
+      Api.handle_event(event, event.opts[:action], nil)
+    end
+  end
+
+  defmodule UnavailableEngineRouter do
+    def dispatch(%Event{} = event),
+      do: %{event | response: {:error, {:service_unavailable, :engine}}}
+  end
+
   describe "provision_with_key/1" do
+    test "routes secret-bearing create and update mutations through Engine" do
+      opts = [node_router_module: EngineRouter]
+
+      assert {:ok, credential} =
+               Provisioner.provision_with_key(%{litellm_api_key: "sk-routed-create"}, opts)
+
+      assert_received {:engine_event, create_event}
+      assert create_event.next_hop.destination == :engine
+      assert create_event.opts[:action] == :system_config_create_ai_provider_credential
+      assert create_event.opts[:confidential] == true
+      assert create_event.actor == %{kind: :system, subject: "user-portal-provisioner"}
+
+      assert {:ok, updated} =
+               Provisioner.provision_with_key(%{litellm_api_key: "sk-routed-update"}, opts)
+
+      assert updated.id == credential.id
+      assert_received {:engine_event, update_event}
+      assert update_event.opts[:action] == :system_config_update_ai_provider_credential
+      assert update_event.opts[:confidential] == true
+    end
+
+    test "propagates Engine unavailability without local persistence" do
+      assert Provisioner.provision_with_key(
+               %{litellm_api_key: "sk-unavailable"},
+               node_router_module: UnavailableEngineRouter
+             ) == {:error, {:service_unavailable, :engine}}
+
+      assert System.get_ai_provider_credential_by_name(Provisioner.credential_name()) == nil
+    end
+
     test "creates a new ZAQ Router credential when none exists" do
       assert {:ok, credential} = Provisioner.provision_with_key(%{litellm_api_key: "sk-new"})
       credential = System.get_ai_provider_credential!(credential.id)

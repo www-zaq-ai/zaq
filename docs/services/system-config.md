@@ -311,11 +311,18 @@ or observable events. The confidential runtime action is the sole cross-role exc
 it is never broadcast. See `engine.md` for exact auth shapes, expiry/error semantics and the final-read
 linearization/later server invalidation limitation.
 
-Global AI consumers call the System association boundary, which delegates to
-`Connect.resolve_credential/3` with the org actor. `ProviderSpec`, model discovery,
-LLM, embedding, image-to-text, ZAQ Router activation checks and portal account sync
-therefore consume the same canonical result. Unrelated legacy resource grants and the
-AI row's retained migration key are ignored.
+Global AI consumers call the System association boundary, which sends a synchronous
+confidential `:resolve_ai_runtime_credential` event to Engine with an explicit system
+actor. Engine delegates to `Connect.resolve_credential/3`; callers on Agent, Ingestion,
+BO or portal nodes never run Connect selection, locking or refresh locally.
+`ProviderSpec`, model discovery, LLM, embedding, image-to-text, ZAQ Router activation
+checks and portal account sync therefore consume the same canonical result. Unrelated
+legacy resource grants and the AI row's retained migration key are ignored.
+
+User Portal provisioning keeps portal-specific defaults local but dispatches
+secret-bearing AI-provider create/update requests through the existing Engine System
+configuration actions. The existing System transaction remains the sole owner of the AI
+row plus Connect credential/grant mutation; no parallel provisioning operation exists.
 
 ### OAuth refresh secret lifetime (`zaq-jrg.7`)
 

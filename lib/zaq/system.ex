@@ -583,14 +583,30 @@ defmodule Zaq.System do
     Repo.get_by(AIProviderCredential, name: name)
   end
 
-  @doc "Resolves the associated canonical Connect authentication for global runtime use."
-  @spec resolve_ai_provider_authentication(AIProviderCredential.t() | nil) ::
-          {:ok, Zaq.Engine.Connect.ResolvedCredential.t()} | {:error, map()}
-  def resolve_ai_provider_authentication(%AIProviderCredential{connect_credential_id: id})
-      when is_integer(id),
-      do: Connect.resolve_credential(id, nil)
+  @doc "Resolves canonical global runtime authentication through Engine's confidential boundary."
+  @spec resolve_ai_provider_authentication(AIProviderCredential.t() | nil, keyword()) ::
+          {:ok, Zaq.Engine.Connect.ResolvedCredential.t()} | {:error, term()}
+  def resolve_ai_provider_authentication(credential, opts \\ [])
 
-  def resolve_ai_provider_authentication(_),
+  def resolve_ai_provider_authentication(%AIProviderCredential{id: id}, opts)
+      when is_integer(id) do
+    event =
+      Event.new(%{credential_id: id}, :engine,
+        actor: %{kind: :system, subject: "system-ai-runtime"},
+        opts: [action: :resolve_ai_runtime_credential, confidential: true]
+      )
+
+    node_router = Keyword.get(opts, :node_router_module, NodeRouter)
+
+    case node_router.dispatch(event).response do
+      {:ok, %{resolved_credential: resolved}} -> {:ok, resolved}
+      {:ok, nil} -> {:error, %{credential_id: nil, reason: :credential_unavailable}}
+      {:error, _} = error -> error
+      other -> {:error, {:invalid_runtime_credential_response, other}}
+    end
+  end
+
+  def resolve_ai_provider_authentication(_, _opts),
     do: {:error, %{credential_id: nil, reason: :credential_unavailable}}
 
   @doc "Returns the canonical Connect API key/access token, or blank for no-auth/unavailable."
