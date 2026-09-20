@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-vuo.2"
+  ],
   "blocks": [],
   "created": "2026-09-20T16:13:53Z",
   "description": "Make ProviderSpec a generic facade through the registry for model/provider/endpoint/auth option translation. Remove Codex-specific clauses and helpers; preserve public APIs and caller contracts. Test option precedence and extension without facade branching.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-vuo.3] Delegate ProviderSpec and remove special cases",
   "type": "task",
-  "updated_at": "2026-09-20T16:14:08Z"
+  "updated_at": "2026-09-20T16:14:09Z"
 }

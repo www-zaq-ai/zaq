@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-vuo.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-vuo.3"
+  ],
   "created": "2026-09-20T16:13:53Z",
   "description": "Add Agent-owned pure behavior, static registry, Default and Codex implementations. Separate non-secret configuration, resolved authentication and selected identity. No lookups, HTTP, persistence, Actions or tool exposure in adapters.",
   "id": "zaq-vuo.2",
