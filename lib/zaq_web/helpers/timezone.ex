@@ -42,7 +42,10 @@ defmodule ZaqWeb.Helpers.Timezone do
   end
 
   defp system_timezone do
-    Process.get(:zaq_system_timezone) || load_system_timezone()
+    case Process.get(:zaq_system_timezone, :not_loaded) do
+      :not_loaded -> load_system_timezone()
+      timezone -> timezone
+    end
   end
 
   defp load_system_timezone do

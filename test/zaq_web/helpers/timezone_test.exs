@@ -19,6 +19,22 @@ defmodule ZaqWeb.Helpers.TimezoneTest do
       assert Timezone.shift(dt) == dt
     end
 
+    test "caches the absence of a configured timezone" do
+      test_pid = self()
+
+      Application.put_env(:zaq, :system_timezone_fun, fn ->
+        send(test_pid, :system_timezone_loaded)
+        nil
+      end)
+
+      dt = ~U[2026-03-13 14:05:00Z]
+
+      assert Timezone.shift(dt) == dt
+      assert Timezone.shift(dt) == dt
+      assert_receive :system_timezone_loaded
+      refute_receive :system_timezone_loaded
+    end
+
     test "shifts by configured GMT+ timezone" do
       stub_system_timezone("GMT+03:00")
 
