@@ -11,9 +11,15 @@
   "id": "zaq-vuo.2",
   "labels": [],
   "parent": "zaq-vuo",
+  "comments": [
+    {
+      "text": "Added pure Agent-owned ProviderSpec Behaviour, static Registry, and Default/Codex implementations. Adapters receive normalized configuration/authentication/identity and perform no lookup/HTTP/persistence.",
+      "timestamp": "2026-09-20T16:18:30Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-vuo.2] Add Agent provider runtime behavior",
   "type": "task",
-  "updated_at": "2026-09-20T16:18:29Z"
+  "updated_at": "2026-09-20T16:18:30Z"
 }
