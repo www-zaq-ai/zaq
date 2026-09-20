@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-ba7.1"
+  ],
   "blocks": [],
   "created": "2026-09-20T08:40:56Z",
   "description": "Implement focused web-owned continuation policy and integrate it with PersonAuth and PersonSessionController. Capture only recognized protected GET/HEAD People pages in protected signed session state; preserve across recoverable OTP failures; consume on successful auth; clear on logout; default to /people/profile. Revalidate before redirect, preserve route authorization and BO session isolation, and generate redirect paths with supported conn script_name prefixes. Action reuse: extend existing auth HTTP flow; local-only route/session implementation detail, no Action/tool exposure or authentication changes.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-ba7] Implement People login continuation",
   "type": "task",
-  "updated_at": "2026-09-20T08:40:56Z"
+  "updated_at": "2026-09-20T08:41:03Z"
 }
