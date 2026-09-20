@@ -13,11 +13,15 @@
     {
       "text": "Implementation sequence: define failing Engine API and Factory boundary tests, add confidential actor-bound action reusing Connect resolver, migrate Factory dispatch, run focused suites and mix q. Strict chain: zaq-jrg.51 --\u003e zaq-jrg.52 --\u003e zaq-jrg.53 --\u003e zaq-jrg.50.",
       "timestamp": "2026-09-20T12:06:11Z"
+    },
+    {
+      "text": "Implemented and validated in the working tree: confidential :resolve_ai_runtime_credential Engine action; actor validation; Engine-owned AI config projection + Connect resolution; Factory NodeRouter migration; secret-safe docs/tests. Focused 130 tests pass and mix q passes. Awaiting explicit commit authorization before closing/unblocking zaq-jrg.52.",
+      "timestamp": "2026-09-20T12:15:34Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.51] Add confidential Engine runtime credential resolution action",
   "type": "task",
-  "updated_at": "2026-09-20T12:06:11Z"
+  "updated_at": "2026-09-20T12:15:34Z"
 }
