@@ -11,9 +11,15 @@
   "id": "zaq-jrg.52",
   "labels": [],
   "parent": "zaq-jrg",
+  "comments": [
+    {
+      "text": "Implemented in working tree: System global authentication now dispatches confidential actor-bound Engine runtime action; Answering no longer loads System credential rows; UserPortal secret-bearing create/update mutations reuse existing Engine actions. Existing atomic System transaction remains authoritative; no duplicate provisioning action added. Validation: focused 161 tests plus 174 runtime-consumer tests/4 properties pass; mix q passes. Awaiting commit authorization.",
+      "timestamp": "2026-09-20T12:30:01Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.52] Route branch-added credential consumers and provisioning",
   "type": "task",
-  "updated_at": "2026-09-20T12:19:59Z"
+  "updated_at": "2026-09-20T12:30:01Z"
 }
