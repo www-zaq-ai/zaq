@@ -9,9 +9,15 @@
   "id": "zaq-ba7.1",
   "labels": [],
   "parent": "zaq-ba7",
+  "comments": [
+    {
+      "text": "RED confirmed: focused suite produced 9 failures. Validator module undefined; protected destinations were not stored/returned; unsafe state was not consumed; logout did not clear state; prefix test exposed current unprefixed/404 behavior. Added example, integration, authorization, isolation and property specifications. No E2E authored.",
+      "timestamp": "2026-09-20T08:43:34Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-ba7] Specify People continuation security contract",
   "type": "task",
-  "updated_at": "2026-09-20T08:41:04Z"
+  "updated_at": "2026-09-20T08:43:34Z"
 }
