@@ -2,8 +2,7 @@
 \set ON_ERROR_STOP on
 \ir setup_database_begin.sql
 
-CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
-CREATE EXTENSION IF NOT EXISTS pg_search;
-SELECT 1 FROM paradedb.version_info();
+\ir install_vector_extension.sql
+\ir install_pg_search_extension.sql
 
 \ir setup_database_finish.sql

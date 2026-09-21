@@ -1,7 +1,8 @@
 # Database and credential bootstrap
 
-ZAQ never installs, upgrades or removes PostgreSQL extensions. Before starting
-ZAQ or running migrations, a **superuser DBA** runs one psql entrypoint:
+ZAQ runtime and migrations never install, upgrade or remove PostgreSQL extensions.
+For managed environments, before starting ZAQ or running migrations, a **superuser
+DBA** runs one psql entrypoint:
 
 | Engine | Script | Extensions |
 | --- | --- | --- |
@@ -403,11 +404,22 @@ ParadeDB later does not backfill BM25 indexes. Existing compatible deployments n
 no extension changes. Historical migrations validate prerequisites; BM25 retains
 native fallback when `pg_search` is absent and rollback preserves extensions.
 
-Bootstrap every dev/test/E2E/worktree database separately **before any migration**.
-Resolve the exact database through `Zaq.Repo.config()` (branch, E2E and partition
-suffixes apply). Do not run `mix ecto.create` first; bootstrap creates the DB.
-After an intentional database reset, bootstrap again before migration; ZAQ's
-restricted owner cannot recreate a dropped database itself.
+For local development, `mix setup`, `mix setup.branch`, `mix test`, `mix ecto.reset`,
+and E2E bootstrap create their configured database and run `mix db.extensions` before
+migrations. The task uses the configured Repo credentials, requires `vector`, and
+installs `pg_search` when the server exposes it through `pg_available_extensions`.
+It is idempotent and does not upgrade existing extensions. Developers need database
+creation and extension privileges, the `psql` client, and installed server extension
+packages. The task runs `scripts/setup_development_extensions.sql`; that wrapper and
+the managed bootstrap entrypoints include `install_vector_extension.sql` and
+`install_pg_search_extension.sql`, keeping installation and capability checks shared.
+
+Managed dev/test/E2E/worktree databases that use restricted owners must instead be
+bootstrapped separately **before any migration**. Resolve the exact database through
+`Zaq.Repo.config()` (branch, E2E and partition suffixes apply). Do not run
+`mix ecto.create` first in that workflow; bootstrap creates the DB. After an intentional
+database reset, bootstrap again before migration because the restricted owner cannot
+recreate a dropped database itself.
 
 CI's `.github/scripts/provision-test-database.exs` resolves that name and bootstraps
 twice using generated, database-specific restricted owner/reader credentials.

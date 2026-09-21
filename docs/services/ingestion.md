@@ -391,8 +391,9 @@ If a change touches one of these areas and no property test is added, document t
 - [ ] Outbound ingestion-completion notifications for external systems
 ## Database prerequisites
 
-Embedding table creation/reset verifies operator-provisioned `vector` with
-`halfvec` support; it never installs extensions. ParadeDB index setup similarly
-requires preinstalled `pg_search`, while native PostgreSQL does not. See
-[database setup](../database-setup.md) for the two DBA scripts and the
-non-superuser application-object ownership requirements.
+Embedding table creation/reset verifies preinstalled `vector` with `halfvec` support;
+runtime code and migrations never install extensions. ParadeDB index setup similarly
+requires preinstalled `pg_search`, while native PostgreSQL does not. Local Mix setup
+tasks install available extensions with the configured developer Repo credentials.
+See [database setup](../database-setup.md) for local setup and the two managed-environment
+DBA scripts.

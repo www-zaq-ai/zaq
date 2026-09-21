@@ -7,16 +7,6 @@ DECLARE
   column_grant record;
 BEGIN
   SELECT * INTO inputs FROM zaq_bootstrap_input;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_catalog.pg_extension e
-    JOIN pg_catalog.pg_depend d ON d.refobjid = e.oid
-      AND d.refclassid = 'pg_catalog.pg_extension'::regclass
-      AND d.classid = 'pg_catalog.pg_type'::regclass AND d.deptype = 'e'
-    WHERE e.extname = 'vector' AND d.objid = pg_catalog.to_regtype('public.halfvec')
-  ) THEN
-    RAISE EXCEPTION 'ZAQ requires vector >= 0.7.0 with halfvec in public'
-      USING HINT = 'Have the DBA upgrade the package/extension or reconcile its schema; bootstrap never upgrades or relocates extensions.';
-  END IF;
   IF EXISTS (SELECT 1 FROM pg_extension
              WHERE extname IN ('vector', 'pg_search') AND extowner <> (SELECT oid FROM pg_roles WHERE rolname = current_user)) THEN
     RAISE EXCEPTION 'Required extensions must belong to the executing DBA';

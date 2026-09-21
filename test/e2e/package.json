@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "bootstrap:assets": "sh -c 'cd ../.. && export PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e && mix assets.setup && mix assets.build'",
-    "bootstrap:db": "sh -c 'cd ../.. && export PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e && mix ecto.create --quiet && mix ecto.migrate --quiet && mix run test/support/e2e/bootstrap.exs'",
+    "bootstrap:db": "sh -c 'cd ../.. && export PORT=4002 MIX_ENV=test E2E=1 MIX_BUILD_PATH=_build/test-e2e && mix ecto.create --quiet && mix db.extensions --quiet && mix ecto.migrate --quiet && mix run test/support/e2e/bootstrap.exs'",
     "bootstrap": "npm run bootstrap:assets && npm run bootstrap:db",
     "test": "npm run bootstrap && playwright test",
     "test:journeys": "npm run bootstrap && playwright test --project=journeys-*",

@@ -7,7 +7,7 @@ For the Docker installer or a server deployment, use the [deployment guide](oper
 ### Prerequisites
 
 - Elixir and Erlang/OTP: use the versions in [`.tool-versions`](../.tool-versions); the supported Elixir constraint is in [`mix.exs`](../mix.exs).
-- PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) 0.7.0+ (embeddings use `halfvec`).
+- PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) 0.7.0+ (embeddings use `halfvec`) and a local `psql` client.
 - Python 3.10+ for the document conversion pipeline.
 - Node.js 20+ if running Playwright browser tests.
 
@@ -21,16 +21,19 @@ cd zaq
 ```
 
 Before setup, check the PostgreSQL connection in [`config/dev.exs`](../config/dev.exs).
-The development database name is derived from your branch. Configure `DB_USER` and
-`DB_PASSWORD` with the new owner credentials.
+The development database name is derived from your branch. Local setup uses the
+configured Repo credentials to create the database and install its extensions:
+`vector` is required; `pg_search` is installed when available. The developer login
+needs database creation and extension privileges, and the server must have the
+extension packages installed. `mix setup`, `mix setup.branch`, `mix test`,
+`mix ecto.reset` and E2E bootstrap prepare their databases before migrations.
+`mix db.extensions` runs the shared development extension script explicitly.
 
-Before running any migrations, have a DBA bootstrap the target database, restricted
-credentials and extensions with the [database setup script](database-setup.md).
-Repeat for the separately named test and E2E databases before their first migration.
-`mix setup`, `mix test` and E2E bootstrap do not install extensions. After dropping
-a database, rerun DBA bootstrap before migrating again. Bootstrap refuses any
-existing `schema_migrations`, even an empty ledger; use explicit DBA maintenance
-for already-migrated databases rather than rerunning bootstrap.
+Managed and production environments instead use the DBA
+[database bootstrap](database-setup.md) to create restricted owner/reader credentials,
+extensions and ACLs. The repository Compose setup provisions the bundled database
+automatically; the separately downloaded installer Compose file may not. See the
+[deployment guide](operations/deployment.md) before starting a container installation.
 
 ```bash
 mix setup && mix phx.server   # http://localhost:4000/bo

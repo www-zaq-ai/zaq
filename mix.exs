@@ -200,9 +200,9 @@ defmodule Zaq.MixProject do
       ],
       # Use the following script when you want to clone your main DB into your branch work
       "setup.branch": &setup_branch/1,
-      "ecto.setup": ["ecto.create", "ecto.migrate"],
+      "ecto.setup": ["ecto.create", "db.extensions", "ecto.migrate"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      test: ["ecto.create --quiet", "db.extensions --quiet", "ecto.migrate --quiet", "test"],
       e2e: ["cmd npm --prefix test/e2e run test:journeys --"],
       storybook: ["cmd npm --prefix test/e2e run test:storybook"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
@@ -294,6 +294,7 @@ defmodule Zaq.MixProject do
 
     Mix.Task.run("deps.get")
     Mix.Task.run("ecto.create")
+    Mix.Task.run("db.extensions")
     Mix.Task.run("db.copy", [source_db])
     Mix.Task.run("ecto.migrate")
     Mix.Task.run("assets.setup")

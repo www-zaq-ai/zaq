@@ -93,6 +93,9 @@ db_snapshots/
 /scripts/*
 !/scripts/setup_postgres_extensions.sql
 !/scripts/setup_paradedb_extensions.sql
+!/scripts/setup_development_extensions.sql
+!/scripts/install_vector_extension.sql
+!/scripts/install_pg_search_extension.sql
 !/scripts/setup_database_begin.sql
 !/scripts/setup_database_finish.sql
 !/scripts/docker_entrypoint.sh

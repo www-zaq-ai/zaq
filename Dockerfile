@@ -104,6 +104,7 @@ RUN apt-get update -y && \
 ENV MIX_ENV=prod PHX_SERVER=true
 COPY --from=build --chown=appuser:appuser /app/_build/prod/rel/zaq ./
 COPY scripts/setup_postgres_extensions.sql scripts/setup_paradedb_extensions.sql \
+     scripts/install_vector_extension.sql scripts/install_pg_search_extension.sql \
      scripts/setup_database_begin.sql scripts/setup_database_finish.sql \
      scripts/docker_database_receipt.sql scripts/docker_database_status.sql \
      scripts/docker_database_validate.sql scripts/docker_database_setup.sql \
