@@ -23,8 +23,13 @@ defmodule ZaqWeb.ChannelsControllerTest do
     conn =
       get(conn, "/channels/oauth2/google_drive/redirect", %{"state" => "ok", "code" => "123"})
 
-    assert html_response(conn, 200) =~ "Grant created"
-    assert html_response(conn, 200) =~ "window.opener.postMessage"
+    response = html_response(conn, 200)
+
+    assert response =~ "Grant created"
+    assert response =~ "window.opener.postMessage"
+    assert response =~ "zaq-auth-page"
+    assert response =~ "zaq-success"
+    assert response =~ "OAuth authorization succeeded"
   end
 
   test "oauth2 redirect renders error page", %{conn: conn} do
@@ -32,7 +37,12 @@ defmodule ZaqWeb.ChannelsControllerTest do
 
     conn = get(conn, "/channels/oauth2/google_drive/redirect", %{"state" => "bad"})
 
-    assert html_response(conn, 200) =~ "Grant failed"
+    response = html_response(conn, 200)
+
+    assert response =~ "Grant failed"
+    assert response =~ "zaq-auth-page"
+    assert response =~ "zaq-danger"
+    assert response =~ "OAuth authorization failed"
   end
 
   test "localhost auth callback finalizes OpenAI OAuth", %{conn: conn} do

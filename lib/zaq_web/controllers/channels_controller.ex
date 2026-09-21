@@ -19,10 +19,10 @@ defmodule ZaqWeb.ChannelsController do
 
     case dispatch_engine_invoke(oauth_module(), :finalize_callback, [provider, params]) do
       {:ok, result} ->
-        html(conn, oauth_result_html("success", "Grant created", oauth_summary(result)))
+        render_oauth_result(conn, :success, "Grant created", oauth_summary(result))
 
       _ ->
-        html(conn, oauth_result_html("error", "Grant failed", %{}))
+        render_oauth_result(conn, :error, "Grant failed", %{})
     end
   end
 
@@ -85,34 +85,21 @@ defmodule ZaqWeb.ChannelsController do
     node_router_module().dispatch(event).response
   end
 
-  defp oauth_result_html(status, message, payload) do
-    encoded = Jason.encode!(Map.put(payload, :status, status))
+  defp render_oauth_result(conn, status, message, payload) do
+    encoded_payload =
+      payload
+      |> Map.put(:status, status)
+      |> Jason.encode!(escape: :html_safe)
 
-    """
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset=\"utf-8\" />
-        <title>OAuth Callback</title>
-      </head>
-      <body>
-        <p>#{message}</p>
-        <script>
-          (function () {
-            var payload = #{encoded};
-            if (window.opener && !window.opener.closed) {
-              window.opener.postMessage({type: "zaq:oauth2_result", payload: payload}, window.location.origin);
-              window.close();
-            }
-
-            if (window.parent && window.parent !== window) {
-              window.parent.postMessage({type: "zaq:oauth2_result", payload: payload}, window.location.origin);
-            }
-          })();
-        </script>
-      </body>
-    </html>
-    """
+    conn
+    |> put_format(:html)
+    |> put_root_layout(html: {ZaqWeb.Layouts, :root})
+    |> render(:oauth_result,
+      page_title: "OAuth Callback",
+      status: status,
+      message: message,
+      encoded_payload: encoded_payload
+    )
   end
 
   defp maybe_passthrough_webhook_response(conn, %{status: status} = webhook_response, _result)

@@ -1,0 +1,42 @@
+<ZaqWeb.Components.DesignSystem.AuthLayout.auth_layout subtitle="Authorization">
+  <:header_icon>
+    <img src={~p"/images/zaq.png"} alt="ZAQ" class="zaq-auth-logo-img" />
+  </:header_icon>
+
+  <div
+    class={[
+      "zaq-feedback-banner zaq-text-body",
+      if(@status == :success, do: "zaq-success", else: "zaq-danger")
+    ]}
+    role={if @status == :success, do: "status", else: "alert"}
+  >
+    <span class="zaq-feedback-icon" aria-hidden="true">
+      <.icon
+        name={if @status == :success, do: "hero-check-circle", else: "hero-exclamation-circle"}
+        class="zaq-icon-md"
+      />
+    </span>
+    <span class="zaq-feedback-body">
+      <span class="sr-only">
+        {if @status == :success,
+          do: "OAuth authorization succeeded:",
+          else: "OAuth authorization failed:"}
+      </span>
+      {@message}
+    </span>
+  </div>
+</ZaqWeb.Components.DesignSystem.AuthLayout.auth_layout>
+
+<script>
+  (function () {
+    var payload = <%= Phoenix.HTML.raw(@encoded_payload) %>;
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage({type: "zaq:oauth2_result", payload: payload}, window.location.origin);
+      window.close();
+    }
+
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({type: "zaq:oauth2_result", payload: payload}, window.location.origin);
+    }
+  })();
+</script>
