@@ -9,9 +9,15 @@
   "id": "zaq-i8x.16",
   "labels": [],
   "parent": "zaq-i8x",
+  "comments": [
+    {
+      "text": "Coverage pass implementation/review finished as exception-only: no safe deterministic seam for source lines196-197. Final mix q passed. Final targeted mix test of 27 added/edited files --cover: 29 properties,374 tests,0 failures, exit0,seed290301. Scoped provisioner coverage 3%. This is NOT directly comparable to user whole-suite baseline; unchanged companion tests excluded per requested scope. No production edits, commits, or full-suite runs. Temporary display configuration restored. Keep remaining gaps/plan exceptions visible; no claim every line covered.",
+      "timestamp": "2026-09-21T16:46:34Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-i8x] provisioner coverage",
   "type": "task",
-  "updated_at": "2026-09-21T15:47:50Z"
+  "updated_at": "2026-09-21T16:46:34Z"
 }
