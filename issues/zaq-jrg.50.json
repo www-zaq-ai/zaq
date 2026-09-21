@@ -18,11 +18,15 @@
     {
       "text": "Added approved ingress acceptance coverage for expired personal credentials, missing global base URL, global-admin recovery, and exactly-one terminal Mattermost update; 11 tests pass. Existing missing/revoked/required paths remain covered. Action reuse: not applicable—test-only coverage uses existing Connect, formatter, and ingress boundaries. mix q, related callback/formatter tests, and diff check pass. Final mix precommit exceeded the required 900s gate and was terminated; do not request final approval until the gate completes.",
       "timestamp": "2026-09-21T19:05:43Z"
+    },
+    {
+      "text": "Committed and pushed as 1aff00fc on feat/telemetry-granularity-for-agents. Human authorized landing. Acceptance scenarios pass; final mix precommit remained blocked by the mandated 900s timeout.",
+      "timestamp": "2026-09-21T19:11:47Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-jrg.50] Approve and finalize actionable channel errors",
   "type": "task",
-  "updated_at": "2026-09-21T19:05:43Z"
+  "updated_at": "2026-09-21T19:11:47Z"
 }
