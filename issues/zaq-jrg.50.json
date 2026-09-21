@@ -5,6 +5,7 @@
     "zaq-jrg.53"
   ],
   "blocks": [],
+  "closed_at": "2026-09-21T19:11:47Z",
   "created": "2026-09-20T08:39:24Z",
   "description": "Functional specification: review final copy and recovery behavior with a human, update service documentation, then implement consolidated feature E2E only after explicit approval and complete review/coverage/final validation. Login redirection remains outside this issue. Tests before implementation: record E2E scenarios now, author them only after approval; scenarios cover personal missing/invalid/revoked/expired recovery text/link, missing global base URL, global admin errors, and exactly-one terminal response. Branches: authenticated and unauthenticated portal navigation is not tested here; only emitted destination is asserted. Mocking: existing E2E fixtures at external edges. Docs: final Agent/Channels contract and PR notes. Action reuse: not applicable to approval/validation; verify prior issues' reuse decisions and absence of parallel rendering paths. Run coverage-upper after review and final mix precommit before requesting final approval.",
   "id": "zaq-jrg.50",
@@ -25,7 +26,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-jrg.50] Approve and finalize actionable channel errors",
   "type": "task",
   "updated_at": "2026-09-21T19:11:47Z"
