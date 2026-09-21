@@ -4,6 +4,7 @@
     "zaq-tup.3"
   ],
   "blocks": [],
+  "closed_at": "2026-09-21T19:11:48Z",
   "created": "2026-09-15T09:21:21Z",
   "description": "After production integration and explicit final UX approval: cover authenticated read-only/edit access, name save/cancel/errors, reorder drag/keyboard/touch save/cancel/persistence, revoked permissions, 390/1280px overflow, login width unchanged. Reuse existing People E2E. Do not author during prototype iteration.",
   "id": "zaq-tup.4",
@@ -40,7 +41,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-tup] Consolidated profile E2E after approval",
   "type": "task",
   "updated_at": "2026-09-21T19:11:48Z"
