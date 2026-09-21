@@ -21,11 +21,15 @@
     {
       "text": "Ported credential E2E changes into the current clean worktree on feat/telemetry-granularity-for-agents while preserving that branch's existing bo.js additions and merging with profile coverage in the shared People browser runner. Added an explicit LiveView connection wait that removed the previously observed first-modal race. Combined validation: People browser suite passed all engines/viewports (3 tests); Chromium system_config.spec.js passed 55 tests; mix q and diff check passed. Changes remain uncommitted; OAuth scope remains initiation/cancel rather than successful callback/reconnect.",
       "timestamp": "2026-09-21T15:13:21Z"
+    },
+    {
+      "text": "Expanded credential E2E from OAuth initiation/cancel to a local real Standard OAuth provider: successful callback, denial, token failure, reconnect, revoke/remove, popup blocking, redirect URI and PKCE checks, plus runtime manage_credentials revocation and continuation cleanup. All engines at 390/1280 pass (3 tests); system_config passes 165 tests across 3 engines. mix q and diff check pass; final precommit timed out at 900s.",
+      "timestamp": "2026-09-21T19:05:44Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Finalize credential management E2E",
   "type": "task",
-  "updated_at": "2026-09-21T15:13:21Z"
+  "updated_at": "2026-09-21T19:05:44Z"
 }
