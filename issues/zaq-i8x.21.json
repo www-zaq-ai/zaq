@@ -23,6 +23,7 @@
     "zaq-i8x.9"
   ],
   "blocks": [],
+  "closed_at": "2026-09-21T17:19:37Z",
   "created": "2026-09-21T15:47:42Z",
   "description": "Review each implementation; run mix q; delegate fixes; run mix test added/edited test files only --cover, grep relevant coverage rows. Preserve all pre-existing changes. No full suite.",
   "id": "zaq-i8x.21",
@@ -35,7 +36,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-i8x] Review quality and targeted coverage",
   "type": "task",
   "updated_at": "2026-09-21T17:19:37Z"
