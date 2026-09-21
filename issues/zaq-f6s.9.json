@@ -15,11 +15,15 @@
     {
       "text": "Implemented mix db.extensions with configured Repo credentials, vector verification, optional pg_search installation, temporary Repo lifecycle, and actionable startup errors. Wired setup/setup.branch/test/reset/E2E before migrations; updated docs and hints. Validation: 18 targeted tests pass, new task coverage 95.8%, E2E package JSON valid, mix q passes. Work remains uncommitted per agent policy.",
       "timestamp": "2026-09-21T14:34:31Z"
+    },
+    {
+      "text": "User requested revision: eliminate extension SQL duplication. Refactoring canonical bootstrap into reusable extension fragments; mix db.extensions will become a thin psql runner so dev setup exercises the same SQL as managed bootstrap.",
+      "timestamp": "2026-09-21T15:06:37Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-f6s.9] Developer Mix setup installs database extensions",
   "type": "task",
-  "updated_at": "2026-09-21T14:34:31Z"
+  "updated_at": "2026-09-21T15:06:37Z"
 }
