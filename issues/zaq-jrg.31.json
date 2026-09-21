@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-jrg.32"
   ],
+  "closed_at": "2026-09-21T12:43:17Z",
   "created": "2026-09-18T17:06:13Z",
   "description": "Human UX/UI approval gate for completed BO personal-policy and Person self-service credential management surfaces. Keep open until explicit approval of final routes, forms, status/error/cancel flows and revoke/remove wording.",
   "id": "zaq-jrg.31",
@@ -22,8 +23,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "Approve combined credential management UX",
   "type": "task",
-  "updated_at": "2026-09-21T12:43:16Z"
+  "updated_at": "2026-09-21T12:43:17Z"
 }
