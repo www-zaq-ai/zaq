@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.FactoryTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   import Zaq.SystemConfigFixtures
 
@@ -209,6 +210,132 @@ defmodule Zaq.Agent.FactoryTest do
              actor: @execution_actor,
              node_router_module: RuntimeCredentialRouter
            ) == {:error, {:service_unavailable, :engine}}
+  end
+
+  test "lifecycle config accepts an explicit missing runtime credential response without using attached secrets" do
+    credential =
+      ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: "https://factory-nil.invalid/v1",
+        api_key: "factory-nil-attached-secret"
+      })
+
+    agent = %ConfiguredAgent{
+      job: "Nil credential inspection",
+      model: "gpt-4.1-mini",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [],
+      credential_id: credential.id,
+      credential: credential,
+      advanced_options: %{"temperature" => 0.23}
+    }
+
+    with_runtime_credential_response({:ok, nil}, fn ->
+      assert {:ok, runtime} =
+               Factory.runtime_config(agent,
+                 actor: @execution_actor,
+                 node_router_module: RuntimeCredentialRouter
+               )
+
+      assert runtime.system_prompt == "Nil credential inspection"
+      assert runtime.llm_opts[:temperature] == 0.23
+      assert runtime.execution_actor == @execution_actor
+      assert runtime.tool_context.actor == @execution_actor
+      refute Map.has_key?(runtime, :credential_dependency)
+      refute runtime.llm_opts[:api_key] == "factory-nil-attached-secret"
+      refute runtime.llm_opts[:base_url] == "https://factory-nil.invalid/v1"
+
+      control_agent = %{agent | credential_id: nil, credential: nil}
+
+      assert {:ok, control_runtime} =
+               Factory.runtime_config(control_agent, actor: @execution_actor)
+
+      assert runtime == control_runtime
+
+      assert_received {:runtime_credential_event, event, routed}
+      assert event.request == %{credential_id: credential.id}
+      assert event.next_hop.destination == :engine
+      assert event.actor == @execution_actor
+      assert event.opts[:action] == :resolve_ai_runtime_credential
+      assert event.opts[:confidential] == true
+      assert routed.response == {:ok, nil}
+      refute_received {:runtime_credential_event, _, _}
+    end)
+  end
+
+  test "lifecycle config rejects malformed Engine credential responses verbatim" do
+    agent = %ConfiguredAgent{
+      credential_id: 73,
+      job: "Rejected runtime",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [],
+      advanced_options: %{}
+    }
+
+    responses = [
+      :unexpected_response,
+      nil,
+      {:ok, %{}},
+      {:ok, %{credential: %{id: 73}, resolved_credential: nil}},
+      {:ok, %{credential: "invalid-provider", resolved_credential: %{}}}
+    ]
+
+    Enum.each(responses, fn response ->
+      with_runtime_credential_response(response, fn ->
+        assert Factory.runtime_config(agent,
+                 actor: @execution_actor,
+                 node_router_module: RuntimeCredentialRouter
+               ) == {:error, {:invalid_runtime_credential_response, response}}
+
+        assert_received {:runtime_credential_event, event, routed}
+        assert event.request == %{credential_id: 73}
+        assert event.next_hop.destination == :engine
+        assert event.actor == @execution_actor
+        assert event.opts[:action] == :resolve_ai_runtime_credential
+        assert event.opts[:confidential] == true
+        assert routed.response == response
+        refute_received {:runtime_credential_event, _, _}
+      end)
+    end)
+  end
+
+  property "purported successful responses with non-map resolved credentials are rejected" do
+    agent = %ConfiguredAgent{
+      credential_id: 73,
+      job: "Rejected runtime",
+      enabled_tool_keys: [],
+      enabled_skill_ids: [],
+      advanced_options: %{}
+    }
+
+    generator =
+      one_of([
+        integer(-5..5),
+        boolean(),
+        string(:alphanumeric, max_length: 24),
+        list_of(integer(-5..5), max_length: 3),
+        constant(nil)
+      ])
+
+    check all(bad <- generator, max_runs: 25) do
+      response = {:ok, %{credential: %{id: 73}, resolved_credential: bad}}
+
+      with_runtime_credential_response(response, fn ->
+        assert Factory.runtime_config(agent,
+                 actor: @execution_actor,
+                 node_router_module: RuntimeCredentialRouter
+               ) == {:error, {:invalid_runtime_credential_response, response}}
+
+        assert_received {:runtime_credential_event, event, routed}
+        assert event.request == %{credential_id: 73}
+        assert event.next_hop.destination == :engine
+        assert event.actor == @execution_actor
+        assert event.opts[:action] == :resolve_ai_runtime_credential
+        assert event.opts[:confidential] == true
+        assert routed.response == response
+        refute_received {:runtime_credential_event, _, _}
+      end)
+    end
   end
 
   defmodule MCPProbeTool do
@@ -1108,6 +1235,22 @@ defmodule Zaq.Agent.FactoryTest do
     test "returns empty opts (fresh agent, no history) for a workflow run scope" do
       server_id = "My Agent:workflow:run:#{Ecto.UUID.generate()}"
       assert Factory.spawn_opts_from_server_id(server_id) == %{}
+    end
+  end
+
+  defp with_runtime_credential_response(response, fun) do
+    absent = make_ref()
+    previous = Process.get(:runtime_credential_response, absent)
+    Process.put(:runtime_credential_response, response)
+
+    try do
+      fun.()
+    after
+      if previous == absent do
+        Process.delete(:runtime_credential_response)
+      else
+        Process.put(:runtime_credential_response, previous)
+      end
     end
   end
 

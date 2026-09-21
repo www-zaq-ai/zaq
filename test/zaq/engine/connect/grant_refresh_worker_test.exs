@@ -1,5 +1,6 @@
 defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   defmodule StubOAuthMissingRefreshToken do
     def oauth_refresh_token(_config, _params) do
@@ -43,6 +44,39 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   # seed channel_configs rows, so that id cannot be a literal.
   defp unused_config_id do
     to_string((Repo.aggregate(ChannelConfig, :max, :id) || 0) + 1)
+  end
+
+  defp insert_leased_grant(deadline) do
+    {:ok, credential} =
+      Connect.create_credential(%{
+        name: "Leased OAuth credential #{System.unique_integer([:positive])}",
+        provider: "google_drive",
+        auth_kind: "oauth2",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{},
+        client_id: "id",
+        client_secret: "secret"
+      })
+
+    {:ok, grant} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        resource_type: "mcp",
+        resource_id: "leased-#{System.unique_integer([:positive])}",
+        owner_type: "org",
+        metadata: %{},
+        status: "active",
+        access_token: "a",
+        refresh_token: "r"
+      })
+
+    Repo.update!(
+      Ecto.Changeset.change(grant,
+        refresh_claim: Ecto.UUID.generate(),
+        refresh_claim_until: deadline
+      )
+    )
   end
 
   test "perform/1 returns ok when grant does not exist" do
@@ -133,42 +167,110 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
 
   test "perform/2 snoozes until an active refresh lease expires" do
     now = ~U[2026-09-18 18:00:00Z]
-
-    {:ok, credential} =
-      Connect.create_credential(%{
-        name: "Leased OAuth credential",
-        provider: "google_drive",
-        auth_kind: "oauth2",
-        request_format: "bearer",
-        user_level: false,
-        metadata: %{},
-        client_id: "id",
-        client_secret: "secret"
-      })
-
-    {:ok, grant} =
-      Connect.issue_grant(%{
-        credential_id: credential.id,
-        resource_type: "mcp",
-        resource_id: "leased-1",
-        owner_type: "org",
-        metadata: %{},
-        status: "active",
-        access_token: "a",
-        refresh_token: "r"
-      })
-
-    Repo.update!(
-      Ecto.Changeset.change(grant,
-        refresh_claim: Ecto.UUID.generate(),
-        refresh_claim_until: DateTime.add(now, 75)
-      )
-    )
+    grant = insert_leased_grant(DateTime.add(now, 75))
 
     assert {:snooze, 75} =
              GrantRefreshWorker.perform(%Job{args: %{"grant_id" => grant.id}}, now: now)
 
     assert Repo.get!(Grant, grant.id).refresh_claim_until == DateTime.add(now, 75)
+  end
+
+  test "perform/2 snoozes when the lease is cleared after contention" do
+    now = ~U[2026-09-18 18:00:00Z]
+    grant = insert_leased_grant(DateTime.add(now, 75))
+
+    clock = fn ->
+      if Repo.in_transaction?() do
+        now
+      else
+        Repo.update!(
+          Ecto.Changeset.change(Repo.get!(Grant, grant.id),
+            refresh_claim: nil,
+            refresh_claim_until: nil
+          )
+        )
+
+        now
+      end
+    end
+
+    assert {:snooze, 1} =
+             GrantRefreshWorker.perform(
+               %Job{args: %{"grant_id" => grant.id}},
+               now: clock
+             )
+
+    reloaded = Repo.get!(Grant, grant.id)
+    assert reloaded.refresh_claim == nil
+    assert reloaded.refresh_claim_until == nil
+    assert reloaded.access_token == "a"
+    assert reloaded.refresh_token == "r"
+    assert reloaded.status == "active"
+  end
+
+  test "perform/2 snoozes when the grant is deleted after contention" do
+    now = ~U[2026-09-18 18:00:00Z]
+    grant = insert_leased_grant(DateTime.add(now, 75))
+
+    clock = fn ->
+      if Repo.in_transaction?() do
+        now
+      else
+        Repo.delete!(Repo.get!(Grant, grant.id))
+        now
+      end
+    end
+
+    assert {:snooze, 1} =
+             GrantRefreshWorker.perform(
+               %Job{args: %{"grant_id" => grant.id}},
+               now: clock
+             )
+
+    assert Repo.get(Grant, grant.id) == nil
+  end
+
+  test "perform/2 snoozes for a lease reached during handoff" do
+    now = ~U[2026-09-18 18:00:00Z]
+    deadline = DateTime.add(now, 75)
+
+    for outside_now <- [deadline, DateTime.add(deadline, 1)] do
+      grant = insert_leased_grant(deadline)
+      clock = fn -> if Repo.in_transaction?(), do: now, else: outside_now end
+
+      assert {:snooze, 1} =
+               GrantRefreshWorker.perform(
+                 %Job{args: %{"grant_id" => grant.id}},
+                 now: clock
+               )
+
+      reloaded = Repo.get!(Grant, grant.id)
+      assert reloaded.refresh_claim == grant.refresh_claim
+      assert reloaded.refresh_claim_until == deadline
+      assert reloaded.access_token == "a"
+      assert reloaded.refresh_token == "r"
+      assert reloaded.status == "active"
+    end
+  end
+
+  property "perform/2 always returns a positive remaining lease delay" do
+    now = ~U[2026-09-18 18:00:00Z]
+
+    check all(remaining_seconds <- integer(1..120), max_runs: 15) do
+      deadline = DateTime.add(now, remaining_seconds)
+      grant = insert_leased_grant(deadline)
+      clock = fn -> now end
+
+      assert {:snooze, ^remaining_seconds} =
+               GrantRefreshWorker.perform(
+                 %Job{args: %{"grant_id" => grant.id}},
+                 now: clock
+               )
+
+      reloaded = Repo.get!(Grant, grant.id)
+      assert reloaded.refresh_claim_until == deadline
+      assert reloaded.refresh_claim == grant.refresh_claim
+    end
   end
 
   test "perform/1 returns ok when oauth2 refresh succeeds" do

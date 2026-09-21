@@ -1,5 +1,6 @@
 defmodule Zaq.SystemTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   import Ecto.Query
 
@@ -197,6 +198,51 @@ defmodule Zaq.SystemTest do
                folder_id: nil,
                folder_path: nil
              }
+    end
+
+    test "persists numeric data-source identity values as decimal text" do
+      expected = %{
+        provider: "disk",
+        config_id: 7,
+        scope_id: "123",
+        folder_id: "456",
+        folder_path: "/knowledge"
+      }
+
+      assert {:ok, ^expected} =
+               System.save_skill_resource_config(%{
+                 provider: "disk",
+                 config_id: 7,
+                 scope_id: 123,
+                 folder_id: 456,
+                 folder_path: " /knowledge "
+               })
+
+      assert System.get_skill_resource_config() == expected
+      assert System.get_config("system.agent_skills.resources.scope_id") == "123"
+      assert System.get_config("system.agent_skills.resources.folder_id") == "456"
+    end
+
+    property "numeric data-source identities are idempotent" do
+      check all(
+              scope_id <- StreamData.integer(1..1_000_000),
+              folder_id <- StreamData.integer(1..1_000_000),
+              max_runs: 25
+            ) do
+        attrs = %{
+          provider: "disk",
+          config_id: 7,
+          scope_id: scope_id,
+          folder_id: folder_id,
+          folder_path: "/knowledge"
+        }
+
+        assert {:ok, first} = System.save_skill_resource_config(attrs)
+        assert {:ok, second} = System.save_skill_resource_config(first)
+        assert first.scope_id == Integer.to_string(scope_id)
+        assert first.folder_id == Integer.to_string(folder_id)
+        assert second == first
+      end
     end
   end
 

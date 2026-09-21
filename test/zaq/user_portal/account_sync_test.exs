@@ -8,6 +8,7 @@ defmodule Zaq.UserPortal.AccountSyncTest do
   alias Zaq.Repo
   alias Zaq.System
   alias Zaq.UserPortal.AccountSync
+  alias Zaq.UserPortal.Provisioner
 
   setup :verify_on_exit!
 
@@ -60,6 +61,82 @@ defmodule Zaq.UserPortal.AccountSyncTest do
       end)
 
       assert {:error, :portal_sync_failed} = AccountSync.sync_email(user)
+    end
+
+    test "passes nil when an existing ZAQ Router credential uses no authentication" do
+      assert System.get_ai_provider_credential_by_name(Provisioner.credential_name()) == nil
+
+      {:ok, created_credential} =
+        System.create_ai_provider_credential(%{
+          name: Provisioner.credential_name(),
+          provider: "zaq_router",
+          endpoint: "http://localhost:4020",
+          sovereign: false,
+          metadata: %{"auth_kind" => "none"}
+        })
+
+      credential = System.get_ai_provider_credential_by_name(Provisioner.credential_name())
+      assert credential.id == created_credential.id
+      refute is_nil(credential.connect_credential_id)
+
+      assert {:ok, %{auth_kind: "none", authentication: %{}}} =
+               System.resolve_ai_provider_authentication(credential)
+
+      assert System.resolve_ai_provider_api_key(credential) == ""
+
+      user = user_fixture(%{email: "keyless-sync@example.com"})
+      {:ok, user} = Repo.update(User.portal_consent_changeset(user, "accepted"))
+
+      expect(Zaq.UserPortal.ClientMock, :update_email, fn email, api_key ->
+        assert email == "keyless-sync@example.com"
+        assert api_key === nil
+        :ok
+      end)
+
+      assert :ok = AccountSync.sync_email(user)
+    end
+
+    test "preserves portal rejection when an existing credential resolves to an empty key" do
+      assert System.get_ai_provider_credential_by_name(Provisioner.credential_name()) == nil
+
+      {:ok, created_credential} =
+        System.create_ai_provider_credential(%{
+          name: Provisioner.credential_name(),
+          provider: "zaq_router",
+          endpoint: "http://localhost:4020",
+          sovereign: false,
+          metadata: %{"auth_kind" => "none"}
+        })
+
+      credential = System.get_ai_provider_credential_by_name(Provisioner.credential_name())
+      assert credential.id == created_credential.id
+      refute is_nil(credential.connect_credential_id)
+
+      assert {:ok, %{auth_kind: "none", authentication: %{}}} =
+               System.resolve_ai_provider_authentication(credential)
+
+      assert System.resolve_ai_provider_api_key(credential) == ""
+
+      user = user_fixture(%{email: "keyless-rejection@example.com"})
+      {:ok, user} = Repo.update(User.portal_consent_changeset(user, "accepted"))
+
+      expect(Zaq.UserPortal.ClientMock, :update_email, fn email, api_key ->
+        assert email == "keyless-rejection@example.com"
+        assert api_key === nil
+        {:error, :portal_sync_failed}
+      end)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :portal_sync_failed} = AccountSync.sync_email(user)
+        end)
+
+      assert log =~ "keyless-rejection@example.com"
+      assert log =~ ":portal_sync_failed"
+
+      reloaded_user = Repo.get!(User, user.id)
+      assert reloaded_user.email == "keyless-rejection@example.com"
+      assert reloaded_user.portal_consent == "accepted"
     end
 
     test "returns {:error, :email_taken} when the portal rejects with email_taken" do

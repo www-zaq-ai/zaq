@@ -2,13 +2,14 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
   use Zaq.DataCase, async: true
   use ExUnitProperties
 
-  alias Zaq.Accounts.Person
+  alias Zaq.Accounts.{Person, PersonSession}
   alias Zaq.Engine.Connect
 
   alias Zaq.Engine.Connect.{
     Credential,
     Grant,
     OAuth,
+    OAuthAttempt,
     OAuthAttempts,
     OAuthState
   }
@@ -495,6 +496,177 @@ defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
 
     exchange()
     assert {:ok, _} = finish(state)
+  end
+
+  test "default preparation rejects an absent identity without side effects", ctx do
+    attempt_count = Repo.aggregate(OAuthAttempt, :count)
+    job_count = Repo.aggregate(Oban.Job, :count)
+
+    assert {:error, :unauthorized} =
+             OAuthAttempts.prepare_person(nil, Ecto.UUID.generate(), ctx.credential.id)
+
+    assert Repo.aggregate(OAuthAttempt, :count) == attempt_count
+    assert Repo.aggregate(Oban.Job, :count) == job_count
+    refute Repo.exists?(from g in Grant, where: g.credential_id == ^ctx.credential.id)
+  end
+
+  test "loaded-person preparation requires an explicit caller transaction", ctx do
+    assert Repo.in_transaction?() == false
+    attempt_count = Repo.aggregate(OAuthAttempt, :count)
+
+    assert {:error, :transaction_required} =
+             OAuthAttempts.prepare_person(ctx.person, Ecto.UUID.generate(), ctx.credential.id)
+
+    assert Repo.aggregate(OAuthAttempt, :count) == attempt_count
+  end
+
+  property "invalid preparation identity or argument shape never creates an attempt", ctx do
+    attempt_count = Repo.aggregate(OAuthAttempt, :count)
+    job_count = Repo.aggregate(Oban.Job, :count)
+    session_id = Ecto.UUID.generate()
+
+    person_values =
+      [nil, %Person{}, %{id: ctx.person.id}] ++
+        Enum.map(-10..0, fn id -> %{ctx.person | id: id} end)
+
+    person_cases =
+      Enum.map(person_values, fn person ->
+        constant({person, session_id, ctx.credential.id})
+      end)
+
+    session_cases =
+      Enum.map([nil, 123, :invalid], fn invalid_session ->
+        constant({ctx.person, invalid_session, ctx.credential.id})
+      end)
+
+    credential_cases =
+      Enum.map(Enum.to_list(-10..0) ++ [nil, "1"], fn invalid_credential ->
+        constant({ctx.person, session_id, invalid_credential})
+      end)
+
+    check all(
+            {person, invalid_session, invalid_credential} <-
+              one_of(person_cases ++ session_cases ++ credential_cases),
+            max_runs: 30
+          ) do
+      assert {:error, :unauthorized} =
+               OAuthAttempts.prepare_person(
+                 person,
+                 invalid_session,
+                 invalid_credential,
+                 @opts
+               )
+    end
+
+    assert Repo.aggregate(OAuthAttempt, :count) == attempt_count
+    assert Repo.aggregate(Oban.Job, :count) == job_count
+    refute Repo.exists?(from g in Grant, where: g.credential_id == ^ctx.credential.id)
+  end
+
+  test "authorization rejects values that are not a prepared attempt tuple", ctx do
+    values = [
+      nil,
+      %{},
+      {:ok, :not_a_prepared_attempt},
+      {%{}, ctx.credential, %{}},
+      {%OAuthAttempt{}, %{}, %{}}
+    ]
+
+    attempt_count = Repo.aggregate(OAuthAttempt, :count)
+    job_count = Repo.aggregate(Oban.Job, :count)
+
+    for value <- values do
+      assert {:error, :invalid_attempt} = OAuthAttempts.authorize_prepared(value, @opts)
+    end
+
+    assert Repo.aggregate(OAuthAttempt, :count) == attempt_count
+    assert Repo.aggregate(Oban.Job, :count) == job_count
+    refute Repo.exists?(from g in Grant, where: g.credential_id == ^ctx.credential.id)
+  end
+
+  test "preparation rolls back not_found when the referenced credential is absent", ctx do
+    missing_id = 2_147_483_647
+    assert Repo.get(Credential, missing_id) == nil
+    attempt_count = Repo.aggregate(OAuthAttempt, :count)
+    job_count = Repo.aggregate(Oban.Job, :count)
+
+    assert {:error, :not_found} =
+             Repo.transaction(fn ->
+               OAuthAttempts.prepare_person(ctx.person, Ecto.UUID.generate(), missing_id, @opts)
+             end)
+
+    assert Repo.aggregate(OAuthAttempt, :count) == attempt_count
+    assert Repo.aggregate(Oban.Job, :count) == job_count
+    assert Repo.reload!(ctx.credential).id == ctx.credential.id
+    refute Repo.exists?(from g in Grant, where: g.credential_id == ^ctx.credential.id)
+  end
+
+  test "a stored sessionless Person attempt cannot finalize for an inactive owner", ctx do
+    {state, _} = start(ctx.person, ctx.credential, @opts)
+    assert {:ok, %{"attempt_id" => id}} = OAuthState.verify(state)
+    attempt = Repo.get!(OAuthAttempt, id)
+    assert attempt.session_id != nil
+    assert attempt.claimed_at == nil
+
+    attempt
+    |> OAuthAttempt.changeset(%{session_id: nil})
+    |> Repo.update!()
+
+    Repo.update!(Person.update_changeset(ctx.person, %{status: "inactive"}))
+    marker = make_ref()
+    test_pid = self()
+
+    Req.Test.stub(ConnectOAuthAttemptHTTP, fn conn ->
+      send(test_pid, {:unexpected_attempt_http, marker})
+      conn |> Plug.Conn.put_status(400) |> Req.Test.json(%{})
+    end)
+
+    baseline_jobs = Repo.aggregate(Oban.Job, :count)
+    assert {:error, :invalid_attempt} = finish(state)
+    refute_received {:unexpected_attempt_http, ^marker}
+    assert Repo.aggregate(Oban.Job, :count) == baseline_jobs
+    refute Repo.exists?(from g in Grant, where: g.credential_id == ^ctx.credential.id)
+
+    reloaded = Repo.get!(OAuthAttempt, id)
+    assert reloaded.session_id == nil
+    assert reloaded.claimed_at != nil
+    assert reloaded.pkce_verifier == nil
+    assert reloaded.candidate_config == nil
+
+    assert {:error, :invalid_attempt} = finish(state)
+    refute_received {:unexpected_attempt_http, ^marker}
+  end
+
+  test "preparation sanitizes an absent-session foreign-key failure and rolls back the attempt",
+       ctx do
+    missing_session_id = Ecto.UUID.generate()
+    assert Repo.get(PersonSession, missing_session_id) == nil
+    attempt_count = Repo.aggregate(OAuthAttempt, :count)
+    job_count = Repo.aggregate(Oban.Job, :count)
+    assert ctx.credential.client_id == "admin-client"
+    marker = make_ref()
+    test_pid = self()
+
+    Req.Test.stub(ConnectOAuthAttemptHTTP, fn conn ->
+      send(test_pid, {:unexpected_attempt_http, marker})
+      conn |> Plug.Conn.put_status(400) |> Req.Test.json(%{})
+    end)
+
+    assert {:error, :invalid_attempt} =
+             Repo.transaction(fn ->
+               OAuthAttempts.prepare_person(
+                 ctx.person,
+                 missing_session_id,
+                 ctx.credential.id,
+                 @opts
+               )
+             end)
+
+    assert Repo.aggregate(OAuthAttempt, :count) == attempt_count
+    assert Repo.aggregate(Oban.Job, :count) == job_count
+    refute Repo.exists?(from g in Grant, where: g.credential_id == ^ctx.credential.id)
+    assert Repo.reload!(ctx.credential).client_id == "admin-client"
+    refute_received {:unexpected_attempt_http, ^marker}
   end
 
   test "failed and malformed external responses never leak and consume the attempt", ctx do

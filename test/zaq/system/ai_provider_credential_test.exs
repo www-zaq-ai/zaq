@@ -1,6 +1,8 @@
 defmodule Zaq.System.AIProviderCredentialTest do
   use Zaq.DataCase, async: false
 
+  import Ecto.Query
+
   alias Zaq.Engine.Connect
   alias Zaq.Repo
   alias Zaq.System
@@ -361,6 +363,238 @@ defmodule Zaq.System.AIProviderCredentialTest do
     assert System.resolve_ai_provider_api_key(nil) == ""
   end
 
+  test "resolve_ai_provider_api_key returns the canonical OAuth access token" do
+    assert {:ok, credential} =
+             System.create_ai_provider_credential(%{
+               name: "Canonical OAuth #{Ecto.UUID.generate()}",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"}
+             })
+
+    assert {:ok, _grant} =
+             Connect.replace_credential_grant(credential.connect_credential_id, :org, %{
+               access_token: "canonical-oauth-access",
+               refresh_token: "canonical-oauth-refresh",
+               expires_at: ~U[2099-01-01 00:00:00Z]
+             })
+
+    loaded = System.get_ai_provider_credential!(credential.id)
+    assert System.resolve_ai_provider_api_key(loaded) == "canonical-oauth-access"
+    refute System.resolve_ai_provider_api_key(loaded) == "canonical-oauth-refresh"
+  end
+
+  test "form changeset preserves policy when the Connect association is unavailable" do
+    assert {:error, :not_found} = Connect.fetch_credential(-1)
+
+    input = %AIProviderCredential{
+      name: "Missing association",
+      provider: "openai",
+      endpoint: "https://api.openai.com/v1",
+      connect_credential_id: -1,
+      personal_credential_policy: :required
+    }
+
+    changeset =
+      System.change_ai_provider_credential(input, %{description: "editable description"})
+
+    assert changeset.data == input
+    assert Ecto.Changeset.get_field(changeset, :personal_credential_policy) == :required
+    assert Ecto.Changeset.get_field(changeset, :connect_credential_id) == -1
+    assert Ecto.Changeset.get_change(changeset, :description) == "editable description"
+  end
+
+  test "create uniqueness failure rolls back its Connect definition" do
+    original_name = "Rollback create #{Ecto.UUID.generate()}"
+    target_name = "Rollback target #{Ecto.UUID.generate()}"
+
+    assert {:ok, original} = create_no_auth(original_name)
+    assert {:ok, renamed} = System.update_ai_provider_credential(original, %{name: target_name})
+    assert Connect.get_credential!(renamed.connect_credential_id).name == "AI: #{original_name}"
+    jobs_before = notification_job_ids()
+
+    assert {:error, %Ecto.Changeset{} = changeset} = create_no_auth(target_name)
+    assert errors_on(changeset).name == ["has already been taken"]
+    assert Repo.get_by(AIProviderCredential, name: target_name).id == renamed.id
+    refute Repo.get_by(Connect.Credential, name: "AI: #{target_name}")
+    assert notification_job_ids() == jobs_before
+  end
+
+  test "update uniqueness failure rolls back preceding Connect changes" do
+    assert {:ok, first} = create_no_auth("Rollback first #{Ecto.UUID.generate()}")
+    assert {:ok, second} = create_no_auth("Rollback second #{Ecto.UUID.generate()}")
+    original_connect = Connect.get_credential!(second.connect_credential_id)
+    jobs_before = notification_job_ids()
+
+    assert {:error, %Ecto.Changeset{} = changeset} =
+             System.update_ai_provider_credential(second, %{
+               name: first.name,
+               provider: "anthropic",
+               endpoint: "https://api.anthropic.com/v1"
+             })
+
+    assert errors_on(changeset).name == ["has already been taken"]
+    restored = Repo.get!(AIProviderCredential, second.id)
+    restored_connect = Connect.get_credential!(second.connect_credential_id)
+    assert restored.name == second.name
+    assert restored.provider == second.provider
+    assert restored.endpoint == second.endpoint
+    assert restored.connect_credential_id == second.connect_credential_id
+    assert restored_connect.provider == original_connect.provider
+    assert restored_connect.name == original_connect.name
+    assert Repo.get!(AIProviderCredential, first.id).name == first.name
+    assert notification_job_ids() == jobs_before
+  end
+
+  test "optional policy transition without a global credential is atomic" do
+    assert {:ok, credential} =
+             System.create_ai_provider_credential(%{
+               name: "Required transition #{Ecto.UUID.generate()}",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               personal_credential_policy: :required
+             })
+
+    connect = Connect.get_credential!(credential.connect_credential_id)
+    assert connect.personal_credential_policy == :required
+    assert Connect.list_grants(credential_id: connect.id) == []
+    jobs_before = notification_job_ids()
+
+    assert {:error, %Ecto.Changeset{} = changeset} =
+             System.update_ai_provider_credential(credential, %{
+               personal_credential_policy: :optional,
+               description: "must roll back"
+             })
+
+    assert "a usable global credential is required for disabled or optional personal credentials" in errors_on(
+             changeset
+           ).base
+
+    restored = Repo.get!(AIProviderCredential, credential.id)
+    restored_connect = Connect.get_credential!(credential.connect_credential_id)
+    assert restored_connect.personal_credential_policy == :required
+    assert restored.description == credential.description
+    assert restored.connect_credential_id == credential.connect_credential_id
+    assert Connect.list_grants(credential_id: connect.id) == []
+    assert notification_job_ids() == jobs_before
+  end
+
+  test "legacy API key encryption failure rolls back a valid OAuth create" do
+    name = "Legacy key failure #{Ecto.UUID.generate()}"
+    jobs_before = notification_job_ids()
+
+    with_missing_encryption_key(fn ->
+      assert {:error, changeset} =
+               System.create_ai_provider_credential(%{
+                 name: name,
+                 provider: "openai",
+                 endpoint: "https://api.openai.com/v1",
+                 api_key: "legacy-key-must-not-persist",
+                 metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"},
+                 personal_credential_policy: :required
+               })
+
+      assert errors_on(changeset).api_key ==
+               ["could not be encrypted: missing SYSTEM_CONFIG_ENCRYPTION_KEY"]
+
+      refute Map.has_key?(changeset.changes, :api_key)
+    end)
+
+    refute Repo.get_by(AIProviderCredential, name: name)
+    refute Repo.get_by(Connect.Credential, name: "AI: #{name}")
+    assert notification_job_ids() == jobs_before
+  end
+
+  test "legacy API key encryption failure rolls back a valid OAuth update" do
+    name = "Legacy update failure #{Ecto.UUID.generate()}"
+
+    assert {:ok, credential} =
+             System.create_ai_provider_credential(%{
+               name: name,
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"},
+               personal_credential_policy: :required
+             })
+
+    original_connect = Connect.get_credential!(credential.connect_credential_id)
+
+    original_connect_projection =
+      Map.take(original_connect, [:name, :provider, :auth_kind, :client_id, :metadata])
+
+    jobs_before = notification_job_ids()
+
+    with_missing_encryption_key(fn ->
+      assert {:error, changeset} =
+               System.update_ai_provider_credential(credential, %{
+                 endpoint: "https://api.openai.com/v2",
+                 api_key: "legacy-update-must-not-persist",
+                 metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"}
+               })
+
+      assert errors_on(changeset).api_key ==
+               ["could not be encrypted: missing SYSTEM_CONFIG_ENCRYPTION_KEY"]
+
+      refute Map.has_key?(changeset.changes, :api_key)
+    end)
+
+    restored = Repo.get!(AIProviderCredential, credential.id)
+    assert restored.endpoint == credential.endpoint
+    assert restored.api_key == credential.api_key
+    assert restored.connect_credential_id == credential.connect_credential_id
+    restored_connect = Connect.get_credential!(credential.connect_credential_id)
+
+    assert Map.take(restored_connect, [:name, :provider, :auth_kind, :client_id, :metadata]) ==
+             original_connect_projection
+
+    assert notification_job_ids() == jobs_before
+  end
+
+  test "OAuth client-secret encryption failure maps to the generic AI key error" do
+    name = "OAuth secret failure #{Ecto.UUID.generate()}"
+    jobs_before = notification_job_ids()
+
+    with_missing_encryption_key(fn ->
+      assert {:error, changeset} =
+               System.create_ai_provider_credential(%{
+                 name: name,
+                 provider: "openai",
+                 endpoint: "https://api.openai.com/v1",
+                 metadata: %{
+                   "auth_kind" => "oauth2",
+                   "client_id" => "client-id",
+                   "client_secret" => "client-secret-must-not-persist"
+                 }
+               })
+
+      assert errors_on(changeset).api_key == ["could not be encrypted"]
+    end)
+
+    refute Repo.get_by(AIProviderCredential, name: name)
+    refute Repo.get_by(Connect.Credential, name: "AI: #{name}")
+    assert notification_job_ids() == jobs_before
+  end
+
+  test "invalid OAuth configuration maps to a fixed base error" do
+    name = "Invalid OAuth #{Ecto.UUID.generate()}"
+    jobs_before = notification_job_ids()
+
+    assert {:error, changeset} =
+             System.create_ai_provider_credential(%{
+               name: name,
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               metadata: %{"auth_kind" => "oauth2"}
+             })
+
+    {base_error, metadata} = changeset.errors[:base]
+    assert base_error == "authentication configuration is invalid"
+    assert metadata[:reason] == :invalid_configuration
+    refute Repo.get_by(AIProviderCredential, name: name)
+    refute Repo.get_by(Connect.Credential, name: "AI: #{name}")
+    assert notification_job_ids() == jobs_before
+  end
+
   test "global authentication resolution uses the confidential Engine boundary" do
     credential = %AIProviderCredential{id: 42, connect_credential_id: 84}
 
@@ -456,5 +690,37 @@ defmodule Zaq.System.AIProviderCredentialTest do
       })
 
     grant
+  end
+
+  defp create_no_auth(name) do
+    System.create_ai_provider_credential(%{
+      name: name,
+      provider: "openai",
+      endpoint: "https://api.openai.com/v1",
+      metadata: %{"auth_kind" => "none"}
+    })
+  end
+
+  defp notification_job_ids do
+    Repo.all(
+      from job in Oban.Job,
+        where: job.queue == "connect_credential_notifications",
+        select: job.id,
+        order_by: job.id
+    )
+  end
+
+  defp with_missing_encryption_key(fun) do
+    previous = Application.fetch_env(:zaq, Zaq.System.SecretConfig)
+    Application.put_env(:zaq, Zaq.System.SecretConfig, key_id: "test-v1", encryption_key: nil)
+
+    try do
+      fun.()
+    after
+      case previous do
+        {:ok, value} -> Application.put_env(:zaq, Zaq.System.SecretConfig, value)
+        :error -> Application.delete_env(:zaq, Zaq.System.SecretConfig)
+      end
+    end
   end
 end

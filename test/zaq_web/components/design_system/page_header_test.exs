@@ -1,5 +1,6 @@
 defmodule ZaqWeb.Components.DesignSystem.PageHeaderTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   import Phoenix.LiveViewTest
 
@@ -75,6 +76,7 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeaderTest do
         )
 
       assert html =~ "id=\"people-conversations-link\""
+      assert html =~ "href=\"/people/history\""
       assert html =~ "id=\"people-credentials-link\""
     end
 
@@ -86,5 +88,65 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeaderTest do
 
     refute html =~ "id=\"people-conversations-link\""
     assert html =~ "id=\"people-credentials-link\""
+  end
+
+  test "People header denies Conversations for non-MapSet permissions" do
+    for permissions <- [
+          nil,
+          [],
+          [:access_profile, :access_message_history],
+          %{access_profile: true, access_message_history: true},
+          "access_profile access_message_history",
+          false
+        ] do
+      html =
+        render_component(&PersonHeader.person_header/1,
+          title: "Credentials",
+          person_permissions: permissions
+        )
+
+      refute html =~ "id=\"people-conversations-link\""
+      refute html =~ "href=\"/people/history\""
+      assert html =~ "id=\"people-credentials-link\""
+      assert html =~ "href=\"/people/credentials\""
+      assert html =~ "href=\"/people/profile\""
+      assert html =~ "action=\"/people/session\""
+    end
+  end
+
+  test "People Conversations requires both permissions" do
+    for permissions <- [
+          MapSet.new(),
+          MapSet.new([:access_message_history]),
+          MapSet.new(["access_profile", "access_message_history"])
+        ] do
+      html =
+        render_component(&PersonHeader.person_header/1,
+          title: "Credentials",
+          person_permissions: permissions
+        )
+
+      refute html =~ "id=\"people-conversations-link\""
+      refute html =~ "href=\"/people/history\""
+    end
+  end
+
+  property "list permissions never grant People Conversations access" do
+    check all(
+            permissions <-
+              list_of(member_of([:access_profile, :access_message_history, :unrelated]),
+                max_length: 8
+              )
+          ) do
+      html =
+        render_component(&PersonHeader.person_header/1,
+          title: "Credentials",
+          person_permissions: permissions
+        )
+
+      refute html =~ "id=\"people-conversations-link\""
+      refute html =~ "href=\"/people/history\""
+      assert html =~ "id=\"people-credentials-link\""
+    end
   end
 end

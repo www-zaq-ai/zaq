@@ -21,6 +21,30 @@ defmodule Zaq.Engine.Connect.OAuthBehaviourTest do
            }) == %{"account_id" => "generic-account", "account_name" => "Generic"}
   end
 
+  test "Standard exports no runtime identity for non-map metadata" do
+    inputs = [
+      nil,
+      false,
+      true,
+      :invalid,
+      0,
+      -1,
+      1.5,
+      "",
+      "account_id",
+      <<255>>,
+      [],
+      [account_id: "acct_untrusted"],
+      [{"account_id", "acct_untrusted"}],
+      {"account_id", "acct_untrusted"}
+    ]
+
+    Enum.each(inputs, fn metadata ->
+      assert Standard.runtime_identity(metadata) == %{},
+             "expected no runtime identity for #{inspect(metadata)}"
+    end)
+  end
+
   property "OAuth runtime identity never exports unrelated metadata" do
     check all(
             key <- string(:alphanumeric, min_length: 1, max_length: 30),
@@ -29,6 +53,12 @@ defmodule Zaq.Engine.Connect.OAuthBehaviourTest do
           ) do
       refute Map.has_key?(Codex.runtime_identity(%{key => value}), key)
       assert Standard.runtime_identity(%{key => value}) == %{}
+    end
+  end
+
+  property "Standard rejects every non-map runtime identity input" do
+    check all(metadata <- term(), not is_map(metadata), max_runs: 100) do
+      assert Standard.runtime_identity(metadata) == %{}
     end
   end
 end

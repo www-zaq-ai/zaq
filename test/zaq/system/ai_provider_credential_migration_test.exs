@@ -1,5 +1,6 @@
 defmodule Zaq.System.AIProviderCredentialMigrationTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Engine.Connect
   alias Zaq.System
@@ -64,6 +65,70 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
 
     assert item.ai_provider_credential_id == second.id
     assert {:error, :invalid_options} = AIProviderCredentialMigration.preflight(limit: 0)
+  end
+
+  test "rejects non-list preflight options" do
+    for input <- [nil, %{}, %{limit: 1}, :invalid, "limit=1", 1, {:limit, 1}] do
+      assert AIProviderCredentialMigration.preflight(input) == {:error, :invalid_options},
+             "input: #{inspect(input)}"
+    end
+  end
+
+  test "treats non-map legacy metadata as missing explicit authentication" do
+    {:ok, ai} =
+      ai_credential(%{name: unique("invalid-metadata"), metadata: %{"auth_kind" => "none"}})
+
+    for metadata <- [nil, [], "none", false, 42] do
+      assert AIProviderCredentialMigration.classify_legacy_row([ai.id, nil, metadata, nil]) == %{
+               ai_provider_credential_id: ai.id,
+               classification: :missing_auth,
+               reason: :no_explicit_authentication,
+               source_grant_id: nil,
+               source_connect_credential_id: nil
+             },
+             "metadata: #{inspect(metadata)}"
+    end
+
+    assert AIProviderCredentialMigration.classify_legacy_row([
+             ai.id,
+             nil,
+             %{"auth_kind" => "none"},
+             nil
+           ]) == %{
+             ai_provider_credential_id: ai.id,
+             classification: :no_auth,
+             reason: nil,
+             source_grant_id: nil,
+             source_connect_credential_id: nil
+           }
+  end
+
+  property "non-map legacy metadata never grants no-auth" do
+    {:ok, ai} =
+      ai_credential(%{
+        name: unique("property-invalid-metadata"),
+        metadata: %{"auth_kind" => "none"}
+      })
+
+    check all(
+            metadata <-
+              one_of([
+                constant(nil),
+                boolean(),
+                integer(),
+                binary(),
+                list_of(integer(), max_length: 4)
+              ]),
+            max_runs: 25
+          ) do
+      assert AIProviderCredentialMigration.classify_legacy_row([ai.id, nil, metadata, nil]) == %{
+               ai_provider_credential_id: ai.id,
+               classification: :missing_auth,
+               reason: :no_explicit_authentication,
+               source_grant_id: nil,
+               source_connect_credential_id: nil
+             }
+    end
   end
 
   test "distinguishes blank and unreadable legacy API-key ciphertext without reporting secrets" do

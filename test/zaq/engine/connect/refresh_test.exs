@@ -1,9 +1,11 @@
 defmodule Zaq.Engine.Connect.RefreshTest do
   use Zaq.DataCase, async: true
   use ExUnitProperties
+  import Ecto.Query
+
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Credential, Grant, GrantRefreshWorker}
+  alias Zaq.Engine.Connect.{Credential, Grant, GrantRefreshWorker, Refresh}
   alias Zaq.System.SecretConfig
   alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP}
 
@@ -168,6 +170,206 @@ defmodule Zaq.Engine.Connect.RefreshTest do
 
     refute inspect(result) =~ "secret response detail"
     refute inspect(result) =~ "param"
+  end
+
+  test "refresh sanitizes nested atom-key provider errors", %{
+    grant: grant,
+    credential: credential
+  } do
+    parent = self()
+    ref = make_ref()
+
+    dispatch = fn current, received_credential, received_opts ->
+      send(
+        parent,
+        {ref, :dispatch, current.id, received_credential.id, received_opts,
+         Repo.in_transaction?()}
+      )
+
+      {:error,
+       {:oauth_refresh_failed, 401,
+        %{
+          error: %{
+            code: "  refresh_token_reused  ",
+            message: "NESTED_SECRET_SENTINEL",
+            param: "refresh_token"
+          },
+          debug: "OUTER_SECRET_SENTINEL"
+        }}}
+    end
+
+    persist = fn _current, _received_credential, _payload, _received_opts ->
+      send(parent, {ref, :unexpected_persist})
+      {:error, :invalid_material}
+    end
+
+    assert {:error, {:oauth_refresh_failed, 401, %{code: "refresh_token_reused"}}} =
+             Refresh.run(grant, dispatch, persist, @opts)
+
+    assert_received {^ref, :dispatch, grant_id, credential_id, @opts, false}
+    assert grant_id == grant.id
+    assert credential_id == credential.id
+    refute_received {^ref, :unexpected_persist}
+    assert_failed_refresh_state(grant)
+    assert token_update_count(grant) == 0
+    assert {:error, :refresh_busy} = Connect.refresh_grant(grant, @opts)
+  end
+
+  test "refresh sanitizes scalar atom-key provider errors", %{
+    grant: grant,
+    credential: credential
+  } do
+    parent = self()
+    ref = make_ref()
+
+    dispatch = fn current, received_credential, received_opts ->
+      send(
+        parent,
+        {ref, :dispatch, current.id, received_credential.id, received_opts,
+         Repo.in_transaction?()}
+      )
+
+      {:error,
+       {:oauth_refresh_failed, 400,
+        %{error: " invalid_grant ", error_description: "SCALAR_SECRET_SENTINEL"}}}
+    end
+
+    persist = fn _current, _received_credential, _payload, _received_opts ->
+      send(parent, {ref, :unexpected_persist})
+      {:error, :invalid_material}
+    end
+
+    assert {:error, {:oauth_refresh_failed, 400, %{code: "invalid_grant"}}} =
+             Refresh.run(grant, dispatch, persist, @opts)
+
+    assert_received {^ref, :dispatch, grant_id, credential_id, @opts, false}
+    assert grant_id == grant.id
+    assert credential_id == credential.id
+    refute_received {^ref, :unexpected_persist}
+    assert_failed_refresh_state(grant)
+    assert token_update_count(grant) == 0
+    assert {:error, :refresh_busy} = Connect.refresh_grant(grant, @opts)
+  end
+
+  test "refresh discards a nested nonbinary provider error code", %{grant: grant} do
+    parent = self()
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(parent, {:request, conn.method, conn.request_path, URI.decode_query(body)})
+
+      conn
+      |> Plug.Conn.put_status(401)
+      |> Req.Test.json(%{"error" => %{"code" => 123, "message" => "CODE_SECRET_SENTINEL"}})
+    end)
+
+    assert {:error, {:oauth_refresh_failed, 401}} = Connect.refresh_grant(grant, @opts)
+    assert_received {:request, "POST", "/token", form}
+    assert form["grant_type"] == "refresh_token"
+    assert form["refresh_token"] == "old-refresh"
+    assert form["client_id"] == "client"
+    assert_failed_refresh_state(grant)
+    assert token_update_count(grant) == 0
+    assert {:error, :refresh_busy} = Connect.refresh_grant(grant, @opts)
+  end
+
+  test "refresh discards a scalar null provider error code", %{grant: grant} do
+    parent = self()
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      send(parent, {:request, conn.method, conn.request_path, URI.decode_query(body)})
+
+      conn
+      |> Plug.Conn.put_status(401)
+      |> Req.Test.json(%{"error" => nil, "error_description" => "NIL_SECRET_SENTINEL"})
+    end)
+
+    assert {:error, {:oauth_refresh_failed, 401}} = Connect.refresh_grant(grant, @opts)
+    assert_received {:request, "POST", "/token", form}
+    assert form["grant_type"] == "refresh_token"
+    assert form["refresh_token"] == "old-refresh"
+    assert form["client_id"] == "client"
+    assert_failed_refresh_state(grant)
+    assert token_update_count(grant) == 0
+    assert {:error, :refresh_busy} = Connect.refresh_grant(grant, @opts)
+  end
+
+  property "nonbinary provider error codes are never exposed", %{credential: credential} do
+    check all(
+            code <-
+              one_of([
+                constant(nil),
+                boolean(),
+                integer(-100..100),
+                list_of(integer(-10..10), max_length: 3)
+              ]),
+            max_runs: 15
+          ) do
+      {:ok, legacy} =
+        Connect.issue_grant(%{
+          credential_id: credential.id,
+          resource_type: "mcp",
+          resource_id: "refresh-code-#{Ecto.UUID.generate()}",
+          owner_type: "org",
+          owner_id: nil,
+          access_token: "old-access",
+          refresh_token: "old-refresh"
+        })
+
+      legacy = Repo.get!(Grant, legacy.id)
+      parent = self()
+
+      Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(parent, {:property_request, URI.decode_query(body)})
+
+        conn
+        |> Plug.Conn.put_status(401)
+        |> Req.Test.json(%{"error" => %{"code" => code, "message" => "PROPERTY_SECRET_SENTINEL"}})
+      end)
+
+      assert {:error, {:oauth_refresh_failed, 401}} = Connect.refresh_grant(legacy, @opts)
+      assert_received {:property_request, form}
+      assert form["refresh_token"] == "old-refresh"
+
+      persisted = Repo.get!(Grant, legacy.id)
+      assert persisted.access_token == "old-access"
+      assert persisted.refresh_token == "old-refresh"
+      assert persisted.status == "active"
+    end
+  end
+
+  test "legacy cache rejects stale caller material with unreadable ciphertext", %{
+    credential: credential
+  } do
+    {:ok, legacy} =
+      Connect.issue_grant(%{
+        credential_id: credential.id,
+        resource_type: "mcp",
+        resource_id: "legacy-cache-#{Ecto.UUID.generate()}",
+        owner_type: "org",
+        owner_id: nil,
+        access_token: "legacy-current-access",
+        refresh_token: "legacy-current-refresh"
+      })
+
+    legacy = Repo.get!(Grant, legacy.id)
+    stale = %{legacy | access_token: "enc:v1:broken"}
+
+    assert {:error, :stale_grant} =
+             Connect.update_grant_token_cache(stale, %{
+               access_token: "must-not-store",
+               expires_at: ~U[2099-01-01 00:00:00Z]
+             })
+
+    persisted = Repo.get!(Grant, legacy.id)
+    assert persisted.access_token == "legacy-current-access"
+    assert persisted.refresh_token == "legacy-current-refresh"
+    assert persisted.expires_at == nil
+    assert persisted.refresh_claim == nil
+    assert persisted.refresh_claim_until == nil
+    assert token_update_count(legacy) == 0
   end
 
   test "expired lease recovers without trusting old claim", %{grant: grant} do
@@ -377,6 +579,27 @@ defmodule Zaq.Engine.Connect.RefreshTest do
     Req.Test.expect(
       ConnectOAuthAttemptHTTP,
       &Req.Test.json(&1, %{"access_token" => "new-access", "expires_in" => 3600})
+    )
+  end
+
+  defp assert_failed_refresh_state(grant) do
+    persisted = Repo.get!(Grant, grant.id)
+    assert persisted.access_token == "old-access"
+    assert persisted.refresh_token == "old-refresh"
+    assert persisted.status == "active"
+    assert is_binary(persisted.refresh_claim)
+    assert persisted.refresh_claim_until == DateTime.add(@now, 120)
+  end
+
+  defp token_update_count(grant) do
+    Repo.aggregate(
+      from(j in Oban.Job,
+        where:
+          j.queue == "connect_credential_notifications" and
+            fragment("?->>'grant_id'", j.args) == ^to_string(grant.id) and
+            fragment("?->>'kind'", j.args) == "grant_tokens_updated"
+      ),
+      :count
     )
   end
 end

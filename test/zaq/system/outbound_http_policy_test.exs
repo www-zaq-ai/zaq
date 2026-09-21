@@ -143,6 +143,33 @@ defmodule Zaq.System.OutboundHttpPolicyTest do
       assert policy.allowed_ports == []
     end
 
+    test "uses safe defaults after persisted list settings are cleared" do
+      for {field, value} <- [
+            {"blacklisted_hosts", ~s(["blocked.example"])},
+            {"blacklisted_ips", ~s(["10.0.0.2"])},
+            {"blacklisted_cidrs", ~s(["10.0.0.0/8"])},
+            {"allowed_methods", ~s(["POST"])},
+            {"allowed_ports", ~s([8443])}
+          ] do
+        assert {:ok, _} = System.set_config("outbound_http.#{field}", value)
+      end
+
+      for field <-
+            ~w(blacklisted_hosts blacklisted_ips blacklisted_cidrs allowed_methods allowed_ports) do
+        assert {:ok, _} = System.set_config("outbound_http.#{field}", "")
+        assert System.get_config("outbound_http.#{field}") == ""
+      end
+
+      policy = System.get_outbound_http_policy()
+      assert policy.blacklisted_hosts == []
+      assert policy.blacklisted_ips == []
+      assert policy.blacklisted_cidrs == []
+      assert policy.allowed_methods == ~w(GET HEAD OPTIONS)
+      assert policy.allowed_ports == []
+      assert policy.enabled == false
+      assert policy.follow_redirects == false
+    end
+
     test "parses mixed JSON port values and drops invalid values" do
       assert {:ok, _} =
                System.set_config("outbound_http.allowed_ports", ~s(["443","invalid",8443]))

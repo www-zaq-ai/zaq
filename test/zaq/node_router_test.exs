@@ -711,6 +711,87 @@ defmodule Zaq.NodeRouterTest do
     end
   end
 
+  describe "default RPC transport" do
+    test "uses default RPC for discovery and role execution on this VM" do
+      actual_node = node()
+      assert is_pid(Process.whereis(ZaqWeb.Endpoint))
+
+      current_node =
+        if actual_node == :router_probe_a@host do
+          :router_probe_b@host
+        else
+          :router_probe_a@host
+        end
+
+      event =
+        Event.new(%{probe: :default_rpc}, :bo,
+          timestamp: ~U[2026-01-01 00:00:00Z],
+          trace_id: "default-rpc-trace",
+          actor: %{actor: :coverage_test},
+          assigns: %{assigns: :coverage_test},
+          opts: [action: :unsupported_node_router_coverage_action, confidential: true]
+        )
+
+      runtime = %{
+        current_node_fn: fn -> current_node end,
+        node_list_fn: fn -> [actual_node] end,
+        whereis_fn: fn _ -> nil end
+      }
+
+      result = NodeRouter.dispatch(event, runtime)
+
+      assert %Event{} = result
+
+      assert result.response ==
+               {:error, {:unsupported_action, :unsupported_node_router_coverage_action}}
+
+      assert result.request == event.request
+      assert result.assigns == event.assigns
+      assert result.opts == event.opts
+      assert result.trace_id == event.trace_id
+      assert result.actor == event.actor
+      assert result.next_hop == nil
+      assert result.hops == [event.next_hop]
+    end
+  end
+
+  describe "invoke/5 compatibility" do
+    test "invoke preserves remote RPC failure details" do
+      marker = make_ref()
+      owner = self()
+
+      runtime = %{
+        current_node_fn: fn -> :local@host end,
+        node_list_fn: fn -> [:remote@host] end,
+        whereis_fn: fn _ -> nil end,
+        rpc_call_with_timeout_fn: fn
+          :remote@host, Process, :whereis, [ZaqWeb.Endpoint], 30_000 ->
+            send(owner, {marker, {:discovery, :remote@host, 30_000}})
+            owner
+
+          :remote@host, Zaq.Bo.Api, :handle_event, [%Event{} = routed, :invoke, nil], :infinity ->
+            send(owner, {marker, {:execution, routed, :infinity}})
+            {:badrpc, :timeout}
+
+          node, module, function, args, timeout ->
+            send(owner, {marker, {:unexpected_call, {node, module, function, args, timeout}}})
+            nil
+        end
+      }
+
+      assert NodeRouter.invoke(:bo, String, :upcase, ["hello"], runtime) ==
+               {:error, {:rpc_failed, :remote@host, :timeout}}
+
+      assert_received {^marker, {:discovery, :remote@host, 30_000}}
+      assert_received {^marker, {:execution, %Event{} = routed, :infinity}}
+      assert routed.request == %{module: String, function: :upcase, args: ["hello"]}
+      assert routed.next_hop == nil
+      assert [%EventHop{destination: :bo, type: :sync}] = routed.hops
+      assert is_binary(routed.trace_id)
+      refute_received {^marker, {:unexpected_call, _}}
+    end
+  end
+
   describe "PubSub broadcast side-channel" do
     setup do
       Phoenix.PubSub.subscribe(@pubsub, @topic)
