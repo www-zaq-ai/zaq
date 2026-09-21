@@ -33,11 +33,15 @@
     {
       "text": "Combined People journey remains green after real OAuth, runtime permission revocation, and continuation-cleanup additions: Chromium/Firefox/WebKit at 390/1280, 3 tests/0 failures. mix q and diff check pass. Final mix precommit exceeded 900s and was terminated, so final approval remains blocked.",
       "timestamp": "2026-09-21T19:05:44Z"
+    },
+    {
+      "text": "Committed and pushed as 1aff00fc on feat/telemetry-granularity-for-agents. Human authorized landing. Combined browser journey passes all required engines/viewports; final mix precommit remained blocked by the mandated 900s timeout.",
+      "timestamp": "2026-09-21T19:11:48Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Consolidated profile E2E after approval",
   "type": "task",
-  "updated_at": "2026-09-21T19:05:44Z"
+  "updated_at": "2026-09-21T19:11:48Z"
 }
