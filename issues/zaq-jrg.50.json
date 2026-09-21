@@ -14,6 +14,10 @@
     {
       "text": "Human UX/message approval recorded from user ('looks good to me') on 2026-09-20. Implementation committed as cacd185e. Focused validation passed (737 tests, 19 properties, 6 doctests); final mix precommit passed after recompiling phoenix_live_view in MIX_ENV=test to apply existing compile-time session-log purge: 9,550 tests, 147 properties, 48 doctests, 0 failures, 1 skipped. No login/redirection changes. E2E scope remains to be finalized separately if still required before merge.",
       "timestamp": "2026-09-20T11:08:09Z"
+    },
+    {
+      "text": "Added approved ingress acceptance coverage for expired personal credentials, missing global base URL, global-admin recovery, and exactly-one terminal Mattermost update; 11 tests pass. Existing missing/revoked/required paths remain covered. Action reuse: not applicable—test-only coverage uses existing Connect, formatter, and ingress boundaries. mix q, related callback/formatter tests, and diff check pass. Final mix precommit exceeded the required 900s gate and was terminated; do not request final approval until the gate completes.",
+      "timestamp": "2026-09-21T19:05:43Z"
     }
   ],
   "priority": 1,
