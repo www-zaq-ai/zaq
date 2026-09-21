@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-21T14:06:17Z",
+  "description": "Make mix setup, setup.branch, reset, and test database preparation install required database extensions using the configured Repo credentials before migrations. Add tests and update developer docs.",
+  "id": "zaq-f6s.9",
+  "labels": [],
+  "parent": "zaq-f6s",
+  "priority": 2,
+  "status": "open",
+  "title": "Developer Mix setup installs database extensions",
+  "type": "task",
+  "updated_at": "2026-09-21T14:06:17Z"
+}
