@@ -10,11 +10,15 @@
     {
       "text": "Verified 5 concrete PR regressions with six supplemental ExUnit cases outside the worktree: JSONB ToUtcDateTime/ScheduleAction maps rejected; Condition JSON schema advertises string items; finalization notification exception overwrites completed state; paused pending map approval silently drops item and completes count=0/errors=[]; internal driver exit disarms watcher leaving running state. Existing workflow/Condition suites pass: 19 properties, 977 tests. Related #761 explicitly separate; no duplicate PR review comments present. Final quality validation and posting pending.",
       "timestamp": "2026-09-21T14:05:28Z"
+    },
+    {
+      "text": "Final review validation: mix precommit formatting/Credo/compile passed (Credo 1298 files, no issues). Full stale test phase summary 48 doctests, 134 properties, 8475 tests, 5 failures, 1 skipped (86 excluded); onboarding render_async timeout and ConfidentialEventPeer/AuthRateLimiterPeer failures outside diff, not baseline-attributed. Runner timeout also occurred during teardown. No implementation fixes attempted (review-only). Submit request-changes: five inline reproducible code findings plus one general missing Action-reuse/rollout-evidence comment.",
+      "timestamp": "2026-09-21T14:20:48Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[PR #765] Complete execution-contract review and publish findings",
   "type": "task",
-  "updated_at": "2026-09-21T14:05:28Z"
+  "updated_at": "2026-09-21T14:20:48Z"
 }
