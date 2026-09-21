@@ -21,11 +21,15 @@
     {
       "text": "Cleanup zaq-tup.12 removes staging route/fixtures/simulation scenarios. Pending E2E covers production /people/profile only, with dedicated test identities; synthetic scenario navigation and fixture-only saves are superseded. Inline Storybook presentation variants remain. Final UX approval .3 still blocks authoring; existing E2E remains unchanged.",
       "timestamp": "2026-09-15T12:13:52Z"
+    },
+    {
+      "text": "Implemented approved consolidated production profile browser coverage in isolated worktree /Users/julien/Documents/Repos/Github/OSS/zaq-profile-e2e (branch zaq-tup.4/profile-e2e). Added login shell width/containment, name cancel and invalid-draft recovery, disabled save, keyboard focus/announcement, order cancel, desktop drag, touch alternative, persistence, account-menu mutual dismissal/Escape/focus and panel/card containment, plus stronger post-revocation read-only checks. Action reuse: not applicable — test-only E2E coverage, no executable operation changes. Validation: real Chromium/Firefox/WebKit at 390/1280 passed (3 tests, 0 failures, 128s); mix q passed (1357 files, no issues); diff check passed. Final mix precommit reached 9508 tests/146 properties/48 doctests with 4 unrelated distributed peer failures; --failed rerun cleared all three AuthRateLimiterPeer cases and left only existing ConfidentialEventPeerTest peer startup/connect failure. No commit/push; ticket remains in_progress pending authorized landing.",
+      "timestamp": "2026-09-21T14:26:53Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Consolidated profile E2E after approval",
   "type": "task",
-  "updated_at": "2026-09-21T12:43:36Z"
+  "updated_at": "2026-09-21T14:26:53Z"
 }
