@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-21T15:47:42Z",
+  "description": "Review each implementation; run mix q; delegate fixes; run mix test added/edited test files only --cover, grep relevant coverage rows. Preserve all pre-existing changes. No full suite.",
+  "id": "zaq-i8x.21",
+  "labels": [],
+  "parent": "zaq-i8x",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-i8x] Review quality and targeted coverage",
+  "type": "task",
+  "updated_at": "2026-09-21T15:47:42Z"
+}
