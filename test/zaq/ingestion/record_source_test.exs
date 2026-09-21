@@ -7,7 +7,7 @@ defmodule Zaq.Ingestion.RecordSourceTest do
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
-  alias Zaq.Ingestion.RecordSource
+  alias Zaq.Ingestion.{DocumentProcessor, RecordSource}
 
   setup :verify_on_exit!
 
@@ -49,6 +49,8 @@ defmodule Zaq.Ingestion.RecordSourceTest do
         {"generic metadata", "Report", nil, nil, "application/octet-stream", ".bin"},
         {"unknown specific MIME", "Report.docx", @docx, "Report.docx",
          "application/x-zaq-unknown", ".bin"},
+        {"unknown structured-suffix MIME", "Report.docx", @docx, "Report.zip",
+         "application/vnd.zaq-unknown+zip", ".bin"},
         {"unsafe downloaded suffix", "Report", nil, "Report.pdf\\evil", "application/pdf",
          ".pdf"},
         {"unsafe suffix fallback", "Report.pdf", nil, "Report.bad suffix", nil, ".pdf"},
@@ -76,6 +78,48 @@ defmodule Zaq.Ingestion.RecordSourceTest do
       source = %{external_record() | name: "Report." <> suffix}
       assert_artifact(source, "Export", @docx, ".docx")
     end
+  end
+
+  test "converts a genuine extensionless Google DOCX export to readable Markdown" do
+    expected_text = "ZAQ issue 568 genuine DOCX regression"
+    fixture = File.read!("test/fixtures/issue_568_google_doc.docx")
+
+    source = %{
+      external_record()
+      | name: "Issue 568 export",
+        mime_type: "application/vnd.google-apps.document"
+    }
+
+    downloaded = %Record{
+      id: "provider-file-1",
+      kind: :file,
+      name: "Issue 568 export",
+      mime_type: @docx,
+      content: Base.encode64(fixture),
+      attributes: %{"encoding" => "base64"}
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      assert event.opts[:action] == :data_source_download_document
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(source, router_context())
+    root = Path.dirname(materialized.path)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    assert Path.extname(materialized.path) == ".docx"
+
+    assert {:ok, document, _indexed_payloads} =
+             DocumentProcessor.prepare_file_chunks(
+               materialized.path,
+               materialized.processor_opts
+             )
+
+    assert document.content =~ expected_text
+    refute String.starts_with?(document.content, "PK")
+    refute document.content =~ "[Content_Types].xml"
+    refute document.content =~ "word/document.xml"
   end
 
   defp assert_artifact(source, name, mime_type, extension) do

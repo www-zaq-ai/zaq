@@ -8,6 +8,7 @@ defmodule Zaq.Ingestion.ArtifactTypeTest do
     {"application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"},
     {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"},
     {"application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx"},
+    {"application/ld+json", ".jsonld"},
     {"application/pdf", ".pdf"},
     {"image/jpeg", ".jpg"},
     {"application/octet-stream", ".bin"}
@@ -34,6 +35,36 @@ defmodule Zaq.Ingestion.ArtifactTypeTest do
 
     for extension <- [nil, "", ".", "pdf", "../pdf", ".pdf/evil", ".pdf\\evil", ".pdf\n", ".pdf "] do
       refute ArtifactType.compatible_extension?("application/pdf", extension)
+    end
+  end
+
+  test "rejects structured-suffix fallbacks for unrecognized specific MIME types" do
+    for mime <- [
+          "application/vnd.zaq-unknown+zip",
+          "application/vnd.zaq-unknown+json",
+          "application/vnd.zaq-unknown+xml"
+        ] do
+      assert ArtifactType.canonical_extension(mime) == nil
+      refute ArtifactType.compatible_extension?(mime, ".zip")
+      refute ArtifactType.compatible_extension?(mime, ".json")
+      refute ArtifactType.compatible_extension?(mime, ".xml")
+    end
+  end
+
+  test "owns filename-extension safety and nonspecific MIME classification" do
+    assert ArtifactType.filename_extension("Report.DOCX") == ".docx"
+    assert ArtifactType.filename_extension("archive.tar.gz") == ".gz"
+
+    for filename <- [nil, "", "Report", "Report.", "Report.bad suffix", "Report.pdf\\evil"] do
+      assert ArtifactType.filename_extension(filename) == nil
+    end
+
+    for mime <- [nil, "", "  ", " APPLICATION/OCTET-STREAM; x=y"] do
+      assert ArtifactType.nonspecific_mime?(mime)
+    end
+
+    for mime <- ["application/pdf", "application/vnd.zaq-unknown+zip", :not_a_mime] do
+      refute ArtifactType.nonspecific_mime?(mime)
     end
   end
 

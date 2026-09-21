@@ -187,7 +187,8 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - Binary staging in `RecordSource` follows the downloaded representation: a safe,
   lowercase downloaded filename suffix wins when compatible with the downloaded MIME
   or when that MIME is nil, blank or `application/octet-stream`. Otherwise
-  `ArtifactType` supplies the first safe suffix from the MIME library's mapping.
+  `ArtifactType` supplies the first safe suffix for an explicitly registered MIME
+  library type; structured-suffix fallbacks do not make unknown types recognized.
   Only nonspecific downloaded MIME permits fallback to a safe original filename
   suffix; unknown specific MIME types fall back to `.bin`. Original MIME is never
   used to infer the staged format. Bytes, source records, titles and provenance are

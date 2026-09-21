@@ -255,8 +255,8 @@ defmodule Zaq.Ingestion.RecordSource do
   end
 
   defp extension_for(%Record{} = original, %Record{} = downloaded) do
-    extension = safe_filename_extension(downloaded.name)
-    nonspecific? = nonspecific_mime?(downloaded.mime_type)
+    extension = ArtifactType.filename_extension(downloaded.name)
+    nonspecific? = ArtifactType.nonspecific_mime?(downloaded.mime_type)
 
     cond do
       extension &&
@@ -264,32 +264,12 @@ defmodule Zaq.Ingestion.RecordSource do
         extension
 
       nonspecific? ->
-        safe_filename_extension(original.name) || ".bin"
+        ArtifactType.filename_extension(original.name) || ".bin"
 
       true ->
         ArtifactType.canonical_extension(downloaded.mime_type) || ".bin"
     end
   end
-
-  defp safe_filename_extension(name) when is_binary(name) do
-    extension = name |> Path.extname() |> String.downcase()
-    if Regex.match?(~r/\A\.[a-z0-9]+\z/, extension), do: extension
-  end
-
-  defp safe_filename_extension(_name), do: nil
-
-  defp nonspecific_mime?(nil), do: true
-
-  defp nonspecific_mime?(mime_type) when is_binary(mime_type) do
-    mime_type
-    |> String.split(";", parts: 2)
-    |> hd()
-    |> String.trim()
-    |> String.downcase()
-    |> then(&(&1 in ["", "application/octet-stream"]))
-  end
-
-  defp nonspecific_mime?(_mime_type), do: false
 
   defp attr(%Record{} = record, key), do: record |> attributes() |> Map.get(key)
 
