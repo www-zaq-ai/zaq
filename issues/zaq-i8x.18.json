@@ -9,9 +9,15 @@
   "id": "zaq-i8x.18",
   "labels": [],
   "parent": "zaq-i8x",
+  "comments": [
+    {
+      "text": "Coverage pass implementation/review finished. Final mix q passed. Final targeted mix test of 27 added/edited files --cover: 29 properties,374 tests,0 failures, exit0,seed290301. Scoped refresh coverage 96.8%. This is NOT directly comparable to user whole-suite baseline; unchanged companion tests excluded per requested scope. No production edits, commits, or full-suite runs. Temporary display configuration restored. Keep remaining gaps/plan exceptions visible; no claim every line covered.",
+      "timestamp": "2026-09-21T16:46:35Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-i8x] refresh coverage",
   "type": "task",
-  "updated_at": "2026-09-21T15:48:15Z"
+  "updated_at": "2026-09-21T16:46:35Z"
 }
