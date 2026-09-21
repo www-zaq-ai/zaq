@@ -247,7 +247,7 @@ defmodule ZaqWeb.Live.People.ConversationDetailLive do
         <PersonHeader.person_header
           title={(@conversation && @conversation.title) || "Conversation"}
           display_name={@current_person.full_name}
-          history_access={true}
+          person_permissions={@person_permissions}
         />
       </:header>
       <ConversationDetail.conversation_detail

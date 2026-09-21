@@ -242,7 +242,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
           title="Credentials"
           description="Manage authentication used on your behalf. Saved secrets are never displayed."
           display_name={@current_person.full_name}
-          credentials_access={true}
+          person_permissions={@person_permissions}
         />
       </:header>
 

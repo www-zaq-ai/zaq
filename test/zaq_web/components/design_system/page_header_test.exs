@@ -35,7 +35,11 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeaderTest do
 
   test "People header nests mobile-aware theme controls in Settings and keeps People destinations" do
     html =
-      render_component(&PersonHeader.person_header/1, title: "Profile", description: "About you")
+      render_component(&PersonHeader.person_header/1,
+        title: "Profile",
+        description: "About you",
+        person_permissions: MapSet.new([:access_profile, :access_message_history])
+      )
 
     assert html =~ "/images/zaq.png"
     assert html =~ "alt=\"ZAQ\""
@@ -58,5 +62,29 @@ defmodule ZaqWeb.Components.DesignSystem.PageHeaderTest do
     assert html =~ "flex-nowrap gap-2 sm:flex-wrap sm:gap-4"
     refute html =~ "/bo/"
     refute html =~ "bo-sidebar"
+  end
+
+  test "People header derives the same settings destinations from permissions on every page" do
+    allowed_permissions = MapSet.new([:access_profile, :access_message_history])
+
+    for title <- ["Profile", "Credentials", "Conversations", "Conversation"] do
+      html =
+        render_component(&PersonHeader.person_header/1,
+          title: title,
+          person_permissions: allowed_permissions
+        )
+
+      assert html =~ "id=\"people-conversations-link\""
+      assert html =~ "id=\"people-credentials-link\""
+    end
+
+    html =
+      render_component(&PersonHeader.person_header/1,
+        title: "Credentials",
+        person_permissions: MapSet.new([:access_profile])
+      )
+
+    refute html =~ "id=\"people-conversations-link\""
+    assert html =~ "id=\"people-credentials-link\""
   end
 end

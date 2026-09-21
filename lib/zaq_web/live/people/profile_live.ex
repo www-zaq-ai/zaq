@@ -279,12 +279,7 @@ defmodule ZaqWeb.Live.People.ProfileLive do
     <PersonLayout.person_layout flash={@flash} authenticated content_width={:wide}>
       <:header>
         <PersonHeader.person_header
-          history_access={
-            Enum.all?(
-              [:access_profile, :access_message_history],
-              &MapSet.member?(@person_permissions, &1)
-            )
-          }
+          person_permissions={@person_permissions}
           display_name={@current_person && @current_person.full_name}
           title="Profile"
           description="Your details, your teams, and how ZAQ can reach you."

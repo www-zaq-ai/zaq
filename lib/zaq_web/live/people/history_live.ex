@@ -76,7 +76,7 @@ defmodule ZaqWeb.Live.People.HistoryLive do
         <PersonHeader.person_header
           title="Conversations"
           display_name={@current_person.full_name}
-          history_access={true}
+          person_permissions={@person_permissions}
         />
       </:header>
       <HistoryBrowser.history_browser

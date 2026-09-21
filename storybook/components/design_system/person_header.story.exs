@@ -19,7 +19,8 @@ defmodule Storybook.Components.DesignSystem.PersonHeader do
           attributes: %{
             title: "Profile",
             description: "Your details, your teams, and how ZAQ can reach you.",
-            display_name: name
+            display_name: name,
+            person_permissions: MapSet.new([:access_profile, :access_message_history])
           }
         }
       end
@@ -28,7 +29,11 @@ defmodule Storybook.Components.DesignSystem.PersonHeader do
       [
         %Variation{
           id: :history,
-          attributes: %{title: "Conversations", display_name: "Alex Morgan", history_access: true}
+          attributes: %{
+            title: "Conversations",
+            display_name: "Alex Morgan",
+            person_permissions: MapSet.new([:access_profile, :access_message_history])
+          }
         }
       ]
   end

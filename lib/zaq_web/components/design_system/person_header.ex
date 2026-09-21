@@ -1,7 +1,7 @@
 defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
   @moduledoc """
   People-facing composition of the shared BO page header without a sidebar.
-   Settings exposes caller-authorized People destinations.
+  Settings derives People destinations consistently from the person's permissions.
   Theme changes reuse the root preference handler; account actions remain People-only.
   """
   use Phoenix.Component
@@ -13,10 +13,11 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
   attr :title, :string, required: true
   attr :description, :string, default: nil
   attr :display_name, :string, default: nil
-  attr :history_access, :boolean, default: false
-  attr :credentials_access, :boolean, default: true
+  attr :person_permissions, :any, required: true
 
   def person_header(assigns) do
+    assigns = assign(assigns, :history_access, history_access?(assigns.person_permissions))
+
     ~H"""
     <PageHeader.page_header
       id="people-header"
@@ -58,13 +59,8 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
                 <p class="zaq-text-h4">Appearance</p>
                 <.theme_toggle />
               </div>
-              <div
-                :if={@history_access || @credentials_access}
-                class="zaq-account-divider"
-              />
-              <p :if={@history_access || @credentials_access} class="zaq-text-h4">
-                Personal settings
-              </p>
+              <div class="zaq-account-divider" />
+              <p class="zaq-text-h4">Personal settings</p>
               <.link
                 :if={@history_access}
                 id="people-conversations-link"
@@ -72,7 +68,6 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
                 class="zaq-btn zaq-btn-ghost"
               >Conversations</.link>
               <.link
-                :if={@credentials_access}
                 id="people-credentials-link"
                 navigate="/people/credentials"
                 class="zaq-btn zaq-btn-ghost"
@@ -94,4 +89,13 @@ defmodule ZaqWeb.Components.DesignSystem.PersonHeader do
     </PageHeader.page_header>
     """
   end
+
+  defp history_access?(%MapSet{} = permissions) do
+    Enum.all?(
+      [:access_profile, :access_message_history],
+      &MapSet.member?(permissions, &1)
+    )
+  end
+
+  defp history_access?(_permissions), do: false
 end

@@ -56,7 +56,13 @@ defmodule ZaqWeb.Components.DesignSystem.AccountMenuTest do
 
   test "People composition passes display name through shared avatar presentation" do
     for name <- [nil, "", "Alex Morgan", "王小明"] do
-      html = render_component(&PersonHeader.person_header/1, title: "Profile", display_name: name)
+      html =
+        render_component(&PersonHeader.person_header/1,
+          title: "Profile",
+          display_name: name,
+          person_permissions: MapSet.new()
+        )
+
       assert html =~ "zaq-account-avatar"
       assert html =~ "Account menu: #{if name in [nil, ""], do: "Profile", else: name}"
       assert html =~ "action=\"/people/session\""
