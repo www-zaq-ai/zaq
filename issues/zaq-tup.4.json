@@ -25,11 +25,15 @@
     {
       "text": "Implemented approved consolidated production profile browser coverage in isolated worktree /Users/julien/Documents/Repos/Github/OSS/zaq-profile-e2e (branch zaq-tup.4/profile-e2e). Added login shell width/containment, name cancel and invalid-draft recovery, disabled save, keyboard focus/announcement, order cancel, desktop drag, touch alternative, persistence, account-menu mutual dismissal/Escape/focus and panel/card containment, plus stronger post-revocation read-only checks. Action reuse: not applicable — test-only E2E coverage, no executable operation changes. Validation: real Chromium/Firefox/WebKit at 390/1280 passed (3 tests, 0 failures, 128s); mix q passed (1357 files, no issues); diff check passed. Final mix precommit reached 9508 tests/146 properties/48 doctests with 4 unrelated distributed peer failures; --failed rerun cleared all three AuthRateLimiterPeer cases and left only existing ConfidentialEventPeerTest peer startup/connect failure. No commit/push; ticket remains in_progress pending authorized landing.",
       "timestamp": "2026-09-21T14:26:53Z"
+    },
+    {
+      "text": "Ported the approved profile E2E changes into the current clean worktree on feat/telemetry-granularity-for-agents, merged with credential coverage in the shared People browser runner. Combined current-worktree validation: Chromium/Firefox/WebKit at 390/1280 passed (3 tests, 0 failures); mix q passed (1371 files, no issues); git diff --check passed. Changes remain uncommitted.",
+      "timestamp": "2026-09-21T15:13:20Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Consolidated profile E2E after approval",
   "type": "task",
-  "updated_at": "2026-09-21T14:26:53Z"
+  "updated_at": "2026-09-21T15:13:20Z"
 }
