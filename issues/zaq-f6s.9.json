@@ -7,9 +7,15 @@
   "id": "zaq-f6s.9",
   "labels": [],
   "parent": "zaq-f6s",
+  "comments": [
+    {
+      "text": "Approved implementation: add idempotent developer extension task using configured Repo credentials; wire before migrations/copy; test fresh setup, reruns, and optional ParadeDB behavior; update docs.",
+      "timestamp": "2026-09-21T14:06:29Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-f6s.9] Developer Mix setup installs database extensions",
   "type": "task",
-  "updated_at": "2026-09-21T14:06:28Z"
+  "updated_at": "2026-09-21T14:06:29Z"
 }
