@@ -19,11 +19,15 @@
     {
       "text": "User requested revision: eliminate extension SQL duplication. Refactoring canonical bootstrap into reusable extension fragments; mix db.extensions will become a thin psql runner so dev setup exercises the same SQL as managed bootstrap.",
       "timestamp": "2026-09-21T15:06:37Z"
+    },
+    {
+      "text": "Refactored per feedback: canonical install_vector_extension.sql and install_pg_search_extension.sql are included by both managed bootstrap entrypoints and setup_development_extensions.sql. mix db.extensions is now a thin psql runner using configured Repo connection env; Docker packaging and gitignore updated. Validation: 20 targeted tests, 16 managed PostgreSQL integration tests, 100% task coverage, mix q, and final review all pass. Changes remain uncommitted.",
+      "timestamp": "2026-09-21T15:21:27Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-f6s.9] Developer Mix setup installs database extensions",
   "type": "task",
-  "updated_at": "2026-09-21T15:06:37Z"
+  "updated_at": "2026-09-21T15:21:27Z"
 }
