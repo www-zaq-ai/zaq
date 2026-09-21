@@ -14,11 +14,15 @@
     {
       "text": "Final review validation: mix precommit formatting/Credo/compile passed (Credo 1298 files, no issues). Full stale test phase summary 48 doctests, 134 properties, 8475 tests, 5 failures, 1 skipped (86 excluded); onboarding render_async timeout and ConfidentialEventPeer/AuthRateLimiterPeer failures outside diff, not baseline-attributed. Runner timeout also occurred during teardown. No implementation fixes attempted (review-only). Submit request-changes: five inline reproducible code findings plus one general missing Action-reuse/rollout-evidence comment.",
       "timestamp": "2026-09-21T14:20:48Z"
+    },
+    {
+      "text": "Review submitted and verified as CHANGES_REQUESTED on head 0833c57b: https://github.com/www-zaq-ai/zaq/pull/765#pullrequestreview-5267735361 . Five inline findings (1 high, 4 medium) plus medium general reuse/rollout-evidence finding: https://github.com/www-zaq-ai/zaq/pull/765#issuecomment-5762053950 . Existing scope 977 tests/19 properties green; six external reproducer cases confirm five code defects; precommit not green as detailed in review. Implementation worktree clean; no source modifications/commits/pushes. Review task complete; author remediation remains outstanding.",
+      "timestamp": "2026-09-21T14:24:14Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[PR #765] Complete execution-contract review and publish findings",
   "type": "task",
-  "updated_at": "2026-09-21T14:20:48Z"
+  "updated_at": "2026-09-21T14:24:14Z"
 }
