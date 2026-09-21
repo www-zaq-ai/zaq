@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-i8x.21"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-i8x",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-i8x] factory coverage",
   "type": "task",
-  "updated_at": "2026-09-21T15:47:48Z"
+  "updated_at": "2026-09-21T15:48:12Z"
 }
