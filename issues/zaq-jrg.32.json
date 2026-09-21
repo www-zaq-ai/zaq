@@ -25,11 +25,15 @@
     {
       "text": "Expanded credential E2E from OAuth initiation/cancel to a local real Standard OAuth provider: successful callback, denial, token failure, reconnect, revoke/remove, popup blocking, redirect URI and PKCE checks, plus runtime manage_credentials revocation and continuation cleanup. All engines at 390/1280 pass (3 tests); system_config passes 165 tests across 3 engines. mix q and diff check pass; final precommit timed out at 900s.",
       "timestamp": "2026-09-21T19:05:44Z"
+    },
+    {
+      "text": "Committed and pushed as 1aff00fc on feat/telemetry-granularity-for-agents. Human authorized landing. Validation evidence is in prior comments; final mix precommit remained blocked by the mandated 900s timeout.",
+      "timestamp": "2026-09-21T19:11:46Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Finalize credential management E2E",
   "type": "task",
-  "updated_at": "2026-09-21T19:05:44Z"
+  "updated_at": "2026-09-21T19:11:46Z"
 }
