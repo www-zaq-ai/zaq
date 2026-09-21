@@ -56,6 +56,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "workflow.to_utc_datetime",
              "workflow.schedule_action",
              "workflow.dispatch_event",
+             "workflow.validate_workflow_input",
              "web.browsing",
              "advanced.lua_eval"
            ]
@@ -160,6 +161,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              Registry.resolve_modules(["resources.query"])
   end
 
+  test "workflow.validate_workflow_input resolves to the input validation tool" do
+    assert Registry.valid_tool_key?("workflow.validate_workflow_input")
+
+    assert {:ok, [Zaq.Agent.Tools.Workflow.ValidateWorkflowInput]} =
+             Registry.resolve_modules(["workflow.validate_workflow_input"])
+  end
+
   test "web.browsing resolves to the browsing tool" do
     assert Registry.valid_tool_key?("web.browsing")
 
@@ -217,6 +225,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "workflow.to_utc_datetime",
              "workflow.schedule_action",
              "workflow.dispatch_event",
+             "workflow.validate_workflow_input",
              "web.browsing",
              "advanced.lua_eval"
            ]

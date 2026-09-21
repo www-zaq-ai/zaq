@@ -1,0 +1,123 @@
+
+{
+  "description": "Exercises the input contract against Zoi rules (pattern, length, bounds, enum, list element), a NimbleOptions choice set, a nested object, both optional wiring mechanisms, a Condition fed by a mapping, and edge conditions.",
+  "edges": [
+    {
+      "condition": {
+        "field": "channel",
+        "op": "not_empty"
+      },
+      "from": "start",
+      "mapping": {},
+      "to": "validate"
+    },
+    {
+      "condition": {
+        "field": "accepted",
+        "op": "eq",
+        "value": true
+      },
+      "from": "validate",
+      "mapping": {
+        "profile": "start.profile",
+        "shipment_id": "validate.shipment_id"
+      },
+      "to": "score"
+    },
+    {
+      "from": "score",
+      "mapping": {
+        "input": "score.detail"
+      },
+      "to": "risk_gate"
+    },
+    {
+      "condition": {
+        "field": "passed",
+        "op": "eq",
+        "value": true
+      },
+      "from": "risk_gate",
+      "mapping": {},
+      "to": "draft_notice"
+    },
+    {
+      "condition": {
+        "field": "output",
+        "op": "not_empty"
+      },
+      "from": "draft_notice",
+      "mapping": {
+        "attempts": "start.attempts",
+        "body": "draft_notice.output",
+        "channel": "start.channel",
+        "recipient": "start.notify_email",
+        "shipment_id": "validate.shipment_id"
+      },
+      "to": "notify"
+    }
+  ],
+  "name": "Dispatch Shipment Notice",
+  "nodes": [
+    {
+      "index": 0,
+      "module": "Zaq.Agent.Tools.Workflow.ValidateShipment",
+      "name": "validate",
+      "params": {
+        "priority": "{{start.priority}}"
+      },
+      "type": "action"
+    },
+    {
+      "index": 1,
+      "module": "Zaq.Agent.Tools.Workflow.ScoreShipmentRisk",
+      "name": "score",
+      "params": {
+        "reviewer_email": "{{start.reviewer_email}}",
+        "threshold": "{{start.threshold}}"
+      },
+      "type": "action"
+    },
+    {
+      "index": 2,
+      "module": "Zaq.Agent.Tools.Workflow.Condition",
+      "name": "risk_gate",
+      "params": {
+        "conditions": [
+          {
+            "key": "flagged",
+            "op": "eq",
+            "value": true
+          }
+        ],
+        "on_fail": "continue"
+      },
+      "type": "action"
+    },
+    {
+      "index": 3,
+      "module": "Zaq.Agent.Tools.Workflow.RunAgent",
+      "name": "draft_notice",
+      "params": {
+        "agent_id": 1,
+        "input": "Draft a shipment notice for {{validate.shipment_id}} on route {{validate.route}}, risk band {{score.band}}, addressed to {{start.customer_name}}. Keep it under 80 words and do not invent a tracking number."
+      },
+      "type": "action"
+    },
+    {
+      "index": 4,
+      "module": "Zaq.Agent.Tools.Workflow.DispatchShipmentNotice",
+      "name": "notify",
+      "params": {},
+      "type": "action"
+    }
+  ],
+  "settings": {},
+  "status": "active",
+  "trigger": {
+    "cron_schedule": null,
+    "enabled": true,
+    "event_name": "engine:dispatch_shipment_notice",
+    "trigger_type": "event"
+  }
+}

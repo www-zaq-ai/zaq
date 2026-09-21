@@ -52,10 +52,18 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
+  alias Zaq.Engine.Workflows.Placeholders
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
   alias Zaq.Engine.Workflows.WorkflowRun
 
-  @wrapper_keys [:wrapped_module, :run_id, :step_name, :step_index, :timeout_ms]
+  @wrapper_keys [
+    :wrapped_module,
+    :run_id,
+    :step_name,
+    :step_index,
+    :timeout_ms,
+    :__placeholder_params__
+  ]
 
   # Keys carried only to support `map` fan-out fork identity (see `Steps.MapExtract`).
   # `__map_index__` is stripped from the wrapped action's params but is used to name
@@ -229,6 +237,47 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   defp reason_text(reason) when is_binary(reason), do: reason
   defp reason_text(reason), do: inspect(reason)
 
+  # Resolves the `{{...}}` an author wrote in this node's params, so every action
+  # receives literal values and none of them handles placeholders itself.
+  #
+  # The lookup fact is the params plus the run cascade, so a placeholder may name a
+  # sibling param (`{{column_email}}`), an upstream node's result
+  # (`{{extract_summary.output}}`), or the trigger payload (`{{start.language}}`).
+  # Resolution is single-pass against the *unresolved* params, so a placeholder
+  # whose value is itself a placeholder is not chased.
+  #
+  # `authored` comes from `DagBuilder.wrapper_params/5`, which scanned the static
+  # params once at build time and kept the value the author wrote for each key that
+  # carried a token. A node with none skips the walk entirely, and bulk data
+  # delivered by an edge mapping is never traversed.
+  #
+  # Only a param still holding its authored value is resolved. An edge mapping whose
+  # target collides with such a key wins the merge and delivers runtime data, which
+  # is not author-written and so must reach the action verbatim — otherwise a
+  # `{{...}}` a lead happened to type would be substituted as if the author had
+  # written it.
+  defp resolve_placeholders(action_params, authored, _prev_cascade)
+       when map_size(authored) == 0,
+       do: action_params
+
+  defp resolve_placeholders(action_params, authored, prev_cascade) do
+    case still_authored(action_params, authored) do
+      unchanged when map_size(unchanged) == 0 ->
+        action_params
+
+      unchanged ->
+        fact = Map.put(action_params, :__cascade__, prev_cascade)
+        Map.merge(action_params, Placeholders.resolve(unchanged, fact, preserve_type: true))
+    end
+  end
+
+  defp still_authored(action_params, authored) do
+    for {key, value} <- authored,
+        Map.get(action_params, key) === value,
+        into: %{},
+        do: {key, value}
+  end
+
   defp execute_step(mod, run_id, step_name, step_index, params, context, map_index, strategy) do
     t0 = Action.log_start()
 
@@ -241,8 +290,12 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
     timeout_ms = Map.get(params, :timeout_ms)
     prev_cascade = Map.get(params, :__cascade__, Map.get(params, "__cascade__", %{}))
+    placeholder_params = Map.get(params, :__placeholder_params__, %{})
 
-    action_params = Map.drop(params, @wrapper_keys ++ @map_keys ++ [:__cascade__, "__cascade__"])
+    action_params =
+      params
+      |> Map.drop(@wrapper_keys ++ @map_keys ++ [:__cascade__, "__cascade__"])
+      |> resolve_placeholders(placeholder_params, prev_cascade)
 
     {:ok, step_run} =
       Workflows.create_step_run(%WorkflowRun{id: run_id}, %{

@@ -99,9 +99,9 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
     # Auto-focus the currently running step; manual selection is preserved otherwise.
     # A running fork sub-step focuses its parent node so the iteration shows inside
-    # that node's batch card instead of as a standalone per-fork card.
+    # that node's batch card; edge steps are never focused (they have no node card).
     socket =
-      if step_run.status == "running" do
+      if step_run.status == "running" and not edge_step?(step_run.step_name) do
         assign(socket, selected_step: parent_node_name(step_run.step_name))
       else
         socket
@@ -270,7 +270,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   # Used on mount to pre-select the active step when loading a live run.
   defp active_step(step_runs) do
     Enum.find_value(step_runs, fn sr ->
-      if sr.status == "running", do: parent_node_name(sr.step_name)
+      if sr.status == "running" and not edge_step?(sr.step_name),
+        do: parent_node_name(sr.step_name)
     end)
   end
 
@@ -887,7 +888,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
         &(fork_sub_step?(&1.step_name) and parent_node_name(&1.step_name) == node_name)
       )
 
-    if (Map.get(info, :is_batch) or Map.get(info, :is_map)) and forks != [] do
+    if (Map.get(info, :is_batch) || Map.get(info, :is_map)) && forks != [] do
       status = synthetic_batch_status(run.status)
 
       %{
