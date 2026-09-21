@@ -334,6 +334,31 @@ defmodule Zaq.StorageTest do
     assert Repo.get(EntryCatalog, folder.id).deleted_at != nil
   end
 
+  test "listed decomposed Unicode filenames remain materializable and deletable", %{
+    root: root,
+    storage_opts: opts
+  } do
+    decomposed_name = "De\u0301cembre-2020.md"
+    decomposed_path = Path.join(root, decomposed_name)
+    File.write!(decomposed_path, "# Décembre 2020")
+
+    assert {:ok, [entry]} = Storage.list_entries("archives", ".", opts)
+    assert entry.name == File.ls!(root) |> List.first()
+    assert entry.relative_path == :unicode.characters_to_nfc_binary(decomposed_name)
+
+    assert {:ok, %{content: "# Décembre 2020"}} =
+             Storage.materialize_document(
+               %{"file_id" => entry.id},
+               Keyword.put(opts, :skip_permissions, true)
+             )
+
+    assert {:ok, %{status: "deleted"}} =
+             Storage.delete_document(entry.id, Keyword.put(opts, :skip_permissions, true))
+
+    refute File.exists?(decomposed_path)
+    assert Repo.get(EntryCatalog, entry.id).deleted_at != nil
+  end
+
   test "delete_document/1 denies by default", %{root: root} do
     original = Application.fetch_env(:zaq, Zaq.Storage)
     Application.put_env(:zaq, Zaq.Storage, base_path: root, volumes: %{"archives" => root})

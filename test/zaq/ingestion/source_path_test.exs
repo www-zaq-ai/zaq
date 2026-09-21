@@ -4,6 +4,7 @@ defmodule Zaq.Storage.SourcePathTest do
   # the transient base_path into concurrent tests (e.g. DirectorySnapshotTest), making them list
   # the wrong directory. Every other base_path-mutating module is async: false for this reason.
   use ExUnit.Case, async: false
+  use ExUnitProperties
 
   alias Zaq.Storage.{FileExplorer, SourcePath}
 
@@ -32,6 +33,32 @@ defmodule Zaq.Storage.SourcePathTest do
 
     test "returns a relative path when the existing source is nil" do
       assert SourcePath.remap_source(nil, "documents", "./new/file.md") == "new/file.md"
+    end
+  end
+
+  describe "equivalent_entry/2" do
+    test "returns the exact filesystem spelling for a canonically equivalent segment" do
+      decomposed = "De\u0301cembre-2020.md"
+
+      assert {:ok, ^decomposed} = SourcePath.equivalent_entry("Décembre-2020.md", [decomposed])
+    end
+
+    test "rejects canonically equivalent collisions rather than selecting an arbitrary file" do
+      decomposed = "De\u0301cembre-2020.md"
+      composed = "Décembre-2020.md"
+
+      assert {:error, :ambiguous_unicode_path} =
+               SourcePath.equivalent_entry(composed, [decomposed, composed])
+    end
+
+    property "returns missing when no listed segment is canonically equivalent" do
+      check all(
+              requested <- string(:alphanumeric, min_length: 1),
+              listed <- list_of(string(:alphanumeric, min_length: 1)),
+              requested not in listed
+            ) do
+        assert :missing = SourcePath.equivalent_entry("é-#{requested}", listed)
+      end
     end
   end
 

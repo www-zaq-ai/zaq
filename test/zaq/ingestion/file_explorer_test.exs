@@ -113,6 +113,38 @@ defmodule Zaq.Storage.FileExplorerTest do
 
       assert {:error, :path_traversal} = FileExplorer.resolve_path("../#{sibling}")
     end
+
+    property "round-trips Arabic filenames through filesystem resolution" do
+      check all(filename <- unicode_filename(arabic_codepoint())) do
+        assert_filename_round_trip(filename)
+      end
+    end
+
+    property "round-trips Chinese filenames through filesystem resolution" do
+      check all(filename <- unicode_filename(integer(0x4E00..0x9FFF))) do
+        assert_filename_round_trip(filename)
+      end
+    end
+
+    property "round-trips Japanese filenames through filesystem resolution" do
+      japanese_codepoint = one_of([integer(0x3041..0x3094), integer(0x30A1..0x30FA)])
+
+      check all(filename <- unicode_filename(japanese_codepoint)) do
+        assert_filename_round_trip(filename)
+      end
+    end
+
+    property "round-trips Devanagari filenames through filesystem resolution" do
+      check all(filename <- unicode_filename(integer(0x0904..0x0939))) do
+        assert_filename_round_trip(filename)
+      end
+    end
+
+    property "round-trips Cyrillic filenames through filesystem resolution" do
+      check all(filename <- unicode_filename(integer(0x0410..0x044F))) do
+        assert_filename_round_trip(filename)
+      end
+    end
   end
 
   describe "resolve_path/1 with volumes configured" do
@@ -841,6 +873,28 @@ defmodule Zaq.Storage.FileExplorerTest do
       assert File.read!(Path.join(vol, "target.txt")) == "old"
       assert Repo.get!(EntryCatalog, old.id).relative_path == "old.txt"
       assert Repo.get!(EntryCatalog, target.id).relative_path == "target.txt"
+    end
+  end
+
+  defp arabic_codepoint do
+    one_of([integer(0x0621..0x063A), integer(0x0641..0x064A)])
+  end
+
+  defp unicode_filename(codepoint_generator) do
+    codepoint_generator
+    |> list_of(min_length: 1, max_length: 12)
+    |> StreamData.map(&(List.to_string(&1) <> ".md"))
+  end
+
+  defp assert_filename_round_trip(filename) do
+    path = Path.join(@test_base, filename)
+    File.write!(path, filename)
+
+    try do
+      assert {:ok, resolved_path} = FileExplorer.resolve_path(filename)
+      assert File.read!(resolved_path) == filename
+    after
+      File.rm(path)
     end
   end
 end

@@ -86,7 +86,8 @@ defmodule Zaq.Storage.FileExplorer do
 
   @doc """
   Volume-aware path resolution. Resolves `relative_path` against the named volume root.
-  Returns `{:ok, abs_path}`, `{:error, :unknown_volume}`, or `{:error, :path_traversal}`.
+  Returns `{:ok, abs_path}` or an error. Canonically equivalent filesystem spellings are
+  resolved segment by segment; collisions return `{:error, :ambiguous_unicode_path}`.
   """
   def resolve_path(volume_name, relative_path) when is_binary(volume_name),
     do: resolve_path(volume_name, relative_path, [])
@@ -99,7 +100,7 @@ defmodule Zaq.Storage.FileExplorer do
         full = Path.expand(Path.join(vol_root, relative_path))
 
         if inside_path?(full, vol_root) do
-          {:ok, full}
+          resolve_filesystem_spelling(vol_root, full)
         else
           {:error, :path_traversal}
         end
@@ -114,9 +115,43 @@ defmodule Zaq.Storage.FileExplorer do
     full = Path.expand(Path.join(base, relative_path))
 
     if inside_path?(full, base) do
-      {:ok, full}
+      resolve_filesystem_spelling(base, full)
     else
       {:error, :path_traversal}
+    end
+  end
+
+  defp resolve_filesystem_spelling(root, full_path) do
+    relative_path = Path.relative_to(full_path, root)
+
+    if relative_path == "." do
+      {:ok, Path.expand(root)}
+    else
+      resolve_filesystem_segments(Path.expand(root), Path.split(relative_path))
+    end
+  end
+
+  defp resolve_filesystem_segments(current, []), do: {:ok, current}
+
+  defp resolve_filesystem_segments(current, [segment | rest] = remaining) do
+    case File.ls(current) do
+      {:ok, entries} ->
+        case SourcePath.equivalent_entry(segment, entries) do
+          {:ok, exact_segment} ->
+            resolve_filesystem_segments(Path.join(current, exact_segment), rest)
+
+          :missing ->
+            {:ok, Path.join([current | remaining])}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, :enoent} ->
+        {:ok, Path.join([current | remaining])}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

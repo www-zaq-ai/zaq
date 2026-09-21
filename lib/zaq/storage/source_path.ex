@@ -18,6 +18,23 @@ defmodule Zaq.Storage.SourcePath do
   defp nfc(path), do: :unicode.characters_to_nfc_binary(path)
 
   @doc """
+  Finds the exact filesystem spelling of a path segment by canonical Unicode equivalence.
+
+  Filesystem names are retained verbatim while Storage sources are NFC-normalized. More than
+  one equivalent entry is rejected because a normalized source cannot identify either safely.
+  """
+  def equivalent_entry(requested, entries) when is_binary(requested) and is_list(entries) do
+    requested = nfc(requested)
+    matches = Enum.filter(entries, &(nfc(&1) == requested))
+
+    case matches do
+      [] -> :missing
+      [entry] -> {:ok, entry}
+      _entries -> {:error, :ambiguous_unicode_path}
+    end
+  end
+
+  @doc """
   Builds a canonical volume-prefixed source for a relative path.
   """
   def build_source(volume_name, relative_path) do
