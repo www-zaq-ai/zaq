@@ -27,11 +27,15 @@
     {
       "text": "Cleanup read-only browser: live profile loaded signed in at desktop; mobile open reported390px but snapshot retained desktop coordinates, so no new mobile overflow verification is claimed. No mutation/logout. Retired preview displayed expected NoRouteError. Pending physical drag, keyboard/Escape/focus checks remain open on canonical production UI with dedicated test identities.",
       "timestamp": "2026-09-15T12:19:05Z"
+    },
+    {
+      "text": "Human reported on 2026-09-21 that they checked the completed pages and approve everything. Treat the outstanding production profile browser review as accepted; interaction regressions remain explicitly assigned to consolidated automated coverage zaq-tup.4.",
+      "timestamp": "2026-09-21T12:43:13Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Complete production profile browser interaction verification",
   "type": "task",
-  "updated_at": "2026-09-15T12:19:05Z"
+  "updated_at": "2026-09-21T12:43:13Z"
 }
