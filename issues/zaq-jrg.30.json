@@ -37,11 +37,15 @@
     {
       "text": "Follow-up badge color rule: Personal policy Required uses danger/red; credential Status uses danger/red only when status is absent and policy is required; all other policy and status badges use neutral/grey.",
       "timestamp": "2026-09-19T14:22:16Z"
+    },
+    {
+      "text": "Human reported on 2026-09-21 that they checked the completed pages and approve everything. Implementation was already complete and validated; final credential-management E2E remains tracked in zaq-jrg.32.",
+      "timestamp": "2026-09-21T12:43:16Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Admin and Person credential management UI",
   "type": "task",
-  "updated_at": "2026-09-19T14:22:16Z"
+  "updated_at": "2026-09-21T12:43:16Z"
 }
