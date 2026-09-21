@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-i8x.1",
     "zaq-i8x.10",
@@ -35,8 +35,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-i8x] Review quality and targeted coverage",
   "type": "task",
-  "updated_at": "2026-09-21T16:46:37Z"
+  "updated_at": "2026-09-21T17:19:37Z"
 }
