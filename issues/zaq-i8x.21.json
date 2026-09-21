@@ -7,7 +7,8 @@
     "zaq-i8x.4",
     "zaq-i8x.5",
     "zaq-i8x.6",
-    "zaq-i8x.7"
+    "zaq-i8x.7",
+    "zaq-i8x.8"
   ],
   "blocks": [],
   "created": "2026-09-21T15:47:42Z",
@@ -19,5 +20,5 @@
   "status": "open",
   "title": "[zaq-i8x] Review quality and targeted coverage",
   "type": "task",
-  "updated_at": "2026-09-21T15:47:45Z"
+  "updated_at": "2026-09-21T15:47:46Z"
 }
