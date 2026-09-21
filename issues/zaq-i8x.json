@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-21T15:47:06Z",
+  "description": "User supplied 20 source files and missed lines. User authorized current working tree edits while preserving four pre-existing test changes; no commits. One complete planner artifact per source; test ownership reviewed and disjoint. Action reuse assessment: N/A, test-only coverage of existing operations. Implement reachable cases without production hooks; record unreachable/unsafe-seam exceptions. Coordinator runs mix q then mix test only added/edited test paths --cover; no full-suite rerun.",
+  "id": "zaq-i8x",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Coverage for supplied Agent, Connect, System and People gaps",
+  "type": "epic",
+  "updated_at": "2026-09-21T15:47:06Z"
+}
