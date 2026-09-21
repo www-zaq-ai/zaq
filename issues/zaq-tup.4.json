@@ -29,11 +29,15 @@
     {
       "text": "Ported the approved profile E2E changes into the current clean worktree on feat/telemetry-granularity-for-agents, merged with credential coverage in the shared People browser runner. Combined current-worktree validation: Chromium/Firefox/WebKit at 390/1280 passed (3 tests, 0 failures); mix q passed (1371 files, no issues); git diff --check passed. Changes remain uncommitted.",
       "timestamp": "2026-09-21T15:13:20Z"
+    },
+    {
+      "text": "Combined People journey remains green after real OAuth, runtime permission revocation, and continuation-cleanup additions: Chromium/Firefox/WebKit at 390/1280, 3 tests/0 failures. mix q and diff check pass. Final mix precommit exceeded 900s and was terminated, so final approval remains blocked.",
+      "timestamp": "2026-09-21T19:05:44Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-tup] Consolidated profile E2E after approval",
   "type": "task",
-  "updated_at": "2026-09-21T15:13:20Z"
+  "updated_at": "2026-09-21T19:05:44Z"
 }
