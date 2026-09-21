@@ -132,8 +132,10 @@ jobs:
 
       - name: Run tests with coverage (fork PRs)
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        shell: bash
         run: |
-          mix coveralls | tee coverage.txt
+          coverage_status=0
+          mix coveralls 2>&1 | tee coverage.txt || coverage_status=$?
 
           {
             echo "## Test Coverage"
@@ -142,6 +144,8 @@ jobs:
             grep -A 100 "^COV" coverage.txt || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+          exit "$coverage_status"
 
   test-paradedb:
     name: Test (ParadeDB)
