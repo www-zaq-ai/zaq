@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-21T17:51:22Z",
@@ -7,8 +7,8 @@
   "id": "zaq-lcj",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Fix decomposed Unicode disk document paths",
   "type": "bug",
-  "updated_at": "2026-09-21T17:51:22Z"
+  "updated_at": "2026-09-21T17:51:30Z"
 }
