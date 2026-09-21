@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-21T19:10:16Z",
   "created": "2026-09-21T17:51:22Z",
   "description": "Disk listings normalize relative paths to NFC before cataloging them. A Linux-mounted file such as Décembre-2020.md (decomposed e + combining acute) is visible in the Ingestion UI, but preview materialization and deletion resolve the composed path and fail with :enoent. Add regression coverage for list -\u003e materialize/delete using the returned stable identity, preserve exact filesystem path spelling while retaining canonical logical identity and authorization/traversal boundaries, and cover normalization collisions safely. Action reuse assessment: extend the existing Storage/FileExplorer, EntryCatalog, materialize_document, and delete_document operations; no new Action or agent-tool exposure. Inputs/outputs/errors and NodeRouter boundaries remain unchanged. Verify through Storage public contracts, materializer integration, Unicode/property cases, focused tests, mix q, and required ingestion E2E where available.",
   "id": "zaq-lcj",
@@ -13,8 +14,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix decomposed Unicode disk document paths",
   "type": "bug",
-  "updated_at": "2026-09-21T19:06:25Z"
+  "updated_at": "2026-09-21T19:10:16Z"
 }
