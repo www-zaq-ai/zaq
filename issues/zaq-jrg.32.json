@@ -17,11 +17,15 @@
     {
       "text": "Implemented approved consolidated credential E2E in isolated worktree /Users/julien/Documents/Repos/Github/OSS/zaq-credential-e2e (branch zaq-jrg.32/credential-e2e). Coverage now enters through protected /people/credentials, proves failed OTP preserves continuation and successful OTP lands on Credentials, exercises Person API-key add/cancel/replace/revoke/remove with secret-free rendering, OAuth start URL/browser hook/cancel with no external network, and proves logout clears stale credential continuation. Added BO required/no-global and optional/global API-key policy persistence/status coverage and helper policy support. Action reuse: not applicable — test-only fixture/journey changes reuse existing UI/domain contracts. Validation: real Chromium/Firefox/WebKit at 390/1280 passed on repeat (3 tests, 0 failures); full Chromium system_config.spec.js passed 55 tests; mix q passed (1357 files, no issues); diff check passed. Final mix precommit reached 9508 tests/146 properties/48 doctests with one transient StreamData duplicate and three existing AuthRateLimiter distributed-peer failures; --failed rerun cleared StreamData and again reproduced only the three peer startup/connect failures. No commit/push; ticket remains in_progress pending authorized landing.",
       "timestamp": "2026-09-21T14:26:54Z"
+    },
+    {
+      "text": "Ported credential E2E changes into the current clean worktree on feat/telemetry-granularity-for-agents while preserving that branch's existing bo.js additions and merging with profile coverage in the shared People browser runner. Added an explicit LiveView connection wait that removed the previously observed first-modal race. Combined validation: People browser suite passed all engines/viewports (3 tests); Chromium system_config.spec.js passed 55 tests; mix q and diff check passed. Changes remain uncommitted; OAuth scope remains initiation/cancel rather than successful callback/reconnect.",
+      "timestamp": "2026-09-21T15:13:21Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Finalize credential management E2E",
   "type": "task",
-  "updated_at": "2026-09-21T14:26:54Z"
+  "updated_at": "2026-09-21T15:13:21Z"
 }
