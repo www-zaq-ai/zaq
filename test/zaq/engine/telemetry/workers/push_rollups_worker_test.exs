@@ -59,14 +59,36 @@ defmodule Zaq.Engine.Telemetry.Workers.PushRollupsWorkerTest do
     assert :ok = PushRollupsWorker.perform(%{})
   end
 
-  defp insert_rollup(updated_at) do
+  test "perform/1 keeps identity-attributed LLM rollups local and advances the cursor" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+    insert_rollup(now,
+      metric_key: "qa.llm.tokens.total",
+      dimensions: %{"person_id" => "42", "model" => "gpt-4.1-mini"}
+    )
+
+    assert {:ok, _} = System.set_config("telemetry.enabled", "true")
+    assert {:ok, _} = System.set_config("telemetry.benchmark_opt_in", "true")
+
+    Req.Test.stub(HTTP, fn _conn ->
+      flunk("identity-attributed rollups must not leave the local installation")
+    end)
+
+    assert :ok = PushRollupsWorker.perform(%{})
+    assert %DateTime{} = Telemetry.get_cursor("telemetry.push_cursor")
+  end
+
+  defp insert_rollup(updated_at, opts \\ []) do
+    metric_key = Keyword.get(opts, :metric_key, "qa.answer.latency_ms")
+    dimensions = Keyword.get(opts, :dimensions, %{})
+
     Repo.insert!(%Rollup{
-      metric_key: "qa.answer.latency_ms",
+      metric_key: metric_key,
       bucket_start: DateTime.add(updated_at, -600, :second),
       bucket_size: "10m",
       source: "local",
-      dimensions: %{},
-      dimension_key: "global",
+      dimensions: dimensions,
+      dimension_key: Telemetry.dimension_key(dimensions),
       value_sum: 300.0,
       value_count: 2,
       value_min: 120.0,

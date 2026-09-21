@@ -16,10 +16,14 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
 
   import Ecto.Query
 
+  alias Zaq.Accounts.Person
   alias Zaq.Engine.Telemetry.Contracts.DashboardChart
   alias Zaq.Engine.Telemetry.FeedbackReasons
   alias Zaq.Engine.Telemetry.Rollup
   alias Zaq.Repo
+
+  @llm_usage_attribution_dimension "llm_usage_attribution"
+  @llm_usage_attribution_v1 "v1"
 
   @chart_ids [
     "metric_cards",
@@ -81,6 +85,15 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
         strict_effectiveness_score(no_answer_count, message_count)
       end
 
+    agent_rows = filter_by_dimension(local_rows, "configured_agent_id", normalized.agent_id)
+    agent_calls = sum_points(agent_rows, "qa.llm.call.count", labels.labels, :value_sum)
+
+    agent_input_tokens =
+      sum_points(agent_rows, "qa.llm.tokens.prompt", labels.labels, :value_sum)
+
+    agent_output_tokens =
+      sum_points(agent_rows, "qa.llm.tokens.completion", labels.labels, :value_sum)
+
     legacy_charts = [
       %{
         id: "llm_api_calls",
@@ -124,6 +137,33 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
           answer_count: answer_count,
           no_answer_count: no_answer_count
         }
+      },
+      %{
+        id: "agent_llm_api_calls",
+        kind: :time_series,
+        title: "Agent LLM API calls",
+        labels: labels.labels,
+        series: [%{key: "calls", name: "API calls", values: agent_calls}],
+        summary: %{labels: labels.labels, values: %{"calls" => agent_calls}},
+        meta: %{range: normalized.range, agent_id: normalized.agent_id}
+      },
+      %{
+        id: "agent_token_usage",
+        kind: :time_series,
+        title: "Agent token usage",
+        labels: labels.labels,
+        series: [
+          %{key: "output_tokens", name: "Output token", values: agent_output_tokens},
+          %{key: "input_tokens", name: "Input tokens", values: agent_input_tokens}
+        ],
+        summary: %{
+          labels: labels.labels,
+          values: %{
+            "output_tokens" => agent_output_tokens,
+            "input_tokens" => agent_input_tokens
+          }
+        },
+        meta: %{range: normalized.range, agent_id: normalized.agent_id}
       }
     ]
 
@@ -134,9 +174,131 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
       charts: charts,
       llm_api_calls_chart: chart!(charts, "llm_api_calls"),
       token_usage_chart: chart!(charts, "token_usage"),
-      retrieval_effectiveness_chart: chart!(charts, "retrieval_effectiveness")
+      retrieval_effectiveness_chart: chart!(charts, "retrieval_effectiveness"),
+      top_models: top_models(local_rows, normalized.model_sort),
+      top_people: top_people(local_rows, normalized.people_sort),
+      agents: agents(local_rows),
+      agent_llm_api_calls_chart: chart!(charts, "agent_llm_api_calls"),
+      agent_token_usage_chart: chart!(charts, "agent_token_usage")
     }
   end
+
+  defp top_models(rows, sort) do
+    rows
+    |> usage_rankings(["llm_provider", "model"])
+    |> Enum.map(fn {{provider, model}, totals} ->
+      Map.merge(totals, %{provider: provider, model: model})
+    end)
+    |> rank_usage(sort, fn entry -> "#{entry.provider}:#{entry.model}" end)
+  end
+
+  defp top_people(rows, sort) do
+    rankings =
+      rows
+      |> usage_rankings(["person_id"])
+      |> Enum.map(fn {{person_id}, totals} ->
+        Map.put(totals, :person_id, parse_integer(person_id) || person_id)
+      end)
+      |> rank_usage(sort, &to_string(&1.person_id))
+
+    names =
+      rankings
+      |> Enum.map(&parse_integer(&1.person_id))
+      |> Enum.reject(&is_nil/1)
+      |> then(fn ids ->
+        from(person in Person, where: person.id in ^ids, select: {person.id, person.full_name})
+        |> Repo.all()
+        |> Map.new()
+      end)
+
+    rankings
+    |> Enum.map(fn entry ->
+      Map.put(
+        entry,
+        :name,
+        Map.get(names, parse_integer(entry.person_id), "Deleted person ##{entry.person_id}")
+      )
+    end)
+  end
+
+  defp usage_rankings(rows, dimension_keys) do
+    Enum.reduce(rows, %{}, &accumulate_usage_ranking(&1, &2, dimension_keys))
+  end
+
+  defp accumulate_usage_ranking(%{metric_key: metric_key} = row, rankings, dimension_keys)
+       when metric_key in ["qa.llm.call.count", "qa.llm.tokens.total"] do
+    key = dimension_key_values(row.dimensions, dimension_keys)
+
+    if Enum.any?(Tuple.to_list(key), &blank_dimension?/1),
+      do: rankings,
+      else: put_usage_ranking(rankings, key, metric_key, row.value_sum || 0.0)
+  end
+
+  defp accumulate_usage_ranking(_row, rankings, _dimension_keys), do: rankings
+
+  defp put_usage_ranking(rankings, key, metric_key, value) do
+    field = if metric_key == "qa.llm.call.count", do: :total_calls, else: :total_tokens
+    initial = %{total_tokens: 0.0, total_calls: 0.0} |> Map.put(field, value)
+
+    Map.update(rankings, key, initial, fn totals ->
+      Map.update!(totals, field, &(&1 + value))
+    end)
+  end
+
+  defp rank_usage(rankings, sort, tie_breaker) do
+    sort_field = if sort == "calls", do: :total_calls, else: :total_tokens
+
+    rankings
+    |> Enum.sort_by(fn entry -> {-Map.fetch!(entry, sort_field), tie_breaker.(entry)} end)
+    |> Enum.take(5)
+  end
+
+  defp agents(rows) do
+    rows
+    |> Enum.reduce(%{}, fn row, agents ->
+      id = dimension(row.dimensions, "configured_agent_id")
+      name = dimension(row.dimensions, "configured_agent_name")
+
+      if row.metric_key == "qa.llm.call.count" and not blank_dimension?(id) do
+        Map.put_new(agents, to_string(id), %{id: id, name: name || "Agent ##{id}"})
+      else
+        agents
+      end
+    end)
+    |> Map.values()
+    |> Enum.sort_by(&{&1.name, to_string(&1.id)})
+  end
+
+  defp filter_by_dimension(_rows, _key, nil), do: []
+  defp filter_by_dimension(_rows, _key, ""), do: []
+
+  defp filter_by_dimension(rows, key, value) do
+    Enum.filter(rows, &(to_string(dimension(&1.dimensions, key)) == to_string(value)))
+  end
+
+  defp dimension_key_values(dimensions, keys) do
+    keys
+    |> Enum.map(&dimension(dimensions, &1))
+    |> List.to_tuple()
+  end
+
+  defp dimension(dimensions, key) when is_map(dimensions),
+    do: Map.get(dimensions, key)
+
+  defp dimension(_dimensions, _key), do: nil
+
+  defp blank_dimension?(value), do: is_nil(value) or value == ""
+
+  defp parse_integer(value) when is_integer(value), do: value
+
+  defp parse_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_integer(_), do: nil
 
   @spec load_conversations_metrics(map()) :: map()
   def load_conversations_metrics(filters) do
@@ -801,12 +963,6 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
     |> Float.round(2)
   end
 
-  defp sum_metric_count(rows, metric_key) do
-    rows
-    |> Enum.filter(&(&1.metric_key == metric_key))
-    |> Enum.reduce(0, fn row, acc -> acc + row.value_count end)
-  end
-
   defp weighted_average_metric(rows, metric_key) do
     {sum, count} =
       rows
@@ -850,23 +1006,76 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
   end
 
   defp llm_call_count(rows) do
-    count = sum_metric_count(rows, "qa.llm.call.count")
-
-    if count > 0 do
-      count
-    else
-      sum_metric_count(rows, "qa.tokens.total")
-    end
+    rows
+    |> llm_call_counts_by_bucket()
+    |> Map.values()
+    |> Enum.sum()
+    |> Kernel.*(1.0)
+    |> Float.round(2)
   end
 
   defp llm_call_count_points(rows, labels) do
-    points = sum_points(rows, "qa.llm.call.count", labels, :value_sum)
+    by_label =
+      rows
+      |> llm_call_counts_by_bucket()
+      |> Enum.reduce(%{}, fn {bucket_start, count}, counts ->
+        label = label_for_bucket(bucket_start, labels)
+        Map.update(counts, label, count, &(&1 + count))
+      end)
 
-    if Enum.any?(points, &(&1 > 0)) do
-      points
+    Enum.map(labels, fn label -> by_label |> Map.get(label, 0.0) |> Float.round(2) end)
+  end
+
+  defp llm_call_counts_by_bucket(rows) do
+    rows
+    |> Enum.reduce(%{}, &accumulate_llm_call_source/2)
+    |> Map.new(fn {bucket_start, sources} ->
+      count =
+        max(sources.unversioned_token_requests, sources.unversioned_explicit_calls) +
+          sources.versioned_explicit_calls
+
+      {bucket_start, count}
+    end)
+  end
+
+  defp accumulate_llm_call_source(%{metric_key: "qa.tokens.total"} = row, buckets) do
+    if attributed_usage?(row) do
+      buckets
     else
-      sum_points(rows, "qa.tokens.total", labels, :value_count)
+      update_llm_call_bucket(
+        buckets,
+        row.bucket_start,
+        :unversioned_token_requests,
+        row.value_count
+      )
     end
+  end
+
+  defp accumulate_llm_call_source(%{metric_key: "qa.llm.call.count"} = row, buckets) do
+    field =
+      if attributed_usage?(row),
+        do: :versioned_explicit_calls,
+        else: :unversioned_explicit_calls
+
+    update_llm_call_bucket(buckets, row.bucket_start, field, row.value_sum)
+  end
+
+  defp accumulate_llm_call_source(_row, buckets), do: buckets
+
+  defp update_llm_call_bucket(buckets, bucket_start, field, value) do
+    initial = %{
+      unversioned_token_requests: 0.0,
+      unversioned_explicit_calls: 0.0,
+      versioned_explicit_calls: 0.0
+    }
+
+    Map.update(buckets, bucket_start, Map.put(initial, field, value * 1.0), fn sources ->
+      Map.update!(sources, field, &(&1 + value))
+    end)
+  end
+
+  defp attributed_usage?(row) do
+    Map.get(row.dimensions || %{}, @llm_usage_attribution_dimension) == @llm_usage_attribution_v1
   end
 
   defp confidence_distribution_axes(rows, buckets) do
@@ -1033,14 +1242,18 @@ defmodule Zaq.Engine.Telemetry.DashboardData do
 
   defp normalize_filters(filters) do
     %{
-      range: Map.get(filters, :range) || Map.get(filters, "range") || "7d",
-      benchmark_opt_in:
-        Map.get(filters, :benchmark_opt_in) || Map.get(filters, "benchmark_opt_in") || false,
-      segment: Map.get(filters, :segment) || Map.get(filters, "segment") || "size",
-      feedback_scope:
-        Map.get(filters, :feedback_scope) || Map.get(filters, "feedback_scope") || "critical"
+      range: filter_value(filters, :range, "7d"),
+      benchmark_opt_in: filter_value(filters, :benchmark_opt_in, false),
+      segment: filter_value(filters, :segment, "size"),
+      feedback_scope: filter_value(filters, :feedback_scope, "critical"),
+      model_sort: filter_value(filters, :model_sort, "tokens"),
+      people_sort: filter_value(filters, :people_sort, "tokens"),
+      agent_id: filter_value(filters, :agent_id, nil)
     }
   end
+
+  defp filter_value(filters, key, default),
+    do: Map.get(filters, key) || Map.get(filters, Atom.to_string(key)) || default
 
   defp labels_for_range("24h"),
     do: %{

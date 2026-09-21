@@ -30,6 +30,7 @@ defmodule Zaq.Agent.StreamEvents do
   @type result :: %{
           answer: term(),
           usage: map(),
+          llm_calls: [map()],
           trace: [map()],
           trace_artifacts: [map()],
           tool_calls: [map()],
@@ -89,6 +90,8 @@ defmodule Zaq.Agent.StreamEvents do
       tool_calls: %{},
       answer: nil,
       usage: %{},
+      llm_calls: %{},
+      llm_call_order: [],
       termination_reason: nil,
       error: nil
     }
@@ -97,6 +100,7 @@ defmodule Zaq.Agent.StreamEvents do
 
   defp handle_event(event, state), do: handle_event(kind(event), event, state)
 
+  defp handle_event(:llm_started, event, state), do: upsert_llm_call(state, event, nil)
   defp handle_event(:llm_delta, event, state), do: handle_llm_delta(event, state)
   defp handle_event(:llm_completed, event, state), do: handle_llm_completed(event, state)
   defp handle_event(:tool_started, event, state), do: handle_tool_started(event, state)
@@ -166,12 +170,9 @@ defmodule Zaq.Agent.StreamEvents do
 
   defp handle_llm_completed(event, state) do
     usage = normalize_usage(data_get(data(event), :usage))
+    state = upsert_llm_call(state, event, usage)
 
-    if map_size(usage) > 0 do
-      %{state | usage: merge_usage(state.usage, usage)}
-    else
-      state
-    end
+    %{state | usage: aggregate_llm_call_usage(state)}
   end
 
   defp handle_tool_started(event, state) do
@@ -436,6 +437,7 @@ defmodule Zaq.Agent.StreamEvents do
     %{
       answer: state.answer || state.current_full,
       usage: state.usage,
+      llm_calls: public_llm_calls(state),
       trace: Enum.reverse(state.trace),
       trace_artifacts: state.trace_artifacts,
       tool_calls: state.tool_calls |> Map.values(),
@@ -528,7 +530,60 @@ defmodule Zaq.Agent.StreamEvents do
   defp model(state) do
     state.trace
     |> Enum.find_value(&Map.get(&1, "model"))
+    |> then(fn model -> model || Enum.find_value(llm_calls(state), &Map.get(&1, :model)) end)
   end
+
+  defp upsert_llm_call(state, event, usage) do
+    key = llm_call_key(event)
+    existing = Map.get(state.llm_calls, key, %{})
+    data = data(event)
+    counts = if is_map(usage), do: token_counts(usage), else: %{}
+
+    call =
+      existing
+      |> Map.merge(counts)
+      |> maybe_put(:usage, usage)
+      |> Map.put(:llm_call_id, field(event, :llm_call_id))
+      |> Map.put(:request_id, field(event, :request_id) || state.request_id)
+      |> Map.put(:run_id, field(event, :run_id))
+      |> maybe_put(:model, data_get(data, :model) || Map.get(existing, :model))
+      |> reject_nil_values()
+
+    order =
+      if Map.has_key?(state.llm_calls, key),
+        do: state.llm_call_order,
+        else: [key | state.llm_call_order]
+
+    %{state | llm_calls: Map.put(state.llm_calls, key, call), llm_call_order: order}
+  end
+
+  defp llm_call_key(event) do
+    {
+      field(event, :request_id),
+      field(event, :run_id),
+      field(event, :llm_call_id) || field(event, :id)
+    }
+  end
+
+  defp llm_calls(state) do
+    state.llm_call_order
+    |> Enum.reverse()
+    |> Enum.map(&Map.fetch!(state.llm_calls, &1))
+  end
+
+  defp public_llm_calls(state), do: Enum.map(llm_calls(state), &Map.delete(&1, :usage))
+
+  defp aggregate_llm_call_usage(state) do
+    state
+    |> llm_calls()
+    |> Enum.reduce(%{}, fn call, usage ->
+      call_usage = Map.get(call, :usage, %{})
+      merge_usage(usage, call_usage)
+    end)
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp usage_value(usage, keys) when is_map(usage) do
     Enum.find_value(keys, fn key ->

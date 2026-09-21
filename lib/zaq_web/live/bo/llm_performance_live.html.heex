@@ -67,5 +67,121 @@
         />
       </div>
     </section>
+
+    <section id="llm-performance-rankings" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+      <div class="zaq-card-default flex flex-col gap-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="zaq-text-h3">Top models</h2>
+            <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary);">
+              Five most-used models in the selected range.
+            </p>
+          </div>
+          <div class="flex gap-2" aria-label="Sort top models">
+            <ZaqWeb.Components.DesignSystem.Button.button
+              id="llm-model-sort-tokens"
+              variant={:secondary}
+              shape={:pill}
+              active={@model_sort == "tokens"}
+              phx-click="set_usage_sort"
+              phx-value-ranking="models"
+              phx-value-sort="tokens"
+            >
+              Tokens
+            </ZaqWeb.Components.DesignSystem.Button.button>
+            <ZaqWeb.Components.DesignSystem.Button.button
+              id="llm-model-sort-calls"
+              variant={:secondary}
+              shape={:pill}
+              active={@model_sort == "calls"}
+              phx-click="set_usage_sort"
+              phx-value-ranking="models"
+              phx-value-sort="calls"
+            >
+              Calls
+            </ZaqWeb.Components.DesignSystem.Button.button>
+          </div>
+        </div>
+        <.usage_table id="llm-top-models-table" rows={@top_models} entity={:model} />
+      </div>
+
+      <div class="zaq-card-default flex flex-col gap-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="zaq-text-h3">Top people consumers</h2>
+            <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary);">
+              Five people with the highest attributed usage.
+            </p>
+          </div>
+          <div class="flex gap-2" aria-label="Sort top people consumers">
+            <ZaqWeb.Components.DesignSystem.Button.button
+              id="llm-people-sort-tokens"
+              variant={:secondary}
+              shape={:pill}
+              active={@people_sort == "tokens"}
+              phx-click="set_usage_sort"
+              phx-value-ranking="people"
+              phx-value-sort="tokens"
+            >
+              Tokens
+            </ZaqWeb.Components.DesignSystem.Button.button>
+            <ZaqWeb.Components.DesignSystem.Button.button
+              id="llm-people-sort-calls"
+              variant={:secondary}
+              shape={:pill}
+              active={@people_sort == "calls"}
+              phx-click="set_usage_sort"
+              phx-value-ranking="people"
+              phx-value-sort="calls"
+            >
+              Calls
+            </ZaqWeb.Components.DesignSystem.Button.button>
+          </div>
+        </div>
+        <.usage_table id="llm-top-people-table" rows={@top_people} entity={:person} />
+      </div>
+    </section>
+
+    <section id="llm-performance-agent-breakdown" class="zaq-card-default flex flex-col gap-4">
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 class="zaq-text-h3">Agent usage</h2>
+          <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary);">
+            Filter API calls and token consumption without changing the global charts above.
+          </p>
+        </div>
+        <form id="llm-agent-filter-form" phx-change="select_agent">
+          <ZaqWeb.Select.select
+            id="llm-agent-select"
+            name="agent_id"
+            label="Agent"
+            value={@selected_agent_id}
+            prompt="Select an agent"
+            compact={true}
+            options={Enum.map(@agents, &{&1.name, &1.id})}
+          />
+        </form>
+      </div>
+
+      <div
+        :if={is_nil(@selected_agent_id)}
+        id="llm-agent-empty"
+        class="zaq-text-body-sm py-8 text-center"
+        style="color: var(--zaq-text-color-body-tertiary);"
+      >
+        Select an agent to view its usage.
+      </div>
+
+      <div :if={not is_nil(@selected_agent_id)} class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
+          id="llm-performance-agent-api-calls-chart"
+          chart={@agent_llm_api_calls_chart}
+        />
+        <ZaqWeb.Components.BOTelemetryComponents.time_series_chart
+          id="llm-performance-agent-token-usage-chart"
+          chart={@agent_token_usage_chart}
+        />
+      </div>
+    </section>
   </div>
 </ZaqWeb.Components.BOLayout.bo_layout>

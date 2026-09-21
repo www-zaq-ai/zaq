@@ -1,6 +1,7 @@
 defmodule Zaq.Engine.Telemetry.DashboardDataTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Accounts.People
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Rollup
   alias Zaq.Repo
@@ -184,7 +185,7 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
     assert get_in(payload.retrieval_effectiveness_chart, [:summary, :value]) == 0.0
   end
 
-  test "load_llm_performance/1 prefers qa.llm.call.count over legacy qa.tokens.total count" do
+  test "load_llm_performance/1 preserves unversioned history when explicit calls first appear" do
     now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     insert_rollup("qa.llm.call.count", now, 5.0, 5)
@@ -194,7 +195,95 @@ defmodule Zaq.Engine.Telemetry.DashboardDataTest do
 
     payload = Telemetry.load_llm_performance(%{range: "7d"})
 
-    assert get_in(payload.llm_api_calls_chart, [:summary, :values, "calls"]) |> Enum.sum() == 5.0
+    assert get_in(payload.llm_api_calls_chart, [:summary, :values, "calls"]) |> Enum.sum() == 12.0
+  end
+
+  test "load_llm_performance/1 combines legacy history with versioned exact call counts" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    historical_bucket = DateTime.add(now, -3600, :second)
+    attributed = %{"llm_usage_attribution" => "v1"}
+
+    insert_rollup("qa.tokens.total", historical_bucket, 700.0, 7)
+    insert_rollup("qa.tokens.total", now, 100.0, 1, dimensions: attributed)
+    insert_rollup("qa.llm.call.count", now, 2.0, 2, dimensions: attributed)
+
+    payload = Telemetry.load_llm_performance(%{range: "7d"})
+
+    assert get_in(payload.llm_api_calls_chart, [:summary, :values, "calls"]) |> Enum.sum() == 9.0
+  end
+
+  test "load_llm_performance/1 handles unversioned overlap and versioned calls in one bucket" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    attributed = %{"llm_usage_attribution" => "v1"}
+
+    insert_rollup("qa.tokens.total", now, 200.0, 2)
+    insert_rollup("qa.llm.call.count", now, 3.0, 3)
+    insert_rollup("qa.tokens.total", now, 500.0, 1, dimensions: attributed)
+    insert_rollup("qa.llm.call.count", now, 5.0, 5, dimensions: attributed)
+
+    payload = Telemetry.load_llm_performance(%{range: "7d"})
+
+    assert get_in(payload.llm_api_calls_chart, [:summary, :values, "calls"]) |> Enum.sum() == 8.0
+  end
+
+  test "load_llm_performance/1 ranks models and people and filters agent charts" do
+    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    {:ok, alice} = People.create_person(%{full_name: "Alice Consumer"})
+    {:ok, bob} = People.create_person(%{full_name: "Bob Consumer"})
+
+    for {index, tokens, calls, person, agent_id} <- [
+          {1, 100, 1, alice, 10},
+          {2, 90, 9, bob, 20},
+          {3, 80, 2, alice, 10},
+          {4, 70, 3, bob, 20},
+          {5, 60, 4, alice, 10},
+          {6, 50, 10, bob, 20}
+        ] do
+      dimensions = %{
+        "llm_provider" => "provider-#{index}",
+        "model" => "model-#{index}",
+        "person_id" => to_string(person.id),
+        "configured_agent_id" => agent_id,
+        "configured_agent_name" => "Agent #{agent_id}"
+      }
+
+      insert_rollup("qa.llm.call.count", now, calls * 1.0, calls, dimensions: dimensions)
+      insert_rollup("qa.llm.tokens.total", now, tokens * 1.0, calls, dimensions: dimensions)
+      insert_rollup("qa.llm.tokens.prompt", now, tokens * 0.6, calls, dimensions: dimensions)
+      insert_rollup("qa.llm.tokens.completion", now, tokens * 0.4, calls, dimensions: dimensions)
+    end
+
+    by_tokens =
+      Telemetry.load_llm_performance(%{
+        range: "7d",
+        model_sort: "tokens",
+        people_sort: "tokens",
+        agent_id: "10"
+      })
+
+    assert Enum.map(by_tokens.top_models, & &1.model) ==
+             ~w(model-1 model-2 model-3 model-4 model-5)
+
+    assert Enum.map(by_tokens.top_people, & &1.name) == ["Alice Consumer", "Bob Consumer"]
+    assert Enum.map(by_tokens.agents, & &1.id) == [10, 20]
+
+    assert get_in(by_tokens.agent_llm_api_calls_chart, [:summary, :values, "calls"])
+           |> Enum.sum() == 7.0
+
+    assert get_in(by_tokens.agent_token_usage_chart, [:summary, :values, "input_tokens"])
+           |> Enum.sum() == 144.0
+
+    by_calls =
+      Telemetry.load_llm_performance(%{
+        range: "7d",
+        model_sort: "calls",
+        people_sort: "calls"
+      })
+
+    assert Enum.map(by_calls.top_models, & &1.model) ==
+             ~w(model-6 model-2 model-5 model-4 model-3)
+
+    assert Enum.map(by_calls.top_people, & &1.name) == ["Bob Consumer", "Alice Consumer"]
   end
 
   test "load_llm_performance/1 returns zero effectiveness when there are no answers" do

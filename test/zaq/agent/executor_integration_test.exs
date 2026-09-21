@@ -58,6 +58,39 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     defp completed_event(data), do: %{kind: :request_completed, at_ms: 1, data: data}
   end
 
+  defmodule StubFactoryUsage do
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []) do
+      {:ok,
+       %{
+         request: :request,
+         events: [
+           %{
+             id: "usage-event",
+             kind: :llm_completed,
+             at_ms: 1,
+             request_id: "req-usage",
+             run_id: "run-usage",
+             llm_call_id: "call-usage",
+             data: %{
+               model: "openai:gpt-4.1-mini",
+               usage: %{input_tokens: 11, output_tokens: 7, total_tokens: 18}
+             }
+           },
+           %{
+             kind: :request_completed,
+             at_ms: 2,
+             data: %{
+               result: "done",
+               usage: %{input_tokens: 11, output_tokens: 7, total_tokens: 18}
+             }
+           }
+         ]
+       }}
+    end
+
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+  end
+
   defmodule StubFactoryOther do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
       do: {:ok, %{request: :request, events: [completed_event(%{result: %{unexpected: 123}})]}}
@@ -79,6 +112,38 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
              data: %{
                error:
                  ReqLLM.Error.API.Stream.exception(reason: "stream closed mid-flight", cause: nil)
+             }
+           }
+         ]
+       }}
+    end
+
+    def answering_configured_agent, do: %{id: :answering, name: "answering"}
+  end
+
+  defmodule StubFactoryStreamErrorWithUsage do
+    def ask_with_config(_server, _content, _configured_agent, _opts \\ []) do
+      {:ok,
+       %{
+         request: :request,
+         events: [
+           %{
+             id: "completed-call",
+             kind: :llm_completed,
+             at_ms: 1,
+             request_id: "req-failed",
+             run_id: "run-failed",
+             llm_call_id: "call-failed",
+             data: %{
+               model: "openai:gpt-4.1-mini",
+               usage: %{input_tokens: 4, output_tokens: 2, total_tokens: 6}
+             }
+           },
+           %{
+             kind: :request_failed,
+             at_ms: 2,
+             data: %{
+               error: ReqLLM.Error.API.Stream.exception(reason: "later call failed", cause: nil)
              }
            }
          ]
@@ -1371,6 +1436,32 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_key) end
   end
 
+  test "records completed logical calls when the overall request later fails" do
+    incoming = %Incoming{content: "hi", channel_id: "ch", provider: :web}
+
+    Sandbox.allow(Repo, self(), Process.whereis(Buffer))
+    Buffer.flush()
+    Repo.delete_all(Point)
+
+    outgoing =
+      Executor.run(incoming,
+        event: execution_event(),
+        agent_id: "stub",
+        agent_module: StubAgent,
+        server_manager_module: StubServerManager,
+        factory_module: StubFactoryStreamErrorWithUsage
+      )
+
+    assert outgoing.metadata.error == true
+    assert :ok = Buffer.flush()
+
+    assert Repo.one(
+             from p in Point,
+               where: p.metric_key == "qa.llm.tokens.total",
+               select: {p.value, p.dimensions["model"]}
+           ) == {6.0, "gpt-4.1-mini"}
+  end
+
   test "telemetry_dimensions accepts atom pairs and ignores malformed entries" do
     incoming = %Incoming{
       content: "hi",
@@ -1407,6 +1498,62 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert dimensions["channel_type"] == "mattermost"
     assert dimensions["execution_path"] == "custom_agent"
     refute Map.has_key?(dimensions, "malformed_entry")
+  end
+
+  test "records per-call token usage with model, provider, person, agent and session dimensions" do
+    {:ok, person} = People.create_person(%{full_name: "Telemetry Person"})
+
+    incoming = %Incoming{
+      content: "hi",
+      channel_id: "ch",
+      provider: :web,
+      metadata: %{conversation_id: "conv-1", session_id: "session-1"}
+    }
+
+    Sandbox.allow(Repo, self(), Process.whereis(Buffer))
+    Buffer.flush()
+    Repo.delete_all(Point)
+
+    outgoing =
+      Executor.run(incoming,
+        event: execution_event(%{person: %{id: person.id}}),
+        agent_id: "stub",
+        agent_module: StubAgent,
+        server_manager_module: StubServerManager,
+        factory_module: StubFactoryUsage
+      )
+
+    assert outgoing.metadata.error == false
+    assert :ok = Buffer.flush()
+
+    points =
+      Repo.all(
+        from p in Point,
+          where: p.metric_key in ["qa.llm.call.count", "qa.llm.tokens.total"],
+          order_by: p.metric_key
+      )
+
+    assert Enum.map(points, &{&1.metric_key, &1.value}) == [
+             {"qa.llm.call.count", 1.0},
+             {"qa.llm.tokens.total", 18.0}
+           ]
+
+    assert Enum.all?(points, fn point ->
+             point.dimensions["llm_provider"] == "openai" and
+               point.dimensions["model"] == "gpt-4.1-mini" and
+               point.dimensions["person_id"] == to_string(person.id) and
+               point.dimensions["actor_type"] == "person" and
+               point.dimensions["conversation_id"] == "conv-1" and
+               point.dimensions["session_id"] == "session-1" and
+               point.dimensions["llm_usage_attribution"] == "v1" and
+               point.dimensions["configured_agent_id"] == 77
+           end)
+
+    assert Repo.one(
+             from p in Point,
+               where: p.metric_key == "qa.tokens.total",
+               select: p.dimensions["llm_usage_attribution"]
+           ) == "v1"
   end
 
   test "attachment metadata falls back to canonical values when runtime storage is unavailable" do

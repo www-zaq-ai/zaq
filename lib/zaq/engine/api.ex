@@ -22,6 +22,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.PeopleAuthGateway
   alias Zaq.Engine.PeopleConversations
   alias Zaq.Engine.PeopleGateway
+  alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Workflows
   alias Zaq.Event
   alias Zaq.Identity.ExecutionActor
@@ -30,6 +31,11 @@ defmodule Zaq.Engine.Api do
   alias Zaq.System
 
   @impl true
+  def handle_event(%Event{} = event, :telemetry_load_llm_performance, _context) do
+    filters = if is_map(event.request), do: event.request, else: %{}
+    %{event | response: Telemetry.load_llm_performance(filters)}
+  end
+
   def handle_event(%Event{} = event, :people_conversations, _context) do
     response =
       if Keyword.get(event.opts, :confidential) == true,

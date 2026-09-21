@@ -50,6 +50,8 @@ defmodule Zaq.Agent.Executor do
   alias Zaq.Identity.ExecutionActor
   alias Zaq.Utils.DateUtils
 
+  @llm_usage_attribution "v1"
+
   @doc """
   Derives a stable scope string from an incoming message and actor used to key the Jido agent server.
 
@@ -235,10 +237,19 @@ defmodule Zaq.Agent.Executor do
           })
 
         result = success_result(answer, configured_agent, confidence, stream_result)
-        :ok = record_success_telemetry(result, dims)
+        :ok = record_success_telemetry(result, dims, actor, incoming, configured_agent)
         Outgoing.from_pipeline_result(incoming, result)
       else
         {:error, %ReqLLM.Error.API.Stream{} = reason, partial} ->
+          :ok =
+            record_partial_llm_telemetry(
+              partial,
+              dims,
+              telemetry_actor(actor_result),
+              incoming,
+              selected_agent_result
+            )
+
           handle_stream_error(
             incoming,
             reason,
@@ -249,7 +260,16 @@ defmodule Zaq.Agent.Executor do
             server_manager_module
           )
 
-        {:error, reason, _partial} ->
+        {:error, reason, partial} ->
+          :ok =
+            record_partial_llm_telemetry(
+              partial,
+              dims,
+              telemetry_actor(actor_result),
+              incoming,
+              selected_agent_result
+            )
+
           surface_execution_error(
             incoming,
             reason,
@@ -466,6 +486,7 @@ defmodule Zaq.Agent.Executor do
       measurements: measurements,
       termination_reason: stream_result.termination_reason,
       tool_calls: stream_result.tool_calls,
+      llm_calls: Map.get(stream_result, :llm_calls, []),
       trace: stream_result.trace,
       trace_artifacts: Map.get(stream_result, :trace_artifacts, []),
       sources: []
@@ -529,7 +550,7 @@ defmodule Zaq.Agent.Executor do
     ArgumentError -> nil
   end
 
-  defp record_success_telemetry(result, dims) do
+  defp record_success_telemetry(result, dims, actor, incoming, configured_agent) do
     :ok = Telemetry.record("qa.custom_agent.execution.complete", 1, dims)
     :ok = Telemetry.record("qa.answer.count", 1, dims)
 
@@ -537,7 +558,8 @@ defmodule Zaq.Agent.Executor do
       do: Telemetry.record("qa.answer.latency_ms", result.latency_ms, dims),
       else: :ok
 
-    :ok = record_token_telemetry(result, dims)
+    :ok = record_token_telemetry(result, token_telemetry_dimensions(result, dims))
+    :ok = record_llm_call_telemetry(result, dims, actor, incoming, configured_agent)
 
     if is_number(result.confidence_score) do
       :ok = Telemetry.record("qa.answer.confidence", result.confidence_score, dims)
@@ -581,6 +603,102 @@ defmodule Zaq.Agent.Executor do
 
   defp maybe_record_token_metric(metric_key, value, dims),
     do: Telemetry.record(metric_key, value, dims)
+
+  defp record_llm_call_telemetry(result, dims, actor, incoming, configured_agent) do
+    configured_provider = configured_provider(configured_agent)
+    dims = Map.put(dims, :llm_usage_attribution, @llm_usage_attribution)
+
+    result
+    |> Map.get(:llm_calls, [])
+    |> Enum.each(fn call ->
+      call_dims = llm_call_dimensions(dims, call, actor, incoming, configured_provider)
+
+      :ok = Telemetry.record("qa.llm.call.count", 1, call_dims)
+      :ok = maybe_record_token_metric("qa.llm.tokens.prompt", call[:input_tokens], call_dims)
+      :ok = maybe_record_token_metric("qa.llm.tokens.completion", call[:output_tokens], call_dims)
+      :ok = maybe_record_token_metric("qa.llm.tokens.total", call[:total_tokens], call_dims)
+    end)
+
+    :ok
+  end
+
+  defp token_telemetry_dimensions(%{llm_calls: [_ | _]}, dimensions),
+    do: Map.put(dimensions, :llm_usage_attribution, @llm_usage_attribution)
+
+  defp token_telemetry_dimensions(_result, dimensions), do: dimensions
+
+  defp record_partial_llm_telemetry(partial, dims, actor, incoming, selected_agent_result)
+       when is_map(partial) do
+    configured_agent =
+      case selected_agent_result do
+        {:ok, selected} -> selected
+        _ -> nil
+      end
+
+    record_llm_call_telemetry(partial, dims, actor, incoming, configured_agent)
+  end
+
+  defp record_partial_llm_telemetry(_partial, _dims, _actor, _incoming, _selected_agent_result),
+    do: :ok
+
+  defp telemetry_actor({:ok, actor}), do: actor
+  defp telemetry_actor(_), do: nil
+
+  defp llm_call_dimensions(base, call, actor, incoming, configured_provider) do
+    {provider, model} = llm_provider_and_model(call[:model], configured_provider)
+
+    base
+    |> maybe_put_dimension(:llm_provider, provider)
+    |> maybe_put_dimension(:model, model)
+    |> put_actor_dimensions(actor)
+    |> maybe_put_dimension(:conversation_id, metadata_value(incoming, :conversation_id))
+    |> maybe_put_dimension(:session_id, metadata_value(incoming, :session_id))
+  end
+
+  defp llm_provider_and_model(model, configured_provider) when is_binary(model) do
+    case String.split(model, ":", parts: 2) do
+      [provider, model_name] when provider != "" and model_name != "" -> {provider, model_name}
+      _ -> {configured_provider, model}
+    end
+  end
+
+  defp llm_provider_and_model(_model, configured_provider), do: {configured_provider, nil}
+
+  defp configured_provider(%Zaq.Agent.ConfiguredAgent{} = configured_agent) do
+    case Agent.runtime_provider_for_agent(configured_agent) do
+      {:ok, provider} -> to_string(provider)
+      _ -> nil
+    end
+  end
+
+  defp configured_provider(_), do: nil
+
+  defp put_actor_dimensions(dimensions, actor) do
+    case ExecutionActor.identity(actor) do
+      {:ok, {:person, id}} ->
+        dimensions
+        |> Map.put(:actor_type, "person")
+        |> Map.put(:actor_id, to_string(id))
+        |> Map.put(:person_id, to_string(id))
+
+      {:ok, {kind, subject}} ->
+        dimensions
+        |> Map.put(:actor_type, to_string(kind))
+        |> Map.put(:actor_id, subject)
+
+      _ ->
+        dimensions
+    end
+  end
+
+  defp metadata_value(%Incoming{metadata: metadata}, key) when is_map(metadata),
+    do: Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
+
+  defp metadata_value(_incoming, _key), do: nil
+
+  defp maybe_put_dimension(dimensions, _key, nil), do: dimensions
+  defp maybe_put_dimension(dimensions, _key, ""), do: dimensions
+  defp maybe_put_dimension(dimensions, key, value), do: Map.put(dimensions, key, value)
 
   defp normalize_status_result(%Incoming{} = updated_incoming, _fallback_incoming),
     do: updated_incoming

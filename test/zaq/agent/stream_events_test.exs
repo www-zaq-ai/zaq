@@ -84,6 +84,104 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert result.measurements["total_tokens"] == 4
   end
 
+  test "keeps per-call usage attributed to the model that produced it" do
+    events = [
+      event(:llm_started, 10, %{model: "openai:gpt-4o-mini"}, llm_call_id: "call-1"),
+      event(
+        :llm_completed,
+        20,
+        %{model: "openai:gpt-4o-mini", usage: %{input_tokens: 3, output_tokens: 2}},
+        llm_call_id: "call-1"
+      ),
+      event(:llm_started, 30, %{model: "anthropic:claude-sonnet-4"}, llm_call_id: "call-2"),
+      event(
+        :llm_completed,
+        40,
+        %{model: "anthropic:claude-sonnet-4", usage: %{input_tokens: 5, output_tokens: 4}},
+        llm_call_id: "call-2"
+      ),
+      event(:request_completed, 50, %{
+        result: "done",
+        usage: %{input_tokens: 8, output_tokens: 6, total_tokens: 14}
+      })
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert result.usage == %{input_tokens: 8, output_tokens: 6, total_tokens: 14}
+
+    assert result.llm_calls == [
+             %{
+               llm_call_id: "call-1",
+               request_id: "req-1",
+               run_id: "run-1",
+               model: "openai:gpt-4o-mini",
+               input_tokens: 3,
+               output_tokens: 2,
+               total_tokens: 5
+             },
+             %{
+               llm_call_id: "call-2",
+               request_id: "req-1",
+               run_id: "run-1",
+               model: "anthropic:claude-sonnet-4",
+               input_tokens: 5,
+               output_tokens: 4,
+               total_tokens: 9
+             }
+           ]
+  end
+
+  test "deduplicates repeated logical LLM completions" do
+    completion =
+      event(
+        :llm_completed,
+        20,
+        %{model: "openai:gpt-4o-mini", usage: %{input_tokens: 3, output_tokens: 2}},
+        llm_call_id: "call-1"
+      )
+
+    events = [
+      completion,
+      %{completion | id: "retry-event", seq: 21},
+      event(:request_completed, 30, %{result: "done", usage: %{}})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+    assert result.usage == %{input_tokens: 3, output_tokens: 2, total_tokens: 5}
+    assert [%{llm_call_id: "call-1", total_tokens: 5}] = result.llm_calls
+  end
+
+  property "repeated completion delivery does not change attributed or aggregate usage" do
+    check all(
+            input_tokens <- integer(0..10_000),
+            output_tokens <- integer(0..10_000),
+            deliveries <- integer(1..5)
+          ) do
+      completion =
+        event(
+          :llm_completed,
+          20,
+          %{
+            model: "openai:gpt-4o-mini",
+            usage: %{input_tokens: input_tokens, output_tokens: output_tokens}
+          },
+          llm_call_id: "call-1"
+        )
+
+      events =
+        List.duplicate(completion, deliveries) ++
+          [event(:request_completed, 30, %{result: "done", usage: %{}})]
+
+      assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+      assert result.usage.input_tokens == input_tokens
+      assert result.usage.output_tokens == output_tokens
+      assert result.usage.total_tokens == input_tokens + output_tokens
+      assert [%{llm_call_id: "call-1", total_tokens: total}] = result.llm_calls
+      assert total == input_tokens + output_tokens
+    end
+  end
+
   test "uses empty usage when llm_completed carries no usage map" do
     events = [
       event(:llm_completed, 10, %{usage: nil}),
@@ -740,7 +838,7 @@ defmodule Zaq.Agent.StreamEventsTest do
       request_id: "req-1",
       iteration: 0,
       kind: kind,
-      llm_call_id: "llm-1",
+      llm_call_id: Keyword.get(attrs, :llm_call_id, "llm-1"),
       tool_call_id: Keyword.get(attrs, :tool_call_id),
       tool_name: Map.get(data, :tool_name),
       data: data

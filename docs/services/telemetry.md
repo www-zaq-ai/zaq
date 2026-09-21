@@ -207,15 +207,27 @@ Notes:
 
 ### Canonical Dashboard Metric Sources
 
-- `qa.llm.call.count` is emitted from Jido telemetry event `[:jido, :ai, :llm, :start]`.
-- `qa.tokens.prompt` is emitted from `[:jido, :ai, :request, :complete]` measurement `input_tokens`.
-- `qa.tokens.completion` is emitted from `[:jido, :ai, :request, :complete]` measurement `output_tokens`.
-- `qa.tokens.total` is emitted from `[:jido, :ai, :request, :complete]` measurement `total_tokens`.
+- Agent execution emits `qa.tokens.prompt`, `qa.tokens.completion`, and `qa.tokens.total`
+  from the request-wide totals reduced from Jido stream events. It also emits per-logical-call
+  `qa.llm.call.count` and `qa.llm.tokens.prompt`,
+  `qa.llm.tokens.completion`, and `qa.llm.tokens.total` from reduced Jido stream events.
+  Per-call dimensions include the effective LLM provider/model, configured agent, validated
+  execution actor/person, and available conversation/session correlation. Duplicate completion
+  events for the same request/run/call identity are reduced once before emission.
 - Conversations "Questions per channel" labels are built from telemetry rollup dimensions key
   `channel_type` for metric `qa.message.count`.
 
-The LLM API Calls chart reads `qa.llm.call.count` and falls back to legacy
-`qa.tokens.total` point count when the new metric is absent in the selected window.
+The LLM API Calls chart combines exact attributed `qa.llm.call.count` values with
+legacy request-count estimates from `qa.tokens.total`. New request totals and call
+metrics carry `llm_usage_attribution="v1"`, allowing the dashboard to exclude those
+request totals from the legacy estimate. For unversioned transition buckets that may
+contain both sources, it uses the larger count rather than adding both and double-counting.
+The LLM performance dashboard also derives local top-model and top-person rankings from
+the attributed call metrics and can filter call/token series by configured agent while
+leaving the request-wide charts unchanged.
+
+Identity-attributed rollups (`actor_id`, `actor_type`, `person_id`, `conversation_id`, or
+`session_id`) are local-only and are excluded by `PushRollupsWorker` from remote benchmark sync.
 
 ---
 

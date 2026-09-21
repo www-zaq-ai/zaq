@@ -12,6 +12,7 @@ defmodule Zaq.Engine.Telemetry.Workers.PushRollupsWorker do
   alias Zaq.Engine.Telemetry.BenchmarkConnector.HTTP
 
   @cursor_key "telemetry.push_cursor"
+  @local_identity_dimensions ~w(actor_id actor_type person_id conversation_id session_id)
 
   @impl Oban.Worker
   def perform(_job) do
@@ -28,12 +29,14 @@ defmodule Zaq.Engine.Telemetry.Workers.PushRollupsWorker do
   end
 
   defp push_rollups_and_advance_cursor(rollups) do
+    exportable = Enum.reject(rollups, &contains_local_identity?/1)
+
     payload = %{
       org: Telemetry.organization_profile(),
-      rollups: Enum.map(rollups, &to_wire_rollup/1)
+      rollups: Enum.map(exportable, &to_wire_rollup/1)
     }
 
-    with :ok <- connector().push_rollups(payload),
+    with :ok <- maybe_push(payload),
          %DateTime{} = last <- List.last(rollups).updated_at,
          {:ok, _} <- Telemetry.put_cursor(@cursor_key, last) do
       :ok
@@ -44,6 +47,14 @@ defmodule Zaq.Engine.Telemetry.Workers.PushRollupsWorker do
 
   defp connector do
     Application.get_env(:zaq, :telemetry_benchmark_connector, HTTP)
+  end
+
+  defp maybe_push(%{rollups: []}), do: :ok
+  defp maybe_push(payload), do: connector().push_rollups(payload)
+
+  defp contains_local_identity?(rollup) do
+    dimensions = rollup.dimensions || %{}
+    Enum.any?(@local_identity_dimensions, &Map.has_key?(dimensions, &1))
   end
 
   defp to_wire_rollup(rollup) do
