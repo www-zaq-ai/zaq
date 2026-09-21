@@ -18,6 +18,7 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
   @people_credentials_url "https://zaq.example.test/zaq/people/credentials"
   @missing_personal_message "Personal AI credentials are required for this agent. Add them in the People portal and try again.\n\nManage your personal AI credentials: <#{@people_credentials_url}>"
   @revoked_personal_message "Your personal AI credentials were revoked. Update or reconnect them in the People portal and try again.\n\nManage your personal AI credentials: <#{@people_credentials_url}>"
+  @expired_personal_message "Your personal AI credentials expired. Update or reconnect them in the People portal and try again.\n\nManage your personal AI credentials: <#{@people_credentials_url}>"
 
   @environment_keys [
     :channels,
@@ -133,6 +134,60 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
                     }},
                    5_000
 
+    refute_received {:llm_authorization, _authorization}
+  end
+
+  test "expired Person credentials emit one actionable terminal response before LLM HTTP" do
+    fixture = ingress_fixture(:required)
+    person = add_person(fixture, "Expired Alice", "mm-expired-alice", "expired-key")
+    grant = Zaq.Repo.get!(Zaq.Engine.Connect.Grant, person.grant.grant_id)
+
+    assert {:ok, _grant} =
+             grant
+             |> Ecto.Changeset.change(expires_at: DateTime.add(DateTime.utc_now(:second), -60))
+             |> Zaq.Repo.update()
+
+    send_posted_frame(fixture, person, "expired personal credential")
+
+    outgoing =
+      assert_delivered_error(person.channel_id, %{
+        credential_id: fixture.connect_credential.id,
+        reason: :credential_expired,
+        owner_type: "person"
+      })
+
+    assert outgoing.body == @expired_personal_message
+    assert outgoing.metadata.error_recovery == :personal_credentials
+    refute_received {:llm_authorization, _authorization}
+  end
+
+  test "missing global base URL yields safe personal recovery guidance at ingress" do
+    :ok = Zaq.System.set_global_base_url(nil)
+    fixture = ingress_fixture(:required)
+    person = add_person(fixture, "Missing URL Alice", "mm-missing-url-alice")
+
+    send_posted_frame(fixture, person, "missing portal URL")
+    outgoing = assert_delivered_error(person.channel_id, :personal_credential_required)
+
+    assert outgoing.body ==
+             "Personal AI credentials are required for this agent. Add them in the People portal and try again.\n\nThe People portal link is unavailable. Ask an administrator to configure the global base URL."
+
+    refute outgoing.body =~ "/people/credentials"
+    refute_received {:llm_authorization, _authorization}
+  end
+
+  test "missing organization credentials direct the Person to an administrator without a recovery link" do
+    fixture = ingress_fixture(:disabled, global_grant?: false)
+    person = add_person(fixture, "Global Missing Alice", "mm-global-missing-alice")
+
+    send_posted_frame(fixture, person, "missing organization credential")
+    outgoing = assert_delivered_error(person.channel_id, :global_credential_missing)
+
+    assert outgoing.body ==
+             "AI credentials have not been configured for this agent. Ask an administrator to configure them."
+
+    assert outgoing.metadata.error_recovery == :contact_administrator
+    refute outgoing.body =~ "/people/credentials"
     refute_received {:llm_authorization, _authorization}
   end
 
@@ -489,16 +544,24 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
                weight: 0
              })
 
-    if api_key do
-      assert {:ok, _grant} =
-               Connect.replace_credential_grant(
-                 fixture.connect_credential,
-                 {:person, person.id},
-                 %{api_key: api_key}
-               )
-    end
+    grant =
+      if api_key do
+        assert {:ok, grant} =
+                 Connect.replace_credential_grant(
+                   fixture.connect_credential,
+                   {:person, person.id},
+                   %{api_key: api_key}
+                 )
 
-    %{person: person, mattermost_user_id: mattermost_user_id, channel_id: channel_id}
+        grant
+      end
+
+    %{
+      person: person,
+      mattermost_user_id: mattermost_user_id,
+      channel_id: channel_id,
+      grant: grant
+    }
   end
 
   defp send_posted_frame(fixture, person_fixture, message) do
@@ -601,6 +664,7 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
     end
 
     delivered_body = await_final_mattermost_update(post_id)
+    refute_receive {:mattermost_update, %{"id" => ^post_id, "message" => _duplicate}}, 200
     %{outgoing | body: delivered_body}
   end
 

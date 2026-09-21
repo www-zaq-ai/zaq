@@ -3,13 +3,43 @@ const readline = require("node:readline")
 const { waitForLiveViewConnected, waitForLiveViewSettled } = require("./bo")
 const historyJourney = require("./people-history-journey.cjs")
 
+async function expectWithinViewport(locator, page) {
+  const box = await locator.boundingBox()
+  expect(box).not.toBeNull()
+  const viewport = page.viewportSize()
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+}
+
+async function expectFloatingWithinViewport(locator, page) {
+  await expectWithinViewport(locator, page)
+  const box = await locator.boundingBox()
+  expect(box.y).toBeGreaterThanOrEqual(0)
+  expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize().height)
+}
+
+async function completeOAuth(page, row, rowAction, providerAction) {
+  await row.getByRole("button", { name: rowAction, exact: true }).click()
+  const dialog = page.locator("#credential-form-dialog")
+  await expect(dialog).toContainText("Authentication details are never displayed")
+  const popupPromise = page.waitForEvent("popup")
+  const modalAction = rowAction === "Connect" ? "Connect" : "Reconnect"
+  await dialog.getByRole("button", { name: modalAction, exact: true }).click()
+  const popup = await popupPromise
+  await expect(popup.getByRole("heading", { name: "Authorize ZAQ", exact: true })).toBeVisible()
+  await popup.getByRole("link", { name: providerAction, exact: true }).click()
+  await expect.poll(() => popup.isClosed()).toBe(true)
+  await expect(page.getByRole("status").filter({ hasText: "Connection status refreshed" })).toBeVisible()
+  await expect(dialog).toHaveCount(0)
+}
+
 async function main() {
   const codes = readline.createInterface({ input: process.stdin })[Symbol.asyncIterator]()
   const [baseURL, engine, suffix, username] = process.argv.slice(2)
   const browser = await ({ chromium, firefox, webkit }[engine]).launch()
   try {
     for (const width of [390, 1280]) {
-    const context = await browser.newContext({ viewport: { width, height: 844 } })
+    const context = await browser.newContext({ viewport: { width, height: 844 }, hasTouch: width === 390 })
     const page = await context.newPage()
     const email = `${suffix}-${width}@example.test`
     const updatedName = `Browser Person Updated ${suffix}-${width}`
@@ -30,10 +60,14 @@ async function main() {
     const errors = []
     page.on("pageerror", error => errors.push(error.message))
     if (width === 390) await boLogin()
-    await page.goto(`${baseURL}/people/login`)
+    await page.goto(`${baseURL}/people/credentials`)
+    await expect(page).toHaveURL(/\/people\/login$/)
     await expect(page).toHaveTitle("Sign in · ZAQ")
     await page.locator(".phx-connected").waitFor()
     await expect(page.getByLabel("Email address")).toBeVisible()
+    const authShell = page.locator(".zaq-auth-shell")
+    await expectWithinViewport(authShell, page)
+    expect((await authShell.boundingBox()).width).toBeLessThanOrEqual(400)
     await page.getByLabel("Email address").fill(email)
     await page.getByRole("button", { name: "Send sign-in code" }).click()
     const first = (await codes.next()).value
@@ -110,6 +144,68 @@ async function main() {
     await page.getByLabel("One-time code").fill(second.replace("-", ""))
     await expect(page.getByLabel("One-time code")).toHaveValue(second)
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
+    await expect(page).toHaveURL(/\/people\/credentials$/)
+    await waitForLiveViewConnected(page)
+    await expect(page.getByRole("heading", { name: "Credentials", exact: true })).toBeVisible()
+
+    const apiRow = page.locator("#people-credentials-table tbody tr").filter({ hasText: `Personal API ${suffix}-${width}` })
+    await expect(apiRow.getByLabel("Required")).toBeVisible()
+    await expect(apiRow.getByLabel("Not configured")).toBeVisible()
+    await apiRow.getByRole("button", { name: "Add", exact: true }).click()
+    await expect(page.locator("#credential-form-dialog")).toContainText("write-only")
+    await page.getByRole("button", { name: "Cancel", exact: true }).click()
+    await expect(page.locator("#credential-form-dialog")).toHaveCount(0)
+
+    await apiRow.getByRole("button", { name: "Add", exact: true }).click()
+    const firstSecret = `PERSON-SECRET-${suffix}-${width}`
+    await page.getByLabel("API key", { exact: true }).fill(firstSecret)
+    await page.getByRole("button", { name: "Add credential", exact: true }).click()
+    await expect(page.getByRole("status").filter({ hasText: "Credential saved" })).toBeVisible()
+    await expect(apiRow.getByLabel("Configured")).toBeVisible()
+    await expect(page.locator("body")).not.toContainText(firstSecret)
+
+    await apiRow.getByLabel("Edit credential").click()
+    const replacementSecret = `REPLACEMENT-SECRET-${suffix}-${width}`
+    await page.getByLabel("API key", { exact: true }).fill(replacementSecret)
+    await page.getByRole("button", { name: "Save credential", exact: true }).click()
+    await expect(page.locator("body")).not.toContainText(replacementSecret)
+    await apiRow.getByLabel("Revoke credential").click()
+    await page.locator("#credential-revoke-dialog").getByRole("button", { name: "Revoke", exact: true }).click()
+    await expect(apiRow.getByLabel("Revoked")).toBeVisible()
+    await apiRow.getByLabel("Remove credential").click()
+    await page.locator("#credential-remove-dialog").getByRole("button", { name: "Remove", exact: true }).click()
+    await expect(apiRow.getByLabel("Not configured")).toBeVisible()
+
+    const oauthRow = page.locator("#people-credentials-table tbody tr").filter({ hasText: `Personal OAuth ${suffix}-${width}` })
+    await completeOAuth(page, oauthRow, "Connect", "Authorize")
+    await expect(oauthRow.getByLabel("Configured")).toBeVisible()
+    await page.reload()
+    await waitForLiveViewConnected(page)
+    await expect(oauthRow.getByLabel("Configured")).toBeVisible()
+
+    await completeOAuth(page, oauthRow, "Edit credential", "Deny")
+    await expect(oauthRow.getByLabel("Configured")).toBeVisible()
+    await completeOAuth(page, oauthRow, "Edit credential", "Fail token exchange")
+    await expect(oauthRow.getByLabel("Configured")).toBeVisible()
+    await expect(page.locator("body")).not.toContainText("PROVIDER_SECRET_SENTINEL")
+    await completeOAuth(page, oauthRow, "Edit credential", "Authorize")
+    await expect(oauthRow.getByLabel("Configured")).toBeVisible()
+
+    await oauthRow.getByLabel("Revoke credential").click()
+    await page.locator("#credential-revoke-dialog").getByRole("button", { name: "Revoke", exact: true }).click()
+    await expect(oauthRow.getByLabel("Revoked")).toBeVisible()
+    await oauthRow.getByLabel("Remove credential").click()
+    await page.locator("#credential-remove-dialog").getByRole("button", { name: "Remove", exact: true }).click()
+    await expect(oauthRow.getByLabel("Not configured")).toBeVisible()
+
+    await oauthRow.getByRole("button", { name: "Connect", exact: true }).click()
+    await page.evaluate(() => { window.open = () => null })
+    await page.locator("#credential-form-dialog").getByRole("button", { name: "Connect", exact: true }).click()
+    await expect(page.getByRole("alert")).toContainText("OAuth window was blocked")
+    await expect(oauthRow.getByLabel("Not configured")).toBeVisible()
+    expect(await page.locator("body").textContent()).not.toMatch(/PERSON-SECRET|REPLACEMENT-SECRET/)
+
+    await page.goto(`${baseURL}/people/profile`)
     await expect(page).toHaveURL(/\/people\/profile$/)
     await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible()
     await expect(page.locator("#people-profile-menu summary")).toContainText("Browser Person")
@@ -142,14 +238,71 @@ async function main() {
     await admin.locator('[phx-value-tab="permissions"]').click()
     await expect(edit).toBeChecked()
     await expect(admin.locator("#permission-everyone-access_message_history")).not.toBeChecked()
+
+    const manageCredentials = admin.locator("#permission-everyone-manage_credentials")
+    await expect(manageCredentials).toBeChecked()
+    await page.goto(`${baseURL}/people/credentials`)
+    await waitForLiveViewConnected(page)
+    await apiRow.getByRole("button", { name: "Add", exact: true }).click()
+    await page.getByLabel("API key", { exact: true }).fill(`PERMISSION-SECRET-${suffix}-${width}`)
+    await page.getByRole("button", { name: "Add credential", exact: true }).click()
+    await apiRow.getByLabel("Edit credential").click()
+    const deniedSecret = `DENIED-SECRET-${suffix}-${width}`
+    await page.getByLabel("API key", { exact: true }).fill(deniedSecret)
+    await manageCredentials.locator("..").click()
+    await expect(manageCredentials).toHaveAttribute("aria-checked", "false")
+    await page.getByRole("button", { name: "Save credential", exact: true }).click()
+    await expect(page.getByRole("alert")).toContainText("permission")
+    await expect(page.locator("body")).not.toContainText(deniedSecret)
+    await expect(page.locator("#credential-form-dialog")).toHaveCount(0)
+    await expect(apiRow.getByLabel("Edit credential")).toHaveCount(0)
+    await manageCredentials.locator("..").click()
+    await expect(manageCredentials).toHaveAttribute("aria-checked", "true")
     await page.reload()
     await waitForLiveViewConnected(page)
+    await apiRow.getByLabel("Remove credential").click()
+    await page.locator("#credential-remove-dialog").getByRole("button", { name: "Remove", exact: true }).click()
+    await page.goto(`${baseURL}/people/profile`)
+    await waitForLiveViewConnected(page)
+
+    await page.reload()
+    await waitForLiveViewConnected(page)
+
     await page.locator("#edit-name").click()
+    await page.getByLabel("Full name", { exact: true }).fill("Cancelled profile name")
+    await page.getByRole("button", { name: "Cancel", exact: true }).click()
+    await expect(page.getByRole("heading", { name: "Browser Person", exact: true })).toBeVisible()
+
+    await page.locator("#edit-name").click()
+    const invalidName = "x".repeat(300)
+    await page.getByLabel("Full name", { exact: true }).fill(invalidName)
+    await page.getByRole("button", { name: "Save name", exact: true }).click()
+    await expect(page.getByRole("alert")).toContainText("draft is kept")
+    await expect(page.getByLabel("Full name", { exact: true })).toHaveValue(invalidName)
     await page.getByLabel("Full name", { exact: true }).fill(updatedName)
     await page.getByRole("button", { name: "Save name", exact: true }).click()
     await expect(page.getByRole("status").filter({ hasText: "Profile saved" })).toBeVisible()
+
     await page.locator("#edit-order").click()
-    await page.getByRole("button", { name: `Move down email, ${email}`, exact: true }).click()
+    const savePreferences = page.getByRole("button", { name: "Save preferences", exact: true })
+    await expect(savePreferences).toBeDisabled()
+    const moveEmailDown = page.getByRole("button", { name: `Move down email, ${email}`, exact: true })
+    await moveEmailDown.focus()
+    await moveEmailDown.press("Enter")
+    await expect(page.locator("#reorder-announcement")).toContainText("email")
+    await expect(page.locator('#channel-priority tbody tr').filter({ hasText: email })).toBeFocused()
+    await page.getByRole("button", { name: "Cancel", exact: true }).click()
+    await expect(page.locator('#channel-priority tbody tr').first()).toContainText(email)
+
+    await page.locator("#edit-order").click()
+    if (width === 1280) {
+      await page.locator('#channel-priority tbody tr').first().locator('[data-drag-handle]').dragTo(
+        page.locator('#channel-priority tbody tr').nth(1)
+      )
+    } else {
+      await page.getByRole("button", { name: `Move down email, ${email}`, exact: true }).tap()
+    }
+    await expect(savePreferences).toBeEnabled()
     await page.getByRole("button", { name: "Save preferences", exact: true }).click()
     await expect(page.getByRole("status").filter({ hasText: "Contact preferences saved" })).toBeVisible()
     await expect(page.locator('#channel-priority tbody tr').first()).toContainText("slack")
@@ -159,6 +312,24 @@ async function main() {
     await expect(page.locator('#channel-priority tbody tr').first()).toContainText("slack")
     await expect(page.locator('#channel-priority tbody tr').filter({ hasText: email }).getByLabel("Priority 2")).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    for (const selector of ["#people-header", "#person-profile-content", "#person-information-card", "#person-teams-card", "#person-channels-card"]) {
+      await expectWithinViewport(page.locator(selector), page)
+    }
+
+    const accountTrigger = page.locator("#people-profile-menu-trigger")
+    await accountTrigger.focus()
+    await accountTrigger.press("Enter")
+    await expect(page.locator("#people-profile-menu")).toHaveAttribute("open", "")
+    await expectFloatingWithinViewport(page.locator("#people-profile-menu-panel"), page)
+    await page.getByLabel("Settings").click()
+    await expect(page.locator("#people-settings-menu")).toHaveAttribute("open", "")
+    await expect(page.locator("#people-profile-menu")).not.toHaveAttribute("open", "")
+    await expectFloatingWithinViewport(page.locator("#people-settings-panel"), page)
+    await accountTrigger.focus()
+    await accountTrigger.press("Enter")
+    await page.keyboard.press("Escape")
+    await expect(page.locator("#people-profile-menu")).not.toHaveAttribute("open", "")
+    await expect(accountTrigger).toBeFocused()
     await page.screenshot({ path: `test/e2e/test-results/people-profile-${engine}-${width}.png`, fullPage: true })
     await page.locator("#edit-name").click()
     await page.getByLabel("Full name", { exact: true }).fill("Revoked edit")
@@ -168,6 +339,9 @@ async function main() {
     await page.getByRole("button", { name: "Save name", exact: true }).click()
     await expect(page.getByRole("alert")).toContainText("permission")
     await expect(page.locator("#self-profile-form")).toHaveCount(0)
+    await expect(page.locator("#edit-name")).toHaveCount(0)
+    await expect(page.locator("#edit-order")).toHaveCount(0)
+    await expect(page.getByText("This profile is read-only.")).toBeVisible()
     await expect(page.locator("#people-profile-menu summary")).toContainText(updatedName)
     await expect(page.locator('#channel-priority tbody tr').filter({ hasText: email }).getByLabel("Priority 2")).toBeVisible()
     await historyJourney(page, admin, baseURL, engine, width)
@@ -176,11 +350,13 @@ async function main() {
     await page.locator("#people-profile-menu summary").click()
     await page.getByRole("button", { name: "Sign out" }).click()
     await expect(page).toHaveURL(/\/people\/login$/)
-    await page.goto(`${baseURL}/people/profile`)
+    await page.goto(`${baseURL}/people/credentials`)
     await expect(page).toHaveURL(/\/people\/login$/)
-    await page.goto(`${baseURL}/bo/profile`)
-    await expect(page).toHaveURL(/\/bo\/profile$/)
-    await expect(page.getByRole("heading", { name: "My Profile", exact: true })).toBeVisible()
+    const pendingCsrf = await page.locator("meta[name=csrf-token]").getAttribute("content")
+    const clearPending = await page.request.post(`${baseURL}/people/session`, {
+      form: { _method: "delete", _csrf_token: pendingCsrf }, maxRedirects: 0
+    })
+    expect(clearPending.status()).toBe(302)
     await page.goto(`${baseURL}/people/login`)
     await waitForLiveViewConnected(page)
     await page.getByLabel("Email address").fill(email)
@@ -191,6 +367,9 @@ async function main() {
     await page.getByLabel("One-time code").fill(third)
     await page.getByRole("button", { name: "Sign in", exact: true }).click()
     await expect(page).toHaveURL(/\/people\/profile$/)
+    await page.goto(`${baseURL}/bo/profile`)
+    await expect(page).toHaveURL(/\/bo\/profile$/)
+    await expect(page.getByRole("heading", { name: "My Profile", exact: true })).toBeVisible()
     const csrf = await page.locator("meta[name=csrf-token]").getAttribute("content")
     const logout = await page.request.post(`${baseURL}/bo/session`, {
       form: { _method: "delete", _csrf_token: csrf }, maxRedirects: 0

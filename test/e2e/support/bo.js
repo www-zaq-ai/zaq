@@ -213,7 +213,8 @@ async function createAiCredential(page, overrides = {}) {
     name: overrides.name || `E2E Credential ${unique}`,
     provider: overrides.provider || "Custom",
     endpoint: overrides.endpoint,
-    apiKey: overrides.apiKey || `e2e-key-${unique}`,
+    apiKey: Object.hasOwn(overrides, "apiKey") ? overrides.apiKey : `e2e-key-${unique}`,
+    personalCredentialPolicy: overrides.personalCredentialPolicy || "disabled",
     sovereign: overrides.sovereign || false,
     description: overrides.description || "E2E credential",
   }
@@ -235,6 +236,9 @@ async function createAiCredential(page, overrides = {}) {
     await page.locator('input[name="ai_credential[endpoint]"]').fill(credential.endpoint)
   }
   await page.locator("#ai-credential-api-key-input").fill(credential.apiKey)
+  await page
+    .locator('[name="ai_credential[personal_credential_policy]"]')
+    .selectOption(credential.personalCredentialPolicy)
 
   if (credential.sovereign) {
     await page.locator('label:has(input[name="ai_credential[sovereign]"][type="checkbox"])').click()

@@ -721,6 +721,44 @@ test.describe("System Config", () => {
       await expect(row).toContainText("Non-sovereign")
     })
 
+    test("personal policy and masked global API-key grant persist", async ({ page }) => {
+      const required = await createAiCredential(page, {
+        name: `E2E Required Personal ${Date.now()}`,
+        provider: "Custom",
+        endpoint: E2E_ENDPOINT,
+        apiKey: "",
+        personalCredentialPolicy: "required",
+      })
+      const requiredRow = page
+        .locator('button[phx-click="edit_ai_credential"]')
+        .filter({ hasText: required.name })
+      await expect(requiredRow).toContainText("No bearer grant")
+      await requiredRow.click()
+      await expect(page.locator('[name="ai_credential[personal_credential_policy]"]')).toHaveValue("required")
+      await expect(page.getByText("Without a global credential")).toBeVisible()
+      await page.locator("#ai-credential-modal button[aria-label='Close dialog']").click()
+
+      const globalSecret = `GLOBAL-POLICY-SECRET-${Date.now()}`
+      const optional = await createAiCredential(page, {
+        name: `E2E Optional Personal ${Date.now()}`,
+        provider: "Custom",
+        endpoint: E2E_ENDPOINT,
+        apiKey: globalSecret,
+        personalCredentialPolicy: "optional",
+      })
+      const optionalRow = page
+        .locator('button[phx-click="edit_ai_credential"]')
+        .filter({ hasText: optional.name })
+      await expect(optionalRow).toContainText("API key configured")
+      await expect(page.locator("body")).not.toContainText(globalSecret)
+
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=ai_credentials`)
+      await optionalRow.click()
+      await expect(page.locator('[name="ai_credential[personal_credential_policy]"]')).toHaveValue("optional")
+      await expect(page.locator("#ai-credential-api-key-input")).toHaveAttribute("style", /-webkit-text-security: disc/)
+      await expect(page.locator("body")).not.toContainText(globalSecret)
+    })
+
     test("api key is masked by default; show/hide toggles the mask", async ({ page }) => {
       await page.locator('[phx-click="new_ai_credential"]').click()
       await expect(page.locator(SEL.aiCredentialForm)).toBeVisible()

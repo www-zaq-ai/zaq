@@ -9,7 +9,8 @@ defmodule ZaqWeb.PeopleBrowserTest do
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
-  alias Zaq.TestSupport.PeopleAuthDelivery
+  alias Zaq.System, as: ZaqSystem
+  alias Zaq.TestSupport.{OAuthProvider, PeopleAuthDelivery}
   alias Zaq.TestSupport.PeopleSourceFixture
   import Zaq.AccountsFixtures
 
@@ -22,6 +23,8 @@ defmodule ZaqWeb.PeopleBrowserTest do
       suffix = "#{engine}-#{System.unique_integer([:positive])}"
       disk = Application.fetch_env!(:zaq, :channels) |> Map.fetch!(:disk)
       PeopleAuthDelivery.setup()
+      {oauth_server, oauth_base_url} = OAuthProvider.server(self())
+      start_supervised!(Supervisor.child_spec(oauth_server, id: {OAuthProvider, suffix}))
 
       Application.put_env(
         :zaq,
@@ -115,6 +118,35 @@ defmodule ZaqWeb.PeopleBrowserTest do
       {:ok, user} = Zaq.Accounts.change_password(user, %{password: "ValidPass123!"})
       {:ok, _} = Zaq.System.save_people_access_config(%{otp_send_ip_limit: 1000})
       {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
+      {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+
+      for width <- [390, 1280] do
+        {:ok, _} =
+          ZaqSystem.create_ai_provider_credential(%{
+            name: "Personal API #{suffix}-#{width}",
+            provider: "openai",
+            endpoint: "https://api.openai.com/v1",
+            personal_credential_policy: "required"
+          })
+
+        {:ok, _} =
+          ZaqSystem.create_ai_provider_credential(%{
+            name: "Personal OAuth #{suffix}-#{width}",
+            provider: "example",
+            endpoint: "https://provider.example/v1",
+            personal_credential_policy: "required",
+            metadata: %{
+              "auth_kind" => "oauth2",
+              "auth_profile" => "standard",
+              "authorize_url" => "#{oauth_base_url}/authorize",
+              "token_url" => "#{oauth_base_url}/token",
+              "client_id" => "browser-client",
+              "scope" => "profile offline_access",
+              "pkce" => true
+            }
+          })
+      end
+
       send(Config, :refresh)
       _ = :sys.get_state(Config)
       owner = self()
@@ -127,6 +159,7 @@ defmodule ZaqWeb.PeopleBrowserTest do
 
       server = start_supervised!({Bandit, plug: ZaqWeb.Endpoint, port: 0, ip: {127, 0, 0, 1}})
       {:ok, {_, port}} = ThousandIsland.listener_info(server)
+      :ok = Zaq.System.set_global_base_url("http://localhost:#{port}")
       executable = System.find_executable("node") || flunk("Node.js is required")
 
       browser =
@@ -146,6 +179,7 @@ defmodule ZaqWeb.PeopleBrowserTest do
       result = browser_result(browser, "")
       assert result =~ "#{engine}: 390px passed"
       assert result =~ "#{engine}: 1280px passed"
+      assert_oauth_requests(port)
       IO.puts(String.trim(result))
     end
   end
@@ -186,4 +220,38 @@ defmodule ZaqWeb.PeopleBrowserTest do
   end
 
   defp browser_checkpoint(_port, _line), do: :ok
+
+  defp assert_oauth_requests(port) do
+    authorize_requests = receive_oauth_requests(:oauth_authorize_request, 8)
+    token_requests = receive_oauth_requests(:oauth_token_request, 6)
+
+    assert Enum.count(token_requests, &(&1["code"] == "token-failure")) == 2
+    assert Enum.count(token_requests, &String.starts_with?(&1["code"], "success-")) == 4
+
+    Enum.each(authorize_requests, fn params ->
+      assert params["redirect_uri"] == "http://localhost:#{port}/channels/oauth2/example/redirect"
+      assert params["code_challenge_method"] == "S256"
+      assert is_binary(params["state"])
+      refute params["state"] == ""
+    end)
+
+    challenges = MapSet.new(authorize_requests, & &1["code_challenge"])
+
+    Enum.each(token_requests, fn token ->
+      verifier = token["code_verifier"]
+      assert is_binary(verifier)
+      challenge = :crypto.hash(:sha256, verifier) |> Base.url_encode64(padding: false)
+      assert MapSet.member?(challenges, challenge)
+
+      assert token["redirect_uri"] ==
+               "http://localhost:#{port}/channels/oauth2/example/redirect"
+    end)
+  end
+
+  defp receive_oauth_requests(tag, count) do
+    for _ <- 1..count do
+      assert_receive {^tag, params}, 5_000
+      params
+    end
+  end
 end
