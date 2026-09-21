@@ -15,11 +15,15 @@
     {
       "text": "Login-continuation implementation zaq-ba7 adds the direct protected-link journey to approval scope: signed-out visitor opens /people/credentials, completes OTP, and lands on Credentials. Review that navigation behavior with final credential routes/forms; callers continue linking directly to the protected destination.",
       "timestamp": "2026-09-20T08:53:57Z"
+    },
+    {
+      "text": "Explicit final human UX/UI approval recorded from the user's 2026-09-21 message: 'I've been checking pages and approve everything.' Approved scope includes BO personal policy/global grants, Person API-key/OAuth management, status/error/cancel/revoke/remove wording, and protected credential-link login continuation. Consolidated E2E zaq-jrg.32 may now proceed.",
+      "timestamp": "2026-09-21T12:43:16Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Approve combined credential management UX",
   "type": "task",
-  "updated_at": "2026-09-20T08:53:57Z"
+  "updated_at": "2026-09-21T12:43:16Z"
 }
