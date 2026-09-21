@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-21T14:24:15Z",
   "created": "2026-09-21T13:52:08Z",
   "description": "Review pushed commit 0833c57b against issue #706 and related #761; verify workflow/Jido contracts, approval recovery, production-action compatibility, tests and project standards. Run focused validation without editing implementation; publish nonduplicate inline findings and final GitHub review. Action reuse assessment: review introduces no operations (not applicable); audit PR reuse of Jido.Exec, existing workflow Actions/domain APIs and permission/lifecycle boundaries against docs/action-reuse.md.",
   "id": "zaq-znt",
@@ -21,8 +22,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[PR #765] Complete execution-contract review and publish findings",
   "type": "task",
-  "updated_at": "2026-09-21T14:24:14Z"
+  "updated_at": "2026-09-21T14:24:15Z"
 }
