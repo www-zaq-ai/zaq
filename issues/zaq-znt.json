@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-21T13:52:08Z",
@@ -7,8 +7,8 @@
   "id": "zaq-znt",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[PR #765] Complete execution-contract review and publish findings",
   "type": "task",
-  "updated_at": "2026-09-21T13:52:08Z"
+  "updated_at": "2026-09-21T13:52:41Z"
 }
