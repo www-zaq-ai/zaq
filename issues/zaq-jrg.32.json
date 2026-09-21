@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-jrg.31"
   ],
@@ -16,8 +16,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Finalize credential management E2E",
   "type": "task",
-  "updated_at": "2026-09-20T08:53:57Z"
+  "updated_at": "2026-09-21T12:43:37Z"
 }
