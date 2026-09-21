@@ -6,9 +6,15 @@
   "description": "Disk listings normalize relative paths to NFC before cataloging them. A Linux-mounted file such as Décembre-2020.md (decomposed e + combining acute) is visible in the Ingestion UI, but preview materialization and deletion resolve the composed path and fail with :enoent. Add regression coverage for list -\u003e materialize/delete using the returned stable identity, preserve exact filesystem path spelling while retaining canonical logical identity and authorization/traversal boundaries, and cover normalization collisions safely. Action reuse assessment: extend the existing Storage/FileExplorer, EntryCatalog, materialize_document, and delete_document operations; no new Action or agent-tool exposure. Inputs/outputs/errors and NodeRouter boundaries remain unchanged. Verify through Storage public contracts, materializer integration, Unicode/property cases, focused tests, mix q, and required ingestion E2E where available.",
   "id": "zaq-lcj",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented shared Storage path resolution for canonical Unicode equivalence. NFC logical/catalog paths now resolve segment-by-segment to exact filesystem spellings; multiple canonically equivalent siblings return :ambiguous_unicode_path instead of selecting one. Added regression coverage for Décembre-2020.md list -\u003e materialize -\u003e delete, pure equivalence/collision properties, and filesystem round-trip properties for Arabic, Chinese/CJK, Japanese, Devanagari, and Cyrillic filenames. Validation: 241 focused tests / 13 properties pass; mix q passes; ingestion E2E 9 passed / 3 skipped. Final mix precommit ran 9,080 tests and failed only four unrelated distributed peer-node tests with :peer_connection_failed; isolated rerun of those four failed identically. Context Mode also produced disk-I/O wrapper failures during precommit capture, so the final run used the documented filtered shell fallback. Work remains uncommitted for human review.",
+      "timestamp": "2026-09-21T19:06:25Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Fix decomposed Unicode disk document paths",
   "type": "bug",
-  "updated_at": "2026-09-21T17:51:30Z"
+  "updated_at": "2026-09-21T19:06:25Z"
 }
