@@ -11,6 +11,7 @@
     "zaq-i8x.16",
     "zaq-i8x.17",
     "zaq-i8x.18",
+    "zaq-i8x.19",
     "zaq-i8x.2",
     "zaq-i8x.3",
     "zaq-i8x.4",
@@ -30,5 +31,5 @@
   "status": "open",
   "title": "[zaq-i8x] Review quality and targeted coverage",
   "type": "task",
-  "updated_at": "2026-09-21T15:47:51Z"
+  "updated_at": "2026-09-21T15:47:52Z"
 }
