@@ -13,11 +13,15 @@
     {
       "text": "Add approved browser coverage for direct /people/credentials link -\u003e People login -\u003e OTP -\u003e Credentials, including failed OTP preservation and no stale continuation after logout. Implementation-level regression coverage lives under zaq-ba7; do not author this browser journey until zaq-jrg.31 is explicitly approved.",
       "timestamp": "2026-09-20T08:53:57Z"
+    },
+    {
+      "text": "Implemented approved consolidated credential E2E in isolated worktree /Users/julien/Documents/Repos/Github/OSS/zaq-credential-e2e (branch zaq-jrg.32/credential-e2e). Coverage now enters through protected /people/credentials, proves failed OTP preserves continuation and successful OTP lands on Credentials, exercises Person API-key add/cancel/replace/revoke/remove with secret-free rendering, OAuth start URL/browser hook/cancel with no external network, and proves logout clears stale credential continuation. Added BO required/no-global and optional/global API-key policy persistence/status coverage and helper policy support. Action reuse: not applicable — test-only fixture/journey changes reuse existing UI/domain contracts. Validation: real Chromium/Firefox/WebKit at 390/1280 passed on repeat (3 tests, 0 failures); full Chromium system_config.spec.js passed 55 tests; mix q passed (1357 files, no issues); diff check passed. Final mix precommit reached 9508 tests/146 properties/48 doctests with one transient StreamData duplicate and three existing AuthRateLimiter distributed-peer failures; --failed rerun cleared StreamData and again reproduced only the three peer startup/connect failures. No commit/push; ticket remains in_progress pending authorized landing.",
+      "timestamp": "2026-09-21T14:26:54Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Finalize credential management E2E",
   "type": "task",
-  "updated_at": "2026-09-21T12:43:37Z"
+  "updated_at": "2026-09-21T14:26:54Z"
 }
