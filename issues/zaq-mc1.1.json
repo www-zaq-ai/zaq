@@ -13,11 +13,15 @@
     {
       "text": "Implemented incremental direct grant mutation through Permissions -\u003e Storage -\u003e Storage.Api -\u003e DiskBridge -\u003e DataSourceBridge -\u003e Channels.Api -\u003e Ingestion, with signed Record identity, manage authorization, explicit trusted-context propagation, provider/config serialization, descendant projection sync, canonical Record response, strict principal/right validation, and focused tests. Action reuse: extended existing UI synchronization and permission primitives; no parallel ACL implementation.",
       "timestamp": "2026-09-22T08:38:35Z"
+    },
+    {
+      "text": "Architecture correction after review: permission mutation no longer enters Ingestion. The BO replacement flow and new Action now dispatch to Channels; DataSourceBridge delegates to the provider bridge; DiskBridge dispatches the ACL write to Storage. Only after a successful bridge response does DataSourceBridge send affected ids to the Ingestion projection-sync action. Removed Ingestion mutation entrypoints and Action-to-Ingestion dispatch.",
+      "timestamp": "2026-09-22T09:27:59Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-mc1.1] Extend shared incremental data-source ACL mutation",
   "type": "task",
-  "updated_at": "2026-09-22T08:38:35Z"
+  "updated_at": "2026-09-22T09:27:59Z"
 }
