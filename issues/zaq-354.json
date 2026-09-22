@@ -10,11 +10,15 @@
     {
       "text": "Architecture revised: Engine persists the incoming user message before Agent execution, passes explicit conversation/message refs, Agent retains execution data in memory, and Engine finalizes success or handled failure by user-message ID. Supersedes communication identity encoded in runtime scope strings; no attempt model or per-turn trace writes.",
       "timestamp": "2026-09-22T13:48:23Z"
+    },
+    {
+      "text": "Implementation sequence:\\n",
+      "timestamp": "2026-09-22T13:48:39Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-354] Issue 768 channel-scoped communication conversations",
   "type": "epic",
-  "updated_at": "2026-09-22T13:48:23Z"
+  "updated_at": "2026-09-22T13:48:39Z"
 }
