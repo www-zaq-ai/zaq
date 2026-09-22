@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T08:28:13Z",
+  "description": "Extend the existing Channels-owned conversation identity contract, not Mattermost-specific code. Operation: normalize provider/config/channel/user identity at CommunicationBridge and :conversation_identity. Action reuse: extend existing CommunicationBridge APIs and Channels.Api event; no new Action/tool because this is boundary normalization, not an independently agent-callable operation. Contract: JSON-safe stable identity, email bridge callback precedence, BO compatibility, invalid/missing values fail closed. Tests first: generic Jido chat channels, different room/config/user, email preservation.",
+  "id": "zaq-354.1",
+  "labels": [],
+  "parent": "zaq-354",
+  "priority": 1,
+  "status": "open",
+  "title": "Conversation identity contract",
+  "type": "task",
+  "updated_at": "2026-09-22T08:28:13Z"
+}
