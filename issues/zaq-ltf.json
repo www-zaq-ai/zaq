@@ -2,13 +2,14 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-22T19:31:59Z",
   "created": "2026-09-22T18:48:21Z",
   "description": "Fix the CI Disk provisioning assumptions and the Firefox People E2E race on PR #788. Coverage is explicitly deferred. Action reuse: not applicable — test fixture provisioning and stabilization of an existing E2E interaction add no production executable operation.",
   "id": "zaq-ltf",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-ltf] CI follow-up fixes for PR 788",
   "type": "epic",
-  "updated_at": "2026-09-22T18:48:40Z"
+  "updated_at": "2026-09-22T19:31:59Z"
 }
