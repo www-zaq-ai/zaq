@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-fuu.2"
+  ],
   "created": "2026-09-22T20:10:33Z",
   "description": "Tests first in document_processor tests. Extend the existing joined extraction projection with document title/watch_status/inserted_at/updated_at and chunk metadata/language. Use string keys and ISO-8601 UTC timestamps, preserve nil. Ensure denied records disclose none of the added fields and token accounting covers serialized enriched context. Preserve ranking, filters and section order. Action reuse: extend Zaq.Ingestion.DocumentProcessor query_extraction; no new operation or Action.",
   "id": "zaq-fuu.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#617] Enrich permission-safe retrieval contract",
   "type": "task",
-  "updated_at": "2026-09-22T20:10:34Z"
+  "updated_at": "2026-09-22T20:10:37Z"
 }
