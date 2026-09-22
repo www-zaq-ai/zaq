@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-6dm.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-6dm",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-6dm] Verify capabilities and restructure README and technical guides",
   "type": "task",
-  "updated_at": "2026-09-22T06:46:38Z"
+  "updated_at": "2026-09-22T06:46:43Z"
 }
