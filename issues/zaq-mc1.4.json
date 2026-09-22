@@ -19,11 +19,15 @@
     {
       "text": "User correction: remove provenance restoration entirely. Keep strict existing provenance verification, define the minimum valid Record fields in Record.zoi_type so real LLM tool schemas advertise them, and make the mock echo that valid minimum from the listed Record. Add only missing schema/minimal-payload coverage; do not duplicate existing tampering tests. Treat serialization changes as contingent on a failing test after the schema correction.",
       "timestamp": "2026-09-22T14:03:24Z"
+    },
+    {
+      "text": "Applied correction: removed all Record restoration/fallback logic from Provenance and Record.from_map. Record.zoi_type now emits an explicit object schema requiring id, kind, parent_id, permissions, attributes, and provenance_ref; tests assert the generated JSON Schema and a valid minimum signed payload while existing tampering tests remain. The mock now echoes those minimum fields from the actual listed Record. Runtime verification showed schema alone does not affect Jido's bounded transport sanitizer: nested permission Records were still depth-summarized. Added a post-validation model-facing RecordResultTransformer (wired after opaque aliasing/media projection) to preserve the required fields and permission semantics without weakening or reconstructing provenance. DiskBridge now represents embedded permissions as canonical Records, and OpaqueAliases recognizes semantic metadata on object schemas. Validation: integration test passed seeds 101/202/303; focused suite 176 tests + 4 properties passed; mix q, diagnostics, and diff check passed. No commit performed.",
+      "timestamp": "2026-09-22T14:32:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Add agent-driven Disk permission integration test",
   "type": "task",
-  "updated_at": "2026-09-22T14:03:24Z"
+  "updated_at": "2026-09-22T14:32:11Z"
 }
