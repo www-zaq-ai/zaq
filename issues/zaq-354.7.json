@@ -11,9 +11,15 @@
   "id": "zaq-354.7",
   "labels": [],
   "parent": "zaq-354",
+  "comments": [
+    {
+      "text": "Implemented idempotent Engine finalization by admitted user-message ID + capability. Success creates one linked assistant turn; handled failures persist in-memory trace/artifacts on the user input without an attempt model or per-turn writes.",
+      "timestamp": "2026-09-22T15:36:25Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Finalize handled outcomes by input message",
   "type": "task",
-  "updated_at": "2026-09-22T13:48:38Z"
+  "updated_at": "2026-09-22T15:36:25Z"
 }
