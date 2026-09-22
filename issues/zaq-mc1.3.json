@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T07:09:44Z",
+  "description": "Complete focused integration/property coverage proving UI replacement and Action incremental consumers share the same permission synchronization implementation. Run isolated suites, mix q, relevant existing ingestion E2E per policy, and record results. New UI journeys are not introduced, so no new feature E2E authoring gate is needed.",
+  "id": "zaq-mc1.3",
+  "labels": [],
+  "parent": "zaq-mc1",
+  "priority": 2,
+  "status": "open",
+  "title": "Validate data-source permission Action",
+  "type": "task",
+  "updated_at": "2026-09-22T07:09:44Z"
+}
