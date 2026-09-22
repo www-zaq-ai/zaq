@@ -9,7 +9,7 @@
   "parent": "zaq-ltf",
   "priority": 1,
   "status": "open",
-  "title": "Fix Firefox People team assignment race",
+  "title": "[zaq-ltf.2] Fix Firefox People team assignment race",
   "type": "bug",
-  "updated_at": "2026-09-22T18:48:41Z"
+  "updated_at": "2026-09-22T18:48:42Z"
 }
