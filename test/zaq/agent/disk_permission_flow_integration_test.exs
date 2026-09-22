@@ -12,19 +12,23 @@ defmodule Zaq.Agent.DiskPermissionFlowIntegrationTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Agent.Executor
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Ingestion.Document
   alias Zaq.Permissions
   alias Zaq.Storage
   alias Zaq.Storage.{EntryCatalog, StorageEntry, VolumeConfig}
-  alias Zaq.TestSupport.{IntegrationAgent, MultiAgentOpenAIStub, OpenAIStub}
+
+  alias Zaq.TestSupport.{
+    DiskConfigFixture,
+    IntegrationAgent,
+    MultiAgentOpenAIStub,
+    OpenAIStub
+  }
 
   @tools ~w(list_documents update_document_permissions)
 
   setup do
-    disk_config = ChannelConfig.get_by_provider("disk")
-    assert disk_config, "expected the test database to contain the provisioned Disk data source"
+    disk_config = DiskConfigFixture.get_or_create!()
 
     {:ok, storage_opts} = VolumeConfig.opts_for_channel_config(disk_config)
     storage_config = Keyword.fetch!(storage_opts, :storage_config)
