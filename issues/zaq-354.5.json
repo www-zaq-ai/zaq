@@ -9,9 +9,15 @@
   "id": "zaq-354.5",
   "labels": [],
   "parent": "zaq-354",
+  "comments": [
+    {
+      "text": "Implemented Engine admission: canonical conversation resolution, persisted pending user message, provider-redelivery suppression, and per-admission finalization capability.",
+      "timestamp": "2026-09-22T15:36:23Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Admit incoming messages before agent execution",
   "type": "task",
-  "updated_at": "2026-09-22T13:48:38Z"
+  "updated_at": "2026-09-22T15:36:23Z"
 }
