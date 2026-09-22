@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T08:28:15Z",
+  "description": "Run focused regression suites and mix q, review diff, update Channels/Agent/Engine docs, record Context Mode disk-I/O fallback, and assess E2E as unnecessary because no UI journey changes. Action reuse: not applicable—validation/documentation only. Final mix precommit remains reserved until final human approval per workflow.",
+  "id": "zaq-354.4",
+  "labels": [],
+  "parent": "zaq-354",
+  "priority": 1,
+  "status": "open",
+  "title": "Validate issue 768 channel isolation",
+  "type": "task",
+  "updated_at": "2026-09-22T08:28:15Z"
+}
