@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T08:28:13Z",
+  "description": "GitHub #768. Make conversation persistence and agent memory communication-channel-centric so Mattermost and other room-based providers isolate each user per connector/channel. Preserve email threading, BO sessions, workflow scopes, and legacy mixed rows; new scoped conversations must not reuse legacy history. Dependency graph: identity -\u003e persistence -\u003e agent history -\u003e validation.",
+  "id": "zaq-354",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Issue 768 channel-scoped communication conversations",
+  "type": "epic",
+  "updated_at": "2026-09-22T08:28:13Z"
+}
