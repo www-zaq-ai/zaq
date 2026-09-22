@@ -6,9 +6,15 @@
   "description": "Approved product-first README and fresh safe screenshots. Reuse existing technical guides; add docs/operations/deployment.md for Docker/HTTPS. Action reuse: not applicable, documentation/assets only, no executable operation changes. No commit/push/PR authorized. Sequence: verify and migrate documentation -\u003e capture UI previews -\u003e final validation. Application unit/E2E tests and coverage not applicable for docs-only work; required mix q and final mix precommit remain.",
   "id": "zaq-6dm",
   "labels": [],
+  "comments": [
+    {
+      "text": "README now 109 lines (was 535). Technical content moved to deployment guide and existing dev/architecture/workflows owners; inbound links updated. Three browser captures in docs/images/readme with provenance. No commit/push/PR performed. Final gate blocked by 15-minute precommit timeout and concurrently changing shared tree. Implementation retained uncommitted.",
+      "timestamp": "2026-09-22T07:27:47Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-6dm] Refresh README for collaborative agentic operating system positioning",
   "type": "epic",
-  "updated_at": "2026-09-22T06:46:21Z"
+  "updated_at": "2026-09-22T07:27:47Z"
 }
