@@ -11,9 +11,15 @@
   "id": "zaq-6dm.2",
   "labels": [],
   "parent": "zaq-6dm",
+  "comments": [
+    {
+      "text": "Captured three real BO screens with synthetic examples in isolated zaq_test_e2e_main_readme database, not existing shared E2E data. Existing E2E DB has 14 pending migrations; left untouched. Screenshot provenance in docs/images/readme/README.md; no model requests or workflow execution fabricated. Existing API/fixtures reused for temporary demo configuration. Browser screenshots visually inspected.",
+      "timestamp": "2026-09-22T07:09:18Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-6dm] Capture and integrate safe product screenshots",
   "type": "task",
-  "updated_at": "2026-09-22T06:46:40Z"
+  "updated_at": "2026-09-22T07:09:18Z"
 }
