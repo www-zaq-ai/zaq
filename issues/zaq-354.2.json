@@ -11,9 +11,15 @@
   "id": "zaq-354.2",
   "labels": [],
   "parent": "zaq-354",
+  "comments": [
+    {
+      "text": "Added queryable external_channel_id/external_thread_id fields and active scoped uniqueness, with legacy rows excluded. Engine persistence now creates/reuses by provider/config/channel/thread/participant and validates explicit scoped conversation IDs. Existing unscoped direct API/email behavior remains. Tests: conversations_test 127 tests, 0 failures; mix q passed.",
+      "timestamp": "2026-09-22T09:03:10Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-354.2] Channel-scoped conversation persistence",
   "type": "task",
-  "updated_at": "2026-09-22T08:51:59Z"
+  "updated_at": "2026-09-22T09:03:10Z"
 }
