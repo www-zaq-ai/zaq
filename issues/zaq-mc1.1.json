@@ -9,9 +9,15 @@
   "id": "zaq-mc1.1",
   "labels": [],
   "parent": "zaq-mc1",
+  "comments": [
+    {
+      "text": "Implemented incremental direct grant mutation through Permissions -\u003e Storage -\u003e Storage.Api -\u003e DiskBridge -\u003e DataSourceBridge -\u003e Channels.Api -\u003e Ingestion, with signed Record identity, manage authorization, explicit trusted-context propagation, provider/config serialization, descendant projection sync, canonical Record response, strict principal/right validation, and focused tests. Action reuse: extended existing UI synchronization and permission primitives; no parallel ACL implementation.",
+      "timestamp": "2026-09-22T08:38:35Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-mc1.1] Extend shared incremental data-source ACL mutation",
   "type": "task",
-  "updated_at": "2026-09-22T07:09:58Z"
+  "updated_at": "2026-09-22T08:38:35Z"
 }
