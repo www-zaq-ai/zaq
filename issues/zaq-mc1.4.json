@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-22T16:49:58Z",
   "created": "2026-09-22T13:18:59Z",
   "description": "Add a real configured-agent integration test using ToolCallingLLMStub and the existing provisioned Disk ChannelConfig. Isolate filesystem state in a UUID directory, exercise get/list plus data_source.update_document_permissions through Executor/Factory/Jido and the real Channels -\u003e DataSourceBridge -\u003e DiskBridge -\u003e Storage path, verify persisted direct/inherited ACLs and indexed projection sync, and cover unauthorized mutation denial. No new Action, Disk config, or mock NodeRouter. Validation: repeated focused test, existing Disk agent flow, permission suites, mix q.",
   "id": "zaq-mc1.4",
@@ -26,8 +27,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Add agent-driven Disk permission integration test",
   "type": "task",
-  "updated_at": "2026-09-22T14:32:11Z"
+  "updated_at": "2026-09-22T16:49:58Z"
 }
