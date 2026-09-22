@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-354.3"
   ],
+  "closed_at": "2026-09-22T09:03:11Z",
   "created": "2026-09-22T08:28:14Z",
   "description": "Add explicit external channel/thread persistence and atomic lookup so inbound and PersistMessageHistory use stamped Channels identity. Action reuse: extend Engine Conversations and existing PersistMessageHistory Action. Contract: provider/config/channel/thread/user scoped active conversations; channel-level distinct from threaded; different threads isolate; no wildcard null config; legacy rows retained but excluded; root channel post not copied into later thread; concurrency safe. Tests first for all dimensions, concurrent create, explicit ID validation, outbound path.",
   "id": "zaq-354.2",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-354.2] Channel-scoped conversation persistence",
   "type": "task",
-  "updated_at": "2026-09-22T09:03:10Z"
+  "updated_at": "2026-09-22T09:03:11Z"
 }
