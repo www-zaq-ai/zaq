@@ -7,9 +7,15 @@
   "id": "zaq-ltf.1",
   "labels": [],
   "parent": "zaq-ltf",
+  "comments": [
+    {
+      "text": "Implemented shared DiskConfigFixture with fresh-database provisioning and existing-config reuse; migrated Disk integration and People source fixtures. Regression plus three affected integration scenarios pass (4 tests, 0 failures). Action reuse remains not applicable: test fixture-only change. Pending final mix q and landing authorization.",
+      "timestamp": "2026-09-22T18:52:04Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-ltf.1] Fix Disk integration provisioning in fresh CI databases",
   "type": "bug",
-  "updated_at": "2026-09-22T18:48:43Z"
+  "updated_at": "2026-09-22T18:52:04Z"
 }
