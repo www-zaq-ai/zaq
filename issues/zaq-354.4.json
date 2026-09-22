@@ -9,9 +9,15 @@
   "id": "zaq-354.4",
   "labels": [],
   "parent": "zaq-354",
+  "comments": [
+    {
+      "text": "Validation complete except final gate. Focused #768 suites: 6 doctests, 2 properties, 236 tests, 0 failures. mix q passed. Migration rollback + migrate passed. git diff --check and Serena diagnostics passed. Independent review found and we fixed participant-filtered cold hydration, collision-resistant invalid scopes, and fail-closed Channels identity resolution; final re-review had no findings. E2E not applicable: no UI journey changed. Context Mode repeatedly hit disk I/O errors, so bounded direct-shell fallbacks were used where noted. Final mix precommit was attempted with the mandated 900s timeout but timed out with no captured result; no process remains. Keep this issue open pending a successful final gate.",
+      "timestamp": "2026-09-22T10:19:32Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-354.4] Validate issue 768 channel isolation",
   "type": "task",
-  "updated_at": "2026-09-22T09:20:52Z"
+  "updated_at": "2026-09-22T10:19:32Z"
 }
