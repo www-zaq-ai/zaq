@@ -6,9 +6,15 @@
   "description": "For non-DM JidoChat thread replies, route replies rooted in a ZAQ-authored message without requiring a mention; for roots authored by others or unknown, require an explicit ZAQ mention. Preserve current DM behavior, self-message filtering, reply hooks, and exactly-once processing. Add regression tests. Action reuse assessment: operation is local ingress admission in Zaq.Channels.JidoChatBridge; inspected existing Chat handlers, handle_message_event/3, handle_subscribed_message/1, and normal Engine routing. Decision: local-only extension of the bridge's existing handler routing because this is adapter-bound event classification with no standalone Action contract. Inputs are normalized Jido.Chat.Incoming plus configured bot identity/root metadata; output is existing :ok/error behavior and existing routing/hook side effects. Consumers remain JidoChat listener/webhook paths; no agent tool/workflow exposure. Verification: handler tests covering ZAQ root, other/unknown root with and without mention, DMs unchanged, self filtering, and no duplicate pipeline dispatch. E2E not needed: transport ingress policy is covered deterministically at bridge integration/unit level with no UI journey.",
   "id": "zaq-s14",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented non-DM thread admission by root author: explicit ZAQ mentions route immediately; otherwise the bridge fetches the thread root through the JidoChat adapter and compares its author to configured bot_user_id. Human/unknown roots remain mention-only; DMs and reply hooks retain existing behavior; channel patterns skip thread replies to avoid duplicate processing. Added regression coverage for ZAQ roots, human roots, other-user mentions, subscribed hooks, lookup failure, DM preservation, and exactly-once dispatch. Updated docs/services/channels.md. Validation: targeted JidoChatBridge suite 175 tests/0 failures; mix q passed; initial mix precommit hit unrelated PortalConsentLive async timeout, isolated test passed, repeat mix precommit passed. E2E not applicable (no UI journey).",
+      "timestamp": "2026-09-22T09:47:46Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Handle JidoChat replies by thread root author",
   "type": "task",
-  "updated_at": "2026-09-22T09:03:19Z"
+  "updated_at": "2026-09-22T09:47:46Z"
 }
