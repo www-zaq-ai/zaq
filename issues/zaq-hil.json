@@ -6,9 +6,15 @@
   "description": "Editing a Connect credential created from a Data Source crashes while resolving OAuth default scopes because the composite :create_item capability resolves to {:ok, true}, then collect_capability_scopes/3 treats true as an action map. Extend the existing JidoConnectBridge scope-discovery implementation and existing bridge/LiveView regression tests; preserve the BO NodeRouter boundary.\\n\\nAction reuse assessment\\n- Operation/evidence: existing :data_source_oauth_default_scopes dispatch in Channels API, JidoConnectBridge.oauth_default_scopes/1, collect_required_scopes/2, collect_capability_scopes/3, and existing scope tests in jido_connect_bridge_test.exs.\\n- Decision: extend existing Channels implementation; no new Action or parallel helper. Composite create-item scope discovery remains a private implementation detail.\\n- Contract: provider input; returns {:ok, normalized unique scopes}; unsupported/unresolvable capabilities contribute no scopes; no actor context or side effects.\\n- Consumers/execution: BO continues dispatching through NodeRouter; no agent-tool or workflow exposure.\\n- Verification: extend existing bridge scope-merging fixture/test to cover composite create actions and existing credential-edit LiveView coverage; run isolated tests, mix q, applicable existing E2E, and final mix precommit.",
   "id": "zaq-hil",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented and committed as 7d9a92ea. Extended the existing oauth_default_scopes bridge fixture/test with composite file-create, upload, and folder-create actions; reused shared create-action resolution to collect all scopes. Validation: bridge suite 159/159; existing LiveView credential edit test passed; mix q passed; system_config.spec.js 165/165 across browsers. Full E2E journeys had 399 pass/3 skip but Storybook project failed because it targets unavailable localhost:4000. mix precommit timed out twice at the required 900s, so the issue remains in progress and PR is draft.",
+      "timestamp": "2026-09-22T07:29:41Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Fix data-source credential OAuth scope editing crash",
   "type": "bug",
-  "updated_at": "2026-09-22T06:18:50Z"
+  "updated_at": "2026-09-22T07:29:41Z"
 }
