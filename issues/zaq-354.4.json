@@ -14,11 +14,15 @@
     {
       "text": "Validation complete except final gate. Focused #768 suites: 6 doctests, 2 properties, 236 tests, 0 failures. mix q passed. Migration rollback + migrate passed. git diff --check and Serena diagnostics passed. Independent review found and we fixed participant-filtered cold hydration, collision-resistant invalid scopes, and fail-closed Channels identity resolution; final re-review had no findings. E2E not applicable: no UI journey changed. Context Mode repeatedly hit disk I/O errors, so bounded direct-shell fallbacks were used where noted. Final mix precommit was attempted with the mandated 900s timeout but timed out with no captured result; no process remains. Keep this issue open pending a successful final gate.",
       "timestamp": "2026-09-22T10:19:32Z"
+    },
+    {
+      "text": "Validation: focused modified-area suite 748 tests / 5 properties / 6 doctests, 0 failures; mix q clean; both migrations rollback/up clean; Serena diagnostics clean; independent review clean. Full mix precommit first exposed 4 unrelated/compat failures, all fixed and mix test --failed passed; repeat precommit ran 1000s and timed out before final summary (no observed assertion failures before timeout). Dev migration unavailable because isolated dev DB does not exist; test DB migration validated.",
+      "timestamp": "2026-09-22T15:36:25Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-354.4] Validate issue 768 channel isolation",
   "type": "task",
-  "updated_at": "2026-09-22T13:48:38Z"
+  "updated_at": "2026-09-22T15:36:25Z"
 }
