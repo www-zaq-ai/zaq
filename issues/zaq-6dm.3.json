@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-6dm.2"
+  ],
   "blocks": [],
   "created": "2026-09-22T06:46:23Z",
   "description": "Verify local links/anchors, screenshots and self-review diff. Run mix q and mix precommit through Context Mode. Docs-only: no application tests or coverage needed beyond mandatory gate. Record blockers honestly.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-6dm] Validate refreshed documentation and final quality gate",
   "type": "task",
-  "updated_at": "2026-09-22T06:46:23Z"
+  "updated_at": "2026-09-22T06:46:40Z"
 }
