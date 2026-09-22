@@ -15,11 +15,15 @@
     {
       "text": "Implemented Zaq.Agent.Tools.DataSource.UpdateDocumentPermissions and Registry key data_source.update_document_permissions for agents and workflows. Added JSON schema conversion/refinements, CRUD-only projection-safe rights, public read-only safety, and unsupported-provider errors. JidoConnect follow-up: https://github.com/www-zaq-ai/zaq/issues/784",
       "timestamp": "2026-09-22T08:38:36Z"
+    },
+    {
+      "text": "Corrected Action boundary: UpdateDocumentPermissions now uses DataSourceTool.dispatch/5 and :data_source_update_permissions on Channels. It does not call Ingestion. Source rights use ResourcePermission semantics; Ingestion remains projection-only.",
+      "timestamp": "2026-09-22T09:27:59Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-mc1.2] Add data-source permission Action",
   "type": "task",
-  "updated_at": "2026-09-22T08:38:36Z"
+  "updated_at": "2026-09-22T09:27:59Z"
 }
