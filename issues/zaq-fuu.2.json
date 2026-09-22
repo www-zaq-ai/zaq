@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T20:10:35Z",
+  "description": "Tests first in SearchKnowledgeBase integration and Pipeline tests. Reuse answering.search_knowledge_base and extend Pipeline's explicit prompt projection so authorized enriched fields reach the answering agent. Preserve NodeRouter, Executor and Factory boundaries; do not create a parallel retrieval path or expose a new tool.",
+  "id": "zaq-fuu.2",
+  "labels": [],
+  "parent": "zaq-fuu",
+  "priority": 2,
+  "status": "open",
+  "title": "Propagate enriched chunks to agent context",
+  "type": "task",
+  "updated_at": "2026-09-22T20:10:35Z"
+}
