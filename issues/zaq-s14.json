@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-22T09:03:13Z",
@@ -7,8 +7,8 @@
   "id": "zaq-s14",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Handle JidoChat replies by thread root author",
   "type": "task",
-  "updated_at": "2026-09-22T09:03:13Z"
+  "updated_at": "2026-09-22T09:03:19Z"
 }
