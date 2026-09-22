@@ -864,6 +864,7 @@ async function selectPerson(page, name) {
   const row = page.locator("#people-table tbody tr", { hasText: name }).first()
   await expect(row).toBeVisible()
   await row.click()
+  await waitForServerRoundTrip(page)
 
   const detail = page.locator("#people-detail-pane")
   await expect(detail).toBeVisible()
@@ -879,23 +880,23 @@ async function createAndAssignTeam(page, teamName) {
 
   await expect(trigger).toBeVisible()
 
-  let opened = false
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    await trigger.click({ force: true })
-    try {
-      await expect(panel).toBeVisible({ timeout: 600 })
-      await expect(search).toBeVisible({ timeout: 600 })
-      opened = true
-      break
-    } catch (_error) {
-      await page.waitForTimeout(120)
+  // Keep the idempotent open/fill phase together. A LiveView patch can replace
+  // or close the select between either action, especially in Firefox, so each
+  // retry resolves the current hook state instead of acting on a stale opening.
+  await expect(async () => {
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+      await trigger.click()
     }
-  }
 
-  expect(opened).toBeTruthy()
-  await search.fill(teamName)
-  await expect(create).toBeVisible()
+    await expect(panel).toBeVisible({ timeout: 1_000 })
+    await expect(search).toBeVisible({ timeout: 1_000 })
+    await search.fill(teamName)
+    await expect(search).toHaveValue(teamName)
+    await expect(create).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 8_000 })
+
   await create.click()
+  await waitForServerRoundTrip(page)
 }
 
 function teamBadge(page, teamName) {
