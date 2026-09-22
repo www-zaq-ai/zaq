@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-6dm.1"
+  ],
   "blocks": [],
   "created": "2026-09-22T06:46:22Z",
   "description": "Inspect existing local E2E app, use demo data only, capture real populated agent/workflow/knowledge screens consistently and integrate repository-local assets. No fabricated UI or live secret exposure. Depends on documentation narrative.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-6dm] Capture and integrate safe product screenshots",
   "type": "task",
-  "updated_at": "2026-09-22T06:46:22Z"
+  "updated_at": "2026-09-22T06:46:38Z"
 }

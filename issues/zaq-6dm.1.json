@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-6dm.2"
+  ],
   "created": "2026-09-22T06:46:21Z",
   "description": "Verify claims against implementation/tests; rewrite product introduction; migrate detailed setup into existing guides and new deployment guide; update inbound links. Action reuse N/A: docs only.",
   "id": "zaq-6dm.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-6dm] Verify capabilities and restructure README and technical guides",
   "type": "task",
-  "updated_at": "2026-09-22T06:46:21Z"
+  "updated_at": "2026-09-22T06:46:38Z"
 }
