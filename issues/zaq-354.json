@@ -6,9 +6,15 @@
   "description": "GitHub #768. Make conversation persistence and agent memory communication-channel-centric so Mattermost and other room-based providers isolate each user per connector/channel/thread. Identity dimensions: provider + connector configuration + external channel + external user + stable external thread/root ID when present. Persist channel and thread separately for aggregation. Channel-level and threaded conversations remain separate; different threads/users isolate. Root post remains in channel history; first threaded reply starts fresh thread history. Preserve email threading, BO sessions, workflow scopes, and legacy mixed rows; new scoped conversations must not reuse legacy history. Dependency graph: identity -\u003e persistence -\u003e agent history -\u003e validation.",
   "id": "zaq-354",
   "labels": [],
+  "comments": [
+    {
+      "text": "Architecture revised: Engine persists the incoming user message before Agent execution, passes explicit conversation/message refs, Agent retains execution data in memory, and Engine finalizes success or handled failure by user-message ID. Supersedes communication identity encoded in runtime scope strings; no attempt model or per-turn trace writes.",
+      "timestamp": "2026-09-22T13:48:23Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-354] Issue 768 channel-scoped communication conversations",
   "type": "epic",
-  "updated_at": "2026-09-22T08:46:31Z"
+  "updated_at": "2026-09-22T13:48:23Z"
 }
