@@ -3089,10 +3089,19 @@ defmodule Zaq.Channels.JidoConnectBridge do
     do: ProviderCatalog.capability_action_suffixes(capability)
 
   defp resolve_create_item_contract(tools, provider) when is_list(tools) do
-    with {:ok, _} <- resolve_create_action(tools, provider, :file, :create, ["file.create"]),
-         {:ok, _} <- resolve_create_action(tools, provider, :file, :upload, ["file.upload"]),
-         {:ok, _} <- resolve_create_action(tools, provider, :folder, :create, ["folder.create"]) do
+    with {:ok, _actions} <- resolve_create_item_actions(tools, provider) do
       {:ok, true}
+    end
+  end
+
+  defp resolve_create_item_actions(tools, provider) do
+    with {:ok, file_create} <-
+           resolve_create_action(tools, provider, :file, :create, ["file.create"]),
+         {:ok, file_upload} <-
+           resolve_create_action(tools, provider, :file, :upload, ["file.upload"]),
+         {:ok, folder_create} <-
+           resolve_create_action(tools, provider, :folder, :create, ["folder.create"]) do
+      {:ok, [file_create, file_upload, folder_create]}
     end
   end
 
@@ -3306,6 +3315,21 @@ defmodule Zaq.Channels.JidoConnectBridge do
        when capability in [:watch_changes_webhook, :receive_change_webhook],
        do: {[], cache}
 
+  defp collect_capability_scopes(provider, :create_item, cache) do
+    {tools, cache} = tools_for_capability(provider, :create_item, cache)
+
+    scopes =
+      case resolve_create_item_actions(tools, provider) do
+        {:ok, actions} ->
+          Enum.flat_map(actions, fn action -> List.wrap(Map.get(action, :scopes, [])) end)
+
+        _ ->
+          []
+      end
+
+    {scopes, cache}
+  end
+
   defp collect_capability_scopes(provider, capability, cache) do
     if ProviderCatalog.capability_action_suffixes(capability) == [] do
       {[], cache}
@@ -3314,7 +3338,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
       scopes =
         case resolve_action_spec(tools, capability, provider) do
-          {:ok, action} -> List.wrap(Map.get(action, :scopes, []))
+          {:ok, action} when is_map(action) -> List.wrap(Map.get(action, :scopes, []))
           _ -> []
         end
 

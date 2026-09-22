@@ -5847,6 +5847,30 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
           id: "google.drive.files.list",
           type: :action,
           scopes: ["https://www.googleapis.com/auth/drive.readonly"]
+        },
+        %{
+          provider: :google_drive,
+          id: "google.drive.file.create",
+          type: :action,
+          resource: :file,
+          verb: :create,
+          scopes: ["drive.file.create"]
+        },
+        %{
+          provider: :google_drive,
+          id: "google.drive.file.upload",
+          type: :action,
+          resource: :file,
+          verb: :upload,
+          scopes: ["drive.file.upload"]
+        },
+        %{
+          provider: :google_drive,
+          id: "google.drive.folder.create",
+          type: :action,
+          resource: :folder,
+          verb: :create,
+          scopes: ["drive.folder.create"]
         }
       ]
     end
@@ -5958,6 +5982,9 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
 
     assert "https://www.googleapis.com/auth/drive.readonly" in scopes
     assert "https://www.googleapis.com/auth/spreadsheets" in scopes
+    assert "drive.file.create" in scopes
+    assert "drive.file.upload" in scopes
+    assert "drive.folder.create" in scopes
   end
 
   test "capability_snapshot caches catalog tools by provider and tool kind" do
