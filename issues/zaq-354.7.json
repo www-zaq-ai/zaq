@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-354.6"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-354.4"
+  ],
   "created": "2026-09-22T13:48:24Z",
   "description": "Preserve collected turns, trace, artifacts and safe error data on handled failures; have Engine finalize atomically against the persisted user-message ID without per-turn DB writes or an attempt model.",
   "id": "zaq-354.7",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Finalize handled outcomes by input message",
   "type": "task",
-  "updated_at": "2026-09-22T13:48:37Z"
+  "updated_at": "2026-09-22T13:48:38Z"
 }

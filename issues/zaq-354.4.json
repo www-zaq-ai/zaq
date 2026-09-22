@@ -1,7 +1,8 @@
 {
   "assignee": "Julien",
   "blocked_by": [
-    "zaq-354.3"
+    "zaq-354.3",
+    "zaq-354.7"
   ],
   "blocks": [],
   "created": "2026-09-22T08:28:15Z",
@@ -19,5 +20,5 @@
   "status": "open",
   "title": "[zaq-354.4] Validate issue 768 channel isolation",
   "type": "task",
-  "updated_at": "2026-09-22T13:48:22Z"
+  "updated_at": "2026-09-22T13:48:38Z"
 }
