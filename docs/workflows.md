@@ -96,3 +96,20 @@ If no planning issues exist, create them before writing any code.
 - Prefix each planned issue title with `[{issueId}]`
 - Link issue dependencies to encode step order and blockers
 - Known shortcuts and deferred work remain tracked in `docs/exec-plans/tech-debt-tracker.md`
+
+---
+
+## Releases
+
+Releases are automated through a release PR gate using [release-please](https://github.com/googleapis/release-please-action). The authoritative automation is [`.github/workflows/release.yml`](../.github/workflows/release.yml), with [release configuration](../release-please-config.json) and the [version manifest](../.release-please-manifest.json).
+
+- Feature and hotfix PRs target `main` and use Conventional Commit titles.
+- Merges update or create a release PR rather than immediately publishing a release.
+- Merging the release PR updates the version in `mix.exs`, creates the tag, and publishes the GitHub Release.
+- The release workflow builds container images and publishes documentation. See [published image tags](operations/deployment.md#published-container-images).
+
+### Maintainer setup
+
+GitHub Actions must be allowed to create release pull requests. The workflow uses `RELEASE_PLEASE_TOKEN` when supplied, otherwise `GITHUB_TOKEN`; provision appropriate repository/workflow permissions for a dedicated token if needed. Keep tokens in repository secrets, never tracked files.
+
+For a new fork or release stream, align the release manifest, `mix.exs` version, and any baseline tag before enabling releases. The old `v0.1.0` bootstrap instruction is not an instruction to retag this existing repository. Tag creation and publishing are maintainer actions, not application installation steps.

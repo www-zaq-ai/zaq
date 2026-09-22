@@ -4,7 +4,7 @@ Thank you for your interest in contributing to ZAQ. This guide covers everything
 
 ## Prerequisites
 
-Before contributing, make sure you have a working local setup. See the **Running ZAQ — Local (Mix)** section in the [README](README.md) for full instructions.
+Before contributing, make sure you have a working local setup. See [development setup](docs/dev-setup.md) for prerequisites, database configuration, and startup instructions.
 
 TL;DR:
 

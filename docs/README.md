@@ -6,7 +6,8 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 
 ## Understand and run ZAQ
 
-- [Product and installation](../README.md)
+- [Product overview and local quick start](../README.md)
+- [Docker deployment, persistent storage and production HTTPS](operations/deployment.md)
 - [Project and source map](project.md)
 - [Architecture, node roles and event dispatch](architecture.md)
 - [Development setup and commands](dev-setup.md)
@@ -16,7 +17,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 
 ## Develop and validate
 
-- [Contributing](../CONTRIBUTING.md) and [Git workflows](workflows.md)
+- [Contributing](../CONTRIBUTING.md), [Git workflows](workflows.md) and [release maintenance](workflows.md#releases)
 - [Agent workflow and validation gates](WORKFLOW_AGENT.md)
 - [Tool routing and memory boundaries](agent-tools.md)
 - [Conventions](conventions.md), [code quality](code-quality.md), [Elixir](elixir.md), [Phoenix](phoenix.md)

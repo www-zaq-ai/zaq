@@ -2,17 +2,58 @@
 
 ## Getting Started
 
+For the Docker installer or a server deployment, use the [deployment guide](operations/deployment.md). This guide is for developing ZAQ from source.
+
+### Prerequisites
+
+- Elixir and Erlang/OTP: use the versions in [`.tool-versions`](../.tool-versions); the supported Elixir constraint is in [`mix.exs`](../mix.exs).
+- PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) 0.7.0+ (embeddings use `halfvec`).
+- Python 3.10+ for the document conversion pipeline.
+- Node.js 20+ if running Playwright browser tests.
+
+### Bootstrap and start
+
+Clone the repository:
+
+```bash
+git clone https://github.com/www-zaq-ai/zaq.git
+cd zaq
+```
+
+Before setup, check the PostgreSQL connection in [`config/dev.exs`](../config/dev.exs). Change the username, password, or hostname there if your local database differs. The development database name is derived from your branch.
+
 ```bash
 mix setup && mix phx.server   # http://localhost:4000/bo
 ```
 
+`mix setup` fetches dependencies, creates/migrates/seeds the database, sets up and builds assets, and fetches the Python scripts. Complete the [Python environment setup](#python-pipeline) before using document conversion. If database setup fails because of connection settings, correct them and rerun `mix setup`.
+
+To start with an interactive Elixir shell instead:
+
+```bash
+iex -S mix phx.server
+```
+
 Default credentials on fresh database: `admin` / `admin` (forced password change on first login).
+
+Open [Back Office](http://localhost:4000/bo/login), set your email and a new password, then configure AI provider credentials and models in **System Config**. Existing administrator accounts are not overwritten by seeding. See [system configuration](services/system-config.md) for provider settings and credential management.
 
 This command runs the development server over HTTP. Docker uses a production
 release, with HTTP exceptions only for request hosts `localhost` and `127.0.0.1`.
 For LAN or public server deployment, configure `PHX_HOST` and TLS using the
-[README production HTTPS guide](../README.md#production-deployment-and-https);
+[production HTTPS guide](operations/deployment.md#production-deployment-and-https);
 changing the browser URL to a server IP is not sufficient.
+
+### Local secret encryption
+
+The checked-in development configuration uses a development-only encryption key. Do not use it for a deployed instance or real credentials. To use your own key, add the environment-backed configuration example from [SMTP password encryption](services/system-config.md#smtp-password-encryption) to the untracked `config/dev.secret.exs`, then export:
+
+```bash
+export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
+```
+
+Keep the key securely for later sessions rather than regenerating it for an existing database. Exporting a variable alone does not override the checked-in development key. Changing a key without migrating encrypted values makes existing secrets unreadable. The same encryption infrastructure protects other sensitive fields, not only SMTP passwords.
 
 ---
 
@@ -131,20 +172,7 @@ supporting memories follow [documentation hygiene](documentation.md).
 
 ## Docker Storage Defaults
 
-For containerized runs, ZAQ defaults to:
-
-- `STORAGE_VOLUMES=` (one-time import input for Disk data-source volume declarations)
-- `STORAGE_VOLUMES_BASE=/zaq/volumes` (base path for imported Disk volume declarations)
-
-When using the default bind mount (`./ingestion-volumes:/zaq/volumes`), ensure the host folder exists:
-
-```bash
-mkdir -p ingestion-volumes
-```
-
-If using `./zaq-local.sh`, this folder is created automatically.
-
-Disk volumes are configured from Back Office Data Sources > Disk. Each volume path is relative to `Zaq.Storage[:base_path]`.
+See [persistent storage](operations/deployment.md#persistent-storage) for the Docker bind mount and the separate Back Office Disk volume declaration. Creating a host folder does not automatically expose it as a data source.
 
 ---
 

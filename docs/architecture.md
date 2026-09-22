@@ -42,6 +42,43 @@ BO availability.
 Peer connectivity is automatic via Erlang distribution + EPMD peer discovery.
 `Zaq.PeerConnector` handles automatic node connection — no `NODES` env var required.
 
+### Role configuration
+
+The default is to run all services on one node:
+
+```elixir
+config :zaq, roles: [:all]
+
+# Equivalent explicit list
+config :zaq, roles: [:bo, :agent, :ingestion, :storage, :channels, :engine]
+
+# Or a subset
+config :zaq, roles: [:engine, :bo]
+```
+
+An environment override takes precedence:
+
+```bash
+ROLES=engine,agent mix phx.server
+```
+
+### Local multi-node example
+
+For local EPMD discovery, use distinct short node names on the same host and the same Erlang cookie. The following is a development topology, not a production networking/security recipe:
+
+```bash
+# Terminal 1: Back Office and orchestration
+ROLES=engine,bo iex --sname bo@localhost --cookie zaq_local_example -S mix phx.server
+
+# Terminal 2: AI, document processing and mounted storage
+ROLES=agent,ingestion,storage iex --sname ai@localhost --cookie zaq_local_example -S mix
+
+# Terminal 3: communication (the channels endpoint needs a distinct HTTP port)
+PORT=4001 ROLES=channels iex --sname channels@localhost --cookie zaq_local_example -S mix
+```
+
+Use a private cookie and trusted network for real deployments. Successful connections are logged by `PeerConnector`; cross-role calls are then routed through `NodeRouter`. Shared database/configuration and storage reachability remain deployment responsibilities.
+
 ---
 
 ## NodeRouter — CRITICAL

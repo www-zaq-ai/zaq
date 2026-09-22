@@ -305,6 +305,7 @@ defmodule Zaq.MixProject do
     [
       main: "readme",
       extras: ["README.md", "CHANGELOG.md"],
+      assets: %{"docs/images" => "docs/images"},
       groups_for_modules: [
         Channels: [~r/^Zaq\.Channels(\.|$)/],
         Agent: [~r/^Zaq\.Agent(\.|$)/],

@@ -1,535 +1,109 @@
 # ZAQ
 
+### The collaborative agentic operating system.
+
+Bring people, AI agents, knowledge, and workflows together—on your terms, with control over your data, models, and infrastructure.
+
 [![Coverage Status](https://img.shields.io/coveralls/github/www-zaq-ai/zaq?branch=main)](https://coveralls.io/github/www-zaq-ai/zaq?branch=main)
 [![Discord](https://img.shields.io/badge/discord-join-7289da?logo=discord&logoColor=white)](https://discord.gg/rDUeWP5GbD)
 [![Docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://www-zaq-ai.github.io/zaq/)
-[![Run](https://img.shields.io/badge/quick%20run-local%20setup-orange)](https://github.com/www-zaq-ai/zaq/wiki/Local-Installation)
 
-ZAQ OSS is an AI-powered, sovereign company brain. It connects to your organization’s knowledge bases and delivers instant, cited answers to both people and AI agents.
+<!-- These repository links are absolute because ExDoc also publishes this README without the repository guides. -->
+[Get started](#get-started) · [Documentation](https://github.com/www-zaq-ai/zaq/blob/main/docs/README.md) · [Contribute](https://github.com/www-zaq-ai/zaq/blob/main/CONTRIBUTING.md) · [Join the community](https://discord.gg/rDUeWP5GbD)
 
-Built around communication channels (e.g Mattermost, Slack, Teams, Telegram, Discord...) ZAQ integrates directly with your existing tools. It also natively supports email via IMAP and SMTP, making it compatible with virtually any mail server.
+ZAQ is an open-source, self-hosted platform for working with AI agents across your organization. Configure agents for specific jobs, connect them to knowledge and tools, and coordinate their work through conversations and workflows—with people involved where decisions need human judgment.
 
-ZAQ enables hybrid setups, combining end-to-end sovereign and non-sovereign streams from a single platform. While enforcing data sovereignty and confidentiality at the source.
+![ZAQ agent management showing three demo agents, their models, sovereignty labels, and conversation availability](docs/images/readme/agents.png)
 
-All data access is governed by a deterministic permission system: the AI can only access what each user is allowed to see.
+*A shared place to manage agents with distinct responsibilities. All previews show the real interface with synthetic demo configuration—not production data or completed agent runs.*
 
-ZAQ also lets you create AI agents, equip them with tools and MCPs, and automate workflows while staying aligned with your internal knowledge and access controls.
+## What you can do with ZAQ
 
-With ZAQ dashboard monitor your data quality and it's impact on your AI performance in real time.
+### Give agents a job—and the tools to do it
 
-<img height="400" alt="Zaq Chat" src="https://github.com/user-attachments/assets/333d65d8-da9d-46f3-9a68-6689b58cb1b7" />
+Define an agent's instructions and model, select its tools, and attach reusable skills and MCP servers. Configure different agents for different responsibilities instead of relying on one assistant for everything.
 
-Built with [Elixir](https://elixir-lang.org/), [Phoenix](https://www.phoenixframework.org/), and [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view).
+### Put organizational knowledge to work
+
+Connect data sources, ingest documents, and retrieve relevant context for answers with citations. Manage the knowledge behind your agents, not just their prompts.
+
+### Bring people and agents into the same conversation
+
+Work with agents in the built-in chat or through configured communication channels, including Mattermost and email. Connect conversations to the agents responsible for handling them. See the [channel guide](https://github.com/www-zaq-ai/zaq/blob/main/docs/services/channels.md) for integration details.
+
+### Coordinate work beyond a single prompt
+
+Compose workflows from agent and tool steps, add conditions and human approval checkpoints, and inspect individual runs. Workflows are an opt-in capability in production; see [deployment configuration](https://github.com/www-zaq-ai/zaq/blob/main/docs/operations/deployment.md#enable-workflows) and the [workflow authoring guide](https://github.com/www-zaq-ai/zaq/blob/main/docs/guides/workflows-guide.md).
+
+### Choose where your AI runs
+
+Self-host ZAQ and configure the model endpoints your organization uses. Manage people, roles, and access alongside your agents. Local and external providers can serve different needs; data sent to external models, tools, or integrations remains subject to those services' policies and your configuration.
+
+## A closer look
+
+### Configure how an agent works
+
+![Agent configuration drawer showing a job prompt, a local model selection, and an enabled knowledge-search tool](docs/images/readme/agent-configuration.png)
+
+*Define the job, choose a model, and select tools. The interface also provides MCP and skill assignment controls; this demo does not have either attached. Model capability warnings remain visible so configuration is not mistaken for verified runtime compatibility.*
+
+### Keep people in the workflow
+
+![Draft workflow detail showing a human-review checkpoint, its flow diagram, and an empty run history](docs/images/readme/workflow-review.png)
+
+*An illustrative human-review checkpoint in a draft workflow. The flow and run history are shown together; this example has not been executed.*
+
+## Get started
+
+The quickest local path uses the installer on **macOS or Linux**, with **Docker and the Docker Compose plugin** installed and running. You also need Git to clone the repository.
+
+```bash
+git clone https://github.com/www-zaq-ai/zaq.git
+cd zaq
+./zaq-local.sh
+```
+
+The installer downloads its Compose configuration, generates local secrets, creates the storage folder, and starts the containers. It opens [localhost:4000](http://localhost:4000) and follows the logs. See the [installer details](https://github.com/www-zaq-ai/zaq/blob/main/docs/operations/deployment.md#local-auto-installer) for setup behavior and caveats.
+
+### Make it yours
+
+1. **Complete first-login setup.** Set the bootstrap administrator's email and a new password.
+2. **Connect a model.** Configure your AI provider credentials and model settings in Back Office. The installer does not supply a local model server; you need a reachable provider or self-hosted endpoint.
+3. **Configure an agent.** Give it a job, select a model, and enable the tools and skills it needs. Enable it for conversations to use it in chat.
+4. **Add knowledge when you need it.** Configure embedding settings and a data source, then ingest documents. For the installer's mounted folder, first save the `documents` volume under **Data Sources → Disk**; creating the folder alone does not expose it to ZAQ.
+5. **Start a conversation.** Open **Chat** and try your agent with a task suited to its configuration.
+
+This is a **local HTTP quick start**, not a production deployment recipe. For a LAN or public server, follow the [deployment and HTTPS guide](https://github.com/www-zaq-ai/zaq/blob/main/docs/operations/deployment.md#production-deployment-and-https).
+
+Prefer to build from source? See [local development](https://github.com/www-zaq-ai/zaq/blob/main/docs/dev-setup.md) or [Docker Compose](https://github.com/www-zaq-ai/zaq/blob/main/docs/operations/deployment.md#docker-compose).
+
+## Documentation
+
+| I want to… | Start here |
+| --- | --- |
+| Deploy and operate ZAQ | [Deployment, storage, and HTTPS](https://github.com/www-zaq-ai/zaq/blob/main/docs/operations/deployment.md) |
+| Configure models and credentials | [System configuration](https://github.com/www-zaq-ai/zaq/blob/main/docs/services/system-config.md) |
+| Connect communication channels and data sources | [Channels and integrations](https://github.com/www-zaq-ai/zaq/blob/main/docs/services/channels.md) |
+| Configure agents, tools, skills, and MCP | [Agent guide](https://github.com/www-zaq-ai/zaq/blob/main/docs/services/agent.md) |
+| Build workflows | [Workflow authoring](https://github.com/www-zaq-ai/zaq/blob/main/docs/guides/workflows-guide.md) |
+| Understand the architecture | [Services and node roles](https://github.com/www-zaq-ai/zaq/blob/main/docs/architecture.md) |
+| Develop or extend ZAQ | [Development setup](https://github.com/www-zaq-ai/zaq/blob/main/docs/dev-setup.md) · [Source map](https://github.com/www-zaq-ai/zaq/blob/main/docs/project.md) |
+
+Browse the [full documentation index](https://github.com/www-zaq-ai/zaq/blob/main/docs/README.md) for repository-current guides, or the [published documentation](https://www-zaq-ai.github.io/zaq/) updated on releases.
+
+ZAQ is built with [Elixir](https://elixir-lang.org/), [Phoenix](https://www.phoenixframework.org/), and [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view), with PostgreSQL and pgvector for persistence and vector search.
+
+## Community and contributing
+
+Join the [ZAQ Discord](https://discord.gg/rDUeWP5GbD) to ask questions, share what you're building, and help shape the project. Report bugs or suggest improvements through [GitHub issues](https://github.com/www-zaq-ai/zaq/issues).
+
+Contributions are welcome. Start with [CONTRIBUTING.md](https://github.com/www-zaq-ai/zaq/blob/main/CONTRIBUTING.md) for setup and the contribution process.
 
 ## License
 
 ZAQ is dual-licensed:
 
-- **Open-source license:** GNU Affero General Public License v3.0.
-- **Commercial license:** available for organizations that need different terms.
+- **Open source:** [GNU Affero General Public License v3.0](https://github.com/www-zaq-ai/zaq/blob/main/LICENSE).
+- **Commercial:** alternative terms are available for organizations that need them. Contact [license@zaq.ai](mailto:license@zaq.ai).
 
-Unless you have a separate commercial license agreement with ZAQ, your use of
-this repository is governed by the AGPLv3.
-
-For commercial licensing, contact: license@zaq.ai
-
-## Documentation
-
-Project documentation is published at [www-zaq-ai.github.io/zaq](https://www-zaq-ai.github.io/zaq/) and is updated on each release.
-
-## Architecture
-
-ZAQ is a single Elixir/OTP application composed of five internal services. Each service runs under its own supervision tree and can be enabled or disabled per node using a role-based configuration.
-
-```
-┌──────────────────────────────────────────────────┐
-│                    ZAQ (BEAM)                    │
-│                                                  │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐   │
-│  │  Engine  │  │  Agent   │  │  Ingestion    │   │
-│  │          │  │          │  │               │   │
-│  │ Sessions │  │ RAG      │  │ Doc processing│   │
-│  │ Ontology │  │ LLM      │  │ Chunking      │   │
-│  │ API      │  │ Classify │  │ Embeddings    │   │
-│  └──────────┘  └──────────┘  └───────────────┘   │
-│                                                  │
-│  ┌──────────┐  ┌──────────────────────────────┐  │
-│  │ Channels │  │  Back Office (LiveView)      │  │
-│  │          │  │                              │  │
-│  │Mattermost│  │ Admin panel                  │  │
-│  │ Email    │  │ Ontology management          │  │
-│  │ Slack *  │  │ Document management          │  │
-│  └──────────┘  └──────────────────────────────┘  │
-│                                                  │
-│  * planned                                       │
-└──────────────────────────────────────────────────┘
-```
-
-### Services
-
-| Service       | Description                                                                    |
-| ------------- | ------------------------------------------------------------------------------ |
-| **Engine**    | Central orchestrator. Sessions, ontology, API routing, conversation workflows. |
-| **Agent**     | AI layer. RAG retrieval, LLM interaction, classifier, knowledge gap.           |
-| **Ingestion** | Document processing pipeline. Chunking, embedding generation, PGVector writes. |
-| **Channels**  | Multi-channel communication adapter. Supports Mattermost and Email via IMAP/SMTP. |
-| **BO**        | Back Office admin panel built with Phoenix LiveView.                           |
-
-### Data Layer
-
-- **Primary datastore** — PostgreSQL + pgvector (single `Zaq.Repo`) for sessions, chat history, ontology, documents, embeddings, and configuration.
-- **Customer LLM** — On-premise, customer-provided. Connected via configurable endpoint.
-
-## Prerequisites
-
-- **Docker Compose**
-  - Docker
-  - Docker Compose plugin
-- **Local Mix development**
-  - Elixir `~> 1.15` (tested with Elixir 1.19.5)
-  - Erlang/OTP 28
-  - PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) `>= 0.7.0` (required for the `halfvec` type used by embeddings)
-  - Python 3.10+ (for PDF ingestion pipeline)
-  - Node.js 20+ (optional, only for Playwright E2E tests)
-
-## Running ZAQ
-
-### Local Auto Installer (recommended first run)
-
-Use the local installer to bootstrap a complete Docker-based ZAQ setup in one command.
-
-```bash
-./zaq-local.sh
-```
-
-What it does automatically:
-
-- verifies Docker + Docker Compose are available
-- creates `ingestion-volumes/documents`
-- downloads the latest `docker-compose.yml`
-- generates `.env` with `SECRET_KEY_BASE` and `SYSTEM_CONFIG_ENCRYPTION_KEY`
-- starts ZAQ and pgvector containers in background
-- opens `http://localhost:4000` and tails logs
-
-Use this path when you want the fastest local startup.
-
-This is a **local HTTP quick start**, not a production deployment recipe. For a
-server accessed over a LAN or public domain, follow
-[Production deployment and HTTPS](#production-deployment-and-https) below. The installer
-downloads its Compose file separately; check its `PHX_HOST` setting before adapting
-an installer-generated setup for a server.
-
-### Docker Compose (local Docker image testing)
-
-Use this path to explicitly test the local Docker image/runtime flow.
-
-This path uses `docker-compose.yml` with:
-
-- `postgres` service (PostgreSQL + pgvector)
-- `zaq` service (Phoenix release built from `Dockerfile`)
-- automatic DB migration on container start
-
-Defaults used by the Docker setup:
-
-- runtime storage base path: `/zaq/volumes`
-- bind mount: `./ingestion-volumes:/zaq/volumes`
-- Disk volume declarations: configured in Back Office and persisted in the database;
-  leaving `STORAGE_VOLUMES` empty does not create a Disk data source or expose the root automatically
-
-1. Create the host folder used by the default bind mount:
-
-```bash
-mkdir -p ingestion-volumes/documents
-```
-
-2. Set a production secret key base (required by `runtime.exs`):
-
-```bash
-export SECRET_KEY_BASE="$(openssl rand -hex 64)"
-```
-
-3. Keep the default storage base path, or adjust `STORAGE_VOLUMES_BASE` and the
-   bind-mount destination in `docker-compose.yml` together. Changing the environment
-   variable alone does not move the mount. Configure volume names and relative paths
-   in Back Office after startup, not through `STORAGE_VOLUMES`.
-
-LLM, embedding, and image-to-text provider/model settings are configured from Back Office at
-`/bo/system-config` and persisted in the database (`system_configs`).
-
-4. Configure SMTP secret encryption (required to save SMTP passwords from BO):
-
-```bash
-# recommended: base64 key that decodes to exactly 32 bytes
-export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
-```
-
-`SYSTEM_CONFIG_ENCRYPTION_KEY` accepts one of:
-
-- raw 32-byte value
-- Base64 value decoding to 32 bytes (recommended)
-- 64-char hex value (32 bytes)
-
-If the key is missing or invalid, ZAQ blocks saving sensitive SMTP settings (strict mode).
-
-5. Build and start the stack:
-
-```bash
-docker compose up --build
-```
-
-6. Open the Back Office at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
-
-   HTTP works for request hosts `localhost` and `127.0.0.1` because they are excluded
-   from production SSL enforcement. Replacing `localhost` with a server IP or domain
-   requires the [production HTTPS setup](#production-deployment-and-https).
-
-7. After completing first-login setup, open **Data Sources → Disk** at
-   [`/bo/channels/data_source/disk`](http://localhost:4000/bo/channels/data_source/disk).
-   Save a volume with **Name** `documents`, **Relative path** `documents`, and select
-   it as the **Default**. These are the new form's prefilled values. Ensure the Disk
-   data source is enabled.
-
-This declaration points to `/zaq/volumes/documents` inside the container, backed by
-`./ingestion-volumes/documents` on the host. To expose the mounted root instead,
-explicitly use `.` as the relative path. Paths must be relative to the storage base;
-absolute paths and `..` components are rejected. Removing a volume declaration makes
-that path inaccessible through the declaration but does not delete its files.
-
-The auto-installer uses the same Disk setup step after login; creating the host
-folder alone does not configure the data source.
-
-To stop containers:
-
-```bash
-docker compose down
-```
-
-To stop and remove DB data volume:
-
-```bash
-docker compose down -v
-```
-
-`docker compose down -v` removes the Postgres named volume only. Files in `./ingestion-volumes` are bind-mounted and remain on disk.
-
-### Environment Variables (required vs optional)
-
-| Variable                            | Docker Compose default                            | Required           | Notes                                                                                 |
-| ----------------------------------- | ------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                      | `ecto://postgres:postgres@postgres:5432/zaq_prod` | Yes (prod runtime) | Must point to your PostgreSQL + pgvector database                                     |
-| `SECRET_KEY_BASE`                   | none                                              | Yes (prod runtime) | Generate with `openssl rand -hex 64`                                                  |
-| `PHX_HOST`                          | `localhost`                                       | Set for production deployment | Public hostname only, e.g. `zaq.company.com` (no scheme, port, or path). Outside Compose, prod runtime falls back to `example.com`; it does not fail startup if unset. |
-| `STORAGE_VOLUMES`                   | empty                                             | No                 | Legacy one-time migration input only; leave empty for new installations               |
-| `STORAGE_VOLUMES_BASE`              | `/zaq/volumes`                                    | No                 | Runtime filesystem base for all saved Disk volume relative paths; must match the mount destination |
-| `OBAN_INGESTION_CONCURRENCY`        | `3`                                               | No                 | Number of document-level ingestion jobs processed in parallel                         |
-| `OBAN_INGESTION_CHUNKS_CONCURRENCY` | `6`                                               | No                 | Number of chunk child-jobs processed in parallel by `Zaq.Ingestion.IngestChunkWorker` |
-
-AI model settings (LLM, embedding, image-to-text) are managed in Back Office System Config
-at `/bo/system-config`, not via environment variables.
-Disk volume declarations are managed in Back Office **Data Sources → Disk**
-(`/bo/channels/data_source/disk`) and stored in the database as a normal data-source
-`ChannelConfig`, not in System Config. The storage base path remains environment-backed.
-
-**Upgrading an existing installation:** `STORAGE_VOLUMES` accepts comma-separated
-names (for example, `documents,manuals`), each imported with the same relative path
-during the one-time Disk volume migration. Empty input or `/` imports no declarations.
-The migration preserves existing nonempty Disk declarations. Changing this variable
-after the migration has run does not update the database; make subsequent changes
-in Data Sources → Disk instead.
-
-`OBAN_INGESTION_CHUNKS_CONCURRENCY` directly impacts chunk ingestion behavior:
-
-- lower value: less concurrent title/embedding load, lower rate-limit pressure
-- higher value: higher throughput, but higher load on LLM endpoints and DB
-- value `1`: serial chunk worker execution per node
-
-### Production deployment and HTTPS
-
-The Docker image is a production Phoenix release even when used locally.
-Production configuration enforces HTTPS and enables HSTS for non-excluded hosts.
-Its public endpoint URL uses **HTTPS on port 443**, but the release listens on
-**HTTP on port 4000** in the supplied Compose setup. Setting `PHX_HOST` does not
-install certificates or create an HTTPS listener.
-
-For a server deployment:
-
-1. Choose a public hostname (for example, `zaq.company.com`) and configure DNS to
-   reach your TLS reverse proxy. Set `PHX_HOST` in your shell or Compose `.env` file:
-
-   ```bash
-   export PHX_HOST=zaq.company.com
-   ```
-
-   The repository's `docker-compose.yml` passes `${PHX_HOST:-localhost}` into ZAQ.
-   Older or installer-downloaded Compose files may hardcode `PHX_HOST: "localhost"`;
-   replace that literal with `${PHX_HOST:-localhost}` or your public hostname.
-   An exported variable or `.env` entry cannot override a hardcoded Compose value.
-   Recreate the container after changing its environment (`docker compose up -d`).
-
-2. Put a TLS-terminating reverse proxy (such as Caddy, nginx, or Traefik) in front
-   of ZAQ, with a certificate trusted by your clients. Serve HTTPS on port 443 and
-   redirect public HTTP traffic to HTTPS. Forward requests to ZAQ over HTTP,
-   preserving the public `Host` header and supporting WebSocket upgrades for
-   Phoenix LiveView. The proxy must **set/overwrite `X-Forwarded-Proto: https`**
-   for requests received over TLS; ZAQ uses it to recognize secure requests.
-
-   For example, with Caddy installed on the Docker host, a Caddyfile can contain:
-
-   ```text
-   zaq.company.com {
-       reverse_proxy 127.0.0.1:4000
-   }
-   ```
-
-   Caddy handles TLS, forwarded headers, and WebSockets. Public automatic
-   certificate issuance requires suitable DNS and reachable challenge ports;
-   private deployments need an appropriately trusted internal certificate setup.
-
-3. Restrict the backend to the proxy. For the host-based Caddy example, replace
-   ZAQ's `"4000:4000"` port mapping with `"127.0.0.1:4000:4000"`. For a containerized
-   proxy, use a private Docker network and avoid publishing ZAQ's port publicly.
-   Do not let untrusted clients reach the backend directly: forwarded scheme
-   headers are trusted, and loopback request hosts are exempt from SSL enforcement.
-   The supplied Compose file is for local testing; also remove public PostgreSQL
-   port exposure and replace its example database credentials for production.
-
-4. Open `https://zaq.company.com/bo/login`. Verify that login and LiveView navigation
-   work without redirect loops or WebSocket/origin errors. For integrations that
-   need callback URLs, also set **System Config → Global → Base URL** to your public
-   HTTPS URL; this database setting is separate from `PHX_HOST`.
-
-**Troubleshooting:**
-
-- Redirects to `https://localhost/...` or `https://example.com/...`: correct the
-  container's `PHX_HOST` and recreate it. Phoenix defaults SSL redirects to the
-  configured endpoint hostname, not necessarily the incoming request hostname.
-- Repeated HTTPS redirects behind a proxy: verify the proxy overwrites
-  `X-Forwarded-Proto` with `https` and preserves the public host.
-- TLS errors when opening `https://server:4000`: that port serves plain HTTP, not
-  TLS. Use the proxy's HTTPS endpoint instead.
-- `BASE_URL` or `BASE_URL_SCHEME` does not disable SSL enforcement or change the
-  endpoint's HTTPS/443 configuration. `force_ssl` is compile-time configuration;
-  changing it requires rebuilding the release. Do not disable it for production.
-
-Direct TLS termination inside Phoenix is an alternative, but requires adding an
-`https` listener and certificate/key configuration as described in
-`config/runtime.exs`, then rebuilding the release. The supplied Compose setup
-does not configure this.
-
-### Local (Mix)
-
-1. Clone the repository and bootstrap dependencies:
-
-```bash
-git clone https://github.com/www-zaq-ai/zaq.git
-cd zaq
-mix setup
-```
-
-`mix setup` runs `mix deps.get`, `mix ecto.setup`, asset setup/build, and `mix zaq.python.fetch`.
-
-2. If your PostgreSQL credentials differ from defaults, update `config/dev.exs`:
-
-```elixir
-config :zaq, Zaq.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  database: "zaq_dev"
-```
-
-Then rerun:
-
-```bash
-mix ecto.setup
-```
-
-3. Start the application:
-
-```bash
-mix phx.server
-```
-
-Or inside IEx:
-
-```bash
-iex -S mix phx.server
-```
-
-The Back Office will be available at [`http://localhost:4000/bo/login`](http://localhost:4000/bo/login).
-
-#### SMTP Secret Encryption (Local)
-
-If you configure SMTP from BO and set a password, ZAQ encrypts it before storing in DB.
-Configure `Zaq.System.SecretConfig` in local config (for example `config/dev.secret.exs`):
-
-```elixir
-config :zaq, Zaq.System.SecretConfig,
-  encryption_key: System.get_env("SYSTEM_CONFIG_ENCRYPTION_KEY"),
-  key_id: System.get_env("SYSTEM_CONFIG_ENCRYPTION_KEY_ID", "v1")
-```
-
-Then export a valid key:
-
-```bash
-export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
-export SYSTEM_CONFIG_ENCRYPTION_KEY_ID="v1"
-```
-
-More details: `docs/system-config.md`.
-
-#### Python Pipeline (PDF Ingestion)
-
-`mix setup` fetches the Python scripts automatically. To set up the virtual environment:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r priv/python/crawler-ingest/requirements.txt
-```
-
-PDF files uploaded for ingestion are automatically converted to clean markdown before chunking and embedding.
-Image descriptions are generated when image-to-text settings are configured in Back Office
-System Config (`/bo/system-config`). If provider endpoint/model/API key are empty, that step is skipped.
-
-To re-fetch or pin the Python scripts to a specific commit:
-
-```bash
-mix zaq.python.fetch                # latest main
-mix zaq.python.fetch --commit <sha> # pin to commit
-```
-
-### Startup and First Login
-
-During `mix ecto.migrate` (or release migrations at container startup), ZAQ seeds default roles and a bootstrap Back Office account:
-
-- Username: `admin`
-
-On first open, you will be redirected to `/bo/change-password` to set an email and a new password for your user.
-If an `admin` user already exists, seeding leaves that user unchanged.
-
-## Role-Based Node Configuration
-
-ZAQ supports distributed deployment. Each node can run a subset of services by configuring `ROLES`.
-
-### Configuration
-
-In your config file (e.g. `config/dev.exs`):
-
-```elixir
-# Run all services on a single node (recommended default)
-config :zaq, roles: [:all]
-
-# Equivalent explicit list
-config :zaq, roles: [:bo, :agent, :ingestion, :channels, :engine]
-
-# Run only specific services
-config :zaq, roles: [:engine, :bo]
-```
-
-Via environment variable (takes priority over config file):
-
-```bash
-ROLES=engine,agent mix phx.server
-```
-
-### Available Roles
-
-| Role         | Starts                       |
-| ------------ | ---------------------------- |
-| `:all`       | All services (default)       |
-| `:engine`    | `Zaq.Engine.Supervisor`      |
-| `:agent`     | `Zaq.Agent.Supervisor`       |
-| `:ingestion` | `Zaq.Ingestion.Supervisor`   |
-| `:channels`  | `Zaq.Channels.Supervisor`    |
-| `:bo`        | `ZaqWeb.Endpoint` (LiveView) |
-
-`Zaq.Channels.Supervisor` is a static `:one_for_one` parent for the Channels
-authentication limiter and dynamic `Zaq.Channels.BridgeSupervisor`. It retains
-the public runtime API and Channels role-discovery name.
-
-### Multi-Node Deployment
-
-Peer connectivity is automatic via Erlang distribution + EPMD peer discovery (no `NODES` env var required).
-All nodes should run on the same host with the same `--cookie` for local discovery.
-
-```bash
-# Node 1 — BO + Engine
-ROLES=engine,bo iex --sname bo@localhost --cookie zaq_secret -S mix phx.server
-
-# Node 2 — AI services
-ROLES=agent,ingestion iex --sname ai@localhost --cookie zaq_secret -S mix
-
-# Node 3 — Communication
-ROLES=channels iex --sname channels@localhost --cookie zaq_secret -S mix
-```
-
-Each node logs confirmation on successful connection:
-
-```
-[info] [PeerConnector] Connected to: ai@localhost
-```
-
-Once connected, cross-node service calls are handled automatically by `Zaq.NodeRouter`.
-
-## Project Structure
-
-```
-lib/
-├── zaq/
-│   ├── application.ex      # OTP application with role-based startup + peer auto-connect
-│   ├── node_router.ex      # Routes RPC calls to correct node by service role
-│   ├── engine/             # Orchestration, conversations, notifications
-│   ├── agent/              # RAG, LLM, classifier
-│   ├── ingestion/          # Document processing, embeddings
-│   ├── channels/           # Channel providers (Mattermost retrieval today)
-│   ├── license/            # License loading, verification, feature gating
-│   ├── embedding/          # Embedding HTTP client
-│   ├── repo.ex
-│   └── mailer.ex
-├── zaq_web/
-│   ├── live/bo/            # Back Office LiveView UI
-│   ├── controllers/        # API controllers
-│   ├── components/         # Shared UI components
-│   ├── router.ex
-│   └── endpoint.ex
-└── zaq.ex
-```
-
-## Releases
-
-Releases are automated with a release PR gate powered by [release-please](https://github.com/googleapis/release-please-action).
-
-- This repository follows a trunk-based flow: `feature/*` and `hotfix/*` branches open PRs into `main`
-- Every PR title must follow Conventional Commits (`feat:`, `fix:`, `chore:`, etc.)
-- Merges into `main` update or create a release PR instead of releasing immediately
-- Merging the release PR bumps `mix.exs` version, creates a git tag, and publishes a GitHub Release
-
-### First-Time Setup
-
-1. Optionally add repository secret `RELEASE_PLEASE_TOKEN` (PAT with repo/workflow permissions). The workflow falls back to `GITHUB_TOKEN` when it is not set.
-2. Ensure GitHub Actions are allowed to create and approve pull requests
-3. Create a baseline tag on `main` matching `mix.exs` (`v0.1.0`)
-
-## Container Images
-
-On every published release, GitHub Actions builds and pushes a Docker image to GitHub Container Registry:
-
-- `ghcr.io/www-zaq-ai/zaq:vX.Y.Z`
-- `ghcr.io/www-zaq-ai/zaq:X.Y.Z`
-- `ghcr.io/www-zaq-ai/zaq:X.Y`
-- `ghcr.io/www-zaq-ai/zaq:X`
-- `ghcr.io/www-zaq-ai/zaq:latest` (only for stable releases)
-
-## Community
-
-Join the [ZAQ Discord](https://discord.gg/rDUeWP5GbD) to ask questions, share feedback, and connect with other users and contributors.
-
-## Contributing
-
-See `docs/workflows.md` for branching, commit conventions, and the PR workflow.
-
-## License
-
-License details are maintained by the repository owners.
+Unless you have a separate commercial license agreement with ZAQ, your use of this repository is governed by the AGPLv3.
