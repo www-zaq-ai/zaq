@@ -11,9 +11,15 @@
   "id": "zaq-354.6",
   "labels": [],
   "parent": "zaq-354",
+  "comments": [
+    {
+      "text": "Implemented explicit Agent history binding: runtime names are opaque, ServerManager validates conversation binding, Factory hydrates by explicit conversation ID, and failed streamed runtimes are stopped for warm/cold parity.",
+      "timestamp": "2026-09-22T15:36:24Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Pass explicit conversation history binding",
   "type": "task",
-  "updated_at": "2026-09-22T13:48:37Z"
+  "updated_at": "2026-09-22T15:36:24Z"
 }
