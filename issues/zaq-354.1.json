@@ -9,9 +9,15 @@
   "id": "zaq-354.1",
   "labels": [],
   "parent": "zaq-354",
+  "comments": [
+    {
+      "text": "Implemented generic stamped identity dimensions (channel_config_id, channel_id, thread_id, participant_id) while preserving bridge-owned key semantics. Focused test: 21 tests, 0 failures. mix q passed. Context Mode initially reported dependency mismatch; mix deps.get restored checkout dependencies; one later Context Mode disk I/O error required bounded direct-shell fallback for focused test.",
+      "timestamp": "2026-09-22T08:51:57Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-354.1] Conversation identity contract",
   "type": "task",
-  "updated_at": "2026-09-22T08:46:32Z"
+  "updated_at": "2026-09-22T08:51:57Z"
 }
