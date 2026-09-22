@@ -15,11 +15,15 @@
     {
       "text": "Implemented the agent-driven Disk permission integration coverage. The test reuses the provisioned Disk ChannelConfig, creates only a UUID-owned folder tree, uses a configured ReAct agent plus mock OpenAI endpoint, lists the real folder, invokes update_document_permissions through the real service route, and verifies source ACL mutation, child inheritance, indexed projection sync, sibling isolation, and reader denial. Also changed the existing Disk document flow test to reuse the provisioned config. The journey exposed that model-facing compact Record references could not be rebuilt when signed fields were omitted; added authenticated restoration from provenance claims plus contract/security tests. Validation: new integration test passed with seeds 101/202/303; combined Disk integrations 3/3; Record tests 34 + 1 property; mix q passed; diagnostics and diff check clean. Broader DataSourceBridge suite still has 4 pre-existing assumptions that no provisioned Disk config exists and attempts duplicate provider inserts. Ticket remains open because no commit was requested/authorized.",
       "timestamp": "2026-09-22T13:44:39Z"
+    },
+    {
+      "text": "User correction: remove provenance restoration entirely. Keep strict existing provenance verification, define the minimum valid Record fields in Record.zoi_type so real LLM tool schemas advertise them, and make the mock echo that valid minimum from the listed Record. Add only missing schema/minimal-payload coverage; do not duplicate existing tampering tests. Treat serialization changes as contingent on a failing test after the schema correction.",
+      "timestamp": "2026-09-22T14:03:24Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Add agent-driven Disk permission integration test",
   "type": "task",
-  "updated_at": "2026-09-22T13:44:39Z"
+  "updated_at": "2026-09-22T14:03:24Z"
 }
