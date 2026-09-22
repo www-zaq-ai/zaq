@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T20:10:32Z",
+  "description": "GitHub #617: enrich retrieved chunk context with document title, stored watch status, timestamps, chunk metadata and language while preserving ranking, token limits and permission confidentiality. Action reuse: extend DocumentProcessor query_extraction and reuse answering.search_knowledge_base; no new Action. Sequence: retrieval contract -\u003e agent propagation -\u003e validation/docs.",
+  "id": "zaq-fuu",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Implement GitHub issue 617 retrieved chunk enrichment",
+  "type": "epic",
+  "updated_at": "2026-09-22T20:10:32Z"
+}
