@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T20:10:36Z",
+  "description": "Document the retrieval result/watch/timestamp semantics in the ingestion and agent service owners. Run isolated retrieval, Action integration, Pipeline and fusion/order tests plus mix q. Existing knowledge-base E2E should run because retrieval is affected; no new browser journey is needed because the payload-only contract is directly covered by integration tests. Preserve post-review coverage and final precommit gates.",
+  "id": "zaq-fuu.3",
+  "labels": [],
+  "parent": "zaq-fuu",
+  "priority": 2,
+  "status": "open",
+  "title": "Validate and document enriched retrieval",
+  "type": "task",
+  "updated_at": "2026-09-22T20:10:36Z"
+}
