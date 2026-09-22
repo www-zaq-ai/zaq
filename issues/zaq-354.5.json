@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-354.6"
   ],
+  "closed_at": "2026-09-22T16:43:15Z",
+  "close_reason": "closed with parent zaq-354",
   "created": "2026-09-22T13:48:23Z",
   "description": "Resolve the canonical conversation in Engine and persist the incoming user message before Agent dispatch. Return trusted conversation_id and user_message_id references, preserving communication isolation, BO authorization, workflows, and redelivery semantics.",
   "id": "zaq-354.5",
@@ -20,8 +22,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Admit incoming messages before agent execution",
   "type": "task",
-  "updated_at": "2026-09-22T16:43:12Z"
+  "updated_at": "2026-09-22T16:43:15Z"
 }
