@@ -14,11 +14,15 @@
     {
       "text": "Implementation sequence:\\n",
       "timestamp": "2026-09-22T13:48:39Z"
+    },
+    {
+      "text": "Action reuse evidence: extended existing Engine Conversations context and Engine/NodeRouter boundary for admission/finalization; reused existing Message trace and MessageTraceArtifact persistence. Conversation binding is local-only trusted lifecycle data and is not registered/exposed as an Agent Action. Existing conversation.persist_message_history remains for agent-initiated standalone history writes and was not duplicated.",
+      "timestamp": "2026-09-22T15:36:40Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-354] Issue 768 channel-scoped communication conversations",
   "type": "epic",
-  "updated_at": "2026-09-22T13:48:39Z"
+  "updated_at": "2026-09-22T15:36:40Z"
 }
