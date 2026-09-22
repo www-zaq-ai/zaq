@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T13:48:24Z",
+  "description": "Propagate trusted conversation/message references through Agent API, Pipeline, Executor and ServerManager. Hydrate cold starts by explicit conversation reference and remove semantic scope-string encoding/decoding.",
+  "id": "zaq-354.6",
+  "labels": [],
+  "parent": "zaq-354",
+  "priority": 2,
+  "status": "open",
+  "title": "Pass explicit conversation history binding",
+  "type": "task",
+  "updated_at": "2026-09-22T13:48:24Z"
+}
