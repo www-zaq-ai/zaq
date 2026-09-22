@@ -11,9 +11,15 @@
   "id": "zaq-354.3",
   "labels": [],
   "parent": "zaq-354",
+  "comments": [
+    {
+      "text": "Executor now derives stable communication server scopes from provider/config/channel/thread plus canonical person or transport participant; malformed stamped identities use communication-invalid scopes rather than broad person/anonymous memory. Factory decodes scopes and HistoryLoader queries only matching scoped conversations, excluding channel-level, other threads, and legacy rows. Focused Agent suite: 6 doctests, 3 properties, 121 tests, 0 failures; isolated component runs also passed. Existing Telemetry.Buffer sandbox warnings appeared during combined async suites and are unrelated. mix q passed after refactoring shared identity normalization.",
+      "timestamp": "2026-09-22T09:20:51Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-354.3] Channel-scoped agent memory",
   "type": "task",
-  "updated_at": "2026-09-22T09:03:11Z"
+  "updated_at": "2026-09-22T09:20:51Z"
 }
