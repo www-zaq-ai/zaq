@@ -579,6 +579,14 @@ Shared helper:
 
 Both ingress modes converge on the handlers registered in `register_handlers/3`: webhook-mode providers (Telegram) reach them through `Chat.handle_webhook_request/4`, listener-mode providers (Mattermost, Discord) through `Chat.route_event/4`. Reaction normalization belongs to the adapter and `Jido.Chat.EventNormalizer` — never to ZAQ.
 
+Non-DM thread replies are admitted according to the thread root: replies to a
+ZAQ-authored root do not require another mention, while replies to roots authored by
+other users require an explicit ZAQ mention. Root authorship is compared with the
+configured bot user ID through the adapter's message-fetch contract. Missing bot
+identity, unsupported lookup, inaccessible/deleted roots, and lookup failures fail
+closed to mention-only handling. ZAQ participating later in another user's thread
+does not change that policy. DM handling remains independent of root authorship.
+
 ### Reaction flow
 
 Reactions are feedback, not a separate domain. The channel layer owns exactly one thing — turning a provider's emoji into a ZAQ rating — and from there the rating is indistinguishable from a back-office one.

@@ -309,13 +309,11 @@ defmodule Zaq.Channels.JidoChatBridge do
       |> Chat.on_new_mention(fn thread, incoming ->
         handle_mention_event(config, thread, incoming)
       end)
-      |> Chat.on_subscribed_message(fn _thread, incoming ->
-        handle_subscribed_message(incoming)
+      |> Chat.on_subscribed_message(fn thread, incoming ->
+        handle_subscribed_message(config, thread, incoming)
       end)
       |> Chat.on_new_message(~r/[\s\S]*/, fn thread, incoming ->
-        if incoming.channel_meta.is_dm and not incoming.author.is_me do
-          handle_message_event(config, thread, incoming)
-        end
+        handle_unaddressed_message(config, thread, incoming)
       end)
       |> Chat.on_reaction(fn _thread, reaction ->
         handle_reaction_event(config, reaction)
@@ -329,7 +327,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp handle_channel_message_event(config, thread, incoming) do
-    unless incoming.channel_meta.is_dm do
+    unless incoming.channel_meta.is_dm or thread_reply?(incoming) do
       handle_message_event(config, thread, incoming)
     end
   end
@@ -422,7 +420,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   @doc "Processes a normalized incoming message from the listener pipeline."
   def handle_from_listener(config, %Chat.Incoming{} = incoming, _sink_opts) do
     if thread_reply?(incoming) do
-      handle_subscribed_message(incoming)
+      thread = build_thread(incoming, config)
+      handle_subscribed_message(config, thread, incoming)
     else
       thread = build_thread(incoming, config)
       handle_message_event(config, thread, incoming)
@@ -742,13 +741,17 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp handle_mention_event(config, thread, incoming) do
     if thread_reply?(incoming) do
-      :ok
+      if non_dm_thread_reply_for_bot?(config, thread, incoming) do
+        handle_message_event(config, thread, incoming)
+      else
+        :ok
+      end
     else
       handle_message_event(config, thread, incoming)
     end
   end
 
-  defp handle_subscribed_message(%Chat.Incoming{} = incoming) do
+  defp handle_subscribed_message(config, thread, %Chat.Incoming{} = incoming) do
     post = %{
       root_id: incoming.external_thread_id,
       user_id: incoming.author && incoming.author.user_id,
@@ -756,8 +759,76 @@ defmodule Zaq.Channels.JidoChatBridge do
     }
 
     hooks_module().dispatch_sync(:reply_received, post, %{})
-    :ok
+
+    if non_dm_thread_reply_for_bot?(config, thread, incoming) do
+      handle_message_event(config, thread, incoming)
+    else
+      :ok
+    end
   end
+
+  defp handle_unaddressed_message(config, thread, %Chat.Incoming{} = incoming) do
+    cond do
+      incoming.author && incoming.author.is_me ->
+        :ok
+
+      incoming.channel_meta.is_dm ->
+        handle_message_event(config, thread, incoming)
+
+      non_dm_thread_reply_for_bot?(config, thread, incoming) ->
+        handle_message_event(config, thread, incoming)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp non_dm_thread_reply_for_bot?(config, thread, %Chat.Incoming{} = incoming) do
+    not incoming.channel_meta.is_dm and thread_reply?(incoming) and
+      (explicit_bot_mention?(config, incoming) or thread_root_authored_by_bot?(config, thread))
+  end
+
+  defp explicit_bot_mention?(config, %Chat.Incoming{} = incoming) do
+    bot_name = ChannelConfig.jido_chat_bot_name(config)
+    bot_user_id = ChannelConfig.jido_chat_bot_user_id(config)
+
+    Enum.any?(incoming.mentions, fn mention ->
+      mention.is_self or mention.user_id == bot_user_id or mention.username == bot_name
+    end) or
+      (is_binary(bot_name) and is_binary(incoming.text) and
+         Regex.match?(~r/(^|\s)@#{Regex.escape(bot_name)}\b/i, incoming.text)) or
+      (incoming.was_mentioned and is_nil(bot_name) and is_nil(bot_user_id))
+  end
+
+  defp thread_root_authored_by_bot?(config, %Thread{} = thread) do
+    bot_user_id = ChannelConfig.jido_chat_bot_user_id(config)
+    root_id = thread.external_thread_id
+
+    with true <- is_binary(bot_user_id) and bot_user_id != "",
+         true <- is_binary(root_id) and root_id != "",
+         adapter when is_atom(adapter) <- thread.adapter,
+         true <- function_exported?(adapter, :fetch_message, 3),
+         {:ok, root_message} <-
+           adapter.fetch_message(
+             thread.external_room_id,
+             root_id,
+             url: config_value(config, :url),
+             token: config_value(config, :token)
+           ),
+         author_id when not is_nil(author_id) <- message_author_id(root_message) do
+      to_string(author_id) == bot_user_id
+    else
+      _ -> false
+    end
+  end
+
+  defp message_author_id(%{author: %{user_id: user_id}}), do: user_id
+  defp message_author_id(%{"author" => %{"user_id" => user_id}}), do: user_id
+  defp message_author_id(%{user_id: user_id}), do: user_id
+  defp message_author_id(%{"user_id" => user_id}), do: user_id
+  defp message_author_id(%{raw: raw}) when is_map(raw), do: message_author_id(raw)
+  defp message_author_id(%{"raw" => raw}) when is_map(raw), do: message_author_id(raw)
+  defp message_author_id(_message), do: nil
 
   defp handle_message_event(_config, _thread, %Chat.Incoming{author: %{is_me: true}}), do: :ok
 

@@ -599,6 +599,17 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     def transform_incoming(%{"type" => "reaction"}), do: {:error, :unsupported_event}
   end
 
+  defmodule StubThreadRootAdapter do
+    def fetch_message(channel_id, message_id, _opts) do
+      send(self(), {:fetch_thread_root, channel_id, message_id})
+
+      case Process.get(:thread_root_author_id) do
+        {:error, reason} -> {:error, reason}
+        author_id -> {:ok, %{"id" => message_id, "user_id" => author_id}}
+      end
+    end
+  end
+
   defmodule StubSupervisorAlreadyRunning do
     def lookup_state_pid(_bridge_id), do: {:error, :not_running}
     def start_runtime(_bridge_id, _state_spec, _listeners), do: {:error, :already_running}
@@ -3540,12 +3551,15 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       settings: %{"jido_chat" => %{"message_patterns" => ["deploy"]}}
     }
 
-    test "mention event that is a thread reply is silently skipped" do
-      # A @mention on a thread reply hits handle_mention_event, which checks
-      # thread_reply? and returns :ok without processing — pipeline must not run.
+    test "mention event in a thread rooted by another user reaches the pipeline" do
+      config =
+        @config
+        |> put_in([:settings, "jido_chat", "bot_name"], "zaq")
+        |> put_in([:settings, "jido_chat", "bot_user_id"], "bot-1")
+
       chat =
-        Chat.new(user_name: "zaq", adapters: %{mattermost: StubListenerAdapter})
-        |> JidoChatBridge.register_handlers(@config)
+        Chat.new(user_name: "zaq", adapters: %{mattermost: StubThreadRootAdapter})
+        |> JidoChatBridge.register_handlers(config)
 
       mention_reply = %ChatIncoming{
         text: "@zaq thread reply",
@@ -3567,7 +3581,199 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
                  []
                )
 
+      assert_received {:pipeline_run, "@zaq thread reply", _opts}
+      refute_received {:fetch_thread_root, _, _}
+    end
+
+    test "mentioning somebody else does not address ZAQ in a human-rooted thread" do
+      Process.put(:thread_root_author_id, "alice-id")
+
+      config =
+        @config
+        |> put_in([:settings, "jido_chat", "bot_name"], "zaq")
+        |> put_in([:settings, "jido_chat", "bot_user_id"], "bot-1")
+
+      chat =
+        Chat.new(user_name: "zaq", adapters: %{mattermost: StubThreadRootAdapter})
+        |> JidoChatBridge.register_handlers(config)
+
+      reply = %ChatIncoming{
+        text: "@bob can you check?",
+        external_room_id: "chan-1",
+        external_thread_id: "root-post-id",
+        external_message_id: "reply-other-mention",
+        author: %Author{user_id: "u1", user_name: "alice", is_me: false},
+        was_mentioned: true,
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert {:ok, _chat, _events} =
+               Chat.process_message(
+                 chat,
+                 :mattermost,
+                 "mattermost:chan-1:root-post-id",
+                 reply,
+                 []
+               )
+
+      assert_received {:fetch_thread_root, "chan-1", "root-post-id"}
       refute_received {:pipeline_run, _, _}
+    end
+
+    test "unmentioned reply in a thread rooted by ZAQ reaches the pipeline" do
+      Process.put(:thread_root_author_id, "bot-1")
+
+      config = put_in(@config, [:settings, "jido_chat", "bot_user_id"], "bot-1")
+
+      chat =
+        Chat.new(user_name: "zaq", adapters: %{mattermost: StubThreadRootAdapter})
+        |> JidoChatBridge.register_handlers(config)
+
+      reply = %ChatIncoming{
+        text: "deploy follow-up",
+        external_room_id: "chan-1",
+        external_thread_id: "root-post-id",
+        external_message_id: "reply-bot-root",
+        author: %Author{user_id: "u1", user_name: "alice", is_me: false},
+        was_mentioned: false,
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert {:ok, _chat, _events} =
+               Chat.process_message(
+                 chat,
+                 :mattermost,
+                 "mattermost:chan-1:root-post-id",
+                 reply,
+                 []
+               )
+
+      assert_received {:fetch_thread_root, "chan-1", "root-post-id"}
+      assert_received {:pipeline_run, "deploy follow-up", _opts}
+      refute_received {:pipeline_run, "deploy follow-up", _opts}
+    end
+
+    test "subscribed thread rooted by ZAQ keeps the hook and reaches the pipeline once" do
+      Process.put(:thread_root_author_id, "bot-1")
+
+      config = put_in(@config, [:settings, "jido_chat", "bot_user_id"], "bot-1")
+
+      chat =
+        Chat.new(user_name: "zaq", adapters: %{mattermost: StubThreadRootAdapter})
+        |> JidoChatBridge.register_handlers(config)
+        |> Chat.subscribe("mattermost:chan-1:root-post-id")
+
+      reply = %ChatIncoming{
+        text: "subscribed follow-up",
+        external_room_id: "chan-1",
+        external_thread_id: "root-post-id",
+        external_message_id: "reply-subscribed-root",
+        author: %Author{user_id: "u1", user_name: "alice", is_me: false},
+        was_mentioned: false,
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert {:ok, _chat, _events} =
+               Chat.process_message(
+                 chat,
+                 :mattermost,
+                 "mattermost:chan-1:root-post-id",
+                 reply,
+                 []
+               )
+
+      assert_received {:reply_received,
+                       %{root_id: "root-post-id", message: "subscribed follow-up"}}
+
+      assert_received {:pipeline_run, "subscribed follow-up", _opts}
+      refute_received {:pipeline_run, "subscribed follow-up", _opts}
+    end
+
+    test "unmentioned reply in a thread rooted by another user is ignored" do
+      Process.put(:thread_root_author_id, "alice-id")
+
+      config = put_in(@config, [:settings, "jido_chat", "bot_user_id"], "bot-1")
+
+      chat =
+        Chat.new(user_name: "zaq", adapters: %{mattermost: StubThreadRootAdapter})
+        |> JidoChatBridge.register_handlers(config)
+
+      reply = %ChatIncoming{
+        text: "conversation continues",
+        external_room_id: "chan-1",
+        external_thread_id: "root-post-id",
+        external_message_id: "reply-human-root",
+        author: %Author{user_id: "u1", user_name: "alice", is_me: false},
+        was_mentioned: false,
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert {:ok, _chat, _events} =
+               Chat.process_message(
+                 chat,
+                 :mattermost,
+                 "mattermost:chan-1:root-post-id",
+                 reply,
+                 []
+               )
+
+      assert_received {:fetch_thread_root, "chan-1", "root-post-id"}
+      refute_received {:pipeline_run, _, _}
+    end
+
+    test "thread root lookup failure fails closed while DM handling stays unchanged" do
+      Process.put(:thread_root_author_id, {:error, :not_found})
+
+      config = put_in(@config, [:settings, "jido_chat", "bot_user_id"], "bot-1")
+
+      chat =
+        Chat.new(user_name: "zaq", adapters: %{mattermost: StubThreadRootAdapter})
+        |> JidoChatBridge.register_handlers(config)
+
+      channel_reply = %ChatIncoming{
+        text: "unknown channel root",
+        external_room_id: "chan-1",
+        external_thread_id: "missing-root",
+        external_message_id: "reply-missing-root",
+        author: %Author{user_id: "u1", user_name: "alice", is_me: false},
+        was_mentioned: false,
+        metadata: %{},
+        channel_meta: %{adapter_name: :mattermost, is_dm: false}
+      }
+
+      assert {:ok, chat, _events} =
+               Chat.process_message(
+                 chat,
+                 :mattermost,
+                 "mattermost:chan-1:missing-root",
+                 channel_reply,
+                 []
+               )
+
+      refute_received {:pipeline_run, _, _}
+
+      dm_reply = %{
+        channel_reply
+        | text: "DM reply",
+          external_room_id: "dm-1",
+          external_message_id: "dm-reply",
+          channel_meta: %{adapter_name: :mattermost, is_dm: true}
+      }
+
+      assert {:ok, _chat, _events} =
+               Chat.process_message(
+                 chat,
+                 :mattermost,
+                 "mattermost:dm-1:missing-root",
+                 dm_reply,
+                 []
+               )
+
+      assert_received {:pipeline_run, "DM reply", _opts}
     end
 
     test "channel pattern matching a DM message is silently skipped" do
