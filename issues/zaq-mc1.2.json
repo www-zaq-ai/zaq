@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T07:09:37Z",
+  "description": "Create Zaq.Agent.Tools.DataSource.UpdateDocumentPermissions using Zaq.Engine.Workflows.Action and the validated shared Ingestion dispatch path; add explicit data_source.update_document_permissions Registry exposure for agents. Input: provenance-bearing record plus grants and revocations. Output: schema-defined target/affected result. Preserve workflow/agent trusted identity; unsupported providers fail explicitly. Verification: schema conversion/validation, tool registry, agent and workflow execution, permission denial and domain-error propagation. Depends on the shared mutation primitive.",
+  "id": "zaq-mc1.2",
+  "labels": [],
+  "parent": "zaq-mc1",
+  "priority": 2,
+  "status": "open",
+  "title": "Add data-source permission Action",
+  "type": "task",
+  "updated_at": "2026-09-22T07:09:37Z"
+}
