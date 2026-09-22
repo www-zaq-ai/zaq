@@ -13,11 +13,15 @@
     {
       "text": "Implemented Engine admission: canonical conversation resolution, persisted pending user message, provider-redelivery suppression, and per-admission finalization capability.",
       "timestamp": "2026-09-22T15:36:23Z"
+    },
+    {
+      "text": "Completed early durable admission, actor + transport scope resolution, pre-dispatch duplicate suppression, admitted-message uniqueness, and external channel/thread persistence.",
+      "timestamp": "2026-09-22T16:43:12Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Admit incoming messages before agent execution",
   "type": "task",
-  "updated_at": "2026-09-22T15:36:23Z"
+  "updated_at": "2026-09-22T16:43:12Z"
 }
