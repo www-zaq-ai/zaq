@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T06:18:28Z",
+  "description": "Editing a Connect credential created from a Data Source crashes while resolving OAuth default scopes because the composite :create_item capability resolves to {:ok, true}, then collect_capability_scopes/3 treats true as an action map. Extend the existing JidoConnectBridge scope-discovery implementation and existing bridge/LiveView regression tests; preserve the BO NodeRouter boundary.\\n\\nAction reuse assessment\\n- Operation/evidence: existing :data_source_oauth_default_scopes dispatch in Channels API, JidoConnectBridge.oauth_default_scopes/1, collect_required_scopes/2, collect_capability_scopes/3, and existing scope tests in jido_connect_bridge_test.exs.\\n- Decision: extend existing Channels implementation; no new Action or parallel helper. Composite create-item scope discovery remains a private implementation detail.\\n- Contract: provider input; returns {:ok, normalized unique scopes}; unsupported/unresolvable capabilities contribute no scopes; no actor context or side effects.\\n- Consumers/execution: BO continues dispatching through NodeRouter; no agent-tool or workflow exposure.\\n- Verification: extend existing bridge scope-merging fixture/test to cover composite create actions and existing credential-edit LiveView coverage; run isolated tests, mix q, applicable existing E2E, and final mix precommit.",
+  "id": "zaq-hil",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "Fix data-source credential OAuth scope editing crash",
+  "type": "bug",
+  "updated_at": "2026-09-22T06:18:28Z"
+}
