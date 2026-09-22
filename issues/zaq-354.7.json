@@ -15,11 +15,15 @@
     {
       "text": "Implemented idempotent Engine finalization by admitted user-message ID + capability. Success creates one linked assistant turn; handled failures persist in-memory trace/artifacts on the user input without an attempt model or per-turn writes.",
       "timestamp": "2026-09-22T15:36:25Z"
+    },
+    {
+      "text": "Completed capability-authorized transactional finalization, assistant reply linkage, failed trace persistence, partial stream preservation, and incarnation-fenced failed-runtime cleanup.",
+      "timestamp": "2026-09-22T16:43:14Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "Finalize handled outcomes by input message",
   "type": "task",
-  "updated_at": "2026-09-22T15:36:25Z"
+  "updated_at": "2026-09-22T16:43:14Z"
 }
