@@ -53,6 +53,7 @@ defmodule Zaq.Agent.Factory do
     MediaResultTransformer,
     OpaqueAliases,
     ProviderSpec,
+    RecordResultTransformer,
     Skills,
     Skills.Limits
   }
@@ -92,9 +93,9 @@ defmodule Zaq.Agent.Factory do
 
   @impl Jido.AI.ToolInterceptor
   def after_tool_call(tool_call, result, context) do
-    case OpaqueAliases.alias_tool_result(tool_call, result, context) do
-      {:ok, result} -> MediaResultTransformer.project_tool_result(tool_call, result, context)
-      {:error, reason} -> {:error, reason}
+    with {:ok, result} <- OpaqueAliases.alias_tool_result(tool_call, result, context),
+         {:ok, result} <- MediaResultTransformer.project_tool_result(tool_call, result, context) do
+      RecordResultTransformer.project_tool_result(tool_call, result, context)
     end
   end
 

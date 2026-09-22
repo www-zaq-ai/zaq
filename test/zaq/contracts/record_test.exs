@@ -149,7 +149,18 @@ defmodule Zaq.Contracts.RecordTest do
     end
 
     test "encodes to JSON Schema for tool catalog validation" do
-      assert is_map(Zoi.JSONSchema.encode(Record.zoi_type(description: "A ZAQ record")))
+      schema = Zoi.JSONSchema.encode(Record.zoi_type(description: "A ZAQ record"))
+
+      assert Enum.sort(schema.required) ==
+               Enum.sort([:id, :kind, :parent_id, :permissions, :attributes, :provenance_ref])
+
+      assert schema.properties.parent_id.anyOf |> Enum.map(& &1.type) |> Enum.sort() ==
+               [:null, :string]
+
+      assert schema.properties.permissions.anyOf |> Enum.map(& &1.type) |> Enum.sort() ==
+               [:array, :null]
+
+      assert schema.properties.attributes.properties.provider_record_id.type == :string
     end
 
     test "can validate trusted native Record structs without provenance" do
@@ -162,6 +173,40 @@ defmodule Zaq.Contracts.RecordTest do
   end
 
   describe "zoi_type/1 with JSON-safe maps" do
+    test "accepts the advertised minimum signed Record and requires every signed field" do
+      permission = permission("p1", %{"target_id" => "u1", "access_rights" => ["read"]})
+
+      {:ok, sealed} =
+        record(%{
+          parent_id: "parent-1",
+          permissions: [permission],
+          attributes: %{"provider_record_id" => "provider-42"},
+          provenance_ref: nil
+        })
+        |> Provenance.seal(%{"provider" => "disk"})
+
+      minimal = %{
+        "id" => sealed.id,
+        "kind" => "file",
+        "parent_id" => sealed.parent_id,
+        "permissions" => [
+          %{
+            "id" => permission.id,
+            "kind" => "permission",
+            "attributes" => permission.attributes
+          }
+        ],
+        "attributes" => %{"provider_record_id" => "provider-42"},
+        "provenance_ref" => sealed.provenance_ref
+      }
+
+      assert {:ok, %Record{id: "42"}} = Zoi.parse(Record.zoi_type(), minimal)
+
+      for required <- ~w(id kind parent_id permissions attributes provenance_ref) do
+        assert {:error, _errors} = Zoi.parse(Record.zoi_type(), Map.delete(minimal, required))
+      end
+    end
+
     test "rebuilds and verifies JSON-safe Records" do
       {:ok, sealed} = Provenance.seal(record(%{provenance_ref: nil}))
       decoded = sealed |> Jason.encode!() |> Jason.decode!()

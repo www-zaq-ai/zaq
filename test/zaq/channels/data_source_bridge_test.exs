@@ -7,8 +7,16 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
+  alias Zaq.Event
   alias Zaq.Events.TrustedContext
   alias Zaq.Repo
+
+  defmodule ProjectionSyncRouter do
+    def dispatch(%Event{} = event) do
+      send(self(), {:projection_sync, event})
+      %{event | response: :ok}
+    end
+  end
 
   defmodule StubDataSourceBridge do
     def auth_handshake(config, params) do
@@ -119,7 +127,22 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     def replace_permissions(config, params, context) do
       send(self(), {:replace_permissions, config.id, params, context})
-      {:ok, %{status: "updated"}}
+      {:ok, %{status: "updated", affected_file_ids: [params["file_id"]]}}
+    end
+
+    def update_permissions(config, params, context) do
+      send(self(), {:update_permissions, config.id, params, context})
+
+      {:ok,
+       %{
+         status: "updated",
+         affected_file_ids: [params["file_id"]],
+         record: %Record{
+           id: params["file_id"],
+           kind: :file,
+           attributes: %{"provider" => config.provider, "config_id" => config.id}
+         }
+       }}
     end
 
     def channel_stats(config, params) do
@@ -608,7 +631,13 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     config = insert_data_source_config(:google_drive)
     actor = %{person_id: 7, provider: "bo"}
     params = %{"config_id" => config.id, "file_id" => "f1", "permissions" => []}
-    context = %{actor: actor, skip_permissions: true, untrusted: "discard"}
+
+    context = %{
+      actor: actor,
+      skip_permissions: true,
+      untrusted: "discard",
+      node_router: ProjectionSyncRouter
+    }
 
     assert {:ok, %{status: "updated"}} =
              DataSourceBridge.replace_permissions(:google_drive, params, context)
@@ -616,6 +645,14 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert_received {:replace_permissions, config_id, ^params, %TrustedContext{} = trusted}
     assert config_id == config.id
     assert trusted == %TrustedContext{actor: actor, skip_permissions: true}
+
+    assert_received {:projection_sync,
+                     %Event{
+                       request: %{affected_file_ids: ["f1"]},
+                       opts: projection_opts
+                     }}
+
+    assert projection_opts[:action] == :sync_data_source_permission_projection
   end
 
   test "replace_permissions returns unsupported when callback not implemented" do
@@ -630,6 +667,91 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
 
     assert {:error, :unsupported} =
              DataSourceBridge.replace_permissions(:google_drive, %{"config_id" => config.id})
+  end
+
+  test "update_permissions derives provider identity from signed record and delegates trusted context" do
+    config = insert_data_source_config(:google_drive)
+    actor = %{person_id: 7, provider: "bo"}
+
+    record = %Record{
+      id: "local-f1",
+      kind: :file,
+      attributes: %{
+        "provider" => "google_drive",
+        "config_id" => config.id,
+        "provider_record_id" => "provider-f1"
+      }
+    }
+
+    {:ok, record} =
+      Provenance.seal(record, %{"provider" => "google_drive", "config_id" => config.id})
+
+    changes = %{
+      "grants" => [%{"type" => "public", "access_rights" => ["read"]}],
+      "revocations" => []
+    }
+
+    assert {:ok,
+            %{
+              status: "updated",
+              provider: "google_drive",
+              config_id: config_id,
+              file_id: "provider-f1"
+            }} =
+             DataSourceBridge.update_permissions(record, changes, %{
+               actor: actor,
+               skip_permissions: true,
+               node_router: ProjectionSyncRouter
+             })
+
+    assert config_id == config.id
+
+    assert_received {:update_permissions, received_config_id,
+                     %{
+                       "config_id" => received_config_id,
+                       "file_id" => "provider-f1",
+                       "grants" => [_],
+                       "revocations" => []
+                     }, %TrustedContext{} = trusted}
+
+    assert received_config_id == config.id
+    assert trusted == %TrustedContext{actor: actor, skip_permissions: true}
+
+    assert_received {:projection_sync,
+                     %Event{
+                       next_hop: %{destination: :ingestion},
+                       request: %{
+                         provider: "google_drive",
+                         config_id: ^config_id,
+                         affected_file_ids: ["provider-f1"]
+                       },
+                       opts: projection_opts
+                     }}
+
+    assert projection_opts[:action] == :sync_data_source_permission_projection
+  end
+
+  test "update_permissions returns unsupported when callback is absent" do
+    original_channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      google_drive: %{bridge: StubNoDataSourceCallbacks, adapter: __MODULE__.StubAdapter}
+    })
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, original_channels) end)
+    config = insert_data_source_config(:google_drive)
+
+    record = %Record{
+      id: "f1",
+      kind: :file,
+      attributes: %{"provider" => "google_drive", "config_id" => config.id}
+    }
+
+    {:ok, record} =
+      Provenance.seal(record, %{"provider" => "google_drive", "config_id" => config.id})
+
+    assert {:error, :unsupported} =
+             DataSourceBridge.update_permissions(record, %{}, %{skip_permissions: true})
   end
 
   test "returns invalid provenance when nested permission record cannot be sealed" do

@@ -218,6 +218,33 @@ defmodule Zaq.Storage do
   end
 
   @doc """
+  Incrementally upserts and revokes direct source grants for a file or folder.
+
+  Unmentioned direct grants and all inherited grants are preserved. The source
+  mutation is transactional; indexed-document projection synchronization is
+  coordinated by `Zaq.Ingestion` after this operation succeeds.
+  """
+  def update_document_grants(file_id, grants, revocations, opts \\ [])
+      when is_binary(file_id) and is_list(grants) and is_list(revocations) do
+    catalog = entry_catalog(opts)
+
+    with %EntryCatalog{} = entry <- catalog.by_id(file_id) || {:error, :not_found},
+         :ok <- authorize_manage_entry(entry, opts),
+         {:ok, normalized_grants, normalized_revocations} <-
+           normalize_permission_changes(grants, revocations, opts),
+         {:ok, _direct} <-
+           permissions(opts).mutate(
+             storage_resource(file_id),
+             normalized_grants,
+             normalized_revocations,
+             opts
+           ) do
+      affected_ids = [file_id | Enum.map(catalog.descendants(file_id), & &1.id)]
+      {:ok, %{status: "updated", file_id: file_id, affected_file_ids: affected_ids}}
+    end
+  end
+
+  @doc """
   Searches readable storage entries recursively by filename.
 
   An optional `path` scopes the search to a volume (`volume`), a directory
@@ -841,6 +868,65 @@ defmodule Zaq.Storage do
     |> Enum.reject(&is_nil/1)
   end
 
+  defp normalize_permission_changes(grants, revocations, opts) do
+    normalized_grants = Enum.map(grants, &normalize_grant(&1, opts))
+    normalized_revocations = Enum.map(revocations, &normalize_principal(&1, opts))
+
+    cond do
+      Enum.any?(normalized_grants, &is_nil/1) or
+        Enum.any?(normalized_revocations, &is_nil/1) or
+          Enum.any?(normalized_grants, &(not valid_normalized_principal?(&1))) ->
+        {:error, {:invalid_permissions, :invalid_principal}}
+
+      conflicting_principals?(normalized_grants, normalized_revocations) ->
+        {:error, {:invalid_permissions, :conflicting_principals}}
+
+      true ->
+        {:ok, normalized_grants, normalized_revocations}
+    end
+  end
+
+  defp normalize_principal(%{"type" => "public"}, opts),
+    do: %{team_id: permissions(opts).everyone_team_id()}
+
+  defp normalize_principal(%{type: type}, opts) when type in [:public, "public"],
+    do: %{team_id: permissions(opts).everyone_team_id()}
+
+  defp normalize_principal(%{"type" => "person", "target_id" => id}, _opts),
+    do: principal(:person_id, id)
+
+  defp normalize_principal(%{"type" => "team", "target_id" => id}, _opts),
+    do: principal(:team_id, id)
+
+  defp normalize_principal(%{type: type} = command, _opts) when type in [:person, "person"] do
+    principal(:person_id, Map.get(command, :target_id) || Map.get(command, :id))
+  end
+
+  defp normalize_principal(%{type: type} = command, _opts) when type in [:team, "team"] do
+    principal(:team_id, Map.get(command, :target_id) || Map.get(command, :id))
+  end
+
+  defp normalize_principal(_command, _opts), do: nil
+
+  defp principal(key, id) do
+    case parse_int(id) do
+      parsed when is_integer(parsed) and parsed > 0 -> %{key => parsed}
+      _other -> nil
+    end
+  end
+
+  defp conflicting_principals?(grants, revocations) do
+    grant_principals = MapSet.new(grants, &principal_key/1)
+    revoke_principals = MapSet.new(revocations, &principal_key/1)
+    not MapSet.disjoint?(grant_principals, revoke_principals)
+  end
+
+  defp principal_key(%{person_id: id}), do: {:person, id}
+  defp principal_key(%{team_id: id}), do: {:team, id}
+
+  defp valid_normalized_principal?(%{person_id: id}), do: is_integer(id) and id > 0
+  defp valid_normalized_principal?(%{team_id: id}), do: is_integer(id) and id > 0
+
   defp normalize_grant(%{"type" => "public"}, opts),
     do: %{team_id: permissions(opts).everyone_team_id(), access_rights: ["read"]}
 
@@ -862,13 +948,29 @@ defmodule Zaq.Storage do
   defp normalize_grant(%{type: :person, id: id, access_rights: rights}, _opts),
     do: %{person_id: parse_int(id), access_rights: normalize_rights(rights)}
 
+  defp normalize_grant(%{type: type, target_id: id, access_rights: rights}, _opts)
+       when type in [:person, "person"],
+       do: %{person_id: parse_int(id), access_rights: normalize_rights(rights)}
+
   defp normalize_grant(%{type: :team, id: id, access_rights: rights}, _opts),
     do: %{team_id: parse_int(id), access_rights: normalize_rights(rights)}
+
+  defp normalize_grant(%{type: type, target_id: id, access_rights: rights}, _opts)
+       when type in [:team, "team"],
+       do: %{team_id: parse_int(id), access_rights: normalize_rights(rights)}
 
   defp normalize_grant(_grant, _opts), do: nil
 
   defp parse_int(value) when is_integer(value), do: value
-  defp parse_int(value) when is_binary(value), do: String.to_integer(value)
+
+  defp parse_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _other -> nil
+    end
+  end
+
+  defp parse_int(_value), do: nil
 
   defp normalize_rights(rights) when is_list(rights), do: Enum.map(rights, &to_string/1)
   defp normalize_rights(_rights), do: ["read"]

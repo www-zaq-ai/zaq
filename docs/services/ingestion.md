@@ -87,6 +87,7 @@ the failed changes will automatically replay. Metadata-read fallback records rem
 if those continue failing, investigate provider access and metadata-fetch errors first.
 
 **Access control**
+- `sync_data_source_permission_projection/4` — refreshes indexed-document permission projections for source ids supplied by Channels after a provider bridge has completed a permission mutation. It never mutates source permissions. Disk ACL writes remain owned by Storage; the Ingestion UI and agent Action both enter through Channels. Projection failures return `{:document_sync_failed, file_id, reason}` rather than reporting full success.
 - `can_access_file?/2` — returns true if a user may access a file; super admins bypass all checks; Everyone grants provide public access; documents with no permission rows are private (admin-only)
 - `list_document_permissions/1` — list all permissions for a document (preloads `:person`, `:team`)
 - `list_person_permissions/1` — list all permissions for a person (preloads `:document`)

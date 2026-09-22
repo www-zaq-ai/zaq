@@ -13,6 +13,7 @@ defmodule Zaq.Agent.DiskDocumentFlowIntegrationTest do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Storage
   alias Zaq.Storage.EntryCatalog
+  alias Zaq.Storage.VolumeConfig
   alias Zaq.TestSupport.{IntegrationAgent, ToolCallingLLMStub}
 
   @source_content "# Disk flow source\nExact UTF-8 content: café — 42.\n"
@@ -20,11 +21,17 @@ defmodule Zaq.Agent.DiskDocumentFlowIntegrationTest do
   @tools ~w(search_documents download_document create_document list_documents)
 
   setup do
+    disk_config = ChannelConfig.get_by_provider("disk")
+    assert disk_config, "expected the test database to contain the provisioned Disk data source"
+
+    {:ok, storage_opts} = VolumeConfig.opts_for_channel_config(disk_config)
+    storage_config = Keyword.fetch!(storage_opts, :storage_config)
+    volume = Keyword.fetch!(storage_config, :default_volume)
     namespace = "agent-disk-flow-#{Ecto.UUID.generate()}"
     directory = "#{namespace}/workspace"
-    path = "default/#{directory}"
-    {:ok, owned_root} = Storage.resolve_path("default", namespace)
-    {:ok, absolute_dir} = Storage.resolve_path("default", directory)
+    path = "#{volume}/#{directory}"
+    {:ok, owned_root} = Storage.resolve_path(volume, namespace, storage_opts)
+    {:ok, absolute_dir} = Storage.resolve_path(volume, directory, storage_opts)
     File.mkdir_p!(absolute_dir)
     on_exit(fn -> File.rm_rf!(owned_root) end)
     File.write!(Path.join(absolute_dir, "source.md"), @source_content)
@@ -32,21 +39,10 @@ defmodule Zaq.Agent.DiskDocumentFlowIntegrationTest do
     File.mkdir!(neighbor)
     File.write!(Path.join(neighbor, "source.md"), "Unrelated document; leave unchanged.")
 
-    disk_config =
-      %ChannelConfig{}
-      |> ChannelConfig.changeset(%{
-        name: "Disk #{directory}",
-        provider: "disk",
-        kind: "data_source",
-        enabled: true,
-        settings: %{"volumes" => [%{"name" => "default", "path" => "."}]}
-      })
-      |> Repo.insert!()
-
     {:ok, person} = People.create_person(%{full_name: "Reader #{directory}"})
-    {:ok, folder} = EntryCatalog.ensure("default", namespace, "directory")
-    {:ok, source} = EntryCatalog.ensure("default", "#{directory}/source.md", "file")
-    {:ok, _neighbor} = EntryCatalog.ensure("default", "#{namespace}/neighbor/source.md", "file")
+    {:ok, folder} = EntryCatalog.ensure(volume, namespace, "directory")
+    {:ok, source} = EntryCatalog.ensure(volume, "#{directory}/source.md", "file")
+    {:ok, _neighbor} = EntryCatalog.ensure(volume, "#{namespace}/neighbor/source.md", "file")
 
     {:ok, _grant} =
       Storage.grant_document_access(

@@ -7,6 +7,11 @@ defmodule Zaq.Ingestion.ApiTest do
 
   defmodule StubIngestion do
     def list_document_sources(query), do: [{:source, query}]
+
+    def sync_data_source_permission_projection(provider, config_id, affected_file_ids, context) do
+      send(self(), {:sync_permission_projection, provider, config_id, affected_file_ids, context})
+      :ok
+    end
   end
 
   defp handle(request, action) do
@@ -70,6 +75,26 @@ defmodule Zaq.Ingestion.ApiTest do
 
     assert Api.handle_event(event, :list_document_sources, nil).response ==
              {:error, {:unsupported_action, :list_document_sources}}
+  end
+
+  test "forwards trusted context for bridge-triggered permission projection sync" do
+    actor = %{person_id: 7}
+    event_opts = [ingestion_module: StubIngestion, skip_permissions: true]
+
+    event =
+      Event.new(
+        %{provider: "disk", config_id: 12, affected_file_ids: ["folder-1", "file-1"]},
+        :ingestion,
+        actor: actor,
+        opts: event_opts
+      )
+
+    assert :ok =
+             Api.handle_event(event, :sync_data_source_permission_projection, nil).response
+
+    assert_received {:sync_permission_projection, "disk", 12, ["folder-1", "file-1"], context}
+    assert context.actor == actor
+    assert context.skip_permissions == true
   end
 
   describe "retired storage actions" do

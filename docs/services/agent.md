@@ -395,6 +395,13 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 - Returning raw provider payload maps as success responses is not allowed.
 - This contract applies to new operations added in any module implementing `@behaviour Zaq.Channels.DataSourceBridge`.
 
+The `data_source.update_document_permissions` Action is usable by agents and workflow action
+steps. It requires a loaded provenance-bearing file or folder Record and dispatches through
+Channels so the provider bridge owns the mutation. Disk delegates ACL writes to Storage.
+After a successful bridge write, Channels notifies Ingestion to refresh indexed-document
+permission projections. Inherited and unmentioned direct grants are preserved; provider bridges
+without safe permission mutation support return `:unsupported`.
+
 ### Built-in Agent Tools (`Zaq.Agent.Tools.SearchKnowledgeBase`, `Zaq.Agent.Tools.ListKnowledgeBaseFiles`)
 - Tool implementations exposed to configured agents through `Tools.Registry`
 - Availability remains controlled by enabled tool keys and provider capabilities

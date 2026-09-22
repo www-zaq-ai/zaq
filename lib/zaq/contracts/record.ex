@@ -111,11 +111,47 @@ defmodule Zaq.Contracts.Record do
       |> Keyword.get(:metadata, [])
       |> Keyword.put(:zaq_semantic_type, @semantic_type)
 
-    opts
-    |> Keyword.put(:metadata, metadata)
-    |> Zoi.any()
+    schema =
+      if verify_provenance? do
+        Zoi.object(
+          zoi_fields(),
+          opts
+          |> Keyword.put(:metadata, metadata)
+          |> Keyword.put(:unrecognized_keys, :preserve)
+          |> Keyword.put(:coerce, true)
+        )
+      else
+        opts
+        |> Keyword.put(:metadata, metadata)
+        |> Zoi.any()
+      end
+
+    schema
     |> Zoi.transform({__MODULE__, :zoi_record_from_map, []})
     |> Zoi.refine({__MODULE__, validator, []})
+  end
+
+  defp zoi_fields do
+    %{
+      id: Zoi.string(description: "Canonical record id."),
+      kind: Zoi.string(description: "Canonical record kind.", coerce: true),
+      parent_id:
+        Zoi.string(description: "Canonical parent id; null for a root record.") |> Zoi.nullable(),
+      permissions:
+        Zoi.list(Zoi.any(), description: "Permission projection covered by provenance.")
+        |> Zoi.nullable(),
+      attributes:
+        Zoi.object(
+          %{
+            provider_record_id:
+              Zoi.string(description: "Provider identity covered by provenance.")
+              |> Zoi.optional()
+          },
+          unrecognized_keys: :preserve,
+          coerce: true
+        ),
+      provenance_ref: Zoi.string(description: "Signed ZAQ record provenance reference.")
+    }
   end
 
   @doc "Zoi transform callback that rebuilds public Record maps into verified structs."
@@ -200,7 +236,7 @@ defmodule Zaq.Contracts.Record do
   defp public_permissions(permissions) when is_list(permissions) do
     permissions
     |> Enum.reduce_while({:ok, []}, fn permission, {:ok, acc} ->
-      case from_map(permission) do
+      case public_permission(permission) do
         {:ok, record} -> {:cont, {:ok, [record | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -212,6 +248,17 @@ defmodule Zaq.Contracts.Record do
   end
 
   defp public_permissions(_permissions), do: {:error, :invalid_record}
+
+  defp public_permission(%__MODULE__{kind: :permission} = permission), do: {:ok, permission}
+
+  defp public_permission(%{} = permission) do
+    case build_from_map(permission) do
+      {:ok, %__MODULE__{kind: :permission} = record} -> {:ok, record}
+      _other -> {:error, :invalid_record}
+    end
+  end
+
+  defp public_permission(_permission), do: {:error, :invalid_record}
 
   defp public_value(map, key) do
     if Map.has_key?(map, key) do

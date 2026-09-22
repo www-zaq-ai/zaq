@@ -1628,9 +1628,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp dispatch_source_permission_sync(socket, params) do
     event =
       %{provider: data_source_provider(socket), params: params}
-      |> Event.new(:ingestion,
+      |> Event.new(:channels,
         opts: [
-          action: :sync_data_source_permissions,
+          action: :data_source_replace_permissions,
           data_source_bridge_module: data_source_bridge_module()
         ],
         actor: BOActor.build(socket.assigns.current_user)

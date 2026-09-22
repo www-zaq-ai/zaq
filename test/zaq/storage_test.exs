@@ -1523,6 +1523,106 @@ defmodule Zaq.StorageTest do
     assert Repo.get(Permissions.ResourcePermission, existing.id) != nil
   end
 
+  test "update_document_grants adds, updates, and revokes direct grants without replacing others" do
+    {:ok, entry} = EntryCatalog.ensure("archives", "incremental.md", "file")
+    retained_person = person_fixture()
+    updated_person = person_fixture()
+    {:ok, revoked_team} = People.create_team(%{name: "Revoked Storage Team"})
+
+    resource = %StorageEntry{id: entry.id}
+
+    assert {:ok, _} =
+             Permissions.grant(resource, %{
+               person_id: retained_person.id,
+               access_rights: ["read"]
+             })
+
+    assert {:ok, _} =
+             Permissions.grant(resource, %{
+               person_id: updated_person.id,
+               access_rights: ["read"]
+             })
+
+    assert {:ok, _} =
+             Permissions.grant(resource, %{team_id: revoked_team.id, access_rights: ["read"]})
+
+    assert {:ok, %{affected_file_ids: [affected_id]}} =
+             Storage.update_document_grants(
+               entry.id,
+               [
+                 %{
+                   "type" => "person",
+                   "target_id" => updated_person.id,
+                   "access_rights" => ["read", "write"]
+                 },
+                 %{"type" => "public", "access_rights" => ["manage"]}
+               ],
+               [%{"type" => "team", "target_id" => revoked_team.id}],
+               skip_permissions: true
+             )
+
+    assert affected_id == entry.id
+    direct = Permissions.list_direct(resource)
+
+    assert Enum.any?(
+             direct,
+             &(&1.person_id == retained_person.id and &1.access_rights == ["read"])
+           )
+
+    assert Enum.any?(
+             direct,
+             &(&1.person_id == updated_person.id and &1.access_rights == ["read", "write"])
+           )
+
+    refute Enum.any?(direct, &(&1.team_id == revoked_team.id))
+
+    assert Enum.any?(
+             direct,
+             &(&1.team_id == Permissions.everyone_team_id() and &1.access_rights == ["read"])
+           )
+  end
+
+  test "update_document_grants rejects conflicting grant and revoke without changing permissions" do
+    {:ok, entry} = EntryCatalog.ensure("archives", "conflict.md", "file")
+    person = person_fixture()
+
+    assert {:error, {:invalid_permissions, :conflicting_principals}} =
+             Storage.update_document_grants(
+               entry.id,
+               [%{"type" => "person", "target_id" => person.id, "access_rights" => ["read"]}],
+               [%{"type" => "person", "target_id" => person.id}],
+               skip_permissions: true
+             )
+
+    assert Permissions.list_direct(%StorageEntry{id: entry.id}) == []
+  end
+
+  test "update_document_grants rejects malformed principal ids without raising" do
+    {:ok, entry} = EntryCatalog.ensure("archives", "invalid-principal.md", "file")
+
+    assert {:error, {:invalid_permissions, :invalid_principal}} =
+             Storage.update_document_grants(
+               entry.id,
+               [%{"type" => "person", "target_id" => "not-an-id", "access_rights" => ["read"]}],
+               [],
+               skip_permissions: true
+             )
+  end
+
+  test "update_document_grants denies a missing actor and preserves direct grants" do
+    {:ok, entry} = EntryCatalog.ensure("archives", "protected-incremental.md", "file")
+    person = person_fixture()
+    resource = %StorageEntry{id: entry.id}
+
+    assert {:ok, existing} =
+             Permissions.grant(resource, %{person_id: person.id, access_rights: ["read"]})
+
+    assert {:error, :unauthorized} =
+             Storage.update_document_grants(entry.id, [], [%{type: :person, id: person.id}])
+
+    assert Repo.get(Permissions.ResourcePermission, existing.id) != nil
+  end
+
   test "replace grants normalizes every accepted input shape", %{storage_opts: opts} do
     {:ok, entry} = EntryCatalog.ensure("archives", "normalize.md", "file")
 

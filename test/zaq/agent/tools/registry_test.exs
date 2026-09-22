@@ -28,6 +28,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "data_source.download_document",
              "data_source.create_document",
              "data_source.update_document",
+             "data_source.update_document_permissions",
              "data_source.delete_document",
              "data_source.get_sheet",
              "data_source.inspect_sheet",
@@ -160,6 +161,13 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              Registry.resolve_modules(["resources.query"])
   end
 
+  test "data-source permission updates resolve to the shared Action" do
+    assert Registry.valid_tool_key?("data_source.update_document_permissions")
+
+    assert {:ok, [Zaq.Agent.Tools.DataSource.UpdateDocumentPermissions]} =
+             Registry.resolve_modules(["data_source.update_document_permissions"])
+  end
+
   test "web.browsing resolves to the browsing tool" do
     assert Registry.valid_tool_key?("web.browsing")
 
@@ -189,6 +197,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
              "data_source.download_document",
              "data_source.create_document",
              "data_source.update_document",
+             "data_source.update_document_permissions",
              "data_source.delete_document",
              "data_source.get_sheet",
              "data_source.inspect_sheet",

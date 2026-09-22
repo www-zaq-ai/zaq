@@ -221,6 +221,35 @@ defmodule Zaq.Storage.ApiTest do
     assert Enum.any?(grants, &(&1.type == "team" and &1.target_id == to_string(team.id)))
   end
 
+  test "update_document_grants forwards actor context for incremental changes", %{
+    storage_opts: opts
+  } do
+    {:ok, entry} = EntryCatalog.ensure("archives", "incremental-api.md", "file")
+    {:ok, person} = People.create_person(%{full_name: "Incremental Storage Manager"})
+    {:ok, team} = People.create_team(%{name: "Incremental Storage Team"})
+
+    assert {:ok, _} =
+             Permissions.grant(%StorageEntry{id: entry.id}, %{
+               person_id: person.id,
+               access_rights: ["manage"]
+             })
+
+    request = %{
+      file_id: entry.id,
+      grants: [%{type: :team, id: team.id, access_rights: [:read]}],
+      revocations: []
+    }
+
+    event = event(request, opts, %{person_id: person.id})
+    result = Api.handle_event(event, :update_document_grants, nil)
+
+    assert {:ok, %{status: "updated", file_id: id}} = result.response
+    assert id == entry.id
+
+    assert {:ok, %{effective_permissions: grants}} = Zaq.Storage.list_document_grants(entry.id)
+    assert Enum.any?(grants, &(&1.type == "team" and &1.target_id == to_string(team.id)))
+  end
+
   test "searches documents with string actor permission bypass", %{
     archives: archives,
     storage_opts: opts

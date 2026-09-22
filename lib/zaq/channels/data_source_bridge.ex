@@ -54,6 +54,7 @@ defmodule Zaq.Channels.DataSourceBridge do
   alias Zaq.Contracts.Record.Authorization
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
+  alias Zaq.Events.Helper
   alias Zaq.Events.TrustedContext
 
   @callback auth_handshake(map(), map()) :: {:ok, term()} | {:error, term()}
@@ -85,6 +86,8 @@ defmodule Zaq.Channels.DataSourceBridge do
   @callback list_permissions(map(), map(), TrustedContext.t()) ::
               {:ok, RecordPage.t()} | {:error, term()}
   @callback replace_permissions(map(), map(), TrustedContext.t()) ::
+              {:ok, map()} | {:error, term()}
+  @callback update_permissions(map(), map(), TrustedContext.t()) ::
               {:ok, map()} | {:error, term()}
   @callback channel_stats(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback export_options(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -130,6 +133,7 @@ defmodule Zaq.Channels.DataSourceBridge do
                       download_document: 3,
                       list_permissions: 3,
                       replace_permissions: 3,
+                      update_permissions: 3,
                       channel_stats: 2,
                       export_options: 2,
                       sheet_inspect: 2,
@@ -532,9 +536,41 @@ defmodule Zaq.Channels.DataSourceBridge do
       when is_map(params) and is_map(context) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- resolve_data_source_config(provider, params),
-         true <- supports_callback?(bridge, :replace_permissions, 3) || {:error, :unsupported} do
-      bridge.replace_permissions(config, params, TrustedContext.normalize(context))
-      |> seal_response(config)
+         true <- supports_callback?(bridge, :replace_permissions, 3) || {:error, :unsupported},
+         {:ok, result} <-
+           bridge.replace_permissions(config, params, TrustedContext.normalize(context))
+           |> seal_response(config),
+         :ok <- sync_permission_projection(result, provider, config, context) do
+      {:ok, result}
+    end
+  end
+
+  @doc """
+  Applies incremental direct permission changes to a provenance-verified Record.
+
+  Provider, configuration, and file identity always come from signed provenance;
+  caller-supplied identity fields are discarded before bridge delegation.
+  """
+  def update_permissions(%Record{} = record, changes, context \\ %{})
+      when is_map(changes) and is_map(context) do
+    with {:ok, claims} <- Provenance.verify(record),
+         {:ok, provider} <- claim_provider(claims),
+         params <- update_file_params(record, claims, changes),
+         {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- resolve_data_source_config(provider, params),
+         true <- supports_callback?(bridge, :update_permissions, 3) || {:error, :unsupported},
+         :ok <- authorize_record(bridge, record, [:manage], context),
+         {:ok, result} <-
+           bridge.update_permissions(config, params, TrustedContext.normalize(context)),
+         result <-
+           result
+           |> Map.put(:record, record)
+           |> Map.put(:provider, to_string(provider))
+           |> Map.put(:config_id, config.id)
+           |> Map.put(:file_id, Map.fetch!(claims, "provider_record_id")),
+         {:ok, result} <- seal_response({:ok, result}, config),
+         :ok <- sync_permission_projection(result, provider, config, context) do
+      {:ok, result}
     end
   end
 
@@ -958,6 +994,26 @@ defmodule Zaq.Channels.DataSourceBridge do
     with {:ok, config} <- Bridge.fetch_any_channel_config(provider),
          {:ok, bridge} <- Bridge.resolve_bridge(provider) do
       Bridge.dispatch_provider_runtime_sync(bridge, config)
+    end
+  end
+
+  defp sync_permission_projection(result, provider, config, context) do
+    case Map.get(result, :affected_file_ids) || Map.get(result, "affected_file_ids") do
+      affected_file_ids when is_list(affected_file_ids) ->
+        :ingestion
+        |> Helper.build_and_dispatch_invoke_event(
+          %{
+            provider: to_string(provider),
+            config_id: config.id,
+            affected_file_ids: affected_file_ids
+          },
+          :sync_data_source_permission_projection,
+          TrustedContext.event_builder_opts(context)
+        )
+        |> Map.get(:response)
+
+      _other ->
+        :ok
     end
   end
 

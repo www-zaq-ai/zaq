@@ -113,8 +113,10 @@ defmodule Zaq.Agent.OpaqueAliases do
     end
   end
 
-  defp collect_paths(%Zoi.Types.Map{fields: fields}, path) when is_list(fields) do
-    Enum.flat_map(fields, fn {key, schema} -> collect_paths(schema, path ++ [key]) end)
+  defp collect_paths(%Zoi.Types.Map{fields: fields, meta: %{metadata: metadata}}, path)
+       when is_list(fields) do
+    semantic_paths(metadata, path) ++
+      Enum.flat_map(fields, fn {key, schema} -> collect_paths(schema, path ++ [key]) end)
   end
 
   defp collect_paths(%Zoi.Types.Struct{module: Record}, path),

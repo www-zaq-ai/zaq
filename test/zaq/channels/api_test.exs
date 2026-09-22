@@ -299,6 +299,11 @@ defmodule Zaq.Channels.ApiTest do
       {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
     end
 
+    def update_permissions(record, changes, context) do
+      send(self(), {:ds_update_permissions, record, changes, context})
+      {:ok, %{status: "updated", affected_file_ids: [record.id]}}
+    end
+
     def sync_config_runtime(before_config, after_config) do
       send(self(), {:ds_sync_config_runtime, before_config, after_config})
       :ok
@@ -1257,6 +1262,29 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == {:ok, %{permissions: [%{"id" => "p1", "role" => "reader"}]}}
     assert_received {:ds_list_permissions, :google_drive, %{}, %TrustedContext{}}
+  end
+
+  test "handles signed-record data_source_update_permissions with trusted context" do
+    record = %Record{id: "folder-1", kind: :folder}
+    changes = %{"grants" => [], "revocations" => [%{"type" => "public"}]}
+    actor = %{person_id: 7}
+
+    event =
+      Event.new(%{record: record, changes: changes}, :channels,
+        actor: actor,
+        opts: [
+          action: :data_source_update_permissions,
+          data_source_bridge_module: StubDataSourceBridge,
+          skip_permissions: true
+        ]
+      )
+
+    assert {:ok, %{status: "updated"}} =
+             Api.handle_event(event, :data_source_update_permissions, nil).response
+
+    assert_received {:ds_update_permissions, ^record, ^changes, %TrustedContext{} = context}
+    assert context.actor == actor
+    assert context.skip_permissions == true
   end
 
   test "handles webhook_delivered for data_source" do

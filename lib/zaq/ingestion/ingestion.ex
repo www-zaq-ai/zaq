@@ -43,7 +43,8 @@ defmodule Zaq.Ingestion do
 
   alias Zaq.Accounts.People
   alias Zaq.Contracts.Record
-  alias Zaq.Event
+  alias Zaq.Events.Helper
+  alias Zaq.Events.TrustedContext
   alias Zaq.Permissions
   alias Zaq.Permissions.DocumentPermission, as: Permission
 
@@ -587,17 +588,27 @@ defmodule Zaq.Ingestion do
     |> Repo.all()
   end
 
-  @doc "Replaces source permissions through Channels and synchronizes matching documents."
-  def sync_data_source_permissions(provider, params, context \\ %{})
-      when is_map(params) and is_map(context) do
-    with {:ok, %{affected_file_ids: affected_file_ids} = result} <-
-           replace_source_permissions(provider, params, context),
-         :ok <- sync_data_source_documents(provider, params, affected_file_ids, context) do
-      {:ok, result}
-    else
-      {:error, reason} -> {:error, reason}
-      other -> {:error, other}
-    end
+  @doc """
+  Refreshes indexed-document permission projections after a provider bridge has
+  completed the source mutation.
+
+  This function never mutates source permissions. Channels supplies the source
+  identity and affected file/folder ids returned by the owning provider bridge.
+  """
+  def sync_data_source_permission_projection(
+        provider,
+        config_id,
+        affected_file_ids,
+        context \\ %{}
+      )
+      when not is_nil(provider) and not is_nil(config_id) and is_list(affected_file_ids) and
+             is_map(context) do
+    sync_data_source_documents(
+      provider,
+      %{"config_id" => config_id},
+      affected_file_ids,
+      context
+    )
   end
 
   def count_document_permissions(document_ids) when is_list(document_ids) do
@@ -609,17 +620,6 @@ defmodule Zaq.Ingestion do
     |> select([p], {p.resource_id, count(p.id)})
     |> Repo.all()
     |> Map.new()
-  end
-
-  defp replace_source_permissions(provider, params, context) do
-    params
-    |> Event.new(:channels,
-      opts: [action: :data_source_replace_permissions],
-      actor: Map.get(context, :actor) || Map.get(context, "actor")
-    )
-    |> then(fn event -> %{event | request: %{provider: provider, params: params}} end)
-    |> node_router(context).dispatch()
-    |> Map.get(:response)
   end
 
   defp sync_data_source_documents(provider, params, file_ids, context) do
@@ -657,12 +657,12 @@ defmodule Zaq.Ingestion do
     request_params = Map.put(params, "file_id", file_id)
 
     response =
-      %{provider: provider, params: request_params}
-      |> Event.new(:channels,
-        opts: [action: :data_source_list_permissions],
-        actor: Map.get(context, :actor) || Map.get(context, "actor")
+      :channels
+      |> Helper.build_and_dispatch_invoke_event(
+        %{provider: provider, params: request_params},
+        :data_source_list_permissions,
+        TrustedContext.event_builder_opts(context)
       )
-      |> node_router().dispatch()
       |> Map.get(:response)
 
     case response do
@@ -1344,11 +1344,4 @@ defmodule Zaq.Ingestion do
     do: where(query, [j], j.status in ^statuses)
 
   defp maybe_filter_status(query, status), do: where(query, [j], j.status == ^status)
-
-  defp node_router, do: Zaq.NodeRouter
-
-  defp node_router(%{} = context),
-    do: Map.get(context, :node_router) || Map.get(context, "node_router") || Zaq.NodeRouter
-
-  defp node_router(_context), do: Zaq.NodeRouter
 end

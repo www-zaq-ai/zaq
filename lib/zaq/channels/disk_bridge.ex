@@ -243,6 +243,21 @@ defmodule Zaq.Channels.DiskBridge do
     dispatch(:replace_document_grants, %{file_id: file_id, grants: grants}, config, context)
   end
 
+  @impl Zaq.Channels.DataSourceBridge
+  def update_permissions(config, params, context \\ %{})
+      when is_map(config) and is_map(params) and is_map(context) do
+    file_id = to_string(fetch(params, "file_id"))
+    grants = fetch(params, "grants") || []
+    revocations = fetch(params, "revocations") || []
+
+    dispatch(
+      :update_document_grants,
+      %{file_id: file_id, grants: grants, revocations: revocations},
+      config,
+      context
+    )
+  end
+
   # -- mapping --
 
   # Ingestion answers with volume entries; the canonical record shape is put on here. The
@@ -352,7 +367,10 @@ defmodule Zaq.Channels.DiskBridge do
 
   defp entry_permissions(%Entry{id: id}, %{permissions_by_id: permissions_by_id})
        when is_map(permissions_by_id) do
-    Map.get(permissions_by_id, id)
+    case Map.get(permissions_by_id, id) do
+      permissions when is_list(permissions) -> Enum.map(permissions, &map_permission/1)
+      permissions -> permissions
+    end
   end
 
   defp entry_permissions(_entry, _page), do: nil

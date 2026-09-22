@@ -6,6 +6,7 @@ defmodule Zaq.Ingestion.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Event
+  alias Zaq.Events.TrustedContext
   alias Zaq.Ingestion
   alias Zaq.InternalBoundaries
 
@@ -36,14 +37,28 @@ defmodule Zaq.Ingestion.Api do
   end
 
   def handle_event(
-        %Event{request: %{provider: provider, params: params}} = event,
-        :sync_data_source_permissions,
+        %Event{
+          request: %{
+            provider: provider,
+            config_id: config_id,
+            affected_file_ids: affected_file_ids
+          }
+        } = event,
+        :sync_data_source_permission_projection,
         _context
       )
-      when is_map(params) do
+      when is_list(affected_file_ids) do
+    ingestion_module = Keyword.get(event.opts, :ingestion_module, Ingestion)
+
     %{
       event
-      | response: Ingestion.sync_data_source_permissions(provider, params, %{actor: event.actor})
+      | response:
+          ingestion_module.sync_data_source_permission_projection(
+            provider,
+            config_id,
+            affected_file_ids,
+            TrustedContext.from_event(event)
+          )
     }
   end
 

@@ -209,6 +209,21 @@ defmodule Zaq.Permissions do
     end)
   end
 
+  @doc """
+  Applies direct grant upserts and principal revocations in one transaction.
+
+  Grants for principals not named by either collection are preserved. Callers
+  must normalize and reject conflicting principal commands before invoking this
+  function.
+  """
+  def mutate(resource, desired_grants, revocations, _opts \\ [])
+      when is_list(desired_grants) and is_list(revocations) do
+    Repo.transaction(fn ->
+      Enum.each(revocations, &revoke_principal(resource, &1))
+      grant_desired(resource, desired_grants)
+    end)
+  end
+
   defp revoke_existing(resource, opts) do
     Enum.each(list(resource), fn permission ->
       case revoke(resource, permission, opts) do
@@ -225,6 +240,30 @@ defmodule Zaq.Permissions do
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
+  end
+
+  defp revoke_principal(resource, %{person_id: person_id}) when is_integer(person_id) do
+    {resource_type, resource_id} = resource_coords(resource)
+
+    ResourcePermission
+    |> where(
+      [permission],
+      permission.resource_type == ^resource_type and permission.resource_id == ^resource_id and
+        permission.person_id == ^person_id
+    )
+    |> Repo.delete_all()
+  end
+
+  defp revoke_principal(resource, %{team_id: team_id}) when is_integer(team_id) do
+    {resource_type, resource_id} = resource_coords(resource)
+
+    ResourcePermission
+    |> where(
+      [permission],
+      permission.resource_type == ^resource_type and permission.resource_id == ^resource_id and
+        permission.team_id == ^team_id
+    )
+    |> Repo.delete_all()
   end
 
   @doc """

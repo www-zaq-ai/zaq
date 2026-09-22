@@ -314,6 +314,7 @@ Channels action after locator and actor validation.
 - `create_item` — umbrella write support for empty files, content uploads, and folders
 - `update_item`
 - `delete_item`
+- `manage_item_permissions`
 - `search_items`
 - `sheet_inspect`
 - `sheet_get`
@@ -342,6 +343,8 @@ Channels action after locator and actor validation.
 - `:data_source_delete_file` — accepts `%{record: %Zaq.Contracts.Record{}}`; Channels translates the record to provider parameters at the data-source bridge boundary.
 - `:data_source_search_files`
 - `:data_source_list_permissions`
+- `:data_source_replace_permissions` — provider/config-based full direct-ACL replacement used by the Ingestion UI; available only when the bridge owns source permission checks. After the bridge write, Channels dispatches the returned affected ids to Ingestion for projection refresh.
+- `:data_source_update_permissions` — accepts a provenance-bearing file or folder Record plus incremental direct grants/revocations. Channels derives provider/config/file identity from signed provenance and delegates only to bridges implementing `update_permissions/3`; Disk delegates the source ACL write to Storage. Ingestion is notified only after the bridge succeeds.
 - `:data_source_setup_listener`
 - `:data_source_teardown_listener`
 - `:data_source_channel_stats`

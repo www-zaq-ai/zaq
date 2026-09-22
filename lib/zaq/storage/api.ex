@@ -134,6 +134,18 @@ defmodule Zaq.Storage.Api do
     %{event | response: Storage.replace_document_grants(file_id, grants, opts(event))}
   end
 
+  def handle_event(
+        %Event{request: %{file_id: file_id, grants: grants, revocations: revocations}} = event,
+        :update_document_grants,
+        _context
+      )
+      when is_binary(file_id) and is_list(grants) and is_list(revocations) do
+    %{
+      event
+      | response: Storage.update_document_grants(file_id, grants, revocations, opts(event))
+    }
+  end
+
   def handle_event(%Event{request: %{params: params}} = event, :search_documents, _context)
       when is_map(params) do
     %{event | response: Storage.search_documents(params, opts(event))}

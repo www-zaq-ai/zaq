@@ -24,7 +24,17 @@ defmodule Zaq.Channels.DiskBridgeTest do
         {:dispatch_actor, event.next_hop.destination, event.opts[:action], event.actor}
       )
 
-      %{event | response: Process.get(:stub_response, {:ok, %{}})}
+      response =
+        case Process.get(:stub_responses, []) do
+          [next | rest] ->
+            Process.put(:stub_responses, rest)
+            next
+
+          [] ->
+            Process.get(:stub_response, {:ok, %{}})
+        end
+
+      %{event | response: response}
     end
   end
 
@@ -48,6 +58,7 @@ defmodule Zaq.Channels.DiskBridgeTest do
   end
 
   defp stub_response(response), do: Process.put(:stub_response, response)
+  defp stub_responses(responses), do: Process.put(:stub_responses, responses)
 
   defp entry(id, attrs \\ %{}) do
     struct!(
@@ -713,6 +724,32 @@ defmodule Zaq.Channels.DiskBridgeTest do
       refute Map.has_key?(request, :skip_permissions)
       assert_received {:dispatch_actor, :storage, :replace_document_grants, ^actor}
       assert_received {:dispatch_opts, :storage, :replace_document_grants, event_opts}
+      assert event_opts[:skip_permissions] == true
+    end
+  end
+
+  describe "update_permissions/3" do
+    test "forwards incremental grants, revocations, and trusted context" do
+      actor = %{person_id: 123}
+      grants = [%{"type" => "public", "access_rights" => ["read"]}]
+      revocations = [%{"type" => "team", "target_id" => "7"}]
+
+      stub_response({:ok, %{status: "updated", affected_file_ids: ["42"]}})
+
+      assert {:ok, %{status: "updated"}} =
+               DiskBridge.update_permissions(
+                 config(),
+                 %{"file_id" => 42, "grants" => grants, "revocations" => revocations},
+                 %TrustedContext{actor: actor, skip_permissions: true}
+               )
+
+      assert_received {:dispatch, :storage, :update_document_grants,
+                       %{file_id: "42", grants: ^grants, revocations: ^revocations} = request}
+
+      refute Map.has_key?(request, :actor)
+      refute Map.has_key?(request, :skip_permissions)
+      assert_received {:dispatch_actor, :storage, :update_document_grants, ^actor}
+      assert_received {:dispatch_opts, :storage, :update_document_grants, event_opts}
       assert event_opts[:skip_permissions] == true
     end
   end

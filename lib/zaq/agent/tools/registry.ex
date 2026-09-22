@@ -156,6 +156,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.DataSource.UpdateDocument
     },
     %{
+      key: "data_source.update_document_permissions",
+      label: "Update document permissions",
+      description:
+        "Add, update, or revoke direct permissions on a loaded datasource file or folder",
+      module: Zaq.Agent.Tools.DataSource.UpdateDocumentPermissions
+    },
+    %{
       key: "data_source.delete_document",
       label: "Delete document",
       description: "Delete a loaded datasource record",
