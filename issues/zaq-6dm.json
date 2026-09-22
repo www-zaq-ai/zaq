@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T06:46:08Z",
+  "description": "Approved product-first README and fresh safe screenshots. Reuse existing technical guides; add docs/operations/deployment.md for Docker/HTTPS. Action reuse: not applicable, documentation/assets only, no executable operation changes. No commit/push/PR authorized. Sequence: verify and migrate documentation -\u003e capture UI previews -\u003e final validation. Application unit/E2E tests and coverage not applicable for docs-only work; required mix q and final mix precommit remain.",
+  "id": "zaq-6dm",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Refresh README for collaborative agentic operating system positioning",
+  "type": "epic",
+  "updated_at": "2026-09-22T06:46:08Z"
+}
