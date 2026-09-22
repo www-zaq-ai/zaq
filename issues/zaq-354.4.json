@@ -18,11 +18,15 @@
     {
       "text": "Validation: focused modified-area suite 748 tests / 5 properties / 6 doctests, 0 failures; mix q clean; both migrations rollback/up clean; Serena diagnostics clean; independent review clean. Full mix precommit first exposed 4 unrelated/compat failures, all fixed and mix test --failed passed; repeat precommit ran 1000s and timed out before final summary (no observed assertion failures before timeout). Dev migration unavailable because isolated dev DB does not exist; test DB migration validated.",
       "timestamp": "2026-09-22T15:36:25Z"
+    },
+    {
+      "text": "Final validation: focused Agent lifecycle suite passes (115 tests, 3 properties), mix q passes, migration rollback/apply passed earlier, diagnostics and independent review are clean. Full mix precommit reached 5,678 tests/136 properties/42 doctests with one unrelated timeout in Zaq.People.AuthRateLimiterPeerTest; immediate mix test --failed passed. Incarnation-fenced failed-runtime cleanup regression is fixed and covered.",
+      "timestamp": "2026-09-22T16:43:12Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-354.4] Validate issue 768 channel isolation",
   "type": "task",
-  "updated_at": "2026-09-22T15:36:25Z"
+  "updated_at": "2026-09-22T16:43:12Z"
 }
