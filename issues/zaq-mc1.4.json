@@ -7,9 +7,15 @@
   "id": "zaq-mc1.4",
   "labels": [],
   "parent": "zaq-mc1",
+  "comments": [
+    {
+      "text": "Execution evidence plan: reuse provisioned provider=disk ChannelConfig; create only a UUID-owned directory; configured ReAct agent via IntegrationAgent and ToolCallingLLMStub; retrieve real folder Record then invoke update_document_permissions via Executor; assert source ACL persistence, inheritance/projection behavior, unrelated state, and unauthorized denial.",
+      "timestamp": "2026-09-22T13:20:02Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Add agent-driven Disk permission integration test",
   "type": "task",
-  "updated_at": "2026-09-22T13:20:01Z"
+  "updated_at": "2026-09-22T13:20:02Z"
 }
