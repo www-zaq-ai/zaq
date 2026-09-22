@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-22T19:31:01Z",
   "created": "2026-09-22T18:48:40Z",
   "description": "Make the Disk document and permission integration tests deterministic on a fresh CI database. Reuse existing provisioned Disk configuration when present; otherwise provision through supported test setup without adding global seed state. Keep UUID filesystem isolation. Action reuse: not applicable — this is test fixture provisioning only. Validate the three affected tests on a database with no pre-existing Disk configuration, then mix q.",
   "id": "zaq-ltf.1",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-ltf.1] Fix Disk integration provisioning in fresh CI databases",
   "type": "bug",
-  "updated_at": "2026-09-22T19:06:00Z"
+  "updated_at": "2026-09-22T19:31:01Z"
 }
