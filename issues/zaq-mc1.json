@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T07:09:21Z",
+  "description": "Implement GitHub #532 as a provider-neutral Action usable by agents and workflows. Extend the existing Ingestion permission synchronization path with atomic incremental direct-grant add/update/revoke semantics while preserving the BO replacement flow, actor authorization, folder inheritance, and indexed-document synchronization. JidoConnect provider support is explicitly deferred to a GitHub follow-up. Action reuse assessment: extend Zaq.Ingestion.sync_data_source_permissions/3, Zaq.Channels.DataSourceBridge permission contracts, DiskBridge/Storage ACL APIs, and Zaq.Permissions grant/revoke primitives; create one missing composable Action under Zaq.Agent.Tools.DataSource and explicitly register it for agent use.",
+  "id": "zaq-mc1",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Implement incremental data-source permission Action",
+  "type": "epic",
+  "updated_at": "2026-09-22T07:09:21Z"
+}
