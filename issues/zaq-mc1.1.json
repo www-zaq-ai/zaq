@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T07:09:29Z",
+  "description": "Extend the existing UI-backed permission operation rather than duplicating it. Add an incremental direct-grant mutation contract through Ingestion, Channels/DataSourceBridge, DiskBridge and Storage/Permissions. Preserve manage authorization, actor and explicit bypass context, inheritance, affected descendant IDs and indexed-document synchronization. Contract: add/update direct person/team/public grants and revoke named direct principals; reject overlaps/invalid rights; unrelated and inherited grants remain unchanged. Verification: authorization failures, preservation, folders/descendants, rollback/concurrency and sync failure reporting.",
+  "id": "zaq-mc1.1",
+  "labels": [],
+  "parent": "zaq-mc1",
+  "priority": 2,
+  "status": "open",
+  "title": "Extend shared incremental data-source ACL mutation",
+  "type": "task",
+  "updated_at": "2026-09-22T07:09:29Z"
+}
