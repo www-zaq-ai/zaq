@@ -14,7 +14,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "open",
   "title": "[zaq-ltf.2] Fix Firefox People team assignment race",
   "type": "bug",
   "updated_at": "2026-09-22T18:59:38Z"
