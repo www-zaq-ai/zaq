@@ -14,8 +14,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "open",
   "title": "[zaq-ltf.1] Fix Disk integration provisioning in fresh CI databases",
   "type": "bug",
-  "updated_at": "2026-09-22T18:52:04Z"
+  "updated_at": "2026-09-22T18:52:05Z"
 }
