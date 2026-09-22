@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T08:28:14Z",
+  "description": "Align Executor runtime scopes, Factory hydration, and HistoryLoader with normalized conversation identity. Action reuse: extend existing Executor/HistoryLoader entry points; no new Action because server scoping/hydration are runtime internals. Contract: workflow and BO precedence preserved; communication identity isolates provider/config/channel/person or author; incomplete scoped identity does not broaden to provider history/shared anonymous memory. Tests first for warm/cold cross-channel isolation and compatibility.",
+  "id": "zaq-354.3",
+  "labels": [],
+  "parent": "zaq-354",
+  "priority": 1,
+  "status": "open",
+  "title": "Channel-scoped agent memory",
+  "type": "task",
+  "updated_at": "2026-09-22T08:28:14Z"
+}
