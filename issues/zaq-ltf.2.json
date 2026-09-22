@@ -11,11 +11,15 @@
     {
       "text": "Repaired existing People E2E synchronization: person selection now waits for its LiveView round trip; searchable-select open/fill retries only the idempotent phase against current hook state; removed forced clicks and fixed sleeps; creation remains single-shot and waits for the server. Trace-informed root cause was a late LiveView patch closing the second select. Validation: focused Firefox 1x pass, repeated Firefox 10/10, full Firefox People spec 29/29, Chromium+WebKit focused 2/2. Action reuse remains not applicable: existing test repair only. Pending mix q and landing authorization.",
       "timestamp": "2026-09-22T18:59:38Z"
+    },
+    {
+      "text": "Final validation remains green after formatting/quality checks: Firefox focused 10/10 repeated, full Firefox People 29/29, and focused Chromium/WebKit 2/2. mix q passed. No arbitrary sleep or forced click was added.",
+      "timestamp": "2026-09-22T19:06:01Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-ltf.2] Fix Firefox People team assignment race",
   "type": "bug",
-  "updated_at": "2026-09-22T18:59:38Z"
+  "updated_at": "2026-09-22T19:06:01Z"
 }
