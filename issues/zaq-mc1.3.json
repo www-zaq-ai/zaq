@@ -9,9 +9,15 @@
   "id": "zaq-mc1.3",
   "labels": [],
   "parent": "zaq-mc1",
+  "comments": [
+    {
+      "text": "Validation: focused Action/Registry/Ingestion/Channels/Disk/Storage suites pass; mix q passes; ingestion Playwright 9 passed/3 skipped across Firefox/WebKit/Chromium. Full E2E run exceeded the 10-minute execution window after 249 passing tests with no reported assertion failure. mix precommit attempted twice and is blocked by 283 pre-existing broad-suite failures centered on disk ChannelConfig/skill-resource configuration and unknown_volume behavior; focused affected suites remain green. Per workflow, stopped after two attempts.",
+      "timestamp": "2026-09-22T08:38:36Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-mc1.3] Validate data-source permission Action",
   "type": "task",
-  "updated_at": "2026-09-22T07:09:57Z"
+  "updated_at": "2026-09-22T08:38:36Z"
 }
