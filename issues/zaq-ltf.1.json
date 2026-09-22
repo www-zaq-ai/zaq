@@ -11,11 +11,15 @@
     {
       "text": "Implemented shared DiskConfigFixture with fresh-database provisioning and existing-config reuse; migrated Disk integration and People source fixtures. Regression plus three affected integration scenarios pass (4 tests, 0 failures). Action reuse remains not applicable: test fixture-only change. Pending final mix q and landing authorization.",
       "timestamp": "2026-09-22T18:52:04Z"
+    },
+    {
+      "text": "Final validation: mix q passed. Disk fixture/integration set passed 4/4, then repeated 3 more times at 4/4 each. One intermediate disk document run hit the pre-existing configured-agent busy race; isolated rerun passed and all subsequent repeated sets passed. No diagnostics in changed Elixir files.",
+      "timestamp": "2026-09-22T19:06:00Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-ltf.1] Fix Disk integration provisioning in fresh CI databases",
   "type": "bug",
-  "updated_at": "2026-09-22T18:52:05Z"
+  "updated_at": "2026-09-22T19:06:00Z"
 }
