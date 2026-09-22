@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-22T08:28:14Z",
+  "description": "Add explicit source-channel/grouping persistence and atomic lookup so inbound and PersistMessageHistory use the Channels identity. Action reuse: extend Engine Conversations and existing PersistMessageHistory Action; no parallel helper/tool exposure. Contract: identity inputs from stamped Incoming only; create/reuse scoped active conversations; no wildcard null config; legacy mixed rows remain readable but are excluded from new scoped lookup; concurrency safe. Tests first for reuse/isolation, collision dimensions, concurrent create, explicit ID validation, outbound path.",
+  "id": "zaq-354.2",
+  "labels": [],
+  "parent": "zaq-354",
+  "priority": 1,
+  "status": "open",
+  "title": "Channel-scoped conversation persistence",
+  "type": "task",
+  "updated_at": "2026-09-22T08:28:14Z"
+}
