@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "zaq-60a.4"
+    "zaq-60a.4",
+    "zaq-60a.5"
   ],
   "blocks": [],
   "created": "2026-09-23T12:47:36Z",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "[zaq-60a] Human UX/UI approval for multilingual ingestion",
   "type": "task",
-  "updated_at": "2026-09-23T12:47:39Z"
+  "updated_at": "2026-09-23T12:47:40Z"
 }
