@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.9"
+  ],
   "blocks": [],
   "created": "2026-09-23T13:18:37Z",
   "description": "Explicit human approval of completed BO history and People access UI before authoring new E2E; remains open until granted.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] Human UX/UI approval for shared conversations",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:37Z"
+  "updated_at": "2026-09-23T13:18:48Z"
 }

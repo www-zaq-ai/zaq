@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.12"
+  ],
   "created": "2026-09-23T13:18:34Z",
   "description": "Tests first: list/detail show connector, channel, thread with legacy fallbacks, escaping. Reuse DS components, BO NodeRouter dispatch; Action reuse not applicable for display-only data.",
   "id": "zaq-emb.9",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[#768] BO history channel and thread context",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:46Z"
+  "updated_at": "2026-09-23T13:18:48Z"
 }
