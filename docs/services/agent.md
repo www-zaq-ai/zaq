@@ -398,6 +398,7 @@ the provider delete succeeds. Runtime resource listing never scans directories.
 ### Built-in Agent Tools (`Zaq.Agent.Tools.SearchKnowledgeBase`, `Zaq.Agent.Tools.ListKnowledgeBaseFiles`)
 - Tool implementations exposed to configured agents through `Tools.Registry`
 - Availability remains controlled by enabled tool keys and provider capabilities
+- `SearchKnowledgeBase` returns the permission-filtered `DocumentProcessor.query_extraction/2` chunks unchanged. The default answering pipeline passes only `content`, `source`, document `title`/stored `watch_status`/UTC timestamps, and chunk `metadata`/`language` into the prompt; internal ranking and database identifiers are not prompt context.
 
 ### Conversation Recall Tool (`Zaq.Agent.Tools.Accounts.History`, key `accounts.fetch_history`)
 - Recalls the requesting person's past conversations by topic (`query`) and/or time

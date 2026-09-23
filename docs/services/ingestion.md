@@ -152,7 +152,7 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - `hybrid_search/2` — full-text + vector search with RRF fusion (Reciprocal Rank Fusion, k=60); accepts optional `:source_filter` list of path prefixes — files matched by exact source, folders matched by `LIKE prefix/%`
 - `similarity_search/2` — vector-only search with configurable distance threshold
 - `similarity_search_count/1` — count of unique chunks matching via hybrid union
-- `query_extraction/2` — token-limited context builder for the answering agent (max context window from `Zaq.System.get_llm_config/0`)
+- `query_extraction/2` — token-limited context builder for the answering agent (max context window from `Zaq.System.get_llm_config/0`). Each authorized result contains chunk `content`, `metadata`, and `language` plus its document `source`, `title`, stored `watch_status`, `inserted_at`, and `updated_at`; timestamps are UTC ISO-8601 strings and nullable fields remain `nil`. The timestamps describe the ZAQ document row, and `watch_status` is the direct stored state rather than inherited folder-watch state. Ranking identifiers remain available to internal consumers. For denied results, content is replaced by the access-denied marker and the added document/chunk context fields are omitted.
 - Uses `LanguageDetector` to choose per-chunk text-search language config with confidence threshold fallback
 - Current limitation: `prepare_file_chunks/1` materializes all chunk payloads in memory before persistence/scheduling
 - External data-source records persist their signed `materialization_handle` when available.
