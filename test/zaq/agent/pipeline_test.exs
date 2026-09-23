@@ -113,8 +113,39 @@ defmodule Zaq.Agent.PipelineTest do
     def query_extraction(_query, _role_ids), do: {:ok, []}
   end
 
+  defmodule EnrichedDocumentProcessor do
+    def query_extraction(_query, _role_ids) do
+      {:ok,
+       [
+         %{
+           "content" => "enriched chunk",
+           "source" => "guide.md",
+           "title" => "Product guide",
+           "watch_status" => "watched",
+           "inserted_at" => "2026-09-22T10:00:00Z",
+           "updated_at" => "2026-09-23T11:30:00Z",
+           "metadata" => %{"page" => 4},
+           "language" => "english",
+           "distance" => 0.75,
+           "document_id" => 42,
+           "section_path" => ["Overview"]
+         }
+       ]}
+    end
+  end
+
   defmodule StubAnswering do
     def system_prompt(_assigns), do: "system prompt"
+    def no_answer?(_answer), do: false
+    def clean_answer(answer), do: answer
+  end
+
+  defmodule SpyAnswering do
+    def system_prompt(assigns) do
+      send(:pipeline_test_pid, {:answering_assigns, assigns})
+      "system prompt"
+    end
+
     def no_answer?(_answer), do: false
     def clean_answer(answer), do: answer
   end
@@ -371,6 +402,29 @@ defmodule Zaq.Agent.PipelineTest do
       assert_receive {:executor_opts, executor_opts}, 1_000
       assert Keyword.get(executor_opts, :agent_id) == nil
       assert is_binary(Keyword.get(executor_opts, :system_prompt))
+    end
+
+    test "passes enriched retrieval context to the answering prompt" do
+      opts =
+        @base_opts
+        |> Keyword.put(:document_processor, EnrichedDocumentProcessor)
+        |> Keyword.put(:answering, SpyAnswering)
+
+      Pipeline.run(@incoming, opts)
+
+      assert_receive {:answering_assigns, %{retrieved_data: retrieved_data}}, 1_000
+      assert [chunk] = Jason.decode!(retrieved_data)
+
+      assert chunk == %{
+               "content" => "enriched chunk",
+               "source" => "guide.md",
+               "title" => "Product guide",
+               "watch_status" => "watched",
+               "inserted_at" => "2026-09-22T10:00:00Z",
+               "updated_at" => "2026-09-23T11:30:00Z",
+               "metadata" => %{"page" => 4},
+               "language" => "english"
+             }
     end
   end
 

@@ -49,6 +49,10 @@ defmodule Zaq.Agent.Pipeline do
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
 
+  @answering_chunk_fields ~w(
+    content source title watch_status inserted_at updated_at metadata language
+  )
+
   # ---------------------------------------------------------------------------
   # Public API
   # ---------------------------------------------------------------------------
@@ -248,10 +252,7 @@ defmodule Zaq.Agent.Pipeline do
     source_filter = Keyword.get(opts, :source_filter)
     skip_permissions = Keyword.get(opts, :skip_permissions, false)
 
-    retrieved_data =
-      Enum.map(query_results, fn %{"content" => chunk_content, "source" => source} ->
-        %{"content" => chunk_content, "source" => source}
-      end)
+    retrieved_data = Enum.map(query_results, &Map.take(&1, @answering_chunk_fields))
 
     system_prompt =
       answering_mod(opts).system_prompt(%{

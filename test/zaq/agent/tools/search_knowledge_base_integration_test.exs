@@ -63,7 +63,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
   describe "nil person_id — public data only (no skip_permissions)" do
     test "returns only public chunks when person_id is nil" do
       private_doc = create_doc()
-      public_doc = create_doc(public?: true)
+      public_doc = create_doc(public?: true, title: "Public guide", watch_status: "watched")
       insert_chunk(private_doc.id, "Private content about Elixir internals.", 0)
       insert_chunk(public_doc.id, "Public Elixir documentation.", 0)
 
@@ -72,6 +72,14 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       assert {:ok, result} = SearchKnowledgeBase.run(%{query: "elixir"}, context)
       assert chunk_content?(result.chunks, "Public Elixir documentation.")
       refute chunk_content?(result.chunks, "Private content about Elixir internals.")
+
+      public_chunk = Enum.find(result.chunks, &(&1["document_id"] == public_doc.id))
+      assert public_chunk["title"] == "Public guide"
+      assert public_chunk["watch_status"] == "watched"
+      assert public_chunk["inserted_at"] == DateTime.to_iso8601(public_doc.inserted_at)
+      assert public_chunk["updated_at"] == DateTime.to_iso8601(public_doc.updated_at)
+      assert public_chunk["metadata"] == %{"fixture" => "search-knowledge-base"}
+      assert public_chunk["language"] == "english"
     end
 
     test "absent person_id also returns only public data" do
@@ -107,10 +115,17 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
 
       assert {:ok, result} = SearchKnowledgeBase.run(%{query: "elixir functional"}, context)
       assert is_integer(result.count)
+      assert result.count > 0
+      assert chunk_content?(result.chunks, DocumentProcessor.access_denied_message())
 
-      if result.count > 0 do
-        assert chunk_content?(result.chunks, DocumentProcessor.access_denied_message())
-      end
+      denied_chunk = Enum.find(result.chunks, &(&1["document_id"] == doc.id))
+
+      refute Map.has_key?(denied_chunk, "title")
+      refute Map.has_key?(denied_chunk, "watch_status")
+      refute Map.has_key?(denied_chunk, "inserted_at")
+      refute Map.has_key?(denied_chunk, "updated_at")
+      refute Map.has_key?(denied_chunk, "metadata")
+      refute Map.has_key?(denied_chunk, "language")
     end
   end
 
@@ -123,7 +138,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       Document.upsert(%{
         source: "search_kb_test_#{System.unique_integer([:positive])}.md",
         content: "Test document.",
-        content_type: "markdown"
+        content_type: "markdown",
+        title: Keyword.get(opts, :title),
+        watch_status: Keyword.get(opts, :watch_status, "unwatched")
       })
 
     if Keyword.get(opts, :public?, false), do: {:ok, _} = Permissions.grant_public(doc)
@@ -140,7 +157,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       content: content,
       chunk_index: index,
       section_path: ["test"],
-      metadata: %{},
+      metadata: %{fixture: "search-knowledge-base"},
       embedding: embedding,
       language: "english"
     })
