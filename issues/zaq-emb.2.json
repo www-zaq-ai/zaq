@@ -10,9 +10,15 @@
   "id": "zaq-emb.2",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Human decision: link existing PersonChannel identities to the sole connector for their provider during migration (current ChannelConfig schema enforces one connector per provider); do not silently match usernames/emails or permit ambiguous issuer mapping. Maintain person-bound actors. For future multi-config, scoped identity must be unambiguous; reconcile PersonMerger and existing BO-owned channels. Action reuse: extend People/IdentityResolver and current channel identity schema, not a parallel global matcher. Tests first: legacy link, same external ID on different configs after uniqueness expansion, forged config rejection, concurrent first ingress; downstream event provenance trusted only via Channels boundary.",
+      "timestamp": "2026-09-23T14:15:47Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[#768] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:44Z"
+  "updated_at": "2026-09-23T14:15:47Z"
 }
