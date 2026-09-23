@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-60a.2"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-60a.4"
+  ],
   "created": "2026-09-23T12:47:34Z",
   "description": "Action reuse: extend Ingestion retrieval APIs and existing SearchKnowledgeBase Action; internal language inventory is local-only. ETS supervised, DB as source of truth, cross-node invalidation/rebuild, exact chunk language filtering in BM25/vector/hydration, late ACL unchanged. Tests first: global languages including private, source filters, nil identity, multiple languages, section scores, cache invalidation.",
   "id": "zaq-60a.3",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-60a] Global language inventory and multilingual retrieval",
   "type": "task",
-  "updated_at": "2026-09-23T12:47:37Z"
+  "updated_at": "2026-09-23T12:47:38Z"
 }

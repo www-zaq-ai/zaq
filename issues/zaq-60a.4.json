@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-60a.3"
+  ],
   "blocks": [],
   "created": "2026-09-23T12:47:34Z",
   "description": "Action reuse: assess Factory generation capabilities; if independently composable translation missing add focused internal Action prerequisite; never expose automatically or bypass Factory. Extend SearchKnowledgeBase. Translate in one structured LLM call, bounded parallel searches, descend existing fused score, deterministic ties, partial per-language errors with successes; tests first for failures, empty, ACL, ordering and timeout.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-60a] Translate queries and merge parallel searches",
   "type": "task",
-  "updated_at": "2026-09-23T12:47:34Z"
+  "updated_at": "2026-09-23T12:47:38Z"
 }
