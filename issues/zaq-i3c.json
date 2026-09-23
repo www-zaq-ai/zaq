@@ -6,9 +6,15 @@
   "description": "Re-review head 84aea60e: map six prior findings to code/tests, reproduce remaining lifecycle broadcast and map-fork transport risks, add worthwhile deterministic regression cases to existing test modules as requested by user, run focused suites and required quality gates, resolve only confirmed GitHub threads, and publish nonduplicate findings. No production changes/commits/pushes. Action reuse: no new executable operations; tests reuse public Workflows APIs and NodeRouterMock, notifier/domain boundaries remain the implementation under review. E2E not needed for test-only backend regressions. Concrete repro cases complement existing property tests; no broad-input implementation change.",
   "id": "zaq-i3c",
   "labels": [],
+  "comments": [
+    {
+      "text": "Before edits: current workflow/Condition/NotifyPerson suites passed 1035 tests + 21 properties. Added 3 real public-path regression cases in existing workflow_run_agent_test and map_node_builder_test: completed/waiting UI broadcast failures overwrite committed state; unrelated completed leaf masks outer map error. Reproduced all 3 failures (57 tests, 3 failures). Prior orphan-watcher, Condition tool schema, and production JSONB Action schemas verified addressed; map and finalization threads only partially addressed. No independent new defect established. User authorized preserving useful repro tests; production code unchanged, expected red tests will remain explicit.",
+      "timestamp": "2026-09-23T13:45:55Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[PR #765] Verify fixes, preserve regression tests, and finalize re-review",
   "type": "task",
-  "updated_at": "2026-09-23T13:43:45Z"
+  "updated_at": "2026-09-23T13:45:55Z"
 }
