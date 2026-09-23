@@ -11,9 +11,15 @@
   "id": "zaq-60a.4",
   "labels": [],
   "parent": "zaq-60a",
+  "comments": [
+    {
+      "text": "Implemented internal TranslateKnowledgeQuery Action via Factory.generate_text (not Registry), validated one-call JSON, bounded parallel language searches, score merge, safe per-language errors + logging, final context cap. Reused SearchKnowledgeBase; no separate exposed tool. Agent tests and real NodeRouter integration pass.",
+      "timestamp": "2026-09-23T14:22:31Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Translate queries and merge parallel searches",
   "type": "task",
-  "updated_at": "2026-09-23T12:47:39Z"
+  "updated_at": "2026-09-23T14:22:31Z"
 }
