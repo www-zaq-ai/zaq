@@ -12,9 +12,15 @@
   "id": "zaq-60a.2",
   "labels": [],
   "parent": "zaq-60a",
+  "comments": [
+    {
+      "text": "Implemented async/inline metadata.ingestion totals, simple subset, language lists, status, bounded structured errors; derives from persisted jobs/chunks and reconciles retry. Progress UI reads metadata. Pure property + DB integration tests pass; pending review and approval gate.",
+      "timestamp": "2026-09-23T14:22:29Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Persist per-document chunk indexing metrics and errors",
   "type": "task",
-  "updated_at": "2026-09-23T12:47:38Z"
+  "updated_at": "2026-09-23T14:22:29Z"
 }
