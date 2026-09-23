@@ -13,11 +13,15 @@
     {
       "text": "Implemented native generated multilingual content_tsv with one GIN index + reversible migration (existing-row test), per-language Native/ParadeDB filters and simple fallback; no DB image changes. Native available pg_ts_config languages map from pg_catalog/public, unsupported including Urdu/CJK use simple. Action reuse: extend FTSBackend and DocumentProcessor, not a new tool. Scoped tests and mix q pass; pending review/commit authorization before close.",
       "timestamp": "2026-09-23T14:22:28Z"
+    },
+    {
+      "text": "Full multilingual BM25 corpus integration tests now pass (39 tests); migrated existing English-only French vectors under sandbox using migration up_sql/down_sql; PG per-language configs mapped from installed catalogs. No image changed.",
+      "timestamp": "2026-09-23T14:28:18Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-60a] Define language capabilities and native/ParadeDB indexing",
   "type": "task",
-  "updated_at": "2026-09-23T14:22:28Z"
+  "updated_at": "2026-09-23T14:28:18Z"
 }
