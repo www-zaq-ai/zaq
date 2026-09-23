@@ -16,11 +16,15 @@
     {
       "text": "Implemented async/inline metadata.ingestion totals, simple subset, language lists, status, bounded structured errors; derives from persisted jobs/chunks and reconciles retry. Progress UI reads metadata. Pure property + DB integration tests pass; pending review and approval gate.",
       "timestamp": "2026-09-23T14:22:29Z"
+    },
+    {
+      "text": "Broad ingestion_live_test.exs suite failed 194 cases on fixture setup because existing channel_configs_provider_index already contains provider=disk, reproduced on one isolated test line 537 before exercise of changed code. Targeted component, processor, worker, metadata tests pass. Treat fixture/database isolation as separate environment blocker, do not weaken assertions.",
+      "timestamp": "2026-09-23T14:28:17Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Persist per-document chunk indexing metrics and errors",
   "type": "task",
-  "updated_at": "2026-09-23T14:22:29Z"
+  "updated_at": "2026-09-23T14:28:17Z"
 }
