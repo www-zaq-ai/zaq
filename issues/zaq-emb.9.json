@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-emb.12"
@@ -20,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[#768] BO history channel and thread context",
   "type": "task",
-  "updated_at": "2026-09-23T14:18:11Z"
+  "updated_at": "2026-09-23T14:18:12Z"
 }
