@@ -6,14 +6,15 @@
   "blocks": [
     "zaq-fuu.3"
   ],
+  "closed_at": "2026-09-23T05:17:57Z",
   "created": "2026-09-22T20:10:35Z",
   "description": "Tests first in SearchKnowledgeBase integration and Pipeline tests. Reuse answering.search_knowledge_base and extend Pipeline's explicit prompt projection so authorized enriched fields reach the answering agent. Preserve NodeRouter, Executor and Factory boundaries; do not create a parallel retrieval path or expose a new tool.",
   "id": "zaq-fuu.2",
   "labels": [],
   "parent": "zaq-fuu",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#617] Propagate enriched chunks to agent context",
   "type": "task",
-  "updated_at": "2026-09-23T05:12:00Z"
+  "updated_at": "2026-09-23T05:17:57Z"
 }
