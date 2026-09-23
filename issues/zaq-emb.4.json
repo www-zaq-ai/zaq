@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.5"
+  ],
   "created": "2026-09-23T13:18:30Z",
   "description": "Tests first: nonmention capture no response, thread root and main background without siblings, grant denial, warm/cold parity, private traces isolation. Extend existing router and HistoryLoader/accounts.fetch_history; grant is sole authority; threads inherit parent channel.",
   "id": "zaq-emb.4",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[#768] Mention gating and authorized history projection",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:41Z"
+  "updated_at": "2026-09-23T13:18:42Z"
 }
