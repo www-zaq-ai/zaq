@@ -11,9 +11,15 @@
   "id": "zaq-emb.10",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Human approved extending existing People detail UI without separate prototype; reuse existing design system, obtain final UX approval before new E2E.",
+      "timestamp": "2026-09-23T14:15:48Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[#768] People external access and refresh UI",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:49Z"
+  "updated_at": "2026-09-23T14:15:48Z"
 }
