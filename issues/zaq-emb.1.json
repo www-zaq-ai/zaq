@@ -14,11 +14,15 @@
     {
       "text": "Implemented source_key-backed independent manual/provider grant rows with migration 20260922000002; channel resource coordinates JSON(provider, config, external channel); direct-Person history grant check; replace/mutate leave provider grants untouched; PersonMerger preserves sources. Test-first regression: 72 tests/6 properties pass. mix q blocked by ExDNA.Credo Task.Supervised.stream(5000) timeout on full-repo scan after repeated retries; no code issue reported. No commit requested, keep ticket in progress until validation restored.",
       "timestamp": "2026-09-23T13:35:29Z"
+    },
+    {
+      "text": "Validation recovered after concurrent CPU-heavy precommit finished: mix q passes with 0 Credo issues. Permission and merge suites 72 tests/6 properties pass. Keep open/uncommitted pending overall authorized landing.",
+      "timestamp": "2026-09-23T13:44:11Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Source-aware channel history grants and schema",
   "type": "task",
-  "updated_at": "2026-09-23T13:35:29Z"
+  "updated_at": "2026-09-23T13:44:11Z"
 }
