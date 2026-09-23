@@ -21,11 +21,15 @@
     {
       "text": "BO history list/detail now show connector ID, external channel ID, Thread ID or Channel-level, with missing/legacy fallbacks and escaping; reuse existing Table/ConversationDetail. Test-first: 24 component/LiveView tests passed. Browser inspection on localhost:4010 blocked by Phoenix PendingMigrationError; do not apply dev migrations yet because user said 768 migrations remain unconsumed until final shape. mix q initially reports alias style, corrected, subsequent retry hit intermittent ExDNA.Credo internal 5s timeout; retry when host load clears. UX approval/E2E remains open.",
       "timestamp": "2026-09-23T14:33:44Z"
+    },
+    {
+      "text": "Post-fix mix q passed with no Credo findings. Combined relevant permission/merge/status/BO test run: 108 tests, 6 properties, 0 failures. Browser inspection attempted at localhost:4010 but blocked by pending unconsumed migration; do not run dev migration until shared scope is finalized. No UI approval requested yet; People UI still pending.",
+      "timestamp": "2026-09-23T14:40:05Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[#768] BO history channel and thread context",
   "type": "task",
-  "updated_at": "2026-09-23T14:33:44Z"
+  "updated_at": "2026-09-23T14:40:05Z"
 }
