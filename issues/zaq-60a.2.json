@@ -20,11 +20,15 @@
     {
       "text": "Broad ingestion_live_test.exs suite failed 194 cases on fixture setup because existing channel_configs_provider_index already contains provider=disk, reproduced on one isolated test line 537 before exercise of changed code. Targeted component, processor, worker, metadata tests pass. Treat fixture/database isolation as separate environment blocker, do not weaken assertions.",
       "timestamp": "2026-09-23T14:28:17Z"
+    },
+    {
+      "text": "Follow-up: added four physical Markdown fixtures (English; English/French; Arabic; English/French/Arabic) and 6 real ingestion tests covering read/chunk/Lingua/embedding HTTP/persistence/metadata, real IngestChunkWorker and embedding failure+retry. Reused Req.Test embedding boundary with a small OpenAIStub.embedding_response helper; no new stub server.",
+      "timestamp": "2026-09-23T19:29:41Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Persist per-document chunk indexing metrics and errors",
   "type": "task",
-  "updated_at": "2026-09-23T14:28:17Z"
+  "updated_at": "2026-09-23T19:29:41Z"
 }
