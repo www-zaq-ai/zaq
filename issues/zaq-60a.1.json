@@ -17,11 +17,15 @@
     {
       "text": "Full multilingual BM25 corpus integration tests now pass (39 tests); migrated existing English-only French vectors under sandbox using migration up_sql/down_sql; PG per-language configs mapped from installed catalogs. No image changed.",
       "timestamp": "2026-09-23T14:28:18Z"
+    },
+    {
+      "text": "Validation: scoped 5 properties/95 tests and BM25 multilingual 39 tests passing; mix q passed multiple times during implementation, but last 3 final reruns blocked by ex_dna internal Task.Supervised.stream(5000) timeouts under host load; not a reported code failure. Full npm run test E2E exceeded 600s; targeted ingestion + KB Firefox 6 passed / 1 skipped. Final mix precommit deferred until human UX approval and new E2E according to workflow. No commits/push.",
+      "timestamp": "2026-09-23T14:38:42Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-60a] Define language capabilities and native/ParadeDB indexing",
   "type": "task",
-  "updated_at": "2026-09-23T14:28:18Z"
+  "updated_at": "2026-09-23T14:38:42Z"
 }
