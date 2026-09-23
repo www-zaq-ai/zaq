@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-23T12:47:36Z",
+  "description": "After human UX/UI approval author consolidated E2E for supported/simple/failure ingestion progress and search; run existing ingestion.spec.js and knowledge_ops_lead.spec.js during iteration. Preserve scenarios and prior assertions.",
+  "id": "zaq-60a.7",
+  "labels": [],
+  "parent": "zaq-60a",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-60a] Consolidated multilingual ingestion E2E",
+  "type": "task",
+  "updated_at": "2026-09-23T12:47:36Z"
+}
