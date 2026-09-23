@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.6"
+  ],
   "blocks": [],
   "created": "2026-09-23T13:18:33Z",
   "description": "Tests first: stop only person channel+thread active workers/stream, other actors untouched; enforce grants on restart/history actions. Extend ServerManager incarnation fencing; provider removal only affects provider grants, never manual.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] Revoke person runtime on provider removal",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:33Z"
+  "updated_at": "2026-09-23T13:18:45Z"
 }
