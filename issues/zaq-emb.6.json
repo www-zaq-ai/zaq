@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-23T13:18:32Z",
+  "description": "Tests first: manual survives provider removal, duplicates/stale events, incomplete snapshot no deletions, unsupported provider, unauthorized refresh. Extend grant sync contract; new validated reusable RefreshChannelMemberships Action for BO/agent/workflows with explicit authorization; provider events/transport downstream deferred; email removal unsupported.",
+  "id": "zaq-emb.6",
+  "labels": [],
+  "parent": "zaq-emb",
+  "priority": 1,
+  "status": "open",
+  "title": "[#768] Membership reconciliation and refresh Action",
+  "type": "task",
+  "updated_at": "2026-09-23T13:18:32Z"
+}
