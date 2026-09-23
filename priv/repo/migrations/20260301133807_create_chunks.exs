@@ -2,7 +2,7 @@ defmodule Zaq.Repo.Migrations.CreateChunks do
   use Ecto.Migration
 
   def up do
-    execute "CREATE EXTENSION IF NOT EXISTS vector"
+    execute Zaq.Repo.ExtensionChecks.sql(:vector)
 
     # Read dimension from config, default to 3584
     dimension =

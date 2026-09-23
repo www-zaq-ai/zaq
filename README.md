@@ -57,6 +57,8 @@ Self-host ZAQ and configure the model endpoints your organization uses. Manage p
 
 The quickest local path uses the installer on **macOS or Linux**, with **Docker and the Docker Compose plugin** installed and running. You also need Git to clone the repository.
 
+Before migrations, a DBA must provision database extensions; the installer does not do this. See [database setup](https://github.com/www-zaq-ai/zaq/blob/main/docs/database-setup.md) for the PostgreSQL or ParadeDB script and instructions for each database.
+
 ```bash
 git clone https://github.com/www-zaq-ai/zaq.git
 cd zaq

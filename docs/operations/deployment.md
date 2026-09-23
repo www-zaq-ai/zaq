@@ -16,6 +16,12 @@ The [installer](../../zaq-local.sh) checks its command prerequisites, downloads 
 
 The downloaded Compose file is separate from the repository's source-build configuration. Run the installer in a dedicated checkout/directory: its setup writes `docker-compose.yml` and `.env`. Preserve existing configuration and secrets before reinstalling. Subsequent runs offer management options for an existing installation.
 
+The installer does not provision database extensions. On an unprovisioned database,
+startup migrations stop with setup-script instructions. Provision the database with
+a DBA connection as described in [database setup](../database-setup.md), then rerun
+the installer. Check the downloaded Compose file for its database name and credentials;
+the repository Compose example below may not match it.
+
 Complete [first-run setup](#first-run-setup), including saving the Disk volume declaration. The installer creates the folder, not the data-source declaration or a local model server.
 
 This is a local HTTP setup. Do not expose it on a LAN or public domain without the [production HTTPS configuration](#production-deployment-and-https).
@@ -30,8 +36,18 @@ From the repository root:
 mkdir -p ingestion-volumes/documents
 export SECRET_KEY_BASE="$(openssl rand -hex 64)"
 export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+docker compose up -d --wait postgres
+docker compose exec -T postgres psql -X --set ON_ERROR_STOP=1 -U postgres -d zaq_prod < scripts/setup_postgres_extensions.sql
 docker compose up --build
 ```
+
+Start PostgreSQL and provision extensions **before** ZAQ starts and runs migrations.
+The example provisions the repository Compose database with its local administrator
+credentials. For an external database or ParadeDB, choose the appropriate script
+and DBA connection from [database setup](../database-setup.md). Server extension
+packages must already be available. In production, configure `DATABASE_URL` with
+a non-superuser owner of the database and application objects, not the bootstrap
+administrator; the bundled Compose credentials are local-development defaults.
 
 **Keep these keys stable across restarts.** Store them securely in your deployment environment or a protected, untracked `.env` file. Do not regenerate the encryption key on an existing installation: previously encrypted credentials require their original key. The key must represent exactly 32 bytes; Base64 is recommended. Raw 32-byte and 64-character hex values are also accepted. Production startup requires a valid encryption key, not just SMTP configuration. See [secret configuration](../services/system-config.md#smtp-password-encryption).
 

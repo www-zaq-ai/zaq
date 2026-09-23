@@ -304,7 +304,7 @@ defmodule Zaq.MixProject do
   defp docs do
     [
       main: "readme",
-      extras: ["README.md", "CHANGELOG.md"],
+      extras: ["README.md", "CHANGELOG.md", "docs/database-setup.md"],
       assets: %{"docs/images" => "docs/images"},
       groups_for_modules: [
         Channels: [~r/^Zaq\.Channels(\.|$)/],

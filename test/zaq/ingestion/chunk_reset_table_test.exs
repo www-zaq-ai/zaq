@@ -51,34 +51,11 @@ defmodule Zaq.Ingestion.ChunkResetTableTest do
       assert_receive {:embedding_reset, %{new_dimension: 512}}, 1000
     end
 
-    test "creates bm25 index when use_bm25 is enabled" do
-      original = Application.get_env(:zaq, Zaq.Ingestion)
+    test "always creates the native fallback index" do
+      assert :ok = Chunk.reset_table(384)
 
-      on_exit(fn ->
-        if is_nil(original) do
-          Application.delete_env(:zaq, Zaq.Ingestion)
-        else
-          Application.put_env(:zaq, Zaq.Ingestion, original)
-        end
-      end)
-
-      Application.put_env(:zaq, Zaq.Ingestion, use_bm25: true)
-
-      try do
-        assert :ok = Chunk.reset_table(384)
-      rescue
-        e in Postgrex.Error ->
-          msg = Exception.message(e)
-
-          if String.contains?(msg, "pg_search") or
-               String.contains?(msg, "bm25") or
-               String.contains?(msg, "does not exist") do
-            # ParadeDB not available in this test environment — skip silently
-            :ok
-          else
-            reraise e, __STACKTRACE__
-          end
-      end
+      assert %{rows: [[true]]} =
+               Repo.query!("SELECT to_regclass('public.chunks_content_tsv_idx') IS NOT NULL")
     end
   end
 end

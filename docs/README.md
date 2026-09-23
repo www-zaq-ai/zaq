@@ -11,6 +11,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 - [Project and source map](project.md)
 - [Architecture, node roles and event dispatch](architecture.md)
 - [Development setup and commands](dev-setup.md)
+- [Database extension provisioning](database-setup.md)
 - [Agent workflow setup: Context Mode, Serena and Beadwork](agent-setup.md)
 - [User and integration guides](guides/)
 - [Operational guides](operations/)

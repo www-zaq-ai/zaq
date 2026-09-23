@@ -16,6 +16,7 @@ defmodule Zaq.Ingestion.FTSBackend.ParadeDB do
   alias Ecto.Adapters.SQL
   alias Zaq.Ingestion.{Chunk, FTSBackend}
   alias Zaq.Repo
+  alias Zaq.Repo.ExtensionChecks
 
   @impl true
   def sanitize_query(text) do
@@ -84,7 +85,7 @@ defmodule Zaq.Ingestion.FTSBackend.ParadeDB do
 
   @impl true
   def setup_bm25_index(repo, _dimension) do
-    SQL.query!(repo, "CREATE EXTENSION IF NOT EXISTS pg_search", [])
+    ExtensionChecks.require!(repo, :pg_search)
 
     SQL.query!(
       repo,

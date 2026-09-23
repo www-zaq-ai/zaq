@@ -22,6 +22,12 @@ cd zaq
 
 Before setup, check the PostgreSQL connection in [`config/dev.exs`](../config/dev.exs). Change the username, password, or hostname there if your local database differs. The development database name is derived from your branch.
 
+Before `mix setup`, create the target database and have a DBA provision its extensions
+using the appropriate [database setup script](database-setup.md). Provision the
+separately named test and E2E databases before their first migration, too. `mix setup`,
+`mix test`, and E2E bootstrap do not install extensions. After dropping a database,
+recreate and reprovision it before migrating again.
+
 ```bash
 mix setup && mix phx.server   # http://localhost:4000/bo
 ```
