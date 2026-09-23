@@ -12,9 +12,15 @@
   "id": "zaq-60a.6",
   "labels": [],
   "parent": "zaq-60a",
+  "comments": [
+    {
+      "text": "Awaiting explicit UX/UI approval; Storybook page /storybook/ingestion/ingestion_progress, file list/grid badges and bar implemented but dev browser inspection blocked by local development DB connection pool. Approval does not follow from unit/E2E results or generated Storybook fixtures.",
+      "timestamp": "2026-09-23T14:38:43Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Human UX/UI approval for multilingual ingestion",
   "type": "task",
-  "updated_at": "2026-09-23T12:47:40Z"
+  "updated_at": "2026-09-23T14:38:43Z"
 }
