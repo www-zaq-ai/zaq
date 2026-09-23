@@ -15,11 +15,15 @@
     {
       "text": "Added design-system progress bar: primary language-specific and secondary simple segments with unindexed remainder, percentages, detected-language chips and expandable indexing errors. Wired list/grid via document metadata, Storybook + component tests. Browser inspection blocked: local dev database unavailable; human UX review still open.",
       "timestamp": "2026-09-23T14:22:32Z"
+    },
+    {
+      "text": "Visual browser inspection attempted at http://localhost:4000/storybook/ingestion/ingestion_progress but local mix phx.server could not start: dev Repo connection pool unavailable. Component/Storybook fixtures and targeted existing Firefox ingestion+knowledge journeys pass. Human UX/UI approval is still required before authoring new feature E2E.",
+      "timestamp": "2026-09-23T14:28:16Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Render language chips and segmented ingestion progress",
   "type": "task",
-  "updated_at": "2026-09-23T14:22:32Z"
+  "updated_at": "2026-09-23T14:28:16Z"
 }
