@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.3"
+  ],
   "created": "2026-09-23T13:18:28Z",
   "description": "Tests first: external ID collision across connectors, ambiguous identity fails closed. Preserve person-bound actor; scoped mapping for authors and membership events. Extend People identity resolution; do not infer grants from usernames/email.",
   "id": "zaq-emb.2",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:28Z"
+  "updated_at": "2026-09-23T13:18:41Z"
 }
