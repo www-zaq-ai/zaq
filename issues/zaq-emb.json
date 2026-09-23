@@ -6,9 +6,15 @@
   "description": "Approved revision to zaq-354 on current uncommitted branch. Shared channel/thread history with author provenance; person-bound runtimes and credentials; explicit source-aware grants on channel resources inherited by threads; provider membership grant synchronization infrastructure but downstream provider events deferred; email excluded from membership removal; BO list/detail and People access UI; delivery correctness. Preserve old private history without merging. Capture all messages, only mentions trigger channel responses. Action reuse: extend Engine Conversations, Permissions, Channels/Agent APIs; new validated refresh Action is prerequisite to BO/agent/workflow consumers, never auto-expose as an agent tool. TDD each step; isolated tests + mix q; human UX approval then consolidated E2E, final mix precommit.",
   "id": "zaq-emb",
   "labels": [],
+  "comments": [
+    {
+      "text": "Dependency graph: grants+identity → transcript → authorized projection → runtime fanout → runtime revocation → validation; grants+identity → membership refresh → revocation/People UI; transcript → BO history UI; independent final-delivery fix → validation; BO/People UI → human approval → consolidated E2E. Existing zaq-354 was prematurely closed before these user acceptance changes; this follow-up tracks revision. Provider events/adapter wiring deferred until downstream JidoChat projects land. User authorized reusing unconsumed migration files and preserving dirty worktree after rebase.",
+      "timestamp": "2026-09-23T13:18:54Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[#768] Shared channel transcripts and person-bound execution",
   "type": "epic",
-  "updated_at": "2026-09-23T13:18:26Z"
+  "updated_at": "2026-09-23T13:18:54Z"
 }
