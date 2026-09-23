@@ -1,8 +1,6 @@
 {
   "assignee": "",
-  "blocked_by": [
-    "zaq-emb.3"
-  ],
+  "blocked_by": [],
   "blocks": [
     "zaq-emb.12"
   ],
@@ -21,5 +19,5 @@
   "status": "open",
   "title": "[#768] BO history channel and thread context",
   "type": "task",
-  "updated_at": "2026-09-23T14:15:47Z"
+  "updated_at": "2026-09-23T14:18:10Z"
 }
