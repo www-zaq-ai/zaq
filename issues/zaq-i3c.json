@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-23T13:40:27Z",
+  "description": "Re-review head 84aea60e: map six prior findings to code/tests, reproduce remaining lifecycle broadcast and map-fork transport risks, add worthwhile deterministic regression cases to existing test modules as requested by user, run focused suites and required quality gates, resolve only confirmed GitHub threads, and publish nonduplicate findings. No production changes/commits/pushes. Action reuse: no new executable operations; tests reuse public Workflows APIs and NodeRouterMock, notifier/domain boundaries remain the implementation under review. E2E not needed for test-only backend regressions. Concrete repro cases complement existing property tests; no broad-input implementation change.",
+  "id": "zaq-i3c",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[PR #765] Verify fixes, preserve regression tests, and finalize re-review",
+  "type": "task",
+  "updated_at": "2026-09-23T13:40:27Z"
+}
