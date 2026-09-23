@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-23T13:40:27Z",
@@ -7,8 +7,8 @@
   "id": "zaq-i3c",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[PR #765] Verify fixes, preserve regression tests, and finalize re-review",
   "type": "task",
-  "updated_at": "2026-09-23T13:40:27Z"
+  "updated_at": "2026-09-23T13:43:45Z"
 }
