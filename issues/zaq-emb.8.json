@@ -9,9 +9,15 @@
   "id": "zaq-emb.8",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Regression first: async partial edit precedes later synchronous final PUT and can overwrite it. Status now awaits upsert completion for intermediary edits before final delivery; deterministic blocked-partial Arabic answer ordering test added. Status/Channel events suites: 30 tests pass; wider affected suites: 195 tests/8 properties pass; mix q passes. Keep open/uncommitted pending authorized landing.",
+      "timestamp": "2026-09-23T13:44:11Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Prevent partial edits overwriting final channel answer",
   "type": "task",
-  "updated_at": "2026-09-23T13:38:16Z"
+  "updated_at": "2026-09-23T13:44:11Z"
 }
