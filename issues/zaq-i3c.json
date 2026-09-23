@@ -18,11 +18,15 @@
     {
       "text": "Final re-review submitted REQUEST_CHANGES at head84aea60e. Three original findings confirmed addressed with public replies; two original code findings remain partial and general reuse/rollout evidence remains missing. No distinct new finding, no duplicate threads. Three permanent regression tests added to two existing test files, uncommitted/unpushed and expected red; no production edits. GitHub denied resolution with both MCP and CLI credentials; leave this task blocked/in_progress for manual resolution or permitted token. Validation fully recorded in submitted review; cannot request approval with known failures. Local re-review artifact: /var/folders/9p/mdzhcqxx7hs8bw_10vwjvfp00000gn/T/opencode/pr765-rereview-summary.md.",
       "timestamp": "2026-09-23T14:09:30Z"
+    },
+    {
+      "text": "User explicitly authorized committing/pushing the red regression tests. Committed only the two test files as 3d4abf1e7 (test(workflows): reproduce remaining PR review failures) and pushed normally to jat10/fix/bug-706, PR765. Pre-commit qf, commit-message and pre-push format hooks passed without bypass. Production unchanged. Remaining blocker: manual resolution of three confirmed-fixed review threads due token permissions; author still owns remaining code fixes.",
+      "timestamp": "2026-09-23T14:18:29Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[PR #765] Verify fixes, preserve regression tests, and finalize re-review",
   "type": "task",
-  "updated_at": "2026-09-23T14:09:30Z"
+  "updated_at": "2026-09-23T14:18:29Z"
 }
