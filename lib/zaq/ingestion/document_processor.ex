@@ -1024,7 +1024,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       |> where([c, _d], ^or_filter)
       |> select([c, d], %{
         content: c.content,
+        metadata: c.metadata,
+        language: c.language,
         source: d.source,
+        title: d.title,
+        watch_status: d.watch_status,
+        document_inserted_at: d.inserted_at,
+        document_updated_at: d.updated_at,
         document_id: c.document_id,
         section_path: c.section_path,
         chunk_index: c.chunk_index
@@ -1043,12 +1049,21 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           "source" => r.source,
           "distance" => distance_map[{r.document_id, r.section_path}],
           "document_id" => r.document_id,
-          "section_path" => r.section_path
+          "section_path" => r.section_path,
+          "title" => r.title,
+          "watch_status" => r.watch_status,
+          "inserted_at" => serialize_timestamp(r.document_inserted_at),
+          "updated_at" => serialize_timestamp(r.document_updated_at),
+          "metadata" => r.metadata,
+          "language" => r.language
         }
       end)
 
     {:ok, results}
   end
+
+  defp serialize_timestamp(nil), do: nil
+  defp serialize_timestamp(timestamp), do: DateTime.to_iso8601(timestamp)
 
   # ---------------------------------------------------------------------------
   # Similarity search (vector only)
@@ -1142,7 +1157,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       if MapSet.member?(permitted_set, chunk["document_id"]) do
         chunk
       else
-        Map.put(chunk, "content", @access_denied_message)
+        chunk
+        |> Map.drop(~w(title watch_status inserted_at updated_at metadata language))
+        |> Map.put("content", @access_denied_message)
       end
     end)
   end

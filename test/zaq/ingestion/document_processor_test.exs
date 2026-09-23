@@ -1123,9 +1123,14 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert String.contains?(reason, "API error")
     end
 
-    test "returns token-limited results" do
+    test "returns token-limited results with document and chunk context" do
       stub_embedding_success()
-      doc = create_document()
+
+      doc =
+        create_document(%{
+          title: "Retrieval contract",
+          watch_status: "watched"
+        })
 
       dim = embedding_dimension()
       embedding = Pgvector.HalfVector.new(List.duplicate(0.1, dim))
@@ -1137,7 +1142,8 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
           content: "Chunk #{i} with some searchable content about testing.",
           chunk_index: i,
           section_path: ["Test"],
-          metadata: %{section_type: :heading, section_level: 1, position: i},
+          metadata: %{section_type: "heading", section_level: 1, position: i},
+          language: "english",
           embedding: embedding
         })
         |> Repo.insert!()
@@ -1148,10 +1154,17 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       assert is_list(results)
 
-      Enum.each(results, fn r ->
-        assert Map.has_key?(r, "content")
-        assert Map.has_key?(r, "source")
-        assert Map.has_key?(r, "distance")
+      Enum.each(results, fn result ->
+        assert result["title"] == "Retrieval contract"
+        assert result["watch_status"] == "watched"
+        assert result["inserted_at"] == DateTime.to_iso8601(doc.inserted_at)
+        assert result["updated_at"] == DateTime.to_iso8601(doc.updated_at)
+        assert result["metadata"]["section_type"] == "heading"
+        assert result["metadata"]["section_level"] == 1
+        assert result["language"] == "english"
+        assert Map.has_key?(result, "content")
+        assert Map.has_key?(result, "source")
+        assert Map.has_key?(result, "distance")
       end)
     end
 
@@ -1179,7 +1192,17 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
           "source" => "strict-boundary.md",
           "distance" => 1.0,
           "document_id" => doc.id,
-          "section_path" => ["Boundary"]
+          "section_path" => ["Boundary"],
+          "title" => doc.title,
+          "watch_status" => doc.watch_status,
+          "inserted_at" => DateTime.to_iso8601(doc.inserted_at),
+          "updated_at" => DateTime.to_iso8601(doc.updated_at),
+          "metadata" => %{
+            "section_type" => "heading",
+            "section_level" => 1,
+            "position" => 1
+          },
+          "language" => nil
         }
         |> Jason.encode!()
         |> TokenEstimator.estimate()
@@ -1816,10 +1839,14 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         )
 
       restricted = Enum.filter(results, &(&1["document_id"] == doc.id))
+      assert restricted != []
 
-      if restricted != [] do
-        assert Enum.all?(restricted, &(&1["content"] == "You don't have access to this chunk."))
-      end
+      protected_fields = ~w(title watch_status inserted_at updated_at metadata language)
+
+      assert Enum.all?(restricted, fn chunk ->
+               chunk["content"] == "You don't have access to this chunk." and
+                 Enum.all?(protected_fields, &(not Map.has_key?(chunk, &1)))
+             end)
     end
 
     test "person with direct permission sees real content", %{doc: doc} do
