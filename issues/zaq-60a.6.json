@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-60a.4"
+  ],
   "blocks": [],
   "created": "2026-09-23T12:47:36Z",
   "description": "Remain open until explicit human approval of completed multilingual ingestion chips/progress/errors UX for feature E2E; do not self-approve.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-60a] Human UX/UI approval for multilingual ingestion",
   "type": "task",
-  "updated_at": "2026-09-23T12:47:36Z"
+  "updated_at": "2026-09-23T12:47:39Z"
 }
