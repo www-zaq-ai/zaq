@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-23T12:47:33Z",
+  "description": "Action reuse: extend DocumentProcessor, IngestChunkWorker, IngestJob lifecycle; metadata write is local-only, not a new tool. Count detected/indexed/simple-indexed; errors for real indexing failure; retry consistency, stale runs, metadata preservation; store detected and indexed language sets. Tests first: mixed successful/failing chunks, retries, concurrency, percent invariants, API and provider listings.",
+  "id": "zaq-60a.2",
+  "labels": [],
+  "parent": "zaq-60a",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-60a] Persist per-document chunk indexing metrics and errors",
+  "type": "task",
+  "updated_at": "2026-09-23T12:47:33Z"
+}
