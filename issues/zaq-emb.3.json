@@ -5,7 +5,8 @@
     "zaq-emb.2"
   ],
   "blocks": [
-    "zaq-emb.4"
+    "zaq-emb.4",
+    "zaq-emb.9"
   ],
   "created": "2026-09-23T13:18:29Z",
   "description": "Tests first: multi-author shared scopes, dedupe, pending/failed and passive history, exact parent/thread identity, root once. Extend Engine Conversations and Channels ingress; reuse unconsumed issue768 migrations; source author and timestamp; preserve legacy history.",
@@ -16,5 +17,5 @@
   "status": "open",
   "title": "[#768] Shared transcript and passive channel capture",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:41Z"
+  "updated_at": "2026-09-23T13:18:46Z"
 }
