@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.4"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.7"
+  ],
   "created": "2026-09-23T13:18:31Z",
   "description": "Tests first: real Jido request ID correlation, active multi-person same scope, background vs own mention, replay, sealing/queue full, permissions. Extend RequestRegistry/Agent API/ServerManager and validated NodeRouter fanout; preserve person-bound credentials and one response owner; do not treat queued as consumed.",
   "id": "zaq-emb.5",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[#768] Person-bound runtime fanout and steering",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:42Z"
+  "updated_at": "2026-09-23T13:18:45Z"
 }
