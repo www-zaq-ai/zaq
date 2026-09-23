@@ -4,7 +4,9 @@
     "zaq-emb.10",
     "zaq-emb.9"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.13"
+  ],
   "created": "2026-09-23T13:18:37Z",
   "description": "Explicit human approval of completed BO history and People access UI before authoring new E2E; remains open until granted.",
   "id": "zaq-emb.12",
@@ -14,5 +16,5 @@
   "status": "open",
   "title": "[#768] Human UX/UI approval for shared conversations",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:49Z"
+  "updated_at": "2026-09-23T13:18:52Z"
 }

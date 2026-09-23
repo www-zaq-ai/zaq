@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.12"
+  ],
   "blocks": [],
   "created": "2026-09-23T13:18:39Z",
   "description": "After explicit human UI approval, implement consolidated journeys: channel/thread labels, external access and refresh capability states, mixed-author shared channel, mention-only response, revocation. Reuse existing specs without weakening assertions; run appropriate E2E.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] Consolidated shared conversation E2E",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:39Z"
+  "updated_at": "2026-09-23T13:18:52Z"
 }
