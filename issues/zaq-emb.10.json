@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.6"
+  ],
   "blocks": [],
   "created": "2026-09-23T13:18:35Z",
   "description": "Tests first: connector grouping, manual vs provider labels, grant action authorization, unsupported refresh. Reuse DS components, call authorized refresh via Event/NodeRouter. Do not label manual grants membership.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] People external access and refresh UI",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:35Z"
+  "updated_at": "2026-09-23T13:18:47Z"
 }
