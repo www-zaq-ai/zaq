@@ -11,9 +11,15 @@
   "id": "zaq-60a.3",
   "labels": [],
   "parent": "zaq-60a",
+  "comments": [
+    {
+      "text": "Implemented supervised ETS global chunk language inventory (no actor filtering), PubSub invalidation/TTL, language predicates in BM25/vector/hydration, explicit ingestion events and post-search context limiting. ACL remains late. Scope tested; cross-node live E2E pending.",
+      "timestamp": "2026-09-23T14:22:30Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Global language inventory and multilingual retrieval",
   "type": "task",
-  "updated_at": "2026-09-23T12:47:38Z"
+  "updated_at": "2026-09-23T14:22:30Z"
 }
