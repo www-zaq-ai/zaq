@@ -9,9 +9,15 @@
   "id": "zaq-60a.7",
   "labels": [],
   "parent": "zaq-60a",
+  "comments": [
+    {
+      "text": "Existing E2E full npm run test exceeded 600s at ~115/500 tests; targeted npm run test -- specs/ingestion.spec.js specs/knowledge_ops_lead.spec.js --project=journeys-firefox passed (6 passed, 1 skipped) after updating E2E fake limit contract. New multilingual feature E2E remains blocked on human UX approval zaq-60a.6.",
+      "timestamp": "2026-09-23T14:22:32Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Consolidated multilingual ingestion E2E",
   "type": "task",
-  "updated_at": "2026-09-23T12:47:40Z"
+  "updated_at": "2026-09-23T14:22:32Z"
 }
