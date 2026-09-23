@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
-    "zaq-emb.3"
+    "zaq-emb.3",
+    "zaq-emb.6"
   ],
   "created": "2026-09-23T13:18:27Z",
   "description": "Tests first: source-aware rights union, manual survival, connector isolation, thread inheritance, merge semantics. Extend Permissions/ResourcePermission and migrations; manual and provider sources independent. Authorized read gate; no implicit nil identity. Action reuse: extend existing Permissions grant/can/revoke; context read local-only.",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "[#768] Source-aware channel history grants and schema",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:40Z"
+  "updated_at": "2026-09-23T13:18:43Z"
 }
