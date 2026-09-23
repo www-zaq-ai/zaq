@@ -15,11 +15,15 @@
     {
       "text": "Implemented internal TranslateKnowledgeQuery Action via Factory.generate_text (not Registry), validated one-call JSON, bounded parallel language searches, score merge, safe per-language errors + logging, final context cap. Reused SearchKnowledgeBase; no separate exposed tool. Agent tests and real NodeRouter integration pass.",
       "timestamp": "2026-09-23T14:22:31Z"
+    },
+    {
+      "text": "Follow-up per user: removed one-caller Factory.generate_text/3 and its test. TranslateKnowledgeQuery owns one-shot ReqLLM generation and reuses ProviderSpec for configured model/options; SearchKnowledgeBase and translation Action now have Zoi input+output schemas, validated through Jido.Exec.run. Updated agent and planning policy owners. Scoped integration Action tests pass.",
+      "timestamp": "2026-09-23T19:29:42Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Translate queries and merge parallel searches",
   "type": "task",
-  "updated_at": "2026-09-23T14:22:31Z"
+  "updated_at": "2026-09-23T19:29:42Z"
 }
