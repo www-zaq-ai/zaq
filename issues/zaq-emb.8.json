@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-emb.11"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-emb",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[#768] Prevent partial edits overwriting final channel answer",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:51Z"
+  "updated_at": "2026-09-23T13:38:16Z"
 }
