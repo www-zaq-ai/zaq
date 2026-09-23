@@ -4,7 +4,9 @@
     "zaq-60a.4",
     "zaq-60a.5"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-60a.7"
+  ],
   "created": "2026-09-23T12:47:36Z",
   "description": "Remain open until explicit human approval of completed multilingual ingestion chips/progress/errors UX for feature E2E; do not self-approve.",
   "id": "zaq-60a.6",
