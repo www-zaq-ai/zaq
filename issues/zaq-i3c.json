@@ -14,11 +14,15 @@
     {
       "text": "mix q passed. Final mix precommit formatting/Credo/compile passed; tests printed 42 doctests, 159 properties, 7232 tests, exactly 3 failures (new review regressions), 1 skipped (86 excluded); runner timed out during teardown after summary. Earlier post-edit focused run had one existing RunWatcher sandbox queue timeout; isolated rerun 8/8 passed, final gate did not reproduce it. Posted 5 evidence replies: 3 addressed, 2 partially addressed. resolveReviewThread forbidden for both GitHub MCP and gh CLI token; do not claim threads resolved. User needs permitted token or manual resolution. Production unchanged; 2 test files uncommitted. Publication/final verification in progress.",
       "timestamp": "2026-09-23T14:07:06Z"
+    },
+    {
+      "text": "Final re-review submitted REQUEST_CHANGES at head84aea60e. Three original findings confirmed addressed with public replies; two original code findings remain partial and general reuse/rollout evidence remains missing. No distinct new finding, no duplicate threads. Three permanent regression tests added to two existing test files, uncommitted/unpushed and expected red; no production edits. GitHub denied resolution with both MCP and CLI credentials; leave this task blocked/in_progress for manual resolution or permitted token. Validation fully recorded in submitted review; cannot request approval with known failures. Local re-review artifact: /var/folders/9p/mdzhcqxx7hs8bw_10vwjvfp00000gn/T/opencode/pr765-rereview-summary.md.",
+      "timestamp": "2026-09-23T14:09:30Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[PR #765] Verify fixes, preserve regression tests, and finalize re-review",
   "type": "task",
-  "updated_at": "2026-09-23T14:07:06Z"
+  "updated_at": "2026-09-23T14:09:30Z"
 }
