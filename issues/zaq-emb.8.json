@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.11"
+  ],
   "created": "2026-09-23T13:18:34Z",
   "description": "Tests first: exact Arabic answer saved and delivered, delayed partial after terminal, failed final delivery. Extend Channels existing upsert ordering, no parallel delivery API.",
   "id": "zaq-emb.8",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] Prevent partial edits overwriting final channel answer",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:34Z"
+  "updated_at": "2026-09-23T13:18:51Z"
 }

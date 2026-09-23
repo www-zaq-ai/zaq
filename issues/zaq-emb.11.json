@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "zaq-emb.7"
+    "zaq-emb.7",
+    "zaq-emb.8"
   ],
   "blocks": [],
   "created": "2026-09-23T13:18:36Z",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "[#768] Migration, docs, and issue validation",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:49Z"
+  "updated_at": "2026-09-23T13:18:51Z"
 }
