@@ -17,11 +17,15 @@
     {
       "text": "Safe to implement independently: current unconsumed migration already supplies external_channel_id/external_thread_id and BO already loads full Conversation structs. BO display-only stage does not require shared transcript rewrite; remove previous dependency on .3. Recheck after scope migration. Human approved extending existing components directly.",
       "timestamp": "2026-09-23T14:18:11Z"
+    },
+    {
+      "text": "BO history list/detail now show connector ID, external channel ID, Thread ID or Channel-level, with missing/legacy fallbacks and escaping; reuse existing Table/ConversationDetail. Test-first: 24 component/LiveView tests passed. Browser inspection on localhost:4010 blocked by Phoenix PendingMigrationError; do not apply dev migrations yet because user said 768 migrations remain unconsumed until final shape. mix q initially reports alias style, corrected, subsequent retry hit intermittent ExDNA.Credo internal 5s timeout; retry when host load clears. UX approval/E2E remains open.",
+      "timestamp": "2026-09-23T14:33:44Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[#768] BO history channel and thread context",
   "type": "task",
-  "updated_at": "2026-09-23T14:18:12Z"
+  "updated_at": "2026-09-23T14:33:44Z"
 }
