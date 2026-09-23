@@ -10,11 +10,15 @@
     {
       "text": "Before edits: current workflow/Condition/NotifyPerson suites passed 1035 tests + 21 properties. Added 3 real public-path regression cases in existing workflow_run_agent_test and map_node_builder_test: completed/waiting UI broadcast failures overwrite committed state; unrelated completed leaf masks outer map error. Reproduced all 3 failures (57 tests, 3 failures). Prior orphan-watcher, Condition tool schema, and production JSONB Action schemas verified addressed; map and finalization threads only partially addressed. No independent new defect established. User authorized preserving useful repro tests; production code unchanged, expected red tests will remain explicit.",
       "timestamp": "2026-09-23T13:45:55Z"
+    },
+    {
+      "text": "mix q passed. Final mix precommit formatting/Credo/compile passed; tests printed 42 doctests, 159 properties, 7232 tests, exactly 3 failures (new review regressions), 1 skipped (86 excluded); runner timed out during teardown after summary. Earlier post-edit focused run had one existing RunWatcher sandbox queue timeout; isolated rerun 8/8 passed, final gate did not reproduce it. Posted 5 evidence replies: 3 addressed, 2 partially addressed. resolveReviewThread forbidden for both GitHub MCP and gh CLI token; do not claim threads resolved. User needs permitted token or manual resolution. Production unchanged; 2 test files uncommitted. Publication/final verification in progress.",
+      "timestamp": "2026-09-23T14:07:06Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[PR #765] Verify fixes, preserve regression tests, and finalize re-review",
   "type": "task",
-  "updated_at": "2026-09-23T13:45:55Z"
+  "updated_at": "2026-09-23T14:07:06Z"
 }
