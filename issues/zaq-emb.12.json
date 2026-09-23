@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "zaq-emb.10",
     "zaq-emb.9"
   ],
   "blocks": [],
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "[#768] Human UX/UI approval for shared conversations",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:48Z"
+  "updated_at": "2026-09-23T13:18:49Z"
 }
