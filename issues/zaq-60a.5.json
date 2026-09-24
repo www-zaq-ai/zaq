@@ -23,11 +23,15 @@
     {
       "text": "Follow-up validation: mix q passed, 212 scoped tests/4 properties passed incl real ingestion + Action/NodeRouter; existing targeted Firefox ingestion+knowledge E2E 6 passed, 1 skipped. New feature E2E still blocked on human UX approval.",
       "timestamp": "2026-09-23T19:29:42Z"
+    },
+    {
+      "text": "UX revision: list Ingested badge now exposes accessible details icon opening BO modal with segmented progress, language chips/errors, and persisted extracted Markdown via FilePreview.panel; grid keeps compact progress. ParadeDB retains correctly detected chunk languages while default analyzer is language-neutral, so recap labels neutral segment default analyzer; new summaries record index_backend, older snapshots use neutral label. Action reuse: local-only read operation via Ingestion Api :get_ingestion_details with actor/Permissions.can? (existing domain document read + permission APIs); no standalone agent/workflow Action or tool exposure. Component/role tests pass. Isolated new LiveView test blocked before test body by known duplicate disk provider channel_configs_provider_index setup; not a feature assertion failure. mix q passed; scoped 58 tests pass; existing targeted Firefox E2E 6 passed/1 skipped. Human final UX approval and feature E2E remain open.",
+      "timestamp": "2026-09-24T07:23:31Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Render language chips and segmented ingestion progress",
   "type": "task",
-  "updated_at": "2026-09-23T19:29:42Z"
+  "updated_at": "2026-09-24T07:23:31Z"
 }
