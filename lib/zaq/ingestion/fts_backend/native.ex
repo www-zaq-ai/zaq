@@ -27,6 +27,31 @@ defmodule Zaq.Ingestion.FTSBackend.Native do
   @impl true
   def bm25_search_group_by(query_text, limit, source_filter \\ [], language \\ nil) do
     safe_query = sanitize_query(query_text)
+
+    rows =
+      case language do
+        nil ->
+          indexed_languages()
+          |> Enum.flat_map(fn indexed_language ->
+            indexed_language
+            |> search_query(safe_query, limit, source_filter)
+            |> Repo.all()
+          end)
+          |> Enum.sort_by(fn row ->
+            {-row.bm25_score, row.document_id, row.chunk_index}
+          end)
+          |> Enum.take(limit)
+
+        language ->
+          language
+          |> search_query(safe_query, limit, source_filter)
+          |> Repo.all()
+      end
+
+    {:ok, FTSBackend.group_results(Enum.map(rows, &Map.delete(&1, :chunk_index)))}
+  end
+
+  defp search_query(language, safe_query, limit, source_filter) do
     config = configuration_for(language)
 
     base =
@@ -53,6 +78,7 @@ defmodule Zaq.Ingestion.FTSBackend.Native do
         select: %{
           document_id: c.document_id,
           section_path: c.section_path,
+          chunk_index: c.chunk_index,
           bm25_score:
             fragment(
               "ts_rank_cd(content_tsv, websearch_to_tsquery(?::text::regconfig, ?))",
@@ -62,15 +88,22 @@ defmodule Zaq.Ingestion.FTSBackend.Native do
         }
       )
 
-    base = FTSBackend.maybe_filter_language(base, language)
+    base =
+      if is_nil(language) do
+        where(base, [c], is_nil(c.language))
+      else
+        FTSBackend.maybe_filter_language(base, language)
+      end
 
-    query = FTSBackend.maybe_filter_source(base, source_filter)
+    FTSBackend.maybe_filter_source(base, source_filter)
+  end
 
-    {:ok, FTSBackend.group_results(Repo.all(query))}
+  defp indexed_languages do
+    Repo.all(from(c in Chunk, distinct: true, select: c.language))
   end
 
   @doc "Returns the installed text-search configuration for a detected language, or simple."
-  def configuration_for(nil), do: "pg_catalog.english"
+  def configuration_for(nil), do: "pg_catalog.simple"
   def configuration_for("simple"), do: "pg_catalog.simple"
 
   def configuration_for(language) when is_binary(language) do
@@ -93,8 +126,33 @@ defmodule Zaq.Ingestion.FTSBackend.Native do
 
   @impl true
   def fts_count_query(query_text, limit) do
+    safe_query = sanitize_query(query_text)
+
+    predicate =
+      Enum.reduce(indexed_languages(), dynamic(false), fn language, predicate ->
+        config = configuration_for(language)
+
+        language_match =
+          if is_nil(language) do
+            dynamic([c], is_nil(c.language))
+          else
+            dynamic([c], c.language == ^language)
+          end
+
+        dynamic(
+          [c],
+          ^predicate or
+            (^language_match and
+               fragment(
+                 "content_tsv @@ websearch_to_tsquery(?::text::regconfig, ?)",
+                 ^config,
+                 ^safe_query
+               ))
+        )
+      end)
+
     from(c in Chunk,
-      where: fragment("content_tsv @@ websearch_to_tsquery('english', ?)", ^query_text),
+      where: ^predicate,
       select: %{id: c.id},
       limit: ^limit
     )

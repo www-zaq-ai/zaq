@@ -4,6 +4,8 @@ defmodule Zaq.Agent.PipelineTest do
   import Ecto.Query
 
   alias Zaq.Agent.Pipeline
+  alias Zaq.Agent.PipelineTest.StubDocumentProcessor
+  alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Telemetry.Buffer
@@ -17,6 +19,27 @@ defmodule Zaq.Agent.PipelineTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubNodeRouter do
+    def dispatch(
+          %Zaq.Event{opts: [action: :list_chunk_languages, document_processor: _]} = event
+        ),
+        do: %{event | response: {:ok, ["simple"]}}
+
+    def dispatch(
+          %Zaq.Event{
+            request: %{query: query, access_opts: opts},
+            opts: [action: :search_knowledge_base, document_processor: processor]
+          } = event
+        ),
+        do: %{event | response: processor.query_extraction(query, opts)}
+
+    def dispatch(
+          %Zaq.Event{
+            request: %{chunks: chunks},
+            opts: [action: :limit_knowledge_results, document_processor: processor]
+          } = event
+        ),
+        do: %{event | response: {:ok, processor.limit_chunks(chunks)}}
+
     def dispatch(
           %Zaq.Event{
             request: %{module: module, function: function, args: args},
@@ -95,6 +118,16 @@ defmodule Zaq.Agent.PipelineTest do
     }
   ]
 
+  test "search fixture follows the explicit ingestion search contract" do
+    assert {:ok, %{chunks: [chunk]}} =
+             SearchKnowledgeBase.run(%{query: "test query"}, %{
+               node_router: StubNodeRouter,
+               document_processor: StubDocumentProcessor
+             })
+
+    assert chunk["content"] == "chunk content"
+  end
+
   defmodule StubDocumentProcessor do
     @chunks [
       %{
@@ -105,15 +138,19 @@ defmodule Zaq.Agent.PipelineTest do
     ]
 
     def query_extraction(_query, _role_ids), do: {:ok, @chunks}
+    def limit_chunks(chunks), do: chunks
   end
 
   # Triggers the {:error, :no_results, negative_answer} branch inside
   # do_query_extraction, which dispatches pipeline_complete with chunks: [].
   defmodule StubEmptyDocumentProcessor do
     def query_extraction(_query, _role_ids), do: {:ok, []}
+    def limit_chunks(chunks), do: chunks
   end
 
   defmodule EnrichedDocumentProcessor do
+    def limit_chunks(chunks), do: chunks
+
     def query_extraction(_query, _role_ids) do
       {:ok,
        [

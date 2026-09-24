@@ -50,7 +50,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       do: Keyword.get(opts, :action) in [:conversation, :rate_message]
 
     defp domain_event?(%Event{next_hop: %{destination: :ingestion}, opts: opts}),
-      do: Keyword.get(opts, :action) == :list_document_sources
+      do:
+        Keyword.get(opts, :action) in [
+          :list_document_sources,
+          :list_chunk_languages,
+          :search_knowledge_base,
+          :limit_knowledge_results
+        ]
 
     defp domain_event?(_event), do: false
 
@@ -60,15 +66,28 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       case legacy_call(event.request, role, action) do
         {mod, fun, args} ->
           case Map.get(state, {role, mod, fun}) do
-            handler when is_function(handler, 1) -> %{event | response: handler.(args)}
-            handler when is_function(handler, 0) -> %{event | response: handler.()}
-            nil -> dispatch_real(event)
+            handler when is_function(handler, 1) ->
+              %{event | response: handler.(args)}
+
+            handler when is_function(handler, 0) ->
+              %{event | response: handler.()}
+
+            nil ->
+              dispatch_unconfigured(event, role, fun, args)
           end
 
         nil ->
           dispatch_real(event)
       end
     end
+
+    defp dispatch_unconfigured(event, :ingestion, :list_chunk_languages, _args),
+      do: %{event | response: {:ok, ["simple"]}}
+
+    defp dispatch_unconfigured(event, :ingestion, :limit_chunks, [chunks]),
+      do: %{event | response: {:ok, chunks}}
+
+    defp dispatch_unconfigured(event, _role, _fun, _args), do: dispatch_real(event)
 
     defp dispatch_real(event) do
       Zaq.NodeRouter.dispatch(event, %{
@@ -107,6 +126,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     defp legacy_call(%{query: query}, :ingestion, :list_document_sources),
       do: {Zaq.Ingestion, :list_document_sources, [query]}
+
+    defp legacy_call(_request, :ingestion, :list_chunk_languages),
+      do: {DocumentProcessor, :list_chunk_languages, []}
+
+    defp legacy_call(%{query: query, access_opts: opts}, :ingestion, :search_knowledge_base),
+      do: {DocumentProcessor, :query_extraction, [query, opts]}
+
+    defp legacy_call(%{chunks: chunks}, :ingestion, :limit_knowledge_results),
+      do: {DocumentProcessor, :limit_chunks, [chunks]}
 
     defp legacy_call(
            %{message_ref: {:id, id}, rater_attrs: attrs},

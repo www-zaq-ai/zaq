@@ -285,6 +285,50 @@ defmodule Zaq.Ingestion.FTSBackendTest do
   end
 
   describe "query helpers" do
+    test "unscoped native searches and counts use each stored vector's language" do
+      :persistent_term.put({FTSBackend, :backend}, FTSBackend.Native)
+      Chunk.create_table(1536)
+
+      {:ok, document} = Document.create(%{source: "fts/mixed-languages.md"})
+
+      for {index, language, content} <- [
+            {0, "simple", "Emergency Shutdown Criteria"},
+            {1, "english", "Emergency procedures for shutdowns"},
+            {2, "french", "Les voitures rouges traversent la ville"}
+          ] do
+        assert {:ok, _} =
+                 Chunk.create(%{
+                   document_id: document.id,
+                   chunk_index: index,
+                   language: language,
+                   section_path: [language],
+                   content: content
+                 })
+      end
+
+      assert {:ok, grouped} = FTSBackend.Native.bm25_search_group_by("Criteria", 10)
+
+      assert Map.has_key?(grouped[document.id], ["simple"])
+
+      assert {:ok, grouped} = FTSBackend.Native.bm25_search_group_by("voitures", 10)
+
+      assert Map.has_key?(grouped[document.id], ["french"])
+
+      assert {:ok, %{}} =
+               FTSBackend.Native.bm25_search_group_by("Criteria", 10, [], "english")
+
+      assert {:ok, %{}} =
+               FTSBackend.Native.bm25_search_group_by("Criteria", 10, ["other"])
+
+      assert {:ok, limited} = FTSBackend.Native.bm25_search_group_by("Emergency", 1)
+
+      assert limited |> Map.values() |> Enum.flat_map(&Map.values/1) |> List.flatten() |> length() ==
+               1
+
+      assert [%{id: id}] = Repo.all(FTSBackend.Native.fts_count_query("Criteria", 10))
+      assert Repo.get!(Chunk, id).chunk_index == 0
+    end
+
     test "uses installed PostgreSQL configurations and simple for unsupported detected languages" do
       for language <-
             ~w(english french spanish german portuguese italian arabic russian hindi urdu chinese japanese) do
