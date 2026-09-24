@@ -6,9 +6,15 @@
   "description": "Replace VM-global provider browser test state with an injected Zaq.Config seam for IngestionLive provider browser tests. Keep production behavior unchanged.",
   "id": "zaq-4s4",
   "labels": [],
+  "comments": [
+    {
+      "text": "Multilingual finalization repaired only duplicate disk ChannelConfig setup in ingestion_live_test.exs with insert_or_update; isolated modal test and full 195-test IngestionLive suite now pass. VM-global provider browser test-state seam remains outstanding per this issue; no production scope change.",
+      "timestamp": "2026-09-24T13:29:45Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[flaky] Scope ingestion provider browser test config",
   "type": "bug",
-  "updated_at": "2026-09-04T15:38:46Z"
+  "updated_at": "2026-09-24T13:29:45Z"
 }
