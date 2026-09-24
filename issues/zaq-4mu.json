@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-24T20:10:12Z",
+  "description": "Branch fix/793-hybrid-retrieval from zaq-60a/multilingual-ingestion. Action reuse: extend existing internal TranslateKnowledgeQuery (Jido.Exec.run/3, ProviderSpec) for semantic+lexical per-language output; keep SearchKnowledgeBase workflow Action/NodeRouter dispatch and Ingestion DocumentProcessor, FTSBackend.Native/ParadeDB as domain owners. No new Action or agent-tool exposure. Verify structured partial errors, permission/source/language filters, cosine migration rollback, and real backend tests. Current implementation passes mix q and focused native tests; remaining rollout gates: real ParadeDB execution, curated independent relevance comparison/calibration, review/coverage and final precommit.",
+  "id": "zaq-4mu",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[#793] Cosine and lexical hybrid retrieval",
+  "type": "task",
+  "updated_at": "2026-09-24T20:10:12Z"
+}
