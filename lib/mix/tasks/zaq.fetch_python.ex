@@ -86,7 +86,7 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
 
     Mix.shell().info([
       :yellow,
-      "Don't forget to install the requirements inside a virtual environment:"
+      "Don't forget to install the requirements inside a virtual environment, python 3.10+ required:"
     ])
 
     Mix.shell().info([:yellow, "  python3 -m venv .venv"])

@@ -294,8 +294,8 @@ defmodule Zaq.MixProject do
 
     Mix.Task.run("deps.get")
     Mix.Task.run("ecto.create")
-    Mix.Task.run("db.extensions")
     Mix.Task.run("db.copy", [source_db])
+    Mix.Task.run("db.extensions")
     Mix.Task.run("ecto.migrate")
     Mix.Task.run("assets.setup")
     Mix.Task.run("assets.build")
