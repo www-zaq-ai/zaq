@@ -4,6 +4,7 @@ defmodule Zaq.Ingestion.ApiTest do
   alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.Ingestion.Api
+  alias Zaq.Ingestion.Document
 
   defmodule StubIngestion do
     def list_document_sources(query), do: [{:source, query}]
@@ -75,6 +76,39 @@ defmodule Zaq.Ingestion.ApiTest do
 
     assert Api.handle_event(event, :list_document_sources, nil).response ==
              {:error, {:unsupported_action, :list_document_sources}}
+  end
+
+  test "loads stored extracted Markdown through the ingestion boundary only for an authorized actor" do
+    {:ok, _document} =
+      Document.create(%{
+        source: "data_source/disk/123/extracted.md",
+        content: "# Extracted\n\nContenu français",
+        metadata: %{"ingestion" => %{"detected_languages" => ["french"]}}
+      })
+
+    request = %{source: "data_source/disk/123/extracted.md"}
+
+    for actor <- [%{}, %{person_id: nil}, %{user_id: 3, skip_permissions: false}] do
+      event = Event.new(request, :ingestion, actor: actor)
+
+      assert Api.handle_event(event, :get_ingestion_details, nil).response ==
+               {:error, :unauthorized}
+    end
+
+    event = Event.new(request, :ingestion, actor: %{user_id: 3, skip_permissions: true})
+
+    assert {:ok, %{content: "# Extracted\n\nContenu français", summary: summary}} =
+             Api.handle_event(event, :get_ingestion_details, nil).response
+
+    assert summary["detected_languages"] == ["french"]
+
+    assert Api.handle_event(
+             Event.new(%{source: "data_source/disk/123/missing.md"}, :ingestion,
+               actor: %{user_id: 3, skip_permissions: true}
+             ),
+             :get_ingestion_details,
+             nil
+           ).response == {:error, :not_found}
   end
 
   test "forwards trusted context for bridge-triggered permission projection sync" do

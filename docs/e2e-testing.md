@@ -486,6 +486,7 @@ module.exports = {
 |---|---|
 | `agents.spec.js` | `/bo/agents` — Agent creation, credential selection, model picker, tools, MCP endpoints |
 | `ingestion.spec.js` | `/bo/ingestion` — File ingestion pipeline |
+| `multilingual_ingestion.spec.js` | `/bo/ingestion` — details modal, extracted Markdown and partial/recovered language-neutral progress display. The E2E-only `/e2e/ingestion/multilingual_summary` fixture updates the fake processor's persisted summary; real detection, indexing and retry behavior are verified by `test/zaq/ingestion/multilingual_real_ingestion_test.exs`, not by this browser fixture. |
 | `people.spec.js` | `/bo/people` — User/team management |
 | `system_config.spec.js` | `/bo/system-config` — AI credentials, MCP config, system settings |
 | `knowledge_ops_lead.spec.js` | Knowledge operations lead flow |

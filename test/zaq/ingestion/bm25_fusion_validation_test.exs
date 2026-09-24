@@ -265,7 +265,9 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
       assert {:ok, results} =
                DocumentProcessor.bm25_search_group_by(
                  "fusion recherche vectorielle rang réciproque",
-                 20
+                 20,
+                 [],
+                 "french"
                )
 
       items = results |> Map.values() |> Enum.flat_map(&Map.values/1) |> List.flatten()
@@ -287,7 +289,9 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
       assert {:ok, results} =
                DocumentProcessor.bm25_search_group_by(
                  "fusión búsqueda vectorial rango recíproco",
-                 20
+                 20,
+                 [],
+                 "spanish"
                )
 
       items = results |> Map.values() |> Enum.flat_map(&Map.values/1) |> List.flatten()
@@ -303,21 +307,19 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
       end)
     end
 
-    test "Arabic query returns empty BM25 results — English FTS cannot match Arabic tokens" do
-      # The content_tsv column uses to_tsvector('english', ...) and queries use
-      # websearch_to_tsquery('english', ...). Arabic text is not processed by
-      # the English dictionary, so Arabic queries return no BM25 hits.
-      # Arabic content is retrieved via the vector leg only (see §2d).
+    test "Arabic query uses its detected language and returns Arabic BM25 hits" do
       load_corpus()
 
       assert {:ok, results} =
                DocumentProcessor.bm25_search_group_by(
                  "دمج البحث المتجهي الترتيب التبادلي",
-                 20
+                 20,
+                 [],
+                 "arabic"
                )
 
       items = results |> Map.values() |> Enum.flat_map(&Map.values/1) |> List.flatten()
-      assert items == [], "Arabic BM25 must return empty — English FTS has no Arabic tokenizer"
+      assert items != [], "Arabic BM25 should use its installed configuration"
     end
 
     test "BM25 scores are positive (ts_rank_cd: higher = more relevant)" do
@@ -337,18 +339,14 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
   end
 
   # ---------------------------------------------------------------------------
-  # §2d — English-only tsvector limitation
+  # §2d — Legacy default-query compatibility and the vector leg
   #
-  # content_tsv is defined as to_tsvector('english', content) and all BM25
-  # queries use websearch_to_tsquery('english', ...). This works well for
-  # English (stemming, stopwords) but has two consequences for other languages:
-  #   1. Morphological variants do not match — Arabic/French/Spanish words are
-  #      indexed as-is with no language-specific stemming.
-  #   2. The vector leg (embedding similarity) is the only reliable retrieval
-  #      path for non-English queries that don't share exact surface tokens.
+  # Multilingual search passes an explicit language configuration. Legacy
+  # callers that do not pass one still use an English query. Vector similarity
+  # continues to provide a complementary signal for morphology and synonyms.
   # ---------------------------------------------------------------------------
 
-  describe "§2d English-only tsvector limitation" do
+  describe "§2d legacy default queries and vector recall" do
     test "English stemmer: query 'ranking' matches chunk containing 'ranked'" do
       # English Snowball stemmer reduces 'ranking' and 'ranked' to the same root 'rank'.
       doc = create_doc()
@@ -368,11 +366,11 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
              "English stemmer must match 'ranking' against 'ranked' (both reduce to 'rank')"
     end
 
-    test "Arabic morphological variants are not matched — English FTS has no Arabic stemmer" do
+    test "legacy English-query mode does not conflate Arabic morphological variants" do
       # Arabic root بحث yields many surface forms: يبحث (verb), البحث (noun), باحث (agent).
       # A proper Arabic FTS config would map all forms to the same root lexeme.
-      # The English tsvector config keeps each surface form as a distinct unstemmed token,
-      # so a query for one form does not match a chunk containing a different form.
+      # Without an explicit Arabic search configuration, this default query
+      # must not be misreported as language-aware stemming.
       doc = create_doc()
 
       insert_chunk(
@@ -397,12 +395,12 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
         end)
 
       refute variant_matched,
-             "Arabic verb 'يبحث' must not match noun query 'البحث' — English FTS has no Arabic morphological analysis"
+             "Legacy English-query mode must not claim Arabic stemming"
     end
 
     test "query_extraction returns results for Arabic morphological-variant query via vector leg" do
-      # When BM25 returns empty for an Arabic query (no exact token overlap),
-      # the vector leg (embedding similarity) must still surface relevant chunks.
+      # When keyword matching has no exact overlap, vector similarity still
+      # contributes relevant chunks.
       load_corpus()
 
       # section_g contains Arabic text; all embeddings are stubbed to identical
@@ -414,7 +412,7 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
              "query_extraction must always return a list for Arabic queries"
 
       assert results != [],
-             "vector leg must return results for Arabic query even if BM25 returns empty"
+             "vector leg must return results for Arabic query even when keyword recall is limited"
     end
   end
 

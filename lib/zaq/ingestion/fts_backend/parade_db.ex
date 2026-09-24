@@ -24,16 +24,16 @@ defmodule Zaq.Ingestion.FTSBackend.ParadeDB do
   end
 
   @impl true
-  def bm25_search_group_by(query_text, limit, source_filter \\ []) do
+  def bm25_search_group_by(query_text, limit, source_filter \\ [], language \\ nil) do
     query_text
-    |> bm25_query(limit, source_filter)
+    |> bm25_query(limit, source_filter, language)
     |> Repo.all()
     |> FTSBackend.group_results()
     |> then(&{:ok, &1})
   end
 
   @doc "Builds the ParadeDB BM25 search query without executing it."
-  def bm25_query(query_text, limit, source_filter \\ []) do
+  def bm25_query(query_text, limit, source_filter \\ [], language \\ nil) do
     safe_query = sanitize_query(query_text)
 
     Chunk
@@ -63,6 +63,7 @@ defmodule Zaq.Ingestion.FTSBackend.ParadeDB do
       bm25_score: fragment("paradedb.score(?)", c.id)
     })
     |> FTSBackend.maybe_filter_source(source_filter)
+    |> FTSBackend.maybe_filter_language(language)
   end
 
   @impl true

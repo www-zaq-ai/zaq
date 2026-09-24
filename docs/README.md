@@ -8,6 +8,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 
 - [Product overview and local quick start](../README.md)
 - [Docker deployment, persistent storage and production HTTPS](operations/deployment.md)
+- [Multilingual text-search configurations and optional extensions](operations/language-indexing.md)
 - [Project and source map](project.md)
 - [Architecture, node roles and event dispatch](architecture.md)
 - [Development setup and commands](dev-setup.md)

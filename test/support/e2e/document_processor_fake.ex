@@ -78,6 +78,10 @@ defmodule Zaq.E2E.DocumentProcessorFake do
     {:ok, if(matches == [], do: fallback, else: matches)}
   end
 
+  # The fake already limits each retrieval to at most eight documents. Keep
+  # that E2E fixture contract when the multilingual tool applies its final cap.
+  def limit_chunks(chunks) when is_list(chunks), do: chunks
+
   defp extract_source(file_path) do
     base = FileExplorer.base_path() |> Path.expand()
     expanded = Path.expand(file_path)

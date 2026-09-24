@@ -5,10 +5,13 @@ defmodule Zaq.Ingestion.Api do
 
   @behaviour Zaq.InternalBoundaries
 
+  alias Zaq.Accounts.People
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.{ChunkLanguages, Document, DocumentProcessor}
   alias Zaq.InternalBoundaries
+  alias Zaq.Permissions
 
   @impl true
   def handle_event(
@@ -34,6 +37,54 @@ defmodule Zaq.Ingestion.Api do
       when is_binary(query) do
     ingestion_module = Keyword.get(event.opts, :ingestion_module, Ingestion)
     %{event | response: ingestion_module.list_document_sources(query)}
+  end
+
+  def handle_event(%Event{} = event, :list_chunk_languages, _context) do
+    inventory = Keyword.get(event.opts, :chunk_languages, ChunkLanguages)
+    %{event | response: {:ok, inventory.list()}}
+  end
+
+  def handle_event(
+        %Event{request: %{source: source}, actor: actor} = event,
+        :get_ingestion_details,
+        _context
+      )
+      when is_binary(source) and is_map(actor) do
+    response =
+      case Document.get_by_source(source) do
+        %Document{content: content} = document when is_binary(content) ->
+          person = actor[:person_id] && People.get_person(actor[:person_id])
+
+          if not is_nil(actor[:user_id]) and
+               Permissions.can?(person, :read, document,
+                 skip_permissions: actor[:skip_permissions] == true
+               ) do
+            {:ok, %{content: content, summary: get_in(document.metadata || %{}, ["ingestion"])}}
+          else
+            {:error, :unauthorized}
+          end
+
+        _ ->
+          {:error, :not_found}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{request: %{chunks: chunks}} = event, :limit_knowledge_results, _context)
+      when is_list(chunks) do
+    processor = Keyword.get(event.opts, :document_processor, DocumentProcessor)
+    %{event | response: {:ok, processor.limit_chunks(chunks)}}
+  end
+
+  def handle_event(
+        %Event{request: %{query: query, access_opts: access_opts}} = event,
+        :search_knowledge_base,
+        _context
+      )
+      when is_binary(query) and is_list(access_opts) do
+    processor = Keyword.get(event.opts, :document_processor, DocumentProcessor)
+    %{event | response: processor.query_extraction(query, access_opts)}
   end
 
   def handle_event(
