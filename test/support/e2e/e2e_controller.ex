@@ -13,6 +13,7 @@ defmodule ZaqWeb.E2EController do
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Rollup
+  alias Zaq.Ingestion.Document
   alias Zaq.Repo
   alias Zaq.System, as: SystemContext
   alias Zaq.UserPortal.Provisioner
@@ -48,6 +49,52 @@ defmodule ZaqWeb.E2EController do
     :ok = Reset.run()
     json(conn, %{ok: true})
   end
+
+  # E2E-only presentation fixture. The fake processor cannot produce per-chunk
+  # indexing errors; real detector/indexing/retry behavior is tested with ExUnit.
+  def multilingual_summary(conn, %{"content" => content, "phase" => phase})
+      when is_binary(content) and phase in ["partial", "recovered"] do
+    case Repo.get_by(Document, content: content) do
+      %Document{} = document ->
+        indexed = if phase == "partial", do: 2, else: 3
+
+        errors =
+          if phase == "partial" do
+            [%{"chunk_index" => 3, "language" => "arabic", "message" => "Embedding unavailable"}]
+          else
+            []
+          end
+
+        summary = %{
+          "index_backend" => "parade_db",
+          "status" => if(phase == "partial", do: "completed_with_errors", else: "completed"),
+          "total_chunks_detected" => 3,
+          "total_chunks_indexed" => indexed,
+          "total_chunks_simple_indexed" => indexed,
+          "detected_languages" => ["arabic", "english", "french"],
+          "indexed_languages" =>
+            if(phase == "partial",
+              do: ["english", "french"],
+              else: ["arabic", "english", "french"]
+            ),
+          "errors" => errors
+        }
+
+        document
+        |> Document.changeset(%{
+          metadata: Map.put(document.metadata || %{}, "ingestion", summary)
+        })
+        |> Repo.update!()
+
+        json(conn, %{ok: true, phase: phase})
+
+      nil ->
+        conn |> put_status(:not_found) |> json(%{error: "ingested document not found"})
+    end
+  end
+
+  def multilingual_summary(conn, _params),
+    do: conn |> put_status(:bad_request) |> json(%{error: "invalid summary fixture"})
 
   # POST /e2e/telemetry/llm-performance — seed deterministic dashboard rankings.
   # Pass {"mode": "clear"} to exercise empty-state behavior.

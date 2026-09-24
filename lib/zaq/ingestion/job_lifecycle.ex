@@ -88,4 +88,7 @@ defmodule Zaq.Ingestion.JobLifecycle do
     Phoenix.PubSub.broadcast(@pubsub, @topic, {:job_updated, job})
     job
   end
+
+  @doc "Re-broadcasts a job after its document summary has been committed."
+  def notify(%IngestJob{} = job), do: broadcast_update(job)
 end

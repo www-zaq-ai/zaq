@@ -18,6 +18,7 @@ defmodule Zaq.Ingestion.Chunk do
 
   alias Ecto.Adapters.SQL, as: EctoSQL
   alias Zaq.Hooks
+  alias Zaq.Ingestion.ChunkLanguages
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.FTSBackend
   alias Zaq.Repo
@@ -63,6 +64,10 @@ defmodule Zaq.Ingestion.Chunk do
     %__MODULE__{}
     |> changeset(attrs)
     |> Repo.insert()
+    |> tap(fn
+      {:ok, _} -> ChunkLanguages.invalidate()
+      _ -> :ok
+    end)
   end
 
   @doc """
@@ -73,6 +78,10 @@ defmodule Zaq.Ingestion.Chunk do
     |> changeset(attrs)
     |> put_embedding(embedding)
     |> Repo.insert()
+    |> tap(fn
+      {:ok, _} -> ChunkLanguages.invalidate()
+      _ -> :ok
+    end)
   end
 
   @doc """
@@ -168,6 +177,7 @@ defmodule Zaq.Ingestion.Chunk do
   def delete_by_document(document_id) do
     from(c in __MODULE__, where: c.document_id == ^document_id)
     |> Repo.delete_all()
+    |> tap(fn _ -> ChunkLanguages.invalidate() end)
   end
 
   @doc "Deletes a single chunk by document and chunk index."

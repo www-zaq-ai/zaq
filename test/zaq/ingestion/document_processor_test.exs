@@ -2013,7 +2013,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     end
 
     @tag :integration
-    test "returns results for chunks with any stored language" do
+    test "searches English and simple chunks with their matching text-search configurations" do
       stub_embedding_success()
       doc = create_document()
       dim = embedding_dimension()
@@ -2040,8 +2040,11 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert {:ok, results} = DocumentProcessor.bm25_search_group_by("fox", 10)
       assert map_size(results) >= 1
 
-      assert {:ok, results2} = DocumentProcessor.bm25_search_group_by("content words", 10)
+      assert {:ok, results2} =
+               DocumentProcessor.bm25_search_group_by("content words", 10, [], "simple")
+
       assert map_size(results2) >= 1
+      assert Map.has_key?(results2, doc.id)
     end
   end
 
@@ -2313,6 +2316,39 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       # At least the French chunk should surface
       assert results != []
+    end
+
+    @tag :integration
+    test "language-filtered hybrid search hydrates only chunks in the selected language" do
+      stub_embedding_success()
+      doc = create_document()
+      embedding = Pgvector.HalfVector.new(List.duplicate(0.1, embedding_dimension()))
+
+      for {index, language, content} <- [
+            {1, "french", "Les voitures rouges traversent la ville"},
+            {2, "english", "The red cars cross the city"}
+          ] do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          chunk_index: index,
+          section_path: ["Shared section"],
+          language: language,
+          content: content,
+          embedding: embedding
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:ok, results} =
+               DocumentProcessor.query_extraction("voitures rouges",
+                 skip_permissions: true,
+                 language: "french"
+               )
+
+      assert results != []
+      assert Enum.all?(results, &(&1["language"] == "french"))
+      refute Enum.any?(results, &String.contains?(&1["content"], "red cars"))
     end
   end
 

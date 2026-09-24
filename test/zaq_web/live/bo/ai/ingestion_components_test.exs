@@ -234,6 +234,56 @@ defmodule ZaqWeb.Live.BO.AI.IngestionComponentsTest do
   end
 
   describe "list view rendering" do
+    test "list badge opens details while grid keeps its compact progress" do
+      entry = %{
+        name: "report.md",
+        path: "report.md",
+        kind: :file,
+        size: 64,
+        modified_at: ~U[2026-06-23 06:00:00Z]
+      }
+
+      summary = %{
+        "total_chunks_detected" => 4,
+        "total_chunks_indexed" => 3,
+        "total_chunks_simple_indexed" => 1,
+        "detected_languages" => ["english", "hindi"],
+        "errors" => []
+      }
+
+      for {component, list?} <- [
+            {&IngestionFileListView.file_list_view/1, true},
+            {&IngestionFileGridView.file_grid_view/1, false}
+          ] do
+        html =
+          render_component(component,
+            entries: [entry],
+            selected: MapSet.new(),
+            current_dir: ".",
+            ingestion_map: %{
+              "report.md" => %{
+                ingested_at: ~U[2026-06-23 06:00:00Z],
+                ingestion_summary: summary
+              }
+            }
+          )
+
+        if list? do
+          assert html =~ ~s(phx-click="open_ingestion_details")
+          assert html =~ "View ingestion details for report.md"
+          refute html =~ "zaq-ingestion-progress__specific"
+          refute html =~ "English"
+        else
+          assert html =~ "zaq-ingestion-progress__specific"
+          assert html =~ "zaq-ingestion-progress__simple"
+          assert html =~ "English"
+          assert html =~ "Hindi"
+          assert html =~ "2 language-specific"
+          assert html =~ "1 language-neutral indexing"
+        end
+      end
+    end
+
     test "shows move action when move is supported" do
       html =
         render_component(&IngestionFileListView.file_list_view/1,

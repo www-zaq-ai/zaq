@@ -373,7 +373,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
     Application.put_env(:zaq, Zaq.Ingestion, storage_config)
     Application.put_env(:zaq, Zaq.Storage, storage_config)
 
-    %ChannelConfig{}
+    (Repo.get_by(ChannelConfig, provider: "disk") || %ChannelConfig{})
     |> ChannelConfig.changeset(%{
       name: "Disk",
       provider: "disk",
@@ -381,7 +381,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       enabled: true,
       settings: %{"volumes" => [%{"name" => "default", "path" => "."}]}
     })
-    |> Repo.insert!()
+    |> Repo.insert_or_update!()
 
     on_exit(fn ->
       Application.put_env(:zaq, Zaq.Ingestion, original_ingestion || [])
@@ -1760,6 +1760,59 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
     render_hook(view, "close_preview_modal", %{})
     refute has_element?(view, "#file-preview-modal")
+  end
+
+  test "opens persisted ingestion details and extracted Markdown from the list badge", %{
+    conn: conn
+  } do
+    source = disk_source("alpha.md")
+
+    doc =
+      create_document_with_chunk(source, %{
+        metadata: %{
+          "ingestion" => %{
+            "index_backend" => "parade_db",
+            "total_chunks_detected" => 2,
+            "total_chunks_indexed" => 2,
+            "total_chunks_simple_indexed" => 2,
+            "detected_languages" => ["french"],
+            "errors" => []
+          }
+        }
+      })
+
+    doc
+    |> Document.changeset(%{content: "# Extrait français\n\nTexte conservé dans le document."})
+    |> Repo.update!()
+
+    {:ok, view, html} = live(conn, ~p"/bo/ingestion")
+    assert html =~ "View ingestion details for alpha.md"
+    refute html =~ "2 default analyzer"
+
+    view
+    |> element(~s(button[phx-click="open_ingestion_details"][phx-value-path="alpha.md"]))
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "#ingestion-details-modal .zaq-ingestion-progress__language",
+             "French"
+           )
+
+    assert has_element?(
+             view,
+             "#ingestion-details-modal .zaq-ingestion-progress__label--simple",
+             "2 default analyzer"
+           )
+
+    assert has_element?(view, "#ingestion-details-modal .md-content h1", "Extrait français")
+    assert render(view) =~ "Texte conservé dans le document."
+
+    view
+    |> element("#ingestion-details-modal button[phx-click=close_ingestion_details]")
+    |> render_click()
+
+    refute has_element?(view, "#ingestion-details-modal")
   end
 
   test "opens preview from a disk ChannelConfig volume whose path differs from its name", %{

@@ -16,6 +16,11 @@ defmodule Zaq.TestSupport.OpenAIStubTest do
     assert completion["choices"] |> hd() |> Map.get("logprobs") == logprobs
   end
 
+  test "embedding_response/2 uses the OpenAI embedding response shape" do
+    assert %{"data" => [%{"embedding" => [0.2, 0.2, 0.2]}]} =
+             OpenAIStub.embedding_response(3, 0.2)
+  end
+
   test "server/2 builds a Bandit child spec and v1 endpoint" do
     {child_spec, endpoint} = OpenAIStub.server(fn _conn, _body -> {200, "ok"} end, self())
 

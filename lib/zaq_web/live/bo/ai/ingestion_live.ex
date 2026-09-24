@@ -24,6 +24,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Repo
   alias Zaq.System
   alias ZaqWeb.Components.Drawer
+  alias ZaqWeb.Helpers.Markdown
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.DataSourceBrowser
   alias ZaqWeb.Live.BO.DataSourceEvents
@@ -127,6 +128,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        raw_content: "",
        raw_filename: "",
        preview: nil,
+       ingestion_details: nil,
        # Folder drop
        folder_drop_skipped: []
      )
@@ -686,6 +688,40 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   def handle_event("close_preview_modal", _params, socket) do
     {:noreply, PreviewHelpers.close_preview(socket, :modal)}
+  end
+
+  def handle_event("open_ingestion_details", %{"path" => path}, socket) do
+    with {:ok, record} <- preview_record(socket, path),
+         status when is_map(status) <-
+           file_ingestion_status(socket.assigns.ingestion_map, record.name),
+         summary when is_map(summary) <- Map.get(status, :ingestion_summary),
+         %Event{response: {:ok, %{content: content, summary: stored_summary}}} <-
+           Event.new(%{source: ExternalSource.source(record)}, :ingestion,
+             opts: [action: :get_ingestion_details],
+             actor: BOActor.build(socket.assigns.current_user)
+           )
+           |> NodeRouter.dispatch() do
+      details = %{
+        filename: record.name,
+        summary: stored_summary || summary,
+        preview: %{
+          kind: :markdown,
+          filename: record.name,
+          ext: ".md",
+          rendered_html: Markdown.render(content)
+        }
+      }
+
+      {:noreply, assign(socket, modal: :ingestion_details, ingestion_details: details)}
+    else
+      _ ->
+        {:noreply,
+         put_flash(socket, :error, "Ingestion details are unavailable for this document.")}
+    end
+  end
+
+  def handle_event("close_ingestion_details", _params, socket) do
+    {:noreply, assign(socket, modal: nil, ingestion_details: nil)}
   end
 
   # Modal: Add Raw MD
@@ -2166,6 +2202,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     })
     |> Map.merge(%{
       ingested_at: if(ingested?, do: doc.updated_at),
+      ingestion_summary: get_in(doc.metadata || %{}, ["ingestion"]),
       stale?: stale? || false,
       watch_status: watch_state.watch_status,
       watch_error: watch_state.watch_error,

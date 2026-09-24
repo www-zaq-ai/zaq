@@ -15,6 +15,6 @@ defmodule Zaq.Ingestion.Supervisor do
 
   @impl true
   def init(_opts) do
-    Supervisor.init([], strategy: :one_for_one)
+    Supervisor.init([Zaq.Ingestion.ChunkLanguages], strategy: :one_for_one)
   end
 end

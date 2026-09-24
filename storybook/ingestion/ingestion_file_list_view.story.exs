@@ -146,6 +146,13 @@ defmodule Storybook.Ingestion.IngestionFileListView do
       },
       "final.pdf" => %{
         ingested_at: @dt,
+        ingestion_summary: %{
+          "total_chunks_detected" => 8,
+          "total_chunks_indexed" => 7,
+          "total_chunks_simple_indexed" => 2,
+          "detected_languages" => ["english", "hindi", "japanese"],
+          "errors" => [%{"chunk_index" => 8, "message" => "Embedding unavailable"}]
+        },
         stale?: false,
         job_status: nil,
         permissions_count: 0,

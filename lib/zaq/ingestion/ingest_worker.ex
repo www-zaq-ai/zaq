@@ -15,6 +15,7 @@ defmodule Zaq.Ingestion.IngestWorker do
 
   alias Zaq.Ingestion.{
     Chunk,
+    DocumentIngestionSummary,
     ExternalPermissions,
     IngestChunkJob,
     IngestChunkWorker,
@@ -181,7 +182,9 @@ defmodule Zaq.Ingestion.IngestWorker do
       error: nil
     }
 
-    JobLifecycle.transition!(job, attrs)
+    updated_job = JobLifecycle.transition!(job, attrs)
+    DocumentIngestionSummary.refresh(updated_job, new_run: true)
+    JobLifecycle.notify(updated_job)
 
     Enum.each(indexed_payloads, fn {_payload, index} ->
       %{"job_id" => job.id, "chunk_index" => index}

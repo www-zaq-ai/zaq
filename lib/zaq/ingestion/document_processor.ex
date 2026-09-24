@@ -20,7 +20,17 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Embedding.Client, as: EmbeddingClient
-  alias Zaq.Ingestion.{Chunk, Document, DocumentAccess, DocumentChunker, FTSBackend}
+
+  alias Zaq.Ingestion.{
+    Chunk,
+    ChunkLanguages,
+    Document,
+    DocumentAccess,
+    DocumentChunker,
+    DocumentIngestionSummary,
+    FTSBackend
+  }
+
   alias Zaq.Ingestion.LanguageDetector
   alias Zaq.Ingestion.Python.Pipeline
   alias Zaq.Ingestion.Python.Steps.{DocxToMd, ImageToText, PptxToMd, XlsxToMd}
@@ -631,6 +641,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     case Enum.find(normalized_results, &structural_error?/1) do
       nil ->
         ingested_chunks = Chunk.count_by_document(document_id)
+        :ok = DocumentIngestionSummary.refresh_inline(document_id, chunks, results, reset_chunks)
 
         {:ok,
          %{
@@ -666,6 +677,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp chunk_to_payload(%DocumentChunker.Chunk{} = chunk) do
     %{
+      "language" => LanguageDetector.detect(chunk.content),
       "section_id" => chunk.section_id,
       "content" => chunk.content,
       "section_path" => chunk.section_path,
@@ -718,12 +730,23 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp insert_chunk(%DocumentChunker.Chunk{} = chunk, document_id, index, embedding) do
     language = LanguageDetector.detect(chunk.content)
 
+    search_configuration =
+      case FTSBackend.impl() do
+        FTSBackend.Native ->
+          FTSBackend.Native.configuration_for(language) |> String.split(".") |> List.last()
+
+        # The current ParadeDB index has no language-specific analyzer. Until
+        # one is provisioned this is the language-neutral equivalent of simple.
+        FTSBackend.ParadeDB ->
+          "simple"
+      end
+
     attrs = %{
       document_id: document_id,
       content: chunk.content,
       chunk_index: index,
       section_path: chunk.section_path,
-      metadata: build_metadata(chunk),
+      metadata: Map.put(build_metadata(chunk), "search_configuration", search_configuration),
       embedding: Pgvector.HalfVector.new(embedding),
       language: language
     }
@@ -733,6 +756,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     |> Repo.insert()
     |> case do
       {:ok, record} ->
+        ChunkLanguages.invalidate()
         {:ok, record}
 
       {:error, changeset} ->
@@ -815,20 +839,26 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     team_ids = Keyword.get(access_opts, :team_ids, [])
     skip_permissions = Keyword.get(access_opts, :skip_permissions, false)
     source_filter = Keyword.get(access_opts, :source_filter, [])
+    language = Keyword.get(access_opts, :language)
 
-    with {:ok, grouped} <- retrieve(query, source_filter),
+    with {:ok, grouped} <- retrieve(query, source_filter, language),
          sections = build_query_sections(grouped),
-         {:ok, data} <- fetch_sections_with_source(sections) do
+         {:ok, data} <- fetch_sections_with_source(sections, language) do
       filtered = apply_permission_filter(data, skip_permissions, person_id, team_ids)
-      {:ok, limit_to_context_window(filtered)}
+
+      if Keyword.get(access_opts, :unbounded, false) do
+        {:ok, filtered}
+      else
+        {:ok, limit_to_context_window(filtered)}
+      end
     end
   end
 
-  defp retrieve(query, source_filter) do
+  defp retrieve(query, source_filter, language) do
     limit = hybrid_search_limit()
 
-    bm25_task = Task.async(fn -> bm25_search_group_by(query, limit, source_filter) end)
-    vector_task = Task.async(fn -> similarity_search_group_by(query, source_filter) end)
+    bm25_task = Task.async(fn -> bm25_search_group_by(query, limit, source_filter, language) end)
+    vector_task = Task.async(fn -> similarity_search_group_by(query, source_filter, language) end)
 
     with {:ok, bm25} <- Task.await(bm25_task, 30_000),
          {:ok, vector} <- Task.await(vector_task, 30_000) do
@@ -866,7 +896,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Enum.reverse(answer)
   end
 
-  defp similarity_search_group_by(query_text, source_filter) do
+  @doc "Applies the ingestion-owned context budget after cross-language merging."
+  def limit_chunks(chunks) when is_list(chunks), do: limit_to_context_window(chunks)
+
+  defp similarity_search_group_by(query_text, source_filter, language) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       threshold = distance_threshold()
@@ -885,6 +918,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           section_path: c.section_path,
           vector_distance: fragment("? <-> ?", c.embedding, ^embedding_vector)
         })
+
+      base = FTSBackend.maybe_filter_language(base, language)
 
       query =
         if source_filter == [] do
@@ -918,8 +953,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Files (paths containing a `.` in the last segment) are matched exactly;
   folders and connectors are matched via prefix (`LIKE "prefix/%"`).
   """
-  def bm25_search_group_by(query_text, limit, source_filter \\ []) do
-    FTSBackend.impl().bm25_search_group_by(query_text, limit, source_filter)
+  def bm25_search_group_by(query_text, limit, source_filter \\ [], language \\ nil) do
+    if is_nil(language) do
+      FTSBackend.impl().bm25_search_group_by(query_text, limit, source_filter)
+    else
+      FTSBackend.impl().bm25_search_group_by(query_text, limit, source_filter, language)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -1008,9 +1047,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp sort_sections(sections, :desc),
     do: Enum.sort_by(sections, fn {doc_id, path, score} -> {-score, doc_id, path} end)
 
-  defp fetch_sections_with_source([]), do: {:ok, []}
+  defp fetch_sections_with_source([], _language), do: {:ok, []}
 
-  defp fetch_sections_with_source(sections) do
+  defp fetch_sections_with_source(sections, language) do
     distance_map = Map.new(sections, fn {doc_id, path, dist} -> {{doc_id, path}, dist} end)
 
     or_filter =
@@ -1022,6 +1061,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       Chunk
       |> join(:inner, [c], d in Document, on: c.document_id == d.id)
       |> where([c, _d], ^or_filter)
+      |> FTSBackend.maybe_filter_language(language)
       |> select([c, d], %{
         content: c.content,
         metadata: c.metadata,
@@ -1049,6 +1089,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           "source" => r.source,
           "distance" => distance_map[{r.document_id, r.section_path}],
           "document_id" => r.document_id,
+          "chunk_index" => r.chunk_index,
           "section_path" => r.section_path,
           "title" => r.title,
           "watch_status" => r.watch_status,

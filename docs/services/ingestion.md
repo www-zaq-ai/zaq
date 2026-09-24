@@ -38,6 +38,11 @@ Canonical records (from any data-source bridge)
 
 ### Public API (`Zaq.Ingestion`)
 
+The Ingestion role's `:get_ingestion_details` event fetches the persisted
+extracted Markdown and current document summary on demand for BO's ingestion
+details modal. It checks the event actor's document read permission before
+returning content; an absent actor never grants access.
+
 **Ingestion triggers**
 - `ingest_records/2` — the entry point; takes `%Zaq.Contracts.Record{}` values from any data-source bridge and a `%{mode: :async | :inline}` map, and answers `{:ok, jobs}` or `{:error, {:partial_failure, jobs, errors}}`
 - `ingest_record/2` — one record; a file record becomes a job, a folder record is expanded through `RecordSource.list_children/1` and fanned back into `ingest_records/2`
@@ -154,7 +159,25 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - `similarity_search/2` — vector-only search with configurable distance threshold
 - `similarity_search_count/1` — count of unique chunks matching via hybrid union
 - `query_extraction/2` — token-limited context builder for the answering agent (max context window from `Zaq.System.get_llm_config/0`). Each authorized result contains chunk `content`, `metadata`, and `language` plus its document `source`, `title`, stored `watch_status`, `inserted_at`, and `updated_at`; timestamps are UTC ISO-8601 strings and nullable fields remain `nil`. The timestamps describe the ZAQ document row, and `watch_status` is the direct stored state rather than inherited folder-watch state. Ranking identifiers remain available to internal consumers. For denied results, content is replaced by the access-denied marker and the added document/chunk context fields are omitted.
-- Uses `LanguageDetector` to choose per-chunk text-search language config with confidence threshold fallback
+- An optional `:language` selects one detected language (including legacy nil
+  in the `simple` bucket) across keyword, vector and section hydration before
+  candidate limits; `:unbounded` leaves final context limiting to the
+  multilingual caller. Neither changes the late permission filter. The Ingestion
+  role also exposes explicit language-discovery, search and final-limit events.
+- `ChunkLanguages` holds a global, permission-unfiltered ETS inventory backed by
+  persisted chunks. Chunk writes invalidate it across nodes via PubSub; the
+  30-second expiry repairs missed invalidations and direct database deletions.
+- Async ingestion keeps the current run's detected/indexed/simple-indexed
+  counts, language lists and final chunk errors in `documents.metadata.ingestion`.
+  These metrics are derived from child-job and persisted-chunk state rather than
+  incremented by concurrent workers. The BO status views render accessible
+  language chips and a three-part progress bar from that metadata.
+- Uses `LanguageDetector` to persist each chunk's detected language. Native
+  `content_tsv` uses the installed PostgreSQL configuration of that name or
+  `simple` when unavailable; the generated column and one shared GIN index are
+  provisioned during table creation and rebuilt by the multilingual migration.
+  See [language indexing operations](../operations/language-indexing.md) for
+  optional extension installation and rebuild precautions.
 - Current limitation: `prepare_file_chunks/1` materializes all chunk payloads in memory before persistence/scheduling
 - External data-source records persist their signed `materialization_handle` when available.
   `RecordSource.materialize/1` redeems handles through `Zaq.Materialization`; records without

@@ -11,6 +11,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
   import ZaqWeb.Components.DesignSystem.Table.Grid, only: [grid: 1, grid_card: 1]
 
   import ZaqWeb.Components.DesignSystem.IngestionFileStatus
+  import ZaqWeb.Components.DesignSystem.IngestionProgress, only: [ingestion_progress: 1]
 
   alias ZaqWeb.Components.DesignSystem.IngestionFileIcon, as: IngFileIcon
   alias ZaqWeb.Components.DesignSystem.StatusPill
@@ -280,6 +281,10 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
           </span>
         </div>
     <% end %>
+    <.ingestion_progress
+      :if={is_map(Map.get(@status, :ingestion_summary))}
+      summary={@status.ingestion_summary}
+    />
     """
   end
 

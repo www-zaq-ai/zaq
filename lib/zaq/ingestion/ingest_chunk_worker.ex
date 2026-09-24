@@ -22,7 +22,15 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
 
   alias Zaq.Engine.Telemetry
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{DocumentChunker, IngestChunkJob, IngestJob, JobLifecycle}
+
+  alias Zaq.Ingestion.{
+    DocumentChunker,
+    DocumentIngestionSummary,
+    IngestChunkJob,
+    IngestJob,
+    JobLifecycle
+  }
+
   alias Zaq.Repo
 
   require Logger
@@ -146,31 +154,41 @@ defmodule Zaq.Ingestion.IngestChunkWorker do
   end
 
   defp maybe_finalize_job(ingest_job) do
-    Repo.transaction(fn ->
-      locked_job =
-        IngestJob
-        |> where([j], j.id == ^ingest_job.id)
-        |> lock("FOR UPDATE")
-        |> Repo.one!()
+    result =
+      Repo.transaction(fn ->
+        locked_job =
+          IngestJob
+          |> where([j], j.id == ^ingest_job.id)
+          |> lock("FOR UPDATE")
+          |> Repo.one!()
 
-      if locked_job.status in @terminal_job_statuses do
-        :ok
-      else
-        snapshot = IngestChunkJob.finalization_snapshot(locked_job.id)
+        if locked_job.status in @terminal_job_statuses do
+          :ok
+        else
+          snapshot = IngestChunkJob.finalization_snapshot(locked_job.id)
 
-        attrs = %{
-          total_chunks: snapshot.total,
-          ingested_chunks: snapshot.completed,
-          chunks_count: snapshot.completed,
-          failed_chunks: snapshot.failed_final,
-          failed_chunk_indices: snapshot.failed_chunk_indices
-        }
+          attrs = %{
+            total_chunks: snapshot.total,
+            ingested_chunks: snapshot.completed,
+            chunks_count: snapshot.completed,
+            failed_chunks: snapshot.failed_final,
+            failed_chunk_indices: snapshot.failed_chunk_indices
+          }
 
-        locked_job
-        |> finalization_decision(snapshot)
-        |> apply_finalization(locked_job, snapshot, attrs)
-      end
-    end)
+          updated_job =
+            locked_job
+            |> finalization_decision(snapshot)
+            |> apply_finalization(locked_job, snapshot, attrs)
+
+          DocumentIngestionSummary.refresh(updated_job)
+          updated_job
+        end
+      end)
+
+    case result do
+      {:ok, %IngestJob{} = updated_job} -> JobLifecycle.notify(updated_job)
+      _ -> :ok
+    end
 
     :ok
   end

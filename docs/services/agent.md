@@ -33,14 +33,17 @@ Before writing any new agent-service code, verify which entry point already cove
 
 | I need to… | Use |
 |---|---|
-| Make an LLM call | `Factory.ask/2` or `Factory.ask_with_config/4` — never call ReqLLM or Jido directly |
+| Ask a configured agent with its tools, history and lifecycle | `Executor.run/2` → `Factory.ask_with_config/4` |
+| Make a focused, tool-free one-shot LLM transformation | Keep generation in its owning Action/module; use `ProviderSpec.build/1` and `ProviderSpec.generation_opts/1` for the configured provider. Do not add a generic Factory wrapper for one caller. |
 | Execute a configured agent | `Executor.run/2` — handles server presence, config loading, factory delegation |
 | Build a response from pipeline output | `Outgoing.from_pipeline_result/2` — do not construct response maps inline |
 | Store or read conversation turns | `Zaq.Agent.History` — `build/1`, `entry_key/2` |
 | Resolve provider credentials or endpoint URL | `get_ai_provider_credential/1` then `Factory.build_model_spec/1` — nowhere else |
-| Translate a provider name to a ReqLLM atom | `ProviderSpec.reqllm_provider/1`; model discovery may use this narrow contract, while generation uses `Factory` |
+| Translate a provider name to a ReqLLM atom | `ProviderSpec.reqllm_provider/1`; generation uses `ProviderSpec` for model and options regardless of the owning entry point |
 
-If the existing entry point does not cover your case, **extend it** — do not create a parallel path.
+Extend an entry point only when the operation belongs to its documented
+responsibility. A one-shot translation is not a configured-agent session and
+does not belong in `Factory` merely because it generates text.
 
 Datasource file tools and communication attachments may return records with signed
 `materialization_handle` values and data-source `provenance_ref` values. Tools
@@ -405,7 +408,17 @@ without safe permission mutation support return `:unsupported`.
 ### Built-in Agent Tools (`Zaq.Agent.Tools.SearchKnowledgeBase`, `Zaq.Agent.Tools.ListKnowledgeBaseFiles`)
 - Tool implementations exposed to configured agents through `Tools.Registry`
 - Availability remains controlled by enabled tool keys and provider capabilities
-- `SearchKnowledgeBase` returns the permission-filtered `DocumentProcessor.query_extraction/2` chunks unchanged. The default answering pipeline passes only `content`, `source`, document `title`/stored `watch_status`/UTC timestamps, and chunk `metadata`/`language` into the prompt; internal ranking and database identifiers are not prompt context.
+- `SearchKnowledgeBase` discovers globally persisted chunk languages from
+  Ingestion's ETS-backed inventory, translates the query in one internal
+  `TranslateKnowledgeQuery` Action using `ProviderSpec` for the configured model,
+  and searches
+  each language concurrently through explicit Ingestion events. Ingestion
+  applies ACLs after retrieval and filters candidates/chunks by language.
+  Results are merged by existing hybrid-fusion score and globally limited by
+  Ingestion's context budget. The tool returns chunks with their detected
+  language and explicit per-language errors plus a `partial` flag when only
+  some searches succeed. `simple` chunks use the original query. No translation
+  operation is exposed in `Tools.Registry`.
 
 ### Conversation Recall Tool (`Zaq.Agent.Tools.Accounts.History`, key `accounts.fetch_history`)
 - Recalls the requesting person's past conversations by topic (`query`) and/or time
