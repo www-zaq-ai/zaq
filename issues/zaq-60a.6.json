@@ -16,11 +16,15 @@
     {
       "text": "Awaiting explicit UX/UI approval; Storybook page /storybook/ingestion/ingestion_progress, file list/grid badges and bar implemented but dev browser inspection blocked by local development DB connection pool. Approval does not follow from unit/E2E results or generated Storybook fixtures.",
       "timestamp": "2026-09-23T14:38:43Z"
+    },
+    {
+      "text": "UX/UI approval recorded: user said “Looks good now” after reviewing the revised Ingested badge details modal, extracted Markdown preview and ParadeDB default-analyzer labeling; subsequent “Go” explicitly authorizes proceeding with finalization. Scope: multilingual ingestion list/grid, modal progress/language/errors/preview and truthful ParadeDB label. Approval is for E2E authoring, not Git commit/push.",
+      "timestamp": "2026-09-24T13:02:46Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-60a] Human UX/UI approval for multilingual ingestion",
   "type": "task",
-  "updated_at": "2026-09-23T14:38:43Z"
+  "updated_at": "2026-09-24T13:02:46Z"
 }
