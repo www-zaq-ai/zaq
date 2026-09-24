@@ -10,11 +10,15 @@
     {
       "text": "Committed multilingual ingestion feature as 3c23489b9 and pushed origin/zaq-60a/multilingual-ingestion. Commit hooks qf and message check passed; push hook format passed. Targeted E2E across three browsers 21 passed/3 skipped, full ingestion LiveView 195 passed. Full npm E2E timed out at Chromium test 322/remaining, no reported failures; numerical coverage/PR review and final mix precommit remain pending. No PR/merge yet.",
       "timestamp": "2026-09-24T14:09:58Z"
+    },
+    {
+      "text": "PR 794 feature CI repair (working tree, not committed): PipelineTest and ChatLiveTest router doubles now handle explicit Ingestion language/search/limit events while retaining answer/citation assertions. Native FTS unscoped retrieval uses per-language indexed searches and globally merges ranked candidates; count query uses language-matched config predicates; simple heading regression covered. Action reuse: extended existing FTSBackend.Native and existing SearchKnowledgeBase contract, no new Action or agent tool. mix q passed; scoped 8 properties + 277 tests passed (60 excluded by backend tags). E2E, coverage and final precommit deliberately out of scope per user. No push requested.",
+      "timestamp": "2026-09-24T17:09:35Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[multilingual-search] Multilingual ingestion and search with partial-index progress",
   "type": "epic",
-  "updated_at": "2026-09-24T14:09:58Z"
+  "updated_at": "2026-09-24T17:09:35Z"
 }
