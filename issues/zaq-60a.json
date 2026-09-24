@@ -6,9 +6,15 @@
   "description": "Implement agreed multilingual search, database-generated native vectors, ParadeDB support, document metadata/error counters, ETS language inventory, and accessible segmented progress UI. Native image unchanged. Global language inventory unscoped; ACL after retrieval. E2E human UI approval gate.",
   "id": "zaq-60a",
   "labels": [],
+  "comments": [
+    {
+      "text": "Committed multilingual ingestion feature as 3c23489b9 and pushed origin/zaq-60a/multilingual-ingestion. Commit hooks qf and message check passed; push hook format passed. Targeted E2E across three browsers 21 passed/3 skipped, full ingestion LiveView 195 passed. Full npm E2E timed out at Chromium test 322/remaining, no reported failures; numerical coverage/PR review and final mix precommit remain pending. No PR/merge yet.",
+      "timestamp": "2026-09-24T14:09:58Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[multilingual-search] Multilingual ingestion and search with partial-index progress",
   "type": "epic",
-  "updated_at": "2026-09-23T12:47:32Z"
+  "updated_at": "2026-09-24T14:09:58Z"
 }
