@@ -17,11 +17,15 @@
     {
       "text": "Finalization scope after user approval: E2E on real BO ingestion route for compact badge -\u003e details modal, detected languages + neutral/default analyzer segments, persisted extracted Markdown, partial errors and corrected retry-state display; existing knowledge_ops_lead journey covers queryability. E2E server uses DocumentProcessorFake, so deterministic E2E-only summary fixture verifies UI while real four-document/worker/error+retry ingestion and multilingual search stay covered in isolated integration tests. Do not claim E2E fake proves real detector/analyzer/LLM behavior.",
       "timestamp": "2026-09-24T13:05:41Z"
+    },
+    {
+      "text": "Implemented consolidated browser UI journey in test/e2e/specs/multilingual_ingestion.spec.js with an E2E-only summary fixture (test/support/e2e/e2e_controller.ex; gated router). Checks modal trigger, persisted Markdown, detected Arabic/English/French chips, ParadeDB default-analyzer segments, partial failure and recovered display. Firefox single journey passed; full ingestion+knowledge+multilingual specs passed across Firefox/WebKit/Chromium: 21 passed, 3 pre-existing skipped. Full ingestion_live_test.exs 195 tests passed after idempotent disk config setup. mix q passed. Full npm run test attempted with 900s timeout, progressed to Chromium test 322 with no shown failures but never finished; orphan runner terminated. E2E fake cannot prove actual language-specific search: real ingestion+search verified in scoped integration tests. Full-suite timeout and post-PR review/coverage/precommit gate remain pending; no commits/push.",
+      "timestamp": "2026-09-24T13:30:20Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-60a] Consolidated multilingual ingestion E2E",
   "type": "task",
-  "updated_at": "2026-09-24T13:05:41Z"
+  "updated_at": "2026-09-24T13:30:20Z"
 }
