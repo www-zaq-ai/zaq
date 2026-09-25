@@ -15,11 +15,15 @@
     {
       "text": "Role skeleton committed cf4b1d856 after 2 properties + 7 focused tests passing with ROLES=serving; mix q and pre-commit quick checks pass. Serving-only boot passes, empty supervisor and fail-closed API tested, and native backends do not auto-start. Validation limitation: default all/BO/Engine app boot in this worktree exits code 137 at existing LLMDB.load(ZAQRouter.llmdb_opts()), isolated by manual per-child startup tracing. Full pre-existing application/router suites therefore cannot execute in this worktree; cannot claim BO/Engine-only boot regression tested. This issue remains in_progress pending resolution or an explicitly accepted validation exception. No push or merge.",
       "timestamp": "2026-09-25T18:12:01Z"
+    },
+    {
+      "text": "Validation blocker resolved by zaq-za4.22 commit 8274d53a6 on descendant branch. Full default-role isolated regression suites (application, NodeRouter, NodeRoles, Serving role/platform) now pass: 2 property + 51 ExUnit tests, 0 failures. mix q passes. Serving-only startup had previously passed 2 property + 7 role tests and explicit ROLES=serving boot. Core role code remains committed cf4b1d856. Ready to close; no push/merge.",
+      "timestamp": "2026-09-25T18:37:46Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-za4.6] Add serving role and lightweight supervised startup",
   "type": "task",
-  "updated_at": "2026-09-25T18:12:19Z"
+  "updated_at": "2026-09-25T18:37:46Z"
 }
