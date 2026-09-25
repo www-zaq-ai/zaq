@@ -19,11 +19,15 @@
     {
       "text": "Archive follow-up: scoped identity FK rejects hard delete; archived configs excluded from runtime/provider lookup and new ingress identity resolution while historical PersonChannel lookup by connector id remains. BO archive event through Channels NodeRouter syncs runtime after archiving; DB check prevents archived enabled state even via raw changeset. BO + connector + identity focused tests pass, mix q was clean before latest SMTP/metadata tests; final gate still pending.",
       "timestamp": "2026-09-25T12:33:29Z"
+    },
+    {
+      "text": "Human decision: archive of data-source connector must attempt provider unwatch of every active subscription before disabling/archive; if any teardown fails, leave connector live, report failed watches for retry. Already-successful unwatches must be recorded stopped so later retries are idempotent; do not claim atomic rollback of external provider effects.",
+      "timestamp": "2026-09-25T13:28:27Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.22] Archive connector while retaining scoped identities and history",
   "type": "task",
-  "updated_at": "2026-09-25T12:33:29Z"
+  "updated_at": "2026-09-25T13:28:27Z"
 }
