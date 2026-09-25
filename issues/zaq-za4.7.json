@@ -16,11 +16,15 @@
     {
       "text": "Action reuse assessment (partial implementation): searched lib/zaq/agent/tools and lib/zaq/actions for hardware/backend/probe/memory/capability; only generic model-tool capability registry, no hardware operation. Decision: local-only Zaq.Serving.Hardware.probe/1, Backend.select/2, Hardware.RuntimeProbe.run/1 and Memory pure parsers. Node-local measurements and native subprocess probes are startup/serving-domain infrastructure, not composable agent Actions; automatic agent-tool exposure would cross ownership/privacy boundaries. Contract: read-only node-local snapshot with expiry, unknown measurements nil, native tiny tensor check isolated in bounded child; explicit override fails closed; no actor or user side effects, retries require fresh probe. Consumers: future Serving lifecycle/Engine event API, not Agent/workflow. Verification: pure fixture/property tests and macOS native smoke; Linux build/hardware verification pending.",
       "timestamp": "2026-09-25T19:07:02Z"
+    },
+    {
+      "text": "Progress (uncommitted): added local capability DTO, Linux cgroup/meminfo parsing and effective memory, explicit fail-closed backend selection and node-local override, and isolated native EMLX/EXLA tiny-tensor probes (8s timeout; does not start models). Mac arm64 smoke: EMLX GPU and CPU probes succeeded, selected emlx_gpu; unknown free memory remains nil. Serving-only focused suite passes 1 property + 13 tests, mix q passes. Issue remains in_progress: no cross-role reporting or Engine coordination yet (later siblings), Linux EXLA CUDA/CPU and cgroup v1/v2 real host smoke not available here, test DB in this worktree unprepared so full default-role tests cannot run. No commit/push/merge. Action reuse: local-only hardware infrastructure, not agent Action (prior comment).",
+      "timestamp": "2026-09-25T19:10:00Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-za4.7] Implement hardware capability probes and backend selection",
   "type": "task",
-  "updated_at": "2026-09-25T19:07:02Z"
+  "updated_at": "2026-09-25T19:10:00Z"
 }
