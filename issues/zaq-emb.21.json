@@ -33,11 +33,15 @@
     {
       "text": "Expanded outbound multi-connector audit: Outgoing now carries trusted Incoming.routing_context (not metadata), Channels.Api.deliver_outgoing resolves exact provider-matching connector credentials, provider-only ambiguous delivery fails closed. Agent.Status carries same context into status upserts; API selects exact connector for updates. Identity profile/DM scope and webhook scope already done. Focused agent/API/status 139 tests pass after one isolated timing-sensitive existing status test retry; mix q passes. Remaining: inspect other provider-only operations and integrated multi-connector message transport before closing/committing.",
       "timestamp": "2026-09-25T16:59:56Z"
+    },
+    {
+      "text": "Remaining BO gap from provider-only audit: NotificationImapLive and NotificationSmtpLive use get_any_by_provider and IMAP upsert_by_provider, so with multiple live same-provider configs the special email settings pages display blank/default instead of a selected connector (save fails closed). Generic ChannelsLive retrieval picker already supports multiple. Need explicit email-page connector selection or route it to existing picker before claiming full multi-connector BO support. No silent mutation observed; leave bead open.",
+      "timestamp": "2026-09-25T17:04:46Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T16:59:56Z"
+  "updated_at": "2026-09-25T17:04:46Z"
 }
