@@ -266,7 +266,10 @@ test.describe("System Config", () => {
       await expect(page.locator('input[name="llm_config[temperature]"]')).toBeVisible()
       await expect(page.locator('input[name="llm_config[top_p]"]')).toBeVisible()
       await expect(page.locator('input[name="llm_config[max_context_window]"]')).toBeVisible()
-      await expect(page.locator('input[name="llm_config[distance_threshold]"]')).toBeVisible()
+      const cosineDistance = page.locator('input[name="llm_config[max_cosine_distance]"]')
+      await expect(cosineDistance).toBeVisible()
+      await expect(cosineDistance).toHaveAttribute("min", "0")
+      await expect(cosineDistance).toHaveAttribute("max", "2")
     })
 
     test("credential selector opens and accepts option filtering", async ({ page }) => {
@@ -376,13 +379,34 @@ test.describe("System Config", () => {
       await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
     })
 
-    test("distance_threshold of 0 is rejected (must be > 0)", async ({ page }) => {
-      const field = page.locator('input[name="llm_config[distance_threshold]"]')
-      await field.fill("0")
-      await field.press("Tab")
-      await page.getByRole("button", { name: "Save LLM Settings" }).click()
-      await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
-    })
+    for (const boundary of ["0", "2"]) {
+      test(`cosine distance boundary ${boundary} saves and persists`, async ({ page }) => {
+        const field = page.locator('input[name="llm_config[max_cosine_distance]"]')
+        // The existing top_p default is not on its HTML step grid.
+        await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
+        await field.fill(boundary)
+        await field.press("Tab")
+        await waitForLiveViewSettled(page)
+        await page.getByRole("button", { name: "Save LLM Settings" }).click()
+        await expect(page.getByText("LLM settings saved.")).toBeVisible()
+        await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
+        await expect(page.locator('input[name="llm_config[max_cosine_distance]"]')).toHaveJSProperty("valueAsNumber", Number(boundary))
+      })
+    }
+
+    for (const invalid of ["-0.01", "2.01"]) {
+      test(`cosine distance ${invalid} is rejected without changing persisted settings`, async ({ page }) => {
+        const field = page.locator('input[name="llm_config[max_cosine_distance]"]')
+        const persisted = await field.evaluate(input => input.valueAsNumber)
+        await field.fill(invalid)
+        await field.press("Tab")
+        await waitForLiveViewSettled(page)
+        await page.getByRole("button", { name: "Save LLM Settings" }).click()
+        await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
+        await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
+        await expect(page.locator('input[name="llm_config[max_cosine_distance]"]')).toHaveJSProperty("valueAsNumber", persisted)
+      })
+    }
 
     // ── API key persistence ───────────────────────────────────────────────
 
