@@ -11,9 +11,15 @@
   "id": "zaq-rft.4",
   "labels": [],
   "parent": "zaq-rft",
+  "comments": [
+    {
+      "text": "Added offline, fixture-driven Jido.Exec.run(SearchKnowledgeBase) integration per question with real NodeRouter, DocumentProcessor, SQL lexical/vector, fusion, public grants and result hydration; stubs only translation generation and query embedding HTTP with exact-input map. Checks identity, content, language, retrieval legs, cosine vector_distance ranges, no duplicates, negative and lexical-only result. Requires isolated 3584 test partition; native backend pinned in native partition, ParadeDB functional check in parade partition. Both backends 11/11 pass; one intermittent isolated native failure was observed earlier without retained details, then four native reruns and later 11-question run passed. Watch for sandbox ownership/race in CI. Uncommitted.",
+      "timestamp": "2026-09-25T12:59:36Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-rft.4] Real retrieval integration consumer",
   "type": "task",
-  "updated_at": "2026-09-25T12:04:48Z"
+  "updated_at": "2026-09-25T12:59:36Z"
 }
