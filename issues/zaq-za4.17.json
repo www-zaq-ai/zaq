@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T16:47:44Z",
+  "description": "## Assigned scope\nOwn real platform acceptance, release-build support matrix and checkpoint/profile/backend/hardware/memory evidence for all four tasks. Missing required runners remain blockers; do not substitute simulated acceleration.\n\nFull contracts, architecture, persistence, privacy, platform candidates, and Action reuse evidence are embedded in parent zaq-za4. This issue owns only the assigned subset of work package S8; sibling issues own the rest.\n\n### S8 — Platform acceptance, UX approval, E2E, documentation and final gates\n\n- **Files/specification:** focused integration/property/platform tests, approved feature E2E, CI/deployment profile files, serving/operator documentation and docs index links.\n- **Tests first:** define acceptance scenarios before coding earlier steps; author new feature E2E only after completed-feature human UX/UI approval. Cover add → inspect → load → test each task → unload, partial eligibility, restart convergence and authorization failure.\n- **Paths validated:** all four tasks on CPU, Linux NVIDIA and native Apple Silicon for configurations claiming support. Record exact hardware, OS, driver/backend versions, checkpoint commits, dtype/profile, peak observed memory and output tolerances. Unsupported combinations remain explicitly ineligible; required missing hardware validation is a completion blocker.\n- **Mocks:** no simulated accelerator results presented as platform acceptance; HF edge fixtures remain suitable for ordinary deterministic E2E/CI where model artifacts are preloaded.\n- **Docs:** `docs/services/serving.md`, `docs/architecture.md`, `docs/services/engine.md`, `docs/services/system-config.md`, `docs/dev-setup.md`, new operator/user guides and `docs/README.md`; add only links at routing/index owners.\n- **Reuse/validation:** follow `docs/WORKFLOW_AGENT.md#phase-4--validate` and later review/coverage/final-approval phases. Run `mix q` plus issue-isolated tests during delivery; final `mix precommit` after all required implementation, E2E/review/coverage work. Do not repeat or weaken passing assertions merely to reach a numeric target.\n\n\n\n## Execution requirements\nRead AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service/design guides. Tests first as specified above; only feature E2E awaits final human UX approval. Read edited module docs; use Zaq.Config and existing actor/event/startup seams. No routine application-env mutation or blanket internal mocks. Preserve NodeRouter/credential/privacy boundaries. No task is implemented at creation.\n\n## Prerequisites\nzaq-za4.16",
+  "id": "zaq-za4.17",
+  "labels": [],
+  "parent": "zaq-za4",
+  "priority": 2,
+  "status": "open",
+  "title": "Validate CPU NVIDIA and Apple Silicon model support",
+  "type": "task",
+  "updated_at": "2026-09-25T16:47:44Z"
+}
