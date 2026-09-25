@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-25T23:49:32Z",
@@ -7,8 +7,8 @@
   "id": "zaq-plx",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[python-ci] Fold crawler Python test into default CI suite",
   "type": "task",
-  "updated_at": "2026-09-25T23:49:32Z"
+  "updated_at": "2026-09-25T23:49:36Z"
 }
