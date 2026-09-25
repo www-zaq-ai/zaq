@@ -61,11 +61,15 @@
     {
       "text": "Scope correction from human (2026-09-26): shared connector-bar UI is for communication channels only. Do NOT extend or replace DataSources.ProviderLive cards under this UI work. ChannelsLive route is /channels/retrieval/:provider; data-source routes use a separate ProviderLive. Existing #768 data-source watch/archive backend work remains separate from this UI clarification.",
       "timestamp": "2026-09-25T22:14:56Z"
+    },
+    {
+      "text": "Communications-only UI scope confirmed; no DataSources.ProviderLive card replacement. Follow-up regression exposed archive-default takeover: fixed ChannelConfig.resolve_notification_smtp to honor an explicitly designated default even if archived/disabled instead of promoting remaining connector; SmtpSender propagates missing-default error. New archive-default regression + email/BO focused 171 tests pass; mix q and git diff --check pass. No commit/push. Remaining prerequisites: broader API/bridge and notification integration audit, coverage/human UX E2E approval and migration handling.",
+      "timestamp": "2026-09-25T22:19:43Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T22:14:56Z"
+  "updated_at": "2026-09-25T22:19:43Z"
 }
