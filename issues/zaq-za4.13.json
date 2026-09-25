@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T16:47:27Z",
+  "description": "## Assigned scope\nOwn internal selected-node routing only. Validate discovered role membership, preserve omitted-selector behavior, never silently fall back or create atoms from user strings. This is not deployment placement.\n\nFull contracts, architecture, persistence, privacy, platform candidates, and Action reuse evidence are embedded in parent zaq-za4. This issue owns only the assigned subset of work package S6; sibling issues own the rest.\n\n### S6 — Ready-instance dispatch and typed playground execution\n\n- **Files/specification:** narrow `node_router.ex` extension and behavior contract as required; Engine serving execution coordinator; Serving execute/cancel handlers; task input/output DTOs. Select a fresh ready replica internally and return request ID, bounded result/stream and provenance.\n- **Tests first:** omitted selector preserves routing; selected target must advertise role; bad/offline target never falls through; correct model/generation; pre-accept busy retries versus ambiguous post-accept timeout; duplicate request IDs; stale/disordered stream chunks; disconnect/cancel; request-owner checks.\n- **Paths validated:** one request executes on one ready node despite a blocked peer; model unload/drain races; context/question/output limits; confidential envelopes omit text/results from observers. Verify actual multi-node delivery in a bounded distributed integration test.\n- **Mocks:** external HF only; real router/role handlers and deterministic tiny model execution. Resolve runtime dependencies through production `Zaq.Config`/event/startup seams.\n- **Docs:** NodeRouter selector contract in architecture; serving task/event/stream contract; module API docs.\n- **Reuse:** extend NodeRouter rather than bypassing it with ad-hoc RPC; new test/cancel Actions share Engine execution logic.\n\n\n\n## Execution requirements\nRead AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service/design guides. Tests first as specified above; only feature E2E awaits final human UX approval. Read edited module docs; use Zaq.Config and existing actor/event/startup seams. No routine application-env mutation or blanket internal mocks. Preserve NodeRouter/credential/privacy boundaries. No task is implemented at creation.\n\n## Prerequisites\nzaq-za4.12",
+  "id": "zaq-za4.13",
+  "labels": [],
+  "parent": "zaq-za4",
+  "priority": 2,
+  "status": "open",
+  "title": "Add trusted ready-instance selection to NodeRouter",
+  "type": "task",
+  "updated_at": "2026-09-25T16:47:27Z"
+}
