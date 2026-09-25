@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.13"
+  ],
   "blocks": [],
   "created": "2026-09-25T09:36:46Z",
   "description": "After implementation review, explicit UX approval and consolidated E2E, invoke required coverage handoff per WORKFLOW_AGENT.md; fresh reports, record gaps/exceptions, repeat affected issue checks after changes. Numerical targets belong here. No implementation completion claim from historical tests. Files: affected test suites only in implementation phase. Action reuse: not applicable, validation coordination. Documentation: Beadwork results and review evidence; no parallel standards. Mocking: testing handbook applies.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.19] Coverage handoff and review after approved feature E2E",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:47Z"
+  "updated_at": "2026-09-25T09:36:57Z"
 }

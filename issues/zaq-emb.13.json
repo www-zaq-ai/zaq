@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.12"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.19"
+  ],
   "created": "2026-09-23T13:18:39Z",
   "description": "Scenarios defined now; author only after zaq-emb.12 approval: multi-author shared transcript; per-person execution; thread/root/main context; grants/manual preservation; channel/thread/author BO labels; People refresh unsupported/available/denied states; legacy history preserved. Add provider end-to-end membership only when downstream support exists, otherwise validate fixture-backed supported contract without claiming live wiring. Replicated email/direct flows use integration tests where browser adds no value. Reuse history.spec.js and people.spec.js; preserve assertions. Action reuse: existing real UI and authorized domain operations. Docs: scenarios/results in this issue.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.13",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-emb.13] Consolidated canonical-history and membership E2E",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:53Z"
+  "updated_at": "2026-09-25T09:36:57Z"
 }
