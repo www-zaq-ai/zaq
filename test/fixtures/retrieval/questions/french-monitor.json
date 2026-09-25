@@ -13,9 +13,13 @@
       ]
     }
   ],
-  "forbidden": [],
+  "forbidden": [
+    {"document_id": "english-travel", "chunk_id": "rail"},
+    {"document_id": "arabic-leave", "chunk_id": "notice"},
+    {"document_id": "mixed-onboarding", "chunk_id": "orientation"}
+  ],
   "id": "french-monitor",
-  "question": "Combien l'entreprise rembourse-t-elle pour un écran externe ?",
+  "question": "Quel montant puis-je me faire rembourser pour un deuxième affichage ?",
   "ranges_reviewed": true,
   "scenario": "French external monitor reimbursement",
   "schema_version": 1,
@@ -10821,8 +10825,8 @@
           "externe"
         ],
         [
-          "remboursé",
-          "350"
+          "remboursement",
+          "affichage"
         ]
       ],
       "semantic_query": "Quel plafond et quelle autorisation pour le remboursement d'un écran externe ?"

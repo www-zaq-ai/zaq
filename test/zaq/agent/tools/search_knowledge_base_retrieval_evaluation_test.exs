@@ -197,10 +197,17 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseRetrievalEvaluationTest do
         end
       end
 
+      if question["expected"] != [] do
+        assert question["forbidden"] != [],
+               "#{question["id"]}: positive evaluations must name irrelevant chunks to exclude"
+      end
+
       for forbidden <- question["forbidden"] do
         doc = Enum.find(fixtures.documents, &(&1.data["id"] == forbidden["document_id"])).data
         fixture_chunk = Enum.find(doc["chunks"], &(&1["id"] == forbidden["chunk_id"]))
-        refute Map.has_key?(returned, {Map.fetch!(doc_ids, doc["id"]), fixture_chunk["index"]})
+
+        refute Map.has_key?(returned, {Map.fetch!(doc_ids, doc["id"]), fixture_chunk["index"]}),
+               "#{question["id"]}: irrelevant chunk #{doc["id"]}/#{fixture_chunk["id"]} was returned"
       end
     end
   end

@@ -27,7 +27,10 @@ defmodule Mix.Tasks.RetrievalEval.EmbedTest do
       %{documents: documents, questions: [question]} = Fixtures.load!(root, :prepare)
       doc = Enum.find(documents, &(&1.data["id"] == "english-travel"))
       assert Enum.all?(doc.data["chunks"], &(&1["embedding"] == [1.0, 0.0]))
-      assert question.data["question"] == "Can I take a first-class train to a client meeting?"
+
+      assert question.data["question"] ==
+               "Do I need permission to ride in the premium carriage for a client visit?"
+
       assert question.data["expected"] != []
 
       assert question.data["variants"]["english"]["embedding_provenance"]["input_sha256"] ==
@@ -120,8 +123,9 @@ defmodule Mix.Tasks.RetrievalEval.EmbedTest do
           Enum.map(chunks, &Map.merge(&1, %{"embedding" => nil, "embedding_provenance" => nil}))
         end)
       else
-        Map.update!(
-          data,
+        data
+        |> Map.put("forbidden", [])
+        |> Map.update!(
           "variants",
           &Map.new(&1, fn {lang, variant} ->
             {lang, Map.merge(variant, %{"embedding" => nil, "embedding_provenance" => nil})}

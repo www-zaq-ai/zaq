@@ -13,9 +13,13 @@
       ]
     }
   ],
-  "forbidden": [],
+  "forbidden": [
+    {"document_id": "french-equipment", "chunk_id": "exclusions"},
+    {"document_id": "arabic-leave", "chunk_id": "entitlement"},
+    {"document_id": "mixed-onboarding", "chunk_id": "orientation"}
+  ],
   "id": "english-travel",
-  "question": "Can I take a first-class train to a client meeting?",
+  "question": "Do I need permission to ride in the premium carriage for a client visit?",
   "ranges_reviewed": true,
   "scenario": "English rail policy",
   "schema_version": 1,
@@ -7220,8 +7224,8 @@
           "trains"
         ],
         [
-          "Finance",
-          "approval"
+          "client",
+          "train"
         ]
       ],
       "semantic_query": "Policy for booking a first-class train to visit a client"

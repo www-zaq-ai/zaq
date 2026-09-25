@@ -13,9 +13,13 @@
       ]
     }
   ],
-  "forbidden": [],
+  "forbidden": [
+    {"document_id": "french-equipment", "chunk_id": "monitor"},
+    {"document_id": "arabic-leave", "chunk_id": "emergency"},
+    {"document_id": "mixed-onboarding", "chunk_id": "badge"}
+  ],
   "id": "french-ask-english-hotel",
-  "question": "Quel est le plafond de l'hôtel en déplacement professionnel ?",
+  "question": "Jusqu'à combien puis-je dépenser pour dormir sur place pendant un déplacement ?",
   "ranges_reviewed": true,
   "scenario": "French question targeting English hotel policy",
   "schema_version": 1,
@@ -7220,8 +7224,8 @@
           "night"
         ],
         [
-          "180",
-          "EUR"
+          "business",
+          "travel"
         ]
       ],
       "semantic_query": "What is the per-night hotel allowance on business travel?"

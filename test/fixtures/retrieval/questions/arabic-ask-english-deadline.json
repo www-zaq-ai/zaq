@@ -13,9 +13,13 @@
       ]
     }
   ],
-  "forbidden": [],
+  "forbidden": [
+    {"document_id": "french-equipment", "chunk_id": "exclusions"},
+    {"document_id": "arabic-leave", "chunk_id": "entitlement"},
+    {"document_id": "mixed-onboarding", "chunk_id": "badge"}
+  ],
   "id": "arabic-ask-english-deadline",
-  "question": "متى يجب إرسال فواتير رحلة العمل؟",
+  "question": "ما آخر موعد لتقديم مصاريف رحلة عمل بعد العودة؟",
   "ranges_reviewed": true,
   "scenario": "Arabic question targeting English claim deadline",
   "schema_version": 1,
@@ -7216,12 +7220,12 @@
       },
       "lexical_groups": [
         [
-          "receipts",
-          "30"
+          "business",
+          "trip"
         ],
         [
-          "claims",
-          "days"
+          "expenses",
+          "deadline"
         ]
       ],
       "semantic_query": "What is the deadline to submit receipts after a business trip?"

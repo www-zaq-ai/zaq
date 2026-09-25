@@ -13,9 +13,13 @@
       ]
     }
   ],
-  "forbidden": [],
+  "forbidden": [
+    {"document_id": "english-travel", "chunk_id": "hotel"},
+    {"document_id": "arabic-leave", "chunk_id": "emergency"},
+    {"document_id": "mixed-onboarding", "chunk_id": "badge"}
+  ],
   "id": "english-ask-french-keyboard",
-  "question": "Do ergonomic keyboards need manager preapproval?",
+  "question": "Must my manager sign off before I buy a more comfortable keyboard?",
   "ranges_reviewed": true,
   "scenario": "English question targeting French equipment policy",
   "schema_version": 1,

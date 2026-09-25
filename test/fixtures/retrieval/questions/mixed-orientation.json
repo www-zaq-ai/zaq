@@ -13,9 +13,13 @@
       ]
     }
   ],
-  "forbidden": [],
+  "forbidden": [
+    {"document_id": "english-travel", "chunk_id": "rail"},
+    {"document_id": "french-equipment", "chunk_id": "exclusions"},
+    {"document_id": "arabic-leave", "chunk_id": "notice"}
+  ],
   "id": "mixed-orientation",
-  "question": "متى تُعقد جلسة التعريف للموظفين الجدد؟",
+  "question": "متى ألتقي بالفريق في جلسة البداية وكيف أنضم إليها؟",
   "ranges_reviewed": true,
   "scenario": "Mixed document Arabic orientation section",
   "schema_version": 1,
@@ -3619,8 +3623,8 @@
           "التعريف"
         ],
         [
-          "الاثنين",
-          "التاسعة"
+          "متى",
+          "الانضمام"
         ]
       ],
       "semantic_query": "متى تُعقد جلسة التعريف للموظفين الجدد وكيف يصلون إليها؟"
