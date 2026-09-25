@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T23:49:32Z",
+  "description": "Consolidate python-ci into native Postgres CI; prepare crawler venv in default test jobs; remove real_python opt-in tag/exclusion; document local Python prerequisite. No domain operations changed (Action reuse not applicable). Validate focused test and mix q.",
+  "id": "zaq-plx",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[python-ci] Fold crawler Python test into default CI suite",
+  "type": "task",
+  "updated_at": "2026-09-25T23:49:32Z"
+}
