@@ -18,11 +18,15 @@
     {
       "text": "Started test-first. Resolver now checks supplied retrieval connector ID against normalized message provider before identity lookup (email:imap maps to email); regression tests cover mismatch and matching Slack/IMAP. Focused resolver tests and mix q pass. This is NOT connector-scoped storage/trusted-fact verification: channels still have global platform/identifier uniqueness and connector ID trust must be established at ingress. Keep issue in progress; do not claim complete.",
       "timestamp": "2026-09-25T09:53:17Z"
+    },
+    {
+      "text": "Incremental implementation: unconsumed 20260922000003 connector-scope migration links legacy rows to sole matching retrieval config and raises on ambiguous provider mapping; scoped and null-only unique indexes; PersonChannel stores connector id, People match/discovery uses scoped identity (unscoped lookup excludes scoped rows), IdentityResolver passes connector and PersonMerger groups by connector. Focused 165 tests/4 properties pass; mix q pass after one transient ExDNA timeout retry. Remaining: prove ingress provenance at Channels boundary, same-provider multi-connector policy/uniqueness expansion, migration backfill and concurrent discovery tests; do not close yet.",
+      "timestamp": "2026-09-25T10:18:25Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-25T09:53:17Z"
+  "updated_at": "2026-09-25T10:18:25Z"
 }
