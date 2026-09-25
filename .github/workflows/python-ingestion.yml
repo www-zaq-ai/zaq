@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   python-ingestion:
-    name: Test (real Python 3.13)
+    name: Test (Python 3.13)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
 
@@ -34,6 +34,7 @@ jobs:
     env:
       MIX_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zaq_test
+      PYTHON_VERSION: "3.13"
 
     steps:
       - name: Checkout code
@@ -57,25 +58,25 @@ jobs:
       - name: Fetch reviewed crawler revision
         run: mix zaq.python.fetch
 
-      - name: Set up CPython 3.13
+      - name: Set up CPython
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Restore pip downloads
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-${{ runner.arch }}-py3.13-pip-${{ hashFiles('priv/python/crawler-ingest/requirements.lock', 'priv/python/crawler-ingest.revision') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-py${{ env.PYTHON_VERSION }}-pip-${{ hashFiles('priv/python/crawler-ingest/requirements.lock', 'priv/python/crawler-ingest.revision') }}
 
       - name: Check the Python provisioner
-        run: python3.13 -m unittest discover -s test/python -p 'test_*.py' -v
+        run: python${PYTHON_VERSION} -m unittest discover -s test/python -p 'test_*.py' -v
 
       - name: Build and validate a fresh Python environment
-        run: python3.13 scripts/provision_python.py priv/python/crawler-ingest .venv
+        run: python${PYTHON_VERSION} scripts/provision_python.py priv/python/crawler-ingest .venv
 
       - name: Provision PostgreSQL extensions as DBA
         run: mix run --no-start .github/scripts/provision-test-database.exs postgres
 
-      - name: Run real ImageDedup integration test
-        run: mix test test/zaq/ingestion/python/steps/image_dedup_real_python_test.exs --include real_python
+      - name: Run real Python tests
+        run: mix test --only real_python

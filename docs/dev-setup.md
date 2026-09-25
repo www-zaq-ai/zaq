@@ -153,10 +153,10 @@ mix zaq.python.fetch --commit <sha> # inspect a different revision locally
 To update the supported crawler revision, first update and validate the dependency lock in crawler-ingest on Linux amd64 and arm64. After that upstream change is merged, review its full commit SHA, update `priv/python/crawler-ingest.revision`, and rerun `mix setup` and the opt-in real-Python test:
 
 ```bash
-mix test test/zaq/ingestion/python/steps/image_dedup_real_python_test.exs --include real_python
+mix test --only real_python
 ```
 
-The dedicated [Python Ingestion workflow](../.github/workflows/python-ingestion.yml) repeats the fresh provisioning and real test on pull requests. Its `Test (real Python 3.13)` job must be added to the main branch's required checks before #781 merges; a workflow file alone does not enforce that rule. The production image must also pass the same ImageDedup smoke on both Linux amd64 and arm64. See [the agent validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate) for review and final gate timing.
+The dedicated [Python Ingestion workflow](../.github/workflows/python-ingestion.yml) repeats the fresh provisioning and tagged real-Python tests on pull requests. Its `Test (Python 3.13)` job must be added to the main branch's required checks before #781 merges; a workflow file alone does not enforce that rule. The production image must also pass the same ImageDedup smoke on both Linux amd64 and arm64. See [the agent validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate) for review and final gate timing.
 
 ---
 
