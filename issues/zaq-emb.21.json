@@ -17,11 +17,15 @@
     {
       "text": "Further audit: BO retrieval picker requires explicit connector choice for \u003e1 config; provider default controls and team browsing follow chosen config. ChannelConfig.get_by_channel_id handles same external room ID across configs and falls back to singleton only when safe. SMTP outbound now rejects :ambiguous_connector before using fallback Mailer settings (regression 34 SMTP tests pass). No commit/push.",
       "timestamp": "2026-09-25T12:33:22Z"
+    },
+    {
+      "text": "Webhook explicit selection progress: JidoChatBridge subscription target URL now carries numeric config ID; ChannelsController parses URL ID rather than payload, Channels.Api forwards it, CommunicationBridge.handle_webhook/3 selects enabled provider-matching config before invoking adapter webhook validation; provider-only legacy path fails closed for ambiguous live configs. Scoped URL, controller, API, bridge regressions added. Focused combined run 348 tests had one outdated expected URL; updated; mix q passes. Remaining: integration exercise provider webhook signature/path verification and data-source watcher multi-config selection. No commit/push.",
+      "timestamp": "2026-09-25T13:12:32Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T12:33:22Z"
+  "updated_at": "2026-09-25T13:12:32Z"
 }
