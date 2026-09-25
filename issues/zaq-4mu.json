@@ -22,11 +22,15 @@
     {
       "text": "2026-09-25: unset INGESTION_VOLUMES/STORAGE_VOLUMES for this branch test DB, dropped/reprovisioned zaq_test_fix_793_hybrid_retrieval. Full mix precommit passed: 48 doctests, 179 properties, 9779 tests, 0 failures, 1 skipped. Commit 318947eb2 pushed to origin/fix/793-hybrid-retrieval. Keep issue open pending PR review/coverage and judged relevance calibration of provisional 0.75 cosine threshold.",
       "timestamp": "2026-09-25T09:25:00Z"
+    },
+    {
+      "text": "2026-09-25 E2E repair: system_config.spec.js now selects max_cosine_distance, asserts min/max, tests 0 and 2 persistence and out-of-range rejection without changing saved values. Targeted tests across Chromium/Firefox/WebKit passed (18/18), full System Config Chromium 58/58, Firefox+WebKit 115/116 with unrelated AI Credentials tab-load timeout (passed isolated rerun). mix q passed. Full npm run test launched 513 tests but exceeded 15-minute execution limit; no full-suite result. No application operations changed (Action reuse not applicable); pending full E2E gate and review.",
+      "timestamp": "2026-09-25T10:35:11Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#793] Cosine and lexical hybrid retrieval",
   "type": "task",
-  "updated_at": "2026-09-25T09:25:00Z"
+  "updated_at": "2026-09-25T10:35:11Z"
 }
