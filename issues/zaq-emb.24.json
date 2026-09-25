@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T23:55:37Z",
+  "description": "Functional spec: Bridge.fetch_any_channel_config/1 and capability_snapshot must distinguish no connector from multiple same-provider connectors; do not synthesize capability for ambiguity. Owner Channels.Bridge; reuse ChannelConfig.list_by_provider (active/nonarchived) rather than new Action. Test first: missing still synthetic, disabled sole works, two same-provider fail with :ambiguous_connector for fetch and snapshot; no adapter invocation. Branch/paths: lib/zaq/channels/bridge.ex and test/zaq/channels/bridge_test.exs. Mocking: existing adapter stubs only at provider boundary. Docs: existing channels service already says ambiguous fails closed; no change anticipated. Validate isolated test and mix q, then separate draft PR atop #802. Retain parent zaq-emb.21 for wider audit.",
+  "id": "zaq-emb.24",
+  "labels": [],
+  "parent": "zaq-emb",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.24] Reject ambiguous connector capability lookup",
+  "type": "bug",
+  "updated_at": "2026-09-25T23:55:37Z"
+}
