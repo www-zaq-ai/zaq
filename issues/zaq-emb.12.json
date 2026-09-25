@@ -8,13 +8,13 @@
     "zaq-emb.13"
   ],
   "created": "2026-09-23T13:18:37Z",
-  "description": "Explicit human approval of completed BO history and People access UI before authoring new E2E; remains open until granted.",
+  "description": "Explicit human approval of completed BO history/detail and People external access UI after integrated implementation validation. Prior permission to extend components without prototype is not final UX approval. Record approver, scope and source before unblocking new E2E authoring. Reopen approval if materially changed. Action reuse/testing/mocking: not applicable to human gate; no self-approval.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.12",
   "labels": [],
   "parent": "zaq-emb",
   "priority": 2,
   "status": "open",
-  "title": "[#768] Human UX/UI approval for shared conversations",
+  "title": "[zaq-emb.12] Human UX approval of completed canonical history and access UI",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:52Z"
+  "updated_at": "2026-09-25T09:36:52Z"
 }
