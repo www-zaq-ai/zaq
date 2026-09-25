@@ -14,11 +14,15 @@
     {
       "text": "Progress: source-aware permission rows/channel resource with direct-Person read gate, ordered status edits, BO list/detail channel/thread identifier display are implemented and focused-tested. Core approved revision is NOT yet complete: connector-scoped author mapping, shared multi-author transcript/passive capture, authorized root+parent hydration, person runtime fanout, membership refresh/revocation, People UI, migration, coverage/E2E, and final precommit remain open. User explicitly approved migration linking existing identities to sole provider connector and extending existing UI without prototype. No commit/push; preserve original uncommitted issue768 files.",
       "timestamp": "2026-09-23T14:40:06Z"
+    },
+    {
+      "text": "Approved revision materialized into children and dependency DAG. Supersedes background fanout with fixed-cursor per-internal-turn pull plus serialized idle-boundary context/cursor synchronization. Canonical storage universal, threads inherit strategy, provider mapping code-defined, fresh post-cutover histories with legacy structural preservation. Existing comments retained as historical evidence; none of these issues marked complete. Provider wiring explicitly deferred; email evidence/sender contract explicitly tracked rather than assumed.",
+      "timestamp": "2026-09-25T09:37:10Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb] Canonical messages, history strategies and person-bound execution",
   "type": "epic",
-  "updated_at": "2026-09-25T09:37:09Z"
+  "updated_at": "2026-09-25T09:37:10Z"
 }
