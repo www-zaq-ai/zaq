@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T16:47:12Z",
+  "description": "## Assigned scope\nOwn local runtime, reservations, registry/serving children, warm/drain/unload and generation fencing. Test concurrent admissions, late completion, allocator retention, cancellation and failure cleanup.\n\nFull contracts, architecture, persistence, privacy, platform candidates, and Action reuse evidence are embedded in parent zaq-za4. This issue owns only the assigned subset of work package S4; sibling issues own the rest.\n\n### S4 — Local multi-model runtime and admission\n\n- **Files/specification:** `serving/{runtime,model_state}.ex`, serving registry/dynamic/task supervisors, API handlers. Serialize reservations, build named servings in background, warm before ready, bound queues, support draining/cancellation/cache retention.\n- **Tests first:** concurrent loads whose sum exceeds capacity; load/compile/inference failure cleanup; duplicate load; unload during download/compile/run; newer generation wins; resource release; retained allocator memory; task/process crashes; deadline expiry.\n- **Property tests/paths:** no admission exceeds the configured domain budget under arbitrary valid command sequences; stale completion cannot revive unloaded/newer-generation models; model A's unload/cancel cannot affect B.\n- **Mocks:** only external HF calls. Exercise supervised processes with real tiny Nx models, explicit clocks/messages and per-test registries; no application-env mutation as a routine seam.\n- **Docs:** serving lifecycle/reservation/cancellation guarantees and native-failure limitations.\n- **Reuse:** `Nx.Serving`, Registry, OTP supervision; local-only lifecycle machinery.\n\n\n\n## Execution requirements\nRead AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service/design guides. Tests first as specified above; only feature E2E awaits final human UX approval. Read edited module docs; use Zaq.Config and existing actor/event/startup seams. No routine application-env mutation or blanket internal mocks. Preserve NodeRouter/credential/privacy boundaries. No task is implemented at creation.\n\n## Prerequisites\nzaq-za4.9",
+  "id": "zaq-za4.10",
+  "labels": [],
+  "parent": "zaq-za4",
+  "priority": 2,
+  "status": "open",
+  "title": "Implement local multi-model lifecycle and atomic admission",
+  "type": "task",
+  "updated_at": "2026-09-25T16:47:12Z"
+}
