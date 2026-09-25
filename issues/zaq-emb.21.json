@@ -29,11 +29,15 @@
     {
       "text": "Further provider-only audit: IdentityResolver now carries its validated ingress channel_config_id into Channels fetch_profile/open_dm_channel events; Channels.Api resolves exact enabled provider-matching connector and uses its credentials/bot identity. Legacy unscoped callers require unambiguous config for profile; selected ID rejects mismatches. API and resolver suites 107 tests pass; combined API/resolver/data-source BO 171 tests pass; mix q passes. Still assess provider-only outbound/send_typing paths and concurrent archive/watch creation before closing/committing. No push.",
       "timestamp": "2026-09-25T14:06:27Z"
+    },
+    {
+      "text": "Expanded outbound multi-connector audit: Outgoing now carries trusted Incoming.routing_context (not metadata), Channels.Api.deliver_outgoing resolves exact provider-matching connector credentials, provider-only ambiguous delivery fails closed. Agent.Status carries same context into status upserts; API selects exact connector for updates. Identity profile/DM scope and webhook scope already done. Focused agent/API/status 139 tests pass after one isolated timing-sensitive existing status test retry; mix q passes. Remaining: inspect other provider-only operations and integrated multi-connector message transport before closing/committing.",
+      "timestamp": "2026-09-25T16:59:56Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T14:06:27Z"
+  "updated_at": "2026-09-25T16:59:56Z"
 }
