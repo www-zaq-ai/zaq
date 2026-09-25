@@ -53,11 +53,15 @@
     {
       "text": "Human decision: explicit administrator-designated SMTP default for notifications lacking a connector ID; connector-bound replies use their bound account. Do not arbitrarily pick a same-provider connector. Implement a durable explicit default and fail-closed invariant for multiple accounts, plus account-specific IMAP/SMTP pages. Generic ChannelsLive card replacement validated (66 tests and mix q); no commit/push.",
       "timestamp": "2026-09-25T19:33:18Z"
+    },
+    {
+      "text": "SMTP/IMAP follow-up: explicit SMTP notification default in ChannelConfig (transaction/advisory lock + unique partial index migration 20260922000009), SmtpSender unscoped notification selection and explicit connector delivery, dedicated IMAP/SMTP settings use connector bars and require selection for multi-account edits; IMAP form binds inbox to enabled SMTP for replies. EmailBridge derives SMTP binding from trusted IMAP routing connector and uses bound account for delivery and generated Message-ID domain; unbound legacy inbox only uses sole SMTP, disabled/archived binding fails closed. Reused existing ChannelConfig.resolve_by_provider, changeset and EmailBridge/SmtpSender instead of new Action/tool; UI selection helper local-only (BO view state, no independent executable domain operation). Focused email/BO groups 170+ tests passing, mix q passes; no new-feature E2E authored pending UX approval. Remaining: data-source connector card extension/replacement gate, deeper multi-connector integration audit and coverage, migration rollback, final validation. No commit/push.",
+      "timestamp": "2026-09-25T20:50:04Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T19:33:18Z"
+  "updated_at": "2026-09-25T20:50:04Z"
 }
