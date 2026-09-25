@@ -21,11 +21,15 @@
     {
       "text": "Webhook explicit selection progress: JidoChatBridge subscription target URL now carries numeric config ID; ChannelsController parses URL ID rather than payload, Channels.Api forwards it, CommunicationBridge.handle_webhook/3 selects enabled provider-matching config before invoking adapter webhook validation; provider-only legacy path fails closed for ambiguous live configs. Scoped URL, controller, API, bridge regressions added. Focused combined run 348 tests had one outdated expected URL; updated; mix q passes. Remaining: integration exercise provider webhook signature/path verification and data-source watcher multi-config selection. No commit/push.",
       "timestamp": "2026-09-25T13:12:32Z"
+    },
+    {
+      "text": "Multi-config data-source webhook path now selects exact enabled provider config through DataSourceBridge.handle_webhook/3; BO ingestion watch creation and Engine renewal emit connector-scoped URLs. New unconsumed 00008 migrates watch-channel uniqueness from provider/channel_id to config/provider/channel_id (safe down guard); JidoConnectBridge includes config_id in watch lookup, Engine rejects ambiguous unscoped IDs. 269 core data-source tests+property, then 435 BO/ingestion/data-source tests+property pass; mix q passes. Still open pending lifecycle/routing audit and migration validation.",
+      "timestamp": "2026-09-25T13:48:23Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T13:12:32Z"
+  "updated_at": "2026-09-25T13:48:23Z"
 }
