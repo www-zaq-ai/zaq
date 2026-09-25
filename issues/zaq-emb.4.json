@@ -1,8 +1,6 @@
 {
   "assignee": "",
-  "blocked_by": [
-    "zaq-emb.3"
-  ],
+  "blocked_by": [],
   "blocks": [
     "zaq-emb.5"
   ],
@@ -15,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.4] Strategy-driven capture, gating and authorized projection",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:34Z"
+  "updated_at": "2026-09-25T09:36:55Z"
 }

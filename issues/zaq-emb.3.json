@@ -4,9 +4,7 @@
     "zaq-emb.1",
     "zaq-emb.2"
   ],
-  "blocks": [
-    "zaq-emb.4"
-  ],
+  "blocks": [],
   "created": "2026-09-23T13:18:29Z",
   "description": "## Functional specifications\nIntroduce associations and separate execution-private records before strategy integration. Structurally migrate legacy messages into their original transcripts while retaining IDs/references where feasible. Preserve ratings, attachments, shares, traces and audit access. Mark legacy histories explicitly and exclude them from new automatic hydration. Test atomicity, dedupe, associations, legacy authorization and rollback safeguards before migration code.\n\nReuse unconsumed migrations where safe; account separately for developer/test databases that already applied earlier versions. Do not blindly replay altered migrations on populated databases.\n\n## Files and ownership\nlib/zaq/engine/conversations.ex; lib/zaq/engine/conversations/{conversation,message}.ex; new association/execution schemas as responsibility review determines; persistence tests/migrations\n\n## Action reuse assessment\nExtend Conversations and existing Message/trace persistence. Separate shared canonical data from person-bound execution details. This issue owns storage primitives; dedicated migration child owns legacy cutover.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\ndocs/services/engine.md; persistence moduledocs\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.3",
@@ -16,5 +14,5 @@
   "status": "open",
   "title": "[zaq-emb.3] Universal canonical messages and transcript associations",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:34Z"
+  "updated_at": "2026-09-25T09:36:55Z"
 }
