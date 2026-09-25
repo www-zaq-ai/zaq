@@ -49,11 +49,15 @@
     {
       "text": "Human approved /replace row 1: generic ChannelsLive connector cards (Mattermost, Telegram, other providers) now use DesignSystem.ChannelConnectorCard, preserving ingress-status, toggle, edit, test and archive button IDs/events; 66 ChannelsLive tests and 2 component tests pass, mix q passes, git diff --check clean. A pre-existing ChannelsLive test assumed outbound without configured connector; fixed fixture by inserting the required sole connector without weakening assertion. Rows 2 (DataSourceProviderLive custom cards) and 3 (dedicated IMAP/SMTP settings) not wired yet. Email multi-account decision needed: current EmailBridge and SmtpSender depend on provider-only singleton SMTP and IMAP runtime behavior. No commit/push.",
       "timestamp": "2026-09-25T18:56:17Z"
+    },
+    {
+      "text": "Human decision: explicit administrator-designated SMTP default for notifications lacking a connector ID; connector-bound replies use their bound account. Do not arbitrarily pick a same-provider connector. Implement a durable explicit default and fail-closed invariant for multiple accounts, plus account-specific IMAP/SMTP pages. Generic ChannelsLive card replacement validated (66 tests and mix q); no commit/push.",
+      "timestamp": "2026-09-25T19:33:18Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T18:56:17Z"
+  "updated_at": "2026-09-25T19:33:18Z"
 }
