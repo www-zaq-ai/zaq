@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T18:12:11Z",
+  "description": "Blocking validation for zaq-za4.6 and future serving issues. Fresh zaq-za4.6/serving-role worktree: ROLES=serving MIX_ENV=test mix run boots successfully after skipping unused Agent/BO catalogs; ROLES=bo, ROLES=engine and default :all exit 137 within seconds. Manual startup of shared children, FTSBackend.detect_and_cache, ValidModalities.list and ReqLLM.Providers.register! succeeds; process exits 137 precisely at LLMDB.load(ZAQRouter.llmdb_opts()). Isolate environment/memory versus catalog regression without weakening existing BO/Agent behavior. Preserve validation via normal full application startup. Do not mark ready by simply skipping catalog initialization on roles that require it. Check downstream role/API tests, `mix q` and isolated suites after resolving. This issue tracks the startup blocker, not a new serving product feature.",
+  "id": "zaq-za4.22",
+  "labels": [],
+  "parent": "zaq-za4",
+  "priority": 1,
+  "status": "open",
+  "title": "Serving worktree default app boot killed during LLMDB catalog load",
+  "type": "bug",
+  "updated_at": "2026-09-25T18:12:11Z"
+}
