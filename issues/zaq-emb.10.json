@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "zaq-emb.4",
     "zaq-emb.6"
   ],
   "blocks": [
@@ -21,5 +22,5 @@
   "status": "open",
   "title": "[zaq-emb.10] People external-channel grants and membership refresh UI",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:56Z"
+  "updated_at": "2026-09-25T09:37:06Z"
 }
