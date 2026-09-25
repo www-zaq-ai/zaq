@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.5"
+  ],
   "blocks": [
     "zaq-emb.7"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-emb.16] Request-boundary context and cursor synchronization",
   "type": "task",
-  "updated_at": "2026-09-25T09:37:02Z"
+  "updated_at": "2026-09-25T09:37:08Z"
 }
