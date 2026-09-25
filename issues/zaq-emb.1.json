@@ -18,11 +18,15 @@
     {
       "text": "Validation recovered after concurrent CPU-heavy precommit finished: mix q passes with 0 Credo issues. Permission and merge suites 72 tests/6 properties pass. Keep open/uncommitted pending overall authorized landing.",
       "timestamp": "2026-09-23T13:44:11Z"
+    },
+    {
+      "text": "Current checkout revalidated: 73 permission/merge tests + 6 properties pass, mix q passes, git diff check pending. Test-first fix: replace/mutate formerly accepted forged provider-sourced desired rows; both now reject :invalid_grant_source before any manual grants change. Engine documentation distinguishes implemented grant foundation from unfinished reader migration. Leave in progress/uncommitted pending authorized landing.",
+      "timestamp": "2026-09-25T09:43:10Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.1] Source-aware channel-history grants",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:33Z"
+  "updated_at": "2026-09-25T09:43:10Z"
 }
