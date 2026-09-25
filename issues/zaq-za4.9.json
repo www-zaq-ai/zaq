@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-za4.8"
+  ],
   "blocks": [],
   "created": "2026-09-25T16:47:06Z",
   "description": "## Assigned scope\nOwn pure versioned estimates and eligibility across all tasks/backends, staging/compile/KV/activation peaks and conservative unknowns. Property-test monotonic requirements and unified-memory accounting.\n\nFull contracts, architecture, persistence, privacy, platform candidates, and Action reuse evidence are embedded in parent zaq-za4. This issue owns only the assigned subset of work package S3; sibling issues own the rest.\n\n### S3 — HF artifacts and model eligibility\n\n- **Files/specification:** `serving/{hugging_face,artifact_cache,eligibility}.ex`; refine adapter metadata/estimates. Resolve immutable revisions, optional credentials, supported formats, bounded atomic cache and resource reports.\n- **Tests first:** HTTP metadata/artifact fixtures; missing shards/files; interrupted download; access denied; redirect policy; credential redaction; path traversal; manifest mismatch; insufficient disk/RAM/VRAM; unknown requirements; stale capability expiry.\n- **Property tests/paths:** increasing profile resource requirements cannot improve eligibility under identical capacity; no double counting unified memory; safe cache paths; unsupported architecture rejected before tensor allocation; exact Laya subdirectories preserved.\n- **Mocks:** HF network edge only. Use isolated temporary directories, real file operations and pure eligibility calculations.\n- **Docs:** serving eligibility/cache contract and system-config credential-reference behavior; API/module docs for all error states.\n- **Reuse:** existing outbound HTTP/Connect security owners, upstream model metadata; new inspection/check Action contract consumes this domain implementation through Engine.\n\n\n\n## Execution requirements\nRead AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service/design guides. Tests first as specified above; only feature E2E awaits final human UX approval. Read edited module docs; use Zaq.Config and existing actor/event/startup seams. No routine application-env mutation or blanket internal mocks. Preserve NodeRouter/credential/privacy boundaries. No task is implemented at creation.\n\n## Prerequisites\nzaq-za4.8",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-za4.9] Implement compatibility and resource eligibility",
   "type": "task",
-  "updated_at": "2026-09-25T16:47:08Z"
+  "updated_at": "2026-09-25T16:47:10Z"
 }
