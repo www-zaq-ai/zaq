@@ -11,7 +11,7 @@
   "parent": "zaq-za4",
   "priority": 1,
   "status": "in_progress",
-  "title": "[zaq-za4.22] Diagnose LLMDB catalog startup exit 137 in fresh worktree",
+  "title": "[zaq-za4.22] Prevent unsafe EXLA NIF load on macOS startup",
   "type": "bug",
-  "updated_at": "2026-09-25T18:16:57Z"
+  "updated_at": "2026-09-25T18:24:08Z"
 }
