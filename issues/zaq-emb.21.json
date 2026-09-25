@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.2"
+  ],
   "created": "2026-09-25T11:00:21Z",
   "description": "Human-approved #768 prerequisite: allow multiple ChannelConfig records for one provider. Audit/refactor provider-singleton get_by_provider/get_any_by_provider/upsert, routing, connector lifecycle, outbound selection and BO surfaces to require an explicit connector or return a structured ambiguity instead of choosing arbitrary config. Tests first: two same-provider configs, stable explicit selection, ambiguous legacy resolution, SMTP/disk/data-source compatibility and migration rollback; preserve legacy sole-provider behavior. Read docs/services/channels.md, docs/services/system-config.md before settings/token edits, docs/action-reuse.md, docs/testing-approach.md. Reuse ChannelConfig/Channels APIs; do not duplicate Actions. Run focused tests and mix q; no commit/push implied.",
   "id": "zaq-emb.21",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T11:00:21Z"
+  "updated_at": "2026-09-25T11:00:24Z"
 }
