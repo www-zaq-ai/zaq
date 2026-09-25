@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T12:04:42Z",
+  "description": "Step 4 of zaq-rft. See parent for authoritative shared fixture schema, paths, corpus design and reuse assessment. Related feature: zaq-4mu.\n\nTests first: a missing chunk vector and a missing query vector must fail with full field paths and `mix retrieval.eval.embed` remediation. Unknown embedding inputs must fail, not return a default vector. Add regression checks showing wrong language mapping, a wrong vector or an invalid expected distance is detected.\n\nDiscover one ExUnit case per question, using its filename/ID for diagnostics. Use the SQL sandbox and isolate language discovery/cache state; the seeded corpus alone must define available languages. Avoid ambient migration data. Seed documents/chunks with normal schemas and explicit public grants, mapping stable IDs to database IDs.\n\nInvoke `Jido.Exec.run(SearchKnowledgeBase, %{query: original}, context)`. Fixture generation returns the selected question's per-language JSON through the existing generation boundary. Stub embedding HTTP by exact input text and assert all requested semantic variants were used, safely across Task.async_stream processes. Keep NodeRouter, DocumentProcessor, lexical SQL, pgvector, fusion and hydration real.\n\nAssert success, `partial: false`, empty errors, count consistency, expected identities/content/languages, forbidden-result absence, no duplicates, direct-match provenance and cosine ranges. Verify siblings retain fusion provenance without inheriting measured distances. Give a sufficient fixed context budget; context truncation has separate coverage and must not accidentally mask this evaluation.\n\nUse isolated database environments for fixture dimensions. Fail with instructions if a pre-existing table has incompatible dimensions; never drop populated tables implicitly. Preserve existing permission integration tests.\n\nAction reuse assessment: reuse SearchKnowledgeBase/Jido.Exec, NodeRouter and Embedding.Client as described in the parent. Fixture parsing and file updates are local-only developer tooling; no new agent tools or production retrieval behavior. Read applicable AGENTS.md policies before implementation. Do not skip missing vectors or weaken relevance assertions.",
+  "id": "zaq-rft.4",
+  "labels": [],
+  "parent": "zaq-rft",
+  "priority": 2,
+  "status": "open",
+  "title": "Real retrieval integration consumer",
+  "type": "task",
+  "updated_at": "2026-09-25T12:04:42Z"
+}
