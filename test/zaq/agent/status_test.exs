@@ -2,7 +2,9 @@ defmodule Zaq.Agent.StatusTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Agent.Status
+  alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
 
   # Executes the event's request locally — avoids real RPC in unit tests.
@@ -48,7 +50,104 @@ defmodule Zaq.Agent.StatusTest do
     end
   end
 
+  defmodule RecordingNodeRouter do
+    def dispatch(%Zaq.Event{} = event) do
+      send(self(), {:upsert_event, event})
+      %{event | response: {:ok, %{action: :updated, message_id: "mattermost-post"}}}
+    end
+  end
+
+  defmodule BlockingNodeRouter do
+    def dispatch(%Zaq.Event{request: %Zaq.Engine.Messages.Outgoing{} = outgoing} = event) do
+      send(outgoing.metadata.session_id, {:channel_edit_started, outgoing.body, self()})
+
+      if outgoing.body == "5 in Arabic is ٥" do
+        receive do
+          :release_partial_edit -> :ok
+        end
+      end
+
+      send(outgoing.metadata.session_id, {:channel_edit_completed, outgoing.body})
+      %{event | response: {:ok, %{action: :updated, message_id: "mattermost-post"}}}
+    end
+  end
+
   describe "broadcast/4 with %Incoming{}" do
+    test "status upserts use the ingress-stamped connector rather than metadata" do
+      context = %Zaq.Engine.Messages.Incoming.RoutingContext{channel_config_id: 42}
+
+      incoming = %Incoming{
+        content: "hello",
+        provider: :mattermost,
+        channel_id: "room-1",
+        routing_context: context,
+        metadata: %{request_id: "question-1", channel_config_id: 99}
+      }
+
+      Status.broadcast(incoming, :answering, "Working", RecordingNodeRouter)
+      assert_receive {:upsert_event, %Event{request: outgoing}}
+      assert outgoing.routing_context == context
+    end
+
+    test "partial edits await completion before the final answer can be delivered" do
+      incoming = %Incoming{
+        content: "How do you say five?",
+        provider: :mattermost,
+        channel_id: "room-1",
+        metadata: %{request_id: "question-1", status_message_id: "mattermost-post"}
+      }
+
+      assert %Incoming{} =
+               Status.broadcast(incoming, :answering, "5 in Arabic is ٥", RecordingNodeRouter,
+                 update_intent: :streaming
+               )
+
+      assert_receive {:upsert_event, %Event{request: request, next_hop: %{type: :sync}}}
+      assert request.body == "5 in Arabic is ٥"
+      assert request.metadata.status_message_id == "mattermost-post"
+    end
+
+    test "delayed partial cannot overwrite a completed Arabic answer" do
+      full = "5 in Arabic is ٥ — pronounced khamsa (خمسة)."
+
+      incoming = %Incoming{
+        content: "How do you say five?",
+        provider: :mattermost,
+        channel_id: "room-1",
+        metadata: %{
+          session_id: self(),
+          request_id: "question-1",
+          status_message_id: "mattermost-post"
+        }
+      }
+
+      task =
+        Task.async(fn ->
+          updated =
+            Status.broadcast(incoming, :answering, "5 in Arabic is ٥", BlockingNodeRouter,
+              update_intent: :streaming
+            )
+
+          ChannelEvents.build_and_dispatch_deliver_outgoing_event(
+            %Outgoing{
+              provider: :mattermost,
+              channel_id: "room-1",
+              body: full,
+              metadata: updated.metadata
+            },
+            node_router: BlockingNodeRouter
+          )
+        end)
+
+      assert_receive {:channel_edit_started, "5 in Arabic is ٥", partial_pid}
+      refute_receive {:channel_edit_started, ^full, _}, 40
+      send(partial_pid, :release_partial_edit)
+      assert_receive {:channel_edit_completed, "5 in Arabic is ٥"}
+      assert_receive {:channel_edit_started, ^full, _}
+      assert_receive {:channel_edit_completed, ^full}
+      assert %Event{} = Task.await(task)
+    end
+
     test "broadcasts {:status_update, request_id, stage, message} to the correct topic" do
       session_id = "test-session-#{System.unique_integer([:positive])}"
       request_id = "req-#{System.unique_integer([:positive])}"

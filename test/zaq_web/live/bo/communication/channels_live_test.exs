@@ -6,6 +6,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   import Zaq.AccountsFixtures
   import Zaq.SystemConfigFixtures
   alias Zaq.Accounts
+  alias Zaq.Accounts.People
   alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
@@ -208,6 +209,26 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert has_element?(view, "#retrieval-channel-agent-select-#{retrieval.id}")
   end
 
+  test "requires an explicit connector choice when provider has multiple configs", %{conn: conn} do
+    first = insert_channel_config(%{name: "Workspace A"})
+    second = insert_channel_config(%{name: "Workspace B"})
+    first_channel = insert_retrieval_channel(first)
+    second_channel = insert_retrieval_channel(second)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    assert has_element?(view, "#retrieval-config-select")
+    refute has_element?(view, "#retrieval-channel-#{first_channel.id}")
+    refute has_element?(view, "#retrieval-channel-#{second_channel.id}")
+
+    view
+    |> element("#retrieval-config-form")
+    |> render_change(%{"config_id" => to_string(second.id)})
+
+    assert has_element?(view, "#retrieval-channel-#{second_channel.id}")
+    refute has_element?(view, "#retrieval-channel-#{first_channel.id}")
+  end
+
   test "agent routing options exclude conversation-disabled agents", %{conn: conn} do
     config = insert_channel_config(%{})
     _retrieval = insert_retrieval_channel(config)
@@ -226,6 +247,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     assert has_element?(view, "#config-card-#{config.id}")
+    assert has_element?(view, "#ingress-status-dot-#{config.id}[phx-click='open_ingress_status']")
+    assert has_element?(view, "#edit-config-#{config.id}[phx-click='open_modal']")
+    assert has_element?(view, "#open-test-config-#{config.id}[phx-click='open_test']")
+    assert has_element?(view, "#confirm-delete-config-#{config.id}[phx-click='confirm_delete']")
 
     view |> element("#toggle-config-#{config.id}") |> render_click()
     refute Repo.get!(ChannelConfig, config.id).enabled
@@ -233,7 +258,38 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     view |> element("#confirm-delete-config-#{config.id}") |> render_click()
     view |> element("#delete-config-button") |> render_click()
 
-    refute Repo.get(ChannelConfig, config.id)
+    assert %ChannelConfig{archived_at: archived_at, enabled: false} =
+             Repo.get(ChannelConfig, config.id)
+
+    assert archived_at
+    refute has_element?(view, "#config-card-#{config.id}")
+  end
+
+  test "archiving a connector preserves the Person identity bound to it", %{conn: conn} do
+    config = insert_channel_config(%{})
+    {:ok, person} = People.create_person(%{full_name: "Channel Author"})
+
+    {:ok, _} =
+      People.add_channel(%{
+        person_id: person.id,
+        platform: "mattermost",
+        channel_identifier: "author-1",
+        channel_config_id: config.id
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#confirm-delete-config-#{config.id}") |> render_click()
+    view |> element("#delete-config-button") |> render_click()
+
+    assert %ChannelConfig{archived_at: %DateTime{}} = Repo.get(ChannelConfig, config.id)
+    render_hook(view, "toggle_enabled", %{"id" => to_string(config.id)})
+
+    assert %ChannelConfig{enabled: false, archived_at: %DateTime{}} =
+             Repo.get(ChannelConfig, config.id)
+
+    assert {:ok, matched} = People.match_by_channel("mattermost", "author-1", config.id)
+    assert matched.id == person.id
+    assert nil == ChannelConfig.get_by_provider("mattermost")
   end
 
   test "delete confirmation indicates ingress webhook not deleted", %{conn: conn} do
@@ -261,10 +317,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     view |> element("#confirm-delete-config-#{config.id}") |> render_click()
     view |> element("#delete-config-button") |> render_click()
 
-    refute Repo.get(ChannelConfig, config.id)
+    assert %ChannelConfig{archived_at: %DateTime{}, enabled: false} =
+             Repo.get(ChannelConfig, config.id)
+
+    assert render(view) =~ "Channel config archived."
 
     assert render(view) =~
-             "Channel config deleted. Webhook ingress subscription was not deleted (:missing_subscription_id)."
+             "Webhook ingress subscription was not deleted (:missing_subscription_id)."
   end
 
   test "opens ingress status modal from config card", %{conn: conn} do
@@ -1008,9 +1067,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
         view |> element("#delete-config-button") |> render_click()
 
         if expect_deleted? do
-          refute Repo.get(ChannelConfig, config.id)
+          assert %ChannelConfig{archived_at: %DateTime{}, enabled: false} =
+                   Repo.get(ChannelConfig, config.id)
         else
-          assert Repo.get(ChannelConfig, config.id)
+          assert %ChannelConfig{archived_at: nil} = Repo.get(ChannelConfig, config.id)
         end
 
         assert render(view) =~ expect_flash
@@ -1022,8 +1082,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
         end
       end
 
-      delete_case.({:ok, %{deleted: true}}, true, "Channel config deleted.", nil)
-      delete_case.({:error, :unsupported}, true, "Channel config deleted.", nil)
+      delete_case.({:ok, %{deleted: true}}, true, "Channel config archived.", nil)
+      delete_case.({:error, :unsupported}, true, "Channel config archived.", nil)
       delete_case.({:error, :boom}, false, "Cannot delete config", ":boom")
 
       Repo.delete_all(ChannelConfig)
@@ -1138,6 +1198,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     end
 
     test "deliver_outgoing accepts atom provider" do
+      insert_channel_config(%{
+        provider: "mattermost",
+        kind: "retrieval",
+        name: "Delivery connector"
+      })
+
       stub(Zaq.NodeRouterMock, :dispatch, fn event ->
         case event.opts[:action] do
           :deliver_outgoing ->

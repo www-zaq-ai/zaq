@@ -4,6 +4,7 @@ defmodule Zaq.Accounts.PersonMergeTest do
 
   alias Zaq.Accounts.{People, Person, PersonChannel}
   alias Zaq.Agent.Tools.Resources.QueryResources
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.IncomingMessageRoutingRule
@@ -142,6 +143,39 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert channel.channel_identifier == "reparent@example.com"
     assert channel.last_interaction_at == nil
     assert People.get_channel(later.id) == nil
+  end
+
+  test "merging Persons keeps equal opaque IDs from distinct connectors separate" do
+    survivor = legacy(nil, "Survivor")
+    loser = legacy(nil, "Loser")
+
+    config_ids =
+      for name <- ["Workspace A", "Workspace B"] do
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: name,
+          provider: "slack",
+          kind: "retrieval",
+          url: "https://example.invalid",
+          token: "fixture-token",
+          enabled: false
+        })
+        |> Repo.insert!()
+        |> Map.fetch!(:id)
+      end
+
+    for {person_id, config_id} <- Enum.zip([survivor.id, loser.id], config_ids) do
+      {:ok, _} =
+        People.add_channel(%{
+          person_id: person_id,
+          platform: "slack",
+          channel_identifier: "same-id",
+          channel_config_id: config_id
+        })
+    end
+
+    assert {:ok, merged} = People.merge_persons(survivor, loser)
+    assert Enum.sort(Enum.map(merged.channels, & &1.channel_config_id)) == Enum.sort(config_ids)
   end
 
   test "transferred channel persists calculated fields and latest activity from duplicate losers" do

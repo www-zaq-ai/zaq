@@ -33,13 +33,37 @@ defmodule ZaqWeb.ChannelsController do
     oauth2_redirect(conn, Map.put(params, "provider", "openai"))
   end
 
+  def webhook(conn, %{"type" => type, "provider" => provider, "config_id" => id} = params)
+      when type in ["conversation", "data_source"] do
+    case Integer.parse(id) do
+      {config_id, ""} when config_id > 0 ->
+        dispatch_webhook(conn, type, provider, params, config_id)
+
+      _ ->
+        conn |> put_status(:bad_request) |> json(%{error: "Invalid connector ID"})
+    end
+  end
+
   def webhook(conn, %{"type" => type, "provider" => provider} = params)
       when type in ["conversation", "data_source"] do
+    dispatch_webhook(conn, type, provider, params, nil)
+  end
+
+  def webhook(conn, _params) do
+    conn
+    |> put_status(:bad_request)
+    |> json(%{error: "Invalid webhook type"})
+  end
+
+  defp dispatch_webhook(conn, type, provider, params, config_id) do
     payload = request_payload(conn, params)
+
+    request = %{type: type, provider: provider, payload: payload}
+    request = if config_id, do: Map.put(request, :config_id, config_id), else: request
 
     event =
       Event.new(
-        %{type: type, provider: provider, payload: payload},
+        request,
         :channels,
         opts: [action: :webhook_delivered]
       )
@@ -60,12 +84,6 @@ defmodule ZaqWeb.ChannelsController do
       other ->
         json(conn, %{status: "accepted", result: other})
     end
-  end
-
-  def webhook(conn, _params) do
-    conn
-    |> put_status(:bad_request)
-    |> json(%{error: "Invalid webhook type"})
   end
 
   defp oauth_module, do: Application.get_env(:zaq, :connect_oauth_module, OAuth)
@@ -128,7 +146,7 @@ defmodule ZaqWeb.ChannelsController do
     do: json(conn, %{status: "accepted", result: result})
 
   defp request_payload(conn, params) do
-    body_payload = Map.drop(params, ["type", "provider"])
+    body_payload = Map.drop(params, ["type", "provider", "config_id"])
 
     %{
       "method" => conn.method,

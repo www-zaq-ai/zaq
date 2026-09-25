@@ -810,6 +810,76 @@ defmodule Zaq.Channels.EmailBridgeTest do
   end
 
   describe "email:smtp notification delivery" do
+    test "an IMAP-bound reply uses its explicitly linked SMTP account" do
+      upsert_smtp_channel(%{settings: smtp_settings(%{"from_email" => "first@example.com"})})
+      first = ChannelConfig.get_by_provider("email:smtp")
+
+      second =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Second SMTP",
+          kind: "retrieval",
+          provider: "email:smtp",
+          url: "smtp.example.com",
+          token: "smtp-unused",
+          enabled: true,
+          settings: smtp_settings(%{"from_email" => "second@second.example.org"})
+        })
+        |> Repo.insert!()
+
+      imap =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Inbox",
+          provider: "email:imap",
+          kind: "retrieval",
+          url: "imap.example.com",
+          token: "imap-secret",
+          enabled: true,
+          settings: %{
+            "imap" => %{
+              "username" => "inbox@example.com",
+              "selected_mailboxes" => ["INBOX"],
+              "smtp_config_id" => second.id
+            }
+          }
+        })
+        |> Repo.insert!()
+
+      outgoing = %Zaq.Engine.Messages.Outgoing{
+        body: "Reply",
+        channel_id: "recipient@example.com",
+        provider: :"email:imap",
+        routing_context: %Zaq.Engine.Messages.Incoming.RoutingContext{channel_config_id: imap.id}
+      }
+
+      assert {:ok, _} = EmailBridge.send_reply(outgoing, %{})
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "second@second.example.org"}
+
+      assert Enum.any?(email.headers, fn {name, value} ->
+               name == "Message-ID" and String.ends_with?(value, "@second.example.org>")
+             end)
+
+      refute first.id == second.id
+
+      assert {:ok, _} = ChannelConfig.set_default_smtp_connector(first.id)
+
+      imap
+      |> Ecto.Changeset.change(settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}})
+      |> Repo.update!()
+
+      assert {:error, :missing_smtp_binding} = EmailBridge.send_reply(outgoing, %{})
+
+      imap.id
+      |> then(&Repo.get!(ChannelConfig, &1))
+      |> Ecto.Changeset.change(settings: imap.settings)
+      |> Repo.update!()
+
+      second |> Ecto.Changeset.change(enabled: false) |> Repo.update!()
+      assert {:error, :connector_mismatch} = EmailBridge.send_reply(outgoing, %{})
+    end
+
     test "delivers notifications using the email:smtp ChannelConfig" do
       upsert_smtp_channel()
 

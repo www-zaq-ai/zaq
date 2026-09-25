@@ -1254,7 +1254,13 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp webhook_target_url(config) do
-    WebhookUrl.build(:conversation, config.provider)
+    case Map.get(config, :id) || Map.get(config, "id") do
+      id when is_integer(id) and id > 0 ->
+        WebhookUrl.build(:conversation, config.provider, id)
+
+      _ ->
+        WebhookUrl.build(:conversation, config.provider)
+    end
   end
 
   defp resolve_subscription_id(config, params) do

@@ -518,6 +518,91 @@ defmodule Zaq.Channels.ChannelConfigTest do
     assert %ChannelConfig{id: ^disabled_id} = ChannelConfig.get_any_by_provider("mattermost")
   end
 
+  test "provider-only lookups and upsert fail closed when two connectors share a provider" do
+    first = insert_channel_config(%{provider: "slack", name: "Workspace A"})
+    second = insert_channel_config(%{provider: "slack", name: "Workspace B"})
+
+    assert first.id != second.id
+    assert ChannelConfig.get(first.id).name == "Workspace A"
+    assert ChannelConfig.get(second.id).name == "Workspace B"
+    assert nil == ChannelConfig.get_by_provider("slack")
+    assert nil == ChannelConfig.get_any_by_provider("slack")
+    assert {:error, :ambiguous_connector} = ChannelConfig.resolve_by_provider("slack")
+    assert {:error, :ambiguous_connector} = Bridge.fetch_channel_config("slack")
+    assert {:ok, explicitly_selected} = Bridge.fetch_channel_config("slack", second.id)
+    assert explicitly_selected.id == second.id
+
+    assert {:error, :connector_mismatch} =
+             Bridge.fetch_channel_config("mattermost", second.id)
+
+    assert {:ok, selected} = ChannelConfig.resolve_by_provider("slack", first.id)
+    assert selected.id == first.id
+
+    assert {:error, :connector_mismatch} =
+             ChannelConfig.resolve_by_provider("mattermost", first.id)
+
+    assert {:error, :ambiguous_connector} =
+             ChannelConfig.upsert_by_provider("slack", %{name: "Do not overwrite either"})
+
+    assert ChannelConfig.get(first.id).name == "Workspace A"
+    assert ChannelConfig.get(second.id).name == "Workspace B"
+  end
+
+  test "provider-only resolution stays ambiguous even if one connector is disabled" do
+    first = insert_channel_config(%{provider: "slack", name: "Active", enabled: true})
+    second = insert_channel_config(%{provider: "slack", name: "Disabled", enabled: false})
+
+    assert {:error, :ambiguous_connector} = ChannelConfig.resolve_by_provider("slack")
+    assert nil == ChannelConfig.get_by_provider("slack")
+    assert {:ok, config} = ChannelConfig.resolve_by_provider("slack", first.id)
+    assert config.id == first.id
+
+    assert {:error, :connector_mismatch} =
+             ChannelConfig.resolve_by_provider("slack", second.id)
+  end
+
+  test "archived connector remains addressable by ID but is excluded from provider selection" do
+    config = insert_channel_config(%{provider: "slack", enabled: true})
+
+    assert {:ok, archived} = ChannelConfig.archive(config)
+    assert archived.archived_at
+    refute archived.enabled
+    assert {:ok, same} = ChannelConfig.archive(archived)
+    assert same.archived_at == archived.archived_at
+    assert ChannelConfig.get(config.id).id == archived.id
+    assert nil == ChannelConfig.get_any_by_provider("slack")
+    assert {:error, :not_found} = ChannelConfig.resolve_by_provider("slack", config.id)
+
+    replacement = insert_channel_config(%{provider: "slack", name: "Replacement"})
+    assert ChannelConfig.get_by_provider("slack").id == replacement.id
+
+    assert {:ok, updated} =
+             ChannelConfig.upsert_by_provider("slack", %{
+               name: "Updated replacement",
+               kind: "retrieval",
+               url: "https://example.invalid",
+               token: "fixture-token"
+             })
+
+    assert updated.id == replacement.id
+    assert ChannelConfig.get(config.id).archived_at == archived.archived_at
+    refute ChannelConfig.changeset(archived, %{enabled: true}).valid?
+
+    assert {:error, :protected} =
+             Repo.transaction(fn ->
+               result =
+                 archived
+                 |> Ecto.Changeset.change(enabled: true)
+                 |> Ecto.Changeset.check_constraint(:enabled,
+                   name: :archived_configs_disabled
+                 )
+                 |> Repo.update()
+
+               assert {:error, %Ecto.Changeset{}} = result
+               Repo.rollback(:protected)
+             end)
+  end
+
   test "upsert_by_provider/2 inserts and updates provider config" do
     attrs = %{
       name: "Email SMTP",
@@ -562,6 +647,31 @@ defmodule Zaq.Channels.ChannelConfigTest do
 
     result = ChannelConfig.get_by_channel_id("mattermost", "chan-abc")
     assert result.id == config.id
+  end
+
+  test "get_by_channel_id does not mistake another connector's channel for its own" do
+    first = insert_channel_config(%{provider: "slack", name: "Workspace A", enabled: true})
+    second = insert_channel_config(%{provider: "slack", name: "Workspace B", enabled: false})
+
+    for config <- [first, second] do
+      %RetrievalChannel{}
+      |> RetrievalChannel.changeset(%{
+        channel_config_id: config.id,
+        channel_id: "same-room",
+        channel_name: "general",
+        team_id: "team-1",
+        team_name: "My Team"
+      })
+      |> Repo.insert!()
+    end
+
+    assert nil == ChannelConfig.get_by_channel_id("slack", "same-room")
+
+    assert %ChannelConfig{id: id} =
+             ChannelConfig.get_by_channel_id("slack", "same-room", first.id)
+
+    assert id == first.id
+    assert nil == ChannelConfig.get_by_channel_id("slack", "same-room", second.id)
   end
 
   test "get_by_channel_id/2 returns nil for unknown channel_id" do

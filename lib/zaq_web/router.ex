@@ -177,6 +177,7 @@ defmodule ZaqWeb.Router do
     get "/health", ChannelsController, :health
     get "/oauth2/:provider/redirect", ChannelsController, :oauth2_redirect
     post "/webhook/:type/:provider", ChannelsController, :webhook
+    post "/webhook/:type/:provider/:config_id", ChannelsController, :webhook
   end
 
   if Application.compile_env(:zaq, :e2e_routes, false) do

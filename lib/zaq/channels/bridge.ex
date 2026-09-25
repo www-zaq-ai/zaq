@@ -338,12 +338,14 @@ defmodule Zaq.Channels.Bridge do
     }
   end
 
-  @doc "Fetches enabled channel config by provider."
-  @spec fetch_channel_config(atom() | String.t()) :: {:ok, map()} | {:error, term()}
-  def fetch_channel_config(provider) do
-    case ChannelConfig.get_by_provider(to_string(provider)) do
-      nil -> {:error, {:channel_not_configured, provider}}
-      config -> {:ok, normalize_channel_config(config)}
+  @doc "Fetches an enabled connector by provider; supply its ID if the provider is ambiguous."
+  @spec fetch_channel_config(atom() | String.t(), pos_integer() | nil) ::
+          {:ok, map()} | {:error, term()}
+  def fetch_channel_config(provider, config_id \\ nil) do
+    case ChannelConfig.resolve_by_provider(to_string(provider), config_id) do
+      {:ok, config} -> {:ok, normalize_channel_config(config)}
+      {:error, :not_found} -> {:error, {:channel_not_configured, provider}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -352,6 +354,7 @@ defmodule Zaq.Channels.Bridge do
   def fetch_channel_config_by_id(id) do
     case ChannelConfig.get(id) do
       nil -> {:error, :channel_config_not_found}
+      %{archived_at: %DateTime{}} -> {:error, :channel_archived}
       %{enabled: false} -> {:error, :channel_disabled}
       config -> {:ok, config |> ChannelConfig.to_runtime_config() |> normalize_channel_config()}
     end

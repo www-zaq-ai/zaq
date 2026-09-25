@@ -18,6 +18,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
   """
 
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
 
   @enforce_keys [:body, :channel_id, :provider]
 
@@ -30,6 +31,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
     :provider,
     :in_reply_to,
     :thread_anchor,
+    routing_context: %RoutingContext{},
     metadata: %{}
   ]
 
@@ -42,6 +44,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
           provider: atom() | String.t(),
           in_reply_to: String.t() | integer() | nil,
           thread_anchor: map() | nil,
+          routing_context: RoutingContext.t() | nil,
           metadata: map()
         }
 
@@ -62,6 +65,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
       author_name: incoming.author_name,
       provider: incoming.provider,
       in_reply_to: incoming.message_id,
+      routing_context: incoming.routing_context,
       metadata:
         incoming.metadata
         |> Map.merge(result)

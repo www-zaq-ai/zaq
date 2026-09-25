@@ -30,8 +30,14 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLive do
      |> assign(:page_title, "Email Channel")
      |> assign(:current_path, "/bo/channels/retrieval/email")
      |> assign(:cards, @connection_types)
-     |> assign(:smtp_active, available && ChannelConfig.get_by_provider("email:smtp") != nil)
-     |> assign(:imap_active, available && ChannelConfig.get_by_provider("email:imap") != nil)}
+     |> assign(
+       :smtp_active,
+       available && match?({:ok, _}, ChannelConfig.resolve_notification_smtp())
+     )
+     |> assign(
+       :imap_active,
+       available && Enum.any?(ChannelConfig.list_by_provider("email:imap"), & &1.enabled)
+     )}
   end
 
   @impl true

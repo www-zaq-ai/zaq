@@ -299,6 +299,18 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
+  @doc "Dispatches a webhook to the exact enabled connector selected by the callback URL."
+  @spec handle_webhook(atom() | String.t(), map(), pos_integer()) ::
+          {:ok, term()} | {:error, term()}
+  def handle_webhook(provider, payload, config_id)
+      when is_map(payload) and is_integer(config_id) and config_id > 0 do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_channel_config(provider, config_id),
+         true <- bridge_supports?(bridge, :handle_webhook, 2) || {:error, :unsupported} do
+      bridge.handle_webhook(config, payload)
+    end
+  end
+
   @doc """
   Ensures provider ingress subscription through the configured communication bridge.
 
@@ -650,7 +662,9 @@ defmodule Zaq.Channels.CommunicationBridge do
     context =
       msg.routing_context
       |> Map.from_struct()
-      |> maybe_put_routing_context(:channel_config_id, Keyword.get(opts, :channel_config_id))
+      # Connector provenance must be stamped from the bridge's configured
+      # instance, never inherited from untrusted incoming metadata.
+      |> Map.put(:channel_config_id, Keyword.get(opts, :channel_config_id))
       |> maybe_put_routing_context(
         :retrieval_channel_id,
         Keyword.get(opts, :retrieval_channel_id)

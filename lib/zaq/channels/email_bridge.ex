@@ -201,6 +201,12 @@ defmodule Zaq.Channels.EmailBridge do
   @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
+    with {:ok, smtp_config_id} <- reply_smtp_config_id(outgoing) do
+      send_reply_with_smtp(outgoing, smtp_config_id)
+    end
+  end
+
+  defp send_reply_with_smtp(outgoing, smtp_config_id) do
     # Two independent predicates. `inbound_reply?` is about *provenance* (are we
     # answering an email someone sent us) and drives the `Re:` prefix. Continuity
     # (do we have a parent to point at) comes from `thread_anchor`/`in_reply_to`
@@ -216,7 +222,7 @@ defmodule Zaq.Channels.EmailBridge do
     html_body = get_meta(outgoing.metadata, "html_body", :html_body)
     format = get_meta(outgoing.metadata, "format", :format)
 
-    threading = resolve_threading(outgoing)
+    threading = resolve_threading(outgoing, smtp_config_id)
     headers = threading_headers(threading)
 
     payload =
@@ -230,9 +236,49 @@ defmodule Zaq.Channels.EmailBridge do
       |> maybe_put("from_email", from_email)
       |> maybe_put("from_name", from_name)
 
-    case smtp_sender_module().send_notification(outgoing.channel_id, payload, %{}) do
+    case deliver_email_reply(outgoing, payload, smtp_config_id) do
       :ok -> {:ok, delivery_receipt(threading)}
       error -> error
+    end
+  end
+
+  defp deliver_email_reply(%Outgoing{} = outgoing, payload, smtp_config_id) do
+    case smtp_config_id do
+      nil -> smtp_sender_module().send_notification(outgoing.channel_id, payload, %{})
+      id -> smtp_sender_module().send_notification(outgoing.channel_id, payload, %{}, id)
+    end
+  end
+
+  defp reply_smtp_config_id(%Outgoing{routing_context: %{channel_config_id: id}})
+       when is_integer(id) and id > 0 do
+    case ChannelConfig.get(id) do
+      %ChannelConfig{provider: "email:imap", enabled: true, archived_at: nil, settings: settings} ->
+        settings |> imap_settings() |> smtp_id_from_imap()
+
+      _ ->
+        {:error, :connector_mismatch}
+    end
+  end
+
+  defp reply_smtp_config_id(%Outgoing{routing_context: %{channel_config_id: id}})
+       when not is_nil(id), do: {:error, :connector_mismatch}
+
+  defp reply_smtp_config_id(_outgoing), do: {:ok, nil}
+
+  defp imap_settings(settings) when is_map(settings), do: Map.get(settings, "imap", %{})
+  defp imap_settings(_settings), do: %{}
+
+  defp smtp_id_from_imap(%{"smtp_config_id" => id}) when is_integer(id) and id > 0,
+    do: {:ok, id}
+
+  defp smtp_id_from_imap(%{"smtp_config_id" => nil}), do: sole_smtp_reply_connector()
+  defp smtp_id_from_imap(%{"smtp_config_id" => _}), do: {:error, :connector_mismatch}
+  defp smtp_id_from_imap(_imap), do: sole_smtp_reply_connector()
+
+  defp sole_smtp_reply_connector do
+    case ChannelConfig.resolve_by_provider("email:smtp") do
+      {:ok, _} -> {:ok, nil}
+      _ -> {:error, :missing_smtp_binding}
     end
   end
 
@@ -383,7 +429,7 @@ defmodule Zaq.Channels.EmailBridge do
 
   # RFC 5322 threading pointers for this send: own id from `metadata["threading"]`
   # (pre-mint) or freshly minted; parent from `thread_anchor` or `in_reply_to`.
-  defp resolve_threading(%Outgoing{} = outgoing) do
+  defp resolve_threading(%Outgoing{} = outgoing, smtp_config_id) do
     email_meta = get_meta(outgoing.metadata, "email", :email) || %{}
     preminted = get_meta(outgoing.metadata, "threading", :threading) || %{}
     incoming_headers = get_meta(email_meta, "headers", :headers) || %{}
@@ -394,7 +440,7 @@ defmodule Zaq.Channels.EmailBridge do
 
     message_id =
       EmailUtils.normalize_message_id(get_meta(preminted, "message_id", :message_id)) ||
-        EmailUtils.new_message_id(sending_domain())
+        EmailUtils.new_message_id(sending_domain(smtp_config_id))
 
     references = chain_references(in_reply_to, anchor_parent, anchor, preminted, incoming_headers)
 
@@ -455,9 +501,14 @@ defmodule Zaq.Channels.EmailBridge do
     }
   end
 
-  defp sending_domain do
-    case ChannelConfig.get_by_provider("email:smtp") do
-      %ChannelConfig{settings: settings} when is_map(settings) ->
+  defp sending_domain(smtp_config_id) do
+    result =
+      if is_nil(smtp_config_id),
+        do: ChannelConfig.resolve_notification_smtp(),
+        else: ChannelConfig.resolve_by_provider("email:smtp", smtp_config_id)
+
+    case result do
+      {:ok, %ChannelConfig{settings: settings}} when is_map(settings) ->
         EmailUtils.sending_domain(Map.get(settings, "from_email"))
 
       _ ->

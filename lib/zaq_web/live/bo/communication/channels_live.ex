@@ -16,6 +16,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Components.DesignSystem.ChannelConnectorCard
   alias ZaqWeb.Helpers.Timezone
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
@@ -70,7 +71,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       end
 
     configs = if(available, do: list_configs(provider), else: [])
-    first_config = List.first(configs)
+    first_config = selected_config(configs, nil)
 
     {:ok,
      socket
@@ -88,6 +89,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:ingress_status_modal, nil)
      |> assign(:agent_options, AgentRoutingOptions.agent_options())
      |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
+     |> assign(:selected_config_id, first_config && first_config.id)
      # config modal
      |> assign(:modal, nil)
      |> assign(:changeset, nil)
@@ -354,7 +356,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         sync_result = sync_channel_runtime(previous_config, config)
 
         configs = list_configs(socket.assigns.provider)
-        first_config = List.first(configs)
+        first_config = selected_config(configs, selected_id(socket))
 
         {:noreply,
          socket
@@ -365,6 +367,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> assign(:configs, configs)
          |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
          |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
+         |> assign(:selected_config_id, first_config && first_config.id)
          |> assign(:retrieval_channels, load_retrieval_channels(first_config))
          |> schedule_ingress_status_refresh(configs)
          |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
@@ -422,48 +425,18 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> put_flash(:error, "Config not found.")}
 
       config ->
-        case teardown_ingress_before_delete(config) do
-          :ok ->
-            {:noreply, delete_config_success_socket(socket, config, "Channel config deleted.")}
-
-          {:ok, message} when is_binary(message) ->
-            {:noreply, delete_config_success_socket(socket, config, message)}
-
-          {:error, reason} ->
-            {:noreply,
-             socket
-             |> assign(:confirm_delete, nil)
-             |> put_flash(
-               :error,
-               "Cannot delete config: failed to teardown webhook ingress subscription (#{inspect(reason)})."
-             )}
-        end
+        archive_after_ingress_teardown(socket, config)
     end
   end
 
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
     previous_config = Repo.get!(ChannelConfig, id)
 
-    config =
-      previous_config
-      |> Ecto.Changeset.change(enabled: !previous_config.enabled)
-      |> Repo.update!()
-
-    sync_result = sync_channel_runtime(previous_config, config)
-
-    configs = list_configs(socket.assigns.provider)
-    first_config = List.first(configs)
-
-    {:noreply,
-     socket
-     |> assign(:configs, configs)
-     |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
-     |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
-     |> schedule_ingress_status_refresh(configs)
-     |> maybe_put_runtime_sync_flash(
-       sync_result,
-       "#{config.name} #{if previous_config.enabled, do: "disabled", else: "enabled"}."
-     )}
+    if previous_config.archived_at do
+      {:noreply, put_flash(socket, :error, "Archived connectors cannot be reactivated.")}
+    else
+      toggle_active_config(socket, previous_config)
+    end
   end
 
   def handle_event(
@@ -472,18 +445,21 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         socket
       ) do
     with {:ok, id} <- ParseUtils.parse_int_strict(config_id),
+         true <- id == selected_id(socket),
          %ChannelConfig{} = config <- Repo.get(ChannelConfig, id),
+         true <- config.provider == socket.assigns.provider,
          {:ok, configured_agent_id} <- AgentRouting.validate_choice(raw_id),
          {:ok, _result} <-
            upsert_incoming_routing_rule(provider_rule(config, configured_agent_id)) do
       configs = list_configs(socket.assigns.provider)
-      first_config = List.first(configs)
+      first_config = selected_config(configs, selected_id(socket))
 
       {:noreply,
        socket
        |> assign(:configs, configs)
        |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
        |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
+       |> assign(:selected_config_id, first_config && first_config.id)
        |> schedule_ingress_status_refresh(configs)
        |> put_flash(:info, "Provider default agent updated.")}
     else
@@ -630,6 +606,28 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   # -------------------------------------------------------------------------
   # Retrieval Channel Picker
   # -------------------------------------------------------------------------
+
+  def handle_event("select_retrieval_config", %{"config_id" => id}, socket) do
+    config =
+      case ParseUtils.parse_int_strict(id) do
+        {:ok, parsed_id} ->
+          Enum.find(socket.assigns.configs, &(&1.id == parsed_id and &1.enabled))
+
+        _ ->
+          nil
+      end
+
+    {:noreply,
+     socket
+     |> assign(:selected_config_id, config && config.id)
+     |> assign(:provider_default_agent_value, provider_default_agent_value(config))
+     |> assign(:retrieval_channels, load_retrieval_channels(config))
+     |> assign(:teams, [])
+     |> assign(:teams_status, :idle)
+     |> assign(:available_channels, [])
+     |> assign(:selected_team_id, nil)
+     |> assign(:selected_team_name, nil)}
+  end
 
   def handle_event("fetch_teams", _params, socket) do
     socket = assign(socket, :teams_status, :loading)
@@ -812,7 +810,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   defp do_fetch_posts(channel_id, cursor_opts) do
-    case ChannelConfig.get_by_provider("mattermost") do
+    case ChannelConfig.get_by_channel_id("mattermost", channel_id) ||
+           ChannelConfig.get_by_provider("mattermost") do
       nil -> {:error, [], nil, nil}
       %ChannelConfig{} = cfg -> fetch_posts_from_config(cfg, channel_id, cursor_opts)
     end
@@ -886,13 +885,58 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
   defp list_configs(provider) do
     ChannelConfig
-    |> where([c], c.provider == ^provider)
+    |> where([c], c.provider == ^provider and is_nil(c.archived_at))
     |> order_by(asc: :name)
     |> Repo.all()
   end
 
+  defp toggle_active_config(socket, previous_config) do
+    config =
+      previous_config
+      |> Ecto.Changeset.change(enabled: !previous_config.enabled)
+      |> Repo.update!()
+
+    sync_result = sync_channel_runtime(previous_config, config)
+    configs = list_configs(socket.assigns.provider)
+    selected = selected_config(configs, selected_id(socket))
+
+    {:noreply,
+     socket
+     |> assign(:configs, configs)
+     |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
+     |> assign(:provider_default_agent_value, provider_default_agent_value(selected))
+     |> assign(:selected_config_id, selected && selected.id)
+     |> schedule_ingress_status_refresh(configs)
+     |> maybe_put_runtime_sync_flash(
+       sync_result,
+       "#{config.name} #{if previous_config.enabled, do: "disabled", else: "enabled"}."
+     )}
+  end
+
   defp first_enabled_config(socket) do
-    Enum.find(socket.assigns.configs, & &1.enabled)
+    case selected_config(socket.assigns.configs, selected_id(socket)) do
+      %ChannelConfig{enabled: true} = config -> config
+      _ -> nil
+    end
+  end
+
+  defp selected_config(configs, id) when is_integer(id),
+    do: Enum.find(configs, &(&1.id == id))
+
+  defp selected_config([config], nil), do: config
+  defp selected_config(_, _), do: nil
+
+  defp selected_id(socket) do
+    case Map.fetch(socket.assigns, :selected_config_id) do
+      {:ok, id} ->
+        id
+
+      :error ->
+        case socket.assigns.configs do
+          [%ChannelConfig{id: id}] -> id
+          _ -> nil
+        end
+    end
   end
 
   defp load_retrieval_channels(nil), do: []
@@ -1194,6 +1238,25 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     NodeRouter.dispatch(event).response
   end
 
+  defp archive_after_ingress_teardown(socket, config) do
+    case teardown_ingress_before_delete(config) do
+      :ok ->
+        archive_config_and_refresh(socket, config, "Channel config archived.")
+
+      {:ok, message} when is_binary(message) ->
+        archive_config_and_refresh(socket, config, "Channel config archived. #{message}")
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(
+           :error,
+           "Cannot delete config: failed to teardown webhook ingress subscription (#{inspect(reason)})."
+         )}
+    end
+  end
+
   defp teardown_ingress_before_delete(%ChannelConfig{} = config) do
     if provider_requires_global_base_url?(:retrieval, config.provider) do
       event =
@@ -1205,8 +1268,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
 
       case NodeRouter.dispatch(event).response do
         {:ok, %{type: :ingress_webhook, deleted: false, reason: reason}} ->
-          {:ok,
-           "Channel config deleted. Webhook ingress subscription was not deleted (#{inspect(reason)})."}
+          {:ok, "Webhook ingress subscription was not deleted (#{inspect(reason)})."}
 
         {:ok, _result} ->
           :ok
@@ -1225,20 +1287,41 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     end
   end
 
-  defp delete_config_success_socket(socket, %ChannelConfig{} = config, flash_message)
-       when is_binary(flash_message) do
-    Repo.delete!(config)
+  defp archive_config_and_refresh(socket, config, message) do
+    event =
+      Event.new(%{channel_config_id: config.id}, :channels,
+        opts: [action: :archive_channel_config]
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, %ChannelConfig{} = archived} ->
+        sync_result = sync_channel_runtime(config, archived)
+
+        {:noreply,
+         socket
+         |> delete_config_success_socket()
+         |> maybe_put_runtime_sync_flash(sync_result, message)}
+
+      other ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(:error, "Ingress stopped but connector archive failed: #{inspect(other)}")}
+    end
+  end
+
+  defp delete_config_success_socket(socket) do
     configs = list_configs(socket.assigns.provider)
-    first_config = List.first(configs)
+    first_config = selected_config(configs, selected_id(socket))
 
     socket
     |> assign(:confirm_delete, nil)
     |> assign(:configs, configs)
     |> assign(:grants_by_config, grants_by_config(socket.assigns.kind, configs))
     |> assign(:provider_default_agent_value, provider_default_agent_value(first_config))
+    |> assign(:selected_config_id, first_config && first_config.id)
     |> assign(:retrieval_channels, load_retrieval_channels(first_config))
     |> schedule_ingress_status_refresh(configs)
-    |> put_flash(:info, flash_message)
   end
 
   defp test_connection(%ChannelConfig{} = config, channel_id) when is_binary(channel_id) do

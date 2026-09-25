@@ -14,6 +14,7 @@ defmodule Zaq.Accounts.People do
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Accounts.PersonMerger
   alias Zaq.Accounts.Team
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect.PersonLifecycle
   alias Zaq.Repo
 
@@ -149,17 +150,89 @@ defmodule Zaq.Accounts.People do
     end
   end
 
-  @doc "Matches a person by platform and channel identifier directly."
+  @doc "Matches an unscoped legacy or BO-owned identity by platform and identifier."
   @spec match_by_channel(String.t(), String.t()) :: {:ok, Person.t()} | {:error, :not_found}
   def match_by_channel(platform, channel_identifier)
       when is_binary(platform) and is_binary(channel_identifier) and channel_identifier != "" do
-    case find_matching_channel(PersonChannel, platform, channel_identifier) do
+    case find_matching_channel(
+           from(c in PersonChannel, where: is_nil(c.channel_config_id)),
+           platform,
+           channel_identifier
+         ) do
       nil -> {:error, :not_found}
       channel -> {:ok, get_person_with_channels!(channel.person_id)}
     end
   end
 
   def match_by_channel(_platform, _channel_identifier), do: {:error, :not_found}
+
+  @doc "Matches an opaque author identity only within its configured connector."
+  @spec match_by_channel(String.t(), String.t(), pos_integer()) ::
+          {:ok, Person.t()} | {:error, :not_found}
+  def match_by_channel(platform, channel_identifier, config_id)
+      when is_binary(platform) and is_binary(channel_identifier) and channel_identifier != "" and
+             is_integer(config_id) and config_id > 0 do
+    case find_matching_channel(
+           from(c in PersonChannel, where: c.channel_config_id == ^config_id),
+           platform,
+           channel_identifier
+         ) do
+      nil -> {:error, :not_found}
+      channel -> {:ok, get_person_with_channels!(channel.person_id)}
+    end
+  end
+
+  def match_by_channel(_platform, _identifier, _config_id), do: {:error, :not_found}
+
+  @doc "Binds an old unscoped opaque identity only to its sole live provider connector."
+  @spec link_legacy_channel_to_connector(String.t(), String.t(), pos_integer()) ::
+          {:ok, PersonChannel.t()} | {:error, term()}
+  def link_legacy_channel_to_connector(platform, identifier, config_id) do
+    if valid_legacy_scope?(platform, identifier, config_id) do
+      bind_legacy_channel(platform, identifier, config_id)
+    else
+      {:error, :not_found}
+    end
+  end
+
+  defp valid_legacy_scope?(platform, identifier, config_id)
+       when is_binary(platform) and platform != "email" and is_binary(identifier) and
+              identifier != "" and is_integer(config_id) and config_id > 0,
+       do: true
+
+  defp valid_legacy_scope?(_, _, _), do: false
+
+  defp bind_legacy_channel(platform, identifier, config_id) do
+    Repo.transaction(fn ->
+      config_ids =
+        Repo.all(
+          from c in ChannelConfig,
+            where:
+              c.provider == ^platform and c.kind == "retrieval" and c.enabled == true and
+                is_nil(c.archived_at),
+            select: c.id,
+            limit: 2
+        )
+
+      if config_ids != [config_id], do: Repo.rollback(:ambiguous_connector)
+
+      channel =
+        find_matching_channel(
+          from(c in PersonChannel, where: is_nil(c.channel_config_id), lock: "FOR UPDATE"),
+          platform,
+          identifier
+        )
+
+      if is_nil(channel), do: Repo.rollback(:not_found)
+
+      case channel
+           |> PersonChannel.changeset(%{channel_config_id: config_id})
+           |> Repo.update() do
+        {:ok, linked} -> linked
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
 
   @doc """
   Matches a person by priority: email → phone → {platform, channel_identifier}.
@@ -212,6 +285,7 @@ defmodule Zaq.Accounts.People do
       opts[:constraint] == :unique and
         opts[:constraint_name] in [
           "people_email_index",
+          "channels_connector_identifier_index",
           "channels_platform_channel_identifier_index"
         ]
     end)
@@ -220,7 +294,7 @@ defmodule Zaq.Accounts.People do
   defp discover_person(platform, attrs) do
     Repo.transaction(fn ->
       person =
-        case match_normalized_person(attrs) do
+        case match_discovered_person(platform, attrs) do
           {:ok, person} ->
             person
 
@@ -233,6 +307,16 @@ defmodule Zaq.Accounts.People do
       Repo.preload(person, [channels: channels_ordered()], force: true)
     end)
   end
+
+  defp match_discovered_person(platform, %{"channel_config_id" => id} = attrs)
+       when is_integer(id) and id > 0 do
+    case match_by_channel(platform, attrs["channel_id"] || "", id) do
+      {:error, :not_found} when platform == "email" -> match_by_email(attrs)
+      result -> result
+    end
+  end
+
+  defp match_discovered_person(_platform, attrs), do: match_normalized_person(attrs)
 
   defp linked!({:ok, value}), do: value
   defp linked!({:error, reason}), do: Repo.rollback(reason)
@@ -777,12 +861,16 @@ defmodule Zaq.Accounts.People do
   defp ensure_channel_linked(person, platform, attrs) do
     channel_id = Map.get(attrs, "channel_id")
 
-    existing =
-      find_matching_channel(
-        from(c in PersonChannel, where: c.person_id == ^person.id),
-        platform,
-        channel_id
-      )
+    config_id = Map.get(attrs, "channel_config_id")
+
+    query = from(c in PersonChannel, where: c.person_id == ^person.id)
+
+    query =
+      if is_nil(config_id),
+        do: from(c in query, where: is_nil(c.channel_config_id)),
+        else: from(c in query, where: c.channel_config_id == ^config_id)
+
+    existing = find_matching_channel(query, platform, channel_id)
 
     if existing do
       {:ok, existing}
@@ -791,6 +879,7 @@ defmodule Zaq.Accounts.People do
         person_id: person.id,
         platform: platform,
         channel_identifier: channel_id,
+        channel_config_id: config_id,
         username: Map.get(attrs, "username"),
         display_name: Map.get(attrs, "display_name"),
         phone: Map.get(attrs, "phone"),
@@ -899,7 +988,8 @@ defmodule Zaq.Accounts.People do
 
     links
     |> Enum.uniq_by(fn {platform, attrs} ->
-      {platform, PersonChannel.normalize_identifier(platform, attrs["channel_id"])}
+      {platform, attrs["channel_config_id"],
+       PersonChannel.normalize_identifier(platform, attrs["channel_id"])}
     end)
     |> Enum.each(fn {platform, attrs} ->
       ensure_channel_linked(person, platform, attrs) |> linked!()

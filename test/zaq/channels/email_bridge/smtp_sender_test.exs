@@ -7,6 +7,7 @@ defmodule Zaq.Channels.EmailBridge.SmtpSenderTest do
 
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge.SmtpSender
+  alias Zaq.Repo
   alias Zaq.Types.EncryptedString
 
   # ---------------------------------------------------------------------------
@@ -50,6 +51,110 @@ defmodule Zaq.Channels.EmailBridge.SmtpSenderTest do
 
     assert {:ok, _channel} = ChannelConfig.upsert_by_provider("email:smtp", attrs)
     :ok
+  end
+
+  test "does not deliver via fallback settings when SMTP connector is ambiguous" do
+    for name <- ["Primary SMTP", "Other SMTP"] do
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: name,
+        provider: "email:smtp",
+        kind: "retrieval",
+        url: "smtp.example.invalid",
+        token: "fixture-token",
+        enabled: true,
+        settings: smtp_settings(%{"relay" => "smtp.example.invalid"})
+      })
+      |> Repo.insert!()
+    end
+
+    assert {:error, :ambiguous_connector} =
+             SmtpSender.send_notification("author@example.invalid", payload(), %{})
+  end
+
+  test "an explicit default routes unscoped notifications and can be changed" do
+    configs =
+      for name <- ["Primary SMTP", "Other SMTP"] do
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: name,
+          provider: "email:smtp",
+          kind: "retrieval",
+          url: "smtp.example.invalid",
+          token: "fixture-token",
+          enabled: true,
+          settings:
+            smtp_settings(%{
+              "from_email" => "#{name |> String.split() |> hd() |> String.downcase()}@example.com"
+            })
+        })
+        |> Repo.insert!()
+      end
+
+    assert {:ok, _} = ChannelConfig.set_default_smtp_connector(List.last(configs).id)
+    assert :ok = SmtpSender.send_notification("author@example.invalid", payload(), %{})
+    assert_receive {:email, first}
+    assert first.from == {"ZAQ", "other@example.com"}
+
+    assert {:ok, _} = ChannelConfig.set_default_smtp_connector(hd(configs).id)
+    assert {:ok, _} = ChannelConfig.set_default_smtp_connector(hd(configs).id)
+    assert :ok = SmtpSender.send_notification("author@example.invalid", payload(), %{})
+    assert_receive {:email, second}
+    assert second.from == {"ZAQ", "primary@example.com"}
+
+    assert {:error, :connector_mismatch} =
+             ChannelConfig.set_default_smtp_connector(-1)
+
+    List.last(configs).id
+    |> ChannelConfig.get()
+    |> Ecto.Changeset.change(enabled: false)
+    |> Repo.update!()
+
+    assert {:error, :connector_mismatch} =
+             ChannelConfig.set_default_smtp_connector(List.last(configs).id)
+
+    assert {:ok, %{id: id}} = ChannelConfig.resolve_notification_smtp()
+    assert id == hd(configs).id
+  end
+
+  test "archiving a designated SMTP default never silently promotes another account" do
+    first =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Primary",
+        provider: "email:smtp",
+        kind: "retrieval",
+        url: "smtp.example.invalid",
+        token: "fixture-token",
+        enabled: true,
+        settings: smtp_settings(%{"from_email" => "primary@example.com"})
+      })
+      |> Repo.insert!()
+
+    assert {:ok, _} = ChannelConfig.set_default_smtp_connector(first.id)
+    assert {:ok, _} = ChannelConfig.archive(first)
+
+    assert %ChannelConfig{archived_at: %DateTime{}, enabled: false} =
+             Repo.get!(ChannelConfig, first.id)
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(%{
+      name: "Alternate",
+      provider: "email:smtp",
+      kind: "retrieval",
+      url: "smtp.example.invalid",
+      token: "fixture-token",
+      enabled: true,
+      settings: smtp_settings(%{"from_email" => "alternate@example.com"})
+    })
+    |> Repo.insert!()
+
+    assert {:error, :missing_default_smtp_connector} = ChannelConfig.resolve_notification_smtp()
+
+    assert {:error, :missing_default_smtp_connector} =
+             SmtpSender.send_notification("author@example.invalid", payload(), %{})
+
+    refute_received {:email, _}
   end
 
   defp with_public_key_stub(source, fun) do

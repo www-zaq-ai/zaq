@@ -1,6 +1,7 @@
 defmodule Zaq.Agent.Status do
   @moduledoc """
-  Fire-and-forget intermediary status updates routed through Channels.
+  Intermediary status updates routed through Channels. Edits are ordered with
+  final delivery by awaiting each upsert before the request completes.
 
   Accepts `%Incoming{}` or `nil` as context input for `broadcast/4` and
   `broadcast/5`. A non-Incoming map raises `ArgumentError` by design,
@@ -69,6 +70,7 @@ defmodule Zaq.Agent.Status do
           session_id: incoming.metadata[:session_id],
           request_id: request_key(incoming.metadata, incoming.message_id),
           provider: incoming.provider,
+          routing_context: incoming.routing_context,
           channel_id: incoming.channel_id,
           thread_id: incoming.thread_id,
           status_message_id: incoming.metadata[:status_message_id],
@@ -95,7 +97,8 @@ defmodule Zaq.Agent.Status do
 
   defp dispatch_upsert(%Outgoing{} = outgoing, node_router) do
     ChannelEvents.build_and_dispatch_upsert_message_event(outgoing,
-      node_router: node_router
+      node_router: node_router,
+      type: :sync
     )
   end
 
@@ -125,6 +128,7 @@ defmodule Zaq.Agent.Status do
     if present_message_id?(request_id) do
       %Outgoing{
         provider: provider,
+        routing_context: Map.get(context, :routing_context),
         channel_id: channel_id,
         thread_id: Map.get(context, :thread_id),
         body: message,

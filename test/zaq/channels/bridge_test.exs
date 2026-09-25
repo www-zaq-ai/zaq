@@ -4,6 +4,7 @@ defmodule Zaq.Channels.BridgeTest do
   alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.CommunicationBridge
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -246,7 +247,7 @@ defmodule Zaq.Channels.BridgeTest do
 
     assert :ok = Bridge.persist_from_incoming(incoming, metadata, StubConversations, %{id: "u1"})
 
-    stamped = %{incoming | metadata: %{"conversation" => %{"channel_type" => "bo", "key" => nil}}}
+    stamped = CommunicationBridge.put_conversation_identity(incoming)
     assert_received {:stub_persist, ^stamped, ^metadata}
   end
 
