@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T16:46:50Z",
+  "description": "## Assigned scope\nOwn role/application/router maps and Serving Supervisor/API skeleton. Preserve BO/Engine-only and :all startup; no enabled models means no download/model allocation.\n\nFull contracts, architecture, persistence, privacy, platform candidates, and Action reuse evidence are embedded in parent zaq-za4. This issue owns only the assigned subset of work package S2; sibling issues own the rest.\n\n### S2 — Serving role and real capability discovery\n\n- **Files/specification:** role/application/router maps; `serving/{supervisor,api,capabilities,backend}.ex`, `serving/hardware/*`; existing deployment files discovered before editing. Lightweight boot, profile-specific native dependencies, explicit capability DTO and backend selection.\n- **Tests first:** role parsing/default `:all`/startup; capability parser fixtures; missing libraries/drivers; stale/unknown values; OS versus container limits; unified-memory accounting; selection override and CPU fallback.\n- **Paths validated:** BO/Engine-only startup, serving-only startup, mixed roles; no enabled models means no download/allocation; failed accelerator probes produce actionable capabilities.\n- **Mocks:** no internal blanket mocks; pure fixture parsing and controlled production probe boundaries, plus real hardware smoke tests.\n- **Docs:** `docs/architecture.md`, `docs/services/serving.md`, `docs/dev-setup.md`.\n- **Reuse:** extend canonical role/router infrastructure; probes remain local-only.\n\n\n\n## Execution requirements\nRead AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service/design guides. Tests first as specified above; only feature E2E awaits final human UX approval. Read edited module docs; use Zaq.Config and existing actor/event/startup seams. No routine application-env mutation or blanket internal mocks. Preserve NodeRouter/credential/privacy boundaries. No task is implemented at creation.\n\n## Prerequisites\nApproved architectural plan; independent implementation root.",
+  "id": "zaq-za4.6",
+  "labels": [],
+  "parent": "zaq-za4",
+  "priority": 2,
+  "status": "open",
+  "title": "Add serving role and lightweight supervised startup",
+  "type": "task",
+  "updated_at": "2026-09-25T16:46:50Z"
+}
