@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.14"
+  ],
   "blocks": [],
   "created": "2026-09-25T09:36:41Z",
   "description": "Introduce associations and separate execution-private records before strategy integration. Structurally migrate legacy messages into their original transcripts while retaining IDs/references where feasible. Preserve ratings, attachments, shares, traces and audit access. Mark legacy histories explicitly and exclude them from new automatic hydration. Test atomicity, dedupe, associations, legacy authorization and rollback safeguards before migration code.\n\nReuse unconsumed migrations where safe; account separately for developer/test databases that already applied earlier versions. Do not blindly replay altered migrations on populated databases.\n\nDepends on canonical schema and strategy contract. Owns cutover, not reconstruction of old audiences. Tests first: original ID/reference preservation, attachment/rating/share/trace access parity, private execution separation, concurrent cutover boundary, no legacy auto-hydration, guarded rollback, already-applied dev/test variants. Files: unconsumed migrations and migration tests, legacy-compatible Engine queries. Action reuse: extend canonical migration/persistence, no new Action. Mocking: real DB, external transport only. Documentation: Engine migration/cutover guidance.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.15] Legacy canonical migration and fresh-history cutover",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:42Z"
+  "updated_at": "2026-09-25T09:36:58Z"
 }

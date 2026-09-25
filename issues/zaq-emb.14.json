@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.15"
+  ],
   "created": "2026-09-25T09:36:40Z",
   "description": "Implement Direct, Shared and Replicated policy modules, typed bridge facts and provider defaults. A thread inherits its parent's strategy. Test provider/kind mapping, unsupported combinations, cross-connector isolation, recipient-specific associations and no retroactive email exposure. Do not add a BO selector or migration-on-configuration-change machinery.\n\nContract: Define a typed behaviour for transcript resolution, message association targets, access policy, parent context projection and supported membership lifecycle. Preserve structured errors and trusted actor context. Keep mention gating outside the history behaviour.\n\n### Direct\n\nOne transcript for a one-to-one conversation, attributed messages and explicit participant history grants. No general shared-room membership synchronization.\n\n### Shared\n\nOne main-channel transcript and separate thread transcripts. Channel-level Person grants authorize both. Provider membership changes maintain only their own grant source. Thread context prioritizes root and local history, then bounded main-channel background; main-channel context excludes thread replies by default.\n\n### Replicated\n\nOne recipient-specific history per conversation, with associations only for messages addressed to that recipient. Replies do not retroactively expose earlier messages. Canonical content remains shared in storage, not automatically shared in access. Email has no provider-removal synchronization.\n\nBefore implementing email projection, settle sender visibility and authoritative recipient inputs, including BCC visibility. Do not infer unavailable recipients from a thread identifier or expand a recipient list from historical participants. Track this as a localized contract decision, not a reason to block independent foundations.\n\nFiles: Engine history policy behaviour/implementations; Channels bridge/provider definitions; normalized Incoming facts. Action reuse: local-only policy selection, extend existing domain boundaries; strategies decide, Engine persists. Tests before implementation: Direct/Shared/Replicated contracts, thread inheritance, unknown mappings, provider/account isolation, deterministic association targets. Mocking: none for pure policy. Documentation: Channels/Engine guides and behaviour moduledoc.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.14",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.14] History strategy behaviour and code-defined provider policies",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:41Z"
+  "updated_at": "2026-09-25T09:36:58Z"
 }
