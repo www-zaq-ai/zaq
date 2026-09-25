@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-emb",
   "priority": 2,
-  "status": "open",
+  "status": "deferred",
   "title": "[zaq-emb.18] Deferred downstream provider membership integration",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:45Z"
+  "updated_at": "2026-09-25T09:36:46Z"
 }
