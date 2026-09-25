@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.17"
+  ],
   "blocks": [
     "zaq-emb.15",
     "zaq-emb.4",
@@ -15,5 +17,5 @@
   "status": "open",
   "title": "[zaq-emb.14] History strategy behaviour and code-defined provider policies",
   "type": "task",
-  "updated_at": "2026-09-25T09:37:01Z"
+  "updated_at": "2026-09-25T09:37:03Z"
 }
