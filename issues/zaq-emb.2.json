@@ -24,11 +24,15 @@
     {
       "text": "Incremental implementation: unconsumed 20260922000003 connector-scope migration links legacy rows to sole matching retrieval config and raises on ambiguous provider mapping; scoped and null-only unique indexes; PersonChannel stores connector id, People match/discovery uses scoped identity (unscoped lookup excludes scoped rows), IdentityResolver passes connector and PersonMerger groups by connector. Focused 165 tests/4 properties pass; mix q pass after one transient ExDNA timeout retry. Remaining: prove ingress provenance at Channels boundary, same-provider multi-connector policy/uniqueness expansion, migration backfill and concurrent discovery tests; do not close yet.",
       "timestamp": "2026-09-25T10:18:25Z"
+    },
+    {
+      "text": "Identified connector deletion contract prerequisite: newly scoped PersonChannel FK must not be ON DELETE SET NULL (would turn an authorized scoped identity into an unscoped identity, possibly collide). Unconsumed migration 00003 uses NO ACTION and follow-on 00005 updates already migrated test DB; focused FK regression passes. Existing BO ChannelsLive currently tears down ingress before Repo.delete! config and would crash/leave teardown when scoped identities block deletion. Need explicit human choice: reject deletion until identity cleanup vs delete identity rows transactionally; disable remains available. No commit/push.",
+      "timestamp": "2026-09-25T11:24:58Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-25T11:00:24Z"
+  "updated_at": "2026-09-25T11:24:58Z"
 }
