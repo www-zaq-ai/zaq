@@ -14,11 +14,15 @@
     {
       "text": "Human decision: link existing PersonChannel identities to the sole connector for their provider during migration (current ChannelConfig schema enforces one connector per provider); do not silently match usernames/emails or permit ambiguous issuer mapping. Maintain person-bound actors. For future multi-config, scoped identity must be unambiguous; reconcile PersonMerger and existing BO-owned channels. Action reuse: extend People/IdentityResolver and current channel identity schema, not a parallel global matcher. Tests first: legacy link, same external ID on different configs after uniqueness expansion, forged config rejection, concurrent first ingress; downstream event provenance trusted only via Channels boundary.",
       "timestamp": "2026-09-23T14:15:47Z"
+    },
+    {
+      "text": "Started test-first. Resolver now checks supplied retrieval connector ID against normalized message provider before identity lookup (email:imap maps to email); regression tests cover mismatch and matching Slack/IMAP. Focused resolver tests and mix q pass. This is NOT connector-scoped storage/trusted-fact verification: channels still have global platform/identifier uniqueness and connector ID trust must be established at ingress. Keep issue in progress; do not claim complete.",
+      "timestamp": "2026-09-25T09:53:17Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-25T09:43:47Z"
+  "updated_at": "2026-09-25T09:53:17Z"
 }
