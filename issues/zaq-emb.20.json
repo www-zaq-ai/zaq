@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T09:36:48Z",
+  "description": "After coverage and review follow-up, run mix precommit through Context Mode with 900000ms timeout against final changes. Fix failures and repeat required checks; failed-test-only rerun does not replace a clean full gate. Record migration, E2E, coverage and independent review evidence. Ask final human approval only on clean gate. Do not commit/push/close automatically. Action reuse not applicable: validation coordination. Files: no production scope; follow-up defects tracked by owner. Tests: full final gate plus isolated regression checks as needed. Documentation: Beadwork validation summary.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
+  "id": "zaq-emb.20",
+  "labels": [],
+  "parent": "zaq-emb",
+  "priority": 2,
+  "status": "open",
+  "title": "Final precommit and implementation approval gate",
+  "type": "task",
+  "updated_at": "2026-09-25T09:36:48Z"
+}
