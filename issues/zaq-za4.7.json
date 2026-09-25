@@ -9,7 +9,7 @@
   "parent": "zaq-za4",
   "priority": 2,
   "status": "open",
-  "title": "Implement hardware capability probes and backend selection",
+  "title": "[zaq-za4.7] Implement hardware capability probes and backend selection",
   "type": "task",
   "updated_at": "2026-09-25T16:46:52Z"
 }
