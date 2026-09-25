@@ -58,6 +58,29 @@ promote a different account. IMAP settings bind each inbox to an enabled SMTP
 connector for replies. Legacy unbound inboxes can use a sole SMTP connector,
 but multiple SMTP accounts require a binding even with a notification default.
 Disabled or archived bindings fail closed rather than falling back.
+BO connector removal archives rather than deletes the config: it disables
+runtime selection, retains historical lookup by ID and preserves the FK of
+PersonChannel identities. Archived configs are excluded from ordinary BO
+lists and provider-only upserts. Ingress teardown is attempted before archive;
+the BO reports failure instead of silently archiving when teardown fails.
+
+### Replicated email history contract (#768)
+
+Associate each email message with its sender's history and with the histories
+of addresses in that message's visible To and Cc headers. Product policy treats
+those headers as authorized recipients, not as verified SMTP-delivery evidence.
+Include a hidden Bcc address only when the receiving account is independently
+identified by its connector or a successful outbound delivery records that
+address in its SMTP envelope. An IMAP folder name such as `INBOX`, or a
+`Delivered-To` header alone, does not establish the account's email identity.
+If that evidence is unavailable, do not invent a Bcc recipient.
+
+Associations are **per message**: adding an address to To/Cc on a later reply
+does not expose any earlier messages. Apply the same rule to bot replies, using
+the actual sender and that reply's own recipient evidence. The current IMAP
+parser does not yet normalize complete To/Cc lists, and SMTP delivery only
+returns success/failure for one explicit `identifier`; implementing this
+contract is tracked by `zaq-emb.14` and `zaq-emb.4`.
 
 ### People authentication rate ownership (V1)
 
@@ -801,6 +824,21 @@ by `EmailBridge`:
 - `outbound_conversation_key/2` — grouping key for an outbound-first send
   (`topic || subject`).
 
+Every stamped identity also carries generic transport facts: `channel_config_id`,
+`channel_id`, `thread_id`, and `participant_id`. Room-based communication providers
+that do not supply a bridge grouping key are scoped by provider, connector
+configuration, external channel, external participant, and stable external thread/root
+id. A missing thread id is the channel-level conversation; it is distinct from every
+thread in that channel. The external channel and thread remain separate persisted
+fields so later aggregation does not require decoding a composite key. The first reply
+in a newly observed thread starts fresh thread history; ZAQ does not copy the earlier
+channel-level root post into it.
+
+Engine resolves this stamped identity before Agent dispatch, persists the incoming user
+message, and passes Agent only trusted conversation/message references. Channels does not
+encode history identity into Agent runtime names and remains responsible only for transport
+identity and delivery.
+
 The `CommunicationBridge` dispatchers (`conversation_channel_type/2`,
 `conversation_key/3`, `outbound_conversation_key/4`) resolve the bridge from
 application config only — never `ChannelConfig` — so the persist path stays free of
@@ -810,8 +848,9 @@ envelopes are stamped with `metadata["conversation"]`
 `Bridge.persist_from_incoming/5`), and engine/agent callers ask the channels node
 via the `:conversation_identity` event (`Zaq.Channels.Api`), passing either
 `%{platform, topic, subject}` (identity map back) or `%{incoming}` (stamped
-envelope back). Bridges without the callbacks resolve to `nil` (no
-conversation-inherited threading).
+envelope back). Bridges without the callbacks resolve to `nil`; room-based providers
+then use the generic channel/thread scope above, while email retains its bridge-owned
+root key.
 
 #### Outbound Threading (minting + delivery receipt)
 

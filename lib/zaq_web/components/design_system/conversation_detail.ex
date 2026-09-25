@@ -7,6 +7,7 @@ defmodule ZaqWeb.Components.DesignSystem.ConversationDetail do
   use ZaqWeb, :html
   alias ZaqWeb.Components.ChatMessage
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
+  alias ZaqWeb.History.ConversationContext
   alias ZaqWeb.Live.BO.Communication.MessageHelpers
   import ZaqWeb.Chat.Modals, only: [feedback_modal: 1]
   import ZaqWeb.Components.DesignSystem.Table, only: [table_badge: 1]
@@ -40,6 +41,18 @@ defmodule ZaqWeb.Components.DesignSystem.ConversationDetail do
           <.table_badge status={@conversation.status}>{@conversation.status}</.table_badge>
         </div>
         <DSButton.button :if={@can_share} variant={:secondary} phx-click="open_share_dialog">Share</DSButton.button>
+      </div>
+      <div
+        :if={ConversationContext.labels(@conversation) != []}
+        class="zaq-card-default zaq-text-body-sm min-w-0 mb-5"
+        aria-label="Conversation channel context"
+      >
+        <p
+          :for={label <- ConversationContext.labels(@conversation)}
+          class="break-all"
+        >
+          {label}
+        </p>
       </div>
       <div class="flex flex-col lg:flex-row gap-6 items-start min-w-0">
         <div class={["flex-1 w-full min-w-0 rounded-xl overflow-hidden", @bleed && "-mx-8"]}>

@@ -51,6 +51,7 @@ defmodule Zaq.Engine.Conversations.Message do
     |> validate_required([:conversation_id, :role])
     |> validate_inclusion(:role, @valid_roles)
     |> validate_content_or_attachments()
+    |> unique_constraint(:metadata, name: :messages_admitted_external_id_index)
   end
 
   defp validate_content_or_attachments(changeset) do

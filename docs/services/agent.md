@@ -10,9 +10,9 @@ Core pipeline modules remain stateless, but configured agents are now runtime-ma
 - `DynamicSupervisor` (named `:Zaq.Agent.AgentServerSupervisor`)
 - `Zaq.Agent.ServerManager`
 
-`ServerManager` maintains one long-lived `Jido.AgentServer` per configured agent id.
-When `Executor` passes an explicit scope, that scope is encoded in `server_id`
-(`<agent_name>:<scope>`) and `ServerManager` manages that runtime too.
+`ServerManager` maintains long-lived `Jido.AgentServer` runtimes. Runtime names are opaque
+process identifiers; conversation history is selected separately through an explicit,
+Engine-issued conversation binding.
 
 Provider normalization and model-spec assembly are centralized in
 `Zaq.Agent.ProviderSpec` + `Zaq.Agent.Factory`. Provider-specific ReqLLM translation
@@ -69,7 +69,7 @@ Use this to decide where new code belongs. When a function would violate the "Do
 | `Pipeline` | Orchestration of retrieval → answering steps, hook dispatch | LLM calls, response struct construction, agent-type branches, status broadcasts |
 | `Answering` | Answer extraction, `Result` struct, telemetry | Agent lifecycle, provider/credential details |
 | `Api` | `NodeRouter` dispatch entrypoint, PromptGuard gate, `:validating` status broadcast, route decision | Business logic beyond routing |
-| `Status` | Fire-and-forget status broadcast routed via NodeRouter to the BO node | Orchestration, agent lifecycle, UI logic, PubSub subscription |
+| `Status` | Ordered intermediate upserts routed via NodeRouter to Channels | Orchestration, agent lifecycle, UI logic, PubSub subscription |
 | `History` | Conversation turn storage and retrieval helpers | LLM calls, pipeline logic |
 
 **`ServerManager` state discipline**: state must be minimal. If a variable exists only to trigger future behavior, use `Process.send_after/3` instead of storing it in state.
@@ -152,8 +152,11 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - `telemetry_dimensions` opt: map of extra dimensions forwarded to telemetry metrics
 
 ### Status (`Zaq.Agent.Status`)
-- `broadcast/4` — fire-and-forget status broadcast for pipeline stage transitions
-- Accepts `%Incoming{}`, a `%{session_id: _, request_id: _}` context map, or `nil`; 4th arg is a `node_router` module (defaults to `Zaq.NodeRouter`)
+- `broadcast/4,5` — ordered synchronous Channels upsert for intermediate stage and
+  streaming edits; awaiting partial edits prevents a delayed edit from replacing
+  the complete final answer delivered through the synchronous return hop.
+- Accepts `%Incoming{}` or `nil`; a non-Incoming context map raises. The caller
+  supplies the fourth-argument `node_router` module.
 - Routes the PubSub broadcast via `NodeRouter.dispatch/1` to BO so the broadcast executes on the BO node where `ChatLive` is subscribed — safe for multi-node deployments where the agent node and BO node are separate
 - Broadcasts `{:status_update, request_id, stage, message}` to `"chat:<session_id>"` — same topic and format `ChatLive` already handles
 - Nil or incomplete context is silently ignored — missing context never crashes the pipeline
@@ -168,7 +171,7 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - `event.assigns["agent_selection"]` is produced upstream by Engine incoming routing. It may come from transient BO Chat explicit selection (`source: "bo_explicit"`) or persisted routing policy (`source: "channel"`, `"topic"`, `"provider"`, `"global"`, etc.). Agent API consumes both the same way.
 - Both `prompt_guard:` and `status_module:` are injectable via event opts for testing
 - `Zaq.Agent.Executor` loads the configured agent (or default answering agent), ensures server presence, broadcasts `:answering`, delegates dispatch to `Factory`, then consumes stream events through `StreamEvents`
-- **Auditability rule (mandatory):** channel delivery is allowed only after persistence succeeds. In `Zaq.Agent.Api`, `persist_from_incoming` must complete successfully before scheduling the `:deliver_outgoing` return hop. If persistence fails, the API must return `{:error, {:persist_failed, reason}}`, log a sanitized internal reason, and must not dispatch the generated answer to Channels. It may still update the in-flight status message with a safe user-facing failure.
+- **Auditability rule (mandatory):** Engine admits and persists the incoming user message before Agent dispatch. `Zaq.Agent.Api` then finalizes the returned success or handled failure against that user-message ID before scheduling `:deliver_outgoing`. If finalization fails, the API returns `{:error, {:persist_failed, reason}}`, logs a sanitized reason, and does not deliver the generated answer. Agent keeps trace collection request-local; handled failures retain the trace at finalization, while process/node crashes are a separate durability guarantee.
 - Runtime sync actions also enter through `Zaq.Agent.Api` and call `Zaq.Agent.RuntimeSync`:
   - `:configured_agent_updated`
   - `:configured_agent_deleted`
@@ -456,21 +459,19 @@ without safe permission mutation support return `:unsupported`.
 
 ### Server Manager (`Zaq.Agent.ServerManager`)
 - Ensures server presence and reconciles tracked runtimes.
-- `ensure_server/4` requires `actor:` alongside configured agent, opaque server ID and optional `Jido.AI.Context`. Older arities return `{:error, :missing_execution_actor}`; they never create an anonymous runtime.
+- `ensure_server/4` requires `actor:` alongside configured agent, opaque server ID and optional `Jido.AI.Context`. Conversation-backed calls also provide `history_binding: %{conversation_id: id}`. Older arities return `{:error, :missing_execution_actor}`; they never create an anonymous runtime.
 - `Zaq.Identity.ExecutionActor` validates the shared contract: canonical `person.id`, or explicit `kind` (`bo_user`, `channel_subject`, `anonymous`, `system`) plus nonblank `subject`. JSON string-key actors normalize to the same identity. Conflicting/malformed declarations return `:invalid_execution_actor`, not a fallback identity. This validates identity shape, not authentication; only trusted origins may assert actors.
-- Executor passes one effective actor to scope derivation, server creation and request tool context. API rejects missing/invalid raw declarations before deriving permissions or invoking retrieval/Pipeline; permissive enrichment cannot discard conflicting aliases first.
+- Executor passes one effective actor to runtime creation and request tool context. API rejects missing/invalid raw declarations before deriving permissions or invoking retrieval/Pipeline; permissive enrichment cannot discard conflicting aliases first.
 - Cold starts pass actor context to `Factory.runtime_config/2`, which synchronously asks
   Engine to resolve Connect authentication before spawn. The confidential envelope is
   excluded from observer/workflow broadcasts. The server retains the resulting runtime
   options while `ServerManager` tracks only credential, effective Person, selected grant,
   and expiry identifiers. Supplied history remains cold-start-only; warm requests never
   resolve credentials again.
-- Warm reuse requires a stable identity match against the server's creation binding, ignoring display names and team metadata. `:execution_actor_mismatch` leaves the existing server unchanged, even when the supplied configuration would otherwise trigger replacement. Unverifiable existing runtimes are rejected. Tool/MCP refreshes do not rebind identity.
+- Warm reuse requires both a stable actor identity and the same conversation history binding. `:execution_actor_mismatch` or `:history_binding_mismatch` leaves the existing server unchanged, even when configuration would otherwise trigger replacement. Unverifiable runtimes are rejected. Tool/MCP refreshes do not rebind identity.
 - Connect derives Person identity from the trusted effective Actor, never from the opaque
-  scope. Structured selection failures propagate without legacy/global fallback. A
-  non-Person identity never implies permission bypass. Existing anonymous/conversation
-  scopes are not expanded: callers colliding across identities receive an error and must
-  use an appropriately isolated scope.
+  runtime name or history binding. Structured selection failures propagate without
+  legacy/global fallback. A non-Person identity never implies permission bypass.
 - `:connect_credential_mutated` events synchronously enter the local `ServerManager`.
   Person grant changes match effective Person plus credential (including org-fallback
   runtimes); credential and org-grant changes conservatively match the credential. The
@@ -506,6 +507,13 @@ without safe permission mutation support return `:unsupported`.
   or `ReqLLM.ToolResult.output` into `trace_artifacts`, then removes content from
   its JSON trace copy.
 - Extracts `measurements`, `model`, and sanitized `agent` metadata from the stream result; token counts come from stream usage.
+- Executor preserves accumulated trace, tool/LLM calls, artifacts, measurements, model and
+  agent metadata when the stream returns a handled failure, so Engine can persist the
+  available evidence without incremental database writes.
+- A runtime that returns a handled stream failure is stopped rather than reused, keeping
+  the next request's cold history consistent with the persisted history that excludes the
+  failed turn. Cleanup is incarnation-fenced: a stale failing request cannot stop a newer
+  replacement process registered under the same opaque runtime name.
 - Registers request-local inspection state in `Zaq.Agent.RequestRegistry` for inspect/steer/inject actions.
 
 ### Provider Spec (`Zaq.Agent.ProviderSpec`)
@@ -558,8 +566,13 @@ without safe permission mutation support return `:unsupported`.
 
 ### History Loader (`Zaq.Agent.HistoryLoader`)
 - Loads initial context for runtime agent cold starts
-- Supports conversation-scoped and person/provider-scoped history hydration
-- Used by `Factory.build_initial_context/2`
+- Factory hydrates conversation-backed runtimes only from the explicit Engine-issued
+  `conversation_id`; it never parses a runtime server name to recover persistence identity.
+- Pending and failed admitted user messages are excluded from model history. The current
+  input is supplied as the active request rather than loaded twice on a cold start.
+- The direct loader retains person/provider lookup for legacy callers, but normal Engine
+  ingress resolves a concrete conversation before Agent execution.
+- Used by `Factory.build_initial_context/4`
 - Does not enforce model context-window limits. It only bounds DB reads; outbound LLM projection owns request-size enforcement.
 
 ### Context Window (`Zaq.Agent.ContextWindow.*`)

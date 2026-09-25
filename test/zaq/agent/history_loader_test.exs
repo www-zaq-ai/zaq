@@ -15,14 +15,19 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     })
   end
 
-  defp insert_conversation(person_id, channel_type) do
+  defp insert_conversation(person_id, channel_type, attrs \\ %{}) do
     %Conversation{}
-    |> Conversation.changeset(%{
-      channel_user_id: "user_#{System.unique_integer([:positive])}",
-      channel_type: channel_type,
-      person_id: person_id,
-      status: "active"
-    })
+    |> Conversation.changeset(
+      Map.merge(
+        %{
+          channel_user_id: "user_#{System.unique_integer([:positive])}",
+          channel_type: channel_type,
+          person_id: person_id,
+          status: "active"
+        },
+        attrs
+      )
+    )
     |> Repo.insert!()
   end
 
@@ -293,6 +298,85 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       result = HistoryLoader.load_context(%{})
       assert %AIContext{} = result
       assert AIContext.empty?(result)
+    end
+
+    test "loads only the explicitly bound conversation" do
+      person = insert_person()
+
+      matching =
+        insert_conversation(person.id, "mattermost", %{
+          channel_config_id: nil,
+          external_channel_id: "room-1",
+          external_thread_id: "thread-1",
+          channel_user_id: "transport-user"
+        })
+
+      other_thread =
+        insert_conversation(person.id, "mattermost", %{
+          external_channel_id: "room-1",
+          external_thread_id: "thread-2",
+          channel_user_id: "transport-user"
+        })
+
+      channel_level =
+        insert_conversation(person.id, "mattermost", %{
+          external_channel_id: "room-1",
+          external_thread_id: nil,
+          channel_user_id: "transport-user"
+        })
+
+      other_participant =
+        insert_conversation(person.id, "mattermost", %{
+          external_channel_id: "room-1",
+          external_thread_id: "thread-1",
+          channel_user_id: "other-transport-user"
+        })
+
+      legacy = insert_conversation(person.id, "mattermost")
+
+      insert_message(matching, "user", "matching thread")
+      insert_message(other_thread, "user", "other thread")
+      insert_message(channel_level, "user", "channel level")
+      insert_message(other_participant, "user", "other transport participant")
+      insert_message(legacy, "user", "legacy mixed history")
+
+      result =
+        HistoryLoader.load_context(%{
+          conversation_id: matching.id
+        })
+
+      assert [message] = AIContext.to_messages(result)
+      assert String.ends_with?(message.content, "matching thread")
+    end
+
+    test "loads an explicitly bound conversation without a Person" do
+      conversation =
+        insert_conversation(nil, "discord", %{
+          external_channel_id: "room-1",
+          external_thread_id: nil,
+          channel_user_id: "discord-user"
+        })
+
+      insert_message(conversation, "assistant", "same participant and room")
+
+      result =
+        HistoryLoader.load_context(%{
+          conversation_id: conversation.id
+        })
+
+      assert [%{content: "same participant and room"}] = AIContext.to_messages(result)
+    end
+
+    test "does not hydrate pending or failed admitted messages" do
+      conversation = insert_conversation(nil, "discord")
+      insert_message(conversation, "user", "completed", nil, %{"execution_status" => "completed"})
+      insert_message(conversation, "user", "pending", nil, %{"execution_status" => "pending"})
+      insert_message(conversation, "user", "failed", nil, %{"execution_status" => "failed"})
+
+      result = HistoryLoader.load_context(%{conversation_id: conversation.id})
+
+      assert [message] = AIContext.to_messages(result)
+      assert String.ends_with?(message.content, "completed")
     end
   end
 

@@ -8,7 +8,7 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   """
 
   alias Zaq.Channels.EventNames
-  alias Zaq.Engine.IncomingMessageRouting
+  alias Zaq.Engine.{Conversations, IncomingMessageRouting}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.EventHop
@@ -129,15 +129,28 @@ defmodule Zaq.Engine.IncomingMessageRouter do
     configured_agent_id = resolution.configured_agent_id
     agent_hop_type = Keyword.get(event.opts, :agent_hop_type, :async)
 
-    event
-    |> Map.put(:next_hop, EventHop.new(:agent, agent_hop_type, DateTime.utc_now()))
-    |> Map.put(:name, EventNames.message_received(event.request, :agent_requested))
-    |> Map.put(:opts,
-      action: :run_pipeline,
-      pipeline_opts: Keyword.get(event.opts, :pipeline_opts, [])
-    )
-    |> put_routing_assign(resolution, person_resolved?)
-    |> maybe_put_agent_selection(configured_agent_id, resolution.source)
+    with {:ok, _actor} <- ExecutionActor.validate(event.actor),
+         {:ok, binding} <- admit_incoming(event) do
+      if binding.admitted? do
+        event
+        |> Map.put(:next_hop, EventHop.new(:agent, agent_hop_type, DateTime.utc_now()))
+        |> Map.put(:name, EventNames.message_received(event.request, :agent_requested))
+        |> Map.put(:opts,
+          action: :run_pipeline,
+          pipeline_opts: Keyword.get(event.opts, :pipeline_opts, [])
+        )
+        |> put_routing_assign(resolution, person_resolved?)
+        |> put_conversation_binding(binding)
+        |> maybe_put_agent_selection(configured_agent_id, resolution.source)
+      else
+        event
+        |> Map.put(:response, {:ok, :duplicate_incoming})
+        |> Map.put(:next_hop, nil)
+        |> put_routing_assign(resolution, person_resolved?)
+      end
+    else
+      {:error, reason} -> %{event | response: {:error, reason}, next_hop: nil}
+    end
   end
 
   defp apply_resolution(%Event{} = event, %{mode: :none} = resolution, person_resolved?) do
@@ -171,6 +184,21 @@ defmodule Zaq.Engine.IncomingMessageRouter do
     }
 
     %{event | assigns: Map.put(event.assigns || %{}, "incoming_message_routing", routing)}
+  end
+
+  defp admit_incoming(%Event{} = event) do
+    conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
+    conversations_module.admit_incoming(event.request)
+  end
+
+  defp put_conversation_binding(%Event{} = event, binding) do
+    normalized = %{
+      "conversation_id" => binding.conversation_id,
+      "user_message_id" => binding.user_message_id,
+      "finalization_token" => binding.finalization_token
+    }
+
+    %{event | assigns: Map.put(event.assigns || %{}, "conversation_binding", normalized)}
   end
 
   defp maybe_put_agent_selection(%Event{} = event, nil, _source), do: event

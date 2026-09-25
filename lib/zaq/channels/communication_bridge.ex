@@ -20,7 +20,7 @@ defmodule Zaq.Channels.CommunicationBridge do
 
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.EventNames
-  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Messages.{ConversationIdentity, Incoming}
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
@@ -479,7 +479,11 @@ defmodule Zaq.Channels.CommunicationBridge do
 
     identity = %{
       "channel_type" => channel_type,
-      "key" => conversation_key(msg, channel_type, opts)
+      "key" => conversation_key(msg, channel_type, opts),
+      "channel_config_id" => msg.routing_context.channel_config_id,
+      "channel_id" => ConversationIdentity.normalize(msg.channel_id),
+      "thread_id" => ConversationIdentity.normalize(msg.thread_id),
+      "participant_id" => ConversationIdentity.normalize(msg.author_id)
     }
 
     %{msg | metadata: Map.put(msg.metadata || %{}, "conversation", identity)}

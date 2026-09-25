@@ -267,6 +267,7 @@ defmodule Zaq.Agent.Pipeline do
       executor_module(opts).run(incoming,
         agent_id: nil,
         scope: Keyword.get(opts, :scope),
+        conversation_binding: Keyword.get(opts, :conversation_binding),
         system_prompt: system_prompt,
         question: content,
         person_id: person_id,

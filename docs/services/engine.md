@@ -48,13 +48,27 @@ ROLES=engine iex --sname engine@localhost --cookie zaq_dev -S mix
 
 ### Conversations
 
+Channel history grant foundation: `Zaq.Permissions.ChannelHistoryResource` identifies
+the channel by provider, connector configuration and external channel ID; threads
+use the same permission resource. `ResourcePermission.source_key` distinguishes
+manual grants from provider-derived grants so provider removal can preserve an
+administrator's manual grant. Generic manual grant replacement/mutation cannot
+alter provider rows. `ChannelHistoryResource.can_read?/2` checks a direct Person
+grant and never treats a nil Person or a team grant as channel history access.
+The strategy-managed transcript/read migration is tracked in `zaq-emb`; existing
+conversation readers have not all migrated to this grant check yet.
+
 ```
 Channel adapter or BO chat
-  → Zaq.Engine.Conversations.persist_from_incoming/2
-      → get_or_create_conversation_for_channel/3
-      → add_message/2   (role: "user")
-      → add_message/2   (role: "assistant")
-          → Telemetry.record("qa.message.count" / "qa.answer.count")
+  → IncomingMessageRouter resolves routing + execution actor
+      → Conversations.admit_incoming/1
+          → resolve canonical conversation
+          → add_message/2 (role: "user", execution_status: "pending")
+      → Agent executes with explicit conversation/user-message references
+      → Conversations.finalize_incoming/2
+          → success: mark input complete + add assistant message
+          → handled failure: mark input failed + retain trace on input
+           → Telemetry.record("qa.message.count" / "qa.answer.count")
           → TokenUsageAggregator Oban job (enqueued if model present)
           → TitleGenerator.generate/1 (async Task on first user message)
               → broadcasts {:title_updated, id, title} on "conversation:<id>"
@@ -734,12 +748,26 @@ Distributed server invalidation remains a later consumer integration.
   assistant messages from a pipeline result in one call. Accessed media bytes are
   stored in `message_trace_artifacts` in the same transaction as both messages;
   the assistant JSON trace receives only artifact IDs and safe descriptors.
+- `admit_incoming/1` — resolves the canonical conversation and commits the user message
+  before Agent execution. A newly admitted input returns trusted conversation/message IDs
+  plus a per-admission execution capability; provider redeliveries reuse the same input and are
+  suppressed before Agent dispatch.
+- `finalize_incoming/3` — locks the admitted input and idempotently persists a returned
+  outcome only when the admission capability matches. Success creates one linked assistant
+  message; handled failure stores safe
+  execution metadata, trace and artifacts on the input without adding a model-history turn.
+  This is one final database write after execution, not per LLM/tool turn.
 - `get_authorized_trace_artifact/2` — returns artifact bytes only to the owning or
   shared BO user, with super-admin access across conversations. BO serves these
   through authenticated `GET /bo/trace-artifacts/:id`; unauthorized and missing
   artifacts are indistinguishable.
 - `persist_message_history/2` — upserts/resolves a conversation from an Incoming routing
   envelope and stores one message, defaulting to assistant messages for initiated follow-ups.
+  For room-based communication identities, active conversations are unique to provider,
+  connector configuration, external channel, optional external thread, and participant.
+  `external_channel_id` and `external_thread_id` remain queryable columns. Legacy rows
+  without these fields remain readable but are not reused for newly scoped messages.
+  Explicit conversation IDs on scoped envelopes must match every scope dimension.
   Email delivery providers such as `email:smtp` normalize to the existing `email:imap`
   conversation type; email grouping is resolved centrally from `metadata.email.thread_key`,
   `metadata.thread_key`, `metadata.topic`, `metadata.subject`, then thread/message ids.
