@@ -9,9 +9,15 @@
   "id": "zaq-za4.22",
   "labels": [],
   "parent": "zaq-za4",
+  "comments": [
+    {
+      "text": "Root cause corrected in 8274d53a6. Jido.Discovery.init_async scans loaded application modules and Code.ensure_loaded?(EXLA.NIF) exits code 137 on this macOS host even when EXLA runtime:false; the kill merely coincided with LLMDB.load. Confirmed standalone LLMDB.Loader.load/1 and LLMDB.load/1 complete successfully without Jido, and standalone Jido startup dies without LLMDB when EXLA is packaged. Native deps now platform-specific: macOS EMLX, Linux EXLA, other platforms no native package; auto-start remains disabled. Jido dev process survived 2.5s with macOS EMLX. Default role tests: 2 property + 51 ExUnit tests passed across application, router, roles and serving dependency/role tests. mix q passed. Mac lockfile excludes EXLA; Linux build must run mix deps.get. No push/merge.",
+      "timestamp": "2026-09-25T18:37:34Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-za4.22] Prevent unsafe EXLA NIF load on macOS startup",
   "type": "bug",
-  "updated_at": "2026-09-25T18:24:08Z"
+  "updated_at": "2026-09-25T18:37:34Z"
 }
