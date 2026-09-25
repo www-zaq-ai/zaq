@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.21"
+  ],
   "blocks": [],
   "created": "2026-09-25T11:55:37Z",
   "description": "Human decision: when deleting a connector with bound PersonChannel identities, archive rather than delete. Preserve connector ID/history references and identity scope; hide archived configs from runtime and ordinary BO configuration lists, keep read-only historical lookup by ID. Add migration/schema and explicit idempotent archive lifecycle, ensure ingress teardown and database state consistent, allow later fresh connector of same provider. Audit ChannelConfig queries, BO delete action, supervisor boot, subscriptions. Tests first for archive safety, rollback/error paths, runtime non-selection, history/identity retention; mix q and focused tests. Read docs/services/channels.md, system-config.md, DESIGN.md, bo-components.md; no commit/push.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.22] Archive connector while retaining scoped identities and history",
   "type": "task",
-  "updated_at": "2026-09-25T11:55:37Z"
+  "updated_at": "2026-09-25T11:55:43Z"
 }
