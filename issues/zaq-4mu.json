@@ -14,11 +14,15 @@
     {
       "text": "2026-09-25 verification: mix setup.branch zaq_dev copied branch DB but older AI credential preflight 20260918131000 rejected legacy row 5 missing explicit auth; did not infer or edit source. Replaced only branch clone and ran mix setup.branch zaq_main (ParadeDB 0.24.0, 43 chunks). Populated rollback --step 1 and migrate forward passed; source stayed 106 migrations/L2, branch clone 115 migrations/cosine; 43 IDs+embedding aggregate hash ef7e1d8b274466fd2aef2596c630836e unchanged throughout. Real ParadeDB suite 40 tests/4 properties passed; 43 integration tests passed; mix q and diff check passed. Six corpus lexical probes: baseline AND 0 candidates, OR 1-6; stored-vector probes all 43 candidates for both L2 1.2 and cosine 0.75, so default not calibrated. Same-document proxy suggests 0.75 permissive; await judged question embeddings/negatives before selecting final value. No commits/pushes.",
       "timestamp": "2026-09-25T06:03:45Z"
+    },
+    {
+      "text": "Commit/push requested 2026-09-25; final mix precommit blocked at test --stale: 48 doctests, 179 properties, 9779 tests, 89 failures. Fresh isolated MIX_TEST_PARTITION=793gate full suite also 90 failures; rerun --failed 88 persistent failures, 56 SkillsLiveTest, 13 SystemConfigLiveTest, rest Disk/Storage/Channel/People/Engine. No retrieval/translation/FTS/config affected test among persistent failures. Focused #793 suite 171 tests/8 properties passes; real ParadeDB 40 tests/4 properties and 43 integration tests passed earlier. No commit or push pending gate resolution/explicit user direction.",
+      "timestamp": "2026-09-25T08:02:07Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#793] Cosine and lexical hybrid retrieval",
   "type": "task",
-  "updated_at": "2026-09-25T06:03:45Z"
+  "updated_at": "2026-09-25T08:02:07Z"
 }
