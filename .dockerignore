@@ -7,16 +7,21 @@ _build
 deps
 test
 tmp
+.venv
+priv/python/crawler-ingest/
 zaq-local.sh
 # Only reviewed bootstrap files belong in the build context; scripts/ may also
 # contain local database snapshots and credentials.
 scripts/*
 !scripts/setup_postgres_extensions.sql
 !scripts/setup_paradedb_extensions.sql
+!scripts/install_vector_extension.sql
+!scripts/install_pg_search_extension.sql
 !scripts/setup_database_begin.sql
 !scripts/setup_database_finish.sql
 !scripts/docker_entrypoint.sh
 !scripts/provision_database.sh
+!scripts/provision_python.py
 !scripts/docker_database_setup.sql
 !scripts/docker_database_authenticate.sql
 !scripts/docker_database_receipt.sql

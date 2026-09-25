@@ -43,6 +43,8 @@ npm-debug.log
 
 /priv/python/crawler-ingest/
 /.venv/
+__pycache__/
+*.py[cod]
 # Playwright E2E artifacts
 /test/e2e/node_modules/
 /test/e2e/.auth/
@@ -100,6 +102,7 @@ db_snapshots/
 !/scripts/setup_database_finish.sql
 !/scripts/docker_entrypoint.sh
 !/scripts/provision_database.sh
+!/scripts/provision_python.py
 !/scripts/docker_database_setup.sql
 !/scripts/docker_database_authenticate.sql
 !/scripts/docker_database_receipt.sql

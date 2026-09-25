@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
   alias Mix.Tasks.Zaq.Python.Fetch.Publisher
 
   @default_repo "www-zaq-ai/crawler-ingest"
-  @reviewed_sha "c726f63fc963f6d0acaaa297a580fc927d0e34ae"
+  @reviewed_sha "c7834466b87605ffff32ef91de9b88c99eecdec6"
   @expected_files ~w(
     web_crawler.py pipeline.py pdf_to_md.py docx_to_md.py pptx_to_md.py xlsx_to_md.py
     image_dedup.py image_to_text.py clean_md.py inject_descriptions.py

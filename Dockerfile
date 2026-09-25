@@ -13,7 +13,7 @@ RUN mix local.hex --force && mix local.rebar --force
 ENV MIX_ENV=prod
 
 COPY mix.exs mix.lock ./
-RUN mix deps.get --only $MIX_ENV
+RUN HEX_HTTP_TIMEOUT=120 mix deps.get --only $MIX_ENV
 
 RUN mkdir config
 COPY config/config.exs config/prod.exs config/
@@ -34,9 +34,6 @@ COPY config/runtime.exs config/
 RUN mix zaq.python.fetch
 
 RUN mix release
-
-# Keep a stable path to the release-bundled Python requirements
-RUN cp /app/_build/prod/rel/zaq/lib/zaq-*/priv/python/crawler-ingest/requirements.txt /app/release-requirements.txt
 
 # -- agent-browser CLI (native Rust binary for the web_browsing action) --
 # Compiled from pinned upstream source into a self-contained binary that is copied
@@ -61,12 +58,12 @@ RUN cargo install agent-browser \
 
 # Production and the opt-in browser-tool CI job use this exact browser setup.
 # Chromium follows Debian security updates; its resolved version is logged below.
-FROM debian:trixie-slim AS browser-runtime
+FROM debian:trixie-20260918-slim AS browser-runtime
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
       libstdc++6 openssl libncurses6 locales ca-certificates \
-      python3 python3-venv python3-pip \
+      python3.13 python3.13-venv \
       chromium fonts-liberation && \
     sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen && \
@@ -110,9 +107,9 @@ COPY scripts/setup_postgres_extensions.sql scripts/setup_paradedb_extensions.sql
      scripts/docker_database_validate.sql scripts/docker_database_setup.sql \
      scripts/docker_database_authenticate.sql scripts/docker_entrypoint.sh \
      scripts/provision_database.sh /app/db-bootstrap/
+COPY scripts/provision_python.py /app/provision_python.py
 
-RUN python3 -m venv /app/.venv && \
-    /app/.venv/bin/pip install --no-cache-dir -r /app/lib/zaq-*/priv/python/crawler-ingest/requirements.txt && \
+RUN python3.13 /app/provision_python.py /app/lib/zaq-*/priv/python/crawler-ingest /app/.venv && \
     chown -R appuser:appuser /app/.venv
 
 USER appuser

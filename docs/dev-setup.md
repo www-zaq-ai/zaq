@@ -8,7 +8,7 @@ For the Docker installer or a server deployment, use the [deployment guide](oper
 
 - Elixir and Erlang/OTP: use the versions in [`.tool-versions`](../.tool-versions); the supported Elixir constraint is in [`mix.exs`](../mix.exs).
 - PostgreSQL 16+ with [pgvector](https://github.com/pgvector/pgvector) 0.7.0+ (embeddings use `halfvec`) and a local `psql` client.
-- Python 3.10+ for the document conversion pipeline.
+- CPython 3.13 (`python3.13` on `PATH`) for the document conversion pipeline.
 - Node.js 20+ if running Playwright browser tests.
 
 ### Bootstrap and start
@@ -39,7 +39,7 @@ automatically; the separately downloaded installer Compose file may not. See the
 mix setup && mix phx.server   # http://localhost:4000/bo
 ```
 
-`mix setup` fetches dependencies, creates/migrates/seeds the database, sets up and builds assets, and fetches the Python scripts. Complete the [Python environment setup](#python-pipeline) before using document conversion. If database setup fails because of connection settings, correct them and rerun `mix setup`.
+`mix setup` fetches dependencies, creates/migrates/seeds the database, sets up and builds assets, fetches the reviewed Python scripts, and builds the validated `.venv` used by document conversion. If database or Python setup fails, correct the cause and rerun `mix setup`.
 
 To start with an interactive Elixir shell instead:
 
@@ -141,19 +141,22 @@ Use it in `test/support/e2e/bootstrap.exs` or via the E2E controller from Playwr
 
 ## Python Pipeline
 
-Required for PDF/DOCX/XLSX ingestion. `mix setup` fetches Python scripts automatically.
+PDF/DOCX/XLSX and image ingestion use the crawler scripts and their Python dependencies. `mix setup` reads the reviewed crawler SHA from [`priv/python/crawler-ingest.revision`](../priv/python/crawler-ingest.revision), fetches its scripts and `requirements.lock`, then runs [`scripts/provision_python.py`](../scripts/provision_python.py) with CPython 3.13. The provisioner recreates `.venv`, installs only the locked application dependencies, and runs `pip check`. A missing interpreter, fetch error, installation error, or failed check makes setup fail. No separate Python installation command is needed after successful `mix setup`.
+
+The default fetch uses the tracked SHA. Explicit `--branch` and `--commit` overrides are for development and do not update the tracked revision:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r priv/python/crawler-ingest/requirements.txt
+mix zaq.python.fetch                # fetch the tracked revision
+mix zaq.python.fetch --commit <sha> # inspect a different revision locally
 ```
 
-To re-fetch or pin Python scripts:
+To update the supported crawler revision, first update and validate the dependency lock in crawler-ingest on Linux amd64 and arm64. After that upstream change is merged, review its full commit SHA, update `priv/python/crawler-ingest.revision`, and rerun `mix setup` and the opt-in real-Python test:
+
 ```bash
-mix zaq.python.fetch                # latest main
-mix zaq.python.fetch --commit <sha> # pin to commit
+mix test test/zaq/ingestion/python/steps/image_dedup_real_python_test.exs --include real_python
 ```
+
+The dedicated [Python Ingestion workflow](../.github/workflows/python-ingestion.yml) repeats the fresh provisioning and real test on pull requests. Its `Test (real Python 3.13)` job must be added to the main branch's required checks before #781 merges; a workflow file alone does not enforce that rule. The production image must also pass the same ImageDedup smoke on both Linux amd64 and arm64. See [the agent validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate) for review and final gate timing.
 
 ---
 

@@ -189,9 +189,10 @@ if those continue failing, investigate provider access and metadata-fetch errors
 
 ### Python Runner (`Zaq.Ingestion.Python.Runner`)
 - Base wrapper for Python scripts in `priv/python/crawler-ingest/`
-- `run/2` — resolves script path, selects `.venv/bin/python3` over system `python3`, calls `System.cmd/3`
+- `run/3` — resolves script path, selects `.venv/bin/python3` over system `python3`, and streams output through a Port
 - `scripts_dir/0` — returns absolute path to the scripts directory
 - `python_executable/0` — returns venv python if available, else `"python3"`
+- Supported development, CI, and Docker setup provision the managed venv from the crawler's pinned lock; see [Python Pipeline setup](../dev-setup.md#python-pipeline). The system-Python fallback remains for legacy unprovisioned calls.
 
 ### Python Step Modules (`Zaq.Ingestion.Python.Steps.*`)
 - `PdfToMd` — converts PDF to Markdown with image extraction

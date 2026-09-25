@@ -1,6 +1,13 @@
 defmodule Zaq.MixProject do
   use Mix.Project
 
+  @python_provision_args [
+    "python3.13",
+    "scripts/provision_python.py",
+    "priv/python/crawler-ingest",
+    ".venv"
+  ]
+
   def project do
     [
       app: :zaq,
@@ -196,7 +203,8 @@ defmodule Zaq.MixProject do
         "ecto.setup",
         "assets.setup",
         "assets.build",
-        "zaq.python.fetch"
+        "zaq.python.fetch",
+        &provision_python/1
       ],
       # Use the following script when you want to clone your main DB into your branch work
       "setup.branch": &setup_branch/1,
@@ -300,6 +308,15 @@ defmodule Zaq.MixProject do
     Mix.Task.run("assets.setup")
     Mix.Task.run("assets.build")
     Mix.Task.run("zaq.python.fetch")
+    provision_python([])
+  end
+
+  defp provision_python(_args) do
+    unless System.find_executable("python3.13") do
+      Mix.raise("CPython 3.13 (python3.13) is required for mix setup")
+    end
+
+    Mix.Task.run("cmd", @python_provision_args)
   end
 
   defp docs do
