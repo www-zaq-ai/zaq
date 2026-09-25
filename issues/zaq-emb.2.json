@@ -28,11 +28,15 @@
     {
       "text": "Identified connector deletion contract prerequisite: newly scoped PersonChannel FK must not be ON DELETE SET NULL (would turn an authorized scoped identity into an unscoped identity, possibly collide). Unconsumed migration 00003 uses NO ACTION and follow-on 00005 updates already migrated test DB; focused FK regression passes. Existing BO ChannelsLive currently tears down ingress before Repo.delete! config and would crash/leave teardown when scoped identities block deletion. Need explicit human choice: reject deletion until identity cleanup vs delete identity rows transactionally; disable remains available. No commit/push.",
       "timestamp": "2026-09-25T11:24:58Z"
+    },
+    {
+      "text": "Resolved ingress regression exposed by broader integration: Channels CommunicationBridge now discards connector IDs carried only by untrusted Incoming metadata and stamps ID from trusted bridge opts. For existing unscoped non-email PersonChannel rows created after migration, People links to the sole live provider connector transactionally under row lock; never guesses when multiple configs. Regressions cover sole-link, two-connector ambiguity, concurrent scoped discovery, archived ingress denial, BO archive identity retention. Broad person-credential ingress + identity + ChannelsLive suite 145 tests passes; mix q passes. Still open for legacy backfill migration validation and remaining identity/trust review; no commit/push.",
+      "timestamp": "2026-09-25T12:54:56Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-25T11:55:54Z"
+  "updated_at": "2026-09-25T12:54:56Z"
 }
