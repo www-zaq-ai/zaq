@@ -1,6 +1,8 @@
 {
   "assignee": "Julien",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-za4.22"
+  ],
   "blocks": [
     "zaq-za4.7"
   ],
@@ -19,5 +21,5 @@
   "status": "in_progress",
   "title": "[zaq-za4.6] Add serving role and lightweight supervised startup",
   "type": "task",
-  "updated_at": "2026-09-25T18:12:01Z"
+  "updated_at": "2026-09-25T18:12:19Z"
 }
