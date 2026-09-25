@@ -4,7 +4,8 @@
     "zaq-emb.10",
     "zaq-emb.15",
     "zaq-emb.7",
-    "zaq-emb.8"
+    "zaq-emb.8",
+    "zaq-emb.9"
   ],
   "blocks": [
     "zaq-emb.12"
@@ -18,5 +19,5 @@
   "status": "open",
   "title": "[zaq-emb.11] Integrated architecture documentation and validation",
   "type": "task",
-  "updated_at": "2026-09-25T09:37:01Z"
+  "updated_at": "2026-09-25T09:37:09Z"
 }
