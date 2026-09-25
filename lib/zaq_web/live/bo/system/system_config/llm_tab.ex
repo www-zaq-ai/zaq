@@ -151,23 +151,27 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTab do
             </div>
             <div>
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Distance Threshold
+                Maximum cosine distance
               </label>
               <input
                 type="number"
-                min="0.01"
+                min="0"
+                max="2"
                 step="0.01"
-                name="llm_config[distance_threshold]"
-                value={@form[:distance_threshold].value}
+                name="llm_config[max_cosine_distance]"
+                value={@form[:max_cosine_distance].value}
                 phx-debounce="400"
-                placeholder="1.2"
+                placeholder="0.75"
                 class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, opts} <- @form[:distance_threshold].errors}
+                :for={{msg, opts} <- @form[:max_cosine_distance].errors}
                 class="font-mono text-[0.72rem] text-red-500 mt-1.5"
               >
                 {translate_error({msg, opts})}
+              </p>
+              <p class="mt-1.5 zaq-text-caption" style="color: var(--zaq-text-color-body-secondary)">
+                Lower is closer; cosine similarity is 1 − distance. Legacy L2 settings are retained for rollback.
               </p>
             </div>
           </div>

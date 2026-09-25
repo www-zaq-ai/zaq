@@ -346,7 +346,7 @@ Back Office System Config (`/bo/system-config`) now owns model-related settings:
 - Embedding provider/model/api/dimension and chunk sizing are loaded via
   `Zaq.System.get_embedding_config/0`
 - Image-to-text config (Scaleway API key) loaded via `Zaq.System.get_image_to_text_config/0`
-- Retrieval thresholds (`max_context_window`, `distance_threshold`) are loaded via
+- Retrieval thresholds (`max_context_window`, `max_cosine_distance`) are loaded via
   `Zaq.System.get_llm_config/0`
 
 ### Docker storage defaults

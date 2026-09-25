@@ -244,7 +244,7 @@ defmodule Zaq.Ingestion.Chunk do
       """
       CREATE INDEX IF NOT EXISTS chunks_embedding_idx
       ON chunks
-      USING hnsw (embedding halfvec_l2_ops)
+      USING hnsw (embedding halfvec_cosine_ops)
       WITH (m = 16, ef_construction = 64)
       """,
       []

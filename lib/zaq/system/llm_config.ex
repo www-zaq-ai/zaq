@@ -11,7 +11,7 @@ defmodule Zaq.System.LLMConfig do
   - temperature in 0.0..2.0
   - top_p in 0.0..1.0
   - max_context_window > 0
-  - distance_threshold > 0.0
+  - max_cosine_distance in 0.0..2.0 (distance_threshold retained for rollback)
   - fusion_bm25_weight and fusion_vector_weight each in 0.0..1.0; sum ≥ 0.1
   """
 
@@ -31,6 +31,7 @@ defmodule Zaq.System.LLMConfig do
     field :supports_json_mode, :boolean, default: true
     field :max_context_window, :integer, default: 5_000
     field :distance_threshold, :float, default: 1.2
+    field :max_cosine_distance, :float, default: 0.75
     field :fusion_bm25_weight, :float, default: 0.5
     field :fusion_vector_weight, :float, default: 0.5
   end
@@ -47,6 +48,7 @@ defmodule Zaq.System.LLMConfig do
       :supports_json_mode,
       :max_context_window,
       :distance_threshold,
+      :max_cosine_distance,
       :fusion_bm25_weight,
       :fusion_vector_weight
     ])
@@ -55,6 +57,10 @@ defmodule Zaq.System.LLMConfig do
     |> validate_number(:top_p, greater_than: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:max_context_window, greater_than: 0)
     |> validate_number(:distance_threshold, greater_than: 0.0)
+    |> validate_number(:max_cosine_distance,
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 2.0
+    )
     |> validate_number(:fusion_bm25_weight,
       greater_than_or_equal_to: 0.0,
       less_than_or_equal_to: 1.0

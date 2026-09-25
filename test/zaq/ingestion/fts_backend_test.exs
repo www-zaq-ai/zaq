@@ -171,6 +171,11 @@ defmodule Zaq.Ingestion.FTSBackendTest do
     test "native generated vectors track content and detected language with one GIN index" do
       Chunk.create_table(1536)
 
+      assert %{rows: [[index_definition]]} =
+               Repo.query!("SELECT pg_get_indexdef('chunks_embedding_idx'::regclass)")
+
+      assert index_definition =~ "halfvec_cosine_ops"
+
       {:ok, document} =
         Document.create(%{source: "fts-language-#{System.unique_integer([:positive])}"})
 
@@ -190,6 +195,20 @@ defmodule Zaq.Ingestion.FTSBackendTest do
 
       assert {:ok, grouped} = FTSBackend.Native.bm25_search_group_by("voitures", 10, [], "french")
       assert Map.has_key?(grouped, document.id)
+
+      assert {:ok, grouped} =
+               FTSBackend.Native.bm25_search_group_by(
+                 ["voitures", "inexistant"],
+                 10,
+                 [],
+                 "french"
+               )
+
+      assert Map.has_key?(grouped, document.id)
+
+      assert {:ok, %{}} =
+               FTSBackend.Native.bm25_search_group_by(["voitures absentes"], 10, [], "french")
+
       assert {:ok, %{}} = FTSBackend.Native.bm25_search_group_by("voitures", 10, [], "german")
 
       {:ok, chunk} =
@@ -556,6 +575,16 @@ defmodule Zaq.Ingestion.FTSBackendTest do
   end
 
   describe "ParadeDB query construction" do
+    test "lexical terms are independently ORed, multiword clauses ANDed, syntax neutralized" do
+      query = FTSBackend.ParadeDB.bm25_query(["MAYOR:42", "AND OR", "city hall"], 10)
+      {sql, params} = SQL.to_sql(:all, Repo, query)
+
+      assert length(Regex.scan(~r/paradedb.parse_with_field/, sql)) == 3
+      assert sql =~ " OR "
+      assert sql =~ "conjunction_mode => true"
+      assert params == ["MAYOR 42", "and or", "city hall", 10]
+    end
+
     test "sanitize_query delegates to shared query sanitization" do
       assert FTSBackend.ParadeDB.sanitize_query("alpha:beta OR gamma") == "alpha beta OR gamma"
     end
@@ -597,6 +626,88 @@ defmodule Zaq.Ingestion.FTSBackendTest do
 
       assert {:ok, %{}} =
                FTSBackend.ParadeDB.bm25_search_group_by("alpha beta", 5, ["docs/handbook"])
+    end
+
+    @tag :paradedb
+    test "executes OR lexical clauses with multiword AND and filters on indexed chunks" do
+      Chunk.create_table(1536)
+      prefix = "lexical-#{System.unique_integer([:positive])}"
+      {:ok, wanted} = Document.create(%{source: "#{prefix}/wanted.md"})
+      {:ok, other} = Document.create(%{source: "#{prefix}/other.md"})
+      {:ok, boolean} = Document.create(%{source: "#{prefix}/boolean.md"})
+
+      {:ok, _} =
+        Chunk.create(%{
+          document_id: wanted.id,
+          content: "Council resolved the city hall dispute, ref MAYOR:42",
+          language: "english",
+          chunk_index: 1
+        })
+
+      {:ok, _} =
+        Chunk.create(%{
+          document_id: other.id,
+          content: "The city manager saw a hall nearby",
+          language: "french",
+          chunk_index: 1
+        })
+
+      {:ok, _} =
+        Chunk.create(%{
+          document_id: boolean.id,
+          content: "The literal text AND OR is stored here",
+          language: "english",
+          chunk_index: 1
+        })
+
+      assert {:ok, grouped} =
+               FTSBackend.ParadeDB.bm25_search_group_by(
+                 ["city hall", "absent identifier"],
+                 10,
+                 ["#{prefix}/wanted.md"],
+                 "english"
+               )
+
+      assert Map.has_key?(grouped, wanted.id)
+
+      assert grouped[wanted.id]
+             |> Map.values()
+             |> List.flatten()
+             |> Enum.all?(&is_number(&1.bm25_score))
+
+      # Baseline whole-question AND loses this chunk; generated OR clauses
+      # above retain the directly matching "city hall" term.
+      assert {:ok, %{}} =
+               FTSBackend.ParadeDB.bm25_search_group_by(
+                 "city hall absent identifier",
+                 10,
+                 ["#{prefix}/wanted.md"],
+                 "english"
+               )
+
+      assert {:ok, boolean_grouped} =
+               FTSBackend.ParadeDB.bm25_search_group_by(
+                 ["AND OR"],
+                 10,
+                 ["#{prefix}/boolean.md"],
+                 "english"
+               )
+
+      assert Map.has_key?(boolean_grouped, boolean.id)
+      refute Map.has_key?(grouped, other.id)
+
+      assert {:ok, %{}} =
+               FTSBackend.ParadeDB.bm25_search_group_by(
+                 ["city absent"],
+                 10,
+                 ["#{prefix}/wanted.md"],
+                 "english"
+               )
+
+      assert {:ok, grouped} =
+               FTSBackend.ParadeDB.bm25_search_group_by(["MAYOR:42", "AND OR"], 10, [], "english")
+
+      assert Map.has_key?(grouped, wanted.id)
     end
 
     test "fts_count_query sanitizes raw ParadeDB syntax before building the query" do

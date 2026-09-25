@@ -33,7 +33,14 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
          id: "test-translation",
          model: "test-model",
          context: ReqLLM.Context.new(),
-         message: ReqLLM.Context.assistant(Jason.encode!(Map.new(languages, &{&1, query})))
+         message:
+           ReqLLM.Context.assistant(
+             Jason.encode!(
+               Map.new(languages, fn language ->
+                 {language, %{semantic_query: query, lexical_terms: String.split(query, " ")}}
+               end)
+             )
+           )
        }}
     end
   end

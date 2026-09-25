@@ -36,8 +36,8 @@ defmodule Zaq.System do
     no_answer_alert_threshold_percent
     conversation_response_sla_ms
   )
-  @llm_read_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold fusion_bm25_weight fusion_vector_weight)
-  @llm_write_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold fusion_bm25_weight fusion_vector_weight)
+  @llm_read_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold max_cosine_distance fusion_bm25_weight fusion_vector_weight)
+  @llm_write_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold max_cosine_distance fusion_bm25_weight fusion_vector_weight)
   @embedding_read_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @embedding_write_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @image_to_text_read_fields ~w(credential_id model)
@@ -461,6 +461,7 @@ defmodule Zaq.System do
         supports_json_mode: ParseUtils.parse_bool(raw["supports_json_mode"], true),
         max_context_window: ParseUtils.parse_int(raw["max_context_window"], 5_000),
         distance_threshold: ParseUtils.parse_float(raw["distance_threshold"], 1.2),
+        max_cosine_distance: ParseUtils.parse_float(raw["max_cosine_distance"], 0.75),
         fusion_bm25_weight: ParseUtils.parse_float(raw["fusion_bm25_weight"], 0.5),
         fusion_vector_weight: ParseUtils.parse_float(raw["fusion_vector_weight"], 0.5)
       }

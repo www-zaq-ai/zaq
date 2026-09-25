@@ -126,7 +126,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
 
     translations =
       if translatable == [] do
-        {:ok, %{translations: %{}}}
+        {:ok, %{queries: %{}, errors: []}}
       else
         Jido.Exec.run(
           TranslateKnowledgeQuery,
@@ -136,12 +136,29 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
       end
 
     case translations do
-      {:ok, %{translations: translated}} ->
-        {Map.put(translated, "simple", query) |> Map.take(languages), []}
+      {:ok, %{queries: translated, errors: invalid}} ->
+        simple = simple_query(query, languages)
+
+        {Map.merge(translated, simple),
+         Enum.map(invalid, &%{language: &1, stage: :translation, error: :translation_failed})}
 
       {:error, _reason} ->
-        {if("simple" in languages, do: %{"simple" => query}, else: %{}),
+        {simple_query(query, languages),
          Enum.map(translatable, &%{language: &1, stage: :translation, error: :translation_failed})}
+    end
+  end
+
+  defp simple_query(query, languages) do
+    if "simple" in languages do
+      terms =
+        query
+        |> String.split(~r/\s+/u, trim: true)
+        |> Enum.take(8)
+        |> Enum.map(&String.slice(&1, 0, 128))
+
+      %{"simple" => %{semantic_query: query, lexical_terms: terms}}
+    else
+      %{}
     end
   end
 
@@ -150,14 +167,14 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
       language_queries
       |> Enum.sort_by(&elem(&1, 0))
       |> Task.async_stream(
-        fn {language, translated} ->
+        fn {language, %{semantic_query: semantic, lexical_terms: terms}} ->
           try do
             dispatch(
               router,
               :search_knowledge_base,
               %{
-                query: translated,
-                access_opts: opts ++ [language: language, unbounded: true]
+                query: semantic,
+                access_opts: opts ++ [language: language, unbounded: true, lexical_terms: terms]
               },
               processor
             )
@@ -192,8 +209,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     chunks
     |> Enum.with_index()
     |> Enum.sort_by(fn {chunk, index} ->
-      {-(chunk["distance"] || 0.0), chunk["language"] || "", chunk["document_id"] || 0,
-       chunk["section_path"] || [], chunk["chunk_index"] || index}
+      {-(chunk["rrf_score"] || chunk["distance"] || 0.0), chunk["language"] || "",
+       chunk["document_id"] || 0, chunk["section_path"] || [], chunk["chunk_index"] || index}
     end)
     |> Enum.uniq_by(fn {chunk, index} ->
       {chunk["document_id"], chunk["section_path"], chunk["chunk_index"] || index}
