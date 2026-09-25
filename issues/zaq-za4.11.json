@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-za4.10"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-za4.12"
+  ],
   "created": "2026-09-25T16:47:18Z",
   "description": "## Assigned scope\nOwn schemas/migrations, current-super-admin authorization, catalog/read DTOs and focused inspection/desired-state/deletion Actions. Execute via Jido.Exec, delegate canonical domain logic; no Agent/workflow exposure. Reconciliation is separate.\n\nFull contracts, architecture, persistence, privacy, platform candidates, and Action reuse evidence are embedded in parent zaq-za4. This issue owns only the assigned subset of work package S5; sibling issues own the rest.\n\n### S5 — Engine catalog, authorization, Actions and all-node convergence\n\n- **Files/specification:** `engine/serving.ex`, catalog/deployment/node/operation schemas and migrations, coordinator/reconciler, `engine/serving/actions/*`, Engine API/supervisor. Implement section 4/7 contracts, current-user authorization, durable desired state and full-snapshot/tombstone reconciliation.\n- **Tests first:** unauthorized/nil/inactive/non-admin actors; invalid specs; optimistic conflicts; idempotent saves/commands; multiple Engine senders; one failed/offline node; newly joined/restarted node; deletion missed while offline; stale incarnation reports.\n- **Paths validated:** zero serving nodes retains desired state and reports unavailable; eligible nodes load despite blocked peers; ready-everywhere never hides known offline targets; role operations accept short commands and expose progress separately.\n- **Mocks:** HTTP edge only; use real context/schema logic and controlled in-process/distributed role fixtures, not mocks of the canonical operation implementation.\n- **Docs:** Engine ownership, serving event contracts, system configuration, architecture, migration/operator guidance.\n- **Reuse:** `dispatch_all`, existing actor/credential/config seams; new validated Actions delegate to the context. No registry exposure to Agent tools/workflows.\n\n\n\n## Execution requirements\nRead AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service/design guides. Tests first as specified above; only feature E2E awaits final human UX approval. Read edited module docs; use Zaq.Config and existing actor/event/startup seams. No routine application-env mutation or blanket internal mocks. Preserve NodeRouter/credential/privacy boundaries. No task is implemented at creation.\n\n## Prerequisites\nzaq-za4.10",
   "id": "zaq-za4.11",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-za4.11] Implement Engine catalog and authorized serving Actions",
   "type": "task",
-  "updated_at": "2026-09-25T16:47:21Z"
+  "updated_at": "2026-09-25T16:47:26Z"
 }
