@@ -9,7 +9,7 @@
   "parent": "zaq-za4",
   "priority": 1,
   "status": "open",
-  "title": "Serving worktree default app boot killed during LLMDB catalog load",
+  "title": "[zaq-za4.22] Diagnose LLMDB catalog startup exit 137 in fresh worktree",
   "type": "bug",
-  "updated_at": "2026-09-25T18:12:11Z"
+  "updated_at": "2026-09-25T18:12:15Z"
 }
