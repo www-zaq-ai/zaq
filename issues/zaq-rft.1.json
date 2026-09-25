@@ -13,11 +13,15 @@
     {
       "text": "Fixture contract and four independent document JSON plus ten independent question JSON authored with null embeddings; shared parser validates IDs/references/lang/groups/ranges/vector provenance and missing vector error. Focused test: 3 tests, 1 property, 0 failures; mix q passes. Changes uncommitted; do not close issue until authorized landing. Proceeding locally with dependent generator in same working tree; Beadwork dependency remains open pending land.",
       "timestamp": "2026-09-25T12:17:54Z"
+    },
+    {
+      "text": "Authored 4 independent document JSON files (12 language-tagged chunks, full Markdown) and 11 independent question JSON files with tri-language semantic queries/lexical groups, expected/forbidden identities. Shared fixture parser checks JSON/schema/IDs/languages/reference/ranges/model-space/provenance/halfvec norm; missing chunk/query vectors fail with field path and generator command. All now have generated vectors; 1 property and 9 focused task/fixture tests pass. Uncommitted pending authorized landing.",
+      "timestamp": "2026-09-25T12:59:12Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-rft.1] Fixture contract, validation and authored data",
   "type": "task",
-  "updated_at": "2026-09-25T12:17:54Z"
+  "updated_at": "2026-09-25T12:59:12Z"
 }
