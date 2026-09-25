@@ -26,7 +26,7 @@ defmodule Zaq.Ingestion.FTSBackend.Native do
 
   @impl true
   def bm25_search_group_by(query_text, limit, source_filter \\ [], language \\ nil) do
-    safe_query = sanitize_query(query_text)
+    safe_query = if is_list(query_text), do: query_text, else: sanitize_query(query_text)
 
     rows =
       case language do
@@ -48,45 +48,72 @@ defmodule Zaq.Ingestion.FTSBackend.Native do
           |> Repo.all()
       end
 
-    {:ok, FTSBackend.group_results(Enum.map(rows, &Map.delete(&1, :chunk_index)))}
+    {:ok, FTSBackend.group_results(rows)}
   end
 
   defp search_query(language, safe_query, limit, source_filter) do
     config = configuration_for(language)
 
-    base =
-      from(c in Chunk,
-        where:
-          fragment(
-            "content_tsv @@ websearch_to_tsquery(?::text::regconfig, ?)",
-            ^config,
-            ^safe_query
-          ),
-        # ts_rank_cd produces frequent ties; without the secondary keys the row
-        # set and order under LIMIT are nondeterministic across runs/backends.
-        order_by: [
-          desc:
-            fragment(
-              "ts_rank_cd(content_tsv, websearch_to_tsquery(?::text::regconfig, ?))",
-              ^config,
-              ^safe_query
+    {predicate, rank} =
+      case safe_query do
+        terms when is_list(terms) ->
+          Enum.reduce(terms, {dynamic(false), dynamic(0.0)}, fn term, {matches, score} ->
+            # plainto_tsquery interprets each term as data and ANDs its
+            # analyzed words; OR across independently generated clauses.
+            clause =
+              dynamic(
+                [c],
+                fragment("content_tsv @@ plainto_tsquery(?::text::regconfig, ?)", ^config, ^term)
+              )
+
+            term_rank =
+              dynamic(
+                [c],
+                fragment(
+                  "ts_rank_cd(content_tsv, plainto_tsquery(?::text::regconfig, ?))",
+                  ^config,
+                  ^term
+                )
+              )
+
+            {dynamic([c], ^matches or ^clause), dynamic([c], ^score + ^term_rank)}
+          end)
+
+        text ->
+          {
+            dynamic(
+              [c],
+              fragment(
+                "content_tsv @@ websearch_to_tsquery(?::text::regconfig, ?)",
+                ^config,
+                ^text
+              )
             ),
-          asc: c.document_id,
-          asc: c.chunk_index
-        ],
-        limit: ^limit,
-        select: %{
-          document_id: c.document_id,
-          section_path: c.section_path,
-          chunk_index: c.chunk_index,
-          bm25_score:
-            fragment(
-              "ts_rank_cd(content_tsv, websearch_to_tsquery(?::text::regconfig, ?))",
-              ^config,
-              ^safe_query
+            dynamic(
+              [c],
+              fragment(
+                "ts_rank_cd(content_tsv, websearch_to_tsquery(?::text::regconfig, ?))",
+                ^config,
+                ^text
+              )
             )
-        }
-      )
+          }
+      end
+
+    projection =
+      dynamic([c], %{
+        document_id: c.document_id,
+        section_path: c.section_path,
+        chunk_index: c.chunk_index,
+        bm25_score: ^rank
+      })
+
+    base =
+      from(c in Chunk, where: ^predicate)
+      # ts_rank_cd produces frequent ties; keep deterministic tie-breaks.
+      |> order_by(^[desc: rank, asc: :document_id, asc: :chunk_index])
+      |> limit(^limit)
+      |> select(^projection)
 
     base =
       if is_nil(language) do

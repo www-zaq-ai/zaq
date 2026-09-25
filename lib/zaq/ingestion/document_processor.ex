@@ -12,7 +12,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   ## Configuration (read from `config :zaq, Zaq.Ingestion`)
 
     * `:max_context_window` - token limit for query extraction (default `5_000`)
-    * `:distance_threshold` - vector distance cutoff (default `0.75`)
+    * `:max_cosine_distance` - vector distance cutoff (default `0.75`)
     * `:hybrid_search_limit` - max rows per search leg (default `20`)
   """
 
@@ -61,8 +61,21 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Zaq.System.get_llm_config().max_context_window
   end
 
-  defp distance_threshold do
-    Zaq.System.get_llm_config().distance_threshold
+  defp max_cosine_distance do
+    Zaq.System.get_llm_config().max_cosine_distance
+  end
+
+  # Check the stored precision rather than the source floats: a small nonzero
+  # provider vector can round entirely to zero on halfvec conversion.
+  defp zero_halfvec?(embedding) do
+    %Pgvector.HalfVector{data: <<_dimension::16, _reserved::16, values::binary>>} =
+      Pgvector.HalfVector.new(embedding)
+
+    not Enum.any?(for(<<value::float-16 <- values>>, do: value), &(&1 != 0.0))
+  end
+
+  defp validate_query_embedding(embedding) do
+    if zero_halfvec?(embedding), do: {:error, :zero_norm_embedding}, else: :ok
   end
 
   defp hybrid_search_limit do
@@ -714,13 +727,19 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
           {:error, :dimension_mismatch}
         else
-          insert_chunk(chunk, document_id, index, embedding)
+          insert_nonzero_chunk(chunk, document_id, index, embedding)
         end
 
       {:error, reason} ->
         Logger.error("Failed to generate embedding for chunk #{index}: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  defp insert_nonzero_chunk(chunk, document_id, index, embedding) do
+    if zero_halfvec?(embedding),
+      do: {:error, :zero_norm_embedding},
+      else: insert_chunk(chunk, document_id, index, embedding)
   end
 
   # ---------------------------------------------------------------------------
@@ -840,8 +859,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     skip_permissions = Keyword.get(access_opts, :skip_permissions, false)
     source_filter = Keyword.get(access_opts, :source_filter, [])
     language = Keyword.get(access_opts, :language)
+    lexical_terms = lexical_input(Keyword.get(access_opts, :lexical_terms), query)
 
-    with {:ok, grouped} <- retrieve(query, source_filter, language),
+    with {:ok, grouped} <- retrieve(query, lexical_terms, source_filter, language),
          sections = build_query_sections(grouped),
          {:ok, data} <- fetch_sections_with_source(sections, language) do
       filtered = apply_permission_filter(data, skip_permissions, person_id, team_ids)
@@ -854,10 +874,25 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp retrieve(query, source_filter, language) do
+  defp lexical_input(nil, query), do: query
+
+  defp lexical_input(terms, _query) when is_list(terms) do
+    terms
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&(String.trim(&1) |> String.slice(0, 128)))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.take(8)
+  end
+
+  defp lexical_input(_invalid, _query), do: []
+
+  defp retrieve(query, lexical_terms, source_filter, language) do
     limit = hybrid_search_limit()
 
-    bm25_task = Task.async(fn -> bm25_search_group_by(query, limit, source_filter, language) end)
+    bm25_task =
+      Task.async(fn -> bm25_search_group_by(lexical_terms, limit, source_filter, language) end)
+
     vector_task = Task.async(fn -> similarity_search_group_by(query, source_filter, language) end)
 
     with {:ok, bm25} <- Task.await(bm25_task, 30_000),
@@ -871,10 +906,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     |> Enum.flat_map(fn {doc_id, paths} ->
       Enum.flat_map(paths, fn
         {_path, []} -> []
-        {path, [first | _]} -> [{doc_id, path, score_of(first)}]
+        {path, [first | _]} -> [{doc_id, path, first}]
       end)
     end)
-    |> Enum.sort_by(fn {doc_id, path, score} -> {-score, doc_id, path} end)
+    |> Enum.sort_by(fn {doc_id, path, item} -> {-score_of(item), doc_id, path} end)
     |> Enum.uniq_by(fn {doc_id, path, _} -> {doc_id, path} end)
   end
 
@@ -900,23 +935,25 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   def limit_chunks(chunks) when is_list(chunks), do: limit_to_context_window(chunks)
 
   defp similarity_search_group_by(query_text, source_filter, language) do
-    with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
+    with {:ok, embedding} <- EmbeddingClient.embed(query_text),
+         :ok <- validate_query_embedding(embedding) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
-      threshold = distance_threshold()
+      threshold = max_cosine_distance()
 
       base =
         Chunk
         |> join(:inner, [c], d in Document, on: c.document_id == d.id, as: :doc)
-        |> where([c, _d], fragment("? <-> ? < ?", c.embedding, ^embedding_vector, ^threshold))
+        |> where([c, _d], fragment("? <=> ? <= ?", c.embedding, ^embedding_vector, ^threshold))
         |> order_by([c, _d],
-          asc: fragment("? <-> ?", c.embedding, ^embedding_vector),
+          asc: fragment("? <=> ?", c.embedding, ^embedding_vector),
           asc: c.document_id,
           asc: c.chunk_index
         )
         |> select([c, _d], %{
           document_id: c.document_id,
           section_path: c.section_path,
-          vector_distance: fragment("? <-> ?", c.embedding, ^embedding_vector)
+          chunk_index: c.chunk_index,
+          vector_distance: fragment("? <=> ?", c.embedding, ^embedding_vector)
         })
 
       base = FTSBackend.maybe_filter_language(base, language)
@@ -995,7 +1032,21 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         vector_contrib = if vector_rank, do: vector_w * (1 / (k + vector_rank)), else: 0.0
         rrf_score = bm25_contrib + vector_contrib
 
-        item = %{document_id: doc_id, section_path: section_path, rrf_score: rrf_score}
+        bm25_matches = get_in(bm25_grouped, [doc_id, section_path]) || []
+        vector_matches = get_in(vector_grouped, [doc_id, section_path]) || []
+
+        item = %{
+          document_id: doc_id,
+          section_path: section_path,
+          rrf_score: rrf_score,
+          bm25_matches: MapSet.new(Enum.map(bm25_matches, &Map.get(&1, :chunk_index))),
+          vector_matches:
+            Map.new(vector_matches, fn match ->
+              {Map.get(match, :chunk_index),
+               Map.get(match, :vector_distance, Map.get(match, :distance))}
+            end)
+        }
+
         {{doc_id, section_path}, item}
       end)
 
@@ -1050,7 +1101,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp fetch_sections_with_source([], _language), do: {:ok, []}
 
   defp fetch_sections_with_source(sections, language) do
-    distance_map = Map.new(sections, fn {doc_id, path, dist} -> {{doc_id, path}, dist} end)
+    section_map = Map.new(sections, fn {doc_id, path, item} -> {{doc_id, path}, item} end)
 
     or_filter =
       Enum.reduce(sections, dynamic(false), fn {doc_id, path, _dist}, acc ->
@@ -1080,14 +1131,23 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       # section — without chunk_index the DB returns section chunks in
       # arbitrary order, which scrambles the context handed to the LLM.
       |> Enum.sort_by(fn r ->
-        {-(distance_map[{r.document_id, r.section_path}] || 0.0), r.document_id, r.section_path,
+        {-section_map[{r.document_id, r.section_path}].rrf_score, r.document_id, r.section_path,
          r.chunk_index}
       end)
       |> Enum.map(fn r ->
+        section = section_map[{r.document_id, r.section_path}]
+        lexical? = MapSet.member?(section.bm25_matches, r.chunk_index)
+        vector_distance = Map.get(section.vector_matches, r.chunk_index)
+
         %{
           "content" => r.content,
           "source" => r.source,
-          "distance" => distance_map[{r.document_id, r.section_path}],
+          "distance" => section.rrf_score,
+          "rrf_score" => section.rrf_score,
+          "vector_distance" => vector_distance,
+          "retrieval_legs" =>
+            Enum.filter([if(lexical?, do: "lexical"), if(vector_distance, do: "vector")], & &1),
+          "direct_match" => lexical? or not is_nil(vector_distance),
           "document_id" => r.document_id,
           "chunk_index" => r.chunk_index,
           "section_path" => r.section_path,
@@ -1112,27 +1172,28 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   @doc """
   Performs vector similarity search.
-  Returns chunks within `distance_threshold` ordered by distance,
+  Returns chunks within `max_cosine_distance` ordered by cosine distance,
   with the document source included.
   """
   def similarity_search(query_text, limit \\ 5) do
-    with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
+    with {:ok, embedding} <- EmbeddingClient.embed(query_text),
+         :ok <- validate_query_embedding(embedding) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
-      threshold = distance_threshold()
+      threshold = max_cosine_distance()
 
       results =
         Chunk
         |> join(:inner, [c], d in Document, on: c.document_id == d.id)
         |> where(
           [c, _d],
-          fragment("? <-> ? < ?", c.embedding, ^embedding_vector, ^threshold)
+          fragment("? <=> ? <= ?", c.embedding, ^embedding_vector, ^threshold)
         )
-        |> order_by([c, _d], fragment("? <-> ?", c.embedding, ^embedding_vector))
+        |> order_by([c, _d], fragment("? <=> ?", c.embedding, ^embedding_vector))
         |> limit(^limit)
         |> select([c, d], %{
           chunk: c,
           source: d.source,
-          vector_distance: fragment("? <-> ?", c.embedding, ^embedding_vector)
+          vector_distance: fragment("? <=> ?", c.embedding, ^embedding_vector)
         })
         |> Repo.all()
 
@@ -1148,7 +1209,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Returns the count of unique chunks matching via BM25+vector union search.
   """
   def similarity_search_count(query_text) do
-    with {:ok, embedding} <- EmbeddingClient.embed(query_text) do
+    with {:ok, embedding} <- EmbeddingClient.embed(query_text),
+         :ok <- validate_query_embedding(embedding) do
       embedding_vector = Pgvector.HalfVector.new(embedding)
       limit = hybrid_search_limit()
 
@@ -1156,7 +1218,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
       vector_ids =
         from(c in Chunk,
-          order_by: fragment("? <-> ?", c.embedding, ^embedding_vector),
+          order_by: fragment("? <=> ?", c.embedding, ^embedding_vector),
           select: %{id: c.id},
           limit: ^limit
         )
@@ -1199,7 +1261,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         chunk
       else
         chunk
-        |> Map.drop(~w(title watch_status inserted_at updated_at metadata language))
+        |> Map.drop(
+          ~w(title watch_status inserted_at updated_at metadata language vector_distance retrieval_legs direct_match)
+        )
         |> Map.put("content", @access_denied_message)
       end
     end)

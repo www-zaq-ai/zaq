@@ -1226,6 +1226,46 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # ---------------------------------------------------------------------------
 
   describe "similarity_search/2" do
+    test "cosine orders collinear unnormalized vectors ahead of closer L2 vectors" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+
+      for {index, values} <- [
+            {1, List.duplicate(0.9, dim)},
+            {2, [0.1 | List.duplicate(0.0, dim - 1)]}
+          ] do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          content: "vector #{index}",
+          chunk_index: index,
+          embedding: Pgvector.HalfVector.new(values)
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:ok, [%{chunk: %{chunk_index: 1}, vector_distance: distance}]} =
+               DocumentProcessor.similarity_search("query")
+
+      assert distance < 0.01
+    end
+
+    test "rejects a query embedding that rounds to zero in half precision" do
+      dim = embedding_dimension()
+
+      Req.Test.stub(Zaq.Embedding.Client, fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(
+          200,
+          Jason.encode!(%{"data" => [%{"embedding" => List.duplicate(1.0e-10, dim)}]})
+        )
+      end)
+
+      assert {:error, :zero_norm_embedding} = DocumentProcessor.similarity_search("query")
+    end
+
     test "returns chunks within distance threshold" do
       stub_embedding_success()
       doc = create_document()
@@ -1287,6 +1327,60 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       assert Enum.any?(results, &(&1["source"] == "volume-a/matching.md"))
       refute Enum.any?(results, &(&1["source"] == "volume-b/other.md"))
+    end
+
+    test "section siblings retain fusion score without inheriting a measured vector distance" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+
+      for {index, content, values} <- [
+            {1, "target evidence", List.duplicate(0.1, dim)},
+            {2, "unrelated sibling", List.duplicate(-0.1, dim)}
+          ] do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          content: content,
+          chunk_index: index,
+          section_path: ["shared"],
+          embedding: Pgvector.HalfVector.new(values)
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:ok, [direct, sibling]} =
+               DocumentProcessor.query_extraction("target", skip_permissions: true)
+
+      assert direct["direct_match"]
+      assert "vector" in direct["retrieval_legs"]
+      assert is_number(direct["vector_distance"])
+      assert sibling["direct_match"] == false
+      assert sibling["vector_distance"] == nil
+      assert sibling["retrieval_legs"] == []
+      assert sibling["rrf_score"] == direct["rrf_score"]
+      assert sibling["distance"] == sibling["rrf_score"]
+    end
+
+    test "lexical terms search independently of the embedded semantic query" do
+      stub_embedding_success()
+      doc = create_document()
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: "identifier ZAQ-793",
+        chunk_index: 1,
+        section_path: ["reference"],
+        embedding: Pgvector.HalfVector.new(List.duplicate(-0.1, embedding_dimension()))
+      })
+      |> Repo.insert!()
+
+      assert {:ok, [%{"content" => "identifier ZAQ-793", "retrieval_legs" => ["lexical"]}]} =
+               DocumentProcessor.query_extraction("a semantic paraphrase",
+                 skip_permissions: true,
+                 lexical_terms: ["ZAQ-793"]
+               )
     end
   end
 

@@ -102,7 +102,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
       supports_logprobs: cfg.supports_logprobs,
       supports_json_mode: cfg.supports_json_mode,
       max_context_window: cfg.max_context_window,
-      distance_threshold: cfg.distance_threshold
+      max_cosine_distance: cfg.max_cosine_distance
     }
   end
 

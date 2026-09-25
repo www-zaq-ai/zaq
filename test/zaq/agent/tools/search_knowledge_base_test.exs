@@ -59,7 +59,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                 team_ids: [1, 2],
                 skip_permissions: false,
                 language: "simple",
-                unbounded: true
+                unbounded: true,
+                lexical_terms: ["test"]
               ]
             }
           } = event
@@ -111,7 +112,11 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   defmodule FrenchGeneration do
-    def generate_text(_spec, _messages, _opts), do: response(~s({"french":"voiture rouge"}))
+    def generate_text(_spec, _messages, _opts),
+      do:
+        response(
+          ~s({"french":{"semantic_query":"voiture rouge","lexical_terms":["voiture","rouge"]}})
+        )
 
     def response(text) do
       {:ok,

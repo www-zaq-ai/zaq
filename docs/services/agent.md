@@ -409,15 +409,18 @@ without safe permission mutation support return `:unsupported`.
 - Tool implementations exposed to configured agents through `Tools.Registry`
 - Availability remains controlled by enabled tool keys and provider capabilities
 - `SearchKnowledgeBase` discovers globally persisted chunk languages from
-  Ingestion's ETS-backed inventory, translates the query in one internal
-  `TranslateKnowledgeQuery` Action using `ProviderSpec` for the configured model,
-  and searches
+  Ingestion's ETS-backed inventory, prepares bounded semantic queries and ORed
+  lexical terms in one internal `TranslateKnowledgeQuery` Action using
+  `ProviderSpec` for the configured model, and searches
   each language concurrently through explicit Ingestion events. Ingestion
   applies ACLs after retrieval and filters candidates/chunks by language.
   Results are merged by existing hybrid-fusion score and globally limited by
   Ingestion's context budget. The tool returns chunks with their detected
   language and explicit per-language errors plus a `partial` flag when only
-  some searches succeed. `simple` chunks use the original query. No translation
+  some searches succeed. `simple` chunks retain the original semantic query and
+  use bounded terms split from it without translation. RRF scores are separate
+  from measured chunk cosine distances; expanded siblings have no measured
+  distance. No translation
   operation is exposed in `Tools.Registry`.
 
 ### Conversation Recall Tool (`Zaq.Agent.Tools.Accounts.History`, key `accounts.fetch_history`)
