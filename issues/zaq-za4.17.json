@@ -9,7 +9,7 @@
   "parent": "zaq-za4",
   "priority": 2,
   "status": "open",
-  "title": "Validate CPU NVIDIA and Apple Silicon model support",
+  "title": "[zaq-za4.17] Validate CPU NVIDIA and Apple Silicon model support",
   "type": "task",
-  "updated_at": "2026-09-25T16:47:44Z"
+  "updated_at": "2026-09-25T16:47:45Z"
 }
