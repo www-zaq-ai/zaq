@@ -10,11 +10,15 @@
     {
       "text": "## Execution graph\n```mermaid\ngraph TD\n  zaq_za4_1 --\u003e zaq_za4_2\n  zaq_za4_1 --\u003e zaq_za4_3\n  zaq_za4_1 --\u003e zaq_za4_4\n  zaq_za4_1 --\u003e zaq_za4_5\n  zaq_za4_6 --\u003e zaq_za4_7\n  zaq_za4_1 --\u003e zaq_za4_7\n  zaq_za4_2 --\u003e zaq_za4_8\n  zaq_za4_3 --\u003e zaq_za4_8\n  zaq_za4_4 --\u003e zaq_za4_8\n  zaq_za4_5 --\u003e zaq_za4_8\n  zaq_za4_7 --\u003e zaq_za4_8\n  zaq_za4_8 --\u003e zaq_za4_9\n  zaq_za4_9 --\u003e zaq_za4_10\n  zaq_za4_10 --\u003e zaq_za4_11\n  zaq_za4_11 --\u003e zaq_za4_12\n  zaq_za4_12 --\u003e zaq_za4_13\n  zaq_za4_13 --\u003e zaq_za4_14\n  zaq_za4_14 --\u003e zaq_za4_15\n  zaq_za4_15 --\u003e zaq_za4_16\n  zaq_za4_16 --\u003e zaq_za4_17\n  zaq_za4_17 --\u003e zaq_za4_18\n  zaq_za4_18 --\u003e zaq_za4_19\n  zaq_za4_19 --\u003e zaq_za4_20\n  zaq_za4_20 --\u003e zaq_za4_21\n```\n## Issue mapping\n- deps: zaq-za4.1\n- laya: zaq-za4.2\n- embed: zaq-za4.3\n- pii: zaq-za4.4\n- llm: zaq-za4.5\n- role: zaq-za4.6\n- hardware: zaq-za4.7\n- hf: zaq-za4.8\n- eligibility: zaq-za4.9\n- runtime: zaq-za4.10\n- catalog: zaq-za4.11\n- reconcile: zaq-za4.12\n- routing: zaq-za4.13\n- execution: zaq-za4.14\n- management: zaq-za4.15\n- playground: zaq-za4.16\n- platform: zaq-za4.17\n- ux: zaq-za4.18\n- e2e: zaq-za4.19\n- docs: zaq-za4.20\n- final: zaq-za4.21\n## Dependency rationale\nThe adapter and role/hardware branches intentionally converge before HF inspection: artifact layouts depend on all adapters, and admission depends on capabilities. These necessary fan-in dependencies share roots; downstream delivery is serial to simplify ownership.\n## Approval\nPlan approved by user on 2026-09-25 in session ses_f27692478ffeJeaC9d0iggZ2dG: \"The plan looks good, go ahead and prepare the beadwork issues for implementation\". This is architectural/planning approval, not final UX approval, implementation completion or permission to commit/push.\nOnly zaq-za4.1 and zaq-za4.6 are intended ready implementation roots. All issues are open P2; final UX approval remains a separate blocker for E2E.",
       "timestamp": "2026-09-25T16:47:55Z"
+    },
+    {
+      "text": "Planning verification: 21 child issues, 24 dependency edges, no cycles. Every child is open/P2 and has an ID-prefixed title and test-first work-package specification. Only zaq-za4.1 and zaq-za4.6 have no prerequisites. Feature E2E zaq-za4.19 is blocked by human UX approval zaq-za4.18. Current bw ready exposes the open parent epic rather than its child roots; no task or epic was started to alter planning status. Repository working tree remains clean. No implementation, application tests, Git commit/push or sync performed.",
+      "timestamp": "2026-09-25T16:48:44Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-za4] ZAQ Serving V1: local HF models and BO playground",
   "type": "epic",
-  "updated_at": "2026-09-25T16:47:55Z"
+  "updated_at": "2026-09-25T16:48:44Z"
 }
