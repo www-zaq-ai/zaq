@@ -27,11 +27,15 @@
     {
       "text": "Archive now covers actual BO data-source ProviderLive route (not ChannelsLive): Engine DataSources.stop_config_watch_channels unwatchs active/error watches, persists successful stops for idempotent retry, returns failed watch IDs; BO blocks archive on any failure and reports them. ProviderLive archive uses Channels event, hides archived configs and denies reactivation. Existing data-source delete test updated to assert archive; failure regression added. Engine watch scope by config and explicit callback URL in zaq-emb.21. Data-source/BO/ingestion suite 435 tests/1 property passes after source-key permission regression fix; mix q passes. Still review provider-side race/remaining runtime audit before selective commit.",
       "timestamp": "2026-09-25T13:48:16Z"
+    },
+    {
+      "text": "Actual ProviderLive data-source delete now scopes target by current provider/kind/unarchived instead of accepting arbitrary IDs; regression covers cross-provider attempted archive. Failure path remains archive-blocking. Combined API/resolver/ProviderLive suite 171 tests passes, mix q passes. Still review watch-creation/renewal race during teardown and runtime sync recovery before closing bead or selective commit.",
+      "timestamp": "2026-09-25T14:06:34Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.22] Archive connector while retaining scoped identities and history",
   "type": "task",
-  "updated_at": "2026-09-25T13:48:16Z"
+  "updated_at": "2026-09-25T14:06:34Z"
 }
