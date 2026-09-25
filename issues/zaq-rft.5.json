@@ -9,9 +9,15 @@
   "id": "zaq-rft.5",
   "labels": [],
   "parent": "zaq-rft",
+  "comments": [
+    {
+      "text": "Added separate CI integration steps in native and ParadeDB jobs with isolated retrieval_eval_* test partitions, plus docs/guides/retrieval-evaluation.md linked from docs index. Ruby YAML parser verified both steps. Focused fixture/task 9 tests/1 property pass; native and ParadeDB 11 questions each pass; mix q passes; final mix precommit exits 0 (stale selection ran 6 tests/1 property; integration excluded by default and run explicitly). No browser E2E because only offline developer tooling/test fixtures changed; no production UX/API changes. No commit/push or PR created; pending human authorization and CI verification.",
+      "timestamp": "2026-09-25T12:59:42Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-rft.5] CI, documentation and final validation",
   "type": "task",
-  "updated_at": "2026-09-25T12:04:48Z"
+  "updated_at": "2026-09-25T12:59:42Z"
 }
