@@ -9,7 +9,7 @@
   "parent": "zaq-za4",
   "priority": 2,
   "status": "open",
-  "title": "Implement local multi-model lifecycle and atomic admission",
+  "title": "[zaq-za4.10] Implement local multi-model lifecycle and atomic admission",
   "type": "task",
-  "updated_at": "2026-09-25T16:47:12Z"
+  "updated_at": "2026-09-25T16:47:15Z"
 }
