@@ -3,7 +3,8 @@
   "blocked_by": [],
   "blocks": [
     "zaq-za4.2",
-    "zaq-za4.3"
+    "zaq-za4.3",
+    "zaq-za4.4"
   ],
   "created": "2026-09-25T16:46:38Z",
   "description": "## Assigned scope\nOwn dependencies/build resolution, common adapter contract and deterministic test harness. Exact patch-series pins and supported Elixir/OTP; task adapters are separate issues.\n\nFull contracts, architecture, persistence, privacy, platform candidates, and Action reuse evidence are embedded in parent zaq-za4. This issue owns only the assigned subset of work package S1; sibling issues own the rest.\n\n### S1 — Pin dependencies and validate four task adapters\n\n- **Files/specification:** `mix.exs`, `mix.lock`, platform build configuration; `serving/model_adapter.ex`, `serving/adapters/{laya,bumblebee}.ex`. Implement the common contract and select immutable acceptance checkpoints. Validate EMLX 0.4/EXLA 0.13 APIs against installed versions. Avoid broad framework construction.\n- **Tests first:** task input/output contract fixtures, unsupported-task/type/profile cases; integration harness for local checkpoints and tiny deterministic models; reference Laya golden cases from upstream where suitable.\n- **Paths validated:** correct model/serving selection with two models loaded; CPU and accelerator results within documented tolerances; Laya choice/score/noul; embedding pooling/normalization; PII labels/offsets; generation template/stop behavior. Hardware tests must report unavailable runners, not a false pass.\n- **Mocks:** external HF HTTP only; real Nx computation for adapter behavior. Use small local fixtures for ordinary CI and explicitly scheduled actual-model runs for acceptance.\n- **Docs:** dependency/platform matrix and task support section in new `docs/services/serving.md`; update `docs/dev-setup.md` build requirements. Module docs explain ownership.\n- **Reuse:** upstream model/task/serving builders; local adapters normalize contracts. Block completion if any of the four task families lacks a working checkpoint; replacing a candidate needs documented evidence, not silent scope removal.\n\n\n\n## Execution requirements\nRead AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service/design guides. Tests first as specified above; only feature E2E awaits final human UX approval. Read edited module docs; use Zaq.Config and existing actor/event/startup seams. No routine application-env mutation or blanket internal mocks. Preserve NodeRouter/credential/privacy boundaries. No task is implemented at creation.\n\n## Prerequisites\nApproved architectural plan; independent implementation root.",
@@ -14,5 +15,5 @@
   "status": "open",
   "title": "[zaq-za4.1] Pin Nx 0.13 stack and define model adapter contracts",
   "type": "task",
-  "updated_at": "2026-09-25T16:46:45Z"
+  "updated_at": "2026-09-25T16:46:47Z"
 }
