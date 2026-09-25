@@ -188,7 +188,7 @@ defmodule Zaq.Agent.Executor do
                execution_opts,
                actor
              ),
-           runtime_pid when is_pid(runtime_pid) <- safe_server_pid(server_ref),
+           {:ok, runtime_pid} <- resolve_runtime_pid(server_ref),
            question <-
              question
              |> append_attachments(incoming.attachments, server_id)
@@ -627,12 +627,15 @@ defmodule Zaq.Agent.Executor do
   defp reusable_runtime_rejection?({:rejected, :busy}), do: true
   defp reusable_runtime_rejection?(_reason), do: false
 
-  defp safe_server_pid(server_ref) do
-    GenServer.whereis(server_ref)
+  defp resolve_runtime_pid(server_ref) do
+    case GenServer.whereis(server_ref) do
+      pid when is_pid(pid) -> {:ok, pid}
+      nil -> {:error, :runtime_unavailable}
+    end
   rescue
-    _ -> nil
+    _ -> {:error, :runtime_unavailable}
   catch
-    :exit, _ -> nil
+    :exit, _ -> {:error, :runtime_unavailable}
   end
 
   defp maybe_configured_agent({:ok, agent}), do: agent
