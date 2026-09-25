@@ -174,6 +174,15 @@ jobs:
 
           exit "$coverage_status"
 
+      - name: Run offline retrieval evaluation (native PostgreSQL)
+        env:
+          MIX_TEST_PARTITION: retrieval_eval_native
+        run: |
+          mix ecto.create
+          mix db.extensions
+          mix ecto.migrate
+          mix test test/zaq/agent/tools/search_knowledge_base_retrieval_evaluation_test.exs --include integration
+
   test-paradedb:
     name: Test (ParadeDB)
     runs-on: ubuntu-latest
@@ -253,6 +262,15 @@ jobs:
 
       - name: Run ingestion tests against ParadeDB
         run: mix test test/zaq/ingestion/ --include paradedb
+
+      - name: Run offline retrieval evaluation (ParadeDB)
+        env:
+          MIX_TEST_PARTITION: retrieval_eval_parade
+        run: |
+          mix ecto.create
+          mix db.extensions
+          mix ecto.migrate
+          mix test test/zaq/agent/tools/search_knowledge_base_retrieval_evaluation_test.exs --include integration
 
   # Early-warning signal for the next Elixir version — failures never block the PR.
   test-elixir-1-20:
