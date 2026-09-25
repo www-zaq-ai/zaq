@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "zaq-emb.14"
+    "zaq-emb.14",
+    "zaq-emb.3"
   ],
   "blocks": [
     "zaq-emb.11"
@@ -15,5 +16,5 @@
   "status": "open",
   "title": "[zaq-emb.15] Legacy canonical migration and fresh-history cutover",
   "type": "task",
-  "updated_at": "2026-09-25T09:37:01Z"
+  "updated_at": "2026-09-25T09:37:05Z"
 }
