@@ -12,9 +12,15 @@
   "id": "zaq-za4.7",
   "labels": [],
   "parent": "zaq-za4",
+  "comments": [
+    {
+      "text": "Action reuse assessment (partial implementation): searched lib/zaq/agent/tools and lib/zaq/actions for hardware/backend/probe/memory/capability; only generic model-tool capability registry, no hardware operation. Decision: local-only Zaq.Serving.Hardware.probe/1, Backend.select/2, Hardware.RuntimeProbe.run/1 and Memory pure parsers. Node-local measurements and native subprocess probes are startup/serving-domain infrastructure, not composable agent Actions; automatic agent-tool exposure would cross ownership/privacy boundaries. Contract: read-only node-local snapshot with expiry, unknown measurements nil, native tiny tensor check isolated in bounded child; explicit override fails closed; no actor or user side effects, retries require fresh probe. Consumers: future Serving lifecycle/Engine event API, not Agent/workflow. Verification: pure fixture/property tests and macOS native smoke; Linux build/hardware verification pending.",
+      "timestamp": "2026-09-25T19:07:02Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-za4.7] Implement hardware capability probes and backend selection",
   "type": "task",
-  "updated_at": "2026-09-25T18:42:25Z"
+  "updated_at": "2026-09-25T19:07:02Z"
 }
