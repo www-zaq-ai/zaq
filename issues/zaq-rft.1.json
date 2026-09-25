@@ -9,9 +9,15 @@
   "id": "zaq-rft.1",
   "labels": [],
   "parent": "zaq-rft",
+  "comments": [
+    {
+      "text": "Fixture contract and four independent document JSON plus ten independent question JSON authored with null embeddings; shared parser validates IDs/references/lang/groups/ranges/vector provenance and missing vector error. Focused test: 3 tests, 1 property, 0 failures; mix q passes. Changes uncommitted; do not close issue until authorized landing. Proceeding locally with dependent generator in same working tree; Beadwork dependency remains open pending land.",
+      "timestamp": "2026-09-25T12:17:54Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-rft.1] Fixture contract, validation and authored data",
   "type": "task",
-  "updated_at": "2026-09-25T12:09:59Z"
+  "updated_at": "2026-09-25T12:17:54Z"
 }
