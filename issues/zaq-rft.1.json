@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-rft.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-rft",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-rft.1] Fixture contract, validation and authored data",
   "type": "task",
-  "updated_at": "2026-09-25T12:04:45Z"
+  "updated_at": "2026-09-25T12:09:59Z"
 }
