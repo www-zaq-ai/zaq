@@ -7,13 +7,13 @@
     "zaq-emb.7"
   ],
   "created": "2026-09-23T13:18:31Z",
-  "description": "Tests first: real Jido request ID correlation, active multi-person same scope, background vs own mention, replay, sealing/queue full, permissions. Extend RequestRegistry/Agent API/ServerManager and validated NodeRouter fanout; preserve person-bound credentials and one response owner; do not treat queued as consumed.",
+  "description": "## Functional specifications\nExtend RequestTransformer/HistoryLoader and Factory/ServerManager rather than background fanout. Keep person-bound scopes and repair steering correlation. Tests through real multi-turn Jido execution: A then A+B, no duplicate original/steered input, tool pairs preserved, fixed cursor, multi-transcript cursor isolation, attachment of old messages, concurrently committed associations, budget pressure, failed reads, sync failure, replacement incarnation and next-request race. Verify request-local projections and completed context agree.\n\nSUPERSEDES: background steer/inject broadcast to all active agents. Each runtime pulls authorized cumulative deltas before internal model turns with a fixed cursor. Cursor is per transcript association stream, not message creation timestamp.\n\n## Files and ownership\nlib/zaq/agent/context_window/request_transformer.ex; history_loader.ex; api.ex; executor.ex; request_registry.ex; related integration tests\n\n## Action reuse assessment\nReuse RequestTransformer before each model call and HistoryLoader/Engine authorized reads; no background inject/fanout subsystem. Preserve Jido steer only for same-Person explicit inputs. Boundary synchronization is a dedicated child.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\ndocs/services/agent.md; transformer/history contracts\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.5",
   "labels": [],
   "parent": "zaq-emb",
   "priority": 1,
   "status": "open",
-  "title": "[#768] Person-bound runtime fanout and steering",
+  "title": "[zaq-emb.5] Fixed-cursor per-turn history refresh and explicit steering",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:45Z"
+  "updated_at": "2026-09-25T09:36:35Z"
 }
