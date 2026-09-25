@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-rft.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-rft.3"
+  ],
   "created": "2026-09-25T12:04:40Z",
   "description": "Step 2 of zaq-rft. See parent for authoritative shared fixture schema, paths, corpus design and reuse assessment. Related feature: zaq-4mu.\n\nTests first using temporary fixture directories and the existing HTTP stub: exact text sent, default fill-missing behavior, idempotent rerun/no calls, refresh-all behavior, input drift, configured model/dimension mismatch, malformed provider response, zero vector, network/rate-limit error and write failure. Verify that text, expectations and unrelated JSON fields survive unchanged.\n\nImplement `mix retrieval.eval.embed [--path DIR] [--refresh]`:\n\n1. Start the app in the selected Mix environment and read configured embedding settings. Default to repository fixture directory; read configuration without altering it or the ingestion database.\n2. Validate all files in preparation mode. Default operation fills null embeddings only. Existing stale or incompatible embeddings fail with instructions to use `--refresh`; never mix embedding spaces silently.\n3. Generate sequentially through Embedding.Client using exact chunk content and semantic queries. Deduplicate identical inputs within the invocation. Preserve existing client error semantics; terminate clearly on rate limit rather than adding an unbounded retry loop.\n4. Validate dimension, finite coordinates and nonzero norm, including norm after halfvec conversion. Confirm configured model/dimension remained stable during generation.\n5. Stage all responses before writing anything. Write deterministic UTF-8 JSON to sibling temporary files, then atomically rename per file. A multi-file update is not a filesystem transaction: retain recovery data and report exactly which files changed if a commit-stage rename fails. No fixture is ever left truncated.\n6. Print counts and changed paths, never vectors or credentials. Missing configuration/provider failure exits nonzero with actionable file/field context.\n\nModule responsibility: task orchestrates; fixture helper owns file/schema mechanics; Embedding.Client remains the only provider implementation.\n\nAction reuse assessment: reuse SearchKnowledgeBase/Jido.Exec, NodeRouter and Embedding.Client as described in the parent. Fixture parsing and file updates are local-only developer tooling; no new agent tools or production retrieval behavior. Read applicable AGENTS.md policies before implementation. Do not skip missing vectors or weaken relevance assertions.",
   "id": "zaq-rft.2",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-rft.2] Configured embedding preparation task",
   "type": "task",
-  "updated_at": "2026-09-25T12:04:45Z"
+  "updated_at": "2026-09-25T12:04:46Z"
 }
