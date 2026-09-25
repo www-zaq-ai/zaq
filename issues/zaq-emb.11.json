@@ -6,13 +6,13 @@
   ],
   "blocks": [],
   "created": "2026-09-23T13:18:36Z",
-  "description": "Verify unconsumed migration rollback/reapply, legacy scope isolation; update Agent/Engine/Channels docs; isolated suite and mix q, independent diff review. Tests before migration logic.",
+  "description": "## Functional specifications\nUpdate architecture and Agent/Engine/Channels service owners with canonical storage, strategy ownership, grants, cursor semantics, cutover and downstream prerequisites. Run migration/data-preservation checks, isolated suites and mix q per issue. Review reuse, private-data boundaries and all access consumers. Then human UI approval, consolidated E2E, required coverage handoff/review and final mix precommit with a 900-second timeout. Report unresolved blockers rather than closing the epic prematurely. Commit/push only when separately authorized.\n\n## Files and ownership\ndocs/architecture.md; docs/services/{agent,engine,channels}.md; relevant guides and issue validation suites\n\n## Action reuse assessment\nNot applicable for docs-only work; integration review must confirm every implemented operation uses recorded shared boundary. This is pre-UX integrated verification, not the final precommit gate.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\nOwner docs only; preserve legacy descriptions as historical where appropriate\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.11",
   "labels": [],
   "parent": "zaq-emb",
   "priority": 2,
   "status": "open",
-  "title": "[#768] Migration, docs, and issue validation",
+  "title": "[zaq-emb.11] Integrated architecture documentation and validation",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:51Z"
+  "updated_at": "2026-09-25T09:36:40Z"
 }
