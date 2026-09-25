@@ -11,9 +11,15 @@
   "id": "zaq-rft.3",
   "labels": [],
   "parent": "zaq-rft",
+  "comments": [
+    {
+      "text": "Configured dev embedding model bge-multilingual-gemma2 dimension 3584 generated 42 distinct real vectors into 4 doc + 10 question JSON; no provider errors. Independently computed raw cosine over stored vectors: target distances english rail .3480, French monitor .2776, Arabic notice .2989, French keyboard .3638, English hotel .3363, English deadline .1904, mixed account .1540, mixed badge .2754. Reviewed ranges ±.020. Evaluation-specific threshold must be .45: unrelated-weather closest .5886 (\u003e threshold); lexical-minibar semantic-to-hotel .6686 (\u003e threshold), so lexical-only target possible. Production .75 remains separate. Measured in JS from fixtures without executing retrieval; halfvec/SQL verification remains pending.",
+      "timestamp": "2026-09-25T12:26:16Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-rft.3] Generate vectors and review expected ranges",
   "type": "task",
-  "updated_at": "2026-09-25T12:04:47Z"
+  "updated_at": "2026-09-25T12:26:16Z"
 }
