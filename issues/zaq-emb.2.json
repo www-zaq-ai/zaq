@@ -1,7 +1,8 @@
 {
   "assignee": "Julien",
   "blocked_by": [
-    "zaq-emb.21"
+    "zaq-emb.21",
+    "zaq-emb.22"
   ],
   "blocks": [
     "zaq-emb.3",
@@ -34,5 +35,5 @@
   "status": "in_progress",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-25T11:24:58Z"
+  "updated_at": "2026-09-25T11:55:46Z"
 }
