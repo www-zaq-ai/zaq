@@ -37,11 +37,15 @@
     {
       "text": "Remaining BO gap from provider-only audit: NotificationImapLive and NotificationSmtpLive use get_any_by_provider and IMAP upsert_by_provider, so with multiple live same-provider configs the special email settings pages display blank/default instead of a selected connector (save fails closed). Generic ChannelsLive retrieval picker already supports multiple. Need explicit email-page connector selection or route it to existing picker before claiming full multi-connector BO support. No silent mutation observed; leave bead open.",
       "timestamp": "2026-09-25T17:04:46Z"
+    },
+    {
+      "text": "Human approved dedicated IMAP/SMTP pages reusing same connector-settings bar as Mattermost/Telegram, not a separate select. /extract report found inline ChannelsLive config card header/actions and analogous ProviderLive header, no existing full reusable component/story; human approved extraction row 1. Created DesignSystem.ChannelConnectorCard (parent-owned action slot and optional selection), Storybook card story and 2 component ExUnit tests. Original LiveViews remain unchanged per /extract; replacement wiring awaits separate /replace human gate. mix q clean; story compiles via mix run --no-start, but Storybook runtime smoke blocked because dev DB has not applied archived_at migration (test DB is migrated). No DB migration run on populated dev database; no commit/push.",
+      "timestamp": "2026-09-25T18:12:03Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T17:04:46Z"
+  "updated_at": "2026-09-25T18:12:03Z"
 }
