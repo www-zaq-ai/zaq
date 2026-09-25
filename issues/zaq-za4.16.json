@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-za4.15"
+  ],
   "blocks": [],
   "created": "2026-09-25T16:47:41Z",
   "description": "## Assigned scope\nOwn playground and approved cohesive chat composer/transcript extensions/extractions. Four result types, escaped PII, bounded embeddings/history, generation streams/cancel and node/backend/revision provenance. Preserve existing chat behavior.\n\nFull contracts, architecture, persistence, privacy, platform candidates, and Action reuse evidence are embedded in parent zaq-za4. This issue owns only the assigned subset of work package S7; sibling issues own the rest.\n\n### S7 — BO management and reusable model playground\n\n- **Files/specification:** new system LiveViews, `lib/zaq_web/router.ex`, actual sidebar/global-settings navigation owner, targeted chat/DesignSystem components and Storybook. Wire sections 8/9 through Engine events. Apply relevant design/extract/replace approval procedures before component changes.\n- **Tests first:** LiveView/component tests for authorization, validation, immutable revision display, per-node eligibility/progress, partial readiness, operation reconnect, each task's input/result card, retry/unload, stream cancellation and escaped PII/text rendering.\n- **Paths validated:** no nodes, all ready, partially ready, stale/offline, unknown resources, rejected input, loader error, wrong-generation result, long/Unicode PII text, bounded embeddings/history. Existing chat presentation behavior remains covered.\n- **Mocks:** HF edge only; use Engine public boundaries and deterministic local runtime fixtures rather than LiveView-owned business logic.\n- **Docs:** new local-model management/playground user guide; Storybook stories; BO guide links if a reusable component is added; existing design contract remains authoritative.\n- **Reuse:** `bo_layout`, composer/transcript/message components; extend/extract only approved cohesive slices.\n\n\n\n## Execution requirements\nRead AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service/design guides. Tests first as specified above; only feature E2E awaits final human UX approval. Read edited module docs; use Zaq.Config and existing actor/event/startup seams. No routine application-env mutation or blanket internal mocks. Preserve NodeRouter/credential/privacy boundaries. No task is implemented at creation.\n\n## Prerequisites\nzaq-za4.15",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-za4.16] Build task-aware BO playground using chat presentation",
   "type": "task",
-  "updated_at": "2026-09-25T16:47:42Z"
+  "updated_at": "2026-09-25T16:47:43Z"
 }
