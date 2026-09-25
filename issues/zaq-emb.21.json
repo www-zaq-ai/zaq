@@ -57,11 +57,15 @@
     {
       "text": "SMTP/IMAP follow-up: explicit SMTP notification default in ChannelConfig (transaction/advisory lock + unique partial index migration 20260922000009), SmtpSender unscoped notification selection and explicit connector delivery, dedicated IMAP/SMTP settings use connector bars and require selection for multi-account edits; IMAP form binds inbox to enabled SMTP for replies. EmailBridge derives SMTP binding from trusted IMAP routing connector and uses bound account for delivery and generated Message-ID domain; unbound legacy inbox only uses sole SMTP, disabled/archived binding fails closed. Reused existing ChannelConfig.resolve_by_provider, changeset and EmailBridge/SmtpSender instead of new Action/tool; UI selection helper local-only (BO view state, no independent executable domain operation). Focused email/BO groups 170+ tests passing, mix q passes; no new-feature E2E authored pending UX approval. Remaining: data-source connector card extension/replacement gate, deeper multi-connector integration audit and coverage, migration rollback, final validation. No commit/push.",
       "timestamp": "2026-09-25T20:50:04Z"
+    },
+    {
+      "text": "Scope correction from human (2026-09-26): shared connector-bar UI is for communication channels only. Do NOT extend or replace DataSources.ProviderLive cards under this UI work. ChannelsLive route is /channels/retrieval/:provider; data-source routes use a separate ProviderLive. Existing #768 data-source watch/archive backend work remains separate from this UI clarification.",
+      "timestamp": "2026-09-25T22:14:56Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T20:50:04Z"
+  "updated_at": "2026-09-25T22:14:56Z"
 }
