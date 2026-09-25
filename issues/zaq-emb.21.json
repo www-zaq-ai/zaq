@@ -25,11 +25,15 @@
     {
       "text": "Multi-config data-source webhook path now selects exact enabled provider config through DataSourceBridge.handle_webhook/3; BO ingestion watch creation and Engine renewal emit connector-scoped URLs. New unconsumed 00008 migrates watch-channel uniqueness from provider/channel_id to config/provider/channel_id (safe down guard); JidoConnectBridge includes config_id in watch lookup, Engine rejects ambiguous unscoped IDs. 269 core data-source tests+property, then 435 BO/ingestion/data-source tests+property pass; mix q passes. Still open pending lifecycle/routing audit and migration validation.",
       "timestamp": "2026-09-25T13:48:23Z"
+    },
+    {
+      "text": "Further provider-only audit: IdentityResolver now carries its validated ingress channel_config_id into Channels fetch_profile/open_dm_channel events; Channels.Api resolves exact enabled provider-matching connector and uses its credentials/bot identity. Legacy unscoped callers require unambiguous config for profile; selected ID rejects mismatches. API and resolver suites 107 tests pass; combined API/resolver/data-source BO 171 tests pass; mix q passes. Still assess provider-only outbound/send_typing paths and concurrent archive/watch creation before closing/committing. No push.",
+      "timestamp": "2026-09-25T14:06:27Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T13:48:23Z"
+  "updated_at": "2026-09-25T14:06:27Z"
 }
