@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.11"
+  ],
   "blocks": [
     "zaq-emb.13"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-emb.12] Human UX approval of completed canonical history and access UI",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:56Z"
+  "updated_at": "2026-09-25T09:36:57Z"
 }
