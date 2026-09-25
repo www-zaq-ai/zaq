@@ -35,11 +35,15 @@
     {
       "text": "Human resolved watch/archive race: best-effort cleanup. Preserve existing rule that known provider unwatch failures before archive block it; archive may proceed despite in-flight creation/renewal, but late provider subscriptions need durable asynchronous cleanup/reconciliation (not silent discard). No retiring state selected.",
       "timestamp": "2026-09-25T16:35:59Z"
+    },
+    {
+      "text": "Implemented selected best-effort race policy: after ProviderLive archives connector, Engine reconciles active/error watch rows and queues existing WatchChannelRenewalWorker; Engine upsert of a late row on archived connector schedules immediate cleanup. Renewal worker detects archived owner before normal renewal, retries explicit Channels unwatch_archived_item by exact archived connector ID/provider; failures retain errored watch row. Ordinary archived configs still reject normal watch/webhook. Tests cover late upsert, reconciliation, cleanup failure, exact archived connector match; core 431 tests + property pass; mix q clean before last test-only addition. Remaining: BO reconciliation failure UI, provider-bridge end-to-end cleanup, enqueue failure handling/coverage, commit isolation. No push.",
+      "timestamp": "2026-09-25T16:46:33Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.22] Archive connector while retaining scoped identities and history",
   "type": "task",
-  "updated_at": "2026-09-25T16:35:59Z"
+  "updated_at": "2026-09-25T16:46:33Z"
 }
