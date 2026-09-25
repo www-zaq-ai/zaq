@@ -18,11 +18,15 @@
     {
       "text": "Commit/push requested 2026-09-25; final mix precommit blocked at test --stale: 48 doctests, 179 properties, 9779 tests, 89 failures. Fresh isolated MIX_TEST_PARTITION=793gate full suite also 90 failures; rerun --failed 88 persistent failures, 56 SkillsLiveTest, 13 SystemConfigLiveTest, rest Disk/Storage/Channel/People/Engine. No retrieval/translation/FTS/config affected test among persistent failures. Focused #793 suite 171 tests/8 properties passes; real ParadeDB 40 tests/4 properties and 43 integration tests passed earlier. No commit or push pending gate resolution/explicit user direction.",
       "timestamp": "2026-09-25T08:02:07Z"
+    },
+    {
+      "text": "2026-09-25: unset INGESTION_VOLUMES/STORAGE_VOLUMES for this branch test DB, dropped/reprovisioned zaq_test_fix_793_hybrid_retrieval. Full mix precommit passed: 48 doctests, 179 properties, 9779 tests, 0 failures, 1 skipped. Commit 318947eb2 pushed to origin/fix/793-hybrid-retrieval. Keep issue open pending PR review/coverage and judged relevance calibration of provisional 0.75 cosine threshold.",
+      "timestamp": "2026-09-25T09:25:00Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#793] Cosine and lexical hybrid retrieval",
   "type": "task",
-  "updated_at": "2026-09-25T08:02:07Z"
+  "updated_at": "2026-09-25T09:25:00Z"
 }
