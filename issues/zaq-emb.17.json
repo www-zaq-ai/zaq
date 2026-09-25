@@ -9,9 +9,15 @@
   "id": "zaq-emb.17",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Human decision (2026-09-25): Replicated email creates a sender copy and treats visible To/Cc headers as authorized recipients, even though headers do not prove SMTP delivery. Hidden BCC is not inferred from visible headers: attach only if the address is independently known as the receiving mailbox or confirmed outbound envelope recipient. Scope is per message: a newly added To/Cc address sees that message and future addressed messages only, never earlier conversation history; replies and bot replies carry only their own sender + per-message recipient evidence. Existing parser currently extracts sender and threading, not full To/Cc/BCC lists; IMAP mailbox field is a folder name, not itself a recipient address; SMTP sender currently sends to one explicit identifier and returns :ok/error. Tests for sender copy, evolving To/Cc, hidden BCC/no authoritative mailbox, SMTP reply, no retroactive association belong to zaq-emb.14/.4. Reuse transport normalization and strategy; no parallel email ACL.",
+      "timestamp": "2026-09-25T10:54:42Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.17] Confirm replicated-email sender and recipient evidence contract",
   "type": "task",
-  "updated_at": "2026-09-25T10:54:14Z"
+  "updated_at": "2026-09-25T10:54:42Z"
 }
