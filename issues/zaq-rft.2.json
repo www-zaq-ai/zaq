@@ -15,11 +15,15 @@
     {
       "text": "Generator implementation and unit tests added locally after fixture validation; focused tests: 6 tests/1 property pass; mix q passes. Generator reuses configured Embedding.Client and stages all vectors before per-file atomic rename; testing configured provider availability next. Step 1/2 remain uncommitted and their Beadwork dependency open pending authorized landing.",
       "timestamp": "2026-09-25T12:23:04Z"
+    },
+    {
+      "text": "Implemented mix retrieval.eval.embed with configured Embedding.Client, exact input hashing, provenance, fill-missing/--refresh, upfront provider staging, sibling temp+rename per file and no expectation rewriting. Generated 45 distinct bge-multilingual-gemma2/3584 vectors (12 chunks + 33 semantic variants); idempotent rerun 0 calls/0 file updates. Focused generator tests pass. No credentials or endpoints stored in JSON. Uncommitted; issue not closed pending landing authorization.",
+      "timestamp": "2026-09-25T12:59:21Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-rft.2] Configured embedding preparation task",
   "type": "task",
-  "updated_at": "2026-09-25T12:23:04Z"
+  "updated_at": "2026-09-25T12:59:21Z"
 }
