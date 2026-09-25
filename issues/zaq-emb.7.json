@@ -8,13 +8,13 @@
     "zaq-emb.11"
   ],
   "created": "2026-09-23T13:18:33Z",
-  "description": "Tests first: stop only person channel+thread active workers/stream, other actors untouched; enforce grants on restart/history actions. Extend ServerManager incarnation fencing; provider removal only affects provider grants, never manual.",
+  "description": "## Functional specifications\nOn provider removal stop that Person's channel and thread executions, including workers/stream processing; other people remain unaffected. Retain ordinary grant checks for all entry points. Manual history grants survive. Test active execution termination, idle runtime cleanup, exact-incarnation protection and no continued local stream output; already completed external effects are outside rollback guarantees.\n\n## Files and ownership\nlib/zaq/agent/server_manager.ex; executor.ex; request_registry.ex; runtime/stream worker lifecycle tests\n\n## Action reuse assessment\nExtend existing incarnation-fenced runtime termination through NodeRouter and owner nodes. No membership leases or separate ACL. Ordinary grants still authorize non-channel entry points.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\ndocs/services/{agent,channels}.md\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.7",
   "labels": [],
   "parent": "zaq-emb",
   "priority": 1,
   "status": "open",
-  "title": "[#768] Revoke person runtime on provider removal",
+  "title": "[zaq-emb.7] Stop person-bound channel and thread runtimes on removal",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:49Z"
+  "updated_at": "2026-09-25T09:36:37Z"
 }
