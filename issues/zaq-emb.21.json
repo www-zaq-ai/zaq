@@ -41,11 +41,15 @@
     {
       "text": "Human approved dedicated IMAP/SMTP pages reusing same connector-settings bar as Mattermost/Telegram, not a separate select. /extract report found inline ChannelsLive config card header/actions and analogous ProviderLive header, no existing full reusable component/story; human approved extraction row 1. Created DesignSystem.ChannelConnectorCard (parent-owned action slot and optional selection), Storybook card story and 2 component ExUnit tests. Original LiveViews remain unchanged per /extract; replacement wiring awaits separate /replace human gate. mix q clean; story compiles via mix run --no-start, but Storybook runtime smoke blocked because dev DB has not applied archived_at migration (test DB is migrated). No DB migration run on populated dev database; no commit/push.",
       "timestamp": "2026-09-25T18:12:03Z"
+    },
+    {
+      "text": "Extraction phase includes Storybook URL registry entry in test/e2e/support/story-urls.json. Component ExUnit 2 tests pass; story compiles with mix run --no-start; latest mix q passes. Follow-on design-migrate/token review and separate replace/wiring approval needed for Mattermost + dedicated IMAP/SMTP screens. Do not call extracted card wired yet.",
+      "timestamp": "2026-09-25T18:13:18Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T18:12:03Z"
+  "updated_at": "2026-09-25T18:13:18Z"
 }
