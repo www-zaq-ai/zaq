@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.6"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.11"
+  ],
   "created": "2026-09-23T13:18:35Z",
   "description": "## Functional specifications\nExtend existing DS components: connector/channel/thread information and author attribution; People access grouped by connector with manual/provider origins and capability-gated refresh. No strategy selector. Use Event/NodeRouter and trusted admin context. Test nil/legacy projections, long/escaped IDs, unauthorized refresh and unsupported/unavailable capability distinctions. Recheck existing labels against the canonical transcript model. Final UX approval still precedes new E2E authoring.\n\n## Files and ownership\nlib/zaq_web/live/bo/system/people_live.ex and template; shared DS components; People LiveView tests\n\n## Action reuse assessment\nReuse validated refresh Action via Event/NodeRouter with session-derived actor. Scope refresh to Person+connector; show capability unavailable until downstream wiring. Do not label manual history access membership.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\napplicable People/Channels guide; Storybook\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.10",
@@ -19,5 +21,5 @@
   "status": "open",
   "title": "[zaq-emb.10] People external-channel grants and membership refresh UI",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:54Z"
+  "updated_at": "2026-09-25T09:36:56Z"
 }
