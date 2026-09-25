@@ -9,13 +9,13 @@
     "zaq-emb.7"
   ],
   "created": "2026-09-23T13:18:32Z",
-  "description": "Tests first: manual survives provider removal, duplicates/stale events, incomplete snapshot no deletions, unsupported provider, unauthorized refresh. Extend grant sync contract; new validated reusable RefreshChannelMemberships Action for BO/agent/workflows with explicit authorization; provider events/transport downstream deferred; email removal unsupported.",
+  "description": "## Functional specifications\nImplement trusted normalized add/remove events and a capability-aware refresh Action callable by admins, authorized agents and workflows. A People-targeted refresh is scoped to Person plus connector; concrete provider capability determines how a complete result is obtained. Keep authorization inside the operation, not only the UI. Reconcile provider grants idempotently, preserve manual grants, fence refresh/event ordering and never revoke from incomplete snapshots. Record downstream wiring as deferred. Test unsupported providers, invalid identities, duplicate/stale events, partial pagination and provider errors.\n\n## Files and ownership\nPermissions; Engine reconciliation/API; Channels CommunicationBridge/Bridge capability APIs; new validated refresh Action; workflow and operation tests\n\n## Action reuse assessment\nNew focused refresh Action reuses one Engine reconciliation operation and Channels provider boundary. BO/agent/workflow require trusted authorization. Agent allowlisting is deliberate, not automatic. No provider implementation in this issue.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\ndocs/services/{engine,channels,workflows}.md; operation schemas/moduledocs\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.6",
   "labels": [],
   "parent": "zaq-emb",
   "priority": 1,
   "status": "open",
-  "title": "[#768] Membership reconciliation and refresh Action",
+  "title": "[zaq-emb.6] Membership reconciliation and reusable refresh Action",
   "type": "task",
-  "updated_at": "2026-09-23T13:18:47Z"
+  "updated_at": "2026-09-25T09:36:36Z"
 }
