@@ -3,7 +3,8 @@
   "blocked_by": [
     "zaq-za4.2",
     "zaq-za4.3",
-    "zaq-za4.4"
+    "zaq-za4.4",
+    "zaq-za4.5"
   ],
   "blocks": [],
   "created": "2026-09-25T16:46:56Z",
@@ -15,5 +16,5 @@
   "status": "open",
   "title": "[zaq-za4.8] Implement immutable HF artifact inspection and cache",
   "type": "task",
-  "updated_at": "2026-09-25T16:47:01Z"
+  "updated_at": "2026-09-25T16:47:02Z"
 }
