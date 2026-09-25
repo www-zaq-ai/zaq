@@ -9,9 +9,15 @@
   "id": "zaq-emb.21",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Human chose expanding same-provider ChannelConfig multiplicity inside #768. Added unconsumed 20260922000004 drop-unique/provider-index migration with safe rollback guard; explicit resolve_by_provider(provider, config_id) and Bridge fetch_channel_config(provider, config_id), provider-only reads/updates fail closed on ambiguous stored configs (including disabled), get_by_channel_id prevents cross-config reuse of identical external room IDs. Channel BO posts now selects matching configured room when unique and retains singleton fallback. Identity and merge tests prove same opaque author ID on two Slack configs remains distinct. Focused 235 tests/2 properties earlier, then 135 tests/2 properties plus BO channels 64 tests pass; mix q passes. Still in progress: provider-only SMTP/data-source/runtime/BO selection audit and duplicate provider write race; do not close. No commit/push.",
+      "timestamp": "2026-09-25T11:20:55Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T11:00:49Z"
+  "updated_at": "2026-09-25T11:20:55Z"
 }
