@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [
     "zaq-emb.10",
+    "zaq-emb.15",
     "zaq-emb.7",
     "zaq-emb.8"
   ],
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "[zaq-emb.11] Integrated architecture documentation and validation",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:57Z"
+  "updated_at": "2026-09-25T09:37:01Z"
 }
