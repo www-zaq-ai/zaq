@@ -13,9 +13,15 @@
   "id": "zaq-za4.1",
   "labels": [],
   "parent": "zaq-za4",
+  "comments": [
+    {
+      "text": "Implementation progress (branch zaq-za4.1/nx-stack-contracts, no commit): added Nx ~\u003e0.13.0, EXLA ~\u003e0.13.0, Bumblebee ~\u003e0.7.1, jev_nx ~\u003e0.2.0, EMLX ~\u003e0.4.0 and raised declared Elixir floor to 1.18. mix.lock resolves Nx 0.13.1, EXLA 0.13.1, Bumblebee 0.7.1, jev_nx 0.2.0, EMLX 0.4.2; dev macOS compilation succeeded. Added common Serving ModelAdapter behaviour with bounded tasks and tiny independent Nx serving test; serving guide and dev setup updates. Validation: isolated test 4/4 passed; mix q passed. No model-specific adapters, hardware support or Serving node yet; those remain separate blocked issues. Work remains uncommitted, so issue stays in_progress. Existing unrelated vulnerability advisories appeared during deps.get.",
+      "timestamp": "2026-09-25T17:03:03Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-za4.1] Pin Nx 0.13 stack and define model adapter contracts",
   "type": "task",
-  "updated_at": "2026-09-25T16:52:47Z"
+  "updated_at": "2026-09-25T17:03:03Z"
 }
