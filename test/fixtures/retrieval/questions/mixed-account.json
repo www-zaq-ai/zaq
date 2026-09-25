@@ -13,9 +13,13 @@
       ]
     }
   ],
-  "forbidden": [],
+  "forbidden": [
+    {"document_id": "english-travel", "chunk_id": "deadline"},
+    {"document_id": "french-equipment", "chunk_id": "keyboard"},
+    {"document_id": "arabic-leave", "chunk_id": "entitlement"}
+  ],
   "id": "mixed-account",
-  "question": "How soon must I set up the security key for my new account?",
+  "question": "When should I activate my new account and set up a security key before using shared files?",
   "ranges_reviewed": true,
   "scenario": "Mixed document English account section",
   "schema_version": 1,
@@ -7220,8 +7224,8 @@
           "key"
         ],
         [
-          "48",
-          "hours"
+          "account",
+          "access"
         ]
       ],
       "semantic_query": "When should a new colleague activate the account and register a security key?"

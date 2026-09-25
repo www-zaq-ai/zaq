@@ -17,7 +17,10 @@ HTTP responses are fixture-backed.
 2. Add a question JSON with a stable ID, original question, semantic query and
    lexical groups for **each language present** in the corpus, expected chunk
    references, optional forbidden references and the scenario being judged.
-   Lexical groups are alternatives; words in a group form an AND phrase.
+   Lexical groups are alternatives; words in a group form an AND phrase. Derive
+   queries from the user's question, not from answer-only facts in the document
+   (such as amounts, deadlines or approval authorities). Label clearly irrelevant
+   chunks in `forbidden` so positives also detect unrelated retrieval results.
 3. Set new `embedding` and `embedding_provenance` fields to `null`. Configure a
    multilingual embedding model and its credential/dimension in ZAQ's development
    System Config. Run `mix retrieval.eval.embed` to fill missing vectors via
@@ -59,7 +62,8 @@ lexical backend even when ParadeDB is installed locally; the ParadeDB partition
 requires ParadeDB to be detected. Both run in CI. Fixtures use an **evaluation**
 cosine limit of `0.45`, independent of the provisional production default:
 the unrelated negative's closest measured distance was `0.589`, while the
-lexical-rescue semantic-to-target distance was `0.669`. These tests detect
+realistic minibar query's target measures about `0.391` and matches both
+vector and lexical legs. These tests detect
 regressions in this corpus; they do not calibrate production relevance.
 
 CI never calls an embedding provider; only the explicit developer task does.

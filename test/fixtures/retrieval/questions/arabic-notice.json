@@ -13,9 +13,13 @@
       ]
     }
   ],
-  "forbidden": [],
+  "forbidden": [
+    {"document_id": "french-equipment", "chunk_id": "monitor"},
+    {"document_id": "english-travel", "chunk_id": "hotel"},
+    {"document_id": "mixed-onboarding", "chunk_id": "badge"}
+  ],
   "id": "arabic-notice",
-  "question": "متى يجب أن أقدم طلب الإجازة العادية؟",
+  "question": "قبل كم من الوقت ينبغي أن أطلب إجازتي المعتادة؟",
   "ranges_reviewed": true,
   "scenario": "Arabic advance notice period",
   "schema_version": 1,
@@ -3619,8 +3623,8 @@
           "الإجازة"
         ],
         [
-          "أربعة",
-          "عشر"
+          "متى",
+          "إجازة"
         ]
       ],
       "semantic_query": "ما مهلة تقديم طلب الإجازة السنوية العادية؟"

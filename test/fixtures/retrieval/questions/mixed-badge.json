@@ -13,9 +13,13 @@
       ]
     }
   ],
-  "forbidden": [],
+  "forbidden": [
+    {"document_id": "english-travel", "chunk_id": "hotel"},
+    {"document_id": "french-equipment", "chunk_id": "monitor"},
+    {"document_id": "arabic-leave", "chunk_id": "notice"}
+  ],
   "id": "mixed-badge",
-  "question": "Where and when do I pick up my first-day building pass?",
+  "question": "Where should I collect my entry pass when I start, and is there a cutoff time?",
   "ranges_reviewed": true,
   "scenario": "Mixed document French badge section, semantic paraphrase",
   "schema_version": 1,
@@ -10818,7 +10822,7 @@
       "lexical_groups": [
         [
           "badge",
-          "accueil"
+          "accès"
         ],
         [
           "premier",
