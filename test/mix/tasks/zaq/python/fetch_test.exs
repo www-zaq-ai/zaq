@@ -1,11 +1,19 @@
 defmodule Mix.Tasks.Zaq.Python.FetchTest do
   use ExUnit.Case, async: false
+  use ExUnitProperties
 
   import Bitwise
 
   alias Mix.Tasks.Zaq.Python.Fetch
+  alias Mix.Tasks.Zaq.Python.Fetch.Publisher
 
   @default_repo "www-zaq-ai/crawler-ingest"
+  @reviewed_sha "c726f63fc963f6d0acaaa297a580fc927d0e34ae"
+  @expected_files ~w(
+    web_crawler.py pipeline.py pdf_to_md.py docx_to_md.py pptx_to_md.py xlsx_to_md.py
+    image_dedup.py image_to_text.py clean_md.py inject_descriptions.py
+    requirements.txt requirements.lock
+  )
 
   setup do
     original_http_client = Application.get_env(:zaq, :http_client)
@@ -36,6 +44,8 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
   test "downloads all files, writes manifest, and chmods .py files when commit is provided", %{
     tmp_dir: tmp_dir
   } do
+    assert Fetch.required_files() == @expected_files
+
     repo = "acme/crawler-ingest"
     sha = "abc123"
     dest = Path.join(tmp_dir, "python")
@@ -57,7 +67,7 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
 
     Fetch.run(["--repo", repo, "--commit", sha, "--dest", dest])
 
-    Enum.each(Fetch.required_files(), fn filename ->
+    Enum.each(@expected_files, fn filename ->
       assert File.exists?(Path.join(dest, filename))
     end)
 
@@ -68,7 +78,7 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
 
     assert manifest["repo"] == repo
     assert manifest["commit"] == sha
-    assert manifest["files"] == Fetch.required_files()
+    assert manifest["files"] == @expected_files
     assert {:ok, _datetime, _offset} = DateTime.from_iso8601(manifest["fetched_at"])
 
     py_mode = File.stat!(Path.join(dest, "web_crawler.py")).mode
@@ -78,7 +88,25 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
     assert (requirements_mode &&& 0o111) == 0
   end
 
-  test "resolves default branch and default repo when commit is not provided", %{tmp_dir: tmp_dir} do
+  test "fetches the reviewed revision by default without resolving a branch", %{tmp_dir: tmp_dir} do
+    dest = Path.join(tmp_dir, "python")
+
+    Zaq.FetchPythonHTTPClientStub.put_responder(fn url, _opts ->
+      assert String.starts_with?(
+               url,
+               "https://raw.githubusercontent.com/#{@default_repo}/#{@reviewed_sha}/"
+             )
+
+      {:ok, %{status: 200, body: "reviewed\n"}}
+    end)
+
+    Fetch.run(["--dest", dest])
+
+    assert File.read!(Path.join(dest, "requirements.lock")) == "reviewed\n"
+    assert Jason.decode!(File.read!(Path.join(dest, "manifest.json")))["commit"] == @reviewed_sha
+  end
+
+  test "resolves an explicitly requested branch", %{tmp_dir: tmp_dir} do
     sha = "mainsha123"
     dest = Path.join(tmp_dir, "python")
     branch_url = "https://api.github.com/repos/#{@default_repo}/commits/main"
@@ -99,10 +127,160 @@ defmodule Mix.Tasks.Zaq.Python.FetchTest do
       end
     end)
 
-    Fetch.run(["--dest", dest])
+    Fetch.run(["--branch", "main", "--dest", dest])
 
     assert_received {:http_get, ^branch_url, _opts}
     assert File.exists?(Path.join(dest, "manifest.json"))
+  end
+
+  test "fails clearly when the default revision is missing", %{tmp_dir: tmp_dir} do
+    Zaq.FetchPythonHTTPClientStub.put_responder(fn url, _opts ->
+      raise "unexpected HTTP request: #{url}"
+    end)
+
+    File.cd!(tmp_dir, fn ->
+      assert_raise Mix.Error, ~r/crawler-ingest.revision.*missing/, fn ->
+        Fetch.run(["--dest", Path.join(tmp_dir, "python")])
+      end
+    end)
+  end
+
+  test "fails clearly when the default revision is malformed", %{tmp_dir: tmp_dir} do
+    pin = Path.join(tmp_dir, "priv/python/crawler-ingest.revision")
+    File.mkdir_p!(Path.dirname(pin))
+    File.write!(pin, "main\n")
+
+    Zaq.FetchPythonHTTPClientStub.put_responder(fn url, _opts ->
+      raise "unexpected HTTP request: #{url}"
+    end)
+
+    File.cd!(tmp_dir, fn ->
+      assert_raise Mix.Error, ~r/crawler-ingest.revision.*full.*SHA/, fn ->
+        Fetch.run(["--dest", Path.join(tmp_dir, "python")])
+      end
+    end)
+  end
+
+  test "success replaces the managed tree and removes obsolete files", %{tmp_dir: tmp_dir} do
+    dest = Path.join(tmp_dir, "python")
+    File.mkdir_p!(dest)
+    File.write!(Path.join(dest, "obsolete.py"), "old")
+
+    Zaq.FetchPythonHTTPClientStub.put_responder(fn url, _opts ->
+      filename = Path.basename(url)
+      {:ok, %{status: 200, body: "new:#{filename}"}}
+    end)
+
+    Fetch.run(["--commit", "abc123", "--dest", dest])
+
+    refute File.exists?(Path.join(dest, "obsolete.py"))
+    assert File.read!(Path.join(dest, "requirements.lock")) == "new:requirements.lock"
+    assert File.ls!(tmp_dir) == ["python"]
+  end
+
+  property "a failed download or write never publishes a partial tree", %{tmp_dir: tmp_dir} do
+    check all(
+            filename <- member_of(@expected_files),
+            existing <- boolean(),
+            failure <- member_of([:transport, :write]),
+            max_runs: 40
+          ) do
+      root = Path.join(tmp_dir, "case-#{System.unique_integer([:positive])}")
+      dest = Path.join(root, "python")
+      File.mkdir_p!(root)
+
+      if existing do
+        File.mkdir_p!(dest)
+        File.write!(Path.join(dest, "manifest.json"), "old manifest")
+        File.write!(Path.join(dest, "old.py"), "old script")
+      end
+
+      Zaq.FetchPythonHTTPClientStub.put_responder(fn url, _opts ->
+        if Path.basename(url) == filename do
+          case failure do
+            :transport -> {:error, :timeout}
+            :write -> {:ok, %{status: 200, body: {:invalid, :body}}}
+          end
+        else
+          {:ok, %{status: 200, body: "new"}}
+        end
+      end)
+
+      result =
+        try do
+          Fetch.run(["--commit", "abc123", "--dest", dest])
+          :ok
+        rescue
+          error -> {:raised, error}
+        end
+
+      assert match?({:raised, _}, result)
+
+      if existing do
+        assert File.read!(Path.join(dest, "manifest.json")) == "old manifest"
+        assert File.read!(Path.join(dest, "old.py")) == "old script"
+        assert File.ls!(root) == ["python"]
+      else
+        refute File.exists?(dest)
+        assert File.ls!(root) == []
+      end
+    end
+  end
+
+  test "each managed download position preserves the old tree on transport or write error", %{
+    tmp_dir: tmp_dir
+  } do
+    for filename <- @expected_files, failure <- [:transport, :write] do
+      root = Path.join(tmp_dir, "#{filename}-#{failure}")
+      dest = Path.join(root, "python")
+      File.mkdir_p!(dest)
+      File.write!(Path.join(dest, "old.py"), "old script")
+
+      Zaq.FetchPythonHTTPClientStub.put_responder(fn url, _opts ->
+        if Path.basename(url) == filename do
+          case failure do
+            :transport -> {:error, :timeout}
+            :write -> {:ok, %{status: 200, body: {:invalid, :body}}}
+          end
+        else
+          {:ok, %{status: 200, body: "new"}}
+        end
+      end)
+
+      result =
+        try do
+          Fetch.run(["--commit", "abc123", "--dest", dest])
+          :ok
+        rescue
+          error -> {:raised, error}
+        end
+
+      assert match?({:raised, _}, result)
+      assert File.read!(Path.join(dest, "old.py")) == "old script"
+      assert File.ls!(root) == ["python"]
+    end
+  end
+
+  test "publisher restores the previous tree when staging cannot be moved", %{tmp_dir: tmp_dir} do
+    dest = Path.join(tmp_dir, "python")
+    staging = Path.join(tmp_dir, "missing-stage")
+
+    assert_raise Mix.Error, ~r/Failed to publish/, fn ->
+      Publisher.replace(staging, dest)
+    end
+
+    refute File.exists?(dest)
+    assert File.ls!(tmp_dir) == []
+
+    File.mkdir_p!(dest)
+    File.write!(Path.join(dest, "old.py"), "old script")
+
+    assert_raise Mix.Error, ~r/Failed to publish/, fn ->
+      Publisher.replace(staging, dest)
+    end
+
+    assert File.read!(Path.join(dest, "old.py")) == "old script"
+    assert File.ls!(tmp_dir) == ["python"]
   end
 
   test "raises when branch does not exist", %{tmp_dir: tmp_dir} do

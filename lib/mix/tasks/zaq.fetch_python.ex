@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
 
   ## Options
 
-      * `--branch <name>` - The branch name to fetch from (default: "main")
+      * `--branch <name>` - Resolve a branch for development instead of using the reviewed revision
       * `--commit <sha>` - The specific commit SHA to fetch (overrides --branch)
       * `--dest <path>` - The destination directory (default: "priv/python/crawler-ingest")
       * `--repo <url>` - The GitHub repository (default: "www-zaq-ai/crawler-ingest")
@@ -17,9 +17,11 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
 
   require Logger
 
+  alias Mix.Tasks.Zaq.Python.Fetch.Publisher
+
   @default_repo "www-zaq-ai/crawler-ingest"
-  @default_branch "main"
   @default_dest "priv/python/crawler-ingest"
+  @revision_file "priv/python/crawler-ingest.revision"
   @required_files ~w(
     web_crawler.py
     pipeline.py
@@ -32,6 +34,7 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
     clean_md.py
     inject_descriptions.py
     requirements.txt
+    requirements.lock
   )
 
   @doc false
@@ -49,13 +52,11 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
     repo = opts[:repo] || @default_repo
     dest = opts[:dest] || @default_dest
 
-    # Determine commit SHA
     commit_sha =
-      if opts[:commit] do
-        opts[:commit]
-      else
-        branch = opts[:branch] || @default_branch
-        resolve_branch_sha(repo, branch)
+      cond do
+        opts[:commit] -> opts[:commit]
+        opts[:branch] -> resolve_branch_sha(repo, opts[:branch])
+        true -> read_reviewed_revision()
       end
 
     if is_nil(commit_sha) do
@@ -63,35 +64,58 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
     end
 
     Mix.shell().info([:green, "Fetching scripts from #{repo} @ #{commit_sha}..."])
-
-    # Ensure destination exists
-    File.mkdir_p!(dest)
-
-    # Fetch files
-    Enum.each(@required_files, fn filename ->
-      fetch_file(repo, commit_sha, filename, dest)
-    end)
-
-    # Write manifest
-    manifest = %{
-      repo: repo,
-      commit: commit_sha,
-      files: @required_files,
-      fetched_at: DateTime.utc_now()
-    }
-
-    File.write!(Path.join(dest, "manifest.json"), Jason.encode!(manifest, pretty: true))
-
+    stage_and_publish(repo, commit_sha, dest)
     Mix.shell().info([:green, "✓ Successfully fetched python scripts to #{dest}"])
+  end
 
-    Mix.shell().info([
-      :yellow,
-      "Don't forget to install the requirements inside a virtual environment, python 3.10+ required:"
-    ])
+  defp stage_and_publish(repo, commit_sha, dest) do
+    parent = Path.dirname(dest)
 
-    Mix.shell().info([:yellow, "  python3 -m venv .venv"])
-    Mix.shell().info([:yellow, "  source .venv/bin/activate"])
-    Mix.shell().info([:yellow, "  pip install -r #{dest}/requirements.txt"])
+    staging =
+      Path.join(parent, ".#{Path.basename(dest)}.stage-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(parent)
+    File.mkdir!(staging)
+
+    try do
+      Enum.each(@required_files, fn filename ->
+        fetch_file(repo, commit_sha, filename, staging)
+      end)
+
+      manifest = %{
+        repo: repo,
+        commit: commit_sha,
+        files: @required_files,
+        fetched_at: DateTime.utc_now()
+      }
+
+      File.write!(Path.join(staging, "manifest.json"), Jason.encode!(manifest, pretty: true))
+      Publisher.replace(staging, dest)
+    after
+      case File.rm_rf(staging) do
+        {:ok, _removed} -> :ok
+        {:error, reason, path} -> Logger.warning("Could not clean #{path}: #{inspect(reason)}")
+      end
+    end
+  end
+
+  defp read_reviewed_revision do
+    case File.read(@revision_file) do
+      {:ok, contents} ->
+        sha = String.trim(contents)
+
+        if Regex.match?(~r/\A[0-9a-f]{40}\z/, sha) do
+          sha
+        else
+          Mix.raise("#{@revision_file} must contain a full lowercase 40-character commit SHA")
+        end
+
+      {:error, :enoent} ->
+        Mix.raise("#{@revision_file} is missing")
+
+      {:error, reason} ->
+        Mix.raise("Could not read #{@revision_file}: #{inspect(reason)}")
+    end
   end
 
   defp ensure_http_client_started do
