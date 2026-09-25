@@ -10,11 +10,15 @@
     {
       "text": "Implementation sequence (all steps open; only the first step is unblocked):\n```mermaid\ngraph LR\n  S1[\"zaq-rft.1\"] --\u003e S2[\"zaq-rft.2\"]\n  S2[\"zaq-rft.2\"] --\u003e S3[\"zaq-rft.3\"]\n  S3[\"zaq-rft.3\"] --\u003e S4[\"zaq-rft.4\"]\n  S4[\"zaq-rft.4\"] --\u003e S5[\"zaq-rft.5\"]\n```\n\nBeadwork is now the durable plan owner. Imported in full from /Users/julien/.opencode/plan/multilingual-retrieval-evaluation.md. Original scratch file retained, not used as a parallel progress tracker. Related work: zaq-4mu; no dependency on its closure, to avoid blocking this evaluation on its own calibration follow-up.",
       "timestamp": "2026-09-25T12:04:49Z"
+    },
+    {
+      "text": "Implementation committed as a4bd5253e and pushed to origin/fix/793-hybrid-retrieval. 24 files: 4 docs, 11 questions, real vectors, Mix generation task, native/ParadeDB CI checks, integration tests and docs. Local focused suites passed (native/ParadeDB 11 tests each, fixture/tool 9 tests + property), mix q and final mix precommit exited 0. Keep epic/children open pending PR CI/review and confirmation of intermittent isolated native sandbox failure observed once.",
+      "timestamp": "2026-09-25T13:44:50Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-rft] Multilingual retrieval evaluation fixtures and tooling",
   "type": "epic",
-  "updated_at": "2026-09-25T12:04:49Z"
+  "updated_at": "2026-09-25T13:44:50Z"
 }
