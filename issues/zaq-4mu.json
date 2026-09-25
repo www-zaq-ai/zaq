@@ -26,11 +26,15 @@
     {
       "text": "2026-09-25 E2E repair: system_config.spec.js now selects max_cosine_distance, asserts min/max, tests 0 and 2 persistence and out-of-range rejection without changing saved values. Targeted tests across Chromium/Firefox/WebKit passed (18/18), full System Config Chromium 58/58, Firefox+WebKit 115/116 with unrelated AI Credentials tab-load timeout (passed isolated rerun). mix q passed. Full npm run test launched 513 tests but exceeded 15-minute execution limit; no full-suite result. No application operations changed (Action reuse not applicable); pending full E2E gate and review.",
       "timestamp": "2026-09-25T10:35:11Z"
+    },
+    {
+      "text": "Multilingual fixture-driven retrieval evaluation plan moved into epic zaq-rft, children zaq-rft.1, zaq-rft.2, zaq-rft.3, zaq-rft.4, zaq-rft.5. Includes one JSON per document and question, configured-model embedding task, reviewed distance expectations, real offline retrieval and both-backend CI. Planning only; implementation not started.",
+      "timestamp": "2026-09-25T12:04:49Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#793] Cosine and lexical hybrid retrieval",
   "type": "task",
-  "updated_at": "2026-09-25T10:35:11Z"
+  "updated_at": "2026-09-25T12:04:49Z"
 }
