@@ -18,11 +18,15 @@
     {
       "text": "Approved revision materialized into children and dependency DAG. Supersedes background fanout with fixed-cursor per-internal-turn pull plus serialized idle-boundary context/cursor synchronization. Canonical storage universal, threads inherit strategy, provider mapping code-defined, fresh post-cutover histories with legacy structural preservation. Existing comments retained as historical evidence; none of these issues marked complete. Provider wiring explicitly deferred; email evidence/sender contract explicitly tracked rather than assumed.",
       "timestamp": "2026-09-25T09:37:10Z"
+    },
+    {
+      "text": "Attempted bw start zaq-emb.3 after validating connector/grant foundations; Beadwork correctly refused because zaq-emb.1 and .2 remain in_progress/unlanded. No code commit/push authorization was granted, and .21/.22 provider multiplicity/archive follow-ups still have outstanding audit/teardown items. Preserve dirty worktree. Need human choice on selective local commits vs explicitly allowing out-of-order uncommitted development before progressing to .3; do not bypass the dependency gate implicitly.",
+      "timestamp": "2026-09-25T12:56:00Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb] Canonical messages, history strategies and person-bound execution",
   "type": "epic",
-  "updated_at": "2026-09-25T09:37:10Z"
+  "updated_at": "2026-09-25T12:56:00Z"
 }
