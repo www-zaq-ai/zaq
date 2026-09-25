@@ -11,9 +11,15 @@
   "id": "zaq-emb.22",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Human selected archive instead of delete when connector has scoped identities. Added 00006 archived_at, 00007 DB CHECK archived implies disabled, ChannelConfig.archive idempotent operation, Channels.Api archive event, BO archive+runtime sync after ingress teardown, historical lookup by id and exclusion from provider-only lookup/BO list. Scoped identity FK 00003/00005 prevents destructive nullification. BO regression verifies preserved PersonChannel and denied forged reactivation. Focused 203 tests/2 properties and mix q pass. Still in progress: audit every runtime/BO path for archived queries and external teardown failure recovery; no commit/push.",
+      "timestamp": "2026-09-25T12:20:29Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.22] Archive connector while retaining scoped identities and history",
   "type": "task",
-  "updated_at": "2026-09-25T11:55:46Z"
+  "updated_at": "2026-09-25T12:20:29Z"
 }
