@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.6"
+  ],
   "blocks": [],
   "created": "2026-09-25T09:36:45Z",
   "description": "External prerequisite placeholder: actual JidoChat membership event production and membership APIs land in downstream projects. ZAQ normalized-event/reconciliation machinery is separate and must work with contract fixtures now. Do not wire or claim live synchronization until provider capability exists. Acceptance after upstream readiness: trusted events, complete membership snapshots, connector identity, mapping, refresh capability, duplicate/stale events and manual grant preservation verified end to end. Files later: JidoChatBridge and downstream adapters; no dependency edits now. Action reuse: reuse ZAQ membership operation, no provider branches in Engine. Tests first: adapter contract and real bridge integration with external transport mock. Docs: Channels supported capabilities. This issue is deliberately outside current delivery gate.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
@@ -11,5 +13,5 @@
   "status": "deferred",
   "title": "[zaq-emb.18] Deferred downstream provider membership integration",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:46Z"
+  "updated_at": "2026-09-25T09:37:08Z"
 }
