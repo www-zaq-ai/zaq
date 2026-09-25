@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-25T12:04:39Z",
+  "description": "Step 1 of zaq-rft. See parent for authoritative shared fixture schema, paths, corpus design and reuse assessment. Related feature: zaq-4mu.\n\nTests first: missing directories/empty datasets, malformed JSON, duplicate IDs, dangling chunk references, unsupported languages/schema versions, invalid lexical groups, invalid ranges, non-finite or zero-norm vectors, dimension mismatches, stale hashes and mixed model provenance. Property tests cover vector/range validation over broad numeric inputs and stable input hashing.\n\nImplement shared loading with two explicit modes: preparation permits absent vectors; evaluation requires complete, valid vectors and reviewed expectations. Error messages include file, JSON field and remediation command. Validate the entire fixture set before database seeding or generation.\n\nAuthor the four documents and ten question files with null vector placeholders. Commit no pseudo-embeddings presented as real model output. This intermediate state is preparatory; do not enable a new required CI job against incomplete fixtures.\n\nAction reuse assessment: reuse SearchKnowledgeBase/Jido.Exec, NodeRouter and Embedding.Client as described in the parent. Fixture parsing and file updates are local-only developer tooling; no new agent tools or production retrieval behavior. Read applicable AGENTS.md policies before implementation. Do not skip missing vectors or weaken relevance assertions.",
+  "id": "zaq-rft.1",
+  "labels": [],
+  "parent": "zaq-rft",
+  "priority": 2,
+  "status": "open",
+  "title": "Fixture contract, validation and authored data",
+  "type": "task",
+  "updated_at": "2026-09-25T12:04:39Z"
+}
