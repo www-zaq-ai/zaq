@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "zaq-emb.16",
     "zaq-emb.6"
   ],
   "blocks": [
@@ -15,5 +16,5 @@
   "status": "open",
   "title": "[zaq-emb.7] Stop person-bound channel and thread runtimes on removal",
   "type": "task",
-  "updated_at": "2026-09-25T09:36:55Z"
+  "updated_at": "2026-09-25T09:37:02Z"
 }
