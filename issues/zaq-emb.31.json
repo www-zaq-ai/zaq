@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T09:22:28Z",
+  "description": "PR B pre-UX gate: verify Person-bound execution, fixed cursors, bounded cumulative refresh, canonical dedup, context acknowledgment/cursor advancement, revocation, busy/finalizing handling, ordered delivery and delayed timeout distinctions. Include Agent/Engine/Channels architecture and operational docs in B. Unit/integration/property regressions first, real internal paths, mock external transport/model/clock only; isolated suites and mix q. Validate B based on A without adding runtime prerequisites to A. No new-feature E2E until B human gate; no final approval claim here.",
+  "id": "zaq-emb.31",
+  "labels": [],
+  "parent": "zaq-emb",
+  "priority": 1,
+  "status": "open",
+  "title": "PR B integrated validation and documentation",
+  "type": "task",
+  "updated_at": "2026-09-26T09:22:28Z"
+}
