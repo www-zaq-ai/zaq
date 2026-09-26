@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.14.2.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.14.2.4"
+  ],
   "created": "2026-09-26T08:21:44Z",
   "description": "Inbound IMAP parser/evidence slice after .14.2.1. Normalize sender plus all visible To/Cc addresses from the current message; hidden Bcc only when receiving account identity is independently established from connector configuration (not IMAP folder, Delivered-To alone, thread participants or guessed mailbox). Stamp typed channel-only per-message evidence for later Engine Person resolution, never credentials or an access grant. Fail closed on ambiguous account evidence. Tests FIRST with RFC822 and adapter fixtures for sender copy, evolving recipients, hidden Bcc denial/confirmation, malformed addresses and property dedup. Preserve existing threading/reply_from behavior. No new Action/tool, credential changes or feature E2E. Outbound SMTP sender/envelope receipt is separately owned by .14.2.4; read Channels guide and Action reuse.",
   "id": "zaq-emb.14.2.2",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-emb.14.2.2] Normalize inbound email recipient evidence",
   "type": "task",
-  "updated_at": "2026-09-26T08:35:59Z"
+  "updated_at": "2026-09-26T08:36:09Z"
 }

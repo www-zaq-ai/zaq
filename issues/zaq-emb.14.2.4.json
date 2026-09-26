@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.14.2.2"
+  ],
   "blocks": [],
   "created": "2026-09-26T08:36:05Z",
   "description": "Outbound email evidence slice after .14.2.2. Extend the existing SmtpSender delivery boundary (no duplicate send operation) to expose actual sender identity and explicit SMTP envelope recipient only after confirmed delivery, including IMAP-bound connector selection, while preserving legacy callers expecting :ok/error. EmailBridge reply receipt attaches sender copy and this message recipient evidence; no retroactive thread audience. Tests FIRST on SmtpSender and EmailBridge for actual from settings/override, failed send no history evidence, multi-account selection/ambiguity, Bcc and bot reply, plus property recipient isolation. Read Channels and system-config guides before touching settings/secrets; no new Action/agent tool and no new-feature E2E before UX approval.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.14.2.4] Return confirmed SMTP history evidence",
   "type": "task",
-  "updated_at": "2026-09-26T08:36:05Z"
+  "updated_at": "2026-09-26T08:36:09Z"
 }
