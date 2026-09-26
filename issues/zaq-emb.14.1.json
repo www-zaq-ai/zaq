@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-emb.14.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-emb.14",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-emb.14.1] Define typed Engine history strategies",
   "type": "task",
-  "updated_at": "2026-09-26T08:09:47Z"
+  "updated_at": "2026-09-26T08:10:31Z"
 }
