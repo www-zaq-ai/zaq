@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T00:06:06Z",
+  "description": "A verified webhook job enqueued before connector deactivation must re-check current connector state before payload/trigger processing. Owner Channels.JidoConnectBridge.fetch_webhook_config; reuse ChannelConfig.get/1 and its archive/1 lifecycle, local-only guard at job execution (not a new Action). Test first: disabled config cancels :connector_disabled, archived cancels :connector_archived, active still reaches payload validation. Paths: lib/zaq/channels/jido_connect_bridge.ex + test/zaq/channels/jido_connect_bridge_coverage_gaps_test.exs. No BO/UI, migrations or docs changes: existing channels service states queued jobs must recheck. Mock only existing external integration stubs. Validate isolated tests, mix q, stack as draft above #803. Broader data-source archive and watch scoping remain separate under zaq-emb.21/.22.",
+  "id": "zaq-emb.25",
+  "labels": [],
+  "parent": "zaq-emb",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.25] Cancel queued webhooks for disabled or archived data-source connectors",
+  "type": "bug",
+  "updated_at": "2026-09-26T00:06:06Z"
+}
