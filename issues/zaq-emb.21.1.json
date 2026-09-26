@@ -11,11 +11,15 @@
     {
       "text": "Implemented unscoped email-alias delivery pass-through to EmailBridge/SmtpSender (explicit connector-id validation still first); real connector lookup for two non-email notification/chat test doubles. Added SMTP default, ambiguous, archived-default and explicit ID-mismatch integration regressions. Original four CI suites reproduced 51 tests/31 failures; now 258 affected tests pass, 0 failures; git diff --check passes. mix q: first run fixed 2 Credo alias findings; two subsequent attempts blocked by ExDNA.Credo Task.Supervised.stream(5000) timeout while checking 1401 files. No commit/push; coordination with #768 consolidation owner underway. Modified lib/zaq/channels/api.ex; test/zaq/channels/email_html_delivery_test.exs; test/zaq/engine/notifications/{notification_test,email_threading_test}.exs.",
       "timestamp": "2026-09-26T00:26:26Z"
+    },
+    {
+      "text": "Coordinated with the original regression session in isolated merry-iguana. Original owner handed off four uncommitted paths. Revalidated 258 affected tests, 0 failures; mix q green after transient Credo timeouts cleared; git diff --check green. Committed 59f5eca26 directly to PR #799 branch, alongside 397f4e52f / 036b64078 consolidated connector guard commits, then pushed. Full PR #799 changed-test run: 831 tests, 2 properties, 0 failures; mix q green. Other session notified of integration, no further edits requested.",
+      "timestamp": "2026-09-26T00:43:09Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[PR799] Restore email delivery and notification regression tests",
   "type": "bug",
-  "updated_at": "2026-09-26T00:26:26Z"
+  "updated_at": "2026-09-26T00:43:09Z"
 }
