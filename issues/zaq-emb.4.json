@@ -61,11 +61,15 @@
     {
       "text": "PR A People-facing read reuse assessment before coding: PeopleConversations.dispatch/2 already authenticates confidential People bearer per operation and checks access_message_history; Conversations.list_canonical_messages/3 already checks Person plus transcript-path grant/owner and bounds projected content. Extend existing PeopleConversations with read-only :channel_history operation accepting transcript_id and bounded cursor, sourcing Person only from authenticated token, and delegate to Conversations.list_canonical_messages/3. No new Action/tool or parallel auth implementation; preserve existing legacy :detail/:message operation semantics; no channel-history shares/citations/exports until explicitly scoped. Tests first through existing Engine.Api :people_conversations confidential event with token and two People, check nil/unauthorized/revoked access, cursor, private metadata and trace exclusion. No UI changes.",
       "timestamp": "2026-09-26T12:45:48Z"
+    },
+    {
+      "text": "Extended existing confidential Engine :people_conversations domain action with read-only :channel_history operation rather than a parallel Action. It authenticates bearer and access_profile/access_message_history per call, derives Person solely from bearer, delegates to Conversations.list_canonical_messages/3 for current transcript grant or owner and bounded projection; no UI, share/citation/export or agent-tool exposure. Tests first through PeopleConversations and actual NodeRouter.dispatch Engine.Api action: caller-supplied person ignored, no permission denied, foreign transcript denied, malformed UUID and oversize cursor denied, private metadata/trace excluded, provider grant revoked on subsequent read, bearer revoked. Isolated People + capture tests 38 tests/1 property passed; mix q passed. docs/services/people-access.md updated.",
+      "timestamp": "2026-09-26T12:50:05Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T12:45:48Z"
+  "updated_at": "2026-09-26T12:50:05Z"
 }
