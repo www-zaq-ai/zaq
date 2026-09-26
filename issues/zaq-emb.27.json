@@ -15,11 +15,15 @@
     {
       "text": "Staged first UX review in Communication Channels: /bo/channels/history, fixture-only channel history LiveView, timeline DSM staging component, access and provider refresh explanations, scoped scenarios; docs/ux/communication-channel-history.md. New isolated branch DB created (never touched populated DB), extension installed, 125 pending migrations applied, local browser preview runs on 4010. Backend PR A remains incomplete (trusted ingress, provider grants, legacy cutover, production UI), so this is first UX confirmation, not PR A final approval or E2E authorization.",
       "timestamp": "2026-09-26T14:01:03Z"
+    },
+    {
+      "text": "PR A integration is not complete. Replaced fixture-only BO route with Engine-authorized current super-admin list/detail, bounded public messages, manual grants/revoke and real DB LiveView tests; added passive JidoChat capture event and Engine HistoryIngress with connector-scoped author/visible email recipient resolution; addressed route captures before agent admission. Focused 364 tests/2 properties passed earlier and 194 related tests after new adapter regression; mix q passed. Action reuse: extend existing Conversations.capture_canonical_message/3, Permissions.grant/revoke, NodeRouter Engine/Channels bridge and existing BO layout; HistoryIngress is internal-only because no independently composable agent/workflow operation; no automatic tool exposure. Outstanding: secure attested ingress beyond internal event convention, complete supported provider room matrix/membership reconciliation and refresh Action, confirmed outbound history, safe legacy cutover, human UX/E2E approval, coverage/review/final validation. No PR A completion claim, no migration rewrite, no commit/push.",
+      "timestamp": "2026-09-26T19:02:44Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-09-26T14:01:03Z"
+  "updated_at": "2026-09-26T19:02:44Z"
 }
