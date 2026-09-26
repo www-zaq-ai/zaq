@@ -49,11 +49,15 @@
     {
       "text": "No-agent-first to agent admission path now has Engine-only UUID adoption, still uncommitted and NOT enabled at ingress. Existing Conversations.admit_incoming/1 checks for a canonical source identity on trusted connector-stamped incoming before inserting a legacy row; locks the canonical message, verifies original content/author and a placement in the exact provider/connector/channel/strategy/thread, then links that SAME UUID to the conversation with a one-time finalization token. Redelivery returns nil token; mismatched room, strategy or sibling thread returns source_conflict rather than duplicating. Existing agent-first then capture(existing_message_id) also retains rating, trace and private metadata, including new IMAP private sender/mailbox stamp. Tests first: replay adoption and denied wrong channel/strategy/thread plus existing source-identity cases. `mix q` and affected tests passed. Cross-path simultaneous capture/admission still requires shared source-key serialization and admission-first canonical reuse before enabling passive ingress; never assume this sequential path resolves races.",
       "timestamp": "2026-09-26T11:58:04Z"
+    },
+    {
+      "text": "PR A uncommitted Engine capture/admission seam advanced; no ingress wiring yet. Tests-first found and fixed wrong-author UUID reuse: newly admitted user messages retain provider author_id, and canonical capture requires exact author/content/external ID plus verified connector/room (and IMAP private mailbox coordinate); historical nil-author/unstamped rows deliberately fail closed pending non-destructive reconciliation. Scoped incoming admission and capture now share pg_advisory_xact_lock keyed by provider/connector/mailbox/external ID inside their respective transactions. Admission-first passive capture, passive-first admission, and simultaneous first writes reuse ONE message UUID; replay retains rating/trace/private metadata and never reissues a finalization token. Fixed canonical provider-ID replay into another room and conflicting author/content admission replay; canonical replay after adopting an external turn keeps the user role. Tests cover wrong room/connector/thread/strategy/mailbox/sender, race, UUID/replay/reference preservation and denial. Affected isolated suite 350 tests/6 properties passed; JidoChatBridge separately 182 tests passed; mix q passed; git diff --check clean. Remaining: trusted adapter provenance, connector-scoped Person association, passive nonmention ingress, provider membership revocation, consumer cutover, legacy migration and final approval gates. Do not enable ingestion without those; existing historical nil-author rows require explicit reconciliation. Action reuse: extended Conversations.admit_incoming/1 and TranscriptHistory.capture/3, private locking/query helpers local-only; no independent agent Action or tool exposure for privileged source binding.",
+      "timestamp": "2026-09-26T12:14:25Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T11:58:04Z"
+  "updated_at": "2026-09-26T12:14:25Z"
 }
