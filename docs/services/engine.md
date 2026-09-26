@@ -96,6 +96,21 @@ The legacy execution metadata and raw trace artifacts remain attached to legacy
 messages until the guarded `zaq-emb.15` migration/cutover; this storage slice
 does not copy them or change the existing finalization path.
 
+The pure `Zaq.Engine.History.Strategy` contract selects a code-defined Direct,
+Shared or Replicated policy from `Zaq.Engine.History.Facts`. The facts require a
+trusted connector ID, external conversation ID, resolved actor and an explicit
+conversation kind. Channel providers (Mattermost, Slack, Discord, Teams,
+Telegram) support Direct for one-to-one channels and Shared for rooms; IMAP
+email uses Replicated. BO/API histories remain on their legacy route until an
+explicit policy is defined. Shared threads require a matching persisted parent;
+Direct threads reuse the one-to-one transcript; Replicated mail targets only
+this message's sender and independently evidenced recipients. The strategy
+returns target coordinates, required grant/owner hints and context-source
+priority, **not** permission or proof of recipient identity. Channels normalization
+(`zaq-emb.14.2`) and Engine strategy integration (`zaq-emb.4`) must supply and
+consume these facts; an arbitrary Event/metadata envelope does not attest them.
+Mention gating remains separate from history selection.
+
 ```
 Channel adapter or BO chat
   → IncomingMessageRouter resolves routing + execution actor
