@@ -17,11 +17,15 @@
     {
       "text": "2026-09-26 implemented test-first pure Engine typed Facts and Strategy behaviour with Direct/Shared/Replicated modules. Explicit provider/kind mapping fails closed; connector/channel/actor and parent strategy/resource scope validated; Shared thread parent requires matching persisted root; Direct thread reuses root scope; Replicated association targets only current message sender and supplied per-message recipient Person IDs (no prior-audience expansion). request transcript resolution selects actor only, separate from per-message fanout. Access policy returns required participant grant/owner hints, never an authorization result; actual reads still require TranscriptHistory persisted grants/owner. Test first uncovered missing module/resolve callback and whitespace scope, then fixed. 34 focused tests/4 properties across policy/canonical API/schema/private records, 0 failures; mix q green; staged diff check clean. No DB write, ingress wiring, new Action/tool, or feature E2E. Channels .14.2 owns trusted normalization, independent recipient evidence and caller attestation.",
       "timestamp": "2026-09-26T08:19:15Z"
+    },
+    {
+      "text": "2026-09-26 commit 969458673 pushed as draft stacked PR #812 on #811. Focused 34 tests/4 properties and mix q green; no new-feature E2E. Parent .14 remains open until Channels-normalized facts .14.2 and integration checks complete. The type is internal policy input, not attestation or an authorization grant.",
+      "timestamp": "2026-09-26T08:20:36Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.1] Define typed Engine history strategies",
   "type": "task",
-  "updated_at": "2026-09-26T08:19:15Z"
+  "updated_at": "2026-09-26T08:20:36Z"
 }
