@@ -8,7 +8,7 @@
   ],
   "closed_at": "2026-09-26T07:57:47Z",
   "created": "2026-09-26T07:13:48Z",
-  "description": "Engine context API slice for #768 stacked after .3.1: extend Conversations for one canonical message associated to multiple transcripts, serial per-transcript committed sequence allocation, idempotent source/account key and reattachment, and transcript-path-only authorized reads; reject nil Person and mismatched provider/account/permission scopes. Preserve existing conversation-scoped legacy Message reads until .15 migrates/cuts over. Tests FIRST: one message/multi-transcript; duplicate/reordered/concurrent association; unauthorized direct-id/attachment/trace access; ownership conflict, rollback, and per-transcript cursor position on old attach. Reuse Conversations and ChannelHistoryResource/Permissions as appropriate; no parallel Action/tool (internal Engine persistence). No external mocks; DB integration and property tests. Read Engine guide, docs/action-reuse.md, docs/testing-approach.md; update docs/services/engine.md. No new feature E2E before zaq-emb.12 UX approval.",
+  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.12; no self-approval.\n\nEngine context API slice for #768 stacked after .3.1: extend Conversations for one canonical message associated to multiple transcripts, serial per-transcript committed sequence allocation, idempotent source/account key and reattachment, and transcript-path-only authorized reads; reject nil Person and mismatched provider/account/permission scopes. Preserve existing conversation-scoped legacy Message reads until .15 migrates/cuts over. Tests FIRST: one message/multi-transcript; duplicate/reordered/concurrent association; unauthorized direct-id/attachment/trace access; ownership conflict, rollback, and per-transcript cursor position on old attach. Reuse Conversations and ChannelHistoryResource/Permissions as appropriate; no parallel Action/tool (internal Engine persistence). No external mocks; DB integration and property tests. Read Engine guide, docs/action-reuse.md, docs/testing-approach.md; update docs/services/engine.md. No new feature E2E before zaq-emb.12 UX approval.",
   "id": "zaq-emb.3.2",
   "labels": [],
   "parent": "zaq-emb.3",
@@ -38,5 +38,5 @@
   "status": "closed",
   "title": "[zaq-emb.3.2] Add authorized canonical transcript persistence primitives",
   "type": "task",
-  "updated_at": "2026-09-26T07:58:39Z"
+  "updated_at": "2026-09-26T09:48:23Z"
 }
