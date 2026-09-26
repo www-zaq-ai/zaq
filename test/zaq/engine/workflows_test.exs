@@ -2,6 +2,7 @@ defmodule Zaq.Engine.WorkflowsTest do
   use Zaq.DataCase, async: true
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Trigger
@@ -517,6 +518,44 @@ defmodule Zaq.Engine.WorkflowsTest do
     end
   end
 
+  describe "update_run/3 observer dispatch" do
+    for {label, failure, kind, reason} <- [
+          {"event error response", :event_error, "error", ":observer_rejected"},
+          {"bare error response", :bare_error, "error", ":observer_rejected"},
+          {"raise", :raise, "error", "observer raised"},
+          {"throw", :throw, "throw", ":observer_threw"},
+          {"exit", :exit, "exit", ":observer_exited"}
+        ] do
+      test "contains and logs a UI broadcast #{label}" do
+        workflow = create_workflow()
+        run = create_run(workflow)
+        run_id = run.id
+        failure = unquote(failure)
+
+        stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+          case event.request do
+            {:broadcast, _topic, {:run_updated, %{id: ^run_id}}} ->
+              observer_failure(event, failure)
+
+            _ ->
+              event
+          end
+        end)
+
+        log =
+          capture_log(fn ->
+            assert {:ok, %{status: "running"}} = Workflows.update_run(run, %{status: "running"})
+          end)
+
+        assert Workflows.get_run!(run_id).status == "running"
+        assert log =~ "UI broadcast failed"
+        assert log =~ "topic=workflow_run:#{run_id}"
+        assert log =~ "failure_kind=#{unquote(kind)}"
+        assert log =~ "reason=#{unquote(reason)}"
+      end
+    end
+  end
+
   # --- delete_workflow/1 ---
 
   describe "delete_workflow/1" do
@@ -734,6 +773,25 @@ defmodule Zaq.Engine.WorkflowsTest do
       assert returned.status == "completed"
     end
 
+    test "a stale running struct cannot interrupt a run already completed in the database" do
+      w = create_workflow()
+      stale_running = create_run(w) |> set_run_status("running")
+      completed = set_run_status(stale_running, "completed")
+
+      assert {:ok, returned} = Workflows.interrupt_run(stale_running)
+      assert returned.status == "completed"
+      assert Workflows.get_run!(completed.id).status == "completed"
+    end
+
+    test "does not interrupt a waiting run" do
+      w = create_workflow()
+      waiting = create_run(w) |> set_run_status("waiting")
+
+      assert {:ok, returned} = Workflows.interrupt_run(waiting)
+      assert returned.status == "waiting"
+      assert Workflows.get_run!(waiting.id).status == "waiting"
+    end
+
     test "is idempotent for failed run" do
       w = create_workflow()
       run = create_run(w) |> set_run_status("failed")
@@ -833,6 +891,14 @@ defmodule Zaq.Engine.WorkflowsTest do
     {:ok, updated} = Workflows.update_run(run, %{status: status})
     updated
   end
+
+  defp observer_failure(event, :event_error),
+    do: %{event | response: {:error, :observer_rejected}}
+
+  defp observer_failure(_event, :bare_error), do: {:error, :observer_rejected}
+  defp observer_failure(_event, :raise), do: raise("observer raised")
+  defp observer_failure(_event, :throw), do: throw(:observer_threw)
+  defp observer_failure(_event, :exit), do: exit(:observer_exited)
 
   # Registers the current process as `run`'s driver in the node-local
   # RunRegistry, mirroring what `WorkflowRunAgent.execute/2` does — so

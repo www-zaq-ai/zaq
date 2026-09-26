@@ -10,9 +10,9 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     2. Delegates to the real action module.
     3. `complete_step_run` on `{:ok, result}` or `fail_step_run` on `{:error, _}`.
 
-  If the wrapped module raises, the row is marked `"failed"` and the exception is
-  re-raised — the StepRun is never left at `"running"`, and the caller receives the
-  real exception rather than a hidden error tuple.
+  Jido validates parameters, applies defaults and hooks, and owns action retries
+  and timeouts. Submitted parameters remain the audit input. Normalized action
+  failures are persisted and returned; only infrastructure failures are re-raised.
 
   ## Log trail
 
@@ -21,8 +21,11 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   - `%{event: "step_completed", at: DateTime, duration_ms: non_neg_integer}` on success.
   - `%{event: "step_failed", at: DateTime, duration_ms: non_neg_integer, reason: string}` on failure.
 
-  When the wrapped action returns a `{:ok, result, logs: action_logs}` 3-tuple,
-  the step-level timing entry is prepended and the action logs follow.
+  Success and error triples may carry a metadata map or keyword list. The
+  step-level timing entry is prepended to action `logs`; other JSON-safe
+  metadata is recorded as an `action_metadata` log, never merged into results.
+  Typed approval control is consumed separately and excluded from log data.
+  Returned normalized errors retain their type, message, details and retryability.
 
   Wrapper keys (`wrapped_module`, `run_id`, `step_name`, `step_index`) are stripped
   from params before the wrapped module is called, so the wrapped module only sees
@@ -49,9 +52,13 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
   use Jido.Action, name: "workflow_step_runner", schema: []
 
+  alias Jido.Action.Error
+  alias Jido.Action.Tool, as: ActionTool
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Action
-  alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
+  alias Zaq.Engine.Workflows.ExecutionOutcome
+  alias Zaq.Engine.Workflows.ExecutionPolicy
+  alias Zaq.Engine.Workflows.PendingApproval
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
   alias Zaq.Engine.Workflows.WorkflowRun
 
@@ -65,10 +72,15 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   @map_strategy_keys [:__map_strategy__, "__map_strategy__"]
   # Keys stripped from the wrapped action's params (map plumbing, not domain data).
   @map_keys @map_index_keys ++ @map_strategy_keys ++ [:__map_item__, "__map_item__"]
-  @max_retries 3
 
   @impl true
   def run(params, context) do
+    with :ok <- ExecutionPolicy.validate_context(context) do
+      run_valid_context(params, context)
+    end
+  end
+
+  defp run_valid_context(params, context) do
     %{wrapped_module: mod, run_id: run_id, step_index: step_index} = params
     map_index = first_present(params, @map_index_keys)
     strategy = first_present(params, @map_strategy_keys)
@@ -99,6 +111,8 @@ defmodule Zaq.Engine.Workflows.StepRunner do
         :ok
     end
 
+    :ok = recover_pending_cursor(mod, run_id, step_name)
+
     case Workflows.get_terminal_step_run(run_id, step_name) do
       %StepRun{status: "completed", results: results} ->
         Logger.debug("[workflow] step skipped — already completed on resume",
@@ -106,7 +120,10 @@ defmodule Zaq.Engine.Workflows.StepRunner do
           step_name: step_name
         )
 
-        {:ok, results || %{}}
+        {:ok, replay_completed(results, params, step_name, map_index)}
+
+      %StepRun{status: "failed_fatal", errors: errors} ->
+        fork_failure_return({:error, errors}, map_index, strategy)
 
       %StepRun{status: "failed", errors: errors} ->
         Logger.debug("[workflow] step skipped — already failed",
@@ -130,12 +147,44 @@ defmodule Zaq.Engine.Workflows.StepRunner do
           step_name: step_name
         )
 
-        {:error, :waiting_for_human}
+        replay_waiting(mod, run_id, step_name)
 
       nil ->
         execute_step(mod, run_id, step_name, step_index, params, context, map_index, strategy)
     end
   end
+
+  defp recover_pending_cursor(Workflows.Steps.HumanInTheLoop, run_id, step_name),
+    do: Workflows.recover_pending_approval_step(run_id, step_name)
+
+  defp recover_pending_cursor(_mod, _run_id, _step_name), do: :ok
+
+  defp replay_completed(results, params, step_name, map_index) do
+    previous = Map.get(params, :__cascade__, Map.get(params, "__cascade__", %{}))
+
+    (results || %{})
+    |> Map.drop([:__cascade__, "__cascade__", :__map_index__, "__map_index__"])
+    |> inject_cascade(previous, step_name)
+    |> put_map_index(map_index)
+  end
+
+  defp replay_waiting(Workflows.Steps.HumanInTheLoop = mod, run_id, step_name) do
+    case Workflows.get_step_approval(run_id, step_name) do
+      %{approval_token: token} ->
+        control = %PendingApproval{run_id: run_id, step_name: step_name, approval_token: token}
+
+        case validate_pending_outcome(control, %{}, mod, run_id, step_name) do
+          {:pending, ^control, _} -> {:ok, %{}, workflow_control: control}
+          {:error, error, _} -> {:error, error}
+        end
+
+      nil ->
+        {:error, Error.validation_error("Missing durable approval for waiting step")}
+    end
+  end
+
+  defp replay_waiting(_mod, _run_id, _step_name),
+    do: {:error, Error.validation_error("Waiting step is not a human approval action")}
 
   defp first_present(params, keys), do: Enum.find_value(keys, &Map.get(params, &1))
 
@@ -184,40 +233,6 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
   defp put_map_index(result, _index), do: result
 
-  defp call_action(mod, action_params, context, nil) do
-    mod.run(action_params, context)
-  end
-
-  defp call_action(mod, action_params, context, timeout_ms) do
-    task = Task.async(fn -> mod.run(action_params, context) end)
-
-    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, result} -> result
-      nil -> {:error, :timeout}
-    end
-  end
-
-  # Under the :retry strategy a failing map fork is re-run up to @max_retries total
-  # attempts before its outcome is written. Mirrors the old Batch/Iterate retry.
-  defp call_with_strategy(mod, params, context, timeout, strategy)
-       when strategy in [:retry, "retry"] do
-    retry_call(mod, params, context, timeout, @max_retries)
-  end
-
-  defp call_with_strategy(mod, params, context, timeout, _strategy) do
-    call_action(mod, params, context, timeout)
-  end
-
-  defp retry_call(mod, params, context, timeout, attempts_left) do
-    case call_action(mod, params, context, timeout) do
-      {:error, _} when attempts_left > 1 ->
-        retry_call(mod, params, context, timeout, attempts_left - 1)
-
-      other ->
-        other
-    end
-  end
-
   defp inject_cascade(result, prev_cascade, step_name) when is_map(result) do
     Map.put(result, :__cascade__, Map.put(prev_cascade, step_name, result))
   end
@@ -227,6 +242,10 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   # A binary error reason is already user-facing prose; keep it verbatim. Everything
   # else (atoms, tuples, exceptions) is inspected for a readable representation.
   defp reason_text(reason) when is_binary(reason), do: reason
+
+  defp reason_text(%_{} = reason) when is_exception(reason),
+    do: ExecutionOutcome.error_details(reason).message
+
   defp reason_text(reason), do: inspect(reason)
 
   defp execute_step(mod, run_id, step_name, step_index, params, context, map_index, strategy) do
@@ -243,6 +262,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     prev_cascade = Map.get(params, :__cascade__, Map.get(params, "__cascade__", %{}))
 
     action_params = Map.drop(params, @wrapper_keys ++ @map_keys ++ [:__cascade__, "__cascade__"])
+    execution_params = ActionTool.convert_params_using_schema(action_params, mod.schema())
 
     {:ok, step_run} =
       Workflows.create_step_run(%WorkflowRun{id: run_id}, %{
@@ -255,11 +275,19 @@ defmodule Zaq.Engine.Workflows.StepRunner do
     enriched_context = enrich_context(context, run_id, step_name, step_index, prev_cascade)
 
     try do
-      case call_with_strategy(mod, action_params, enriched_context, timeout_ms, strategy) do
-        {:ok, result, logs: action_logs} ->
+      outcome =
+        with {:ok, opts} <- ExecutionPolicy.inner_options(timeout_ms, strategy) do
+          Jido.Exec.run(mod, execution_params, enriched_context, opts)
+        end
+
+      case execution_outcome(outcome, mod, run_id, step_name) do
+        {:ok, result, metadata} ->
           cascaded = result |> inject_cascade(prev_cascade, step_name) |> put_map_index(map_index)
           step_log = Action.log_entry(:step_completed, t0)
-          Workflows.complete_step_run(step_run, cascaded, [step_log | action_logs])
+
+          {:ok, _} =
+            Workflows.complete_step_run(step_run, cascaded, [step_log | metadata_logs(metadata)])
+
           Workflows.tick_log_summary(run_id)
 
           Logger.info("[workflow] step completed",
@@ -271,61 +299,35 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
           {:ok, cascaded}
 
-        {:ok, result} ->
-          cascaded = result |> inject_cascade(prev_cascade, step_name) |> put_map_index(map_index)
-          step_log = Action.log_entry(:step_completed, t0)
-          Workflows.complete_step_run(step_run, cascaded, [step_log])
+        {:pending, control, _metadata} ->
+          {:ok, _} = Workflows.wait_step_run(step_run)
           Workflows.tick_log_summary(run_id)
+          {:ok, %{}, workflow_control: control}
 
-          Logger.info("[workflow] step completed",
-            run_id: run_id,
-            step_name: step_name,
-            step_index: step_index,
-            duration_ms: System.monotonic_time(:millisecond) - t0
-          )
-
-          {:ok, cascaded}
-
-        {:error, :timeout} ->
-          step_log = Action.log_entry(:step_failed, t0, %{reason: "timeout"})
-
-          Workflows.fail_step_run(step_run, %{reason: "timeout"}, [step_log],
-            status: failure_status(map_index, strategy)
-          )
+        {:skipped, exception, metadata} ->
+          {:ok, _} =
+            Workflows.skip_step_run(step_run, Map.from_struct(exception), metadata_logs(metadata))
 
           Workflows.tick_log_summary(run_id)
+          {:error, exception}
 
-          Logger.error("[workflow] step timed out timeout_ms=#{timeout_ms}",
-            run_id: run_id,
-            step_name: step_name,
-            step_index: step_index,
-            duration_ms: System.monotonic_time(:millisecond) - t0
-          )
-
-          fork_failure_return({:error, :timeout}, map_index, strategy)
-
-        {:error, {:waiting_for_human, approval_token}} ->
-          Workflows.wait_step_run(step_run)
-          Workflows.tick_log_summary(run_id)
-
-          Logger.info(
-            "[workflow] step waiting for human approval approval_token=#{approval_token}",
-            run_id: run_id,
-            step_name: step_name
-          )
-
-          {:error, :waiting_for_human}
-
-        {:error, reason} = err ->
+        {:error, reason, metadata} ->
           # A string reason (e.g. the Condition node's "Condition not met: …" sentence)
           # is already human-readable — store it verbatim so the run view shows it
           # cleanly. Only non-string reasons (atoms, tuples) are inspected.
           reason_text = reason_text(reason)
           step_log = Action.log_entry(:step_failed, t0, %{reason: reason_text})
 
-          Workflows.fail_step_run(step_run, %{reason: reason_text}, [step_log],
-            status: failure_status(map_index, strategy)
-          )
+          errors =
+            reason
+            |> ExecutionOutcome.error_details()
+            |> Map.put(:reason, reason_text)
+            |> json_safe()
+
+          {:ok, _} =
+            Workflows.fail_step_run(step_run, errors, [step_log | metadata_logs(metadata)],
+              status: failure_status(map_index, strategy)
+            )
 
           Workflows.tick_log_summary(run_id)
 
@@ -337,28 +339,9 @@ defmodule Zaq.Engine.Workflows.StepRunner do
             duration_ms: System.monotonic_time(:millisecond) - t0
           )
 
-          fork_failure_return(err, map_index, strategy)
+          fork_failure_return({:error, reason}, map_index, strategy)
       end
     rescue
-      e in ConditionNotMet ->
-        Workflows.skip_step_run(step_run, %{
-          field: e.field,
-          op: e.op,
-          actual: e.actual,
-          expected: e.expected
-        })
-
-        Workflows.tick_log_summary(run_id)
-
-        Logger.info(
-          "[workflow] condition not met — skipping branch field=#{e.field} op=#{e.op} actual=#{inspect(e.actual)}",
-          run_id: run_id,
-          step_name: step_name,
-          step_index: step_index
-        )
-
-        reraise e, __STACKTRACE__
-
       e ->
         step_log = Action.log_entry(:step_failed, t0, %{reason: Exception.message(e)})
         Workflows.fail_step_run(step_run, %{reason: Exception.message(e)}, [step_log])
@@ -374,6 +357,63 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
         reraise e, __STACKTRACE__
     end
+  end
+
+  defp execution_outcome(outcome, mod, run_id, step_name) do
+    case ExecutionOutcome.classify(outcome) do
+      {:pending, control, metadata} ->
+        validate_pending_outcome(control, metadata, mod, run_id, step_name)
+
+      ordinary ->
+        ordinary
+    end
+  end
+
+  defp validate_pending_outcome(
+         control,
+         metadata,
+         Workflows.Steps.HumanInTheLoop,
+         run_id,
+         step_name
+       ) do
+    approval = Workflows.get_approval_by_token(control.approval_token)
+
+    case PendingApproval.validate(control, run_id, step_name, approval) do
+      :ok -> {:pending, control, metadata}
+      {:error, error} -> {:error, error, metadata}
+    end
+  end
+
+  defp validate_pending_outcome(_control, metadata, _mod, _run_id, _step_name),
+    do: {:error, Error.validation_error("Untrusted workflow control producer"), metadata}
+
+  defp metadata_logs(metadata) do
+    logs = Map.get(metadata, :logs, Map.get(metadata, "logs", []))
+
+    logs =
+      if is_list(logs),
+        do: Enum.filter(logs, &(is_map(&1) and not is_struct(&1))),
+        else: []
+
+    extra = metadata |> Map.drop([:logs, "logs"]) |> safe_log_fields()
+
+    entries =
+      if extra == %{}, do: logs, else: logs ++ [%{event: "action_metadata", metadata: extra}]
+
+    Enum.map(entries, &safe_log_fields/1)
+  end
+
+  defp safe_log_fields(fields) do
+    fields
+    |> Map.drop([:workflow_control, "workflow_control"])
+    |> Enum.reduce(%{}, fn {key, value}, acc ->
+      value = json_safe(value)
+
+      case Jason.encode(value) do
+        {:ok, _} -> Map.put(acc, json_safe_key(key), value)
+        {:error, _} -> acc
+      end
+    end)
   end
 
   defp enrich_context(context, run_id, step_name, step_index, prev_cascade) do
@@ -406,6 +446,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   defp json_safe(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
   defp json_safe(%Date{} = d), do: Date.to_iso8601(d)
   defp json_safe(%Time{} = t), do: Time.to_iso8601(t)
+  defp json_safe(%PendingApproval{}), do: nil
 
   defp json_safe(%_{} = struct) do
     struct |> Map.from_struct() |> json_safe()
@@ -417,6 +458,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
   defp json_safe(list) when is_list(list), do: Enum.map(list, &json_safe/1)
   defp json_safe(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> json_safe()
+  defp json_safe(value) when is_boolean(value) or is_nil(value), do: value
   defp json_safe(atom) when is_atom(atom), do: Atom.to_string(atom)
   defp json_safe(other), do: other
 

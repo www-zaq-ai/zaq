@@ -11,7 +11,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   - **Condition present and false**: raises `ConditionNotMet` — Runic marks this
     step `:failed` and prunes the downstream subgraph via `skip_downstream_subgraph`.
     The downstream action node's `StepRunner` never runs → no failed `StepRun`
-    row → `finalize/2` sees the run as `"completed"` (or `"incomplete"` when no
+    row → `finalize/3` sees the run as `"completed"` (or `"incomplete"` when no
     leaf is ever reached).
   - **Mapping**: source keys listed as mapping values are consumed (removed from the
     output); all other keys are passed through unchanged; target keys are added.
@@ -35,7 +35,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   idempotent `failed` `StepRun` row is written (same idempotency guard as the
   `completed`/`skipped` writers — safe under Jido retry), and the exception is
   reraised unchanged. Runic still prunes the downstream subgraph either way; the
-  row is what lets `finalize/2` tell an infrastructure crash apart from a
+  row is what lets `finalize/3` tell an infrastructure crash apart from a
   legitimate pruned branch.
 
   This module is NOT wrapped by `StepRunner` (see D-3). It is infrastructure;
@@ -87,7 +87,7 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
       e ->
         # Any other raise is infrastructure-level and otherwise invisible: Runic
         # prunes the downstream subgraph silently (same as ConditionNotMet) with
-        # no failed row and no log. Write a failed StepRun row so `finalize/2`
+        # no failed row and no log. Write a failed StepRun row so `finalize/3`
         # marks the run `"failed"` (with this edge in `failed_steps`) instead of
         # a silent `"incomplete"`, then reraise — Runic still prunes downstream.
         write_fail_trace(run_id, edge_name, source_index, e)

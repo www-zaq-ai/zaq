@@ -22,17 +22,20 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
      `:payload`, `:assigns`) are normalized to atoms at this single point so action
      authors always read `params.event.payload` with atom keys regardless of
      whether the run was reloaded from the DB. Arbitrary payload/assigns values are
-     preserved verbatim. Feeds this as the initial fact into
-     `Runic.Workflow.react_until_satisfied/3`.
-  4. After execution, checks `StepRun` rows: any `"failed"`/`"running"` row → run
-     becomes `"failed"`; else if no terminal (leaf) step of the authored DAG
-     completed (a branch was pruned or starved) → `"incomplete"`; otherwise
-     `"completed"`.
+     preserved verbatim. Seeds Runic's root, then prepares, executes, inspects
+     and applies one runnable at a time. Completed, pending/suspended, failed and
+     skipped Runnables are handled explicitly. A verified pending control result
+     is discarded before apply; no remaining sibling runs in that pass. A failed
+     Runnable without a durable failure cursor marks the run failed before graph
+     execution continues.
+  4. After execution, an observed failed Runnable or any `StepRun` row still
+     `"failed"`/`"running"` makes the run `"failed"`; else if no terminal (leaf)
+     step of the authored DAG completed (a branch was pruned or starved), it
+     becomes `"incomplete"`; otherwise `"completed"`.
 
   ## Pause / Resume
 
-  A `:checkpoint` function is passed to `react_until_satisfied/3`. After each
-  react cycle it re-reads the `WorkflowRun` row; if the status is `"paused"` it
+  Before each dispatch it re-reads the `WorkflowRun` row; if the status is `"paused"` it
   throws `:pause_requested`, which is caught and returned as `{:ok, paused_run}`.
   To resume, call `Workflows.resume_run/2` — `StepRunner` skips completed steps
   so execution continues from the first incomplete step.
@@ -40,9 +43,10 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   ## Crash safety
 
   If a step raises, `StepRunner` marks its `StepRun` row as `"failed"` before
-  re-raising. `finalize/2` treats any `"running"` or `"failed"` rows as failures and
-  marks the run accordingly. Unexpected crashes in Runic itself propagate naturally
-  to the caller — they are not silently swallowed.
+  re-raising. `finalize/3` treats any observed failed Runnable or `"running"` /
+  `"failed"` row as a failure and marks the run accordingly. Unexpected driver crashes mark the run interrupted
+  and propagate to the caller. Handled outcomes release their watchers; unhandled
+  exits leave the watcher armed to recover the run.
 
   ## Lifecycle Events
 
@@ -51,9 +55,9 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   | Action | When |
   |---|---|
   | `"run.started"` | After run is transitioned to `"running"` |
-  | `"run.completed"` | After `finalize/2` marks the run `"completed"` |
-  | `"run.incomplete"` | After `finalize/2` marks the run `"incomplete"` — quiescence reached with no terminal (leaf) step completed |
-  | `"run.failed"` | After `finalize/2` marks the run `"failed"` (a *build* failure emits `run.failed` from the run module, before this module runs) |
+  | `"run.completed"` | After `finalize/3` marks the run `"completed"` |
+  | `"run.incomplete"` | After `finalize/3` marks the run `"incomplete"` — quiescence reached with no terminal (leaf) step completed |
+  | `"run.failed"` | After `finalize/3` marks the run `"failed"` (a *build* failure emits `run.failed` from the run module, before this module runs) |
 
   All events carry `%{action: action, run_id: id, workflow_id: wid}` in `request`.
   Dispatch is fire-and-forget — failures do not affect run state.
@@ -65,11 +69,21 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
 
   require Logger
 
+  alias Jido.Runic.ActionNode
   alias Runic.Workflow
+  alias Runic.Workflow.{Fact, Runnable, Step}
   alias Zaq.Engine.Workflows
+
+  alias Zaq.Engine.Workflows.{
+    ExecutionOutcome,
+    LifecycleNotifier,
+    MapNodeBuilder,
+    PendingApproval,
+    StepRunner
+  }
+
   alias Zaq.Engine.Workflows.RunWatcher
   alias Zaq.Engine.Workflows.WorkflowRun
-  alias Zaq.Event
 
   @spec execute(WorkflowRun.t(), keyword()) :: {:ok, WorkflowRun.t()} | {:error, term()}
   def execute(run, opts \\ [])
@@ -87,7 +101,6 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
     Registry.register(Zaq.Engine.Workflows.RunRegistry, run.id, self())
     watcher = start_watcher(run.id)
 
-    now = DateTime.utc_now(:second)
     started_ms = System.monotonic_time(:millisecond)
 
     Logger.info("[workflow] run started",
@@ -96,10 +109,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
       trigger_type: run.source_event && fetch_trigger_type(run.source_event.assigns)
     )
 
-    start_attrs =
-      if run.started_at, do: %{status: "running"}, else: %{status: "running", started_at: now}
-
-    case workflows_mod().update_run(run, start_attrs) do
+    case workflows_mod().transition_run_to_running(run) do
       {:ok, run} ->
         dispatch_workflow_event("run.started", run)
         execute_dag_with_pause(dag, run, started_ms, watcher)
@@ -110,11 +120,6 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
           run_id: run.id,
           error: inspect(reason)
         )
-
-        workflows_mod().update_run(run, %{
-          status: "failed",
-          finished_at: DateTime.utc_now(:second)
-        })
 
         RunWatcher.done(watcher)
         {:error, reason}
@@ -142,21 +147,16 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   defp execute_dag_with_pause(dag, %WorkflowRun{} = run, started_ms, watcher) do
     input = fetch_input(run.source_event)
 
-    checkpoint = fn _workflow -> pause_checkpoint!(run.id) end
-
     try do
-      # Run-driver mode: SEQUENTIAL today. `react_until_satisfied/3` also accepts
-      # `async: true, max_concurrency:, timeout:` to fan map forks out across
-      # processes, but we intentionally do NOT thread them yet — sequential
-      # execution keeps the map summary order deterministic (forks resolve in
-      # index order). Enabling async additionally requires per-fork names that
-      # cannot collide and `FanIn` `mergeable` accumulation; when enabling, pass
-      # the opts here and re-confirm ordering.
-      Workflow.react_until_satisfied(dag, input, checkpoint: checkpoint)
-      result = finalize(run, started_ms)
+      execution_outcome =
+        dag
+        |> Workflow.invoke(Workflow.root(), Fact.new(value: input))
+        |> dispatch_sequentially(run.id)
+
+      result = finalize(run, started_ms, execution_outcome)
 
       # Guard: a `map` node whose collection exceeded its `max_items` cap
-      # writes a failed StepRun (so `finalize/2` already marked the run "failed")
+      # writes a failed StepRun (so `finalize/3` already marked the run "failed")
       # and skips its downstream fan-out via Runic. Surface the precise reason to
       # the caller rather than a generic failed run.
       outcome =
@@ -165,14 +165,177 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
           nil -> result
         end
 
-      RunWatcher.done(watcher)
       outcome
+    rescue
+      exception ->
+        Workflows.interrupt_run(run,
+          reason: "driver_crash",
+          message: Exception.message(exception)
+        )
+
+        RunWatcher.done(watcher)
+        reraise exception, __STACKTRACE__
     catch
       :throw, :pause_requested ->
         Logger.info("[workflow] run paused", run_id: run.id)
+        result = {:ok, Workflows.get_run!(run.id)}
         RunWatcher.done(watcher)
-        {:ok, Workflows.get_run!(run.id)}
+        result
+    else
+      outcome ->
+        RunWatcher.done(watcher)
+        outcome
     end
+  end
+
+  defp dispatch_sequentially(dag, run_id, failure \\ nil) do
+    pause_checkpoint!(run_id)
+    {prepared, runnables} = Workflow.prepare_for_dispatch(dag)
+
+    case execute_prepared(prepared, runnables, run_id, failure) do
+      {:continue, next, failure} when runnables != [] ->
+        dispatch_sequentially(next, run_id, failure)
+
+      {:continue, _next, failure} ->
+        {:completed, failure}
+
+      {:suspended, _next, failure} ->
+        {:suspended, failure}
+    end
+  end
+
+  defp execute_prepared(dag, runnables, run_id, failure) do
+    Enum.reduce_while(runnables, {:continue, dag, failure}, fn runnable,
+                                                               {:continue, current, failure} ->
+      pause_checkpoint!(run_id)
+      executed = Workflow.execute_runnable(runnable)
+      apply_executed_runnable(executed, current, failure, run_id)
+    end)
+  end
+
+  defp apply_executed_runnable(%Runnable{status: :completed} = executed, current, failure, run_id) do
+    case pending_control(executed, run_id) do
+      nil -> {:cont, {:continue, Workflow.apply_runnable(current, executed), failure}}
+      %PendingApproval{} -> {:halt, {:suspended, current, failure}}
+    end
+  end
+
+  defp apply_executed_runnable(%Runnable{status: :failed} = executed, current, failure, run_id) do
+    if handled_edge_condition?(executed, run_id) do
+      {:cont, {:continue, Workflow.apply_runnable(current, executed), failure}}
+    else
+      ensure_runnable_failure_durable!(run_id, executed)
+      {:cont, {:continue, Workflow.apply_runnable(current, executed), failure || executed}}
+    end
+  end
+
+  defp apply_executed_runnable(
+         %Runnable{status: :pending},
+         current,
+         failure,
+         _run_id
+       ),
+       do: {:halt, {:suspended, current, failure}}
+
+  defp apply_executed_runnable(
+         %Runnable{status: :skipped} = executed,
+         current,
+         failure,
+         _run_id
+       ),
+       do: {:cont, {:continue, Workflow.apply_runnable(current, executed), failure}}
+
+  # StepRunner and infrastructure steps normally persist their own failed cursor.
+  # A failure caught by Runic outside those boundaries has no StepRun to carry the
+  # outcome, so persist the run failure before applying the Runnable or executing
+  # another independent Runnable.
+  defp ensure_runnable_failure_durable!(run_id, %Runnable{} = runnable) do
+    durable_failure? =
+      run_id
+      |> Workflows.list_step_runs()
+      |> Enum.any?(&(&1.status in ["failed", "running"]))
+
+    unless durable_failure? do
+      run = Workflows.get_run!(run_id)
+
+      log_summary =
+        (run.log_summary || %{})
+        |> Map.put(:execution_error, runnable_failure_message(runnable))
+
+      case Workflows.finalize_run(run, %{
+             status: "failed",
+             finished_at: DateTime.utc_now(:second),
+             log_summary: log_summary
+           }) do
+        {:ok, _transition} ->
+          :ok
+
+        {:error, reason} ->
+          raise "failed to persist Runic execution failure: #{inspect(reason)}"
+      end
+    end
+
+    :ok
+  end
+
+  defp runnable_failure_message(%Runnable{error: error}) do
+    if is_exception(error), do: Exception.message(error), else: inspect(error)
+  end
+
+  # EdgeStep deliberately raises ConditionNotMet so Runic prunes the branch.
+  # Its skipped cursor is the durable proof that this is handled routing, not an
+  # execution failure. Unexpected EdgeStep errors write a failed cursor instead.
+  defp handled_edge_condition?(
+         %Runnable{
+           node: %ActionNode{
+             action_mod: Workflows.Steps.EdgeStep,
+             params: %{__edge_name__: edge_name}
+           }
+         },
+         run_id
+       ) do
+    match?(%{status: "skipped"}, Workflows.get_terminal_step_run(run_id, edge_name))
+  end
+
+  defp handled_edge_condition?(_runnable, _run_id), do: false
+
+  defp pending_control(
+         %Runnable{
+           status: :completed,
+           node: %ActionNode{action_mod: StepRunner, params: params},
+           result: %Fact{value: %{result: result, extra: metadata}}
+         },
+         run_id
+       ) do
+    case ExecutionOutcome.classify({:ok, result, metadata}) do
+      {:pending, control, _} when params.wrapped_module == Workflows.Steps.HumanInTheLoop ->
+        verify_pending_control!(control, run_id, params.step_name)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp pending_control(
+         %Runnable{
+           status: :completed,
+           node: %Step{} = node,
+           result: %Fact{value: %PendingApproval{} = control}
+         },
+         run_id
+       ) do
+    if MapNodeBuilder.fork_executor?(node) do
+      verify_pending_control!(control, run_id, control.step_name)
+    end
+  end
+
+  defp pending_control(_runnable, _run_id), do: nil
+
+  defp verify_pending_control!(control, run_id, step_name) do
+    approval = Workflows.get_approval_by_token(control.approval_token)
+    :ok = PendingApproval.validate(control, run_id, step_name, approval)
+    %{status: "waiting"} = Workflows.get_terminal_step_run(run_id, step_name)
+    control
   end
 
   defp pause_checkpoint!(run_id) do
@@ -182,11 +345,24 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
     end
   end
 
-  defp finalize(%WorkflowRun{} = run, started_ms) do
+  defp finalize(%WorkflowRun{} = run, started_ms, execution_outcome) do
     step_runs = Workflows.list_step_runs(run.id)
     duration_ms = System.monotonic_time(:millisecond) - started_ms
+    failed_runnable = failed_runnable(execution_outcome)
 
     cond do
+      failed_runnable ->
+        fail_run(run, step_runs, duration_ms, runnable_failure_message(failed_runnable))
+
+      # A row stuck at "running" after execution means the action raised and
+      # never updated itself — treat it as a failure (crash cursor).
+      # `failed_fatal` rows (isolated per-fork `map` failures under
+      # :skip_and_continue/:retry) are recorded for visibility but never fail the
+      # run. A failed row wins over a later waiting sibling so the failure cannot
+      # disappear behind a suspension.
+      Enum.any?(step_runs, &(&1.status in ["failed", "running"])) ->
+        fail_run(run, step_runs, duration_ms)
+
       # A "waiting" StepRun means a HumanInTheLoop step suspended execution.
       # StepRunner already marked the StepRun; we transition the run here.
       Enum.any?(step_runs, &(&1.status == "waiting")) ->
@@ -196,45 +372,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
           duration_ms: duration_ms
         )
 
-        result = Workflows.update_run(run, %{status: "waiting"})
-        dispatch_workflow_event("run.waiting", run)
-        result
-
-      # A row stuck at "running" after execution means the action raised and
-      # never updated itself — treat it as a failure (crash cursor).
-      # `failed_fatal` rows (isolated per-fork `map` failures under
-      # :skip_and_continue/:retry) are recorded for visibility but never fail the
-      # run — they are not in this list, so the aggregate map row carries the
-      # run-relevant status.
-      Enum.any?(step_runs, &(&1.status in ["failed", "running"])) ->
-        failed_steps =
-          step_runs
-          |> Enum.filter(&(&1.status in ["failed", "running"]))
-          |> Enum.map(& &1.step_name)
-
-        log_summary = build_log_summary(step_runs, failed_steps, duration_ms)
-
-        Logger.error("[workflow] run failed",
-          workflow_id: run.workflow_id,
-          run_id: run.id,
-          failed_steps: failed_steps,
-          duration_ms: duration_ms
-        )
-
-        result =
-          Workflows.update_run(run, %{
-            status: "failed",
-            finished_at: DateTime.utc_now(:second),
-            log_summary: log_summary
-          })
-
-        # Resolve the stuck row(s) themselves, not just the run's aggregate
-        # status — otherwise a step is left "running" forever alongside a run
-        # that shows "failed".
-        Workflows.fail_orphaned_step_runs(run.id)
-
-        dispatch_workflow_event("run.failed", run)
-        result
+        persist_finalization(run, %{status: "waiting"}, "run.waiting")
 
       # No step errored, yet no terminal (leaf) step of the authored DAG completed.
       # Execution reached quiescence short of the workflow's end — a branch was
@@ -262,15 +400,15 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
           duration_ms: duration_ms
         )
 
-        result =
-          Workflows.update_run(run, %{
+        persist_finalization(
+          run,
+          %{
             status: "incomplete",
             finished_at: DateTime.utc_now(:second),
             log_summary: log_summary
-          })
-
-        dispatch_workflow_event("run.incomplete", run)
-        result
+          },
+          "run.incomplete"
+        )
 
       true ->
         log_summary = build_log_summary(step_runs, [], duration_ms)
@@ -282,17 +420,66 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
           duration_ms: duration_ms
         )
 
-        result =
-          Workflows.update_run(run, %{
+        persist_finalization(
+          run,
+          %{
             status: "completed",
             finished_at: DateTime.utc_now(:second),
             log_summary: log_summary
-          })
-
-        dispatch_workflow_event("run.completed", run)
-        result
+          },
+          "run.completed"
+        )
     end
   end
+
+  defp failed_runnable({_execution_state, %Runnable{status: :failed} = runnable}), do: runnable
+  defp failed_runnable(_execution_outcome), do: nil
+
+  defp fail_run(run, step_runs, duration_ms, execution_error \\ nil) do
+    failed_steps =
+      step_runs
+      |> Enum.filter(&(&1.status in ["failed", "running"]))
+      |> Enum.map(& &1.step_name)
+
+    log_summary =
+      step_runs
+      |> build_log_summary(failed_steps, duration_ms)
+      |> maybe_put_execution_error(execution_error)
+
+    Logger.error("[workflow] run failed",
+      workflow_id: run.workflow_id,
+      run_id: run.id,
+      failed_steps: failed_steps,
+      duration_ms: duration_ms
+    )
+
+    persist_finalization(
+      run,
+      %{
+        status: "failed",
+        finished_at: DateTime.utc_now(:second),
+        log_summary: log_summary
+      },
+      "run.failed"
+    )
+  end
+
+  defp persist_finalization(run, attrs, event_name) do
+    case Workflows.finalize_run(run, attrs) do
+      {:ok, {:transitioned, finalized_run}} ->
+        dispatch_workflow_event(event_name, finalized_run)
+        {:ok, finalized_run}
+
+      {:ok, {:unchanged, current_run}} ->
+        {:ok, current_run}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp maybe_put_execution_error(summary, nil), do: summary
+  defp maybe_put_execution_error(summary, error), do: Map.put(summary, :execution_error, error)
 
   # True when at least one terminal (leaf) node of the authored DAG has a
   # "completed" StepRun row — i.e. execution reached the end of some branch.
@@ -444,16 +631,8 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   end
 
   defp dispatch_workflow_event(action, run) do
-    event =
-      Event.new(%{action: action, run_id: run.id, workflow_id: run.workflow_id}, :engine,
-        name: :workflow,
-        actor: run.source_event && run.source_event.actor
-      )
-
-    node_router().dispatch(event)
+    LifecycleNotifier.notify(action, run)
   end
-
-  defp node_router, do: Application.get_env(:zaq, :node_router, Zaq.NodeRouter)
 
   defp workflows_mod,
     do: Application.get_env(:zaq, :workflow_run_agent_workflows_mod, Workflows)
