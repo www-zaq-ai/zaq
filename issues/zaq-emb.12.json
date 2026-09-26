@@ -7,13 +7,13 @@
     "zaq-emb.13"
   ],
   "created": "2026-09-23T13:18:37Z",
-  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.12; no self-approval.\n\nExplicit human approval of completed BO history/detail and People external access UI after integrated implementation validation. Prior permission to extend components without prototype is not final UX approval. Record approver, scope and source before unblocking new E2E authoring. Reopen approval if materially changed. Action reuse/testing/mocking: not applicable to human gate; no self-approval.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
+  "description": "Approve completed PR A durable history/access UI and supported behavior only after .11. Record approver/date/source/scope; no self-approval. Regrouping is not UX approval. Material UX changes reopen gate. Unblocks only A E2E .13.1; B has .32. No production work; Action reuse N/A.",
   "id": "zaq-emb.12",
   "labels": [],
   "parent": "zaq-emb",
   "priority": 2,
   "status": "open",
-  "title": "[zaq-emb.12] Human UX approval of completed canonical history and access UI",
+  "title": "[zaq-emb.12] PR A explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-09-26T09:48:19Z"
+  "updated_at": "2026-09-26T09:49:43Z"
 }
