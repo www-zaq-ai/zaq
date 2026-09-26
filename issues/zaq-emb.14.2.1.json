@@ -14,11 +14,15 @@
     {
       "text": "2026-09-26 Action reuse before edit: `CommunicationBridge.put_routing_context` is the existing channel-\u003eEngine stamping boundary; `Incoming.RoutingContext.normalize` owns typed serializable routing fields; `JidoChatBridge.to_internal` owns Jido.Chat adapter conversion. Extend these three rather than add Action, duplicate bridge or agent tool. Person/recipient ID lookup remains Engine IdentityResolver after ingress; new history_kind never grants access. Test-first showed missing field and forged context. Important discovered adapter limitation: `Jido.Chat.ChannelMeta.is_dm` defaults to false even when no actual room-type evidence. Fail closed: typed default without chat_type leaves history_kind nil; explicit adapter map false or typed known channel/group type yields :channel, true yields :direct. Claimed provider/room metadata must match configured provider/room; route overwrites incoming metadata/routing claims from configured bridge options. This limitation may require provider adapter enrichment before group history integration in .4. No E2E authoring.",
       "timestamp": "2026-09-26T08:30:16Z"
+    },
+    {
+      "text": "2026-09-26 finalized channel history_kind stamping. Typed RoutingContext accepts :direct/:channel/:email or nil; CommunicationBridge.route_incoming_message overwrites an Incoming routing/metadata claim with bridge option; JidoChatBridge stamps adapter ChannelMeta with provider/room consistency checks. Explicit DM true -\u003e Direct; explicit map is_dm=false or typed known channel/group chat_type -\u003e Shared; typed Jido.Chat.ChannelMeta default is_dm=false without known chat_type -\u003e nil, never inferred. Existing author Person resolution remains Engine-owned, mention gating unchanged. Tests FIRST exposed missing history_kind, misleading default is_dm=false and mismatched provider/room crash, all fixed. Full affected suite 272 tests/2 properties 0 failures (JidoChatBridge, CommunicationBridge, RoutingContext, IncomingMessageRouter, policy) and mix q green; staged diff --check clean. Provider-specific event enrichment for missing chat_type tracked as child .14.2.3, not falsely marked implemented; email recipient facts separate .14.2.2. Action reuse: extend existing bridge/RoutingContext, no Action/agent tool/E2E authored.",
+      "timestamp": "2026-09-26T08:33:00Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.1] Stamp verified channel history kinds",
   "type": "task",
-  "updated_at": "2026-09-26T08:32:28Z"
+  "updated_at": "2026-09-26T08:33:00Z"
 }
