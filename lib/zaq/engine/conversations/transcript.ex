@@ -2,8 +2,8 @@ defmodule Zaq.Engine.Conversations.Transcript do
   @moduledoc """
   Durable strategy and scope for a message history. Threads reference their parent;
   the permission resource coordinate is stored separately from conversation ownership.
-  Direct and replicated transcripts have an explicit Person owner; shared
-  transcripts instead use the channel's permission resource.
+  Direct and Shared transcripts use explicit participant history grants;
+  Replicated transcripts have an explicit recipient Person owner.
   `next_position` is allocated transactionally by the Engine writer, not by callers.
   """
 
@@ -69,11 +69,11 @@ defmodule Zaq.Engine.Conversations.Transcript do
 
   defp validate_owner_strategy(changeset) do
     case {get_field(changeset, :strategy), get_field(changeset, :owner_person_id)} do
-      {strategy, nil} when strategy in ["direct", "replicated"] ->
+      {"replicated", nil} ->
         add_error(changeset, :owner_person_id, "is required for this strategy")
 
-      {"shared", owner} when not is_nil(owner) ->
-        add_error(changeset, :owner_person_id, "cannot own a shared transcript")
+      {strategy, owner} when strategy in ["direct", "shared"] and not is_nil(owner) ->
+        add_error(changeset, :owner_person_id, "cannot own a grant-driven transcript")
 
       _ ->
         changeset

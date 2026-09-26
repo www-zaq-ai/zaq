@@ -209,39 +209,54 @@ defmodule Zaq.Engine.Conversations.CanonicalStorageTest do
     assert %{parent_id: _} = errors_on(missing_parent)
   end
 
-  test "direct and replicated transcript ownership is an explicit Person reference" do
+  test "Direct and Shared use participant grants; Replicated has a Person owner" do
     {:ok, owner} = People.create_person(%{"full_name" => "History Owner"})
 
-    for strategy <- ["direct", "replicated"] do
+    for strategy <- ["direct", "shared"] do
+      grant_driven = transcript("#{strategy}:participant-grants", %{strategy: strategy})
+      assert Repo.get!(Transcript, grant_driven.id).owner_person_id == nil
+
       assert %{owner_person_id: _} =
                %Transcript{}
                |> Transcript.changeset(%{
                  strategy: strategy,
                  provider: "mattermost",
-                 scope_key: "#{strategy}:missing-owner",
-                 permission_resource_type: "person_history",
-                 permission_resource_id: "owner:#{owner.id}"
+                 owner_person_id: owner.id,
+                 scope_key: "#{strategy}:owner-not-allowed",
+                 permission_resource_type: "channel_history",
+                 permission_resource_id: "room-1"
                })
                |> errors_on()
-
-      owned =
-        transcript("#{strategy}:#{owner.id}", %{
-          strategy: strategy,
-          owner_person_id: owner.id,
-          permission_resource_type: "person_history",
-          permission_resource_id: "owner:#{owner.id}"
-        })
-
-      assert Repo.get!(Transcript, owned.id).owner_person_id == owner.id
     end
 
     assert %{owner_person_id: _} =
              %Transcript{}
              |> Transcript.changeset(%{
-               strategy: "shared",
+               strategy: "replicated",
+               provider: "email:imap",
+               scope_key: "replicated:missing-owner",
+               permission_resource_type: "person_history",
+               permission_resource_id: "owner:#{owner.id}"
+             })
+             |> errors_on()
+
+    owned =
+      transcript("replicated:#{owner.id}", %{
+        strategy: "replicated",
+        owner_person_id: owner.id,
+        permission_resource_type: "person_history",
+        permission_resource_id: "owner:#{owner.id}"
+      })
+
+    assert Repo.get!(Transcript, owned.id).owner_person_id == owner.id
+
+    assert %{owner_person_id: _} =
+             %Transcript{}
+             |> Transcript.changeset(%{
+               strategy: "direct",
                provider: "mattermost",
                owner_person_id: owner.id,
-               scope_key: "shared:owner-not-allowed",
+               scope_key: "direct:owner-not-allowed-again",
                permission_resource_type: "channel_history",
                permission_resource_id: "room-1"
              })
@@ -252,9 +267,10 @@ defmodule Zaq.Engine.Conversations.CanonicalStorageTest do
         Repo.insert!(%Transcript{
           strategy: "direct",
           provider: "mattermost",
-          scope_key: "unowned-direct-raw",
-          permission_resource_type: "person_history",
-          permission_resource_id: "owner:#{owner.id}"
+          scope_key: "owned-direct-raw",
+          owner_person_id: owner.id,
+          permission_resource_type: "channel_history",
+          permission_resource_id: "room-1"
         })
       end)
     end
