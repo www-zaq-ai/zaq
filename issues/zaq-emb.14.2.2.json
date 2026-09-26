@@ -16,11 +16,15 @@
     {
       "text": "2026-09-26 pre-implementation discovery: ImapAdapter.Parser currently chooses one Mail.get_to/first raw To recipient and records Delivered-To as reply_from; it does not normalize all To/Cc or Bcc. IMAP selected mailbox is folder name; NotificationImapLive settings persist username and selected_mailboxes but no separately verified receiving-account email identity. Even when username looks like an address or Delivered-To is present, do NOT infer hidden Bcc; normalize visible To/Cc and sender only, accepting Bcc evidence only from future independently verified connector account identity. SMTP outbound actual sender and explicit envelope recipient receipt belongs .14.2.4. Actor Person resolution happens after Channels in IncomingMessageRouter; this slice carries address evidence only, not authorized Person IDs. Tests first from parsed RFC822 fixtures; no feature E2E before UX gate.",
       "timestamp": "2026-09-26T08:36:55Z"
+    },
+    {
+      "text": "Action reuse assessment: normalize per-message inbound RFC822 recipient evidence. Existing Mail.parse/Mail.get_to/Mail.get_cc and EmailBridge.ImapAdapter.Parser.to_incoming/3 already parse inbound messages; this extends that local parser boundary. Registry/agent tools and workflow Actions have no appropriate standalone channel-envelope normalization operation; adding or exposing one would duplicate transport parsing and permit arbitrary caller-controlled audience. Inputs: raw IMAP payload + parsed RFC headers; outputs: validated sender and visible To/Cc addresses on typed routing context (not Person IDs/grants); errors: malformed addresses excluded, invalid payload existing error; idempotent/pure, no runtime dependencies beyond Mail. Consumers: EmailBridge ingress now, Engine Person resolution in zaq-emb.4 later; not a tool/workflow. Tests: RFC822 multi-To/Cc, fallback payload, malformed/duplicate, hidden Bcc excluded, per-message isolation and retained reply_from/threading. No credential/settings operation in this slice.",
+      "timestamp": "2026-09-26T10:00:11Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.2] Normalize inbound email recipient evidence",
   "type": "task",
-  "updated_at": "2026-09-26T10:00:05Z"
+  "updated_at": "2026-09-26T10:00:11Z"
 }
