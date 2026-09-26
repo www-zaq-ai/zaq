@@ -214,6 +214,43 @@ defmodule Zaq.Engine.DataSourcesTest do
     assert updated.checkpoint == "checkpoint-2"
   end
 
+  test "equal external watch IDs stay isolated across connectors of one provider" do
+    first = insert_data_source_config()
+    second = insert_data_source_config()
+
+    assert {:ok, a} = DataSources.upsert_watch_channel(watch_attrs(first))
+    assert {:ok, b} = DataSources.upsert_watch_channel(watch_attrs(second))
+    assert a.id != b.id
+
+    assert {:ok, selected} =
+             DataSources.resolve_watch_channel(%{
+               provider: "google_drive",
+               channel_id: "channel-1",
+               config_id: second.id
+             })
+
+    assert selected.id == b.id
+
+    assert {:error, :ambiguous_watch_channel} =
+             DataSources.resolve_watch_channel(%{
+               provider: "google_drive",
+               channel_id: "channel-1"
+             })
+  end
+
+  test "numeric string connector IDs upsert the existing watch for that connector" do
+    config = insert_data_source_config()
+    assert {:ok, first} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+    assert {:ok, updated} =
+             DataSources.upsert_watch_channel(
+               watch_attrs(config, %{config_id: Integer.to_string(config.id), checkpoint: "next"})
+             )
+
+    assert updated.id == first.id
+    assert updated.checkpoint == "next"
+  end
+
   test "upsert_watch_channel stores JSON-safe string values in watch metadata" do
     config = insert_data_source_config()
 
@@ -342,6 +379,9 @@ defmodule Zaq.Engine.DataSourcesTest do
     config = insert_data_source_config()
 
     Oban.Testing.with_testing_mode(:manual, fn ->
+      expected_url =
+        "https://renewed.example/base/channels/webhook/data_source/google_drive/#{config.id}"
+
       {:ok, old_watch_channel} =
         DataSources.upsert_watch_channel(
           watch_attrs(config, %{
@@ -368,8 +408,7 @@ defmodule Zaq.Engine.DataSourcesTest do
                          params: %{
                            config_id: config_id,
                            force_new_watch_channel: true,
-                           webhook_url:
-                             "https://renewed.example/base/channels/webhook/data_source/google_drive"
+                           webhook_url: ^expected_url
                          }
                        }}
 

@@ -770,6 +770,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
 
       create_document_with_chunk("data_source/google_drive/#{config.id}/file-1")
 
+      expected_url =
+        "https://zaq.example/root/channels/webhook/data_source/google_drive/#{config.id}"
+
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
       render_hook(view, "toggle_watch_status", %{"path" => "file-1"})
 
@@ -777,8 +780,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
                        %{
                          "config_id" => config_id,
                          "file_id" => "file-1",
-                         "webhook_url" =>
-                           "https://zaq.example/root/channels/webhook/data_source/google_drive"
+                         "webhook_url" => ^expected_url
                        }}
 
       assert config_id == config.id
@@ -797,6 +799,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
       on_exit(fn -> :ok = ZaqSystem.set_global_base_url(original_base_url) end)
 
       source = "data_source/google_drive/#{config.id}/folder-1"
+      expected_url = "https://zaq.example/channels/webhook/data_source/google_drive/#{config.id}"
       refute Document.get_by_source(source)
 
       {:ok, view, _html} = live(conn, ~p"/bo/ingestion/google_drive")
@@ -807,8 +810,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
                          "config_id" => config_id,
                          "file_id" => "folder-1",
                          "kind" => "folder",
-                         "webhook_url" =>
-                           "https://zaq.example/channels/webhook/data_source/google_drive"
+                         "webhook_url" => ^expected_url
                        }}
 
       assert config_id == config.id

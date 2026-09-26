@@ -1869,6 +1869,25 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert_received {:handle_webhook, ^config_id, ^payload}
   end
 
+  test "handle_webhook selects an exact data-source connector when providers repeat" do
+    first = insert_data_source_config(:google_drive)
+    second = insert_data_source_config(:google_drive)
+    payload = %{"event" => "file.created"}
+
+    assert {:error, :ambiguous_connector} =
+             DataSourceBridge.handle_webhook(:google_drive, payload)
+
+    assert {:ok, %{processed: true}} =
+             DataSourceBridge.handle_webhook(:google_drive, payload, second.id)
+
+    assert_received {:handle_webhook, id, ^payload}
+    assert id == second.id
+    refute id == first.id
+
+    assert {:error, :connector_mismatch} =
+             DataSourceBridge.handle_webhook(:sharepoint, payload, second.id)
+  end
+
   test "handle_webhook returns unsupported when callback not implemented" do
     original_channels = Application.get_env(:zaq, :channels)
 

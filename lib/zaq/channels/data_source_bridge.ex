@@ -298,6 +298,18 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
+  @doc "Dispatches a data-source webhook only to its enabled, provider-matching connector."
+  @spec handle_webhook(atom() | String.t(), map(), pos_integer()) ::
+          {:ok, term()} | {:error, term()}
+  def handle_webhook(provider, payload, config_id)
+      when is_map(payload) and is_integer(config_id) and config_id > 0 do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_channel_config(provider, config_id),
+         true <- supports_callback?(bridge, :handle_webhook, 2) || {:error, :unsupported} do
+      bridge.handle_webhook(config, payload)
+    end
+  end
+
   @doc """
   Builds OAuth authorize URL through the configured DataSource bridge.
   Trusted `oauth_credentials: :explicit` makes supplied credentials authoritative,

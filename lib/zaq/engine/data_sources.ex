@@ -42,7 +42,9 @@ defmodule Zaq.Engine.DataSources do
   @doc """
   Resolves an active, non-expired provider watch channel.
 
-  Webhooks resolve by provider `channel_id` and optional `resource_id`.
+  Webhooks resolve by provider `channel_id` and optional connector `config_id`
+  and `resource_id`. An unscoped legacy lookup with multiple matching watches
+  fails closed rather than selecting one provider account arbitrarily.
   Provider watch setup and teardown can also resolve by provider, config, and
   target source. Returns `{:error, :watch_channel_not_found}` when no usable row
   exists.
@@ -50,18 +52,21 @@ defmodule Zaq.Engine.DataSources do
   def resolve_watch_channel(%{provider: provider, channel_id: channel_id} = attrs)
       when is_binary(channel_id) do
     resource_id = Map.get(attrs, :resource_id) || Map.get(attrs, "resource_id")
+    config_id = Map.get(attrs, :config_id) || Map.get(attrs, "config_id")
 
     WatchChannel
     |> where([w], w.provider == ^to_string(provider))
     |> where([w], w.channel_id == ^channel_id)
+    |> maybe_filter_config_id(config_id)
     |> where([w], w.status in ["active", "error"])
     |> filter_unexpired()
     |> maybe_filter_resource_id(resource_id)
-    |> limit(1)
-    |> Repo.one()
+    |> limit(2)
+    |> Repo.all()
     |> case do
-      %WatchChannel{} = watch_channel -> {:ok, watch_channel}
-      nil -> {:error, :watch_channel_not_found}
+      [watch_channel] -> {:ok, watch_channel}
+      [] -> {:error, :watch_channel_not_found}
+      _ -> {:error, :ambiguous_watch_channel}
     end
   end
 
@@ -154,9 +159,14 @@ defmodule Zaq.Engine.DataSources do
   defp get_watch_channel(attrs) do
     provider = Map.get(attrs, :provider)
     channel_id = Map.get(attrs, :channel_id)
+    config_id = Map.get(attrs, :config_id)
 
-    if is_binary(provider) and is_binary(channel_id) do
-      Repo.get_by(WatchChannel, provider: provider, channel_id: channel_id)
+    if is_binary(provider) and is_binary(channel_id) and is_integer(config_id) and config_id > 0 do
+      Repo.get_by(WatchChannel,
+        provider: provider,
+        channel_id: channel_id,
+        config_id: config_id
+      )
     end
   end
 
@@ -233,7 +243,7 @@ defmodule Zaq.Engine.DataSources do
   end
 
   defp create_replacement_watch_channel(%WatchChannel{} = watch_channel) do
-    case WebhookUrl.build(:data_source, watch_channel.provider) do
+    case WebhookUrl.build(:data_source, watch_channel.provider, watch_channel.config_id) do
       webhook_url when is_binary(webhook_url) ->
         do_create_replacement_watch_channel(watch_channel, webhook_url)
 
@@ -260,7 +270,11 @@ defmodule Zaq.Engine.DataSources do
 
     case node_router_module().dispatch(event).response do
       {:ok, %{channel_id: channel_id}} when is_binary(channel_id) ->
-        case Repo.get_by(WatchChannel, provider: watch_channel.provider, channel_id: channel_id) do
+        case Repo.get_by(WatchChannel,
+               provider: watch_channel.provider,
+               channel_id: channel_id,
+               config_id: watch_channel.config_id
+             ) do
           %WatchChannel{} = new_watch_channel -> {:ok, new_watch_channel}
           nil -> {:error, :replacement_watch_channel_not_persisted}
         end
@@ -384,7 +398,7 @@ defmodule Zaq.Engine.DataSources do
 
   defp normalize_watch_attrs(attrs) do
     attrs = %{
-      config_id: read_any(attrs, [:config_id, "config_id"]),
+      config_id: attrs |> read_any([:config_id, "config_id"]) |> normalize_config_id(),
       provider: read_string(attrs, [:provider, "provider"]),
       target_source: read_string(attrs, [:target_source, "target_source", :source, "source"]),
       target_provider_id:
@@ -416,6 +430,15 @@ defmodule Zaq.Engine.DataSources do
   end
 
   defp read_any(map, keys), do: MapUtils.read_any(map, keys)
+
+  defp normalize_config_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed_id, ""} -> parsed_id
+      _ -> id
+    end
+  end
+
+  defp normalize_config_id(id), do: id
 
   defp read_expiration_at(attrs) do
     direct = read_any(attrs, [:expiration_at, "expiration_at"])

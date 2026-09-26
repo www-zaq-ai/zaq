@@ -61,7 +61,9 @@ defmodule Zaq.Engine.DataSources.WatchChannel do
     |> put_default(:status, "active")
     |> validate_inclusion(:target_kind, @target_kinds)
     |> validate_inclusion(:status, @statuses)
-    |> unique_constraint([:provider, :channel_id])
+    |> unique_constraint([:config_id, :provider, :channel_id],
+      name: :data_source_watch_channels_connector_channel_index
+    )
   end
 
   @doc "Returns supported watch-channel runtime statuses."
