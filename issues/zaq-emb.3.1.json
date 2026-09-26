@@ -9,9 +9,15 @@
   "id": "zaq-emb.3.1",
   "labels": [],
   "parent": "zaq-emb.3",
+  "comments": [
+    {
+      "text": "2026-09-26 Action reuse assessment BEFORE storage edit: operations affected = persist canonical message row, define transcript, attach one message to a transcript. Candidate existing Conversations.add_message/2 and Message.changeset/2 currently require conversation_id and trigger telemetry/title side effects; reusing that writer for passive/shared fanout would duplicate messages and leak side effects. Candidate ChannelHistoryResource.for/3 provides a coordinate only, not a storage writer. Decision: extend existing Message schema in place; local-only Ecto Transcript/TranscriptMessage schema and DDL (structural primitives, not executable Actions). .3.2 owns transactionally authorized writers/readers via existing Conversations context, never new agent tool. Schema contract: preserve legacy UUIDs and ratings/trace references; legacy writes unchanged; new canonical rows scoped by provider + account key + external id when available, transcript identity and permission coordinate explicit, association sequence unique and monotone to be allocated under lock in .3.2. Verify DB constraint/isolation and legacy read/regression tests, no external mocks, no E2E authored. Source catalog/Actions will be revisited for .3.2; no standalone agent/workflow execution for raw persistence, so no new Action.",
+      "timestamp": "2026-09-26T07:17:12Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.3.1] Add canonical message and transcript association schema",
   "type": "task",
-  "updated_at": "2026-09-26T07:14:36Z"
+  "updated_at": "2026-09-26T07:17:12Z"
 }
