@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T08:05:18Z",
+  "description": "Stacked PR on fix/793-hybrid-retrieval; change DocumentProcessor RRF to key by document/chunk, preserving per-chunk lexical/vector evidence and deterministic ranking. Keep section expansion policy unchanged (deferred #810); action trace diagnostics deferred #809. Reuse existing SearchKnowledgeBase Action, NodeRouter, DocumentProcessor and FTS backends; no new Action. Tests first: same-section disjoint hits, true dual hit, repeated/empty section paths, duplicate candidates, permissions, backend integration and multilingual fixtures. Validate mix q, isolated native/ParadeDB suites and final precommit.",
+  "id": "zaq-aj2",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[#793] Fuse retrieval scores per matched chunk",
+  "type": "task",
+  "updated_at": "2026-09-26T08:05:18Z"
+}
