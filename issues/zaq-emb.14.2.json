@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.14.1"
+  ],
   "blocks": [],
   "created": "2026-09-26T08:09:44Z",
   "description": "Channels-owned normalization slice stacked on .14.1. Extend existing communication bridge/provider adapters and normalized Incoming facts for trusted connector/channel/thread identity and per-message recipient evidence. For email: sender copy, visible To/Cc, hidden Bcc only via independently identified receiving account or confirmed outbound envelope, not IMAP folder/Delivered-To/thread-participant guesses; no retroactive association. Reject ambiguous/mismatched accounts and unsupported mapping; preserve current mention gating and legacy ingress. Tests FIRST at adapters/bridge with actual parser fixtures and property tests for recipient deduplication and fail-closed evidence. Reuse existing Channels connector resolution/normalizers, not parallel Action/tool; NodeRouter for cross-service calls. Read Engine/Channels and system-config if touching secrets, docs/action-reuse.md/testing-approach.md; update Channels guide. No new-feature E2E before human UX approval.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.14.2] Normalize trusted provider history facts",
   "type": "task",
-  "updated_at": "2026-09-26T08:09:44Z"
+  "updated_at": "2026-09-26T08:09:47Z"
 }
