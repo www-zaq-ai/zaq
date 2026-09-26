@@ -2,6 +2,7 @@ defmodule Zaq.Accounts.PersonChannel do
   @moduledoc """
   Stored communication identity and channel preferences for a Person. Email
   identifiers share Person's canonical email policy; other platforms use opaque IDs.
+  Connector-bound identifiers are distinct from unscoped legacy/BO-owned rows.
   """
 
   use Ecto.Schema
@@ -16,6 +17,7 @@ defmodule Zaq.Accounts.PersonChannel do
   schema "channels" do
     field :platform, :string
     field :channel_identifier, :string
+    belongs_to :channel_config, Zaq.Channels.ChannelConfig
     field :username, :string
     field :display_name, :string
     field :phone, :string
@@ -34,6 +36,7 @@ defmodule Zaq.Accounts.PersonChannel do
     |> cast(attrs, [
       :platform,
       :channel_identifier,
+      :channel_config_id,
       :username,
       :display_name,
       :phone,
@@ -48,6 +51,7 @@ defmodule Zaq.Accounts.PersonChannel do
     |> validate_inclusion(:platform, @valid_platforms)
     |> validate_weight()
     |> foreign_key_constraint(:person_id)
+    |> foreign_key_constraint(:channel_config_id)
     |> identifier_constraint()
   end
 
@@ -75,6 +79,11 @@ defmodule Zaq.Accounts.PersonChannel do
     changeset
     |> unique_constraint([:platform, :channel_identifier],
       name: :channels_platform_channel_identifier_index,
+      error_key: :channel_identifier,
+      message: "This channel identifier is already assigned."
+    )
+    |> unique_constraint([:platform, :channel_config_id, :channel_identifier],
+      name: :channels_connector_identifier_index,
       error_key: :channel_identifier,
       message: "This channel identifier is already assigned."
     )

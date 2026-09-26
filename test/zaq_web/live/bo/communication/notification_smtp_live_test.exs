@@ -63,6 +63,47 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assert html =~ "Deactivate"
   end
 
+  test "two SMTP accounts require card selection and default is explicit", %{conn: conn} do
+    first =
+      insert_smtp_channel(%{
+        name: "First SMTP",
+        enabled: true,
+        settings: %{"relay" => "first.example.com", "from_email" => "first@example.com"}
+      })
+
+    second =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Second SMTP",
+        provider: "email:smtp",
+        kind: "retrieval",
+        enabled: true,
+        url: "smtp://configured-in-settings",
+        token: "smtp-unused",
+        settings: %{"relay" => "second.example.com", "from_email" => "second@example.com"}
+      })
+      |> Repo.insert!()
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+    assert has_element?(view, "#smtp-connector-#{first.id}")
+    assert has_element?(view, "#smtp-connector-#{second.id}")
+    refute has_element?(view, "#smtp-config-form")
+
+    view
+    |> element("#smtp-connector-#{second.id} [phx-click='select_connector']")
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "#smtp-config-form input[name='email_config[relay]'][value='second.example.com']"
+           )
+
+    view |> element("#smtp-default-#{second.id}") |> render_click()
+    assert Repo.get!(ChannelConfig, second.id).notification_default
+    refute Repo.get!(ChannelConfig, first.id).notification_default
+    assert has_element?(view, "#smtp-default-#{second.id}[aria-pressed='true']")
+  end
+
   test "validate renders smtp security warnings", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
 

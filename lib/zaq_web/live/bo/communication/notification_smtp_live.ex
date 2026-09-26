@@ -7,9 +7,11 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   alias Zaq.Channels.EmailBridge.TlsHelpers
   alias Zaq.Config
   alias Zaq.Mailer
+  alias Zaq.Repo
   alias Zaq.System.EmailConfig
   alias Zaq.Types.EncryptedString
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Live.BO.Communication.EmailConnectorSelection, as: ConnectorSelection
 
   @smtp_provider "email:smtp"
   alias Zaq.Channels.SmtpHelpers
@@ -17,7 +19,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    config = current_email_config()
+    socket = ConnectorSelection.initialize(socket, @smtp_provider)
+    config = current_email_config(socket)
     changeset = EmailConfig.changeset(config, %{})
 
     {:ok,
@@ -38,8 +41,41 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   end
 
   @impl true
+  def handle_event("select_connector", %{"id" => id}, socket) do
+    case Enum.find(socket.assigns.configs, &(to_string(&1.id) == id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Connector not found.")}
+
+      selected ->
+        socket = assign(socket, :selected_config_id, selected.id)
+        config = current_email_config(socket)
+        changeset = EmailConfig.changeset(config, %{})
+
+        {:noreply,
+         socket
+         |> assign(:form, to_form(changeset))
+         |> assign(:email_enabled, config.enabled)
+         |> assign(:smtp_warnings, smtp_warnings(changeset))
+         |> assign(:save_status, :idle)
+         |> assign(:test_status, :idle)}
+    end
+  end
+
+  @impl true
+  def handle_event("set_default_connector", %{"id" => id}, socket) do
+    with {config_id, ""} <- Integer.parse(id),
+         true <- Enum.any?(socket.assigns.configs, &(&1.id == config_id)),
+         {:ok, _} <- ChannelConfig.set_default_smtp_connector(config_id) do
+      {:noreply, assign(socket, :configs, ChannelConfig.list_by_provider(@smtp_provider))}
+    else
+      _ ->
+        {:noreply, put_flash(socket, :error, "Cannot designate this SMTP connector as default.")}
+    end
+  end
+
+  @impl true
   def handle_event("validate", %{"email_config" => params}, socket) do
-    config = current_email_config()
+    config = current_email_config(socket)
 
     changeset =
       config
@@ -55,14 +91,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   @impl true
   def handle_event("save", %{"email_config" => params}, socket) do
-    config = current_email_config()
+    config = current_email_config(socket)
     # Preserve the current enabled state — it's controlled by activate/deactivate
     params_with_enabled = Map.put(params, "enabled", to_string(config.enabled))
     changeset = EmailConfig.changeset(config, params_with_enabled)
 
-    case persist_email_config(changeset) do
+    case persist_email_config(
+           changeset,
+           selected_channel(socket),
+           socket.assigns.selected_config_id
+         ) do
       {:ok, _} ->
-        fresh_config = current_email_config()
+        socket = ConnectorSelection.refresh(socket, @smtp_provider)
+        fresh_config = current_email_config(socket)
         fresh_changeset = EmailConfig.changeset(fresh_config, %{})
 
         {:noreply,
@@ -104,13 +145,18 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   @impl true
   def handle_event("activate", _params, socket) do
-    config = current_email_config()
+    config = current_email_config(socket)
     new_enabled = !config.enabled
     changeset = EmailConfig.changeset(config, %{"enabled" => to_string(new_enabled)})
 
-    case persist_email_config(changeset) do
+    case persist_email_config(
+           changeset,
+           selected_channel(socket),
+           socket.assigns.selected_config_id
+         ) do
       {:ok, _} ->
-        fresh_config = current_email_config()
+        socket = ConnectorSelection.refresh(socket, @smtp_provider)
+        fresh_config = current_email_config(socket)
         fresh_changeset = EmailConfig.changeset(fresh_config, %{})
 
         {:noreply,
@@ -148,7 +194,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
          assign(socket, :test_status, {:error, "Recipient must be a valid email address."})}
 
       true ->
-        send(self(), {:send_test, recipient})
+        send(self(), {:send_test, recipient, socket.assigns.selected_config_id})
         {:noreply, assign(socket, :test_status, :loading)}
     end
   end
@@ -160,14 +206,28 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   @impl true
   def handle_info({:send_test, recipient}, socket) do
+    if length(socket.assigns.configs) <= 1,
+      do: send_selected_test(recipient, socket),
+      else: {:noreply, assign(socket, :test_status, {:error, "Select an SMTP connector."})}
+  end
+
+  def handle_info({:send_test, recipient, selected_id}, socket) do
+    if selected_id != socket.assigns.selected_config_id do
+      {:noreply, socket}
+    else
+      send_selected_test(recipient, socket)
+    end
+  end
+
+  defp send_selected_test(recipient, socket) do
     result =
       try do
-        case email_delivery_opts() do
+        case email_delivery_opts(socket) do
           {:error, :not_configured} ->
             {:error, "Email is not configured or disabled."}
 
           {:ok, delivery_opts} ->
-            {from_name, from_email} = email_sender()
+            {from_name, from_email} = email_sender(socket)
 
             email =
               Swoosh.Email.new()
@@ -287,8 +347,11 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   defp maybe_add_warning(warnings, true, id, message),
     do: warnings ++ [%{id: id, message: message}]
 
-  defp current_email_config do
-    channel = ChannelConfig.get_any_by_provider(@smtp_provider)
+  defp selected_channel(socket),
+    do: ConnectorSelection.selected_channel(socket, @smtp_provider)
+
+  defp current_email_config(socket) do
+    channel = selected_channel(socket)
     settings = if channel, do: channel.settings || %{}, else: %{}
 
     %EmailConfig{
@@ -306,12 +369,15 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
     }
   end
 
-  defp persist_email_config(%Ecto.Changeset{valid?: true} = changeset) do
+  defp persist_email_config(_changeset, nil, selected_id) when not is_nil(selected_id),
+    do: {:error, :connector_mismatch}
+
+  defp persist_email_config(%Ecto.Changeset{valid?: true} = changeset, channel, _selected_id) do
     config = Ecto.Changeset.apply_changes(changeset)
 
     with {:ok, encrypted_password} <- encrypt_password_value(config.password) do
       attrs = %{
-        name: "Email SMTP",
+        name: if(channel, do: channel.name, else: "Email SMTP"),
         kind: "retrieval",
         url: "smtp://configured-in-settings",
         token: "__smtp_unused__",
@@ -330,17 +396,24 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
         }
       }
 
-      ChannelConfig.upsert_by_provider(@smtp_provider, attrs)
+      case channel do
+        %ChannelConfig{} = selected ->
+          selected |> ChannelConfig.changeset(attrs) |> Repo.update()
+
+        nil ->
+          ChannelConfig.upsert_by_provider(@smtp_provider, attrs)
+      end
     end
   end
 
-  defp persist_email_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
+  defp persist_email_config(%Ecto.Changeset{valid?: false} = changeset, _channel, _selected_id),
+    do: {:error, changeset}
 
-  defp email_delivery_opts do
-    cfg = current_email_config()
+  defp email_delivery_opts(socket) do
+    cfg = current_email_config(socket)
 
     with true <- cfg.enabled and not blank?(cfg.relay),
-         {:ok, password} <- password_for_delivery(cfg) do
+         {:ok, password} <- password_for_delivery(cfg, socket) do
       {:ok, build_delivery_opts(cfg, password)}
     else
       false -> {:error, :not_configured}
@@ -348,8 +421,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
     end
   end
 
-  defp email_sender do
-    cfg = current_email_config()
+  defp email_sender(socket) do
+    cfg = current_email_config(socket)
     {cfg.from_name || "ZAQ", cfg.from_email || "noreply@zaq.local"}
   end
 
@@ -366,13 +439,14 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
     if EncryptedString.encrypted?(value), do: {:ok, value}, else: EncryptedString.encrypt(value)
   end
 
-  defp password_for_delivery(%EmailConfig{username: username}) when username in [nil, ""] do
+  defp password_for_delivery(%EmailConfig{username: username}, _socket)
+       when username in [nil, ""] do
     {:ok, ""}
   end
 
-  defp password_for_delivery(%EmailConfig{}) do
+  defp password_for_delivery(%EmailConfig{}, socket) do
     settings =
-      case ChannelConfig.get_any_by_provider(@smtp_provider) do
+      case selected_channel(socket) do
         %ChannelConfig{settings: map} when is_map(map) -> map
         _ -> %{}
       end

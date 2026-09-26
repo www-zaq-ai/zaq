@@ -10,6 +10,60 @@ The Channels service provides transport and runtime infrastructure for communica
 
 Channel delivery uses canonical message payload structs (`Incoming` / `Outgoing`) defined in `lib/zaq/engine/messages/`; adapter-specific envelopes stay at the transport boundary. Cross-node routing follows the [Event/dispatch contract](../architecture.md#noderouter--critical). Existing `Zaq.Channels.Events` domain builders encapsulate specific request contracts, but are not a blanket requirement to replace direct Event construction.
 
+`Zaq.People.IdentityResolver` checks that an ingress connector ID references a
+retrieval configuration for the message provider (including IMAP-to-email),
+then matches an author against the connector-scoped `PersonChannel` identity.
+Unscoped legacy/BO-owned channel identities do not directly satisfy a scoped
+lookup. On ingress, a non-email opaque identity can be bound transactionally
+to the sole stored retrieval connector for its provider; archived or
+disabled connectors still count as possible origins. With multiple connectors,
+it remains unscoped and cannot authorize either connector by guesswork.
+The unconsumed connector-scope migration links old identities only where one
+retrieval connector matches their provider, failing on ambiguous mappings.
+`CommunicationBridge.route_incoming_message/4` stamps the connector ID from
+its configured bridge options and discards any ID supplied only in incoming
+metadata. A caller bypassing that Channels ingress path still must not be
+treated as a trusted provider event. `IncomingMessageRouter` discards valid
+prefilled channel Person claims in both the request and actor and uses only
+connector-scoped author resolution; invalid/conflicting claims fail validation.
+BO web chat retains its internally trusted session-derived Person. This policy
+trusts internal event callers; it does not authenticate an arbitrary caller at
+`NodeRouter` or attest the event's stated provider/connector.
+
+The unconsumed provider-multiplicity migration permits more than one connector
+with the same provider. `ChannelConfig.resolve_by_provider/2` accepts an explicit
+configuration ID and checks its provider and enabled status; provider-only
+resolution fails on multiple enabled matches. Legacy provider-only upsert fails
+on multiple stored matches instead of overwriting an arbitrary connector. The
+remaining provider-only BO/runtime call sites are being audited under
+`zaq-emb.21`; do not treat a provider string as a connector identity.
+The BO retrieval-channel picker requires a connector selection when several
+configs share a provider; routing changes and team browsing operate on that
+chosen connector rather than the first configured row.
+Conversation webhook subscriptions now target a URL ending in their numeric
+connector ID. The Channels controller takes that ID from the URL rather than
+the request body, then the bridge checks enabled provider/config consistency
+before invoking the adapter's webhook validation. Old provider-only callback
+URLs remain usable only for an unambiguous live provider; multiple configs
+fail closed instead of selecting an arbitrary connector.
+Person identity enrichment and DM backfill pass the ingress-stamped connector
+ID to Channels; profile and DM calls use that connector's credentials and bot
+identity, never a different live account of the same provider.
+Pipeline replies carry the incoming routing context separately from metadata;
+delivery selects the matching connector credentials. A provider-only reply is
+allowed only when the provider has one unambiguous active connector.
+Intermediate status upserts use the same ingress routing context, rather than
+metadata-claimed connector IDs, for edits to the provider message.
+The dedicated SMTP and IMAP settings pages show connector bars; with multiple
+accounts they require an explicit selection before editing. SMTP notification
+delivery uses a sole enabled connector or an administrator-designated default
+(`ChannelConfig.set_default_smtp_connector/1`); multiple live accounts with no
+enabled default fail closed. Disabling or archiving the default does not silently
+promote a different account. IMAP settings bind each inbox to an enabled SMTP
+connector for replies. Legacy unbound inboxes can use a sole SMTP connector,
+but multiple SMTP accounts require a binding even with a notification default.
+Disabled or archived bindings fail closed rather than falling back.
+
 ### People authentication rate ownership (V1)
 
 `Zaq.Channels.PeopleAuthRateLimiter` is the first child of the static

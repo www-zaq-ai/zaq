@@ -20,6 +20,17 @@ defmodule Zaq.Channels.WebhookUrl do
     end
   end
 
+  @doc "Builds a connector-scoped callback URL without accepting path segments as IDs."
+  @spec build(String.t() | atom(), String.t() | atom(), pos_integer()) :: String.t() | nil
+  def build(type, provider, config_id) when is_integer(config_id) and config_id > 0 do
+    case build(type, provider) do
+      url when is_binary(url) -> url <> "/#{config_id}"
+      nil -> nil
+    end
+  end
+
+  def build(_, _, _), do: nil
+
   @spec build!(String.t() | atom(), String.t() | atom()) :: String.t()
   @doc "Builds a webhook URL or raises when global base URL is not configured."
   def build!(type, provider) do

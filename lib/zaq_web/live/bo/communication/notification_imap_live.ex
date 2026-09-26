@@ -14,13 +14,15 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   alias Zaq.Types.EncryptedString
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
+  alias ZaqWeb.Live.BO.Communication.EmailConnectorSelection, as: ConnectorSelection
 
   @imap_provider "email:imap"
 
   @impl true
   def mount(_params, _session, socket) do
-    config = current_imap_config()
-    channel = ChannelConfig.get_any_by_provider(@imap_provider)
+    socket = ConnectorSelection.initialize(socket, @imap_provider)
+    config = current_imap_config(socket)
+    channel = selected_channel(socket)
     changeset = ImapConfig.changeset(config, %{})
 
     {:ok,
@@ -30,6 +32,8 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
      |> assign(:form, to_form(changeset))
      |> assign(:imap_enabled, config.enabled)
      |> assign(:agent_options, AgentRoutingOptions.agent_options())
+     |> assign(:smtp_configs, ChannelConfig.list_by_provider("email:smtp"))
+     |> assign(:smtp_reply_config_id, imap_smtp_config_id(channel))
      |> assign(:provider_default_agent_value, provider_default_agent_value(channel))
      |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
      |> assign(:mailbox_assignment_targets, selected_mailboxes(config.selected_mailboxes))
@@ -44,8 +48,28 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   end
 
   @impl true
+  def handle_event("select_connector", %{"id" => id}, socket) do
+    case Enum.find(socket.assigns.configs, &(to_string(&1.id) == id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Connector not found.")}
+
+      selected ->
+        socket = assign(socket, :selected_config_id, selected.id)
+        config = current_imap_config(socket)
+        channel = selected_channel(socket)
+        changeset = ImapConfig.changeset(config, %{})
+
+        {:noreply,
+         socket
+         |> assign_persisted_imap_state(config, channel, changeset)
+         |> assign(:mailbox_status, :idle)
+         |> assign(:save_status, :idle)}
+    end
+  end
+
+  @impl true
   def handle_event("validate", %{"imap_config" => params}, socket) do
-    config = current_imap_config()
+    config = current_imap_config(socket)
 
     changeset =
       config
@@ -55,6 +79,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     {:noreply,
      socket
      |> assign(:form, to_form(changeset))
+     |> assign(
+       :smtp_reply_config_id,
+       Map.get(params, "smtp_config_id", socket.assigns.smtp_reply_config_id)
+     )
      |> assign(
        :mailbox_assignment_targets,
        selected_mailboxes(Ecto.Changeset.get_field(changeset, :selected_mailboxes, []))
@@ -91,13 +119,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   @impl true
   def handle_event("save", %{"imap_config" => params}, socket) do
-    config = current_imap_config()
+    config = current_imap_config(socket)
     changeset = ImapConfig.changeset(config, params)
 
-    case persist_imap_config(changeset, params) do
+    case persist_imap_config(
+           changeset,
+           params,
+           selected_channel(socket),
+           socket.assigns.selected_config_id
+         ) do
       {:ok, _updated_config} ->
-        fresh = current_imap_config()
-        channel = ChannelConfig.get_any_by_provider(@imap_provider)
+        socket = ConnectorSelection.refresh(socket, @imap_provider)
+        fresh = current_imap_config(socket)
+        channel = selected_channel(socket)
         fresh_changeset = ImapConfig.changeset(fresh, %{})
         sync_result = sync_runtime(@imap_provider)
 
@@ -123,13 +157,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
 
   @impl true
   def handle_event("activate", _params, socket) do
-    config = current_imap_config()
+    config = current_imap_config(socket)
     changeset = ImapConfig.changeset(config, %{"enabled" => to_string(!config.enabled)})
 
-    case persist_imap_config(changeset, %{}) do
+    case persist_imap_config(
+           changeset,
+           %{},
+           selected_channel(socket),
+           socket.assigns.selected_config_id
+         ) do
       {:ok, _updated_config} ->
-        fresh = current_imap_config()
-        channel = ChannelConfig.get_any_by_provider(@imap_provider)
+        socket = ConnectorSelection.refresh(socket, @imap_provider)
+        fresh = current_imap_config(socket)
+        channel = selected_channel(socket)
         fresh_changeset = ImapConfig.changeset(fresh, %{})
         sync_result = sync_runtime(@imap_provider)
 
@@ -181,8 +221,11 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     ChangesetErrors.format(changeset, field_separator: " ")
   end
 
-  defp current_imap_config do
-    channel = ChannelConfig.get_any_by_provider(@imap_provider)
+  defp selected_channel(socket),
+    do: ConnectorSelection.selected_channel(socket, @imap_provider)
+
+  defp current_imap_config(socket) do
+    channel = selected_channel(socket)
     settings = if channel, do: ChannelConfig.imap_settings(channel), else: %{}
 
     %ImapConfig{
@@ -201,13 +244,20 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
     }
   end
 
-  defp persist_imap_config(%Ecto.Changeset{valid?: true} = changeset, raw_params) do
+  defp persist_imap_config(_changeset, _params, nil, selected_id) when not is_nil(selected_id),
+    do: {:error, :connector_mismatch}
+
+  defp persist_imap_config(
+         %Ecto.Changeset{valid?: true} = changeset,
+         raw_params,
+         channel,
+         _selected_id
+       ) do
     config = Ecto.Changeset.apply_changes(changeset)
-    channel = ChannelConfig.get_any_by_provider(@imap_provider)
     existing_settings = if(channel, do: channel.settings || %{}, else: %{})
 
     attrs = %{
-      name: "Email IMAP",
+      name: if(channel, do: channel.name, else: "Email IMAP"),
       kind: "retrieval",
       url: blank_to_nil(config.url),
       token: blank_to_nil(config.password),
@@ -227,15 +277,60 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
         })
     }
 
-    with {:ok, channel} <- ChannelConfig.upsert_by_provider(@imap_provider, attrs),
+    with {:ok, smtp_id} <- requested_smtp_config_id(raw_params, channel, config.enabled),
+         attrs = put_in(attrs, [:settings, "imap", "smtp_config_id"], smtp_id),
+         {:ok, channel} <- save_imap_channel(channel, attrs),
          {:ok, _} <- maybe_persist_provider_default_rule(channel, raw_params),
          {:ok, _} <- maybe_persist_mailbox_agent_rules(channel, raw_params) do
       {:ok, channel}
     end
   end
 
-  defp persist_imap_config(%Ecto.Changeset{valid?: false} = changeset, _raw_params),
-    do: {:error, changeset}
+  defp persist_imap_config(
+         %Ecto.Changeset{valid?: false} = changeset,
+         _raw_params,
+         _channel,
+         _selected_id
+       ),
+       do: {:error, changeset}
+
+  defp save_imap_channel(%ChannelConfig{} = channel, attrs),
+    do: channel |> ChannelConfig.changeset(attrs) |> Zaq.Repo.update()
+
+  defp save_imap_channel(nil, attrs), do: ChannelConfig.upsert_by_provider(@imap_provider, attrs)
+
+  defp imap_smtp_config_id(nil), do: nil
+
+  defp imap_smtp_config_id(channel),
+    do: get_in(channel.settings || %{}, ["imap", "smtp_config_id"])
+
+  defp requested_smtp_config_id(params, channel, enabled?) do
+    case Map.get(params, "smtp_config_id", imap_smtp_config_id(channel)) do
+      value when value in [nil, ""] and not enabled? -> {:ok, nil}
+      value when value in [nil, ""] -> require_unambiguous_smtp()
+      value -> validate_smtp_reply_id(value)
+    end
+  end
+
+  defp require_unambiguous_smtp do
+    case ChannelConfig.resolve_by_provider("email:smtp") do
+      {:ok, _} -> {:ok, nil}
+      _ -> {:error, :missing_smtp_binding}
+    end
+  end
+
+  defp validate_smtp_reply_id(value) do
+    case Integer.parse(to_string(value)) do
+      {id, ""} when id > 0 ->
+        case ChannelConfig.resolve_by_provider("email:smtp", id) do
+          {:ok, _} -> {:ok, id}
+          _ -> {:error, :invalid_smtp_connector}
+        end
+
+      _ ->
+        {:error, :invalid_smtp_connector}
+    end
+  end
 
   defp provider_default_agent_value(nil), do: ""
 
@@ -465,6 +560,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLive do
   defp assign_persisted_imap_state(socket, fresh, channel, fresh_changeset) do
     socket
     |> assign(:imap_enabled, fresh.enabled)
+    |> assign(:smtp_reply_config_id, imap_smtp_config_id(channel))
     |> assign(:provider_default_agent_value, provider_default_agent_value(channel))
     |> assign(:mailbox_agent_assignments, mailbox_agent_assignments(channel))
     |> assign(:mailbox_assignment_targets, selected_mailboxes(fresh.selected_mailboxes))
