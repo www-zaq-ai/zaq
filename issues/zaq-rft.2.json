@@ -27,11 +27,15 @@
     {
       "text": "Coverage-plan implementation complete in test/mix/tasks/retrieval_eval_embed_test.exs: added cache deduplication across duplicate chunk inputs, invalid successful vectors (wrong dimension and zero norm) preserving exact file bytes/no temp files, and real rename-failure reporting with retained earlier commits and fixture restoration. Implementation only per handoff; no tests, formatter, coverage, or full validation run (coordinator to authorize). Ticket remains open.",
       "timestamp": "2026-09-26T11:38:19Z"
+    },
+    {
+      "text": "Review follow-up applied in test/mix/tasks/retrieval_eval_embed_test.exs: provider capture now preserves repeated calls via :duplicate_bag with unique per-call references, asserts distinct total and one call for duplicated text; cache scenario now verifies no-op rerun and unchanged bytes; authored question/expected/forbidden values compared to source fixture; rename scenario scans both fixture directories for leftover sibling temp files. No tests run.",
+      "timestamp": "2026-09-26T11:39:36Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-rft.2] Configured embedding preparation task",
   "type": "task",
-  "updated_at": "2026-09-26T11:38:19Z"
+  "updated_at": "2026-09-26T11:39:36Z"
 }
