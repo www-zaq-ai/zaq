@@ -637,6 +637,11 @@ defmodule Zaq.Channels.JidoChatBridge do
       author_name: incoming.author && incoming.author.user_name,
       provider: provider,
       channel_config_id: channel_config_id,
+      routing_context: %{
+        channel_config_id: channel_config_id,
+        history_kind:
+          platform_history_kind(incoming.channel_meta, provider, incoming.external_room_id)
+      },
       attachments:
         media_records(
           incoming.media,
@@ -650,6 +655,38 @@ defmodule Zaq.Channels.JidoChatBridge do
       metadata: incoming.metadata || %{}
     })
   end
+
+  defp platform_history_kind(metadata, provider, room) when is_map(metadata) do
+    claimed_provider = Map.get(metadata, :adapter_name)
+    claimed_room = Map.get(metadata, :external_room_id)
+
+    if matching_history_provider?(claimed_provider, provider) and
+         (is_nil(claimed_room) or claimed_room == room) do
+      platform_history_kind(metadata)
+    end
+  end
+
+  defp platform_history_kind(_metadata, _provider, _room), do: nil
+
+  defp matching_history_provider?(nil, _provider), do: true
+
+  defp matching_history_provider?(claim, provider)
+       when (is_atom(claim) or is_binary(claim)) and (is_atom(provider) or is_binary(provider)),
+       do: to_string(claim) == to_string(provider)
+
+  defp matching_history_provider?(_claim, _provider), do: false
+
+  defp platform_history_kind(%{is_dm: true}), do: :direct
+
+  # ChannelMeta defaults is_dm to false even when the adapter supplied no room
+  # type. That default cannot establish shared-channel history authorization.
+  defp platform_history_kind(%Jido.Chat.ChannelMeta{is_dm: false, chat_type: type})
+       when type in [:channel, :group, :supergroup, :public_channel, :private_channel],
+       do: :channel
+
+  defp platform_history_kind(%{__struct__: _}), do: nil
+  defp platform_history_kind(%{is_dm: false}), do: :channel
+  defp platform_history_kind(_), do: nil
 
   @doc "Fetches media bytes through the configured JidoChat adapter."
   @impl true
@@ -847,6 +884,12 @@ defmodule Zaq.Channels.JidoChatBridge do
                [role_ids: role_ids],
                actor_from_incoming(msg),
                channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
+               history_kind:
+                 platform_history_kind(
+                   incoming.channel_meta,
+                   thread.adapter_name,
+                   incoming.external_room_id
+                 ),
                retrieval_channel_id:
                  RetrievalChannel.id_by_config_and_channel(config, msg.channel_id),
                pipeline_module: pipeline_module(),

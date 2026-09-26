@@ -35,4 +35,14 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContextTest do
              attributes: %{"source" => "mailbox"}
            }
   end
+
+  test "history kind accepts only typed adapter-sourced values" do
+    assert RoutingContext.normalize(%{history_kind: :direct}).history_kind == :direct
+    assert RoutingContext.normalize(%{history_kind: :channel}).history_kind == :channel
+    assert RoutingContext.normalize(%{history_kind: :email}).history_kind == :email
+
+    for forged <- ["direct", "shared", :unexpected, true, %{"kind" => "direct"}] do
+      assert RoutingContext.normalize(%{history_kind: forged}).history_kind == nil
+    end
+  end
 end
