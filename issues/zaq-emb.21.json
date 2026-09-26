@@ -69,11 +69,15 @@
     {
       "text": "Coordination: zaq-emb.21.1 claimed for PR799 CI 31-failure repair. This session owns lib/zaq/channels/api.ex plus test/zaq/channels/{api_test,email_html_delivery_test}.exs and test/zaq/engine/notifications/{notification_test,email_threading_test,outbound_threading_regression_test}.exs. Other agents: please do not edit those paths or independently repair PR799 delivery failures; coordinate via zaq-emb.21.1 before touching. Will keep changes isolated to PR799 branch; no push without authorization.",
       "timestamp": "2026-09-26T00:12:43Z"
+    },
+    {
+      "text": "Continuation under #768: reserved coherent data-source watch-scoping and archive lifecycle slice on a new stacked branch based on PR #800; .21 connector-scoped watch uniqueness/callback/lookup comes first, .22 archive teardown depends on it. Reuse ChannelConfig.resolve_by_provider/2, WebhookUrl.build/3, DataSources watch APIs and Channels/Engine NodeRouter events; extend rather than duplicate operations. No Action/tool exposure: watch create/renew/unwatch remain service operations, not agent tools. Test fixtures already in preserved deferred stash will be reviewed against current head before restoring; old stash also contains superseded email/executor diffs and must not be applied wholesale. Communication connector-card UI scope unchanged; data-source ProviderLive existing delete/archive behavior only. New-feature E2E stays blocked on zaq-emb.12 human UX approval.",
+      "timestamp": "2026-09-26T00:53:59Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-26T00:12:43Z"
+  "updated_at": "2026-09-26T00:53:59Z"
 }
