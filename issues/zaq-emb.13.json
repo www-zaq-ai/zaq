@@ -1,9 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [
-    "zaq-emb.19"
-  ],
+  "blocks": [],
   "created": "2026-09-23T13:18:39Z",
   "description": "Single persistent feature E2E umbrella: .13.1 (A) and .13.2 (B). A authoring blocked by .12; B by .32. A coverage/final gate depends on .13.1 only, not this umbrella or B. B cannot reuse A approval. Preserve existing journeys/assertions; no feature E2E authoring in this planning session.",
   "id": "zaq-emb.13",
@@ -13,5 +11,5 @@
   "status": "open",
   "title": "[zaq-emb.13] Consolidated feature E2E — independent PR A/B partitions",
   "type": "task",
-  "updated_at": "2026-09-26T09:50:30Z"
+  "updated_at": "2026-09-26T09:50:31Z"
 }

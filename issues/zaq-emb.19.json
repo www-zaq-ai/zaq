@@ -1,8 +1,6 @@
 {
   "assignee": "",
-  "blocked_by": [
-    "zaq-emb.13"
-  ],
+  "blocked_by": [],
   "blocks": [
     "zaq-emb.20"
   ],
@@ -15,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.19] PR A coverage handoff and review",
   "type": "task",
-  "updated_at": "2026-09-26T09:49:44Z"
+  "updated_at": "2026-09-26T09:50:31Z"
 }
