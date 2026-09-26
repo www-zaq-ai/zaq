@@ -29,11 +29,15 @@
     {
       "text": "2026-09-26 split as required by deployment/test risk: child .3.1 owns schema/structural migration, child .3.2 owns authorized transactional API, .3.1 blocks .3.2; parent .3 remains open until both completed, then its existing edges unblock .14/.15. Beadwork forbids descendant-\u003eancestor dependency (child .3.2 blocks parent rejected); containment and parent closure enforce that ordering. Root .3.1 is ready; .3.2 blocked. No new feature E2E until .12/.13. Proposed in-place messages preserves UUID/FK references and uses later migration version because test DB already applied 00000..09.",
       "timestamp": "2026-09-26T07:14:10Z"
+    },
+    {
+      "text": "2026-09-26 parent acceptance audit: children .3.1/.3.2 delivered #807/#808, but original parent also requires separate Person-bound execution-private records before strategy integration. Created .3.3 child blocked by .3.2; do not close parent or unblock .14 until private schema exists. zaq-emb.15 explicitly owns legacy backfill/cutover and private execution data migration after strategy policies; .3.3 owns additive schema and no legacy data rewrites. #807 CI green, #808 pending; E2E gate unchanged.",
+      "timestamp": "2026-09-26T07:59:30Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.3] Universal canonical messages and transcript associations",
   "type": "task",
-  "updated_at": "2026-09-26T07:14:10Z"
+  "updated_at": "2026-09-26T07:59:30Z"
 }
