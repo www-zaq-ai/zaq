@@ -9,9 +9,15 @@
   "id": "zaq-emb.14.2.1",
   "labels": [],
   "parent": "zaq-emb.14.2",
+  "comments": [
+    {
+      "text": "2026-09-26 Action reuse before edit: `CommunicationBridge.put_routing_context` is the existing channel-\u003eEngine stamping boundary; `Incoming.RoutingContext.normalize` owns typed serializable routing fields; `JidoChatBridge.to_internal` owns Jido.Chat adapter conversion. Extend these three rather than add Action, duplicate bridge or agent tool. Person/recipient ID lookup remains Engine IdentityResolver after ingress; new history_kind never grants access. Test-first showed missing field and forged context. Important discovered adapter limitation: `Jido.Chat.ChannelMeta.is_dm` defaults to false even when no actual room-type evidence. Fail closed: typed default without chat_type leaves history_kind nil; explicit adapter map false or typed known channel/group type yields :channel, true yields :direct. Claimed provider/room metadata must match configured provider/room; route overwrites incoming metadata/routing claims from configured bridge options. This limitation may require provider adapter enrichment before group history integration in .4. No E2E authoring.",
+      "timestamp": "2026-09-26T08:30:16Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.1] Stamp verified channel history kinds",
   "type": "task",
-  "updated_at": "2026-09-26T08:21:56Z"
+  "updated_at": "2026-09-26T08:30:16Z"
 }
