@@ -65,6 +65,9 @@ watch ID; a legacy provider-only delivery with colliding watch IDs fails closed
 rather than choosing the first account. Verified webhook jobs pass their
 persisted connector ID through the Engine watch lookup, and scoped webhook
 dispatch checks provider/config consistency before invoking an adapter.
+Target-source watch lookups likewise reject matches across connectors; within
+one connector they use the latest matching watch. An explicitly supplied but
+malformed connector ID is rejected instead of becoming an unscoped lookup.
 BO connector removal archives rather than deletes the config: it disables
 runtime selection, retains historical lookup by ID and preserves the FK of
 PersonChannel identities. Archived configs are excluded from ordinary BO

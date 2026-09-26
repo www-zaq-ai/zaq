@@ -1,6 +1,7 @@
 defmodule Zaq.Engine.DataSourcesTest do
   use Zaq.DataCase, async: false
   use Oban.Testing, repo: Zaq.Repo
+  use ExUnitProperties
 
   import Ecto.Query
 
@@ -431,6 +432,31 @@ defmodule Zaq.Engine.DataSourcesTest do
     assert resolved.id == watch_channel.id
   end
 
+  test "unscoped target lookup uses the newest watch when all matches belong to one connector" do
+    config = insert_data_source_config()
+    target = "data_source/google_drive/#{config.id}/folder-1"
+
+    {:ok, older} =
+      DataSources.upsert_watch_channel(
+        watch_attrs(config, %{target_source: target, channel_id: "channel-older"})
+      )
+
+    {:ok, newer} =
+      DataSources.upsert_watch_channel(
+        watch_attrs(config, %{target_source: target, channel_id: "channel-newer"})
+      )
+
+    assert {:ok, resolved} =
+             DataSources.resolve_watch_channel(%{
+               provider: "google_drive",
+               target_source: target,
+               target_provider_id: "folder-1"
+             })
+
+    assert resolved.id == newer.id
+    refute resolved.id == older.id
+  end
+
   test "resolve_watch_channel does not reuse expired watch channels" do
     config = insert_data_source_config()
 
@@ -604,7 +630,7 @@ defmodule Zaq.Engine.DataSourcesTest do
              })
   end
 
-  test "resolve_watch_channel filters numeric config_id strings and ignores invalid ids" do
+  test "resolve_watch_channel filters numeric config_id strings and rejects invalid ids" do
     config = insert_data_source_config()
 
     other_config =
@@ -669,24 +695,48 @@ defmodule Zaq.Engine.DataSourcesTest do
 
     assert resolved.id == older_watch_channel.id
 
-    assert {:ok, resolved} =
+    for config_id <- ["invalid", "", "-1", 0] do
+      assert {:error, :invalid_connector_id} =
+               DataSources.resolve_watch_channel(%{
+                 provider: "google_drive",
+                 config_id: config_id,
+                 target_source: "data_source/google_drive/shared-target",
+                 target_provider_id: "folder-1"
+               })
+
+      assert {:error, :invalid_connector_id} =
+               DataSources.resolve_watch_channel(%{
+                 provider: "google_drive",
+                 config_id: config_id,
+                 channel_id: older_watch_channel.channel_id
+               })
+    end
+
+    assert {:error, :ambiguous_watch_channel} =
              DataSources.resolve_watch_channel(%{
                provider: "google_drive",
-               config_id: "invalid",
                target_source: "data_source/google_drive/shared-target",
                target_provider_id: "folder-1"
              })
+  end
 
-    assert resolved.id == older_watch_channel.id
+  property "explicit malformed connector IDs never become provider-only watch lookups" do
+    config = insert_data_source_config()
+    {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
 
-    assert {:ok, resolved} =
-             DataSources.resolve_watch_channel(%{
-               provider: "google_drive",
-               target_source: "data_source/google_drive/shared-target",
-               target_provider_id: "folder-1"
-             })
+    check all(
+            suffix <- StreamData.string(:alphanumeric, min_length: 1, max_length: 8),
+            max_runs: 20
+          ) do
+      invalid = "#{config.id}x#{suffix}"
 
-    assert resolved.id == older_watch_channel.id
+      assert {:error, :invalid_connector_id} =
+               DataSources.resolve_watch_channel(%{
+                 provider: watch.provider,
+                 config_id: invalid,
+                 channel_id: watch.channel_id
+               })
+    end
   end
 
   test "resolve_watch_channel ignores blank resource filters" do

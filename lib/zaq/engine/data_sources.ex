@@ -44,8 +44,9 @@ defmodule Zaq.Engine.DataSources do
   Resolves an active, non-expired provider watch channel.
 
   Webhooks resolve by provider `channel_id` and optional connector `config_id`
-  and `resource_id`. An unscoped legacy lookup with multiple matching watches
-  fails closed rather than selecting one provider account arbitrarily.
+  and `resource_id`. An unscoped legacy lookup with multiple matching connectors
+  fails closed, including target-source lookups; malformed explicit connector IDs
+  never fall back to an unscoped search.
   Provider watch setup and teardown can also resolve by provider, config, and
   target source. Returns `{:error, :watch_channel_not_found}` when no usable row
   exists.
@@ -55,19 +56,21 @@ defmodule Zaq.Engine.DataSources do
     resource_id = Map.get(attrs, :resource_id) || Map.get(attrs, "resource_id")
     config_id = Map.get(attrs, :config_id) || Map.get(attrs, "config_id")
 
-    WatchChannel
-    |> where([w], w.provider == ^to_string(provider))
-    |> where([w], w.channel_id == ^channel_id)
-    |> maybe_filter_config_id(config_id)
-    |> where([w], w.status in ["active", "error"])
-    |> filter_unexpired()
-    |> maybe_filter_resource_id(resource_id)
-    |> limit(2)
-    |> Repo.all()
-    |> case do
-      [watch_channel] -> {:ok, watch_channel}
-      [] -> {:error, :watch_channel_not_found}
-      _ -> {:error, :ambiguous_watch_channel}
+    with {:ok, config_id} <- valid_lookup_config_id(config_id) do
+      WatchChannel
+      |> where([w], w.provider == ^to_string(provider))
+      |> where([w], w.channel_id == ^channel_id)
+      |> maybe_filter_config_id(config_id)
+      |> where([w], w.status in ["active", "error"])
+      |> filter_unexpired()
+      |> maybe_filter_resource_id(resource_id)
+      |> limit(2)
+      |> Repo.all()
+      |> case do
+        [watch_channel] -> {:ok, watch_channel}
+        [] -> {:error, :watch_channel_not_found}
+        _ -> {:error, :ambiguous_watch_channel}
+      end
     end
   end
 
@@ -75,11 +78,30 @@ defmodule Zaq.Engine.DataSources do
       when is_binary(target_source) do
     config_id = Map.get(attrs, :config_id) || Map.get(attrs, "config_id")
 
-    WatchChannel
-    |> where([w], w.provider == ^to_string(provider))
-    |> filter_resolvable_watch_channel(target_source, changes_watch_lookup?(attrs))
-    |> filter_unexpired()
-    |> maybe_filter_config_id(config_id)
+    with {:ok, config_id} <- valid_lookup_config_id(config_id) do
+      WatchChannel
+      |> where([w], w.provider == ^to_string(provider))
+      |> filter_resolvable_watch_channel(target_source, changes_watch_lookup?(attrs))
+      |> filter_unexpired()
+      |> maybe_filter_config_id(config_id)
+      |> select_target_watch(config_id)
+    end
+  end
+
+  def resolve_watch_channel(_attrs), do: {:error, :missing_channel_id}
+
+  defp select_target_watch(query, nil) do
+    case query |> select([w], w.config_id) |> distinct(true) |> limit(2) |> Repo.all() do
+      [_config_id] -> newest_target_watch(query)
+      [] -> {:error, :watch_channel_not_found}
+      _ -> {:error, :ambiguous_watch_channel}
+    end
+  end
+
+  defp select_target_watch(query, _config_id), do: newest_target_watch(query)
+
+  defp newest_target_watch(query) do
+    query
     |> order_by([w], desc: w.updated_at, desc: w.id)
     |> limit(1)
     |> Repo.one()
@@ -89,7 +111,17 @@ defmodule Zaq.Engine.DataSources do
     end
   end
 
-  def resolve_watch_channel(_attrs), do: {:error, :missing_channel_id}
+  defp valid_lookup_config_id(nil), do: {:ok, nil}
+  defp valid_lookup_config_id(id) when is_integer(id) and id > 0, do: {:ok, id}
+
+  defp valid_lookup_config_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed, ""} when parsed > 0 -> {:ok, parsed}
+      _ -> {:error, :invalid_connector_id}
+    end
+  end
+
+  defp valid_lookup_config_id(_id), do: {:error, :invalid_connector_id}
 
   defp filter_resolvable_watch_channel(query, target_source, true) do
     where(
@@ -456,14 +488,7 @@ defmodule Zaq.Engine.DataSources do
     where(query, [w], w.config_id == ^config_id)
   end
 
-  defp maybe_filter_config_id(query, config_id) when is_binary(config_id) do
-    case Integer.parse(config_id) do
-      {id, ""} -> where(query, [w], w.config_id == ^id)
-      _ -> query
-    end
-  end
-
-  defp maybe_filter_config_id(query, _config_id), do: query
+  defp maybe_filter_config_id(query, nil), do: query
 
   defp maybe_validate_checkpoint(%WatchChannel{checkpoint: checkpoint}, request) do
     current = Map.get(request, :checkpoint) || Map.get(request, "checkpoint")
