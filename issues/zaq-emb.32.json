@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T09:22:29Z",
+  "description": "Human gate for completed PR B live execution and completion/delivery behavior after its integrated validation. Record approver, date, source and exact scope; never self-approve. PR A approval does not approve B journeys. Material UX changes reopen this gate. Only this explicit approval unblocks new B feature E2E authoring. No production work; Action reuse N/A.",
+  "id": "zaq-emb.32",
+  "labels": [],
+  "parent": "zaq-emb",
+  "priority": 1,
+  "status": "open",
+  "title": "PR B explicit human UX approval",
+  "type": "task",
+  "updated_at": "2026-09-26T09:22:29Z"
+}
