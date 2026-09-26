@@ -23,11 +23,15 @@
     {
       "text": "PR A iteration 2026-09-27: Complete Mattermost paginated membership snapshot/reconcile preserves independent manual grant; admin-only validated workflow Action and BO refresh wired. Confirmed chat answers now enter history only after send success, email SMTP receipt-backed captures are per-recipient; legacy restricted transcript cutover plus forward-only correction preserves unplaced provider-stamped admitted messages and original UUID/ratings/traces. BO list now pages. Isolated branch DB migrated through 20260926000001, no populated databases or draft refs touched. mix q and git diff --check pass; focused 287 tests/3 properties plus adjacent 427 tests/3 properties pass. Full mix test ran ~543s and exited 2 with broader-suite errors; individually retested reported BO telemetry/agent/disk tests (80 tests/2 properties) pass, interaction/environment remains unresolved. Browser 4010 redirects unauthenticated request to BO login; authenticated manual pass and final UX approval/E2E still pending. No commit/push/PR.",
       "timestamp": "2026-09-26T22:09:49Z"
+    },
+    {
+      "text": "Manual QA handoff updated in docs/ux/communication-channel-history.md. Local PORT=4010 BO server responds; unauthenticated /bo/channels/history correctly redirects to /bo/login (no existing credentials used). Browser login/super-admin visual pass requires human sign-in and real connector data; no fabricated persisted QA messages or new-feature E2E authored. Focused groups 287 tests/3 properties and adjacent 427 tests/3 properties pass; mix q and git diff --check pass. Full mix test reported 9932 tests/187 properties, 2 failures on broad-suite run including BO telemetry OwnershipError/Repo holder teardown; mix test --failed reran 1 property/1 test with 0 failures, and individually isolated three suspect files passed 80 tests/2 properties. Treat full-suite interaction as unresolved for final PR validation, not a blocker to first human UX review. No final UX approval, coverage, precommit, commit, push or PR claim.",
+      "timestamp": "2026-09-26T22:23:17Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-09-26T22:09:49Z"
+  "updated_at": "2026-09-26T22:23:17Z"
 }
