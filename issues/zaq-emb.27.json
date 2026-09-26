@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.20"
+  ],
   "blocks": [],
   "created": "2026-09-26T09:19:05Z",
   "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.12; no self-approval.\n\nDeliver one independently usable/reviewable outcome PR: correct durable history and access. Include trusted provider facts and per-message email recipient evidence; Direct/Shared/Replicated transcript creation/persistence; passive capture before response triggers; authorized reads and membership reconciliation/revocation; communication-channel access controls; safe legacy migration/fresh-history cutover. Acceptance: nonmention retained without response; threads inherit channel permissions; provider revocation removes provider-derived access but preserves independent manual grant; new email recipients cannot read earlier messages; existing history/ratings/attachments/traces survive. Exclude hidden Bcc wherever independent evidence is unavailable. Define/test a supported provider matrix; optional provider enhancements must not block a correctly bounded first release. No dependency on PR B live execution. Detailed beads and cohesive internal commits are tracking units, NOT separate PRs. Consolidate owning draft foundations where practical. Include A-specific documentation, validation, explicit human UX approval before new E2E, coverage/review and final gate. Do not infer feature completion from closed foundation beads.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-09-26T09:48:13Z"
+  "updated_at": "2026-09-26T09:50:38Z"
 }

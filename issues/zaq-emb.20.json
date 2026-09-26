@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.19"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27"
+  ],
   "created": "2026-09-25T09:36:48Z",
   "description": "PR A only: after .19 run final mix precommit through Context Mode (900000ms), resolve failures/repeat full gates; record migration/data-preservation, E2E, review, coverage and A docs. Request final human approval after clean checks. A independently usable, no B runtime dependency. No automatic commit/push/merge/closure. B has .34. Action reuse N/A.",
   "id": "zaq-emb.20",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-emb.20] PR A final precommit and human implementation approval",
   "type": "task",
-  "updated_at": "2026-09-26T09:49:44Z"
+  "updated_at": "2026-09-26T09:50:38Z"
 }
