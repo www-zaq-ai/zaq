@@ -31,7 +31,7 @@ defmodule Zaq.System.LLMConfig do
     field :supports_json_mode, :boolean, default: true
     field :max_context_window, :integer, default: 5_000
     field :distance_threshold, :float, default: 1.2
-    field :max_cosine_distance, :float, default: 0.75
+    field :max_cosine_distance, :float, default: 0.45
     field :fusion_bm25_weight, :float, default: 0.5
     field :fusion_vector_weight, :float, default: 0.5
   end

@@ -2,8 +2,9 @@
 
 The vector leg uses half-vector cosine distance (`<=>` and
 `halfvec_cosine_ops`). Similarity is `1 - distance`; smaller distance is closer.
-The inclusive `llm.max_cosine_distance` setting defaults to **0.75** on both
-new and upgraded installations. This is a provisional starting value, **not**
+The inclusive `llm.max_cosine_distance` setting defaults to **0.45** when no
+value is persisted (new or upgraded installations). Existing explicitly stored
+values are unchanged. This is a provisional starting value, **not**
 a mathematical conversion from Euclidean distance or a measured production
 optimum. Calibrate it on the issue #793 relevance dataset (identifier,
 paraphrase, multilingual and unrelated queries) before considering it final.
@@ -11,7 +12,8 @@ The former `llm.distance_threshold` setting is retained unchanged for rollback
 and ignored by cosine retrieval. Do not overwrite it with a converted value;
 conversion is only justified for normalized embedding vectors.
 
-Migration `20260924000000_use_cosine_chunk_index` drops and recreates
+Migration `20260924000000_use_cosine_chunk_index` changes only the vector index;
+it does not write a threshold setting. It drops and recreates
 `chunks_embedding_idx` concurrently when the dynamically managed `chunks`
 table exists. It skips absent tables; `Chunk.create_table/1` provisions a cosine
 index for new tables. Existing nonzero embeddings remain usable without

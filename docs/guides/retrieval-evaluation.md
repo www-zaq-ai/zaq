@@ -59,8 +59,9 @@ mix test test/zaq/agent/tools/search_knowledge_base_retrieval_evaluation_test.ex
 For ParadeDB use `MIX_TEST_PARTITION=retrieval_eval_parade` on a server with a
 functional `pg_search` installation. The native partition pins the native
 lexical backend even when ParadeDB is installed locally; the ParadeDB partition
-requires ParadeDB to be detected. Both run in CI. Fixtures use an **evaluation**
-cosine limit of `0.45`, independent of the provisional production default:
+requires ParadeDB to be detected. Both run in CI. Fixtures explicitly set an
+**evaluation** cosine limit of `0.45`, matching the current missing-key default
+but independent of any persisted production setting:
 the unrelated negative's closest measured distance was `0.589`, while the
 realistic minibar query's target measures about `0.391` and matches both
 vector and lexical legs. These tests detect

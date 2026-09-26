@@ -461,7 +461,7 @@ defmodule Zaq.System do
         supports_json_mode: ParseUtils.parse_bool(raw["supports_json_mode"], true),
         max_context_window: ParseUtils.parse_int(raw["max_context_window"], 5_000),
         distance_threshold: ParseUtils.parse_float(raw["distance_threshold"], 1.2),
-        max_cosine_distance: ParseUtils.parse_float(raw["max_cosine_distance"], 0.75),
+        max_cosine_distance: ParseUtils.parse_float(raw["max_cosine_distance"], 0.45),
         fusion_bm25_weight: ParseUtils.parse_float(raw["fusion_bm25_weight"], 0.5),
         fusion_vector_weight: ParseUtils.parse_float(raw["fusion_vector_weight"], 0.5)
       }
