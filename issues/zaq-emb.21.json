@@ -77,11 +77,15 @@
     {
       "text": "2026-09-26 continuation: connector-scoped data-source watches completed locally in 097d8bb4b on feature/issue-768-data-source-watch-lifecycle (stacked from PR #800): composite unique migration 00008, scoped resolution/ambiguous legacy rejection, verified webhook connector ID, scoped URLs/renewal, regressions. Focused 438 tests/1 property passed, mix q green at commit. Remote publication blocked: SSH key accepted but locked/passphrase unavailable; HTTPS push 403; GitHub create_branch API 403 Resource not accessible by personal access token. Leave bead in progress until push/stacked PR and broad audit.",
       "timestamp": "2026-09-26T01:55:06Z"
+    },
+    {
+      "text": "Publication unblocked on 2026-09-26: SSH push succeeded; draft stacked PR #806 opened against #800 with both scoped-watch and archive commits. CI pending; any #806 follow-up must land on feature/issue-768-data-source-watch-lifecycle. Moving to #800 owning branch for source-grant follow-up instead of mixing fixes into #806.",
+      "timestamp": "2026-09-26T06:02:50Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-26T01:55:06Z"
+  "updated_at": "2026-09-26T06:02:50Z"
 }
