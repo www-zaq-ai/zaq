@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T09:22:34Z",
+  "description": "Persistent consolidated feature E2E, PR B partition. Author only after explicit B UX approval, not A approval. Cover user-visible live activity incorporation, no cross-Person leakage or duplicate context, busy/finalizing requests not lost, ordered intermediary/final delivery and delayed timeout outcome. Cursor invariants, tool-call pairing, synchronization acknowledgment and denied/revoked reads also need deterministic integration/property tests before implementation. Reuse existing journeys and real internal boundaries, mock external LLM/transport only. Include B results in B; never block A E2E on this partition.",
+  "id": "zaq-emb.13.2",
+  "labels": [],
+  "parent": "zaq-emb.13",
+  "priority": 1,
+  "status": "open",
+  "title": "PR B live-execution and completion E2E",
+  "type": "task",
+  "updated_at": "2026-09-26T09:22:34Z"
+}
