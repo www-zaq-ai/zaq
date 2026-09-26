@@ -13,9 +13,15 @@
   "id": "zaq-emb.4",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Preparation from preceding PR A slices: EmailBridge now stamps :email kind from configured email:imap bridge/provider, not an Incoming metadata claim; JidoChatBridge only stamps evidenced Mattermost/Telegram/Discord kinds. The remaining ingress work is NOT solved: Jido.Chat nonmention on_new_message wildcard currently returns :ok without Engine dispatch; mention/path policy still routes to admit_incoming legacy messages; canonical transcript creation/association and Person-grant checks are not yet wired. Engine Conversations.append_canonical_message/3 requires an existing transcript and trusted source; Facts/Strategy currently pure and no create-or-resolve transcript API exists. Before changing capture, design transactional target creation + shared/thread parent + per-recipient ownership, dedup against legacy Message UUID/ratings/traces, and authorization/grant reconciliation; do not duplicate a mention in legacy and canonical messages or mistake kind evidence for a grant. Reuse existing Conversations/TranscriptHistory/Strategy APIs; no new Action exposed to agents. No feature E2E until .12 approval.",
+      "timestamp": "2026-09-26T10:52:10Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T09:50:33Z"
+  "updated_at": "2026-09-26T10:52:10Z"
 }
