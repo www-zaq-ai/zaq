@@ -192,8 +192,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     chunks
     |> Enum.with_index()
     |> Enum.sort_by(fn {chunk, index} ->
-      {-(chunk["rrf_score"] || chunk["distance"] || 0.0), chunk["language"] || "",
-       chunk["document_id"] || 0, chunk["section_path"] || [], chunk["chunk_index"] || index}
+      {-(chunk["rrf_score"] || 0.0), chunk["language"] || "", chunk["document_id"] || 0,
+       chunk["section_path"] || [], chunk["chunk_index"] || index}
     end)
     |> Enum.uniq_by(fn {chunk, index} ->
       {chunk["document_id"], chunk["section_path"], chunk["chunk_index"] || index}

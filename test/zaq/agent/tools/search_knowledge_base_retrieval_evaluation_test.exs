@@ -177,6 +177,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseRetrievalEvaluationTest do
       assert result.errors == []
       refute result.partial
       assert result.count == length(result.chunks)
+      assert Enum.all?(result.chunks, &(!Map.has_key?(&1, "distance")))
 
       returned =
         Map.new(result.chunks, fn chunk ->

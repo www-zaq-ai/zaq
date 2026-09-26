@@ -1164,7 +1164,8 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         assert result["language"] == "english"
         assert Map.has_key?(result, "content")
         assert Map.has_key?(result, "source")
-        assert Map.has_key?(result, "distance")
+        assert Map.has_key?(result, "rrf_score")
+        refute Map.has_key?(result, "distance")
       end)
     end
 
@@ -1186,24 +1187,14 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       })
       |> Repo.insert!()
 
+      assert {:ok, [chunk]} =
+               DocumentProcessor.query_extraction("deterministic payload",
+                 skip_permissions: true,
+                 unbounded: true
+               )
+
       boundary_tokens =
-        %{
-          "content" => "Boundary-only chunk with deterministic payload.",
-          "source" => "strict-boundary.md",
-          "distance" => 1.0,
-          "document_id" => doc.id,
-          "section_path" => ["Boundary"],
-          "title" => doc.title,
-          "watch_status" => doc.watch_status,
-          "inserted_at" => DateTime.to_iso8601(doc.inserted_at),
-          "updated_at" => DateTime.to_iso8601(doc.updated_at),
-          "metadata" => %{
-            "section_type" => "heading",
-            "section_level" => 1,
-            "position" => 1
-          },
-          "language" => nil
-        }
+        chunk
         |> Jason.encode!()
         |> TokenEstimator.estimate()
 
@@ -1360,7 +1351,8 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert sibling["retrieval_legs"] == []
       assert is_number(direct["rrf_score"])
       assert sibling["rrf_score"] == nil
-      assert sibling["distance"] == nil
+      refute Map.has_key?(direct, "distance")
+      refute Map.has_key?(sibling, "distance")
     end
 
     test "lexical and vector hits in one section retain separate evidence after hydration" do
@@ -1400,7 +1392,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       for result <- results do
         assert_in_delta result["rrf_score"], 0.5 / 61, 1.0e-10
-        assert result["distance"] == result["rrf_score"]
+        refute Map.has_key?(result, "distance")
       end
     end
 
