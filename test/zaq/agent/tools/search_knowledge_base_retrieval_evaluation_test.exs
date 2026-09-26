@@ -156,16 +156,28 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseRetrievalEvaluationTest do
       question = Enum.find(fixtures.questions, &(&1.data["id"] == unquote(id))).data
       config = OpenAIStub.llm_config("http://example.test/v1") |> Map.new()
 
+      lexical_terms =
+        question["variants"]
+        |> Map.values()
+        |> Enum.flat_map(& &1["lexical_groups"])
+        |> Enum.map(&Enum.join(&1, " "))
+        |> Enum.uniq()
+
       assert {:ok, result} =
-               Jido.Exec.run(SearchKnowledgeBase, %{query: question["question"]}, %{
-                 generation: FixtureGeneration,
-                 llm_config: config,
-                 person_id: nil
-               })
+               Jido.Exec.run(
+                 SearchKnowledgeBase,
+                 %{query: question["question"], lexical_terms: lexical_terms},
+                 %{
+                   generation: FixtureGeneration,
+                   llm_config: config,
+                   person_id: nil
+                 }
+               )
 
       assert result.errors == []
       refute result.partial
       assert result.count == length(result.chunks)
+      assert Enum.all?(result.chunks, &(!Map.has_key?(&1, "distance")))
 
       returned =
         Map.new(result.chunks, fn chunk ->

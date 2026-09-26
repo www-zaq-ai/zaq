@@ -34,6 +34,12 @@ baseline, then evaluate their combination. Check recall and false positives at
 the default threshold, record the resulting calibrated threshold and update
 this document before the final rollout gate.
 
+Hybrid evaluation ranks direct matches by chunk-level weighted RRF: a lexical
+hit and a vector hit in the same section count as two single-leg matches unless
+they identify the same `(document_id, chunk_index)`. Evaluate direct-match
+precision separately from context-only section siblings (`direct_match: false`,
+no score or measured distance); bounded section expansion is tracked in #810.
+
 ## Local verification (2026-09-25)
 
 On the branch-specific database `zaq_fix_793_hybrid_retrieval`, cloned from

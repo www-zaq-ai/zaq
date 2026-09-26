@@ -97,6 +97,7 @@ defmodule Zaq.Agent.PipelineTest do
       {:ok,
        %{
          "query" => "test query",
+         "lexical_terms" => ["test"],
          "language" => "en",
          "positive_answer" => "positive answer",
          "negative_answer" => "negative answer"
@@ -120,7 +121,7 @@ defmodule Zaq.Agent.PipelineTest do
 
   test "search fixture follows the explicit ingestion search contract" do
     assert {:ok, %{chunks: [chunk]}} =
-             SearchKnowledgeBase.run(%{query: "test query"}, %{
+             SearchKnowledgeBase.run(%{query: "test query", lexical_terms: ["test"]}, %{
                node_router: StubNodeRouter,
                document_processor: StubDocumentProcessor
              })
@@ -163,7 +164,7 @@ defmodule Zaq.Agent.PipelineTest do
            "updated_at" => "2026-09-23T11:30:00Z",
            "metadata" => %{"page" => 4},
            "language" => "english",
-           "distance" => 0.75,
+           "rrf_score" => 0.75,
            "document_id" => 42,
            "section_path" => ["Overview"]
          }

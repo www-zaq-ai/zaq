@@ -547,14 +547,21 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
 
       vector_grouped = %{
         999 => %{
-          ["fake_section"] => [%{document_id: 999, section_path: ["fake_section"], distance: 0.1}]
+          ["fake_section"] => [
+            %{
+              document_id: 999,
+              section_path: ["fake_section"],
+              chunk_index: 1,
+              vector_distance: 0.1
+            }
+          ]
         }
       }
 
       {:ok, merged} = DocumentProcessor.rrf_merge(%{}, vector_grouped)
 
-      assert Map.has_key?(merged, 999),
-             "rrf_merge with empty BM25 should still return vector results"
+      assert [%{chunk_index: 1, lexical_match: false, vector_distance: 0.1}] =
+               merged[999][["fake_section"]]
     end
   end
 
@@ -598,7 +605,8 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
       Enum.each(results, fn r ->
         assert Map.has_key?(r, "content")
         assert Map.has_key?(r, "source")
-        assert Map.has_key?(r, "distance")
+        assert Map.has_key?(r, "rrf_score")
+        refute Map.has_key?(r, "distance")
       end)
     end
 
@@ -638,7 +646,7 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
       assert is_list(results)
     end
 
-    test "each result has non-nil content, source and numeric distance" do
+    test "direct results have content, source and numeric fusion scores" do
       load_corpus()
 
       {:ok, results} = DocumentProcessor.query_extraction(@rrf_query)
@@ -646,7 +654,8 @@ defmodule Zaq.Ingestion.BM25FusionValidationTest do
       Enum.each(results, fn r ->
         assert is_binary(r["content"]) and r["content"] != ""
         assert is_binary(r["source"]) and r["source"] != ""
-        assert is_number(r["distance"])
+        assert is_number(r["rrf_score"])
+        refute Map.has_key?(r, "distance")
       end)
     end
 

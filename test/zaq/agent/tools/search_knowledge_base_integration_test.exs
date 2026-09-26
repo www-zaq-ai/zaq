@@ -26,7 +26,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
   defmodule TranslationGeneration do
     def generate_text(_spec, [message], _opts) do
       prompt = Enum.map_join(message.content, "", & &1.text)
-      %{"query" => query, "languages" => languages} = Jason.decode!(prompt)
+
+      %{"query" => query, "lexical_terms" => terms, "languages" => languages} =
+        Jason.decode!(prompt)
 
       {:ok,
        %ReqLLM.Response{
@@ -37,7 +39,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
            ReqLLM.Context.assistant(
              Jason.encode!(
                Map.new(languages, fn language ->
-                 {language, %{semantic_query: query, lexical_terms: String.split(query, " ")}}
+                 {language, %{semantic_query: query, lexical_terms: terms}}
                end)
              )
            )
@@ -104,7 +106,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
 
       context = translation_context(%{person_id: nil})
 
-      assert {:ok, result} = SearchKnowledgeBase.run(%{query: "elixir"}, context)
+      assert {:ok, result} =
+               SearchKnowledgeBase.run(%{query: "elixir", lexical_terms: ["elixir"]}, context)
+
       assert chunk_content?(result.chunks, "Public Elixir documentation.")
       refute chunk_content?(result.chunks, "Private content about Elixir internals.")
 
@@ -123,7 +127,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
 
       context = translation_context()
 
-      assert {:ok, result} = SearchKnowledgeBase.run(%{query: "phoenix web framework"}, context)
+      assert {:ok, result} =
+               SearchKnowledgeBase.run(
+                 %{query: "phoenix web framework", lexical_terms: ["phoenix", "web framework"]},
+                 context
+               )
+
       assert is_integer(result.count)
     end
   end
@@ -135,7 +144,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
 
       context = translation_context(%{person_id: nil, skip_permissions: true})
 
-      assert {:ok, result} = SearchKnowledgeBase.run(%{query: "restricted elixir"}, context)
+      assert {:ok, result} =
+               SearchKnowledgeBase.run(
+                 %{query: "restricted elixir", lexical_terms: ["elixir"]},
+                 context
+               )
+
       assert is_integer(result.count)
       assert result.count > 0
     end
@@ -148,7 +162,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
 
       context = translation_context(%{person_id: 999_999, team_ids: []})
 
-      assert {:ok, result} = SearchKnowledgeBase.run(%{query: "elixir functional"}, context)
+      assert {:ok, result} =
+               SearchKnowledgeBase.run(
+                 %{query: "elixir functional", lexical_terms: ["elixir", "functional"]},
+                 context
+               )
+
       assert is_integer(result.count)
       assert result.count > 0
       assert chunk_content?(result.chunks, DocumentProcessor.access_denied_message())

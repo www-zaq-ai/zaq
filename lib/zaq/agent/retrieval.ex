@@ -40,7 +40,8 @@ defmodule Zaq.Agent.Retrieval do
 
     Based on the conversation, reply in this exact format and nothing else:
 
-    **Query:** <one line of English search keywords>
+     **Query:** <one line of English semantic search keywords>
+     **Lexical Terms:** <JSON array of meaningful words or multiword phrases from the user's question; preserve place/person names and identifiers, omit filler words; do not impose a count limit>
     **Language:** <ISO 639-3 code only, e.g. "eng". No extra text.>
     **Positive Answer:** <friendly message inviting the user to wait while an answer is being formulated>
     **Negative Answer:** <short friendly message explaining no information was found, suggest rephrasing>
@@ -93,17 +94,37 @@ defmodule Zaq.Agent.Retrieval do
 
   defp decode_retrieval_content(content, original_question) do
     query = parse_md_field(content, "Query") || original_question
+    lexical_terms = parse_md_field(content, "Lexical Terms") |> parse_lexical_terms()
     language = parse_md_field(content, "Language") |> parse_language_code()
     positive_answer = parse_md_field(content, "Positive Answer")
     negative_answer = parse_md_field(content, "Negative Answer")
 
-    {:ok,
-     %{
-       "query" => query,
-       "language" => language,
-       "positive_answer" => positive_answer,
-       "negative_answer" => negative_answer
-     }}
+    if lexical_terms == :error do
+      {:error, :invalid_lexical_terms}
+    else
+      {:ok,
+       %{
+         "query" => query,
+         "lexical_terms" => lexical_terms,
+         "language" => language,
+         "positive_answer" => positive_answer,
+         "negative_answer" => negative_answer
+       }}
+    end
+  end
+
+  defp parse_lexical_terms(nil), do: :error
+
+  defp parse_lexical_terms(value) do
+    case Jason.decode(value) do
+      {:ok, terms} when is_list(terms) and terms != [] ->
+        if Enum.all?(terms, &(is_binary(&1) and String.trim(&1) != "")),
+          do: terms |> Enum.map(&String.trim/1) |> Enum.uniq(),
+          else: :error
+
+      _ ->
+        :error
+    end
   end
 
   # Extracts the value after "**Field:**" on a single line, trimmed.

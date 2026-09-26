@@ -1164,7 +1164,8 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         assert result["language"] == "english"
         assert Map.has_key?(result, "content")
         assert Map.has_key?(result, "source")
-        assert Map.has_key?(result, "distance")
+        assert Map.has_key?(result, "rrf_score")
+        refute Map.has_key?(result, "distance")
       end)
     end
 
@@ -1186,24 +1187,14 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       })
       |> Repo.insert!()
 
+      assert {:ok, [chunk]} =
+               DocumentProcessor.query_extraction("deterministic payload",
+                 skip_permissions: true,
+                 unbounded: true
+               )
+
       boundary_tokens =
-        %{
-          "content" => "Boundary-only chunk with deterministic payload.",
-          "source" => "strict-boundary.md",
-          "distance" => 1.0,
-          "document_id" => doc.id,
-          "section_path" => ["Boundary"],
-          "title" => doc.title,
-          "watch_status" => doc.watch_status,
-          "inserted_at" => DateTime.to_iso8601(doc.inserted_at),
-          "updated_at" => DateTime.to_iso8601(doc.updated_at),
-          "metadata" => %{
-            "section_type" => "heading",
-            "section_level" => 1,
-            "position" => 1
-          },
-          "language" => nil
-        }
+        chunk
         |> Jason.encode!()
         |> TokenEstimator.estimate()
 
@@ -1329,7 +1320,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       refute Enum.any?(results, &(&1["source"] == "volume-b/other.md"))
     end
 
-    test "section siblings retain fusion score without inheriting a measured vector distance" do
+    test "section siblings do not inherit direct-match scores or measured vector distances" do
       stub_embedding_success()
       doc = create_document()
       dim = embedding_dimension()
@@ -1358,8 +1349,51 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert sibling["direct_match"] == false
       assert sibling["vector_distance"] == nil
       assert sibling["retrieval_legs"] == []
-      assert sibling["rrf_score"] == direct["rrf_score"]
-      assert sibling["distance"] == sibling["rrf_score"]
+      assert is_number(direct["rrf_score"])
+      assert sibling["rrf_score"] == nil
+      refute Map.has_key?(direct, "distance")
+      refute Map.has_key?(sibling, "distance")
+    end
+
+    test "lexical and vector hits in one section retain separate evidence after hydration" do
+      stub_embedding_success()
+      doc = create_document()
+      dim = embedding_dimension()
+
+      for {index, content, value} <- [
+            {1, "singularfusionkeyword evidence", -0.1},
+            {2, "semantic-only passage", 0.1}
+          ] do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          content: content,
+          chunk_index: index,
+          section_path: ["Repeated heading"],
+          embedding: Pgvector.HalfVector.new(List.duplicate(value, dim))
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:ok, results} =
+               DocumentProcessor.query_extraction("semantic prompt",
+                 lexical_terms: ["singularfusionkeyword"],
+                 skip_permissions: true,
+                 unbounded: true
+               )
+
+      assert length(results) == 2
+      by_index = Map.new(results, &{&1["chunk_index"], &1})
+      assert by_index[1]["retrieval_legs"] == ["lexical"]
+      assert by_index[1]["vector_distance"] == nil
+      assert by_index[2]["retrieval_legs"] == ["vector"]
+      assert is_number(by_index[2]["vector_distance"])
+      assert Enum.all?(results, & &1["direct_match"])
+
+      for result <- results do
+        assert_in_delta result["rrf_score"], 0.5 / 61, 1.0e-10
+        refute Map.has_key?(result, "distance")
+      end
     end
 
     test "lexical terms search independently of the embedded semantic query" do
@@ -1380,6 +1414,52 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
                DocumentProcessor.query_extraction("a semantic paraphrase",
                  skip_permissions: true,
                  lexical_terms: ["ZAQ-793"]
+               )
+    end
+
+    test "lexical clauses after the eighth reach full-text search untruncated" do
+      stub_embedding_success()
+      doc = create_document()
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: "Saint-Saturnin mayor evidence",
+        chunk_index: 1,
+        section_path: ["reference"],
+        embedding: Pgvector.HalfVector.new(List.duplicate(-0.1, embedding_dimension()))
+      })
+      |> Repo.insert!()
+
+      terms = Enum.map(1..9, &"unmatched#{&1}") ++ ["  Saint-Saturnin  "]
+
+      assert {:ok,
+              [%{"content" => "Saint-Saturnin mayor evidence", "retrieval_legs" => ["lexical"]}]} =
+               DocumentProcessor.query_extraction("semantic paraphrase",
+                 skip_permissions: true,
+                 lexical_terms: terms
+               )
+    end
+
+    test "long lexical identifiers are not silently shortened before full-text search" do
+      stub_embedding_success()
+      doc = create_document()
+      identifier = "saintsaturnin" <> String.duplicate("q", 130)
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: identifier,
+        chunk_index: 1,
+        section_path: ["reference"],
+        embedding: Pgvector.HalfVector.new(List.duplicate(-0.1, embedding_dimension()))
+      })
+      |> Repo.insert!()
+
+      assert {:ok, [%{"content" => ^identifier, "retrieval_legs" => ["lexical"]}]} =
+               DocumentProcessor.query_extraction("semantic paraphrase",
+                 skip_permissions: true,
+                 lexical_terms: [identifier]
                )
     end
   end
@@ -2147,16 +2227,134 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   # ---------------------------------------------------------------------------
 
   describe "rrf_merge/2" do
-    test "section in both legs has boosted score" do
+    test "distinct chunks in the same section never receive each other's lexical/vector contributions" do
       bm25 = %{
         1 => %{
-          ["Section"] => [%{document_id: 1, section_path: ["Section"], bm25_score: -0.5}]
+          [] => [%{document_id: 1, section_path: [], chunk_index: 1, bm25_score: 3.0}]
         }
       }
 
       vector = %{
         1 => %{
-          ["Section"] => [%{document_id: 1, section_path: ["Section"], vector_distance: 0.1}]
+          [] => [%{document_id: 1, section_path: [], chunk_index: 2, vector_distance: 0.1}]
+        }
+      }
+
+      assert {:ok, %{1 => %{[] => items}}} = DocumentProcessor.rrf_merge(bm25, vector)
+      assert length(items) == 2
+      assert Enum.map(items, & &1.chunk_index) == [1, 2]
+
+      for item <- items do
+        assert_in_delta item.rrf_score, 0.5 / 61, 1.0e-10
+      end
+
+      assert hd(items).lexical_match
+      assert hd(items).vector_distance == nil
+      refute List.last(items).lexical_match
+      assert List.last(items).vector_distance == 0.1
+    end
+
+    test "a chunk matching both legs gets both contributions without boosting its siblings" do
+      bm25 = %{
+        1 => %{
+          ["Shared"] => [
+            %{document_id: 1, section_path: ["Shared"], chunk_index: 2, bm25_score: 10.0},
+            %{document_id: 1, section_path: ["Shared"], chunk_index: 1, bm25_score: 5.0}
+          ]
+        }
+      }
+
+      vector = %{
+        1 => %{
+          ["Shared"] => [
+            %{document_id: 1, section_path: ["Shared"], chunk_index: 1, vector_distance: 0.1}
+          ]
+        }
+      }
+
+      {:ok, %{1 => %{["Shared"] => items}}} = DocumentProcessor.rrf_merge(bm25, vector)
+      by_index = Map.new(items, &{&1.chunk_index, &1})
+
+      assert_in_delta by_index[1].rrf_score, 0.5 / 62 + 0.5 / 61, 1.0e-10
+      assert_in_delta by_index[2].rrf_score, 0.5 / 61, 1.0e-10
+    end
+
+    test "different documents with identical chunk indexes and empty paths remain separate" do
+      bm25 = %{
+        1 => %{[] => [%{document_id: 1, section_path: [], chunk_index: 1, bm25_score: 2.0}]}
+      }
+
+      vector = %{
+        2 => %{[] => [%{document_id: 2, section_path: [], chunk_index: 1, vector_distance: 0.2}]}
+      }
+
+      {:ok, merged} = DocumentProcessor.rrf_merge(bm25, vector)
+      assert_in_delta hd(merged[1][[]]).rrf_score, 0.5 / 61, 1.0e-10
+      assert_in_delta hd(merged[2][[]]).rrf_score, 0.5 / 61, 1.0e-10
+    end
+
+    property "candidate order and duplicates cannot change chunk-level fusion" do
+      check all(
+              scores <-
+                StreamData.list_of(StreamData.integer(1..100), min_length: 1, max_length: 10)
+            ) do
+        candidates =
+          scores
+          |> Enum.with_index(1)
+          |> Enum.map(fn {score, index} ->
+            %{document_id: 1, section_path: [], chunk_index: index, bm25_score: score}
+          end)
+
+        grouped = %{1 => %{[] => candidates}}
+        reordered = %{1 => %{[] => Enum.reverse(candidates) ++ candidates}}
+
+        assert DocumentProcessor.rrf_merge(grouped, %{}) ==
+                 DocumentProcessor.rrf_merge(reordered, %{})
+      end
+    end
+
+    test "duplicate candidates use the best measurement and count only once per leg" do
+      lexical = %{
+        1 => %{
+          [] => [
+            %{document_id: 1, section_path: [], chunk_index: 1, bm25_score: 1.0},
+            %{document_id: 1, section_path: [], chunk_index: 1, bm25_score: 9.0},
+            %{document_id: 1, section_path: [], chunk_index: 2, bm25_score: 5.0}
+          ]
+        }
+      }
+
+      vector = %{
+        1 => %{
+          [] => [
+            %{document_id: 1, section_path: [], chunk_index: 1, vector_distance: 0.3},
+            %{document_id: 1, section_path: [], chunk_index: 1, vector_distance: 0.1}
+          ]
+        }
+      }
+
+      {:ok, %{1 => %{[] => items}}} = DocumentProcessor.rrf_merge(lexical, vector)
+      assert length(items) == 2
+      by_index = Map.new(items, &{&1.chunk_index, &1})
+      assert_in_delta by_index[1].rrf_score, 1 / 61, 1.0e-10
+      assert by_index[1].vector_distance == 0.1
+      assert_in_delta by_index[2].rrf_score, 0.5 / 62, 1.0e-10
+    end
+
+    test "section in both legs has boosted score" do
+      bm25 = %{
+        1 => %{
+          ["Section"] => [
+            %{document_id: 1, section_path: ["Section"], chunk_index: 1, bm25_score: -0.5}
+          ]
+        }
+      }
+
+      vector = %{
+        1 => %{
+          ["Section"] => [
+            %{document_id: 1, section_path: ["Section"], chunk_index: 1, vector_distance: 0.1}
+          ]
         }
       }
 
@@ -2173,7 +2371,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "section in BM25 leg only — scored from BM25 rank alone" do
       bm25 = %{
         1 => %{
-          ["BM25Only"] => [%{document_id: 1, section_path: ["BM25Only"], bm25_score: -0.5}]
+          ["BM25Only"] => [
+            %{document_id: 1, section_path: ["BM25Only"], chunk_index: 1, bm25_score: -0.5}
+          ]
         }
       }
 
@@ -2189,7 +2389,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "section in vector leg only — scored from vector rank alone" do
       vector = %{
         1 => %{
-          ["VecOnly"] => [%{document_id: 1, section_path: ["VecOnly"], vector_distance: 0.1}]
+          ["VecOnly"] => [
+            %{document_id: 1, section_path: ["VecOnly"], chunk_index: 1, vector_distance: 0.1}
+          ]
         }
       }
 
@@ -2210,7 +2412,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
       vector = %{
         2 => %{
-          ["Vector"] => [%{document_id: 2, section_path: ["Vector"], vector_distance: 0.2}]
+          ["Vector"] => [
+            %{document_id: 2, section_path: ["Vector"], chunk_index: 1, vector_distance: 0.2}
+          ]
         }
       }
 
@@ -2223,7 +2427,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       bm25 = %{
         1 => %{
           ["Empty"] => [],
-          ["Present"] => [%{document_id: 1, section_path: ["Present"], bm25_score: 1.0}]
+          ["Present"] => [
+            %{document_id: 1, section_path: ["Present"], chunk_index: 1, bm25_score: 1.0}
+          ]
         }
       }
 
@@ -2236,14 +2442,20 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "section present in both legs scores higher than section in one leg only" do
       bm25 = %{
         1 => %{
-          ["Both"] => [%{document_id: 1, section_path: ["Both"], bm25_score: -0.3}],
-          ["BM25Only"] => [%{document_id: 1, section_path: ["BM25Only"], bm25_score: -0.9}]
+          ["Both"] => [
+            %{document_id: 1, section_path: ["Both"], chunk_index: 1, bm25_score: -0.3}
+          ],
+          ["BM25Only"] => [
+            %{document_id: 1, section_path: ["BM25Only"], chunk_index: 2, bm25_score: -0.9}
+          ]
         }
       }
 
       vector = %{
         1 => %{
-          ["Both"] => [%{document_id: 1, section_path: ["Both"], vector_distance: 0.1}]
+          ["Both"] => [
+            %{document_id: 1, section_path: ["Both"], chunk_index: 1, vector_distance: 0.1}
+          ]
         }
       }
 
@@ -2258,13 +2470,13 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "all {doc_id, section_path} pairs from both legs appear in output" do
       bm25 = %{
         1 => %{
-          ["A"] => [%{document_id: 1, section_path: ["A"], bm25_score: -0.1}]
+          ["A"] => [%{document_id: 1, section_path: ["A"], chunk_index: 1, bm25_score: -0.1}]
         }
       }
 
       vector = %{
         2 => %{
-          ["B"] => [%{document_id: 2, section_path: ["B"], vector_distance: 0.2}]
+          ["B"] => [%{document_id: 2, section_path: ["B"], chunk_index: 1, vector_distance: 0.2}]
         }
       }
 
@@ -2504,8 +2716,8 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "higher positive BM25 score ranks first" do
       bm25 = %{
         1 => %{
-          ["High"] => [%{document_id: 1, section_path: ["High"], bm25_score: 9.5}],
-          ["Low"] => [%{document_id: 1, section_path: ["Low"], bm25_score: 1.0}]
+          ["High"] => [%{document_id: 1, section_path: ["High"], chunk_index: 1, bm25_score: 9.5}],
+          ["Low"] => [%{document_id: 1, section_path: ["Low"], chunk_index: 2, bm25_score: 1.0}]
         }
       }
 
@@ -2521,13 +2733,15 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "both legs with positive BM25 score score higher than vector-only" do
       bm25 = %{
         1 => %{
-          ["Sec"] => [%{document_id: 1, section_path: ["Sec"], bm25_score: 5.0}]
+          ["Sec"] => [%{document_id: 1, section_path: ["Sec"], chunk_index: 1, bm25_score: 5.0}]
         }
       }
 
       vector = %{
         1 => %{
-          ["Sec"] => [%{document_id: 1, section_path: ["Sec"], vector_distance: 0.15}]
+          ["Sec"] => [
+            %{document_id: 1, section_path: ["Sec"], chunk_index: 1, vector_distance: 0.15}
+          ]
         }
       }
 
@@ -2543,9 +2757,9 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
     test "multiple sections ranked correctly when BM25 scores are positive" do
       bm25 = %{
         1 => %{
-          ["A"] => [%{document_id: 1, section_path: ["A"], bm25_score: 10.0}],
-          ["B"] => [%{document_id: 1, section_path: ["B"], bm25_score: 5.0}],
-          ["C"] => [%{document_id: 1, section_path: ["C"], bm25_score: 1.0}]
+          ["A"] => [%{document_id: 1, section_path: ["A"], chunk_index: 1, bm25_score: 10.0}],
+          ["B"] => [%{document_id: 1, section_path: ["B"], chunk_index: 2, bm25_score: 5.0}],
+          ["C"] => [%{document_id: 1, section_path: ["C"], chunk_index: 3, bm25_score: 1.0}]
         }
       }
 
@@ -2563,8 +2777,10 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       # When score_key is missing, Map.get returns 0.0 — section lands at bottom of rank
       bm25 = %{
         1 => %{
-          ["NoScore"] => [%{document_id: 1, section_path: ["NoScore"]}],
-          ["Scored"] => [%{document_id: 1, section_path: ["Scored"], bm25_score: 2.0}]
+          ["NoScore"] => [%{document_id: 1, section_path: ["NoScore"], chunk_index: 1}],
+          ["Scored"] => [
+            %{document_id: 1, section_path: ["Scored"], chunk_index: 2, bm25_score: 2.0}
+          ]
         }
       }
 

@@ -25,7 +25,8 @@ defmodule Zaq.Agent.RetrievalTest do
 
         {200,
          OpenAIStub.chat_completion("""
-         **Query:** elixir beam
+          **Query:** elixir beam
+          **Lexical Terms:** ["elixir", "beam"]
          **Language:** eng
          **Positive Answer:** Please wait.
          **Negative Answer:** No info found.
@@ -63,7 +64,8 @@ defmodule Zaq.Agent.RetrievalTest do
 
         {200,
          OpenAIStub.chat_completion("""
-         **Query:** hello query
+          **Query:** hello query
+          **Lexical Terms:** ["hello", "query"]
          **Language:** eng
          **Positive Answer:** Searching now.
          **Negative Answer:** Nothing found.
@@ -92,7 +94,8 @@ defmodule Zaq.Agent.RetrievalTest do
 
         {200,
          OpenAIStub.chat_completion("""
-         **Query:** fallback
+          **Query:** fallback
+          **Lexical Terms:** ["fallback"]
          **Language:** eng
          **Positive Answer:** Searching.
          **Negative Answer:** Not found.
@@ -107,7 +110,7 @@ defmodule Zaq.Agent.RetrievalTest do
       assert {:ok, %{"query" => "fallback"}} = Retrieval.ask("", system_prompt: "Prompt")
     end
 
-    test "falls back to raw question when model returns no markdown fields" do
+    test "fails closed when the model omits lexical terms" do
       handler = fn _conn, _body ->
         {200, OpenAIStub.chat_completion("not a markdown response")}
       end
@@ -117,9 +120,25 @@ defmodule Zaq.Agent.RetrievalTest do
 
       OpenAIStub.seed_llm_config(endpoint)
 
-      assert {:ok, result} = Retrieval.ask("Question", system_prompt: "Prompt")
-      assert result["query"] == "Question"
-      assert result["language"] == "eng"
+      assert {:error, :invalid_lexical_terms} = Retrieval.ask("Question", system_prompt: "Prompt")
+    end
+
+    test "preserves place names beyond the eighth supplied term" do
+      terms = Enum.map(1..9, &"term#{&1}") ++ ["Saint-Saturnin"]
+
+      handler = fn _conn, _body ->
+        {200,
+         OpenAIStub.chat_completion(
+           "**Query:** mayor\n**Lexical Terms:** #{Jason.encode!(terms)}\n**Language:** fra"
+         )}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:ok, %{"lexical_terms" => ^terms}} =
+               Retrieval.ask("Who is the mayor of Saint-Saturnin?", system_prompt: "Prompt")
     end
 
     test "returns error when model response content is nil" do
@@ -141,7 +160,7 @@ defmodule Zaq.Agent.RetrievalTest do
     test "returns {:ok, result} with a system prompt override" do
       opts = [
         system_prompt:
-          "Reply in this exact format:\n**Query:** test\n**Language:** eng\n**Positive Answer:** ok\n**Negative Answer:** none"
+          "Reply in this exact format:\n**Query:** test\n**Lexical Terms:** [\"test\"]\n**Language:** eng\n**Positive Answer:** ok\n**Negative Answer:** none"
       ]
 
       case Zaq.System.get_llm_config().endpoint do
@@ -161,7 +180,7 @@ defmodule Zaq.Agent.RetrievalTest do
     test "build_history handles empty list" do
       opts = [
         system_prompt:
-          "Reply in this exact format:\n**Query:** test\n**Language:** eng\n**Positive Answer:** ok\n**Negative Answer:** none",
+          "Reply in this exact format:\n**Query:** test\n**Lexical Terms:** [\"test\"]\n**Language:** eng\n**Positive Answer:** ok\n**Negative Answer:** none",
         history: []
       ]
 

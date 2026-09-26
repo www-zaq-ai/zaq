@@ -3,7 +3,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   ReAct tool: searches the ZAQ knowledge base with a refined query.
 
   Discovers globally indexed languages through the Ingestion role, translates
-  the query once, and searches each language independently. Permission filtering
+  the caller-supplied lexical terms once, and searches each language independently. Permission filtering
   stays in Ingestion after candidate retrieval, before results leave the role.
   """
 
@@ -27,11 +27,19 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     description: """
     Search the ZAQ knowledge base for relevant information.
     Use this when the context provided in the system prompt is insufficient
-    to answer the question with confidence.
+    to answer the question with confidence. Supply meaningful lexical terms,
+    including names and identifiers, rather than splitting the question into words.
+    Each supplied term or multiword phrase independently matches (OR search).
     """,
     schema:
       Zoi.object(%{
-        query: Zoi.string(description: "The refined search query to look up")
+        query: Zoi.string(description: "The full semantic search query"),
+        lexical_terms:
+          Zoi.list(
+            Zoi.string(),
+            description:
+              "Meaningful words or multiword phrases for OR lexical search; preserve names and identifiers, omit filler words"
+          )
       })
 
   alias Zaq.Agent.Actions.TranslateKnowledgeQuery
@@ -44,7 +52,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
 
   @impl Jido.Action
 
-  def run(%{query: query}, context) do
+  def run(%{query: query, lexical_terms: terms}, context) do
     Status.broadcast(
       Map.get(context, :incoming),
       :retrieving,
@@ -76,7 +84,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     try do
       case dispatch(node_router_mod, :list_chunk_languages, %{}, doc_proc_mod) do
         {:ok, languages} when is_list(languages) ->
-          search_languages(query, languages, opts, context, node_router_mod, doc_proc_mod)
+          search_languages(query, terms, languages, opts, context, node_router_mod, doc_proc_mod)
 
         {:error, reason} ->
           {:error, "Knowledge base language discovery failed: #{inspect(reason)}"}
@@ -86,12 +94,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     end
   end
 
-  defp search_languages(_query, [], _opts, _context, _router, _processor),
+  defp search_languages(_query, _terms, [], _opts, _context, _router, _processor),
     do: {:ok, %{chunks: [], count: 0, errors: [], partial: false}}
 
-  defp search_languages(query, languages, opts, context, router, processor) do
+  defp search_languages(query, terms, languages, opts, context, router, processor) do
     {language_queries, translation_errors} =
-      translate_languages(query, languages, context)
+      translate_languages(query, terms, languages, context)
 
     {chunks, search_errors, successful} =
       run_language_searches(language_queries, opts, router, processor, translation_errors)
@@ -121,44 +129,19 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     end
   end
 
-  defp translate_languages(query, languages, context) do
-    translatable = Enum.reject(languages, &(&1 == "simple"))
-
-    translations =
-      if translatable == [] do
-        {:ok, %{queries: %{}, errors: []}}
-      else
-        Jido.Exec.run(
-          TranslateKnowledgeQuery,
-          %{query: query, languages: translatable},
-          Map.take(context, [:llm_config, :generation])
-        )
-      end
-
-    case translations do
-      {:ok, %{queries: translated, errors: invalid}} ->
-        simple = simple_query(query, languages)
-
-        {Map.merge(translated, simple),
+  defp translate_languages(query, terms, languages, context) do
+    case Jido.Exec.run(
+           TranslateKnowledgeQuery,
+           %{query: query, lexical_terms: terms, languages: languages},
+           Map.take(context, [:llm_config, :generation])
+         ) do
+      {:ok, %{queries: queries, errors: invalid}} ->
+        {queries,
          Enum.map(invalid, &%{language: &1, stage: :translation, error: :translation_failed})}
 
       {:error, _reason} ->
-        {simple_query(query, languages),
-         Enum.map(translatable, &%{language: &1, stage: :translation, error: :translation_failed})}
-    end
-  end
-
-  defp simple_query(query, languages) do
-    if "simple" in languages do
-      terms =
-        query
-        |> String.split(~r/\s+/u, trim: true)
-        |> Enum.take(8)
-        |> Enum.map(&String.slice(&1, 0, 128))
-
-      %{"simple" => %{semantic_query: query, lexical_terms: terms}}
-    else
-      %{}
+        {%{},
+         Enum.map(languages, &%{language: &1, stage: :translation, error: :translation_failed})}
     end
   end
 
@@ -209,8 +192,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     chunks
     |> Enum.with_index()
     |> Enum.sort_by(fn {chunk, index} ->
-      {-(chunk["rrf_score"] || chunk["distance"] || 0.0), chunk["language"] || "",
-       chunk["document_id"] || 0, chunk["section_path"] || [], chunk["chunk_index"] || index}
+      {-(chunk["rrf_score"] || 0.0), chunk["language"] || "", chunk["document_id"] || 0,
+       chunk["section_path"] || [], chunk["chunk_index"] || index}
     end)
     |> Enum.uniq_by(fn {chunk, index} ->
       {chunk["document_id"], chunk["section_path"], chunk["chunk_index"] || index}
