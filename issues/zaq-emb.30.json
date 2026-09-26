@@ -3,7 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-26T09:22:27Z",
-  "description": "PR B integration seam split from .4: bind requests to resolved Person and authorized canonical transcript; reuse existing history loader/accounts.fetch_history/admission/finalization rather than duplicate Actions. Wire private execution records and initial authorized hydration; preserve BO session identity and connector-scoped channel resolution. Validate current request handle versus registered identity. Busy/finalizing requests must be accepted/steered with explicit outcome or explicitly rejected, never silently lost or marked answered. Tests FIRST: nil/forged actor denial, revoked history, authorized initial hydration, exact active request/runtime identity, busy/finalizing races, one public answer owner and execution-private data exclusion. Files: IncomingMessageRouter, Agent history loader/tools/executor and Engine execution APIs. Read Agent critical checks, Engine guide, Action reuse/testing policies. Cross-service calls through NodeRouter. No PR A dependency on this work; deliver in B, not its own PR.",
+  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR B. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.32; no self-approval.\n\nPR B integration seam split from .4: bind requests to resolved Person and authorized canonical transcript; reuse existing history loader/accounts.fetch_history/admission/finalization rather than duplicate Actions. Wire private execution records and initial authorized hydration; preserve BO session identity and connector-scoped channel resolution. Validate current request handle versus registered identity. Busy/finalizing requests must be accepted/steered with explicit outcome or explicitly rejected, never silently lost or marked answered. Tests FIRST: nil/forged actor denial, revoked history, authorized initial hydration, exact active request/runtime identity, busy/finalizing races, one public answer owner and execution-private data exclusion. Files: IncomingMessageRouter, Agent history loader/tools/executor and Engine execution APIs. Read Agent critical checks, Engine guide, Action reuse/testing policies. Cross-service calls through NodeRouter. No PR A dependency on this work; deliver in B, not its own PR.",
   "id": "zaq-emb.30",
   "labels": [],
   "parent": "zaq-emb",
@@ -11,5 +11,5 @@
   "status": "open",
   "title": "[zaq-emb.30] Person-bound canonical execution and busy-request admission (PR B)",
   "type": "task",
-  "updated_at": "2026-09-26T09:22:28Z"
+  "updated_at": "2026-09-26T09:48:15Z"
 }
