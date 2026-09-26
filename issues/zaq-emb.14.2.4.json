@@ -13,11 +13,15 @@
     {
       "text": "Action reuse: outbound delivery is already SmtpSender.send_notification/3,/4 and EmailBridge.send_reply/2. Extend existing SmtpSender delivery path with a receipt-bearing variant returning only after Mailer.deliver/2 reports success; preserve existing :ok/error callers. EmailBridge adds receipt facts to its existing threading receipt only for confirmed delivery; no new send operation or agent tool. Inputs: existing payload/metadata and selected SMTP connector; outputs: legacy :ok/error or evidence of actual Swoosh from/envelope to on success; errors pass through without evidence, ambiguous/mismatched connector fails closed. Actor permissions unchanged; SmtpSender delivery is the only side effect; retries remain caller-owned and must not synthesize success. Code consumer EmailBridge only, not workflow/agent tool. Verify sender override/settings, explicit IMAP binding, failed transport, hidden Bcc isolation, legacy notifications and fake sender behavior; existing configured SMTP encryption/decryption unchanged.",
       "timestamp": "2026-09-26T10:26:56Z"
+    },
+    {
+      "text": "Local uncommitted PR A implementation: SmtpSender.send_notification_with_receipt/3,/4 composes through the existing Swoosh send path and emits actual email.from + envelope to/cc/bcc only after Mailer.deliver returns {:ok, _}; legacy send_notification/3,/4 still returns :ok/error. EmailBridge reply receipt adds history_evidence only from the receipt-bearing sender, never synthesizes it from :ok on legacy/stub senders. Tests include explicit sender override, real IMAP-\u003elinked SMTP selection with two connectors, missing binding/disabled connector (existing), fake Bcc/header exclusion, transport rejection, property envelope isolation and legacy consumers; isolated 173 tests/3 properties across Email/notification/workflow suites pass, mix q passes. Channels guide updated to distinguish transport evidence from Person grants and mailbox delivery; no secret/settings behavior changed. Independent inbound receiving-account Bcc proof remains optional .14.2.5 and is NOT inferred.",
+      "timestamp": "2026-09-26T10:32:37Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.4] Return confirmed SMTP history evidence",
   "type": "task",
-  "updated_at": "2026-09-26T10:26:56Z"
+  "updated_at": "2026-09-26T10:32:37Z"
 }
