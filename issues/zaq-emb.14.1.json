@@ -6,7 +6,7 @@
   ],
   "closed_at": "2026-09-26T08:20:39Z",
   "created": "2026-09-26T08:09:37Z",
-  "description": "Pure Engine policy slice stacked after #811. Add a typed facts contract and code-defined Direct/Shared/Replicated strategies with validated transcript coordinates, per-message association targets, access policy hints, parent-context source order and membership lifecycle. Reject unknown provider/connector/kind, nil actor where required, inconsistent parent and mismatched connector. Provider defaults must be explicit; mention/response gating belongs to .4, not history. Test FIRST: Direct one-to-one participant grants; Shared root/thread inheritance and read order; Replicated per-message sender/recipient sets with no retroactive association, unknown mapping and collision isolation; property tests for uniqueness and membership safety. No DB persistence or Action exposure. Read Engine and Channels guides, docs/action-reuse.md/testing-approach.md; update Engine guide. No E2E authoring before human UX approval.",
+  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.12; no self-approval.\n\nPure Engine policy slice stacked after #811. Add a typed facts contract and code-defined Direct/Shared/Replicated strategies with validated transcript coordinates, per-message association targets, access policy hints, parent-context source order and membership lifecycle. Reject unknown provider/connector/kind, nil actor where required, inconsistent parent and mismatched connector. Provider defaults must be explicit; mention/response gating belongs to .4, not history. Test FIRST: Direct one-to-one participant grants; Shared root/thread inheritance and read order; Replicated per-message sender/recipient sets with no retroactive association, unknown mapping and collision isolation; property tests for uniqueness and membership safety. No DB persistence or Action exposure. Read Engine and Channels guides, docs/action-reuse.md/testing-approach.md; update Engine guide. No E2E authoring before human UX approval.",
   "id": "zaq-emb.14.1",
   "labels": [],
   "parent": "zaq-emb.14",
@@ -28,5 +28,5 @@
   "status": "closed",
   "title": "[zaq-emb.14.1] Define typed Engine history strategies",
   "type": "task",
-  "updated_at": "2026-09-26T08:20:39Z"
+  "updated_at": "2026-09-26T09:48:24Z"
 }
