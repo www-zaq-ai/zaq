@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-emb.3.2"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-emb.3",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-emb.3.3] Add private Person-bound execution records",
   "type": "task",
-  "updated_at": "2026-09-26T07:58:39Z"
+  "updated_at": "2026-09-26T07:59:35Z"
 }
