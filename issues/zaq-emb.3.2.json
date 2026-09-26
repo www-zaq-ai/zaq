@@ -17,11 +17,15 @@
     {
       "text": "2026-09-26 Action discovery recheck: inspected Zaq.Agent.Tools.Conversations.PersistMessageHistory (workflow Action, lib/zaq/agent/tools/conversations/persist_message_history.ex) and its contract tests. It accepts agent/workflow-supplied Incoming/routing and stamps conversation identity via Channels before Engine :persist_message_history; stores exactly one legacy conversation-scoped message, not one canonical UUID with multiple authorized transcript placements. Reusing it for passive/background shared history would expose an unsafe agent input surface and duplicate legacy telemetry/title side effects. Decision remains Engine-local Conversations append/list delegating to TranscriptHistory, no Registry entry or new Action. The future strategy consumer uses trusted channel ingress through NodeRouter; current API not exposed as arbitrary Agent action. Verification: test-first public context API regressions plus existing legacy Conversation/permission tests.",
       "timestamp": "2026-09-26T07:53:53Z"
+    },
+    {
+      "text": "2026-09-26 implementation on feature/issue-768-canonical-transcript-api: Conversations delegates internal append/list to TranscriptHistory. Append checks persisted retrieval connector/provider, rejects archived ingress, verifies channel permission coordinate/parent strategy, requires Replicated recipient match, derives provider+connector+mailbox source key, uses partial-index conflict target and content conflict validation, locks transcript FOR UPDATE and increments next_position only for new association; no provider ID means no guessed dedup. Read requires persisted Person + direct grant for Direct/Shared or owner for Replicated; pages bounded by cursor/up-to/limit; returns only content and primitive attachment descriptors. Descriptor sanitization happens before DB insert and again on read. Legacy rate_message_by_id now rejects conversation-less canonical UUID, preventing crash/unauthorized mutation. Test-first regressions demonstrate missing APIs, null-content replay bug, bogus Person, and raw attachment persistence; focused 193 tests/6 properties plus mix q passed before latest narrow test additions, and current 13 new tests/1 property pass. Shared sandbox task test checks overlapping append positions but cannot prove multi-connection lock contention; database row lock and unique constraints provide cross-connection enforcement. #807 prerequisite CI green; no new-feature E2E authored.",
+      "timestamp": "2026-09-26T07:55:08Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.3.2] Add authorized canonical transcript persistence primitives",
   "type": "task",
-  "updated_at": "2026-09-26T07:53:53Z"
+  "updated_at": "2026-09-26T07:55:08Z"
 }
