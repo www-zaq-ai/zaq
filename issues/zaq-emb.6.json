@@ -15,9 +15,15 @@
   "id": "zaq-emb.6",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Implementation progress for PR A bounded support: new validated Zaq.Engine.Workflows.Actions.RefreshChannelHistoryMembership Action (nonempty workflow schema/output) checks current super-admin in operation, BO invokes with Jido.Exec.run through authenticated Engine event; does not enter agent Registry. Reuses ChannelHistoryMembership.refresh and Channels.Api -\u003e MattermostAdmin.channel_membership_snapshot; provider pagination validates all pages before transaction-serialized source-key-only grant reconciliation, preserving independent manual rows. Supported now: Mattermost 26-character Shared room ID with enabled connector; other providers/Direct not advertised. Tests: rejected user/no actor, unsupported rooms, complete/failed snapshots, duplicate members, manual preservation and property over member-set dedup. Still outstanding per original zaq-emb.6: Person+connector-targeted refresh and normalized add/remove event ordering; do not mark this bead complete or imply automatic provider push reconciliation.",
+      "timestamp": "2026-09-26T22:21:33Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.6] Membership reconciliation and reusable refresh Action",
   "type": "task",
-  "updated_at": "2026-09-26T09:49:47Z"
+  "updated_at": "2026-09-26T22:21:33Z"
 }
