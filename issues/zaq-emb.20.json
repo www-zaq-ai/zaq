@@ -5,13 +5,13 @@
   ],
   "blocks": [],
   "created": "2026-09-25T09:36:48Z",
-  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.12; no self-approval.\n\nAfter coverage and review follow-up, run mix precommit through Context Mode with 900000ms timeout against final changes. Fix failures and repeat required checks; failed-test-only rerun does not replace a clean full gate. Record migration, E2E, coverage and independent review evidence. Ask final human approval only on clean gate. Do not commit/push/close automatically. Action reuse not applicable: validation coordination. Files: no production scope; follow-up defects tracked by owner. Tests: full final gate plus isolated regression checks as needed. Documentation: Beadwork validation summary.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
+  "description": "PR A only: after .19 run final mix precommit through Context Mode (900000ms), resolve failures/repeat full gates; record migration/data-preservation, E2E, review, coverage and A docs. Request final human approval after clean checks. A independently usable, no B runtime dependency. No automatic commit/push/merge/closure. B has .34. Action reuse N/A.",
   "id": "zaq-emb.20",
   "labels": [],
   "parent": "zaq-emb",
   "priority": 2,
   "status": "open",
-  "title": "[zaq-emb.20] Final precommit and implementation approval gate",
+  "title": "[zaq-emb.20] PR A final precommit and human implementation approval",
   "type": "task",
-  "updated_at": "2026-09-26T09:48:22Z"
+  "updated_at": "2026-09-26T09:49:44Z"
 }
