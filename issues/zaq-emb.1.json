@@ -5,6 +5,7 @@
     "zaq-emb.3",
     "zaq-emb.6"
   ],
+  "closed_at": "2026-09-26T06:23:13Z",
   "created": "2026-09-23T13:18:27Z",
   "description": "## Functional specifications\nUpdate epic and children to supersede fanout, add strategy/canonical-storage prerequisites, and validate the DAG. Retain source-aware grants; inspect replace/mutate/public-revoke semantics and existing consumers. Add tests for independent sources, direct access rules, source-preserving Person merges, connector isolation and inherited thread access.\n\n## Files and ownership\nlib/zaq/permissions.ex; lib/zaq/permissions/resource_permission.ex; lib/zaq/permissions/channel_history_resource.ex; lib/zaq/accounts/person_merger.ex; associated migrations/tests\n\n## Action reuse assessment\nExtend existing Permissions APIs; preserve manual/provider sources and explicitly review existing mutation semantics. No separate membership ACL.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\ndocs/services/engine.md; permission moduledocs\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.1",
@@ -33,8 +34,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.1] Source-aware channel-history grants",
   "type": "task",
-  "updated_at": "2026-09-26T06:10:52Z"
+  "updated_at": "2026-09-26T06:23:13Z"
 }
