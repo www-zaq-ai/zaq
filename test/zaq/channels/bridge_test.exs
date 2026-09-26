@@ -427,6 +427,14 @@ defmodule Zaq.Channels.BridgeTest do
     assert {:error, {:channel_not_configured, :slack}} = Bridge.fetch_any_channel_config(:slack)
   end
 
+  test "unscoped capability lookup rejects ambiguity even with one disabled connector" do
+    insert_config(:mattermost)
+    insert_config(:mattermost, %{enabled: false})
+
+    assert {:error, :ambiguous_connector} = Bridge.fetch_any_channel_config(:mattermost)
+    assert {:error, :ambiguous_connector} = Bridge.capability_snapshot(:mattermost)
+  end
+
   test "default_bridge_id supports atom and string keys" do
     assert Bridge.default_bridge_id(%{provider: "mattermost", id: 42}) == "mattermost_42"
     assert Bridge.default_bridge_id(%{"provider" => "mattermost", "id" => 43}) == "mattermost_43"
