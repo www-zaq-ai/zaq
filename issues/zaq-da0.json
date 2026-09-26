@@ -10,11 +10,15 @@
     {
       "text": "Implemented the approved test-only scenarios in test/zaq/ingestion/fts_backend_test.exs: assert ParadeDB backend active before execution; broaden real indexed search to two matching chunks in distinct section paths plus an English matching excluded-source document; assert exact wanted document/section grouping, chunk indices, numeric scores, and exclusion; change the empty-result probe to a unique absent token. No tests/format/coverage commands run per coordinator instruction. pg_isready reports /tmp:5432 no response, so local DB prerequisite unavailable. Existing unrelated modification in test/zaq_web/live/bo/ai/ingestion_progress_test.exs was left untouched.",
       "timestamp": "2026-09-26T11:38:04Z"
+    },
+    {
+      "text": "Review follow-up applied: restored a French-language matching chunk within the wanted source (section_path [\"Council\", \"French report\"], chunk_index 13), while retaining the English source-excluded document. The grouped-result assertions now explicitly require only chunk indices [11, 12], preserving both language and source filter regressions. No tests run.",
+      "timestamp": "2026-09-26T11:39:16Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-da0] Cover ParadeDB grouped BM25 success return (line 32)",
   "type": "task",
-  "updated_at": "2026-09-26T11:38:04Z"
+  "updated_at": "2026-09-26T11:39:16Z"
 }
