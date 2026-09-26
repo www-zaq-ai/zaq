@@ -21,11 +21,15 @@
     {
       "text": "2026-09-26 committed 7c725fa67, pushed feature/issue-768-canonical-message-storage and opened draft stacked PR #807 on #806. mix q green, 141 focused tests/1 property green; migration 00010 up in test DB, no populated developer DB reset. Structural schema only: no authorized reads/writes or new-feature E2E. Follow-up .3.2 must allocate committed positions and enforce trusted provider/account permission scope; .15 owns backfill/cutover. Keep PR open for stacked review and CI.",
       "timestamp": "2026-09-26T07:29:45Z"
+    },
+    {
+      "text": "2026-09-26 schema follow-up before .3.2: Direct/Replicated transcript authorization cannot rely on an opaque scope key. Added explicit owner_person_id FK and strategy-specific ownership constraint in new migration 20260922000011 (00010 already applied in test DB, so did not edit an applied migration), shared owner must be nil. Changeset + raw DB rejection regressions red before implementation and green afterward; 142 focused tests/1 property and mix q pass. Restrict owner FK deletion to fail closed rather than silently orphan private history. Owning draft PR #807 will get follow-up commit.",
+      "timestamp": "2026-09-26T07:32:32Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.3.1] Add canonical message and transcript association schema",
   "type": "task",
-  "updated_at": "2026-09-26T07:30:10Z"
+  "updated_at": "2026-09-26T07:32:32Z"
 }
