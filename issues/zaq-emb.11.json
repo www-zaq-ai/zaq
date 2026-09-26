@@ -3,7 +3,6 @@
   "blocked_by": [
     "zaq-emb.10",
     "zaq-emb.15",
-    "zaq-emb.7",
     "zaq-emb.8",
     "zaq-emb.9"
   ],
@@ -19,5 +18,5 @@
   "status": "open",
   "title": "[zaq-emb.11] PR A integrated documentation and validation",
   "type": "task",
-  "updated_at": "2026-09-26T09:49:42Z"
+  "updated_at": "2026-09-26T09:50:29Z"
 }
