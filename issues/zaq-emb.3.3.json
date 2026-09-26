@@ -9,9 +9,15 @@
   "id": "zaq-emb.3.3",
   "labels": [],
   "parent": "zaq-emb.3",
+  "comments": [
+    {
+      "text": "2026-09-26 Action reuse assessment before code: existing Conversations.admit_incoming/finalize_incoming writes legacy execution_status/finalization_token_hash to Message.metadata and trace/tool artifacts to Message/MessageTraceArtifact, incompatible with public canonical fanout. Extend existing Message UUID references with an Engine-local ExecutionRecord schema; do not duplicate finalization operations or alter existing writers until zaq-emb.15 legacy migration/cutover. Inputs: canonical user Message, mandatory persisted Person, Base64 SHA-256 capability hash (never raw token), status pending/completed/failed, optional one public answer, private trace/tool-result/usage/outcome maps. DB constraints and changesets fail closed; FK restrict prevents orphaning; one public answer belongs to at most one run, multiple attempts may share a user message. No BO/agent/workflow consumer until trusted Engine execution path exists; no new Action/Registry exposure (private runtime state). Tests first: private/public separation, nil/nonexistent Person, invalid/duplicate capability and answer, status transitions, legacy reference preservation and guarded down. Read Conversations moduledoc and Engine guide; no lib/zaq/agent change planned.",
+      "timestamp": "2026-09-26T08:00:08Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.3.3] Add private Person-bound execution records",
   "type": "task",
-  "updated_at": "2026-09-26T07:59:35Z"
+  "updated_at": "2026-09-26T08:00:08Z"
 }
