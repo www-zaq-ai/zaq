@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T08:37:10Z",
+  "description": "Follow-up to .14.2.2 for hidden Bcc on inbound email. Current IMAP settings expose username and selected folder names, neither independently attests the address that received a message. Determine authoritative account-address evidence available from adapter/server and persist/validate a connector-scoped account identity only when independently established; if unavailable, leave Bcc unassociated and document limitation rather than infer from Delivered-To, folder or header. Any BO UI change must stay under communication-channel settings and read DESIGN.md/docs/bo-components.md first; new-feature E2E authoring waits for human UX approval. Tests first for alias, multi-account ambiguity, mismatched connector and denial of unsupported Bcc. Reuse existing IMAP configuration and IdentityResolver, no new agent Action/tool.",
+  "id": "zaq-emb.14.2.5",
+  "labels": [],
+  "parent": "zaq-emb.14.2",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.14.2.5] Establish receiving-account identity evidence",
+  "type": "task",
+  "updated_at": "2026-09-26T08:37:10Z"
+}
