@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T09:22:30Z",
+  "description": "After PR B implementation review and approved B E2E, follow WORKFLOW_AGENT Phase 6 with fresh coverage report, gap planning, review evidence and required repeat validation after changes. All B documentation and validation belong in B. No historical result substitutes for current evidence. No production scope; Action reuse N/A.",
+  "id": "zaq-emb.33",
+  "labels": [],
+  "parent": "zaq-emb",
+  "priority": 1,
+  "status": "open",
+  "title": "PR B coverage handoff and review",
+  "type": "task",
+  "updated_at": "2026-09-26T09:22:30Z"
+}
