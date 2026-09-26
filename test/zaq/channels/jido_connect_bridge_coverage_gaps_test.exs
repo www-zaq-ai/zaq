@@ -1230,6 +1230,24 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
       end
     end
 
+    test "queued webhook jobs reject disabled and archived connectors before processing" do
+      config = insert_data_source_config(:google_drive)
+      args = %{"config_id" => config.id, "provider" => "google_drive"}
+
+      assert {:cancel, :missing_trigger_id} =
+               JidoConnectBridge.process_verified_webhook_job(args)
+
+      disabled = Repo.update!(ChannelConfig.changeset(config, %{enabled: false}))
+
+      assert {:cancel, :connector_disabled} =
+               JidoConnectBridge.process_verified_webhook_job(args)
+
+      assert {:ok, _archived} = ChannelConfig.archive(disabled)
+
+      assert {:cancel, :connector_archived} =
+               JidoConnectBridge.process_verified_webhook_job(args)
+    end
+
     test "setup_listener rejects webhook providers without a matching watch trigger" do
       previous_channels = Application.get_env(:zaq, :channels)
       previous_jido_connect = Application.get_env(:zaq, :jido_connect_bridge_jido_connect_module)
