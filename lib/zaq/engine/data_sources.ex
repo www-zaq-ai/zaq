@@ -14,6 +14,7 @@ defmodule Zaq.Engine.DataSources do
   import Ecto.Query
 
   alias Ecto.Changeset
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.WebhookUrl
   alias Zaq.Engine.DataSources.WatchChannel
   alias Zaq.Engine.DataSources.WatchChannelRenewalWorker
@@ -145,6 +146,54 @@ defmodule Zaq.Engine.DataSources do
     end
   end
 
+  @doc "Stops each live provider watch before archiving its connector; successful stops are durable."
+  @spec stop_config_watch_channels(pos_integer()) ::
+          {:ok, non_neg_integer()} | {:error, [{integer(), term()}]}
+  def stop_config_watch_channels(config_id) when is_integer(config_id) and config_id > 0 do
+    watches =
+      Repo.all(
+        from w in WatchChannel,
+          where: w.config_id == ^config_id and w.status in ["active", "error"],
+          order_by: w.id
+      )
+
+    results =
+      Enum.map(watches, fn watch ->
+        case stop_provider_watch_channel(watch) do
+          :ok -> {watch.id, mark_watch_channel_stopped(watch.id)}
+          {:error, reason} -> {watch.id, {:error, reason}}
+        end
+      end)
+
+    failures = for {id, {:error, reason}} <- results, do: {id, reason}
+    if failures == [], do: {:ok, length(watches)}, else: {:error, failures}
+  end
+
+  def stop_config_watch_channels(_), do: {:error, [{nil, :invalid_connector_id}]}
+
+  @doc "Enqueues cleanup for watches that raced with connector archive."
+  @spec reconcile_archived_config_watches(pos_integer()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def reconcile_archived_config_watches(config_id) when is_integer(config_id) and config_id > 0 do
+    if archived_connector?(config_id) do
+      WatchChannel
+      |> where([w], w.config_id == ^config_id and w.status in ["active", "error"])
+      |> Repo.all()
+      |> Enum.reduce_while({:ok, 0}, &enqueue_archived_watch_cleanup/2)
+    else
+      {:error, :connector_not_archived}
+    end
+  end
+
+  def reconcile_archived_config_watches(_), do: {:error, :invalid_connector_id}
+
+  defp enqueue_archived_watch_cleanup(watch, {:ok, count}) do
+    case schedule_watch_channel_renewal(watch) do
+      {:ok, _job} -> {:cont, {:ok, count + 1}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
   @doc "Marks a watch channel errored and stores an inspectable failure reason."
   def mark_watch_channel_error(id, reason) do
     case Repo.get(WatchChannel, id) do
@@ -194,8 +243,17 @@ defmodule Zaq.Engine.DataSources do
   """
   def renew_watch_channel(id) do
     with %WatchChannel{} = old_watch_channel <-
-           Repo.get(WatchChannel, id) || {:error, :watch_channel_not_found},
-         true <- old_watch_channel.status == "active" || :ok,
+           Repo.get(WatchChannel, id) || {:error, :watch_channel_not_found} do
+      if archived_connector?(old_watch_channel.config_id) do
+        cleanup_archived_watch_channel(old_watch_channel)
+      else
+        renew_active_watch_channel(old_watch_channel)
+      end
+    end
+  end
+
+  defp renew_active_watch_channel(old_watch_channel) do
+    with true <- old_watch_channel.status == "active" || :ok,
          {:ok, new_watch_channel} <- create_replacement_watch_channel(old_watch_channel),
          :ok <- stop_provider_watch_channel(old_watch_channel),
          {:ok, _deleted} <- Repo.delete(old_watch_channel) do
@@ -206,15 +264,77 @@ defmodule Zaq.Engine.DataSources do
     end
   end
 
+  defp cleanup_archived_watch_channel(%WatchChannel{status: status} = watch_channel)
+       when status in ["active", "error"] do
+    case stop_provider_watch_channel(watch_channel) do
+      :ok ->
+        case mark_watch_channel_stopped(watch_channel.id) do
+          {:ok, _} -> :ok
+          {:error, _} = error -> error
+        end
+
+      {:error, reason} = error ->
+        _ = mark_watch_channel_error(watch_channel.id, reason)
+        error
+    end
+  end
+
+  defp cleanup_archived_watch_channel(_watch_channel), do: :ok
+
+  defp archived_connector?(config_id) do
+    match?(%ChannelConfig{archived_at: %DateTime{}}, Repo.get(ChannelConfig, config_id))
+  end
+
   defp maybe_schedule_watch_channel_renewal({:ok, %WatchChannel{} = watch_channel} = result) do
-    _ = schedule_watch_channel_renewal(watch_channel)
-    result
+    case schedule_watch_channel_renewal(watch_channel) do
+      {:error, reason} when watch_channel.status in ["active", "error"] ->
+        if archived_connector?(watch_channel.config_id) do
+          _ =
+            watch_channel
+            |> Changeset.change(
+              status: "error",
+              last_error: inspect({:cleanup_enqueue_failed, reason})
+            )
+            |> Repo.update()
+
+          {:error, {:cleanup_enqueue_failed, reason}}
+        else
+          result
+        end
+
+      _ ->
+        result
+    end
   end
 
   defp maybe_schedule_watch_channel_renewal(result), do: result
 
-  defp schedule_watch_channel_renewal(%WatchChannel{
-         status: "active",
+  defp schedule_watch_channel_renewal(%WatchChannel{status: status} = watch_channel)
+       when status in ["active", "error"] do
+    cond do
+      archived_connector?(watch_channel.config_id) ->
+        %{watch_channel_id: watch_channel.id}
+        |> WatchChannelRenewalWorker.new(
+          unique: [
+            keys: [:watch_channel_id],
+            states: [:scheduled, :available, :retryable],
+            period: :infinity
+          ],
+          replace: [scheduled: [:scheduled_at]]
+        )
+        |> Oban.insert()
+
+      status == "active" ->
+        schedule_active_watch_channel_renewal(watch_channel)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp schedule_watch_channel_renewal(%WatchChannel{}), do: :ok
+
+  defp schedule_active_watch_channel_renewal(%WatchChannel{
          expiration_at: %DateTime{} = expiration_at,
          id: id
        }) do
@@ -236,7 +356,7 @@ defmodule Zaq.Engine.DataSources do
     |> Oban.insert()
   end
 
-  defp schedule_watch_channel_renewal(%WatchChannel{}), do: :ok
+  defp schedule_active_watch_channel_renewal(_watch_channel), do: :ok
 
   defp max_datetime(left, right) do
     if DateTime.compare(left, right) == :lt, do: right, else: left
@@ -297,9 +417,14 @@ defmodule Zaq.Engine.DataSources do
       resource_id: watch_channel.resource_id
     }
 
+    action =
+      if archived_connector?(watch_channel.config_id),
+        do: :data_source_unwatch_archived_item,
+        else: :data_source_unwatch_item
+
     event =
       Event.new(%{provider: watch_channel.provider, params: params}, :channels,
-        opts: [action: :data_source_unwatch_item]
+        opts: [action: action]
       )
 
     case node_router_module().dispatch(event).response do

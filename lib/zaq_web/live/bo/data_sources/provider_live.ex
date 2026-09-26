@@ -291,11 +291,11 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
     previous_config = Repo.get!(ChannelConfig, id)
 
-    if socket.assigns.provider == "disk" and !previous_config.enabled and
-         storage_base_path_blank?(socket.assigns.storage_base_path) do
-      {:noreply, put_flash(socket, :error, "Set Zaq.Storage base_path before enabling Disk.")}
+    if previous_config.archived_at || previous_config.provider != socket.assigns.provider ||
+         previous_config.kind != "data_source" do
+      {:noreply, put_flash(socket, :error, "Connector is not available on this provider page.")}
     else
-      toggle_config_enabled(socket, previous_config)
+      toggle_live_config(socket, previous_config)
     end
   end
 
@@ -491,7 +491,16 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def handle_event("delete", _params, socket) do
     id = socket.assigns.confirm_delete
 
-    case Repo.get(ChannelConfig, id) do
+    config =
+      ChannelConfig
+      |> where(
+        [c],
+        c.id == ^id and c.provider == ^socket.assigns.provider and c.kind == "data_source" and
+          is_nil(c.archived_at)
+      )
+      |> Repo.one()
+
+    case config do
       nil ->
         {:noreply,
          socket
@@ -499,14 +508,84 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
          |> put_flash(:error, "Config not found.")}
 
       config ->
-        Repo.delete!(config)
+        event =
+          Event.new(%{channel_config_id: config.id}, :engine,
+            opts: [action: :stop_config_watches]
+          )
+
+        case NodeRouter.dispatch(event).response do
+          {:ok, _} ->
+            archive_data_source_config(socket, config)
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> put_flash(
+               :error,
+               "Cannot archive connector; watch teardown failed: #{inspect(reason)}"
+             )}
+        end
+    end
+  end
+
+  defp toggle_live_config(socket, previous_config) do
+    if socket.assigns.provider == "disk" and !previous_config.enabled and
+         storage_base_path_blank?(socket.assigns.storage_base_path) do
+      {:noreply, put_flash(socket, :error, "Set Zaq.Storage base_path before enabling Disk.")}
+    else
+      toggle_config_enabled(socket, previous_config)
+    end
+  end
+
+  defp archive_data_source_config(socket, config) do
+    event =
+      Event.new(%{channel_config_id: config.id}, :channels,
+        opts: [action: :archive_channel_config]
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, %ChannelConfig{} = archived} ->
+        sync_result = sync_channel_runtime(config, archived)
+
+        cleanup_result =
+          Event.new(%{channel_config_id: archived.id}, :engine,
+            opts: [action: :reconcile_archived_config_watches]
+          )
+          |> NodeRouter.dispatch()
+          |> Map.fetch!(:response)
 
         {:noreply,
          socket
          |> assign(:confirm_delete, nil)
-         |> refresh_provider_page("Data source config deleted.")}
+         |> refresh_provider_page("Data source config archived.")
+         |> maybe_report_archive_sync(sync_result)
+         |> maybe_report_archive_cleanup(cleanup_result)}
+
+      other ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(:error, "Cannot archive connector: #{inspect(other)}")}
     end
   end
+
+  defp maybe_report_archive_sync(socket, :ok), do: socket
+  defp maybe_report_archive_sync(socket, {:ok, _}), do: socket
+
+  defp maybe_report_archive_sync(socket, other),
+    do:
+      put_flash(socket, :error, "Connector archived, but runtime sync failed: #{inspect(other)}")
+
+  defp maybe_report_archive_cleanup(socket, {:ok, _count}), do: socket
+
+  defp maybe_report_archive_cleanup(socket, other),
+    do:
+      put_flash(
+        socket,
+        :error,
+        "Connector archived, but watch cleanup could not be queued: #{inspect(other)}"
+      )
 
   defp toggle_config_enabled(socket, previous_config) do
     config =
@@ -645,7 +724,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   defp list_configs(provider) do
     ChannelConfig
-    |> where([c], c.provider == ^provider and c.kind == "data_source")
+    |> where([c], c.provider == ^provider and c.kind == "data_source" and is_nil(c.archived_at))
     |> order_by(asc: :name)
     |> Repo.all()
   end

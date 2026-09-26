@@ -69,6 +69,12 @@ runtime selection, retains historical lookup by ID and preserves the FK of
 PersonChannel identities. Archived configs are excluded from ordinary BO
 lists and provider-only upserts. Ingress teardown is attempted before archive;
 the BO reports failure instead of silently archiving when teardown fails.
+For data-source connectors, archiving first unwatches each active/error watch;
+successful stops are persisted and failed IDs remain retryable with the connector
+still live. The post-archive reconciliation and late watch upserts schedule
+durable cleanup on the existing renewal worker. Only this cleanup path may use
+archived credentials to unwatch the exact matching connector; regular ingress
+and watch creation remain unavailable after archive.
 
 ### Replicated email history contract (#768)
 

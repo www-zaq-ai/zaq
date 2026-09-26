@@ -284,6 +284,22 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(
+        %Event{request: %{channel_config_id: id}} = event,
+        :stop_config_watches,
+        _context
+      ) do
+    %{event | response: DataSources.stop_config_watch_channels(id)}
+  end
+
+  def handle_event(
+        %Event{request: %{channel_config_id: id}} = event,
+        :reconcile_archived_config_watches,
+        _context
+      ) do
+    %{event | response: DataSources.reconcile_archived_config_watches(id)}
+  end
+
   def handle_event(%Event{} = event, :connect_fetch_credential, _context) do
     case event.request do
       %{credential_id: credential_id} ->

@@ -26,6 +26,11 @@ defmodule Zaq.Engine.DataSourcesTest do
       %{event | response: {:ok, %{status: "unwatched"}}}
     end
 
+    def dispatch(%{opts: [action: :data_source_unwatch_archived_item]} = event) do
+      send(self(), {:archived_unwatch_item, event.request})
+      %{event | response: {:ok, %{status: "unwatched"}}}
+    end
+
     def dispatch(event), do: %{event | response: {:error, :unexpected_event}}
   end
 
@@ -38,6 +43,11 @@ defmodule Zaq.Engine.DataSourcesTest do
 
     def dispatch(%{opts: [action: :data_source_unwatch_item]} = event) do
       send(self(), {:renewal_unwatch_item, event.request})
+      %{event | response: {:error, :unwatch_failed}}
+    end
+
+    def dispatch(%{opts: [action: :data_source_unwatch_archived_item]} = event) do
+      send(self(), {:archived_unwatch_item, event.request})
       %{event | response: {:error, :unwatch_failed}}
     end
 
@@ -249,6 +259,90 @@ defmodule Zaq.Engine.DataSourcesTest do
 
     assert updated.id == first.id
     assert updated.checkpoint == "next"
+  end
+
+  test "archive teardown stops only this connector's watches and is retryable" do
+    first = insert_data_source_config()
+    other = insert_data_source_config()
+    {:ok, a} = DataSources.upsert_watch_channel(watch_attrs(first))
+    {:ok, b} = DataSources.upsert_watch_channel(watch_attrs(first, %{channel_id: "channel-2"}))
+    {:ok, untouched} = DataSources.upsert_watch_channel(watch_attrs(other))
+
+    with_engine_data_sources_env(StubRenewalNodeRouter, nil, fn ->
+      assert {:ok, 2} = DataSources.stop_config_watch_channels(first.id)
+      assert Repo.get(WatchChannel, a.id).status == "stopped"
+      assert Repo.get(WatchChannel, b.id).status == "stopped"
+      assert Repo.get(WatchChannel, untouched.id).status == "active"
+      assert {:ok, 0} = DataSources.stop_config_watch_channels(first.id)
+    end)
+  end
+
+  test "archive teardown reports failed watches and keeps them active for retry" do
+    config = insert_data_source_config()
+    {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+    with_engine_data_sources_env(StubRenewalUnwatchErrorNodeRouter, nil, fn ->
+      assert {:error, [{id, :unwatch_failed}]} = DataSources.stop_config_watch_channels(config.id)
+      assert id == watch.id
+      assert Repo.get(WatchChannel, watch.id).status == "active"
+    end)
+
+    with_engine_data_sources_env(StubRenewalNodeRouter, nil, fn ->
+      assert {:ok, 1} = DataSources.stop_config_watch_channels(config.id)
+      assert Repo.get(WatchChannel, watch.id).status == "stopped"
+    end)
+  end
+
+  test "a watch arriving after archive is queued for provider cleanup" do
+    config = insert_data_source_config()
+
+    config
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Repo.update!()
+
+    with_engine_data_sources_env(StubRenewalNodeRouter, nil, fn ->
+      assert {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+      assert_enqueued(worker: WatchChannelRenewalWorker, args: %{watch_channel_id: watch.id})
+      assert :ok = perform_job(WatchChannelRenewalWorker, %{watch_channel_id: watch.id})
+      assert Repo.get!(WatchChannel, watch.id).status == "stopped"
+      assert_received {:archived_unwatch_item, %{params: %{config_id: id}}}
+      assert id == config.id
+    end)
+  end
+
+  test "archive reconciliation queues already-persisted watches for cleanup" do
+    config = insert_data_source_config()
+    {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+    config
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Repo.update!()
+
+    assert {:ok, 1} = DataSources.reconcile_archived_config_watches(config.id)
+    assert_enqueued(worker: WatchChannelRenewalWorker, args: %{watch_channel_id: watch.id})
+    assert {:ok, 1} = DataSources.reconcile_archived_config_watches(config.id)
+
+    assert {:error, :connector_not_archived} =
+             DataSources.reconcile_archived_config_watches(insert_data_source_config().id)
+  end
+
+  test "failed archived-watch cleanup retains an inspectable error for retry" do
+    config = insert_data_source_config()
+
+    config
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Repo.update!()
+
+    with_engine_data_sources_env(StubRenewalUnwatchErrorNodeRouter, nil, fn ->
+      assert {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+      assert {:error, :unwatch_failed} =
+               perform_job(WatchChannelRenewalWorker, %{watch_channel_id: watch.id})
+
+      failed = Repo.get!(WatchChannel, watch.id)
+      assert failed.status == "error"
+      assert failed.last_error =~ "unwatch_failed"
+    end)
   end
 
   test "upsert_watch_channel stores JSON-safe string values in watch metadata" do
