@@ -7,6 +7,7 @@
     "zaq-emb.3",
     "zaq-emb.6"
   ],
+  "closed_at": "2026-09-26T07:09:35Z",
   "created": "2026-09-23T13:18:28Z",
   "description": "## Functional specifications\nExtend existing People/IdentityResolver identity storage with connector/issuer scope. Link existing identities to the sole matching provider connector as approved; stop on ambiguous mappings. Test identifier collisions, forged/mismatched connector facts, concurrent discovery, email compatibility and merge behaviour. Do not infer membership from display names or emails.\n\n## Files and ownership\nlib/zaq/accounts/people.ex; lib/zaq/accounts/person_channel.ex; lib/zaq/accounts/person_merger.ex; lib/zaq/people/identity_resolver.ex; identity tests/migrations\n\n## Action reuse assessment\nExtend People identity discovery and merge, not another matcher. Trusted connector facts enter through Channels; unknown/ambiguous mappings fail closed.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\ndocs/services/channels.md; identity moduledocs\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.2",
@@ -59,8 +60,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-26T07:09:31Z"
+  "updated_at": "2026-09-26T07:09:35Z"
 }
