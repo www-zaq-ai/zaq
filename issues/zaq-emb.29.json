@@ -14,11 +14,15 @@
     {
       "text": "Next delivery action: inspect actual live branch contents and any active owners before consolidation; old foundation PR numbers are provenance, not mandated future topology. Reuse/retarget practical existing PRs for A and B, record superseded drafts only after safe consolidation. This planning request updates Beadwork only; no GitHub PRs or Git branches were changed. Preserve all existing work and databases.",
       "timestamp": "2026-09-26T09:51:47Z"
+    },
+    {
+      "text": "Live non-destructive inventory (current fetch): eight draft PRs #799/#800/#806/#807/#808/#811/#812/#813 form a strictly stacked chain, #799 based on main; current #813 HEAD 998b03ea8 is clean before this slice. PR A candidates: #799 connector routing, #800 grant/author foundation, #806 watch-scoping needed by author/connector lifecycle, #807 schema, #808 authorized transcript API, #812 typed strategy, #813 trusted kind. PR B candidate: #811 bda9dcc21 private execution migration/schema plus ordered delivery-timeout regression 84ff37a11 currently embedded in #799 ancestor (duplicative sync commits 8f4e6b22d/24d4560f3 are provenance, not separate features). Preserve migration versions 20260922000013/14 already applied in populated test DB; move only by new ancestry or additive replacement, do not rewrite/replay on existing DB. A clean-DB validation must not rely on B schema; B needs safe ancestry on A. No rebase, retarget, commit or push performed. Current local .14.2.2 changes belong to A. Need coordinate existing worktree ownership and authorize Git/PR mutations before consolidation.",
+      "timestamp": "2026-09-26T10:10:11Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.29] Consolidate existing drafts into outcome PR A and PR B",
   "type": "task",
-  "updated_at": "2026-09-26T09:51:47Z"
+  "updated_at": "2026-09-26T10:10:11Z"
 }
