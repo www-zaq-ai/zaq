@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T11:33:09Z",
+  "description": "Planning-only handoff for uncovered lines 53,93,94,97,106 in lib/zaq/agent/actions/translate_knowledge_query.ex. Full test scenario plan to be added before implementation. No code changes, test runs, or gates in planning session.",
+  "id": "zaq-s2k",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Cover TranslateKnowledgeQuery failure branches",
+  "type": "task",
+  "updated_at": "2026-09-26T11:33:09Z"
+}
