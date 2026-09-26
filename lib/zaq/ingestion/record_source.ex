@@ -4,6 +4,15 @@ defmodule Zaq.Ingestion.RecordSource do
 
   Ingestion receives records from Channels bridges and materializes them through
   signed handles. It does not resolve provider-specific paths or mounted volumes.
+
+  Binary downloads use a safe, lowercase downloaded filename suffix when compatible
+  with the downloaded MIME type, or when that MIME is missing, blank, octet-stream
+  or unmapped.
+  Otherwise the downloaded MIME's canonical suffix wins. Only nonspecific downloaded
+  MIME permits fallback to the original filename; unmapped specific types without
+  a safe downloaded suffix use `.bin`.
+  Original MIME never determines the staged extension. Source metadata stays intact,
+  and row/plain-text downloads continue to use Markdown.
   """
 
   alias Zaq.Channels.Materializers.DataSourceDocument
@@ -11,7 +20,7 @@ defmodule Zaq.Ingestion.RecordSource do
   alias Zaq.Event
   alias Zaq.Materialization
 
-  alias Zaq.Ingestion.{ExternalSource, TemporaryMaterializationStore}
+  alias Zaq.Ingestion.{ArtifactType, ExternalSource, TemporaryMaterializationStore}
 
   @doc "Returns the normalized ingestion kind for a canonical record."
   @spec kind(Record.t()) :: atom()
@@ -248,21 +257,23 @@ defmodule Zaq.Ingestion.RecordSource do
   end
 
   defp extension_for(%Record{} = original, %Record{} = downloaded) do
-    case extension_from_record(original) do
-      ".bin" -> extension_from_record(downloaded)
-      ext -> ext
+    extension = ArtifactType.filename_extension(downloaded.name)
+    nonspecific? = ArtifactType.nonspecific_mime?(downloaded.mime_type)
+    canonical_extension = ArtifactType.canonical_extension(downloaded.mime_type)
+
+    cond do
+      extension &&
+          (nonspecific? || is_nil(canonical_extension) ||
+             ArtifactType.compatible_extension?(downloaded.mime_type, extension)) ->
+        extension
+
+      nonspecific? ->
+        ArtifactType.filename_extension(original.name) || ".bin"
+
+      true ->
+        canonical_extension || ".bin"
     end
   end
-
-  defp extension_from_record(%Record{name: name}) when is_binary(name) do
-    case Path.extname(name) do
-      "" -> ".bin"
-      ext -> ext
-    end
-  end
-
-  defp extension_from_record(%Record{mime_type: "application/pdf"}), do: ".pdf"
-  defp extension_from_record(_), do: ".bin"
 
   defp attr(%Record{} = record, key), do: record |> attributes() |> Map.get(key)
 

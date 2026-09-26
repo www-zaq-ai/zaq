@@ -159,6 +159,16 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - External data-source records persist their signed `materialization_handle` when available.
   `RecordSource.materialize/1` redeems handles through `Zaq.Materialization`; records without
   handles are reissued from trusted provider/config/file attributes before download.
+- Binary staging in `RecordSource` follows the downloaded representation: a safe,
+  lowercase downloaded filename suffix wins when compatible with the downloaded MIME
+  or when that MIME is nil, blank, `application/octet-stream` or unmapped. Otherwise
+  `ArtifactType` supplies the first suffix registered for the MIME type;
+  structured-suffix fallbacks do not make unknown types recognized.
+  Only nonspecific downloaded MIME permits fallback to a safe original filename
+  suffix; unmapped specific MIME types without a safe downloaded suffix fall back
+  to `.bin`. Original MIME is never
+  used to infer the staged format. Bytes, source records, titles and provenance are
+  preserved; row and plain-text downloads remain `.md`.
 
 ### Document Access (`Zaq.Ingestion.DocumentAccess`)
 - Centralized permission-filtered queries for counts/listings and source-filter handling
