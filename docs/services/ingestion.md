@@ -89,10 +89,10 @@ if those continue failing, investigate provider access and metadata-fetch errors
 **Access control**
 - `sync_data_source_permission_projection/4` — refreshes indexed-document permission projections for source ids supplied by Channels after a provider bridge has completed a permission mutation. It never mutates source permissions. Disk ACL writes remain owned by Storage; the Ingestion UI and agent Action both enter through Channels. Projection failures return `{:document_sync_failed, file_id, reason}` rather than reporting full success.
 - `can_access_file?/2` — returns true if a user may access a file; super admins bypass all checks; Everyone grants provide public access; documents with no permission rows are private (admin-only)
-- `list_document_permissions/1` — list all permissions for a document (preloads `:person`, `:team`)
+- `list_document_permissions/1` — list all permissions for a document with their persisted `source_key` (preloads `:person`, `:team`); manual and provider-sourced rows can coexist for a principal
 - `list_person_permissions/1` — list all permissions for a person (preloads `:document`)
 - `list_folder_permissions/2` — unique set of person/team permissions across all documents under a folder
-- `set_document_permission/4` — upsert a permission record for `type \in [:person, :team]`
+- `set_document_permission/4` — upsert a manual permission record for `type \in [:person, :team]`, without overwriting a provider-sourced row
 - `delete_document_permission/1` — remove a permission by ID
 - `list_documents_under_folder/2` — list docs under a folder path
 - `delete_folder_target_permission/3` — remove one permission record when pruning folder-level grants

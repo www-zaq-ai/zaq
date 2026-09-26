@@ -6,6 +6,8 @@ defmodule Zaq.Permissions.DocumentPermission do
   resource type. Compared to the generic schema it:
 
   - Auto-sets `resource_type` to `"document"` on every changeset.
+  - Exposes the persisted `source_key` so manual and provider-derived grants
+    remain distinguishable in document permission lists and mutations.
   - Restricts `access_rights` to CRUD operations only (`read`, `write`, `update`, `delete`).
   - Carries a virtual `:document` field populated by `list_person_permissions/1` for BO display.
   - Provides `build_permission_query/3` and `build_perm_join_condition/2` — Ecto query
@@ -56,6 +58,7 @@ defmodule Zaq.Permissions.DocumentPermission do
     belongs_to :person, Person
     belongs_to :team, Team
     field :access_rights, {:array, :string}, default: ["read"]
+    field :source_key, :string, default: "manual"
     # Virtual: populated by list_person_permissions/1 for BO display
     field :document, :any, virtual: true
 
@@ -71,10 +74,10 @@ defmodule Zaq.Permissions.DocumentPermission do
     |> validate_subset(:access_rights, @valid_rights)
     |> foreign_key_constraint(:person_id)
     |> foreign_key_constraint(:team_id)
-    |> unique_constraint([:resource_type, :resource_id, :person_id],
+    |> unique_constraint([:resource_type, :resource_id, :person_id, :source_key],
       name: :uix_resource_perm_person
     )
-    |> unique_constraint([:resource_type, :resource_id, :team_id],
+    |> unique_constraint([:resource_type, :resource_id, :team_id, :source_key],
       name: :uix_resource_perm_team
     )
   end

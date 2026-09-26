@@ -1046,6 +1046,46 @@ defmodule Zaq.IngestionTest do
       assert length(Ingestion.list_document_permissions(doc.id)) == 1
     end
 
+    test "manual person and team upserts preserve independent provider grants" do
+      doc = create_doc_with_source("perm-sources.md")
+      person = create_person()
+      team = create_team()
+
+      for {type, id, principal} <- [
+            {:person, person.id, %{person_id: person.id}},
+            {:team, team.id, %{team_id: team.id}}
+          ] do
+        {:ok, provider} =
+          Permissions.grant(
+            doc,
+            Map.merge(principal, %{
+              source_key: "provider:drive:17",
+              access_rights: ["read"]
+            })
+          )
+
+        assert {:ok, manual} = Ingestion.set_document_permission(doc.id, type, id, ["write"])
+        assert manual.source_key == "manual"
+        assert manual.id != provider.id
+
+        assert {:ok, _} = Ingestion.set_document_permission(doc.id, type, id, ["read", "write"])
+
+        grants =
+          doc.id
+          |> Ingestion.list_document_permissions()
+          |> Enum.filter(fn permission ->
+            case type do
+              :person -> permission.person_id == id
+              :team -> permission.team_id == id
+            end
+          end)
+          |> Enum.map(&{&1.source_key, &1.access_rights})
+
+        assert Enum.sort(grants) ==
+                 [{"manual", ["read", "write"]}, {"provider:drive:17", ["read"]}]
+      end
+    end
+
     test "counts document permissions for multiple documents" do
       doc1 = create_doc_with_source("perm-count-1.md")
       doc2 = create_doc_with_source("perm-count-2.md")
