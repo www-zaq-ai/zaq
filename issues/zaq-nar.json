@@ -2,13 +2,14 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-26T10:47:05Z",
   "created": "2026-09-26T10:39:13Z",
   "description": "On fix/793-hybrid-retrieval: inspected 20260924000000_use_cosine_chunk_index; it only replaces the vector index and does not persist llm.max_cosine_distance. Changed LLMConfig embedded schema default and System.get_llm_config missing/invalid-key fallback to 0.45; left explicitly persisted settings and legacy llm.distance_threshold unchanged. Updated DocumentProcessor docstring and retrieval rollout/evaluation guides. Action reuse not applicable: only configuration defaults and their consumer docs changed, no operation or agent tool. Tests were red before code (4 failures); mix q passed, isolated System 60 tests + 1 property pass, DocumentProcessor 124 tests + 4 properties pass (1 excluded), native and ParadeDB evaluation each 11/11; git diff --check clean. No migration edited. Awaiting final approval/commit request; final precommit gate pending.",
   "id": "zaq-nar",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#793] Set default cosine distance to 0.45",
   "type": "task",
-  "updated_at": "2026-09-26T10:42:47Z"
+  "updated_at": "2026-09-26T10:47:05Z"
 }
