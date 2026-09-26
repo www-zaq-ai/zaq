@@ -414,13 +414,13 @@ without safe permission mutation support return `:unsupported`.
   `ProviderSpec` for the configured model, and searches
   each language concurrently through explicit Ingestion events. Ingestion
   applies ACLs after retrieval and filters candidates/chunks by language.
-  Results are merged by existing hybrid-fusion score and globally limited by
+   Direct matches are merged by chunk-level hybrid-fusion score and globally limited by
   Ingestion's context budget. The tool returns chunks with their detected
   language and explicit per-language errors plus a `partial` flag when only
   some searches succeed. `simple` chunks retain the original semantic query and
   use bounded terms split from it without translation. RRF scores are separate
   from measured chunk cosine distances; expanded siblings have no measured
-  distance. No translation
+   distance or direct-match RRF score. No translation
   operation is exposed in `Tools.Registry`.
 
 ### Conversation Recall Tool (`Zaq.Agent.Tools.Accounts.History`, key `accounts.fetch_history`)

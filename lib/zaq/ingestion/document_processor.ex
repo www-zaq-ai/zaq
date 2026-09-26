@@ -840,9 +840,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   @doc """
   Extracts token-limited chunks for a given query.
-  Groups by document_id and section_path, sorted by vector distance.
+  Ranks direct chunks by fused lexical/vector evidence, then includes their
+  section context without attributing match scores to contextual siblings.
 
   Returns a list of maps with `"content"`, `"source"`, and `"distance"`.
+  `"distance"` aliases the RRF score for direct matches; contextual siblings
+  have no measured distance or direct-match score.
 
   ## Options
 
@@ -905,8 +908,17 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     ss
     |> Enum.flat_map(fn {doc_id, paths} ->
       Enum.flat_map(paths, fn
-        {_path, []} -> []
-        {path, [first | _]} -> [{doc_id, path, first}]
+        {_path, []} ->
+          []
+
+        {path, matches} ->
+          [
+            {doc_id, path,
+             %{
+               matches: Map.new(matches, &{&1.chunk_index, &1}),
+               rrf_score: Enum.max_by(matches, & &1.rrf_score).rrf_score
+             }}
+          ]
       end)
     end)
     |> Enum.sort_by(fn {doc_id, path, item} -> {-score_of(item), doc_id, path} end)
@@ -914,7 +926,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp score_of(%{rrf_score: s}), do: s
-  defp score_of(%{vector_distance: d}), do: -d
 
   defp limit_to_context_window(data) do
     {answer, _} =
@@ -1003,61 +1014,59 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # ---------------------------------------------------------------------------
 
   @doc """
-  Fuses BM25 and vector grouped maps using weighted Reciprocal Rank Fusion.
+  Fuses BM25 and vector candidates by document and chunk index using weighted
+  Reciprocal Rank Fusion. Section paths are retained for later context hydration,
+  but different chunks in a section cannot boost one another.
 
-  Each leg is ranked independently (rank 1..N by score). Sections missing from
+  Each leg is ranked independently (rank 1..N by score). Chunks missing from
   a leg contribute 0 from that leg.
 
   Score: `bm25_w * 1/(k + bm25_rank) + vector_w * 1/(k + vector_rank)`
 
-  Returns `{:ok, %{doc_id => %{section_path => [%{document_id, section_path, rrf_score}]}}}`.
+  Returns `{:ok, %{doc_id => %{section_path => [chunk match maps]}}}`.
+  Every candidate must carry its persisted `chunk_index`.
   """
   def rrf_merge(bm25_grouped, vector_grouped) do
     {bm25_w, vector_w} = fusion_weights()
     k = @rrf_k
 
-    bm25_ranked = rank_grouped(bm25_grouped, :bm25_score, :desc)
-    vector_ranked = rank_grouped(vector_grouped, :vector_distance, :asc)
+    bm25_ranked = rank_chunks(bm25_grouped, :bm25_score, :desc)
+    vector_ranked = rank_chunks(vector_grouped, :vector_distance, :asc)
 
     all_keys =
       (Map.keys(bm25_ranked) ++ Map.keys(vector_ranked))
       |> Enum.uniq()
 
     merged =
-      Map.new(all_keys, fn {doc_id, section_path} ->
-        bm25_rank = Map.get(bm25_ranked, {doc_id, section_path})
-        vector_rank = Map.get(vector_ranked, {doc_id, section_path})
+      Enum.map(all_keys, fn {doc_id, chunk_index} = key ->
+        {bm25_rank, bm25_match} = Map.get(bm25_ranked, key, {nil, nil})
+        {vector_rank, vector_match} = Map.get(vector_ranked, key, {nil, nil})
 
         bm25_contrib = if bm25_rank, do: bm25_w * (1 / (k + bm25_rank)), else: 0.0
         vector_contrib = if vector_rank, do: vector_w * (1 / (k + vector_rank)), else: 0.0
-        rrf_score = bm25_contrib + vector_contrib
+        match = bm25_match || vector_match
 
-        bm25_matches = get_in(bm25_grouped, [doc_id, section_path]) || []
-        vector_matches = get_in(vector_grouped, [doc_id, section_path]) || []
-
-        item = %{
+        %{
           document_id: doc_id,
-          section_path: section_path,
-          rrf_score: rrf_score,
-          bm25_matches: MapSet.new(Enum.map(bm25_matches, &Map.get(&1, :chunk_index))),
-          vector_matches:
-            Map.new(vector_matches, fn match ->
-              {Map.get(match, :chunk_index),
-               Map.get(match, :vector_distance, Map.get(match, :distance))}
-            end)
+          section_path: match.section_path,
+          chunk_index: chunk_index,
+          rrf_score: bm25_contrib + vector_contrib,
+          lexical_match: not is_nil(bm25_match),
+          vector_distance:
+            if(vector_match,
+              do: Map.get(vector_match, :vector_distance, Map.get(vector_match, :distance))
+            )
         }
-
-        {{doc_id, section_path}, item}
       end)
 
     grouped =
       merged
-      |> Enum.group_by(fn {{doc_id, _path}, _item} -> doc_id end)
+      |> Enum.group_by(& &1.document_id)
       |> Map.new(fn {doc_id, entries} ->
         by_path =
-          Map.new(entries, fn {{_doc_id, section_path}, item} ->
-            {section_path, [item]}
-          end)
+          entries
+          |> Enum.group_by(& &1.section_path)
+          |> Map.new(fn {path, matches} -> {path, Enum.sort_by(matches, & &1.chunk_index)} end)
 
         {doc_id, by_path}
       end)
@@ -1070,33 +1079,28 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     {cfg.fusion_bm25_weight, cfg.fusion_vector_weight}
   end
 
-  defp rank_grouped(grouped, score_key, order) do
+  defp rank_chunks(grouped, score_key, order) do
     grouped
-    |> extract_sections(score_key)
-    |> sort_sections(order)
-    |> Enum.with_index(1)
-    |> Map.new(fn {{doc_id, section_path, _score}, rank} -> {{doc_id, section_path}, rank} end)
-  end
-
-  defp extract_sections(grouped, score_key) do
-    Enum.flat_map(grouped, fn {doc_id, paths} ->
-      Enum.flat_map(paths, &extract_section(doc_id, &1, score_key))
+    |> Enum.flat_map(fn {_doc_id, paths} ->
+      Enum.flat_map(paths, fn {_path, matches} -> matches end)
     end)
+    |> Enum.group_by(&{&1.document_id, &1.chunk_index})
+    |> Enum.map(fn {key, matches} ->
+      match =
+        Enum.min_by(matches, fn item ->
+          score = Map.get(item, score_key, 0.0)
+          {if(order == :asc, do: score, else: -score), item.section_path}
+        end)
+
+      {key, match}
+    end)
+    |> Enum.sort_by(fn {{doc_id, chunk_index}, match} ->
+      score = Map.get(match, score_key, 0.0)
+      {if(order == :asc, do: score, else: -score), doc_id, chunk_index}
+    end)
+    |> Enum.with_index(1)
+    |> Map.new(fn {{key, match}, rank} -> {key, {rank, match}} end)
   end
-
-  defp extract_section(_doc_id, {_path, []}, _score_key), do: []
-
-  defp extract_section(doc_id, {section_path, [first | _]}, score_key) do
-    [{doc_id, section_path, Map.get(first, score_key, 0.0)}]
-  end
-
-  # Tie-break equal scores by document/path: sections arrive from map
-  # iteration, so a score-only sort would assign arbitrary RRF ranks to ties.
-  defp sort_sections(sections, :asc),
-    do: Enum.sort_by(sections, fn {doc_id, path, score} -> {score, doc_id, path} end)
-
-  defp sort_sections(sections, :desc),
-    do: Enum.sort_by(sections, fn {doc_id, path, score} -> {-score, doc_id, path} end)
 
   defp fetch_sections_with_source([], _language), do: {:ok, []}
 
@@ -1127,40 +1131,46 @@ defmodule Zaq.Ingestion.DocumentProcessor do
         chunk_index: c.chunk_index
       })
       |> Repo.all()
-      # Sections by fused score, then chunks in document order within each
-      # section — without chunk_index the DB returns section chunks in
-      # arbitrary order, which scrambles the context handed to the LLM.
-      |> Enum.sort_by(fn r ->
-        {-section_map[{r.document_id, r.section_path}].rrf_score, r.document_id, r.section_path,
-         r.chunk_index}
-      end)
-      |> Enum.map(fn r ->
-        section = section_map[{r.document_id, r.section_path}]
-        lexical? = MapSet.member?(section.bm25_matches, r.chunk_index)
-        vector_distance = Map.get(section.vector_matches, r.chunk_index)
-
-        %{
-          "content" => r.content,
-          "source" => r.source,
-          "distance" => section.rrf_score,
-          "rrf_score" => section.rrf_score,
-          "vector_distance" => vector_distance,
-          "retrieval_legs" =>
-            Enum.filter([if(lexical?, do: "lexical"), if(vector_distance, do: "vector")], & &1),
-          "direct_match" => lexical? or not is_nil(vector_distance),
-          "document_id" => r.document_id,
-          "chunk_index" => r.chunk_index,
-          "section_path" => r.section_path,
-          "title" => r.title,
-          "watch_status" => r.watch_status,
-          "inserted_at" => serialize_timestamp(r.document_inserted_at),
-          "updated_at" => serialize_timestamp(r.document_updated_at),
-          "metadata" => r.metadata,
-          "language" => r.language
-        }
-      end)
+      |> Enum.sort_by(&chunk_rank(&1, section_map))
+      |> Enum.map(&hydrate_chunk(&1, section_map))
 
     {:ok, results}
+  end
+
+  defp chunk_rank(chunk, section_map) do
+    section = section_map[{chunk.document_id, chunk.section_path}]
+    direct = Map.get(section.matches, chunk.chunk_index)
+
+    {if(direct, do: 0, else: 1), -((direct && direct.rrf_score) || section.rrf_score),
+     chunk.document_id, chunk.section_path, chunk.chunk_index}
+  end
+
+  defp hydrate_chunk(chunk, section_map) do
+    section = section_map[{chunk.document_id, chunk.section_path}]
+    match = Map.get(section.matches, chunk.chunk_index)
+    lexical? = match && match.lexical_match
+    vector_distance = match && match.vector_distance
+    rrf_score = match && match.rrf_score
+
+    %{
+      "content" => chunk.content,
+      "source" => chunk.source,
+      "distance" => rrf_score,
+      "rrf_score" => rrf_score,
+      "vector_distance" => vector_distance,
+      "retrieval_legs" =>
+        Enum.filter([if(lexical?, do: "lexical"), if(vector_distance, do: "vector")], & &1),
+      "direct_match" => not is_nil(match),
+      "document_id" => chunk.document_id,
+      "chunk_index" => chunk.chunk_index,
+      "section_path" => chunk.section_path,
+      "title" => chunk.title,
+      "watch_status" => chunk.watch_status,
+      "inserted_at" => serialize_timestamp(chunk.document_inserted_at),
+      "updated_at" => serialize_timestamp(chunk.document_updated_at),
+      "metadata" => chunk.metadata,
+      "language" => chunk.language
+    }
   end
 
   defp serialize_timestamp(nil), do: nil
