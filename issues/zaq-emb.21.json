@@ -93,11 +93,15 @@
     {
       "text": "2026-09-26 current #806 head 23c935a45 passed focused 401 tests/2 properties (Engine watch/Channels bridge/BO archive) and mix q after stacked trust sync. Test DB reports 20260922000000..09 up; dev DB for this branch is absent, so no populated developer DB migration changes/reset attempted. Provider-only fallbacks reviewed: Bridge.get_by_provider returns no config on ambiguity, selected BO connector paths use config ID, target-source watch lookup hardened in 11682f2d1. CI latest #806 still running. Keep open pending CI final status.",
       "timestamp": "2026-09-26T07:01:07Z"
+    },
+    {
+      "text": "2026-09-26 #806 head 23c935a45 CI completed: all checks green including native Postgres, ParadeDB, three E2E browsers, Credo/format/docs/secret scan. Closing .21 foundation after scoped watch audit and 401 local focused tests/2 properties + mix q; remaining feature E2E authoring still requires UX approval.",
+      "timestamp": "2026-09-26T07:08:58Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-26T07:01:07Z"
+  "updated_at": "2026-09-26T07:08:58Z"
 }
