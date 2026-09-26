@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-26T11:33:25Z",
@@ -7,8 +7,8 @@
   "id": "zaq-2tt",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-2tt] Cover Ingestion.Api chunk-language, chunk-limit and search dispatch branches",
   "type": "task",
-  "updated_at": "2026-09-26T11:33:52Z"
+  "updated_at": "2026-09-26T11:37:47Z"
 }
