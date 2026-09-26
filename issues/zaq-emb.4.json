@@ -37,11 +37,15 @@
     {
       "text": "Action reuse recheck for legacy UUID cutover: existing Conversations.admit_incoming/1 owns executable user-message identity/finalization and TranscriptHistory.canonical_message/3 owns canonical insertion/dedup. Extend the Engine-only capture writer to attach a caller-supplied, verified admitted user message UUID rather than inserting a second row when an agent already admitted the message. Validate source account/connector/provider/external ID and content against locked legacy row before setting its canonical source identity; preserve message UUID, conversation, metadata, ratings and trace. No agent Action: this is a privileged persistence seam, not a composable tool. Input is trusted binding from Engine admission, not arbitrary channel/BO supplied message ID; output same canonical placements or conflict; transaction must rollback on mismatch and replays be idempotent. Tests first using real admission and DB rating; do not wire ingress until no-agent-first then agent reroute also uses the same UUID.",
       "timestamp": "2026-09-26T11:29:46Z"
+    },
+    {
+      "text": "Uncommitted legacy identity seam advanced (no ingress wiring yet). TranscriptHistory.capture/3 now accepts a trusted existing_message_id for an already-admitted user turn: locks Message, checks role/content/external ID plus scoped conversation provider/connector/channel, sets canonical source identity on the SAME UUID, and leaves conversation, metadata, rating and trace references intact; bad ID, body, connector or room rolls back target creation. For new IMAP admissions with unscoped legacy conversations, Conversations.admit_incoming/1 stores private history_source coordinates only if matching enabled IMAP connector, :email kind, normalized adapter sender, visible-recipient evidence and mailbox are present. Reuse compares the stamped mailbox/connector/channel; unstamped historical email rows still require non-destructive migration, not guessed scope. New unit/integration regressions cover rating+trace preservation, idempotency, mismatched binding and per-mailbox spoofing; affected suite 525 tests/6 properties passes and mix q passes. Still must solve no-agent-first then agent admission (reuse canonical row) plus race-safe cross-path admission before wiring passive capture; do not claim PR A complete or introduce duplicate legacy/canonical rows.",
+      "timestamp": "2026-09-26T11:46:09Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T11:29:46Z"
+  "updated_at": "2026-09-26T11:46:09Z"
 }
