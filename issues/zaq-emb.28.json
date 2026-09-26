@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T09:19:06Z",
+  "description": "Deliver one complete outcome PR stacked on PR A: running agents consume authorized durable history without leaks, duplicate context, lost requests or false delivery success. Include Person-bound execution and execution-private state; bounded refresh before internal model calls; fixed request cursors/canonical dedup; between-request context synchronization and cursor advancement; busy/finalizing request handling; ordered intermediary/final delivery and delayed/asynchronous timeout semantics. Distinguish execution persisted, context synchronized and channel delivery confirmed. Test revoked access, exact runtime/request identity, cumulative deltas, tool-call/result pairing, failed/deferred context application, busy admission and delayed timeout. Detailed beads/internal commits are not separate PRs. Include B-specific docs, validation, explicit UX approval before new E2E, coverage/review and final gate. PR A must remain independently usable.",
+  "id": "zaq-emb.28",
+  "labels": [],
+  "parent": "zaq-emb",
+  "priority": 1,
+  "status": "open",
+  "title": "PR B — Live history-aware execution and reliable completion",
+  "type": "task",
+  "updated_at": "2026-09-26T09:19:06Z"
+}
