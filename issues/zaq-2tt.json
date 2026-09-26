@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T11:33:25Z",
+  "description": "Planning only; detailed test cases to follow. Scope: lib/zaq/ingestion/api.ex lines 43-44, 76-77, 86-87. Extend test/zaq/ingestion/api_test.exs; no production changes.",
+  "id": "zaq-2tt",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Cover Ingestion.Api chunk-language, chunk-limit and search dispatch branches",
+  "type": "task",
+  "updated_at": "2026-09-26T11:33:25Z"
+}
