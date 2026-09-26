@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-09-26T00:43:28Z",
   "created": "2026-09-26T00:20:41Z",
   "description": "Goal: reduce review overhead by landing existing follow-up commits once in owning PRs. Wait for zaq-emb.21.1 email-regression owner in merry-iguana to finish/commit #799; do not edit its reserved paths or switch its branch. Incorporate #803 (618deb6ff capability lookup) and #804 (6ded08f75 queued-webhook guard) into PR #799 along with the independent email fix. Incorporate #802 (55863669f executor) into PR #800. Reconcile differing commit ancestry by rebase/merge with backup refs; never overwrite uncommitted changes or deferred stashes. Preserve only communication UI; no data-source card changes. Validate each resulting PR branch independently with isolated regression/notification suites plus mix q; final precommit deferred. Update GH PR descriptions and stack bases as needed so duplicate fixes occur once; coordinate before any force push, do not merge/close superseded PRs without explicit user approval. Action reuse: no new domain operations (Git/PR housekeeping only); existing fixes reused unchanged. No new application code, migrations or docs expected; test regressions inherited from source commits. Record before/after commit graph and verification in issue.",
   "id": "zaq-emb.26",
@@ -14,8 +15,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.26] Consolidate stacked #768 fixes into owning PRs",
   "type": "task",
-  "updated_at": "2026-09-26T00:43:24Z"
+  "updated_at": "2026-09-26T00:43:28Z"
 }
