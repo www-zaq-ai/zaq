@@ -2709,6 +2709,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
     request = %{
       provider: to_string(config.provider),
+      config_id: Map.get(config, :id),
       channel_id: read_stringish(signal, [:channel_id, "channel_id"]),
       resource_id: read_stringish(signal, [:resource_id, "resource_id"]),
       delivery: delivery_map

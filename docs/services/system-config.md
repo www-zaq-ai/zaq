@@ -13,7 +13,9 @@ public callback/redirect URLs (OAuth2, webhooks, and future integrations)
 should read this key.
 
 Data-source provider watches use this value through `Zaq.Channels.WebhookUrl`
-to build `/channels/webhook/data_source/:provider` callback URLs. When the key
+to build `/channels/webhook/data_source/:provider/:config_id` callback URLs.
+Legacy provider-only callback URLs are accepted only for unambiguous active
+connectors. When the key
 is unset, BO disables external provider watch setup and watch-channel renewal
 returns `{:error, :missing_global_base_url}` instead of creating a provider
 channel with an invalid callback URL. ZAQ does not enforce HTTPS here; provider

@@ -14,6 +14,7 @@ defmodule Zaq.Engine.DataSources do
   import Ecto.Query
 
   alias Ecto.Changeset
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.WebhookUrl
   alias Zaq.Engine.DataSources.WatchChannel
   alias Zaq.Engine.DataSources.WatchChannelRenewalWorker
@@ -42,7 +43,10 @@ defmodule Zaq.Engine.DataSources do
   @doc """
   Resolves an active, non-expired provider watch channel.
 
-  Webhooks resolve by provider `channel_id` and optional `resource_id`.
+  Webhooks resolve by provider `channel_id` and optional connector `config_id`
+  and `resource_id`. An unscoped legacy lookup with multiple matching connectors
+  fails closed, including target-source lookups; malformed explicit connector IDs
+  never fall back to an unscoped search.
   Provider watch setup and teardown can also resolve by provider, config, and
   target source. Returns `{:error, :watch_channel_not_found}` when no usable row
   exists.
@@ -50,18 +54,23 @@ defmodule Zaq.Engine.DataSources do
   def resolve_watch_channel(%{provider: provider, channel_id: channel_id} = attrs)
       when is_binary(channel_id) do
     resource_id = Map.get(attrs, :resource_id) || Map.get(attrs, "resource_id")
+    config_id = Map.get(attrs, :config_id) || Map.get(attrs, "config_id")
 
-    WatchChannel
-    |> where([w], w.provider == ^to_string(provider))
-    |> where([w], w.channel_id == ^channel_id)
-    |> where([w], w.status in ["active", "error"])
-    |> filter_unexpired()
-    |> maybe_filter_resource_id(resource_id)
-    |> limit(1)
-    |> Repo.one()
-    |> case do
-      %WatchChannel{} = watch_channel -> {:ok, watch_channel}
-      nil -> {:error, :watch_channel_not_found}
+    with {:ok, config_id} <- valid_lookup_config_id(config_id) do
+      WatchChannel
+      |> where([w], w.provider == ^to_string(provider))
+      |> where([w], w.channel_id == ^channel_id)
+      |> maybe_filter_config_id(config_id)
+      |> where([w], w.status in ["active", "error"])
+      |> filter_unexpired()
+      |> maybe_filter_resource_id(resource_id)
+      |> limit(2)
+      |> Repo.all()
+      |> case do
+        [watch_channel] -> {:ok, watch_channel}
+        [] -> {:error, :watch_channel_not_found}
+        _ -> {:error, :ambiguous_watch_channel}
+      end
     end
   end
 
@@ -69,11 +78,30 @@ defmodule Zaq.Engine.DataSources do
       when is_binary(target_source) do
     config_id = Map.get(attrs, :config_id) || Map.get(attrs, "config_id")
 
-    WatchChannel
-    |> where([w], w.provider == ^to_string(provider))
-    |> filter_resolvable_watch_channel(target_source, changes_watch_lookup?(attrs))
-    |> filter_unexpired()
-    |> maybe_filter_config_id(config_id)
+    with {:ok, config_id} <- valid_lookup_config_id(config_id) do
+      WatchChannel
+      |> where([w], w.provider == ^to_string(provider))
+      |> filter_resolvable_watch_channel(target_source, changes_watch_lookup?(attrs))
+      |> filter_unexpired()
+      |> maybe_filter_config_id(config_id)
+      |> select_target_watch(config_id)
+    end
+  end
+
+  def resolve_watch_channel(_attrs), do: {:error, :missing_channel_id}
+
+  defp select_target_watch(query, nil) do
+    case query |> select([w], w.config_id) |> distinct(true) |> limit(2) |> Repo.all() do
+      [_config_id] -> newest_target_watch(query)
+      [] -> {:error, :watch_channel_not_found}
+      _ -> {:error, :ambiguous_watch_channel}
+    end
+  end
+
+  defp select_target_watch(query, _config_id), do: newest_target_watch(query)
+
+  defp newest_target_watch(query) do
+    query
     |> order_by([w], desc: w.updated_at, desc: w.id)
     |> limit(1)
     |> Repo.one()
@@ -83,7 +111,17 @@ defmodule Zaq.Engine.DataSources do
     end
   end
 
-  def resolve_watch_channel(_attrs), do: {:error, :missing_channel_id}
+  defp valid_lookup_config_id(nil), do: {:ok, nil}
+  defp valid_lookup_config_id(id) when is_integer(id) and id > 0, do: {:ok, id}
+
+  defp valid_lookup_config_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed, ""} when parsed > 0 -> {:ok, parsed}
+      _ -> {:error, :invalid_connector_id}
+    end
+  end
+
+  defp valid_lookup_config_id(_id), do: {:error, :invalid_connector_id}
 
   defp filter_resolvable_watch_channel(query, target_source, true) do
     where(
@@ -140,6 +178,54 @@ defmodule Zaq.Engine.DataSources do
     end
   end
 
+  @doc "Stops each live provider watch before archiving its connector; successful stops are durable."
+  @spec stop_config_watch_channels(pos_integer()) ::
+          {:ok, non_neg_integer()} | {:error, [{integer(), term()}]}
+  def stop_config_watch_channels(config_id) when is_integer(config_id) and config_id > 0 do
+    watches =
+      Repo.all(
+        from w in WatchChannel,
+          where: w.config_id == ^config_id and w.status in ["active", "error"],
+          order_by: w.id
+      )
+
+    results =
+      Enum.map(watches, fn watch ->
+        case stop_provider_watch_channel(watch) do
+          :ok -> {watch.id, mark_watch_channel_stopped(watch.id)}
+          {:error, reason} -> {watch.id, {:error, reason}}
+        end
+      end)
+
+    failures = for {id, {:error, reason}} <- results, do: {id, reason}
+    if failures == [], do: {:ok, length(watches)}, else: {:error, failures}
+  end
+
+  def stop_config_watch_channels(_), do: {:error, [{nil, :invalid_connector_id}]}
+
+  @doc "Enqueues cleanup for watches that raced with connector archive."
+  @spec reconcile_archived_config_watches(pos_integer()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def reconcile_archived_config_watches(config_id) when is_integer(config_id) and config_id > 0 do
+    if archived_connector?(config_id) do
+      WatchChannel
+      |> where([w], w.config_id == ^config_id and w.status in ["active", "error"])
+      |> Repo.all()
+      |> Enum.reduce_while({:ok, 0}, &enqueue_archived_watch_cleanup/2)
+    else
+      {:error, :connector_not_archived}
+    end
+  end
+
+  def reconcile_archived_config_watches(_), do: {:error, :invalid_connector_id}
+
+  defp enqueue_archived_watch_cleanup(watch, {:ok, count}) do
+    case schedule_watch_channel_renewal(watch) do
+      {:ok, _job} -> {:cont, {:ok, count + 1}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
   @doc "Marks a watch channel errored and stores an inspectable failure reason."
   def mark_watch_channel_error(id, reason) do
     case Repo.get(WatchChannel, id) do
@@ -154,9 +240,14 @@ defmodule Zaq.Engine.DataSources do
   defp get_watch_channel(attrs) do
     provider = Map.get(attrs, :provider)
     channel_id = Map.get(attrs, :channel_id)
+    config_id = Map.get(attrs, :config_id)
 
-    if is_binary(provider) and is_binary(channel_id) do
-      Repo.get_by(WatchChannel, provider: provider, channel_id: channel_id)
+    if is_binary(provider) and is_binary(channel_id) and is_integer(config_id) and config_id > 0 do
+      Repo.get_by(WatchChannel,
+        provider: provider,
+        channel_id: channel_id,
+        config_id: config_id
+      )
     end
   end
 
@@ -184,8 +275,17 @@ defmodule Zaq.Engine.DataSources do
   """
   def renew_watch_channel(id) do
     with %WatchChannel{} = old_watch_channel <-
-           Repo.get(WatchChannel, id) || {:error, :watch_channel_not_found},
-         true <- old_watch_channel.status == "active" || :ok,
+           Repo.get(WatchChannel, id) || {:error, :watch_channel_not_found} do
+      if archived_connector?(old_watch_channel.config_id) do
+        cleanup_archived_watch_channel(old_watch_channel)
+      else
+        renew_active_watch_channel(old_watch_channel)
+      end
+    end
+  end
+
+  defp renew_active_watch_channel(old_watch_channel) do
+    with true <- old_watch_channel.status == "active" || :ok,
          {:ok, new_watch_channel} <- create_replacement_watch_channel(old_watch_channel),
          :ok <- stop_provider_watch_channel(old_watch_channel),
          {:ok, _deleted} <- Repo.delete(old_watch_channel) do
@@ -196,15 +296,77 @@ defmodule Zaq.Engine.DataSources do
     end
   end
 
+  defp cleanup_archived_watch_channel(%WatchChannel{status: status} = watch_channel)
+       when status in ["active", "error"] do
+    case stop_provider_watch_channel(watch_channel) do
+      :ok ->
+        case mark_watch_channel_stopped(watch_channel.id) do
+          {:ok, _} -> :ok
+          {:error, _} = error -> error
+        end
+
+      {:error, reason} = error ->
+        _ = mark_watch_channel_error(watch_channel.id, reason)
+        error
+    end
+  end
+
+  defp cleanup_archived_watch_channel(_watch_channel), do: :ok
+
+  defp archived_connector?(config_id) do
+    match?(%ChannelConfig{archived_at: %DateTime{}}, Repo.get(ChannelConfig, config_id))
+  end
+
   defp maybe_schedule_watch_channel_renewal({:ok, %WatchChannel{} = watch_channel} = result) do
-    _ = schedule_watch_channel_renewal(watch_channel)
-    result
+    case schedule_watch_channel_renewal(watch_channel) do
+      {:error, reason} when watch_channel.status in ["active", "error"] ->
+        if archived_connector?(watch_channel.config_id) do
+          _ =
+            watch_channel
+            |> Changeset.change(
+              status: "error",
+              last_error: inspect({:cleanup_enqueue_failed, reason})
+            )
+            |> Repo.update()
+
+          {:error, {:cleanup_enqueue_failed, reason}}
+        else
+          result
+        end
+
+      _ ->
+        result
+    end
   end
 
   defp maybe_schedule_watch_channel_renewal(result), do: result
 
-  defp schedule_watch_channel_renewal(%WatchChannel{
-         status: "active",
+  defp schedule_watch_channel_renewal(%WatchChannel{status: status} = watch_channel)
+       when status in ["active", "error"] do
+    cond do
+      archived_connector?(watch_channel.config_id) ->
+        %{watch_channel_id: watch_channel.id}
+        |> WatchChannelRenewalWorker.new(
+          unique: [
+            keys: [:watch_channel_id],
+            states: [:scheduled, :available, :retryable],
+            period: :infinity
+          ],
+          replace: [scheduled: [:scheduled_at]]
+        )
+        |> Oban.insert()
+
+      status == "active" ->
+        schedule_active_watch_channel_renewal(watch_channel)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp schedule_watch_channel_renewal(%WatchChannel{}), do: :ok
+
+  defp schedule_active_watch_channel_renewal(%WatchChannel{
          expiration_at: %DateTime{} = expiration_at,
          id: id
        }) do
@@ -226,14 +388,14 @@ defmodule Zaq.Engine.DataSources do
     |> Oban.insert()
   end
 
-  defp schedule_watch_channel_renewal(%WatchChannel{}), do: :ok
+  defp schedule_active_watch_channel_renewal(_watch_channel), do: :ok
 
   defp max_datetime(left, right) do
     if DateTime.compare(left, right) == :lt, do: right, else: left
   end
 
   defp create_replacement_watch_channel(%WatchChannel{} = watch_channel) do
-    case WebhookUrl.build(:data_source, watch_channel.provider) do
+    case WebhookUrl.build(:data_source, watch_channel.provider, watch_channel.config_id) do
       webhook_url when is_binary(webhook_url) ->
         do_create_replacement_watch_channel(watch_channel, webhook_url)
 
@@ -260,7 +422,11 @@ defmodule Zaq.Engine.DataSources do
 
     case node_router_module().dispatch(event).response do
       {:ok, %{channel_id: channel_id}} when is_binary(channel_id) ->
-        case Repo.get_by(WatchChannel, provider: watch_channel.provider, channel_id: channel_id) do
+        case Repo.get_by(WatchChannel,
+               provider: watch_channel.provider,
+               channel_id: channel_id,
+               config_id: watch_channel.config_id
+             ) do
           %WatchChannel{} = new_watch_channel -> {:ok, new_watch_channel}
           nil -> {:error, :replacement_watch_channel_not_persisted}
         end
@@ -283,9 +449,14 @@ defmodule Zaq.Engine.DataSources do
       resource_id: watch_channel.resource_id
     }
 
+    action =
+      if archived_connector?(watch_channel.config_id),
+        do: :data_source_unwatch_archived_item,
+        else: :data_source_unwatch_item
+
     event =
       Event.new(%{provider: watch_channel.provider, params: params}, :channels,
-        opts: [action: :data_source_unwatch_item]
+        opts: [action: action]
       )
 
     case node_router_module().dispatch(event).response do
@@ -317,14 +488,7 @@ defmodule Zaq.Engine.DataSources do
     where(query, [w], w.config_id == ^config_id)
   end
 
-  defp maybe_filter_config_id(query, config_id) when is_binary(config_id) do
-    case Integer.parse(config_id) do
-      {id, ""} -> where(query, [w], w.config_id == ^id)
-      _ -> query
-    end
-  end
-
-  defp maybe_filter_config_id(query, _config_id), do: query
+  defp maybe_filter_config_id(query, nil), do: query
 
   defp maybe_validate_checkpoint(%WatchChannel{checkpoint: checkpoint}, request) do
     current = Map.get(request, :checkpoint) || Map.get(request, "checkpoint")
@@ -384,7 +548,7 @@ defmodule Zaq.Engine.DataSources do
 
   defp normalize_watch_attrs(attrs) do
     attrs = %{
-      config_id: read_any(attrs, [:config_id, "config_id"]),
+      config_id: attrs |> read_any([:config_id, "config_id"]) |> normalize_config_id(),
       provider: read_string(attrs, [:provider, "provider"]),
       target_source: read_string(attrs, [:target_source, "target_source", :source, "source"]),
       target_provider_id:
@@ -416,6 +580,15 @@ defmodule Zaq.Engine.DataSources do
   end
 
   defp read_any(map, keys), do: MapUtils.read_any(map, keys)
+
+  defp normalize_config_id(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {parsed_id, ""} -> parsed_id
+      _ -> id
+    end
+  end
+
+  defp normalize_config_id(id), do: id
 
   defp read_expiration_at(attrs) do
     direct = read_any(attrs, [:expiration_at, "expiration_at"])

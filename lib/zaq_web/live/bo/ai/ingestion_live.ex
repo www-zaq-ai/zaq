@@ -1920,7 +1920,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       "file_id" => Map.fetch!(target, :provider_file_id),
       "kind" => to_string(target.kind),
       "target_source" => target.source,
-      "webhook_url" => channel_webhook_url(data_source_provider(socket))
+      "webhook_url" => channel_webhook_url(socket)
     }
   end
 
@@ -1970,8 +1970,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     )
   end
 
-  defp channel_webhook_url(provider) do
-    WebhookUrl.build(:data_source, provider)
+  defp channel_webhook_url(socket) do
+    WebhookUrl.build(:data_source, data_source_provider(socket), data_source_config_id(socket))
   end
 
   defp data_source_provider(%{assigns: %{provider: provider}}), do: provider

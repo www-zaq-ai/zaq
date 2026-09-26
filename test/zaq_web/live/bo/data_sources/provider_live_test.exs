@@ -4,10 +4,17 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
+  alias Zaq.Engine.DataSources
+  alias Zaq.Engine.DataSources.WatchChannel
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem
   alias Zaq.Test.ProviderLiveDataSourceBridgeStubs, as: BridgeStubs
   alias ZaqWeb.Live.BO.DataSources.ProviderLive
+
+  defmodule UnwatchErrorRouter do
+    def dispatch(%{opts: [action: :data_source_unwatch_item]} = event),
+      do: %{event | response: {:error, :unwatch_failed}}
+  end
 
   setup do
     original_base_url = ZaqSystem.get_global_base_url()
@@ -647,7 +654,71 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
 
     assert {:noreply, deleted} = ProviderLive.handle_event("delete", %{}, existing_delete_socket)
     assert deleted.assigns.confirm_delete == nil
-    assert Repo.get(ChannelConfig, config.id) == nil
+
+    assert %ChannelConfig{archived_at: %DateTime{}, enabled: false} =
+             Repo.get(ChannelConfig, config.id)
+
+    refute Enum.any?(deleted.assigns.configs, &(&1.id == config.id))
+
+    assert {:noreply, denied} =
+             ProviderLive.handle_event("toggle_enabled", %{"id" => config.id}, base_socket)
+
+    assert denied.assigns.flash["error"] =~ "not available"
+    refute Repo.get!(ChannelConfig, config.id).enabled
+  end
+
+  test "failed provider unwatch prevents data-source archive" do
+    old_router = Application.get_env(:zaq, :engine_data_sources_node_router_module)
+    Application.put_env(:zaq, :engine_data_sources_node_router_module, UnwatchErrorRouter)
+
+    on_exit(fn ->
+      if old_router,
+        do: Application.put_env(:zaq, :engine_data_sources_node_router_module, old_router),
+        else: Application.delete_env(:zaq, :engine_data_sources_node_router_module)
+    end)
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Drive watch",
+        provider: "google_drive",
+        kind: "data_source",
+        enabled: true
+      })
+      |> Repo.insert!()
+
+    {:ok, watch} =
+      DataSources.upsert_watch_channel(%{
+        config_id: config.id,
+        provider: "google_drive",
+        channel_id: "watch-1",
+        target_source: "data_source/google_drive/#{config.id}/folder",
+        target_provider_id: "folder",
+        target_kind: "folder"
+      })
+
+    socket = socket_with(%{confirm_delete: config.id, provider: "google_drive"})
+    assert {:noreply, result} = ProviderLive.handle_event("delete", %{}, socket)
+    assert Repo.get!(ChannelConfig, config.id).archived_at == nil
+    assert Repo.get!(WatchChannel, watch.id).status == "active"
+    assert result.assigns.flash["error"] =~ "watch teardown failed"
+  end
+
+  test "a provider page cannot archive another provider's connector" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Other provider",
+        provider: "sharepoint",
+        kind: "data_source",
+        enabled: true
+      })
+      |> Repo.insert!()
+
+    socket = socket_with(%{confirm_delete: config.id, provider: "google_drive"})
+    assert {:noreply, result} = ProviderLive.handle_event("delete", %{}, socket)
+    assert Repo.get!(ChannelConfig, config.id).archived_at == nil
+    assert result.assigns.flash["error"] =~ "Config not found"
   end
 
   test "mount initializes provider label and seeded assigns" do
