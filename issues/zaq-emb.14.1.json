@@ -13,11 +13,15 @@
     {
       "text": "2026-09-26 Action reuse before coding: existing TranscriptHistory append/list enforces storage and access, ChannelHistoryResource.for/3 and can_read?/2 provide DB-backed direct Person grants; no strategy resolver or policy operation exists in Engine/Channels source (bounded search). Extend via local-only pure Engine history-policy behaviour plus modules, returning typed targets/access and context-source order to be consumed by .14.2/.4; do not replace or bypass TranscriptHistory and do not expose strategy as agent tool/Action. Provider mapping explicit and fail-closed: email:imap replicated; bo direct; mattermost/slack/discord/teams/telegram require trusted direct-vs-channel kind, not default from missing is_dm. API unsupported until defined. Fields in normalized facts are internally trusted after Channels bridge in .14.2; arbitrary Event/Incoming metadata is not attestation. No DB writes nor mention gating in this slice. Test first for mapping, thread inheritance, Person/grant semantics, per-message recipient isolation and property invariants. The parent .14 is split by domain: .14.1 Engine pure policy, .14.2 Channels normalization; .14.2 blocked by this typed contract.",
       "timestamp": "2026-09-26T08:10:43Z"
+    },
+    {
+      "text": "2026-09-26 implemented test-first pure Engine typed Facts and Strategy behaviour with Direct/Shared/Replicated modules. Explicit provider/kind mapping fails closed; connector/channel/actor and parent strategy/resource scope validated; Shared thread parent requires matching persisted root; Direct thread reuses root scope; Replicated association targets only current message sender and supplied per-message recipient Person IDs (no prior-audience expansion). request transcript resolution selects actor only, separate from per-message fanout. Access policy returns required participant grant/owner hints, never an authorization result; actual reads still require TranscriptHistory persisted grants/owner. Test first uncovered missing module/resolve callback and whitespace scope, then fixed. 34 focused tests/4 properties across policy/canonical API/schema/private records, 0 failures; mix q green; staged diff check clean. No DB write, ingress wiring, new Action/tool, or feature E2E. Channels .14.2 owns trusted normalization, independent recipient evidence and caller attestation.",
+      "timestamp": "2026-09-26T08:19:15Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.1] Define typed Engine history strategies",
   "type": "task",
-  "updated_at": "2026-09-26T08:10:43Z"
+  "updated_at": "2026-09-26T08:19:15Z"
 }
