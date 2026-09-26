@@ -44,11 +44,15 @@
     {
       "text": "2026-09-26 human security decision: trust internal callers at current cross-service Event boundary (no new authenticated BO/Channels provenance protocol). For non-web channel ingress, do not let valid prefilled Incoming.person or actor.person/person_id override connector-scoped IdentityResolver: discard valid prefilled channel Person before resolution; leave invalid/conflicting identity declarations invalid rather than silently downgrade. Preserve trusted BO web Person path. Reuse IdentityResolver, IncomingMessageRouter, ExecutionActor validation; no new Action/tool exposure. Add direct regression for rejected resolution, successful resolution overriding forgery, and BO preservation on #799 owning branch, then restack #800/#806.",
       "timestamp": "2026-09-26T06:45:17Z"
+    },
+    {
+      "text": "2026-09-26 #799 trusted internal-caller contract implemented test-first in Engine.IncomingMessageRouter: valid non-web prefilled Incoming.person and event actor.person/person_id discarded before resolver; only successful connector-scoped resolver yields Person. Malformed/conflicting identities are still rejected (not silently downgraded); BO web session-derived Person preserved. Real invalid-connector regression plus property over forged IDs; focused 50 tests/1 property, 0 failures; mix q and diff check clean. Engine and Channels owners document that NodeRouter Event is not origin attestation. Internal service operation reuses IdentityResolver/ExecutionActor, no Action/tool exposure.",
+      "timestamp": "2026-09-26T06:48:16Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-26T06:45:17Z"
+  "updated_at": "2026-09-26T06:48:16Z"
 }
