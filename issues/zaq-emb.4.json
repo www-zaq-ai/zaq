@@ -33,11 +33,15 @@
     {
       "text": "Read-only email-recipient Person lookup added in People.IdentityResolver.resolve_visible_email_recipients/2, reusing People.match_by_channel/3: requires matching enabled unarchived email:imap connector, matching sender evidence, visible_recipients list; returns only already-linked scoped Person IDs with dedup; no creation, grants, unscoped fallback or Bcc metadata lookup. It does not attest an arbitrary Incoming/Event nor persist associations, and has NO production call site yet. 17 IdentityResolver tests pass and mix q passes. Next wiring must ensure trusted adapter evidence and author resolution precede this lookup, and preserve per-message recipient snapshots.",
       "timestamp": "2026-09-26T11:20:36Z"
+    },
+    {
+      "text": "Action reuse recheck for legacy UUID cutover: existing Conversations.admit_incoming/1 owns executable user-message identity/finalization and TranscriptHistory.canonical_message/3 owns canonical insertion/dedup. Extend the Engine-only capture writer to attach a caller-supplied, verified admitted user message UUID rather than inserting a second row when an agent already admitted the message. Validate source account/connector/provider/external ID and content against locked legacy row before setting its canonical source identity; preserve message UUID, conversation, metadata, ratings and trace. No agent Action: this is a privileged persistence seam, not a composable tool. Input is trusted binding from Engine admission, not arbitrary channel/BO supplied message ID; output same canonical placements or conflict; transaction must rollback on mismatch and replays be idempotent. Tests first using real admission and DB rating; do not wire ingress until no-agent-first then agent reroute also uses the same UUID.",
+      "timestamp": "2026-09-26T11:29:46Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T11:20:36Z"
+  "updated_at": "2026-09-26T11:29:46Z"
 }
