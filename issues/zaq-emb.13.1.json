@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.12"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.19"
+  ],
   "created": "2026-09-26T09:22:33Z",
   "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.12; no self-approval.\n\nPersistent consolidated feature E2E, PR A partition. Author only after explicit .12 human approval. Reuse history.spec.js/people.spec.js; cover nonmention retained without response, shared/thread authorized views, manual/provider-grant independence and revocation, communication-channel access UI, supported refresh/unsupported/denied states, legacy history/ratings/attachments/traces preserved. Email recipient evolution and hidden Bcc exclusion use real integration tests where browser adds no value. No live execution/cursor/synchronization requirement in A. Describe actual supported providers honestly; fixtures are not proof of live provider wiring. Include results in A. Preserve assertions; no internal broad mocks.",
   "id": "zaq-emb.13.1",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-emb.13.1] PR A authorized durable-history E2E",
   "type": "task",
-  "updated_at": "2026-09-26T09:50:32Z"
+  "updated_at": "2026-09-26T09:50:33Z"
 }
