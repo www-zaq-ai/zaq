@@ -3,12 +3,12 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-26T08:05:18Z",
-  "description": "Stacked PR on fix/793-hybrid-retrieval; change DocumentProcessor RRF to key by document/chunk, preserving per-chunk lexical/vector evidence and deterministic ranking. Keep section expansion policy unchanged (deferred #810); action trace diagnostics deferred #809. Reuse existing SearchKnowledgeBase Action, NodeRouter, DocumentProcessor and FTS backends; no new Action. Tests first: same-section disjoint hits, true dual hit, repeated/empty section paths, duplicate candidates, permissions, backend integration and multilingual fixtures. Validate mix q, isolated native/ParadeDB suites and final precommit.",
+  "description": "Stacked PR on fix/793-hybrid-retrieval. Chunk-level fusion implemented in DocumentProcessor; section hydration preserves each direct match's score/provenance, context siblings are unscored. Deferred diagnostics #809 and bounded expansion #810. Action reuse assessment: extend Ingestion DocumentProcessor. Existing SearchKnowledgeBase Action (lib/zaq/agent/tools/search_knowledge_base.ex) dispatches via NodeRouter to Ingestion and merges language results; no separate operation is introduced. Private rank/hydrate helpers are local-only scoring internals with no independently composable action contract; no new agent tool. Inputs are already filtered candidate legs; output is grouped scored chunk matches; no new side effects or identity changes. Verification: new exact RRF, duplicate/order property, same-section SQL hydration tests; native and ParadeDB fixture evaluations each 11/11; mix q and isolated suite pass. Final mix precommit blocked by 88 unrelated full-suite failures; isolated untouched disk_document_test reproduces missing-config expectation {:error, :disk_channel_config_not_found} vs actual {:error, :enoent}. Do not request final approval until precommit passes.",
   "id": "zaq-aj2",
   "labels": [],
   "priority": 2,
   "status": "in_progress",
   "title": "[#793] Fuse retrieval scores per matched chunk",
   "type": "task",
-  "updated_at": "2026-09-26T08:05:22Z"
+  "updated_at": "2026-09-26T08:41:32Z"
 }
