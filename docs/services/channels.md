@@ -15,7 +15,8 @@ retrieval configuration for the message provider (including IMAP-to-email),
 then matches an author against the connector-scoped `PersonChannel` identity.
 Unscoped legacy/BO-owned channel identities do not directly satisfy a scoped
 lookup. On ingress, a non-email opaque identity can be bound transactionally
-to the sole live retrieval connector for its provider; with multiple connectors,
+to the sole stored retrieval connector for its provider; archived or
+disabled connectors still count as possible origins. With multiple connectors,
 it remains unscoped and cannot authorize either connector by guesswork.
 The unconsumed connector-scope migration links old identities only where one
 retrieval connector matches their provider, failing on ambiguous mappings.
