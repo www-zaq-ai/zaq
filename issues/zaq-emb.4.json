@@ -25,11 +25,15 @@
     {
       "text": "Capture foundation follow-up: verified against existing StrategyTest that Direct thread replies reuse the one parent transcript (not a child), while Shared threads get a child; corrected the new integration test and documentation without weakening existing assertions. Added regression tests for missing Person, unscoped email UID, nil external ID (distinct placements), changed email recipient replay, simultaneous conflicting audience replays, transaction rollback, direct provider grant revocation vs manual grant. SQL transaction advisory lock serializes same replicated source identity before checking existing audience. Current broad isolated affected suite: 371 tests, 6 properties, 0 failures; mix q passes. Ingress, consumer cutover, and identity/grant wiring remain outstanding for PR A.",
       "timestamp": "2026-09-26T11:14:27Z"
+    },
+    {
+      "text": "Recipient resolution action reuse recheck before wiring: People.match_by_channel/3 already performs scoped identity lookup by platform, identifier and connector; IdentityResolver.validate_connector/2 handles author connector but permits absent connector and is private. For passive email To/Cc, extend People.IdentityResolver with a read-only connector-validated resolver reusing People.match_by_channel(\"email\", address, config_id); do not call find_or_create_from_channel or grant access from arbitrary header/metadata. Inputs: internally normalized per-message sender/visible-address evidence and resolved enabled email:imap connector; output only already-linked Person IDs, deduplicated, no unscoped/other-connector fallback; invalid connector/shape errors fail closed. No side effects, retry-safe; local-only helper is not an agent Action because it is an authorization-sensitive ingress implementation detail, not an independently invokable agent operation. Ingress must separately attest provenance before treating results as audience; tests should cover scoped match, missing/Bcc/unscoped identifiers, connector mismatch/disabled and bad inputs. Do not expose this resolver as a public authorization decision.",
+      "timestamp": "2026-09-26T11:14:38Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T11:14:27Z"
+  "updated_at": "2026-09-26T11:14:38Z"
 }
