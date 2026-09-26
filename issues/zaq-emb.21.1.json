@@ -7,9 +7,15 @@
   "id": "zaq-emb.21.1",
   "labels": [],
   "parent": "zaq-emb.21",
+  "comments": [
+    {
+      "text": "Implemented unscoped email-alias delivery pass-through to EmailBridge/SmtpSender (explicit connector-id validation still first); real connector lookup for two non-email notification/chat test doubles. Added SMTP default, ambiguous, archived-default and explicit ID-mismatch integration regressions. Original four CI suites reproduced 51 tests/31 failures; now 258 affected tests pass, 0 failures; git diff --check passes. mix q: first run fixed 2 Credo alias findings; two subsequent attempts blocked by ExDNA.Credo Task.Supervised.stream(5000) timeout while checking 1401 files. No commit/push; coordination with #768 consolidation owner underway. Modified lib/zaq/channels/api.ex; test/zaq/channels/email_html_delivery_test.exs; test/zaq/engine/notifications/{notification_test,email_threading_test}.exs.",
+      "timestamp": "2026-09-26T00:26:26Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[PR799] Restore email delivery and notification regression tests",
   "type": "bug",
-  "updated_at": "2026-09-26T00:12:38Z"
+  "updated_at": "2026-09-26T00:26:26Z"
 }
