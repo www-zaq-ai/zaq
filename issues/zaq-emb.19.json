@@ -7,13 +7,13 @@
     "zaq-emb.20"
   ],
   "created": "2026-09-25T09:36:46Z",
-  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.12; no self-approval.\n\nAfter implementation review, explicit UX approval and consolidated E2E, invoke required coverage handoff per WORKFLOW_AGENT.md; fresh reports, record gaps/exceptions, repeat affected issue checks after changes. Numerical targets belong here. No implementation completion claim from historical tests. Files: affected test suites only in implementation phase. Action reuse: not applicable, validation coordination. Documentation: Beadwork results and review evidence; no parallel standards. Mocking: testing handbook applies.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
+  "description": "PR A only: after implementation review and .13.1 approved E2E, follow WORKFLOW_AGENT coverage lifecycle with fresh reports, exceptions and repeat checks. Do not wait for B or .13 umbrella closure. Include evidence in A; then .20. Action reuse N/A: validation coordination.",
   "id": "zaq-emb.19",
   "labels": [],
   "parent": "zaq-emb",
   "priority": 2,
   "status": "open",
-  "title": "[zaq-emb.19] Coverage handoff and review after approved feature E2E",
+  "title": "[zaq-emb.19] PR A coverage handoff and review",
   "type": "task",
-  "updated_at": "2026-09-26T09:48:21Z"
+  "updated_at": "2026-09-26T09:49:44Z"
 }
