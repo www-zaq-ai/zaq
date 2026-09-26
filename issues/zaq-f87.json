@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T09:25:07Z",
+  "description": "Stack onto zaq-aj2/chunk-level-fusion PR #814. SearchKnowledgeBase requires lexical_terms; translate supplied terms in existing TranslateKnowledgeQuery action, preserve originals for simple, remove lexical-term count/length cutoffs in Agent and Ingestion. Update pipeline retrieval LLM output to supply terms, direct callers, tests and service docs. No per-language ranking changes. Reuse existing Action/NodeRouter; no new operation. Validate mix q, isolated tests and final precommit gate; note existing unrelated full-suite failures.",
+  "id": "zaq-f87",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[#814] Use LLM-authored lexical terms throughout knowledge search",
+  "type": "task",
+  "updated_at": "2026-09-26T09:25:07Z"
+}
