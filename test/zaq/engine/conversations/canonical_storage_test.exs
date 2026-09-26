@@ -4,6 +4,7 @@ defmodule Zaq.Engine.Conversations.CanonicalStorageTest do
 
   import Ecto.Query
 
+  alias Zaq.Accounts.People
   alias Zaq.Engine.Conversations
 
   alias Zaq.Engine.Conversations.{
@@ -206,6 +207,57 @@ defmodule Zaq.Engine.Conversations.CanonicalStorageTest do
              |> Repo.insert()
 
     assert %{parent_id: _} = errors_on(missing_parent)
+  end
+
+  test "direct and replicated transcript ownership is an explicit Person reference" do
+    {:ok, owner} = People.create_person(%{"full_name" => "History Owner"})
+
+    for strategy <- ["direct", "replicated"] do
+      assert %{owner_person_id: _} =
+               %Transcript{}
+               |> Transcript.changeset(%{
+                 strategy: strategy,
+                 provider: "mattermost",
+                 scope_key: "#{strategy}:missing-owner",
+                 permission_resource_type: "person_history",
+                 permission_resource_id: "owner:#{owner.id}"
+               })
+               |> errors_on()
+
+      owned =
+        transcript("#{strategy}:#{owner.id}", %{
+          strategy: strategy,
+          owner_person_id: owner.id,
+          permission_resource_type: "person_history",
+          permission_resource_id: "owner:#{owner.id}"
+        })
+
+      assert Repo.get!(Transcript, owned.id).owner_person_id == owner.id
+    end
+
+    assert %{owner_person_id: _} =
+             %Transcript{}
+             |> Transcript.changeset(%{
+               strategy: "shared",
+               provider: "mattermost",
+               owner_person_id: owner.id,
+               scope_key: "shared:owner-not-allowed",
+               permission_resource_type: "channel_history",
+               permission_resource_id: "room-1"
+             })
+             |> errors_on()
+
+    assert_raise Ecto.ConstraintError, fn ->
+      Repo.transaction(fn ->
+        Repo.insert!(%Transcript{
+          strategy: "direct",
+          provider: "mattermost",
+          scope_key: "unowned-direct-raw",
+          permission_resource_type: "person_history",
+          permission_resource_id: "owner:#{owner.id}"
+        })
+      end)
+    end
   end
 
   test "source identity cannot be partially specified or attached at an invalid position" do

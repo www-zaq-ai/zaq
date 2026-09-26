@@ -72,7 +72,9 @@ message's optional external identity is unique within its provider and trusted
 account key (including mailbox/collection when the provider's ID is only unique
 there); the absence of a provider ID does not imply deduplication. A
 `Transcript` stores strategy, provider/connector scope, optional parent and the
-permission-resource coordinate. `TranscriptMessage` associates one message with
+permission-resource coordinate. Direct and Replicated transcripts additionally
+require a Person owner; Shared transcripts must not claim one.
+`TranscriptMessage` associates one message with
 one or more transcripts at a transcript-local position. The storage schema alone
 does **not** grant read access or select content by message ID: the authorized
 writer/read API, serial position allocation and legacy backfill/cutover remain

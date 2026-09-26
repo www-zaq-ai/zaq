@@ -2,6 +2,8 @@ defmodule Zaq.Engine.Conversations.Transcript do
   @moduledoc """
   Durable strategy and scope for a message history. Threads reference their parent;
   the permission resource coordinate is stored separately from conversation ownership.
+  Direct and replicated transcripts have an explicit Person owner; shared
+  transcripts instead use the channel's permission resource.
   `next_position` is allocated transactionally by the Engine writer, not by callers.
   """
 
@@ -24,6 +26,7 @@ defmodule Zaq.Engine.Conversations.Transcript do
     field :permission_resource_id, :string
     field :next_position, :integer, default: 0
 
+    belongs_to :owner_person, Zaq.Accounts.Person, type: :integer
     belongs_to :parent, __MODULE__
     belongs_to :conversation, Conversation
     has_many :transcript_messages, TranscriptMessage
@@ -44,7 +47,8 @@ defmodule Zaq.Engine.Conversations.Transcript do
       :parent_id,
       :conversation_id,
       :permission_resource_type,
-      :permission_resource_id
+      :permission_resource_id,
+      :owner_person_id
     ])
     |> validate_required([
       :strategy,
@@ -54,9 +58,25 @@ defmodule Zaq.Engine.Conversations.Transcript do
       :permission_resource_id
     ])
     |> validate_inclusion(:strategy, ~w(direct shared replicated))
+    |> validate_owner_strategy()
     |> unique_constraint(:scope_key, name: :transcripts_scope_index)
+    |> check_constraint(:owner_person_id, name: :transcripts_owner_strategy_check)
+    |> foreign_key_constraint(:owner_person_id)
     |> foreign_key_constraint(:channel_config_id)
     |> foreign_key_constraint(:parent_id)
     |> foreign_key_constraint(:conversation_id)
+  end
+
+  defp validate_owner_strategy(changeset) do
+    case {get_field(changeset, :strategy), get_field(changeset, :owner_person_id)} do
+      {strategy, nil} when strategy in ["direct", "replicated"] ->
+        add_error(changeset, :owner_person_id, "is required for this strategy")
+
+      {"shared", owner} when not is_nil(owner) ->
+        add_error(changeset, :owner_person_id, "cannot own a shared transcript")
+
+      _ ->
+        changeset
+    end
   end
 end
