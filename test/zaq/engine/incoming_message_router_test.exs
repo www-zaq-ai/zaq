@@ -1,5 +1,6 @@
 defmodule Zaq.Engine.IncomingMessageRouterTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Channels.EventNames
@@ -82,6 +83,23 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
       assert IncomingMessageRouter.route(event).actor == actor
     end
 
+    test "preserves a trusted BO Person when channel identity resolution is unavailable" do
+      person = %{id: 42, full_name: "BO Person", team_ids: [3]}
+
+      event =
+        Event.new(incoming(%{provider: :web, person: person}), :engine,
+          actor: %{person: person, user_id: 7},
+          opts: [
+            identity_resolver: RejectingIdentityResolver,
+            conversations_module: StubConversations
+          ]
+        )
+
+      routed = IncomingMessageRouter.route(event)
+      assert {:ok, {:person, 42}} = ExecutionActor.identity(routed.actor)
+      assert routed.request.person == person
+    end
+
     test "blank authors and malformed actor containers do not acquire identities" do
       assert {:error, _} =
                ExecutionActor.validate(route(incoming(%{author_id: " "})).actor)
@@ -122,11 +140,72 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
       refute other.actor.subject == subject
     end
 
-    test "retains Person identity without adding an explicit nonperson declaration" do
-      person = %{id: 42, full_name: "Person", team_ids: [3]}
-      routed = route(incoming(%{person: person}))
-      assert routed.actor.person == person
-      refute Map.has_key?(routed.actor, :kind)
+    test "unresolved channel author cannot claim a prefilled Person in request or actor" do
+      forged = %{id: 42, full_name: "Claimed", team_ids: [3]}
+
+      for actor <- [%{person: forged}, %{person_id: 42}, %{"person" => forged}] do
+        event =
+          Event.new(
+            incoming(%{person: forged, routing_context: %{channel_config_id: 17}}),
+            :engine,
+            actor: actor,
+            opts: [identity_resolver: RejectingIdentityResolver]
+          )
+
+        routed = IncomingMessageRouter.route(event)
+        assert routed.request.person == nil
+        assert {:ok, {:channel_subject, subject}} = ExecutionActor.identity(routed.actor)
+        assert Jason.decode!(subject) == ["mattermost", 17, "u1"]
+      end
+    end
+
+    test "resolved channel author overrides valid prefilled Person claims" do
+      forged = %{id: 99, full_name: "Claimed", team_ids: [1]}
+
+      event =
+        Event.new(incoming(%{person: forged}), :engine,
+          actor: %{person: forged},
+          opts: [
+            identity_resolver: ResolvingIdentityResolver,
+            conversations_module: StubConversations
+          ]
+        )
+
+      routed = IncomingMessageRouter.route(event)
+      assert routed.request.person == %{id: 42, full_name: "Resolved", team_ids: [3]}
+      assert {:ok, {:person, 42}} = ExecutionActor.identity(routed.actor)
+    end
+
+    test "a forged Person cannot bypass real connector resolution" do
+      forged = %{id: 42, full_name: "Claimed", team_ids: [3]}
+
+      event =
+        Event.new(
+          incoming(%{person: forged, routing_context: %{channel_config_id: 999_999_999}}),
+          :engine,
+          actor: %{person: forged}
+        )
+
+      routed = IncomingMessageRouter.route(event)
+      assert routed.request.person == nil
+      assert {:ok, {:channel_subject, subject}} = ExecutionActor.identity(routed.actor)
+      assert Jason.decode!(subject) == ["mattermost", 999_999_999, "u1"]
+    end
+
+    property "an unresolved channel never inherits a valid claimed Person ID" do
+      check all(id <- StreamData.positive_integer(), max_runs: 20) do
+        forged = %{id: id, full_name: "Claimed", team_ids: [3]}
+
+        event =
+          Event.new(incoming(%{person: forged}), :engine,
+            actor: %{person: forged},
+            opts: [identity_resolver: RejectingIdentityResolver]
+          )
+
+        routed = IncomingMessageRouter.route(event)
+        assert routed.request.person == nil
+        assert {:ok, {:channel_subject, _}} = ExecutionActor.identity(routed.actor)
+      end
     end
 
     test "missing channel author cannot become a system or shared anonymous actor" do

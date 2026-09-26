@@ -2,9 +2,11 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   @moduledoc """
   Applies incoming-message routing policy to an Engine-routed `%Zaq.Event{}`.
 
-  Channels dispatch unresolved incoming messages to Engine. This module enriches
-  the incoming person identity when possible, resolves the matching routing rule,
-  and returns the same event with executable routing fields for `NodeRouter`.
+  Channels dispatch unresolved incoming messages to Engine. For non-web channels,
+  a valid prefilled Person in the event is not authority: connector-scoped author
+  resolution supplies the Person. BO web chat may carry its internally trusted
+  session-derived Person. This boundary trusts internal callers, not arbitrary
+  external Event envelopes. Routing then produces executable fields for `NodeRouter`.
   """
 
   alias Zaq.Channels.EventNames
@@ -21,6 +23,7 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   @spec route(Event.t()) :: Event.t()
   def route(%Event{request: %Incoming{} = incoming} = event) do
     actor = preserve_invalid_person(event.actor, incoming.person)
+    {incoming, actor} = discard_channel_person(incoming, actor)
     {incoming, person_resolved?} = resolve_person(incoming, event.opts)
     resolution = IncomingMessageRouting.resolve(incoming, event.opts)
 
@@ -42,9 +45,29 @@ defmodule Zaq.Engine.IncomingMessageRouter do
     end
   end
 
-  # This is the trusted ingress boundary: transport fields have already been
-  # stamped by Channels/BO and Person resolution has completed. Never derive an
-  # anonymous or system identity from absent transport identity.
+  defp discard_channel_person(%Incoming{provider: provider} = incoming, actor)
+       when provider in [:web, "web"],
+       do: {incoming, actor}
+
+  defp discard_channel_person(%Incoming{} = incoming, actor) do
+    incoming =
+      case ExecutionActor.validate(%{person: incoming.person}) do
+        {:ok, _} -> %{incoming | person: nil}
+        {:error, _} -> incoming
+      end
+
+    actor =
+      case ExecutionActor.validate(actor) do
+        {:ok, %{person: _}} -> Map.drop(actor, [:person, "person", :person_id, "person_id"])
+        _ -> actor
+      end
+
+    {incoming, actor}
+  end
+
+  # Internal callers stamp transport fields before Engine routing. Shape validation
+  # does not attest the caller or connector; never derive an anonymous or system
+  # identity from absent transport identity.
   defp execution_actor(actor, _incoming) when not is_map(actor) and not is_nil(actor), do: actor
 
   defp execution_actor(actor, incoming) do

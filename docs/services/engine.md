@@ -58,6 +58,13 @@ grant and never treats a nil Person or a team grant as channel history access.
 The strategy-managed transcript/read migration is tracked in `zaq-emb`; existing
 conversation readers have not all migrated to this grant check yet.
 
+On channel ingress, `IncomingMessageRouter` resolves the author through the
+connector-scoped `IdentityResolver`; a valid prefilled channel Person in either
+`Incoming` or the event actor cannot substitute for that result. A malformed or
+conflicting identity still fails execution validation. BO web chat may supply
+its internally trusted session-derived Person. See the ingress trust scope in
+[Channels](channels.md); the Event envelope itself is not caller attestation.
+
 ```
 Channel adapter or BO chat
   → IncomingMessageRouter resolves routing + execution actor
