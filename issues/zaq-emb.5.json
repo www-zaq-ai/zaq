@@ -1,8 +1,6 @@
 {
   "assignee": "",
-  "blocked_by": [
-    "zaq-emb.4"
-  ],
+  "blocked_by": [],
   "blocks": [
     "zaq-emb.16"
   ],
@@ -15,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.5] Fixed-cursor per-turn history refresh and explicit steering",
   "type": "task",
-  "updated_at": "2026-09-26T09:48:06Z"
+  "updated_at": "2026-09-26T09:50:31Z"
 }
