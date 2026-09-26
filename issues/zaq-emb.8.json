@@ -1,9 +1,7 @@
 {
   "assignee": "Julien",
   "blocked_by": [],
-  "blocks": [
-    "zaq-emb.11"
-  ],
+  "blocks": [],
   "created": "2026-09-23T13:18:34Z",
   "description": "PR B owns delayed/asynchronous terminal timeouts and ordered intermediary/final delivery. Database finalization is not transport success. Prior partial green tests do not discharge delayed timeout acceptance. Carry earlier fixes/provenance through .29; no new prerequisite PR.\n\n## Current delivery contract — user-approved two-outcome stack\nOwner: PR B. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.32; no self-approval.\n\n## Functional specifications\nRetain ordered intermediary edits; revalidate final text, timeout/failure handling and final delivery errors against canonical outcome persistence. Tests use the Arabic truncation case and blocked/reordered edits through the real delivery boundary where feasible. Do not equate DB persistence with successful channel delivery.\n\n## Files and ownership\nlib/zaq/agent/status.ex; api.ex; Channels events/API/delivery boundaries; status and bridge integration tests\n\n## Action reuse assessment\nExtend ordered existing upserts/delivery; no parallel transport path. DB finalization is not delivery acknowledgment; cover delayed timeout completion, not only synchronous happy paths.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\ndocs/services/{agent,channels}.md\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.32. No commit/push authorization is implied.",
   "id": "zaq-emb.8",
@@ -27,5 +25,5 @@
   "status": "in_progress",
   "title": "[zaq-emb.8] Preserve terminal channel delivery ordering and errors",
   "type": "task",
-  "updated_at": "2026-09-26T09:49:49Z"
+  "updated_at": "2026-09-26T09:50:30Z"
 }
