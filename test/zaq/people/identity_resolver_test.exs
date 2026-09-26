@@ -155,6 +155,47 @@ defmodule Zaq.People.IdentityResolverTest do
       assert matched.id == different.id
     end
 
+    test "an archived connector prevents a new same-provider account from claiming a legacy author" do
+      {legacy_person, legacy} = complete_person_with_channel("U123", %{})
+
+      old =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Older Slack account",
+          provider: "slack",
+          kind: "retrieval",
+          url: "https://example.invalid",
+          token: "fixture-token",
+          enabled: true
+        })
+        |> Repo.insert!()
+
+      assert {:ok, _archived} = ChannelConfig.archive(old)
+
+      replacement =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Replacement Slack account",
+          provider: "slack",
+          kind: "retrieval",
+          url: "https://example.invalid",
+          token: "fixture-token",
+          enabled: true
+        })
+        |> Repo.insert!()
+
+      assert {:ok, newcomer} =
+               IdentityResolver.resolve(
+                 incoming(%{routing_context: %RoutingContext{channel_config_id: replacement.id}}),
+                 channels_router: ErrorRouter
+               )
+
+      assert newcomer.id != legacy_person.id
+      assert People.get_channel(legacy.id).channel_config_id == nil
+      assert {:ok, matched} = People.match_by_channel("slack", "U123", replacement.id)
+      assert matched.id == newcomer.id
+    end
+
     test "archived connector cannot resolve a new incoming author" do
       config =
         %ChannelConfig{}
