@@ -4,6 +4,7 @@
     "zaq-emb.3.2"
   ],
   "blocks": [],
+  "closed_at": "2026-09-26T08:08:29Z",
   "created": "2026-09-26T07:58:31Z",
   "description": "Schema-only #768 slice stacked on canonical API #808. Introduce a separate Engine-owned execution record for the Person-bound request, finalization capability hash, private trace/tool-result descriptors, usage and outcome with references to canonical user/public answer message UUIDs; no private execution fields are included in shared-history projections. Test-first DB FK/check/uniqueness validation, linkage without duplicating a public answer, nil Person rejection, legacy Message/rating/trace preservation, and guarded non-destructive rollback. No copying/backfill of existing traces or browser/agent exposure: zaq-emb.15 owns legacy migration/cutover, downstream routing owns actual execution writes. Action reuse: extend Conversations/Message schema associations and existing finalize_incoming contract, local-only persistence schema, not new agent Action. Read Engine/Agent guides (Agent if touching lib/zaq/agent), docs/action-reuse.md, testing handbook and documentation policy. No new-feature E2E before human UX approval.",
   "id": "zaq-emb.3.3",
@@ -24,8 +25,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.3.3] Add private Person-bound execution records",
   "type": "task",
-  "updated_at": "2026-09-26T08:08:26Z"
+  "updated_at": "2026-09-26T08:08:29Z"
 }
