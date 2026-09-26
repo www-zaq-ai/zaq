@@ -5,13 +5,13 @@
   ],
   "blocks": [],
   "created": "2026-09-26T08:21:44Z",
-  "description": "Email Channels parser/SMTP evidence slice after .14.2.1. Normalize sender, visible To/Cc addresses and hidden Bcc only from independently identified receiving account or confirmed outbound SMTP envelope; never from IMAP folder, Delivered-To alone, reply thread or historical participants. Preserve provider/account scope for IdentityResolver and per-message recipient Person resolution in Engine integration .4; fail closed on ambiguous/missing evidence. Tests FIRST on IMAP parser fixture, SMTP outbound result and mismatched accounts for sender copy, evolving To/Cc, no retroactive access, hidden Bcc confirmation, bot replies; property tests for recipient dedup and untrusted headers. No new Action/tool or credential changes unless read system-config; update Channels guide. New-feature E2E awaits human UX gate.",
+  "description": "Inbound IMAP parser/evidence slice after .14.2.1. Normalize sender plus all visible To/Cc addresses from the current message; hidden Bcc only when receiving account identity is independently established from connector configuration (not IMAP folder, Delivered-To alone, thread participants or guessed mailbox). Stamp typed channel-only per-message evidence for later Engine Person resolution, never credentials or an access grant. Fail closed on ambiguous account evidence. Tests FIRST with RFC822 and adapter fixtures for sender copy, evolving recipients, hidden Bcc denial/confirmation, malformed addresses and property dedup. Preserve existing threading/reply_from behavior. No new Action/tool, credential changes or feature E2E. Outbound SMTP sender/envelope receipt is separately owned by .14.2.4; read Channels guide and Action reuse.",
   "id": "zaq-emb.14.2.2",
   "labels": [],
   "parent": "zaq-emb.14.2",
   "priority": 1,
   "status": "open",
-  "title": "[zaq-emb.14.2.2] Normalize per-message email recipients",
+  "title": "[zaq-emb.14.2.2] Normalize inbound email recipient evidence",
   "type": "task",
-  "updated_at": "2026-09-26T08:21:47Z"
+  "updated_at": "2026-09-26T08:35:59Z"
 }
