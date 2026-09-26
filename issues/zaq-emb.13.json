@@ -1,8 +1,6 @@
 {
   "assignee": "",
-  "blocked_by": [
-    "zaq-emb.12"
-  ],
+  "blocked_by": [],
   "blocks": [
     "zaq-emb.19"
   ],
@@ -15,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.13] Consolidated feature E2E — independent PR A/B partitions",
   "type": "task",
-  "updated_at": "2026-09-26T09:49:43Z"
+  "updated_at": "2026-09-26T09:50:30Z"
 }

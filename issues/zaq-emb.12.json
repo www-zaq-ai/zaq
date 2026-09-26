@@ -3,9 +3,7 @@
   "blocked_by": [
     "zaq-emb.11"
   ],
-  "blocks": [
-    "zaq-emb.13"
-  ],
+  "blocks": [],
   "created": "2026-09-23T13:18:37Z",
   "description": "Approve completed PR A durable history/access UI and supported behavior only after .11. Record approver/date/source/scope; no self-approval. Regrouping is not UX approval. Material UX changes reopen gate. Unblocks only A E2E .13.1; B has .32. No production work; Action reuse N/A.",
   "id": "zaq-emb.12",
@@ -15,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.12] PR A explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-09-26T09:49:43Z"
+  "updated_at": "2026-09-26T09:50:30Z"
 }
