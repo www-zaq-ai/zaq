@@ -32,11 +32,15 @@
     {
       "text": "Resolved ingress regression exposed by broader integration: Channels CommunicationBridge now discards connector IDs carried only by untrusted Incoming metadata and stamps ID from trusted bridge opts. For existing unscoped non-email PersonChannel rows created after migration, People links to the sole live provider connector transactionally under row lock; never guesses when multiple configs. Regressions cover sole-link, two-connector ambiguity, concurrent scoped discovery, archived ingress denial, BO archive identity retention. Broad person-credential ingress + identity + ChannelsLive suite 145 tests passes; mix q passes. Still open for legacy backfill migration validation and remaining identity/trust review; no commit/push.",
       "timestamp": "2026-09-25T12:54:56Z"
+    },
+    {
+      "text": "2026-09-26 #799 identity audit found a cross-connector identity claim: People.bind_legacy_channel considered only enabled/nonarchived connectors, so an archived predecessor + live replacement of same provider let replacement bind an unscoped legacy PersonChannel with same opaque ID, inheriting the predecessor Person. Test-first regression reproduced wrong Person; fix requires unique stored retrieval connector (counts archived/disabled possible origins) before legacy linking. Reused People.find_or_create_from_channel/2 and existing identity records, no Action/tool exposure. Focused 168 tests/2 properties pass; mix q passes. Owning PR #799 branch; dependent #800/#806 to be merged after push. Legacy migration itself remains for reconciliation/validation.",
+      "timestamp": "2026-09-26T06:18:14Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-25T12:54:56Z"
+  "updated_at": "2026-09-26T06:18:14Z"
 }
