@@ -65,11 +65,15 @@
     {
       "text": "Communications-only UI scope confirmed; no DataSources.ProviderLive card replacement. Follow-up regression exposed archive-default takeover: fixed ChannelConfig.resolve_notification_smtp to honor an explicitly designated default even if archived/disabled instead of promoting remaining connector; SmtpSender propagates missing-default error. New archive-default regression + email/BO focused 171 tests pass; mix q and git diff --check pass. No commit/push. Remaining prerequisites: broader API/bridge and notification integration audit, coverage/human UX E2E approval and migration handling.",
       "timestamp": "2026-09-25T22:19:43Z"
+    },
+    {
+      "text": "Coordination: zaq-emb.21.1 claimed for PR799 CI 31-failure repair. This session owns lib/zaq/channels/api.ex plus test/zaq/channels/{api_test,email_html_delivery_test}.exs and test/zaq/engine/notifications/{notification_test,email_threading_test,outbound_threading_regression_test}.exs. Other agents: please do not edit those paths or independently repair PR799 delivery failures; coordinate via zaq-emb.21.1 before touching. Will keep changes isolated to PR799 branch; no push without authorization.",
+      "timestamp": "2026-09-26T00:12:43Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-25T22:19:43Z"
+  "updated_at": "2026-09-26T00:12:43Z"
 }
