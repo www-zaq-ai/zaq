@@ -17,11 +17,15 @@
     {
       "text": "2026-09-26 independent delivery audit while #799/#806 CI runs: Agent.Status.broadcast uses synchronous NodeRouter upsert; Agent.Api persists final outcome before scheduling a synchronous Channels delivery hop, and Channels.Api propagates bridge send_reply error in response instead of labeling it delivered. Existing blocked Arabic partial regression verifies edit completion order. Focused Status/Agent API/Channels API/JidoChat delivery 179 tests/1 property passed on restacked head. Need explicit integration validation for terminal delivery error and timeout path before claiming full .8 acceptance; no new code or E2E authored this pass.",
       "timestamp": "2026-09-26T07:02:56Z"
+    },
+    {
+      "text": "2026-09-26 #799 owning branch: added Channels.Api delivery-boundary acceptance test with a real Api.handle_event(:deliver_outgoing) and external transport timeout stub: outgoing full Arabic answer exists, bridge send_reply is attempted, final Event.response is {:error, :timeout}, not false success. Existing Status blocked-partial test proves ordered edits. Focused Channels API/Status/Agent API 171 tests pass, mix q passes, git diff --check clean. Reused existing synchronous upsert and delivery event operations; test-only failure collaborator at transport boundary, no Action or production operation added. Commit/push after #806 current CI completes so upstream test-only change does not interrupt pending validation; .8 remains in progress pending follow-up on async timeout semantics if needed.",
+      "timestamp": "2026-09-26T07:06:59Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.8] Preserve terminal channel delivery ordering and errors",
   "type": "task",
-  "updated_at": "2026-09-26T07:02:56Z"
+  "updated_at": "2026-09-26T07:06:59Z"
 }
