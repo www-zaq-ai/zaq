@@ -190,14 +190,16 @@ defmodule Zaq.Agent.Pipeline do
       {:ok,
        %{
          "query" => query,
+         "lexical_terms" => lexical_terms,
          "language" => language,
          "positive_answer" => positive_answer,
          "negative_answer" => negative_answer
        }}
-      when query != "" ->
+      when query != "" and is_list(lexical_terms) and lexical_terms != [] ->
         {:ok,
          %{
            query: query,
+           lexical_terms: lexical_terms,
            language: language,
            positive_answer: positive_answer,
            negative_answer: negative_answer
@@ -217,7 +219,7 @@ defmodule Zaq.Agent.Pipeline do
     end
   end
 
-  defp do_extraction(%{query: query} = retrieval_result, opts, incoming) do
+  defp do_extraction(%{query: query, lexical_terms: terms} = retrieval_result, opts, incoming) do
     negative_answer = Map.get(retrieval_result, :negative_answer)
 
     context = %{
@@ -230,7 +232,7 @@ defmodule Zaq.Agent.Pipeline do
       incoming: incoming
     }
 
-    case SearchKnowledgeBase.run(%{query: query}, context) do
+    case SearchKnowledgeBase.run(%{query: query, lexical_terms: terms}, context) do
       {:ok, %{chunks: []}} when is_binary(negative_answer) ->
         {:error, :no_results, negative_answer}
 

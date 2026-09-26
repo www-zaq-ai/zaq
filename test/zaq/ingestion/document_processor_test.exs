@@ -1424,6 +1424,52 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
                  lexical_terms: ["ZAQ-793"]
                )
     end
+
+    test "lexical clauses after the eighth reach full-text search untruncated" do
+      stub_embedding_success()
+      doc = create_document()
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: "Saint-Saturnin mayor evidence",
+        chunk_index: 1,
+        section_path: ["reference"],
+        embedding: Pgvector.HalfVector.new(List.duplicate(-0.1, embedding_dimension()))
+      })
+      |> Repo.insert!()
+
+      terms = Enum.map(1..9, &"unmatched#{&1}") ++ ["  Saint-Saturnin  "]
+
+      assert {:ok,
+              [%{"content" => "Saint-Saturnin mayor evidence", "retrieval_legs" => ["lexical"]}]} =
+               DocumentProcessor.query_extraction("semantic paraphrase",
+                 skip_permissions: true,
+                 lexical_terms: terms
+               )
+    end
+
+    test "long lexical identifiers are not silently shortened before full-text search" do
+      stub_embedding_success()
+      doc = create_document()
+      identifier = "saintsaturnin" <> String.duplicate("q", 130)
+
+      %Chunk{}
+      |> Chunk.changeset(%{
+        document_id: doc.id,
+        content: identifier,
+        chunk_index: 1,
+        section_path: ["reference"],
+        embedding: Pgvector.HalfVector.new(List.duplicate(-0.1, embedding_dimension()))
+      })
+      |> Repo.insert!()
+
+      assert {:ok, [%{"content" => ^identifier, "retrieval_legs" => ["lexical"]}]} =
+               DocumentProcessor.query_extraction("semantic paraphrase",
+                 skip_permissions: true,
+                 lexical_terms: [identifier]
+               )
+    end
   end
 
   # ---------------------------------------------------------------------------

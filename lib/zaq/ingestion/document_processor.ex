@@ -882,10 +882,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   defp lexical_input(terms, _query) when is_list(terms) do
     terms
     |> Enum.filter(&is_binary/1)
-    |> Enum.map(&(String.trim(&1) |> String.slice(0, 128)))
+    |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
-    |> Enum.take(8)
   end
 
   defp lexical_input(_invalid, _query), do: []
