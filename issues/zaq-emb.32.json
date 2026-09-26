@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.31"
+  ],
   "blocks": [],
   "created": "2026-09-26T09:22:29Z",
   "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR B. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.32; no self-approval.\n\nHuman gate for completed PR B live execution and completion/delivery behavior after its integrated validation. Record approver, date, source and exact scope; never self-approve. PR A approval does not approve B journeys. Material UX changes reopen this gate. Only this explicit approval unblocks new B feature E2E authoring. No production work; Action reuse N/A.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.32] PR B explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-09-26T09:48:16Z"
+  "updated_at": "2026-09-26T09:50:36Z"
 }
