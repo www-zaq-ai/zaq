@@ -26,11 +26,15 @@
     {
       "text": "Broad #768 validation uncovered regression from source-keyed resource_permission migration: Ingestion.set_document_permission/4 still used old ON CONFLICT columns, causing PostgreSQL 42P10 in existing BO ingestion tests. Updated person/team fragments to include source_key; isolated previously failing BO tests now pass. Needs direct permission upsert coexistence regression, wider validation, and selective landing; no push.",
       "timestamp": "2026-09-25T13:43:02Z"
+    },
+    {
+      "text": "Audit follow-up on owning #800 branch: test-first discovery that DocumentPermission schema omitted persisted source_key even though ResourcePermission and DB unique indexes include it, so Ingestion.list_document_permissions and per-document manual upsert results hid grant provenance. Added regression for same person/team manual plus provider grants through Ingestion.set_document_permission and Permissions.grant; mapped source_key default manual and aligned unique constraints to source-qualified indexes; documented in ingestion owner guide. Reused existing permission schemas/upserts (no Action/tool change: local schema projection). Focused 174 tests/7 properties, 0 failures; mix q passed. Separate ExternalPermissions provider snapshot import currently writes default-manual rows and prunes all sources; not changed in this narrow #768 history-foundation regression; needs independent ownership/product semantics if broader document ACL source sync is required.",
+      "timestamp": "2026-09-26T06:10:52Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.1] Source-aware channel-history grants",
   "type": "task",
-  "updated_at": "2026-09-25T13:43:02Z"
+  "updated_at": "2026-09-26T06:10:52Z"
 }
