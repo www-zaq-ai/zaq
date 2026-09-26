@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T08:21:44Z",
+  "description": "Email Channels parser/SMTP evidence slice after .14.2.1. Normalize sender, visible To/Cc addresses and hidden Bcc only from independently identified receiving account or confirmed outbound SMTP envelope; never from IMAP folder, Delivered-To alone, reply thread or historical participants. Preserve provider/account scope for IdentityResolver and per-message recipient Person resolution in Engine integration .4; fail closed on ambiguous/missing evidence. Tests FIRST on IMAP parser fixture, SMTP outbound result and mismatched accounts for sender copy, evolving To/Cc, no retroactive access, hidden Bcc confirmation, bot replies; property tests for recipient dedup and untrusted headers. No new Action/tool or credential changes unless read system-config; update Channels guide. New-feature E2E awaits human UX gate.",
+  "id": "zaq-emb.14.2.2",
+  "labels": [],
+  "parent": "zaq-emb.14.2",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.14.2.2] Normalize per-message email recipients",
+  "type": "task",
+  "updated_at": "2026-09-26T08:21:44Z"
+}
