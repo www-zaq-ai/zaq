@@ -6,9 +6,15 @@
   "description": "Consolidate python-ci into native Postgres CI; prepare crawler venv in default test jobs; remove real_python opt-in tag/exclusion; document local Python prerequisite. No domain operations changed (Action reuse not applicable). Validate focused test and mix q.",
   "id": "zaq-plx",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implementation complete (uncommitted): consolidated crawler setup into native Postgres, ParadeDB ingestion, and optional Elixir 1.20 CI jobs; removed python-ci and real_python tag/exclusion; renamed focused test and clarified local setup. Verified isolated crawler test (1 passed), Python steps (37 passed), mix q (exit 0), YAML structure and git diff --check. mix precommit did not finish within 15-minute tool timeout; no passing result claimed. Action reuse not applicable: test/CI wiring only, no executable domain operations changed.",
+      "timestamp": "2026-09-26T00:08:43Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[python-ci] Fold crawler Python test into default CI suite",
   "type": "task",
-  "updated_at": "2026-09-25T23:49:36Z"
+  "updated_at": "2026-09-26T00:08:43Z"
 }
