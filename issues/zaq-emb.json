@@ -30,11 +30,15 @@
     {
       "text": "PR799 CI repair ownership: child zaq-emb.21.1 is claimed by this session; avoid overlapping Channels.Api delivery and four notification/email regression test files (plus channels/api_test.exs). Coordinate with child issue before editing. Do not independently apply this fix to downstream PR stacks; integrate PR799 commit after it lands.",
       "timestamp": "2026-09-26T00:12:47Z"
+    },
+    {
+      "text": "User-requested delivery regrouping applied: outcome trackers .27=PR A durable history/access, .28=PR B live execution/reliable completion, .29=consolidate existing drafts. Updated delivery ownership throughout 47 task descriptions; preserved prior comments and all existing statuses. Split mixed .4 runtime work into B .30. A validation/UX/E2E/coverage/final gates no longer await .7/.8 or B E2E; B has .31/.32/.13.2/.33/.34. Single E2E umbrella .13 retained with per-outcome children. Reparented optional receiving-account/Bcc .14.2.5 to epic at P3 so .14.2 closure does not require it; bounded provider evidence .14.2.3 only requires declared supported paths. Dependency audit: no cycles, A has no B-work or optional Bcc prerequisites, both E2E partitions blocked on explicit human approval. .28 depends on .27 and its own final gate intentionally: shared A/B integration paths converge at B outcome acceptance, without delaying A. No source/test/config/migration/branch/PR changes or implementation completion performed.",
+      "timestamp": "2026-09-26T09:51:46Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb] Canonical messages, history strategies and person-bound execution",
   "type": "epic",
-  "updated_at": "2026-09-26T09:49:40Z"
+  "updated_at": "2026-09-26T09:51:46Z"
 }
