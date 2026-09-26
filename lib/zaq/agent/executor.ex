@@ -9,8 +9,7 @@ defmodule Zaq.Agent.Executor do
 
   Key concerns handled here:
 
-  - Scope derivation (`derive_scope/1`) so requests are routed to the correct
-    long-lived Jido server identity (conversation/person/session/anonymous).
+  - Opaque runtime selection plus explicit Engine-issued conversation history bindings.
   - Agent selection and per-run overrides (for example temporary
     `:system_prompt`).
   - Actor-bound server orchestration through `Zaq.Agent.ServerManager.ensure_server/4`.
@@ -55,8 +54,8 @@ defmodule Zaq.Agent.Executor do
   @doc """
   Derives a stable scope string from an incoming message and actor used to key the Jido agent server.
 
-  Format: `"channel:type:identity"` where channel is the normalized provider and identity is
-  `person.id`, `session_id`, or `"anonymous"`.
+  This is a compatibility/runtime-lifetime key for callers without an Engine conversation
+  binding. It is never parsed to select persisted history.
 
   Priority order:
   1. `metadata.run_id` + `metadata.step_index` — `"workflow:run:<run_id>:step:<step_index>"`
@@ -150,7 +149,8 @@ defmodule Zaq.Agent.Executor do
   ## Options
 
   - `:agent_id` — integer ID of the configured agent to use; omit for the default answering agent
-  - `:scope` — explicit server scope string; derived from `derive_scope/1` when absent on the answering path
+  - `:scope` — explicit server scope string; defaults to the trusted conversation binding when present, otherwise `derive_scope/1`
+  - `:conversation_binding` — trusted Engine-issued conversation and user-message references
   - `:question` — override the question text; defaults to `incoming.content`
   - `:system_prompt` — override the agent's `job` field for this run only
   - `:person_id` — passed into the retrieval context for permission scoping
@@ -188,6 +188,7 @@ defmodule Zaq.Agent.Executor do
                execution_opts,
                actor
              ),
+           {:ok, runtime_pid} <- resolve_runtime_pid(server_ref),
            question <-
              question
              |> append_attachments(incoming.attachments, server_id)
@@ -209,7 +210,7 @@ defmodule Zaq.Agent.Executor do
              ),
            %Incoming{} = incoming <- normalize_status_result(status_result, incoming),
            {:ok, %{request: _request, events: events}} <-
-             factory_module.ask_with_config(server_ref, question, configured_agent,
+             factory_module.ask_with_config(runtime_pid, question, configured_agent,
                tool_context: %{
                  incoming: incoming,
                  person_id: Keyword.get(execution_opts, :person_id),
@@ -224,6 +225,7 @@ defmodule Zaq.Agent.Executor do
              StreamEvents.consume(events, incoming,
                started_at: started_at,
                server_id: server_ref,
+               runtime_pid: runtime_pid,
                agent: configured_agent,
                node_router: node_router(execution_opts),
                status_module: status_mod(execution_opts)
@@ -276,7 +278,8 @@ defmodule Zaq.Agent.Executor do
             dims,
             selected_agent_result,
             execution_opts,
-            server_manager_module
+            server_manager_module,
+            partial
           )
 
         {:error, reason} ->
@@ -312,7 +315,8 @@ defmodule Zaq.Agent.Executor do
       )
 
       record_execution_error(dims, reason)
-      Outgoing.from_pipeline_result(incoming, suppressed_stream_error_result(reason))
+      stop_failed_runtime(server_manager_module, selected_agent_result, opts, partial, reason)
+      Outgoing.from_pipeline_result(incoming, suppressed_stream_error_result(reason, partial))
     else
       surface_execution_error(
         incoming,
@@ -320,7 +324,8 @@ defmodule Zaq.Agent.Executor do
         dims,
         selected_agent_result,
         opts,
-        server_manager_module
+        server_manager_module,
+        partial
       )
     end
   end
@@ -344,6 +349,26 @@ defmodule Zaq.Agent.Executor do
          selected_agent_result,
          opts,
          server_manager_module
+       ),
+       do:
+         surface_execution_error(
+           incoming,
+           reason,
+           dims,
+           selected_agent_result,
+           opts,
+           server_manager_module,
+           nil
+         )
+
+  defp surface_execution_error(
+         incoming,
+         reason,
+         dims,
+         selected_agent_result,
+         opts,
+         server_manager_module,
+         partial
        ) do
     reason =
       enrich_provider_authentication_error(
@@ -355,10 +380,11 @@ defmodule Zaq.Agent.Executor do
 
     Logger.error("Configured agent execution failed: #{inspect(reason)}")
     record_execution_error(dims, reason)
+    stop_failed_runtime(server_manager_module, selected_agent_result, opts, partial, reason)
 
     Outgoing.from_pipeline_result(
       incoming,
-      error_result(reason, maybe_configured_agent(selected_agent_result))
+      error_result(reason, maybe_configured_agent(selected_agent_result), partial)
     )
   end
 
@@ -403,7 +429,8 @@ defmodule Zaq.Agent.Executor do
 
   defp ensure_agent_server(server_manager_module, configured_agent, server_id, opts, actor) do
     server_manager_module.ensure_server(configured_agent, server_id, Keyword.get(opts, :context),
-      actor: actor
+      actor: actor,
+      history_binding: history_binding(opts)
     )
   end
 
@@ -417,15 +444,37 @@ defmodule Zaq.Agent.Executor do
   end
 
   defp ensure_scope_for_answering_path(opts, incoming, actor) do
-    if is_nil(Keyword.get(opts, :scope)),
-      do: Keyword.put(opts, :scope, derive_scope(incoming, actor)),
-      else: opts
+    cond do
+      not is_nil(Keyword.get(opts, :scope)) ->
+        opts
+
+      conversation_id = conversation_id(opts) ->
+        Keyword.put(opts, :scope, "conversation:#{conversation_id}")
+
+      true ->
+        Keyword.put(opts, :scope, derive_scope(incoming, actor))
+    end
   end
 
   defp effective_execution_opts(opts, incoming, {:ok, actor}),
     do: ensure_scope_for_answering_path(opts, incoming, actor)
 
   defp effective_execution_opts(opts, _incoming, _actor_result), do: opts
+
+  defp history_binding(opts) do
+    case conversation_id(opts) do
+      nil -> nil
+      conversation_id -> %{conversation_id: conversation_id}
+    end
+  end
+
+  defp conversation_id(opts) do
+    case Keyword.get(opts, :conversation_binding) do
+      %{conversation_id: id} when is_binary(id) and id != "" -> id
+      %{"conversation_id" => id} when is_binary(id) and id != "" -> id
+      _ -> nil
+    end
+  end
 
   defp execution_actor(opts, incoming) do
     case event_actor(opts) do
@@ -493,7 +542,7 @@ defmodule Zaq.Agent.Executor do
     }
   end
 
-  defp suppressed_stream_error_result(_reason) do
+  defp suppressed_stream_error_result(_reason, partial) do
     %{
       answer: "",
       confidence_score: nil,
@@ -505,9 +554,10 @@ defmodule Zaq.Agent.Executor do
       suppressed: true,
       sources: []
     }
+    |> Map.merge(partial_execution_data(partial))
   end
 
-  defp error_result(reason, _configured_agent) do
+  defp error_result(reason, _configured_agent, partial) do
     public_reason = ErrorMessage.public_reason_for(reason)
 
     %{
@@ -528,6 +578,64 @@ defmodule Zaq.Agent.Executor do
       reason: inspect(public_reason),
       sources: []
     }
+    |> Map.merge(partial_execution_data(partial))
+  end
+
+  defp partial_execution_data(partial) when is_map(partial) do
+    [
+      :trace,
+      :trace_artifacts,
+      :tool_calls,
+      :llm_calls,
+      :termination_reason,
+      :measurements,
+      :model,
+      :agent
+    ]
+    |> Enum.reduce(%{}, fn key, result ->
+      case Map.fetch(partial, key) do
+        {:ok, value} -> Map.put(result, key, value)
+        :error -> result
+      end
+    end)
+  end
+
+  defp partial_execution_data(_partial), do: %{}
+
+  defp stop_failed_runtime(server_manager_module, {:ok, configured_agent}, opts, partial, reason)
+       when is_map(partial) do
+    runtime_pid = Map.get(partial, :runtime_pid)
+
+    if not reusable_runtime_rejection?(reason) and is_pid(runtime_pid) and
+         function_exported?(server_manager_module, :stop_server_if_current, 3) do
+      server_manager_module.stop_server_if_current(
+        configured_agent,
+        agent_server_id(configured_agent, opts),
+        runtime_pid
+      )
+    end
+
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp stop_failed_runtime(_server_manager_module, _selected_agent, _opts, _partial, _reason),
+    do: :ok
+
+  defp reusable_runtime_rejection?({:rejected, :busy, _detail}), do: true
+  defp reusable_runtime_rejection?({:rejected, :busy}), do: true
+  defp reusable_runtime_rejection?(_reason), do: false
+
+  defp resolve_runtime_pid(server_ref) do
+    case GenServer.whereis(server_ref) do
+      pid when is_pid(pid) -> {:ok, pid}
+      nil -> {:error, :runtime_unavailable}
+    end
+  rescue
+    _ -> {:error, :runtime_unavailable}
+  catch
+    :exit, _ -> {:error, :runtime_unavailable}
   end
 
   defp maybe_configured_agent({:ok, agent}), do: agent

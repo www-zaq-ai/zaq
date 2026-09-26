@@ -3,8 +3,8 @@ defmodule Zaq.Agent.ServerManager do
   Lifecycle manager for long-lived Jido AgentServer processes.
 
   This module owns server process orchestration for configured agents, keyed by
-  a caller-provided `server_id` scope (for example per conversation, person, or
-  channel identity).
+  a caller-provided opaque `server_id`. Persisted history selection is supplied
+  separately as an explicit conversation binding.
 
   Key concerns handled here:
 
@@ -22,7 +22,7 @@ defmodule Zaq.Agent.ServerManager do
   Interaction boundaries:
 
   - Used by `Zaq.Agent.Executor` to obtain a server reference before execution.
-  - Uses `Factory.runtime_config/2` and `Factory.build_initial_context/3` to
+  - Uses `Factory.runtime_config/2` and `Factory.build_initial_context/4` to
     initialize agent state.
   - Uses `ProviderSpec.build/1` as the single source of provider/model runtime
     spec assembly.
@@ -136,6 +136,17 @@ defmodule Zaq.Agent.ServerManager do
     )
   end
 
+  @doc "Stops a scoped runtime only when it is still the expected process incarnation."
+  @spec stop_server_if_current(ConfiguredAgent.t(), String.t(), pid()) :: :ok
+  def stop_server_if_current(%ConfiguredAgent{} = configured_agent, server_id, expected_pid)
+      when is_binary(server_id) and is_pid(expected_pid) do
+    GenServer.call(
+      __MODULE__,
+      {:stop_server_if_current, configured_agent, server_id, expected_pid},
+      @lifecycle_call_timeout
+    )
+  end
+
   @doc """
   Synchronously fences and begins stopping servers affected by a Connect mutation.
 
@@ -197,8 +208,10 @@ defmodule Zaq.Agent.ServerManager do
       ) do
     result =
       with {:ok, actor} <- ExecutionActor.validate(Keyword.get(opts, :actor)),
-           :ok <- validate_binding(safe_whereis(server_id), actor) do
+           {:ok, history_binding} <- validate_history_binding(Keyword.get(opts, :history_binding)),
+           :ok <- validate_binding(safe_whereis(server_id), actor, history_binding) do
         next_state = clear_stale_drain(state, server_id)
+        opts = Keyword.put(opts, :history_binding, history_binding)
 
         if draining?(next_state, server_id) do
           {:error, :server_draining, next_state}
@@ -246,6 +259,21 @@ defmodule Zaq.Agent.ServerManager do
           acc_state
         end
       end)
+
+    {:reply, :ok, next_state}
+  end
+
+  def handle_call(
+        {:stop_server_if_current, %ConfiguredAgent{} = configured_agent, server_id, expected_pid},
+        _from,
+        state
+      ) do
+    tracked? = server_id in tracked_server_ids(state, configured_agent.id)
+
+    next_state =
+      if tracked? and safe_whereis(server_id) == expected_pid,
+        do: begin_stop(state, server_id),
+        else: state
 
     {:reply, :ok, next_state}
   end
@@ -380,12 +408,19 @@ defmodule Zaq.Agent.ServerManager do
              model: model_spec,
              runtime_config: runtime_config,
              execution_actor: actor,
+             history_binding: Keyword.get(opts, :history_binding),
              tool_context:
                Map.merge(runtime_config.tool_context, %{
                  configured_agent_id: configured_agent.id,
                  opaque_alias_scope: server_id
                }),
-             context: Factory.build_initial_context(configured_agent, server_id, context)
+             context:
+               Factory.build_initial_context(
+                 configured_agent,
+                 server_id,
+                 context,
+                 Keyword.get(opts, :history_binding)
+               )
            }) do
       {:ok, Map.get(runtime_config, :credential_dependency)}
     end
@@ -409,21 +444,25 @@ defmodule Zaq.Agent.ServerManager do
         :ok
 
       {:error, {:already_started, pid}} ->
-        validate_binding(pid, initial_state.execution_actor)
+        validate_binding(pid, initial_state.execution_actor, initial_state.history_binding)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp validate_binding(nil, _actor), do: :ok
+  defp validate_binding(nil, _actor, _history_binding), do: :ok
 
-  defp validate_binding(pid, actor) do
+  defp validate_binding(pid, actor, history_binding) do
     with {:ok, %{raw_state: raw_state}} <- Jido.AgentServer.status(pid),
          {:ok, bound_identity} <- ExecutionActor.identity(Map.get(raw_state, :execution_actor)),
-         {:ok, identity} <- ExecutionActor.identity(actor) do
+         {:ok, identity} <- ExecutionActor.identity(actor),
+         true <- Map.get(raw_state, :history_binding) == history_binding do
       if identity == bound_identity, do: :ok, else: {:error, :execution_actor_mismatch}
     else
+      false ->
+        {:error, :history_binding_mismatch}
+
       {:error, reason} when reason in [:missing_execution_actor, :invalid_execution_actor] ->
         {:error, reason}
 
@@ -435,6 +474,13 @@ defmodule Zaq.Agent.ServerManager do
   catch
     :exit, _ -> {:error, :missing_execution_actor}
   end
+
+  defp validate_history_binding(nil), do: {:ok, nil}
+
+  defp validate_history_binding(%{conversation_id: id}) when is_binary(id) and id != "",
+    do: {:ok, %{conversation_id: id}}
+
+  defp validate_history_binding(_binding), do: {:error, :invalid_history_binding}
 
   defp hydrate_mcp_assignments(%ConfiguredAgent{} = configured_agent, server_id) do
     server_ref = server_ref(server_id)

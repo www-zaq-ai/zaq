@@ -5,6 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Telemetry.FeedbackReasons
   alias ZaqWeb.Helpers.DateFormat
@@ -65,6 +66,36 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
   end
 
   describe "mount" do
+    test "shows connector, external channel and thread in BO detail", %{conn: conn, user: user} do
+      {conv, _} = create_conv_with_messages(user.id)
+
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Mattermost history fixture",
+          provider: "mattermost",
+          kind: "retrieval",
+          url: "https://mattermost.example.invalid",
+          token: "fixture-token",
+          enabled: false
+        })
+        |> Zaq.Repo.insert!()
+
+      conv
+      |> Ecto.Changeset.change(%{
+        channel_type: "mattermost",
+        channel_config_id: config.id,
+        external_channel_id: "town-square",
+        external_thread_id: "root-1"
+      })
+      |> Zaq.Repo.update!()
+
+      {:ok, _view, html} = live(conn, ~p"/bo/conversations/#{conv.id}")
+      assert html =~ "Connection ##{config.id}"
+      assert html =~ "Channel: town-square"
+      assert html =~ "Thread: root-1"
+    end
+
     test "renders conversation thread", %{conn: conn, user: user} do
       {conv, _} = create_conv_with_messages(user.id)
       {:ok, _view, html} = live(conn, ~p"/bo/conversations/#{conv.id}")

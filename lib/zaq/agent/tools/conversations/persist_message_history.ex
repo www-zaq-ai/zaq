@@ -103,33 +103,41 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistory do
   @impl Jido.Action
   def run(params, context) when is_map(params) do
     with {:ok, incoming} <- build_incoming(params),
-         {:ok, message} <- build_message(params) do
+         {:ok, message} <- build_message(params),
+         {:ok, incoming} <-
+           with_conversation_identity(
+             incoming,
+             Map.get(context, :node_router, NodeRouter)
+           ) do
       node_router = Map.get(context, :node_router, NodeRouter)
 
-      %{incoming: with_conversation_identity(incoming, node_router), message: message}
+      %{incoming: incoming, message: message}
       |> Event.new(:engine, opts: [action: :persist_message_history])
       |> node_router.dispatch()
       |> Map.get(:response)
       |> handle_response()
+    else
+      {:error, reason} -> handle_response({:error, reason})
     end
   end
 
-  # Conversation identity (channel type + grouping key) is a channel concern:
-  # the channels node stamps it on the routing envelope and the engine consumes
-  # it. On failure the envelope proceeds unstamped and groups generically.
+  # Conversation identity (channel type, grouping key, source channel/thread,
+  # config, and participant) is a channel concern. The channels node stamps it
+  # and the engine consumes it. Failure is closed because incoming metadata is
+  # agent-tool input and cannot establish trusted provenance for an old stamp.
   defp with_conversation_identity(%Incoming{} = incoming, node_router) do
     event = Event.new(%{incoming: incoming}, :channels, opts: [action: :conversation_identity])
 
     case node_router.dispatch(event) do
       %{response: %Incoming{} = stamped} ->
-        stamped
+        {:ok, stamped}
 
       other ->
         Logger.warning(
-          "[PersistMessageHistory] conversation identity unavailable, persisting unstamped: #{inspect(other)}"
+          "[PersistMessageHistory] conversation identity unavailable, refusing unscoped persistence: #{inspect(other)}"
         )
 
-        incoming
+        {:error, :conversation_identity_unavailable}
     end
   end
 

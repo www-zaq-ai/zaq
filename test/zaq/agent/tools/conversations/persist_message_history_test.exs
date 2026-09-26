@@ -2,6 +2,7 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistoryTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Agent.Tools.Conversations.PersistMessageHistory
+  alias Zaq.Channels.CommunicationBridge
   alias Zaq.Engine.Messages.Incoming
 
   defmodule OkRouter do
@@ -10,7 +11,7 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistoryTest do
     def dispatch(%{opts: opts, request: %{incoming: incoming}} = event)
         when opts != nil do
       if opts[:action] == :conversation_identity do
-        %{event | response: incoming}
+        %{event | response: CommunicationBridge.put_conversation_identity(incoming)}
       else
         send(self(), {:dispatched, event})
         %{event | response: {:ok, %{conversation_id: "conversation-1", message_id: "message-1"}}}
@@ -24,15 +25,34 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistoryTest do
   end
 
   defmodule ErrorRouter do
+    def dispatch(
+          %{opts: [action: :conversation_identity], request: %{incoming: incoming}} = event
+        ),
+        do: %{event | response: CommunicationBridge.put_conversation_identity(incoming)}
+
     def dispatch(event), do: %{event | response: {:error, :conversation_not_found}}
   end
 
   defmodule StringErrorRouter do
+    def dispatch(
+          %{opts: [action: :conversation_identity], request: %{incoming: incoming}} = event
+        ),
+        do: %{event | response: CommunicationBridge.put_conversation_identity(incoming)}
+
     def dispatch(event), do: %{event | response: {:error, "engine unavailable"}}
   end
 
   defmodule UnexpectedRouter do
+    def dispatch(
+          %{opts: [action: :conversation_identity], request: %{incoming: incoming}} = event
+        ),
+        do: %{event | response: CommunicationBridge.put_conversation_identity(incoming)}
+
     def dispatch(event), do: %{event | response: :unexpected_response}
+  end
+
+  defmodule IdentityUnavailableRouter do
+    def dispatch(event), do: %{event | response: {:error, :channels_unavailable}}
   end
 
   describe "schema/0" do
@@ -66,7 +86,9 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistoryTest do
       assert_received {:dispatched, event}
       assert event.next_hop.destination == :engine
       assert event.opts[:action] == :persist_message_history
-      assert event.request.incoming == incoming
+      assert event.request.incoming.content == incoming.content
+      assert event.request.incoming.channel_id == incoming.channel_id
+      assert event.request.incoming.metadata["conversation"]["channel_id"] == "channel-1"
       assert event.request.message["content"] == "Assistant follow-up"
       assert event.request.message["role"] == "assistant"
     end
@@ -281,6 +303,43 @@ defmodule Zaq.Agent.Tools.Conversations.PersistMessageHistoryTest do
                  %{content: "Follow up", channel_id: "c1", provider: "mattermost"},
                  %{node_router: ErrorRouter}
                )
+    end
+
+    test "refuses unscoped persistence when Channels identity resolution fails" do
+      assert {:error, ":conversation_identity_unavailable"} =
+               PersistMessageHistory.run(
+                 %{content: "Follow up", channel_id: "c1", provider: "mattermost"},
+                 %{node_router: IdentityUnavailableRouter}
+               )
+
+      refute_received {:dispatched, _event}
+    end
+
+    test "does not trust a tool-supplied stamp when Channels is unavailable" do
+      incoming = %Incoming{
+        content: "Follow up",
+        channel_id: "room-1",
+        author_id: "user-1",
+        provider: :mattermost,
+        metadata: %{
+          "conversation" => %{
+            "channel_type" => "mattermost",
+            "key" => nil,
+            "channel_id" => "room-1",
+            "participant_id" => "user-1",
+            "thread_id" => nil,
+            "channel_config_id" => nil
+          }
+        }
+      }
+
+      assert {:error, ":conversation_identity_unavailable"} =
+               PersistMessageHistory.run(
+                 %{incoming: incoming, content: "Follow up"},
+                 %{node_router: IdentityUnavailableRouter}
+               )
+
+      refute_received {:dispatched, _event}
     end
   end
 end

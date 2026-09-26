@@ -34,8 +34,15 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(_configured_agent, _server_id, _context, actor: _actor),
-      do: {:ok, :stub_server}
+    def ensure_server(_configured_agent, _server_id, _context, opts) do
+      _actor = Keyword.fetch!(opts, :actor)
+      {:ok, self()}
+    end
+
+    def stop_server_if_current(configured_agent, server_id, runtime_pid) do
+      send(self(), {:stopped_failed_runtime, configured_agent.id, server_id, runtime_pid})
+      :ok
+    end
   end
 
   defmodule StubFactoryResult do
@@ -1345,6 +1352,9 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert outgoing.metadata.error == false
     assert outgoing.metadata[:suppressed] == true
     assert outgoing.body == ""
+    assert [%{"type" => "content"}] = outgoing.metadata.trace
+    assert_received {:stopped_failed_runtime, 77, _server_id, runtime_pid}
+    assert is_pid(runtime_pid)
   end
 
   test "surfaces stream error when status_message_id is set but no content was delivered" do
@@ -1453,6 +1463,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       )
 
     assert outgoing.metadata.error == true
+    assert [%{llm_call_id: "call-failed", total_tokens: 6}] = outgoing.metadata.llm_calls
     assert :ok = Buffer.flush()
 
     assert Repo.one(

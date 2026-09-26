@@ -21,6 +21,7 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Agent.Tools.Web.Browsing
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.ResolvedCredential
+  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.TestSupport.OpenAIStub
@@ -1130,10 +1131,10 @@ defmodule Zaq.Agent.FactoryTest do
     assert AIContext.empty?(result)
   end
 
-  test "build_initial_context returns empty context for malformed scoped server ids" do
+  test "build_initial_context treats runtime server ids as opaque" do
     configured_agent = %ConfiguredAgent{model_max_context_tokens: 5_000}
 
-    result = Factory.build_initial_context(configured_agent, "agent::person:42")
+    result = Factory.build_initial_context(configured_agent, "agent:scope:web:conv:anything")
 
     assert %AIContext{} = result
     assert AIContext.empty?(result)
@@ -1176,66 +1177,24 @@ defmodule Zaq.Agent.FactoryTest do
     assert AIContext.empty?(result)
   end
 
-  describe "spawn_opts_from_server_id/1" do
-    test "parses conversation-scoped ids" do
-      assert Factory.spawn_opts_from_server_id("agent:scope:web:conv:123") == %{
-               conversation_id: "123",
-               person_id: nil,
-               channel_type: "web"
-             }
-    end
+  test "build_initial_context loads history from an explicit conversation binding" do
+    configured_agent = %ConfiguredAgent{model_max_context_tokens: 5_000}
 
-    test "parses person-scoped ids" do
-      assert Factory.spawn_opts_from_server_id("agent:scope:web:person:42") == %{
-               conversation_id: nil,
-               person_id: "42",
-               channel_type: "web"
-             }
-    end
+    {:ok, conversation} =
+      Conversations.create_conversation(%{channel_type: "bo", channel_user_id: "7"})
 
-    test "decodes escaped provider scopes before history lookup" do
-      assert Factory.spawn_opts_from_server_id("agent:scope:email%3Aimap:person:5") == %{
-               conversation_id: nil,
-               person_id: "5",
-               channel_type: "email:imap"
-             }
+    {:ok, _message} =
+      Conversations.add_message(conversation, %{role: "user", content: "Remember this"})
 
-      assert Factory.spawn_opts_from_server_id("agent:scope:email_imap:person:5") == %{
-               conversation_id: nil,
-               person_id: "5",
-               channel_type: "email_imap"
-             }
-    end
+    result =
+      Factory.build_initial_context(
+        configured_agent,
+        "an:opaque:runtime:name",
+        nil,
+        %{conversation_id: conversation.id}
+      )
 
-    test "parses scoped ids when agent names contain colons" do
-      assert Factory.spawn_opts_from_server_id("Customer:Support:scope:email%3Aimap:conv:abc") ==
-               %{
-                 conversation_id: "abc",
-                 person_id: nil,
-                 channel_type: "email:imap"
-               }
-    end
-
-    test "returns empty map for malformed binary ids" do
-      assert Factory.spawn_opts_from_server_id("configured_agent_123") == %{}
-      assert Factory.spawn_opts_from_server_id("agent:scope::conv:") == %{}
-      assert Factory.spawn_opts_from_server_id("agent:scope:email%ZZimap:person:5") == %{}
-
-      assert Factory.spawn_opts_from_server_id("agent:scope:email%ZZimap:conv:conversation-5") ==
-               %{}
-
-      assert Factory.spawn_opts_from_server_id("agent:email:imap:person:5") == %{}
-    end
-
-    test "returns nil for non-binary ids" do
-      assert Factory.spawn_opts_from_server_id(nil) == nil
-      assert Factory.spawn_opts_from_server_id(123) == nil
-    end
-
-    test "returns empty opts (fresh agent, no history) for a workflow run scope" do
-      server_id = "My Agent:workflow:run:#{Ecto.UUID.generate()}"
-      assert Factory.spawn_opts_from_server_id(server_id) == %{}
-    end
+    assert Enum.any?(AIContext.to_messages(result), &(&1.content =~ "Remember this"))
   end
 
   defp with_runtime_credential_response(response, fun) do

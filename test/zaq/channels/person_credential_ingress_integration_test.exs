@@ -726,17 +726,22 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
   defp person_server_pid(agent, person_id) do
     registry = Jido.registry_name(Zaq.Agent.Jido)
 
-    server_ids =
+    matching_servers =
       registry
       |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
-      |> Enum.filter(fn server_id ->
-        String.starts_with?(server_id, agent.name <> ":") and
-          String.contains?(server_id, ":person:#{person_id}")
-      end)
+      |> Enum.filter(&String.starts_with?(&1, agent.name <> ":"))
       |> Enum.reject(&String.contains?(&1, "/"))
+      |> Enum.flat_map(fn server_id ->
+        with [{pid, _value}] <- Registry.lookup(registry, server_id),
+             {:ok, status} <- Jido.AgentServer.status(pid),
+             ^person_id <- get_in(status.raw_state, [:execution_actor, :person, :id]) do
+          [{server_id, pid}]
+        else
+          _ -> []
+        end
+      end)
 
-    assert [server_id] = server_ids
-    assert [{pid, _value}] = Registry.lookup(registry, server_id)
+    assert [{_server_id, pid}] = matching_servers
     pid
   end
 

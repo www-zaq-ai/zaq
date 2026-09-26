@@ -9,6 +9,7 @@ defmodule Zaq.PermissionsTest do
   alias Zaq.Engine.Workflows.Workflow
   alias Zaq.Ingestion.Document
   alias Zaq.Permissions
+  alias Zaq.Permissions.ChannelHistoryResource
   alias Zaq.Permissions.PermissionRevokerMock
   alias Zaq.Permissions.ResourcePermission
 
@@ -30,6 +31,98 @@ defmodule Zaq.PermissionsTest do
   defp fake_document(id \\ System.unique_integer([:positive])), do: %Document{id: id}
 
   describe "grant/3" do
+    test "provider removal preserves a manually granted person's channel history" do
+      person = create_person()
+      channel = ChannelHistoryResource.for("mattermost", 17, "room-1")
+
+      assert {:ok, manual} =
+               Permissions.grant(channel, %{person_id: person.id, access_rights: ["read"]})
+
+      assert {:ok, provider} =
+               Permissions.grant(channel, %{
+                 person_id: person.id,
+                 access_rights: ["read"],
+                 source_key: "provider:mattermost:17:user-42"
+               })
+
+      assert manual.id != provider.id
+      assert Permissions.can?(person, :read, channel)
+      assert :ok = Permissions.revoke(channel, provider)
+      assert Permissions.can?(person, :read, channel)
+      assert [%{id: id, source_key: "manual"}] = Permissions.list(channel)
+      assert id == manual.id
+    end
+
+    test "source-specific rights combine without overwriting other grants" do
+      person = create_person()
+      channel = ChannelHistoryResource.for("mattermost", 17, "room-1")
+
+      {:ok, manual} = Permissions.grant(channel, %{person_id: person.id, access_rights: ["read"]})
+
+      {:ok, provider} =
+        Permissions.grant(channel, %{
+          person_id: person.id,
+          access_rights: ["view"],
+          source_key: "provider:mattermost:17:user-42"
+        })
+
+      assert Permissions.can?(person, :read, channel)
+      assert Permissions.can?(person, :view, channel)
+
+      assert {:ok, updated} =
+               Permissions.grant(channel, %{
+                 person_id: person.id,
+                 access_rights: ["read"],
+                 source_key: "provider:mattermost:17:user-42"
+               })
+
+      assert updated.id == provider.id
+
+      assert Enum.sort(Enum.map(Permissions.list(channel), & &1.id)) ==
+               Enum.sort([manual.id, provider.id])
+
+      refute Permissions.can?(person, :view, channel)
+    end
+
+    test "channel resource distinguishes provider, connector and channel and threads inherit it" do
+      person = create_person()
+      channel = ChannelHistoryResource.for("mattermost", 17, "room-1")
+
+      {:ok, _} = Permissions.grant(channel, %{person_id: person.id, access_rights: ["read"]})
+      assert Permissions.can?(person, :read, channel)
+
+      refute Permissions.can?(
+               person,
+               :read,
+               ChannelHistoryResource.for("mattermost", 18, "room-1")
+             )
+
+      refute Permissions.can?(person, :read, ChannelHistoryResource.for("discord", 17, "room-1"))
+
+      refute Permissions.can?(
+               person,
+               :read,
+               ChannelHistoryResource.for("mattermost", 17, "room-2")
+             )
+
+      refute Permissions.can?(nil, :read, channel)
+    end
+
+    test "shared channel history requires a direct Person grant, not Everyone or team" do
+      person = create_person()
+      team = create_team()
+      {:ok, person} = People.assign_team(person, team.id)
+      channel = ChannelHistoryResource.for("mattermost", 17, "room-1")
+
+      {:ok, _} = Permissions.grant_public(channel)
+      {:ok, _} = Permissions.grant(channel, %{team_id: team.id, access_rights: ["read"]})
+      refute ChannelHistoryResource.can_read?(person, channel)
+      refute ChannelHistoryResource.can_read?(nil, channel)
+
+      {:ok, _} = Permissions.grant(channel, %{person_id: person.id, access_rights: ["read"]})
+      assert ChannelHistoryResource.can_read?(person, channel)
+    end
+
     test "resolved person coordinates and structs use the supplied resource and principal IDs" do
       survivor = create_person()
       old = create_person()
@@ -404,6 +497,49 @@ defmodule Zaq.PermissionsTest do
   end
 
   describe "replace/3 rollback" do
+    test "manual grant mutations reject provider-sourced writes before changing any grants" do
+      person = create_person()
+      channel = ChannelHistoryResource.for("mattermost", 17, "room-1")
+      {:ok, manual} = Permissions.grant(channel, %{person_id: person.id, access_rights: ["read"]})
+
+      forged = [
+        %{
+          person_id: person.id,
+          access_rights: ["manage"],
+          source_key: "provider:mattermost:17:user-42"
+        }
+      ]
+
+      assert {:error, :invalid_grant_source} = Permissions.replace(channel, forged)
+
+      assert {:error, :invalid_grant_source} =
+               Permissions.mutate(channel, forged, [%{person_id: person.id}])
+
+      assert [%{id: id, access_rights: ["read"], source_key: "manual"}] =
+               Permissions.list(channel)
+
+      assert id == manual.id
+    end
+
+    test "manual replacement and principal revocation leave provider grants intact" do
+      person = create_person()
+      channel = ChannelHistoryResource.for("mattermost", 17, "room-1")
+      {:ok, _} = Permissions.grant(channel, %{person_id: person.id, access_rights: ["read"]})
+
+      {:ok, provider} =
+        Permissions.grant(channel, %{
+          person_id: person.id,
+          source_key: "provider:mattermost:17:user-42",
+          access_rights: ["read"]
+        })
+
+      assert {:ok, []} = Permissions.replace(channel, [])
+      assert [%{id: provider_id}] = Permissions.list(channel)
+      assert provider_id == provider.id
+      assert {:ok, []} = Permissions.mutate(channel, [], [%{person_id: person.id}])
+      assert [%{id: ^provider_id}] = Permissions.list(channel)
+    end
+
     test "restores all original grants when a deletion fails" do
       workflow = fake_workflow()
       person = create_person()

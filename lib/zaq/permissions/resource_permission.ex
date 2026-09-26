@@ -7,8 +7,11 @@ defmodule Zaq.Permissions.ResourcePermission do
   be set — enforced by a DB CHECK constraint and changeset validation.
 
   Uniqueness is enforced by partial indexes:
-    - (resource_type, resource_id, person_id) WHERE person_id IS NOT NULL
-    - (resource_type, resource_id, team_id)   WHERE team_id IS NOT NULL
+    - (resource_type, resource_id, person_id, source_key) WHERE person_id IS NOT NULL
+    - (resource_type, resource_id, team_id, source_key)   WHERE team_id IS NOT NULL
+
+  Independent sources allow provider synchronization to revoke its own grants
+  without revoking a manually issued grant to the same principal.
 
   ## Resource preloading
 
@@ -44,22 +47,30 @@ defmodule Zaq.Permissions.ResourcePermission do
     belongs_to :person, Person
     belongs_to :team, Team
     field :access_rights, {:array, :string}, default: ["read"]
+    field :source_key, :string, default: "manual"
 
     timestamps(type: :utc_datetime)
   end
 
   def changeset(permission, attrs) do
     permission
-    |> cast(attrs, [:resource_type, :resource_id, :person_id, :team_id, :access_rights])
-    |> validate_required([:resource_type, :resource_id, :access_rights])
+    |> cast(attrs, [
+      :resource_type,
+      :resource_id,
+      :person_id,
+      :team_id,
+      :access_rights,
+      :source_key
+    ])
+    |> validate_required([:resource_type, :resource_id, :access_rights, :source_key])
     |> validate_target_present()
     |> validate_subset(:access_rights, @valid_rights)
     |> foreign_key_constraint(:person_id)
     |> foreign_key_constraint(:team_id)
-    |> unique_constraint([:resource_type, :resource_id, :person_id],
+    |> unique_constraint([:resource_type, :resource_id, :person_id, :source_key],
       name: :uix_resource_perm_person
     )
-    |> unique_constraint([:resource_type, :resource_id, :team_id],
+    |> unique_constraint([:resource_type, :resource_id, :team_id, :source_key],
       name: :uix_resource_perm_team
     )
   end
