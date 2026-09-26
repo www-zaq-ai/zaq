@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.11"
+  ],
   "created": "2026-09-26T09:19:07Z",
   "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A/B coordination. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\n\nPlanning/execution handoff for user-approved two-PR topology: inventory live refs/CI/ancestry and uncommitted work before changes; map draft foundations #799/#800/#806/#807/#808/#811/#812/#813 and any later work by actual diff, not bead status. Prefer reuse/consolidation into A (history/access) and B (runtime/delivery), B based on A; no more prerequisite-only PRs. Preserve commit provenance, reviews and tests; identify mixed commits and allocate fixes to owning outcome. Canonical storage/grants/strategies/provider facts go to A; runtime-reference/terminal-delivery fixes and private execution state go to B unless a minimal additive schema is demonstrably needed to preserve A migration data. Record any such exception; do not wire live runtime consumption in A. Coordinate active owners before branch/PR mutations; preserve populated DBs and applied migrations. This ticket is not authorization to commit/push/rewrite/close drafts in this planning session. Acceptance: documented actual two-PR mapping, independent A validation, B ancestry on A, no orphan fixes. Action reuse N/A: delivery topology only.",
   "id": "zaq-emb.29",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.29] Consolidate existing drafts into outcome PR A and PR B",
   "type": "task",
-  "updated_at": "2026-09-26T09:48:14Z"
+  "updated_at": "2026-09-26T09:50:40Z"
 }
