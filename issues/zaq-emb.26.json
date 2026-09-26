@@ -7,9 +7,15 @@
   "id": "zaq-emb.26",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Consolidation landed without force pushes or changing/deleting any stash. Before: PR799=56a5f6d0b, PR800=eba6d105f and micro PR802=55863669f, PR803=618deb6ff, PR804=6ded08f75. After: PR799 includes email fix 59f5eca26 + cherry-picks 397f4e52f (#803) and 036b64078 (#804), head 036b64078; PR800 includes executor cherry-pick 9d42e8786 (#802), merged new PR799 ancestry ee4f26be2, head ee4f26be2. PR799 focused branch run 831 tests/2 properties/0 failures; PR800 691 tests/11 properties/6 doctests/0 failures; mix q and git diff --check passed separately, pre-push hooks passed. GH get_files verifies PR799 changed 56 paths (Channels api/bridge/JidoConnectBridge but no data-source ProviderLive); PR800 changed 47 paths (Executor but no connector guard duplications). PR descriptions updated; micro PR802-804 clearly marked SUPERSEDED DO NOT MERGE but left open per prior user constraint, awaiting explicit closure approval. Both owning PRs remain open drafts; no merge or final feature approval. Other regression session in merry-iguana notified and paused; both worktrees clean. Deferred stash snapshots untouched.",
+      "timestamp": "2026-09-26T00:43:24Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.26] Consolidate stacked #768 fixes into owning PRs",
   "type": "task",
-  "updated_at": "2026-09-26T00:20:57Z"
+  "updated_at": "2026-09-26T00:43:24Z"
 }
