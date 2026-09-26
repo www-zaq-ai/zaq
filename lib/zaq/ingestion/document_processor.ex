@@ -12,7 +12,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   ## Configuration (read from `config :zaq, Zaq.Ingestion`)
 
     * `:max_context_window` - token limit for query extraction (default `5_000`)
-    * `:max_cosine_distance` - vector distance cutoff (default `0.75`)
+    * `:max_cosine_distance` - vector distance cutoff (default `0.45`)
     * `:hybrid_search_limit` - max rows per search leg (default `20`)
   """
 

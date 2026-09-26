@@ -13,7 +13,7 @@ defmodule Zaq.System.LLMConfigTest do
   }
 
   test "cosine threshold has an independent inclusive range; L2 threshold is retained" do
-    assert %LLMConfig{max_cosine_distance: 0.75, distance_threshold: 1.2} = %LLMConfig{}
+    assert %LLMConfig{max_cosine_distance: 0.45, distance_threshold: 1.2} = %LLMConfig{}
 
     for valid <- ["0", "2"] do
       assert LLMConfig.changeset(%LLMConfig{}, Map.put(@base_attrs, "max_cosine_distance", valid)).valid?

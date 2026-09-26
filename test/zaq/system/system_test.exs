@@ -308,6 +308,7 @@ defmodule Zaq.SystemTest do
       assert config.top_p == 0.9
       assert config.supports_logprobs == true
       assert config.supports_json_mode == true
+      assert config.max_cosine_distance == 0.45
     end
 
     test "returns stored values from DB" do
@@ -331,6 +332,7 @@ defmodule Zaq.SystemTest do
       assert config.top_p == 0.8
       assert config.max_context_window == 8000
       assert config.distance_threshold == 1.0
+      assert config.max_cosine_distance == 0.45
     end
 
     test "falls back to defaults when credential no longer exists" do
@@ -345,10 +347,19 @@ defmodule Zaq.SystemTest do
     test "falls back to defaults for blank and invalid float values" do
       System.set_config("llm.temperature", "")
       System.set_config("llm.top_p", "not-a-number")
+      System.set_config("llm.max_cosine_distance", "invalid")
 
       config = System.get_llm_config()
       assert config.temperature == 0.0
       assert config.top_p == 0.9
+      assert config.max_cosine_distance == 0.45
+    end
+
+    test "preserves a stored cosine cutoff instead of replacing it with the default" do
+      System.set_config("llm.max_cosine_distance", "0.62")
+
+      assert System.get_llm_config().max_cosine_distance == 0.62
+      assert System.get_config("llm.max_cosine_distance") == "0.62"
     end
   end
 
