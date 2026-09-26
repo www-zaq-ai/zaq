@@ -628,29 +628,44 @@ defmodule ZaqWeb.E2EController do
   end
 
   defp fake_llm_content(messages, system_content) do
-    if retrieval_call?(system_content) do
-      user_content =
-        messages |> Enum.find(%{}, &(Map.get(&1, "role") == "user")) |> Map.get("content", "")
+    user_content =
+      messages |> Enum.find(%{}, &(Map.get(&1, "role") == "user")) |> Map.get("content", "")
 
-      Jason.encode!(%{
-        "query" => String.trim(user_content),
-        "language" => "eng",
-        "positive_answer" => "Searching your knowledge base...",
-        "negative_answer" => "No relevant information found in your knowledge base."
-      })
-    else
-      sources = extract_llm_sources(system_content)
-      source = List.first(sources)
-      tuned? = String.contains?(system_content, "E2E_PROMPT_VARIANT_B")
+    cond do
+      retrieval_call?(system_content) ->
+        terms = String.split(user_content, ~r/[^\p{L}\p{N}_-]+/u, trim: true)
 
-      body =
-        if tuned?,
-          do: "Tuned response generated from the updated prompt template.",
-          else: "Baseline response generated from the default prompt template."
+        """
+        **Query:** #{String.trim(user_content)}
+        **Lexical Terms:** #{Jason.encode!(terms)}
+        **Language:** eng
+        **Positive Answer:** Searching your knowledge base...
+        **Negative Answer:** No relevant information found in your knowledge base.
+        """
 
-      if is_binary(source),
-        do: "#{body} [[source:#{source}]]",
-        else: "#{body} [[memory:llm-general-knowledge]]"
+      String.contains?(system_content, "semantic_query") ->
+        %{"query" => query, "lexical_terms" => terms, "languages" => languages} =
+          Jason.decode!(user_content)
+
+        Jason.encode!(
+          Map.new(languages, fn language ->
+            {language, %{semantic_query: query, lexical_terms: terms}}
+          end)
+        )
+
+      true ->
+        sources = extract_llm_sources(system_content)
+        source = List.first(sources)
+        tuned? = String.contains?(system_content, "E2E_PROMPT_VARIANT_B")
+
+        body =
+          if tuned?,
+            do: "Tuned response generated from the updated prompt template.",
+            else: "Baseline response generated from the default prompt template."
+
+        if is_binary(source),
+          do: "#{body} [[source:#{source}]]",
+          else: "#{body} [[memory:llm-general-knowledge]]"
     end
   end
 
@@ -701,7 +716,7 @@ defmodule ZaqWeb.E2EController do
   end
 
   defp retrieval_call?(system_content),
-    do: String.contains?(system_content, "positive_answer")
+    do: String.contains?(system_content, "**Positive Answer:**")
 
   defp extract_llm_sources(system_content) do
     ~r/"source"\s*:\s*"([^"]+)"/

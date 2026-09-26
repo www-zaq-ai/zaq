@@ -174,7 +174,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                %{
                  "document_id" => 2,
                  "chunk_index" => 1,
-                 "distance" => 0.03,
+                 "rrf_score" => 0.03,
                  "language" => "french",
                  "content" => "voiture rouge"
                }
@@ -186,7 +186,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                %{
                  "document_id" => 1,
                  "chunk_index" => 1,
-                 "distance" => 0.02,
+                 "rrf_score" => 0.02,
                  "language" => "simple",
                  "content" => "red car"
                }

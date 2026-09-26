@@ -843,9 +843,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   Ranks direct chunks by fused lexical/vector evidence, then includes their
   section context without attributing match scores to contextual siblings.
 
-  Returns a list of maps with `"content"`, `"source"`, and `"distance"`.
-  `"distance"` aliases the RRF score for direct matches; contextual siblings
-  have no measured distance or direct-match score.
+  Returns a list of maps with `"content"`, `"source"`, `"rrf_score"`, and
+  `"vector_distance"`. Contextual siblings have neither direct-match score
+  nor measured vector distance.
 
   ## Options
 
@@ -1051,10 +1051,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           chunk_index: chunk_index,
           rrf_score: bm25_contrib + vector_contrib,
           lexical_match: not is_nil(bm25_match),
-          vector_distance:
-            if(vector_match,
-              do: Map.get(vector_match, :vector_distance, Map.get(vector_match, :distance))
-            )
+          vector_distance: if(vector_match, do: vector_match.vector_distance)
         }
       end)
 
@@ -1154,7 +1151,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     %{
       "content" => chunk.content,
       "source" => chunk.source,
-      "distance" => rrf_score,
       "rrf_score" => rrf_score,
       "vector_distance" => vector_distance,
       "retrieval_legs" =>

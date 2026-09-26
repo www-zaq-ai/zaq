@@ -164,7 +164,7 @@ defmodule Zaq.Agent.PipelineTest do
            "updated_at" => "2026-09-23T11:30:00Z",
            "metadata" => %{"page" => 4},
            "language" => "english",
-           "distance" => 0.75,
+           "rrf_score" => 0.75,
            "document_id" => 42,
            "section_path" => ["Overview"]
          }
