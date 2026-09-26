@@ -84,8 +84,8 @@
         hint="System Config → LLM"
       />
       <ZaqWeb.Components.BOLayout.config_row
-        label="Distance Threshold"
-        value={to_string(@llm_config.distance_threshold)}
+        label="Max Cosine Distance"
+        value={to_string(@llm_config.max_cosine_distance)}
         hint="System Config → LLM"
       />
     </.diagnostic_card>

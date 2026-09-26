@@ -34,21 +34,43 @@ defmodule Zaq.Ingestion.FTSBackend.ParadeDB do
 
   @doc "Builds the ParadeDB BM25 search query without executing it."
   def bm25_query(query_text, limit, source_filter \\ [], language \\ nil) do
-    safe_query = sanitize_query(query_text)
+    predicate =
+      case query_text do
+        terms when is_list(terms) ->
+          Enum.reduce(terms, dynamic(false), fn term, acc ->
+            # Only a sanitized value is passed as a bound argument to the
+            # parser. Each multiword clause uses AND; clauses combine with OR.
+            safe_term =
+              term
+              |> sanitize_query()
+              |> String.replace(~r/\b(?:AND|OR|NOT)\b/u, &String.downcase/1)
+
+            dynamic(
+              [c],
+              ^acc or
+                fragment(
+                  "? @@@ paradedb.parse_with_field('content'::text, ?::text, lenient => true, conjunction_mode => true)",
+                  c,
+                  ^safe_term
+                )
+            )
+          end)
+
+        text ->
+          safe_query = sanitize_query(text)
+
+          dynamic(
+            [c],
+            fragment(
+              "? @@@ paradedb.parse_with_field('content'::text, ?::text, lenient => true, conjunction_mode => true)",
+              c,
+              ^safe_query
+            )
+          )
+      end
 
     Chunk
-    |> where(
-      [c],
-      # parse_with_field with conjunction_mode => true gives AND semantics,
-      # matching the implicit AND of websearch_to_tsquery in the native
-      # backend. lenient => true prevents hard errors on stray syntax
-      # characters that survive sanitization.
-      fragment(
-        "? @@@ paradedb.parse_with_field('content'::text, ?::text, lenient => true, conjunction_mode => true)",
-        c,
-        ^safe_query
-      )
-    )
+    |> where(^predicate)
     # Tie-break on document/chunk so equal BM25 scores order the same way
     # as the native backend.
     |> order_by([c],
@@ -60,6 +82,7 @@ defmodule Zaq.Ingestion.FTSBackend.ParadeDB do
     |> select([c], %{
       document_id: c.document_id,
       section_path: c.section_path,
+      chunk_index: c.chunk_index,
       bm25_score: fragment("paradedb.score(?)", c.id)
     })
     |> FTSBackend.maybe_filter_source(source_filter)

@@ -12,6 +12,21 @@ defmodule Zaq.System.LLMConfigTest do
     "distance_threshold" => "1.0"
   }
 
+  test "cosine threshold has an independent inclusive range; L2 threshold is retained" do
+    assert %LLMConfig{max_cosine_distance: 0.45, distance_threshold: 1.2} = %LLMConfig{}
+
+    for valid <- ["0", "2"] do
+      assert LLMConfig.changeset(%LLMConfig{}, Map.put(@base_attrs, "max_cosine_distance", valid)).valid?
+    end
+
+    for invalid <- ["-0.01", "2.01"] do
+      refute LLMConfig.changeset(
+               %LLMConfig{},
+               Map.put(@base_attrs, "max_cosine_distance", invalid)
+             ).valid?
+    end
+  end
+
   describe "validate_fusion_weight_sum/1" do
     test "adds error when bm25 + vector sum is below 0.1" do
       attrs =

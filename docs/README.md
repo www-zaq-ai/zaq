@@ -9,6 +9,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 - [Product overview and local quick start](../README.md)
 - [Docker deployment, persistent storage and production HTTPS](operations/deployment.md)
 - [Multilingual text-search configurations and optional extensions](operations/language-indexing.md)
+- [Cosine retrieval rollout and rollback](operations/cosine-retrieval.md)
 - [Project and source map](project.md)
 - [Architecture, node roles and event dispatch](architecture.md)
 - [Development setup and commands](dev-setup.md)
@@ -25,6 +26,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 - [Conventions](conventions.md), [code quality](code-quality.md), [Elixir](elixir.md), [Phoenix](phoenix.md)
 - [Action discovery and reuse](action-reuse.md)
 - [Testing handbook](testing-approach.md) and [E2E execution/fixtures](e2e-testing.md)
+- [Offline multilingual retrieval evaluation fixtures](guides/retrieval-evaluation.md)
 - [Design system](../DESIGN.md), [BO component mechanics](bo-components.md), [list selection](list-selection.md)
 
 ## Domain guides
