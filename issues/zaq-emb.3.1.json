@@ -29,11 +29,15 @@
     {
       "text": "2026-09-26 correction discovered before writer: zaq-emb.14 Direct strategy explicitly uses one one-to-one transcript with participant history grants. Therefore the 00011 direct-owner check would incorrectly exclude second authorized participant. Preserve applied 00010/00011, add 00012 replacing check: owner_person_id required only for Replicated recipient-specific history; Direct and Shared use explicit permission grants with no owner. Update changeset/tests/docs on owning #807, then resume .3.2. .3.2 implementation remains paused pending this schema correction.",
       "timestamp": "2026-09-26T07:34:18Z"
+    },
+    {
+      "text": "2026-09-26 corrected Direct/Shared to grant-driven and Replicated to recipient-owned in additive 00012; test DB migrations 00010..12 applied without resets, no existing migrations rewritten. Updated #807 on owning branch (384d307d6); focused 142 tests/1 property and mix q pass; private history access .3.2 must check explicit ChannelHistoryResource Person grant for Direct/Shared and owner Person for Replicated. No feature E2E authored.",
+      "timestamp": "2026-09-26T07:37:10Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.3.1] Add canonical message and transcript association schema",
   "type": "task",
-  "updated_at": "2026-09-26T07:34:18Z"
+  "updated_at": "2026-09-26T07:37:10Z"
 }
