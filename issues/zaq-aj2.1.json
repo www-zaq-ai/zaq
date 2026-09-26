@@ -7,9 +7,15 @@
   "id": "zaq-aj2.1",
   "labels": [],
   "parent": "zaq-aj2",
+  "comments": [
+    {
+      "text": "Implemented lexical parsing coverage in test/zaq/agent/retrieval_coverage_test.exs: public ask/2 rejects malformed JSON, null/object/string/empty-array lexical values exactly as {:error, :invalid_lexical_terms}; positive case asserts trim+dedupe. Line 145 reachability evidence: ReqLLM.Response.text/1 returns nil only for Response{message: nil}; OpenAIStub.chat_completion(nil) represents a chat completion with message content nil, while ReqLLM OpenAI-compatible Defaults.ResponseBuilder constructs a non-nil assistant Message from buffered chunks. Thus supported successful OpenAI path cannot exercise normalized_text(nil); left branch uncovered as instructed (separate production cleanup decision). No tests run per shared DB/Mix constraint.",
+      "timestamp": "2026-09-26T11:38:46Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-aj2] Plan Retrieval coverage for malformed lexical terms and nil response",
   "type": "task",
-  "updated_at": "2026-09-26T11:34:35Z"
+  "updated_at": "2026-09-26T11:38:46Z"
 }
