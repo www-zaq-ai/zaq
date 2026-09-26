@@ -73,11 +73,15 @@
     {
       "text": "Continuation under #768: reserved coherent data-source watch-scoping and archive lifecycle slice on a new stacked branch based on PR #800; .21 connector-scoped watch uniqueness/callback/lookup comes first, .22 archive teardown depends on it. Reuse ChannelConfig.resolve_by_provider/2, WebhookUrl.build/3, DataSources watch APIs and Channels/Engine NodeRouter events; extend rather than duplicate operations. No Action/tool exposure: watch create/renew/unwatch remain service operations, not agent tools. Test fixtures already in preserved deferred stash will be reviewed against current head before restoring; old stash also contains superseded email/executor diffs and must not be applied wholesale. Communication connector-card UI scope unchanged; data-source ProviderLive existing delete/archive behavior only. New-feature E2E stays blocked on zaq-emb.12 human UX approval.",
       "timestamp": "2026-09-26T00:53:59Z"
+    },
+    {
+      "text": "2026-09-26 continuation: connector-scoped data-source watches completed locally in 097d8bb4b on feature/issue-768-data-source-watch-lifecycle (stacked from PR #800): composite unique migration 00008, scoped resolution/ambiguous legacy rejection, verified webhook connector ID, scoped URLs/renewal, regressions. Focused 438 tests/1 property passed, mix q green at commit. Remote publication blocked: SSH key accepted but locked/passphrase unavailable; HTTPS push 403; GitHub create_branch API 403 Resource not accessible by personal access token. Leave bead in progress until push/stacked PR and broad audit.",
+      "timestamp": "2026-09-26T01:55:06Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-26T00:53:59Z"
+  "updated_at": "2026-09-26T01:55:06Z"
 }
