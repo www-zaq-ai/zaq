@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T09:58:15Z",
+  "description": "On stacked PR #814 branch, drop the redundant output distance alias (which currently equals rrf_score) and obsolete vector candidate :distance fallback; sort agent tool results by rrf_score only. Update ingestion/agent tests, test fakes, docs and exact context-budget regression. No new Action: reuse existing DocumentProcessor hydration and SearchKnowledgeBase merge; permissions and NodeRouter contract unchanged. Verify native/ParadeDB fixtures, mix q and isolated tests. Existing broad-suite precommit and push credentials blockers must be reported.",
+  "id": "zaq-e56",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[#814] Remove misleading retrieval distance alias",
+  "type": "task",
+  "updated_at": "2026-09-26T09:58:15Z"
+}
