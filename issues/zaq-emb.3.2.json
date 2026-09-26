@@ -25,11 +25,15 @@
     {
       "text": "2026-09-26 final issue-level validation on staged scope: 194 focused tests/6 properties, 0 failures across canonical schema/store, legacy Conversations and Permissions; mix q passed, staged diff --check clean. Existing Action PersistMessageHistory intentionally not reused because agent/workflow input and one-conversation semantics cannot safely represent passive canonical fanout. Observed overlap task test uses DataCase shared sandbox, so do not claim independent Postgres-connection contention tested; unique constraints plus FOR UPDATE implement serial committed positions. No new-feature E2E until human UX approval; raw traces/rating UUID path guarded.",
       "timestamp": "2026-09-26T07:56:37Z"
+    },
+    {
+      "text": "2026-09-26 committed 3b5194a30 and pushed feature/issue-768-canonical-transcript-api as draft stacked PR #808 on #807. Focused 194 tests/6 properties and mix q passed. Parent zaq-emb.3 remains open pending #808 CI and cross-PR integration review; #807 CI green. No feature E2E authored pending zaq-emb.12.",
+      "timestamp": "2026-09-26T07:57:44Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.3.2] Add authorized canonical transcript persistence primitives",
   "type": "task",
-  "updated_at": "2026-09-26T07:56:37Z"
+  "updated_at": "2026-09-26T07:57:44Z"
 }
