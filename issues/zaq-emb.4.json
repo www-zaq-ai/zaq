@@ -41,11 +41,15 @@
     {
       "text": "Uncommitted legacy identity seam advanced (no ingress wiring yet). TranscriptHistory.capture/3 now accepts a trusted existing_message_id for an already-admitted user turn: locks Message, checks role/content/external ID plus scoped conversation provider/connector/channel, sets canonical source identity on the SAME UUID, and leaves conversation, metadata, rating and trace references intact; bad ID, body, connector or room rolls back target creation. For new IMAP admissions with unscoped legacy conversations, Conversations.admit_incoming/1 stores private history_source coordinates only if matching enabled IMAP connector, :email kind, normalized adapter sender, visible-recipient evidence and mailbox are present. Reuse compares the stamped mailbox/connector/channel; unstamped historical email rows still require non-destructive migration, not guessed scope. New unit/integration regressions cover rating+trace preservation, idempotency, mismatched binding and per-mailbox spoofing; affected suite 525 tests/6 properties passes and mix q passes. Still must solve no-agent-first then agent admission (reuse canonical row) plus race-safe cross-path admission before wiring passive capture; do not claim PR A complete or introduce duplicate legacy/canonical rows.",
       "timestamp": "2026-09-26T11:46:09Z"
+    },
+    {
+      "text": "Action reuse recheck before no-agent-to-agent transition: extend existing Conversations.admit_incoming/1 (source-of-truth for execution binding and finalization token) to adopt an existing canonical Message only when its verified provider/connector/source-scope/external ID and transcript channel match the incoming adapter-stamped scope; do not introduce a second admission/Action or fabricate success. Return existing UUID with new token on first admission, nil token on replay; conflict on mismatched identity/content, retain canonical placements/rating/trace. Add DB tests first. Because capture/admission can race, do not wire either path until serialization covers both or rejects ambiguous overlaps.",
+      "timestamp": "2026-09-26T11:47:15Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T11:46:09Z"
+  "updated_at": "2026-09-26T11:47:15Z"
 }
