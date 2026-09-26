@@ -13,11 +13,15 @@
     {
       "text": "2026-09-26 Action reuse assessment for authorized canonical append/read: existing Conversations.add_message/2 and persist_message_history/2 are conversation-scoped, trigger legacy telemetry/title behavior and cannot attach a single UUID to multiple transcripts; Message.canonical_changeset/2 and new Transcript/TranscriptMessage schemas are structural reuse candidates. ChannelHistoryResource.for/3 + can_read?/2 and Permissions grant path already implement Direct/Shared direct-Person grants; Replicated recipient owner is explicit owner_person_id. Decision: extend Engine Conversations with local-only transaction writer/read methods (or one delegated internal storage module) sharing Message.canonical_changeset, not a new agent Action: raw transcript append accepts trusted Channels/Engine normalized identity but would be unsafe for agent/workflow arbitrary inputs; BO consumer must use NodeRouter when exposed later. Contract: provider/config/account scope verified against persisted transcript before append, dedup by guaranteed provider account external ID and reject conflicting content, row-lock transcript for commit-order sequence, no-id deliveries are not deduped by guess; reader requires persisted Person + direct grant or Replicated owner and returns only sanitized content/descriptors, never private trace/metadata. Nil Person denied; no direct-id public read. Tests first: replay/concurrent/association old message, mismatched scope, denied reads, cursor bounds, rollback. Strategy decisions and recipient evidence remain .14; legacy cutover .15. No new feature E2E before human UX approval.",
       "timestamp": "2026-09-26T07:38:15Z"
+    },
+    {
+      "text": "2026-09-26 Action discovery recheck: inspected Zaq.Agent.Tools.Conversations.PersistMessageHistory (workflow Action, lib/zaq/agent/tools/conversations/persist_message_history.ex) and its contract tests. It accepts agent/workflow-supplied Incoming/routing and stamps conversation identity via Channels before Engine :persist_message_history; stores exactly one legacy conversation-scoped message, not one canonical UUID with multiple authorized transcript placements. Reusing it for passive/background shared history would expose an unsafe agent input surface and duplicate legacy telemetry/title side effects. Decision remains Engine-local Conversations append/list delegating to TranscriptHistory, no Registry entry or new Action. The future strategy consumer uses trusted channel ingress through NodeRouter; current API not exposed as arbitrary Agent action. Verification: test-first public context API regressions plus existing legacy Conversation/permission tests.",
+      "timestamp": "2026-09-26T07:53:53Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.3.2] Add authorized canonical transcript persistence primitives",
   "type": "task",
-  "updated_at": "2026-09-26T07:38:15Z"
+  "updated_at": "2026-09-26T07:53:53Z"
 }
