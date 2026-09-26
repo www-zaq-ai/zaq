@@ -45,11 +45,15 @@
     {
       "text": "Action reuse recheck before no-agent-to-agent transition: extend existing Conversations.admit_incoming/1 (source-of-truth for execution binding and finalization token) to adopt an existing canonical Message only when its verified provider/connector/source-scope/external ID and transcript channel match the incoming adapter-stamped scope; do not introduce a second admission/Action or fabricate success. Return existing UUID with new token on first admission, nil token on replay; conflict on mismatched identity/content, retain canonical placements/rating/trace. Add DB tests first. Because capture/admission can race, do not wire either path until serialization covers both or rejects ambiguous overlaps.",
       "timestamp": "2026-09-26T11:47:15Z"
+    },
+    {
+      "text": "No-agent-first to agent admission path now has Engine-only UUID adoption, still uncommitted and NOT enabled at ingress. Existing Conversations.admit_incoming/1 checks for a canonical source identity on trusted connector-stamped incoming before inserting a legacy row; locks the canonical message, verifies original content/author and a placement in the exact provider/connector/channel/strategy/thread, then links that SAME UUID to the conversation with a one-time finalization token. Redelivery returns nil token; mismatched room, strategy or sibling thread returns source_conflict rather than duplicating. Existing agent-first then capture(existing_message_id) also retains rating, trace and private metadata, including new IMAP private sender/mailbox stamp. Tests first: replay adoption and denied wrong channel/strategy/thread plus existing source-identity cases. `mix q` and affected tests passed. Cross-path simultaneous capture/admission still requires shared source-key serialization and admission-first canonical reuse before enabling passive ingress; never assume this sequential path resolves races.",
+      "timestamp": "2026-09-26T11:58:04Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T11:47:15Z"
+  "updated_at": "2026-09-26T11:58:04Z"
 }
