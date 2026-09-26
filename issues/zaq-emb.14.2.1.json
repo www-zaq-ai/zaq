@@ -18,11 +18,15 @@
     {
       "text": "2026-09-26 finalized channel history_kind stamping. Typed RoutingContext accepts :direct/:channel/:email or nil; CommunicationBridge.route_incoming_message overwrites an Incoming routing/metadata claim with bridge option; JidoChatBridge stamps adapter ChannelMeta with provider/room consistency checks. Explicit DM true -\u003e Direct; explicit map is_dm=false or typed known channel/group chat_type -\u003e Shared; typed Jido.Chat.ChannelMeta default is_dm=false without known chat_type -\u003e nil, never inferred. Existing author Person resolution remains Engine-owned, mention gating unchanged. Tests FIRST exposed missing history_kind, misleading default is_dm=false and mismatched provider/room crash, all fixed. Full affected suite 272 tests/2 properties 0 failures (JidoChatBridge, CommunicationBridge, RoutingContext, IncomingMessageRouter, policy) and mix q green; staged diff --check clean. Provider-specific event enrichment for missing chat_type tracked as child .14.2.3, not falsely marked implemented; email recipient facts separate .14.2.2. Action reuse: extend existing bridge/RoutingContext, no Action/agent tool/E2E authored.",
       "timestamp": "2026-09-26T08:33:00Z"
+    },
+    {
+      "text": "2026-09-26 committed 998b03ea8 and pushed feature/issue-768-channel-history-facts; opened draft stacked PR #813 on #812. 272 affected tests/2 properties and mix q green. Typed adapter default room-type gap tracked in .14.2.3; .14.2.2 owns independently evidenced email recipients. No new-feature E2E.",
+      "timestamp": "2026-09-26T08:34:01Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.1] Stamp verified channel history kinds",
   "type": "task",
-  "updated_at": "2026-09-26T08:33:00Z"
+  "updated_at": "2026-09-26T08:34:01Z"
 }
