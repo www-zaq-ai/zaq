@@ -33,11 +33,15 @@
     {
       "text": "2026-09-26 parent acceptance audit: children .3.1/.3.2 delivered #807/#808, but original parent also requires separate Person-bound execution-private records before strategy integration. Created .3.3 child blocked by .3.2; do not close parent or unblock .14 until private schema exists. zaq-emb.15 explicitly owns legacy backfill/cutover and private execution data migration after strategy policies; .3.3 owns additive schema and no legacy data rewrites. #807 CI green, #808 pending; E2E gate unchanged.",
       "timestamp": "2026-09-26T07:59:30Z"
+    },
+    {
+      "text": "2026-09-26 schema, authorized transcript API and separate private execution record slices landed as draft stacked PRs #807/#808/#811, children .3.1/.3.2/.3.3 closed with focused DB regression suites and mix q. Parent storage scope complete; legacy structural backfill/cutover and execution-private data migration remain explicitly owned by zaq-emb.15, not implicitly done here. Existing legacy APIs preserved, historical grants not reconstructed; PRs remain draft pending CI/review. Marking parent complete to unblock code-defined strategy .14; no E2E authored pending human UX approval.",
+      "timestamp": "2026-09-26T08:08:35Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.3] Universal canonical messages and transcript associations",
   "type": "task",
-  "updated_at": "2026-09-26T07:59:30Z"
+  "updated_at": "2026-09-26T08:08:35Z"
 }
