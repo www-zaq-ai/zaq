@@ -40,11 +40,15 @@
     {
       "text": "Owning #799 fix 3473ba251 pushed; #800/#806 ancestry updated by conventional merge commits, all clean. Remaining #768 trust audit: Engine.IncomingMessageRouter currently retains a valid Incoming.person even when IdentityResolver rejects and accepts event.actor declarations; documented Channels routing stamps connector ID, but generic Engine event origin/authentication cannot be inferred from mutable Event fields. Existing IncomingMessageRouterTest asserts preservation for unresolved pre-filled Person. Before changing this path, establish explicit trusted BO vs Channels origin contract at actual NodeRouter ingress (do not trust event opts/hops as caller proof), then write failing forged-person/connector tests; avoid stripping legitimate BO Person identity. This is not claimed complete.",
       "timestamp": "2026-09-26T06:24:37Z"
+    },
+    {
+      "text": "2026-09-26 human security decision: trust internal callers at current cross-service Event boundary (no new authenticated BO/Channels provenance protocol). For non-web channel ingress, do not let valid prefilled Incoming.person or actor.person/person_id override connector-scoped IdentityResolver: discard valid prefilled channel Person before resolution; leave invalid/conflicting identity declarations invalid rather than silently downgrade. Preserve trusted BO web Person path. Reuse IdentityResolver, IncomingMessageRouter, ExecutionActor validation; no new Action/tool exposure. Add direct regression for rejected resolution, successful resolution overriding forgery, and BO preservation on #799 owning branch, then restack #800/#806.",
+      "timestamp": "2026-09-26T06:45:17Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-26T06:24:37Z"
+  "updated_at": "2026-09-26T06:45:17Z"
 }
