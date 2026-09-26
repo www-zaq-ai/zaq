@@ -866,6 +866,21 @@ defmodule Zaq.Channels.Api do
   defp delivery_connection(_bridge_module, %Outgoing{routing_context: %{channel_config_id: id}})
        when not is_nil(id), do: {:error, :invalid_connector_id}
 
+  # EmailBridge chooses the SMTP notification default (or the sole SMTP account)
+  # for unscoped sends and resolves IMAP-bound replies itself. There is no
+  # connector stored under the generic :email provider; requiring one here
+  # would prevent the bridge from applying its account-selection policy.
+  defp delivery_connection(bridge_module, %Outgoing{provider: provider})
+       when provider in [
+              :email,
+              "email",
+              :"email:smtp",
+              "email:smtp",
+              :"email:imap",
+              "email:imap"
+            ],
+       do: {:ok, bridge_module.fetch_connection_details(provider)}
+
   defp delivery_connection(bridge_module, %Outgoing{provider: provider})
        when provider in [:web, "web"],
        do: {:ok, bridge_module.fetch_connection_details(provider)}
