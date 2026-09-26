@@ -10,11 +10,15 @@
     {
       "text": "Implemented focused test-only coverage in test/zaq_web/live/bo/ai/ingestion_progress_test.exs: malformed indexed/simple counts assert accessible count text, exact labels, percentages and widths; simple/nil/integer language values assert ordered fallback labels. As requested, no tests/formatting/validation run; awaiting coordinator isolated validation.",
       "timestamp": "2026-09-26T11:37:48Z"
+    },
+    {
+      "text": "Validation authorized and completed for test/zaq_web/live/bo/ai/ingestion_progress_test.exs: replaced unavailable Floki with exact scoped HTML assertions and regex-captured ordered language labels; fixed initial delimiter/whitespace assertion issues. Focused mix test passed: 5 tests, 0 failures, exit 0. No q/format/full suite/coverage run.",
+      "timestamp": "2026-09-26T11:47:56Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-zph] Cover IngestionProgress defensive display branches",
   "type": "task",
-  "updated_at": "2026-09-26T11:37:48Z"
+  "updated_at": "2026-09-26T11:47:56Z"
 }
