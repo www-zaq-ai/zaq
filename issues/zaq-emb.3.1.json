@@ -17,11 +17,15 @@
     {
       "text": "2026-09-26 test-first structural implementation on feature/issue-768-canonical-message-storage: new migration 20260922000010 (test DB up) relaxes only legacy messages.conversation_id NOT NULL and adds nullable provider/account/external id, author snapshot, timestamp and attachment descriptors. Immutable source changeset + DB all-or-none CHECK and scoped unique index; new Transcript with strategy, provider/connector, scope, parent, permission coordinate/counter; TranscriptMessage with unique message/transcript and positive per-transcript position. Existing UUID/ratings/trace FKs unchanged; guarded down refuses rollback while any transcript or canonical field exists. No legacy backfill, writer, reader or UI; authorization and serial allocation .3.2. Regression test reproduced missing structs and mutability/attachment-only failures before implementation. Focused 141 tests/1 property and mix q pass; larger router+conversation run 158 tests/2 properties passed before last rollback-guard-only edit. MIX_ENV=test reports migration up; no dev database reset. Action review: reuse Message in place and Conversations existing legacy writer untouched; raw schema/DDL local-only, no Action/agent exposure. New feature E2E blocked pending human UX gate.",
       "timestamp": "2026-09-26T07:28:17Z"
+    },
+    {
+      "text": "2026-09-26 committed 7c725fa67, pushed feature/issue-768-canonical-message-storage and opened draft stacked PR #807 on #806. mix q green, 141 focused tests/1 property green; migration 00010 up in test DB, no populated developer DB reset. Structural schema only: no authorized reads/writes or new-feature E2E. Follow-up .3.2 must allocate committed positions and enforce trusted provider/account permission scope; .15 owns backfill/cutover. Keep PR open for stacked review and CI.",
+      "timestamp": "2026-09-26T07:29:45Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.3.1] Add canonical message and transcript association schema",
   "type": "task",
-  "updated_at": "2026-09-26T07:28:17Z"
+  "updated_at": "2026-09-26T07:29:45Z"
 }
