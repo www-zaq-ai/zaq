@@ -3,13 +3,12 @@ defmodule ZaqWeb.E2EController do
 
   use ZaqWeb, :controller
 
-  import Ecto.Query, only: [from: 2]
-
   alias Zaq.Accounts
   alias Zaq.Accounts.People
   alias Zaq.Addons.FeatureStore
   alias Zaq.Agent.MCP
   alias Zaq.E2E.{LogCollector, PortalState, ProcessorState, Reset}
+  alias Zaq.E2E.TelemetryFixtures
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.Rollup
@@ -52,14 +51,13 @@ defmodule ZaqWeb.E2EController do
   # POST /e2e/telemetry/llm-performance — seed deterministic dashboard rankings.
   # Pass {"mode": "clear"} to exercise empty-state behavior.
   def seed_llm_performance(conn, params) do
-    clear_llm_performance_rollups()
+    clear? = Map.get(params, "mode") == "clear"
 
-    if Map.get(params, "mode") == "clear" do
-      json(conn, %{ok: true, mode: "clear"})
-    else
-      seed_llm_performance_rollups()
-      json(conn, %{ok: true, mode: "seed"})
-    end
+    TelemetryFixtures.reset_llm_performance!(fn ->
+      unless clear?, do: seed_llm_performance_rollups()
+    end)
+
+    json(conn, %{ok: true, mode: if(clear?, do: "clear", else: "seed")})
   end
 
   defp seed_llm_performance_rollups do
@@ -116,13 +114,6 @@ defmodule ZaqWeb.E2EController do
     insert_e2e_rollup!("qa.llm.tokens.prompt", tokens * 0.6, 1, now, dimensions)
     insert_e2e_rollup!("qa.llm.tokens.completion", tokens * 0.4, 1, now, dimensions)
     insert_e2e_rollup!("qa.llm.tokens.total", tokens, 1, now, dimensions)
-  end
-
-  defp clear_llm_performance_rollups do
-    Repo.delete_all(
-      from rollup in Rollup,
-        where: like(rollup.metric_key, "qa.llm.%") or like(rollup.metric_key, "qa.tokens.%")
-    )
   end
 
   defp insert_e2e_rollup!(metric_key, value_sum, value_count, bucket_start, dimensions) do

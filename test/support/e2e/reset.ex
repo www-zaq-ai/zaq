@@ -1,10 +1,12 @@
 defmodule Zaq.E2E.Reset do
   @moduledoc false
 
+  import Ecto.Query, only: [from: 2]
+
   # Per-describe reset invoked via POST /e2e/reset. The goal is to return the
   # E2E server to the state established by test/support/e2e/bootstrap.exs:
   #
-  #   * System config rows wiped and re-seeded with a default embedding config
+  #   * System config reset, retaining aggregation progress for preserved telemetry
   #   * Ingestion tables empty, tmp/e2e_documents/ restored to the seed tree,
   #     seed files re-indexed so queries return known content
   #   * AI credentials wiped
@@ -281,7 +283,11 @@ defmodule Zaq.E2E.Reset do
   def reset_system_config! do
     Repo.delete_all(ConfiguredAgent)
     Repo.delete_all(MCPEndpoint)
-    Repo.delete_all(SystemConfig)
+
+    # Raw telemetry survives this reset, so its aggregation progress must too.
+    Repo.delete_all(
+      from config in SystemConfig, where: config.key != "telemetry.rollup_point_id_cursor"
+    )
 
     AIProviderCredential
     |> Repo.all()
