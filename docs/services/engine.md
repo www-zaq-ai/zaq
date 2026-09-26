@@ -65,6 +65,21 @@ conflicting identity still fails execution validation. BO web chat may supply
 its internally trusted session-derived Person. See the ingress trust scope in
 [Channels](channels.md); the Event envelope itself is not caller attestation.
 
+Canonical-history storage is being introduced without rewriting existing rows:
+`messages.id` stays stable for ratings and private trace artifacts, while new
+canonical messages can exist without a legacy `conversation_id`. A provider
+message's optional external identity is unique within its provider and trusted
+account key (including mailbox/collection when the provider's ID is only unique
+there); the absence of a provider ID does not imply deduplication. A
+`Transcript` stores strategy, provider/connector scope, optional parent and the
+permission-resource coordinate. `TranscriptMessage` associates one message with
+one or more transcripts at a transcript-local position. The storage schema alone
+does **not** grant read access or select content by message ID: the authorized
+writer/read API, serial position allocation and legacy backfill/cutover remain
+separate `zaq-emb.3.2` and `zaq-emb.15` work. Existing conversation reads still
+follow the legacy path. Private execution metadata and trace artifacts must not
+become part of a shared transcript projection.
+
 ```
 Channel adapter or BO chat
   → IncomingMessageRouter resolves routing + execution actor
