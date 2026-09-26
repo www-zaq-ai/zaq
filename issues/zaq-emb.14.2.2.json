@@ -20,11 +20,15 @@
     {
       "text": "Action reuse assessment: normalize per-message inbound RFC822 recipient evidence. Existing Mail.parse/Mail.get_to/Mail.get_cc and EmailBridge.ImapAdapter.Parser.to_incoming/3 already parse inbound messages; this extends that local parser boundary. Registry/agent tools and workflow Actions have no appropriate standalone channel-envelope normalization operation; adding or exposing one would duplicate transport parsing and permit arbitrary caller-controlled audience. Inputs: raw IMAP payload + parsed RFC headers; outputs: validated sender and visible To/Cc addresses on typed routing context (not Person IDs/grants); errors: malformed addresses excluded, invalid payload existing error; idempotent/pure, no runtime dependencies beyond Mail. Consumers: EmailBridge ingress now, Engine Person resolution in zaq-emb.4 later; not a tool/workflow. Tests: RFC822 multi-To/Cc, fallback payload, malformed/duplicate, hidden Bcc excluded, per-message isolation and retained reply_from/threading. No credential/settings operation in this slice.",
       "timestamp": "2026-09-26T10:00:11Z"
+    },
+    {
+      "text": "Local implementation (uncommitted/unpushed): Parser.to_incoming stamps routing_context.attributes[\"email\"] with normalized envelope sender + this-message visible To/Cc, case-folded/deduplicated. When RFC headers parse, only their To/Cc count; fallback structured values only without a parsed source. Bcc and Delivered-To remain excluded as audience evidence (Delivered-To still preserves legacy reply_from). Tests written before implementation include evolving audience, hidden/envelope recipient denial, malformed fallback, property dedup and fake IMAP adapter ingress; isolated 72 tests/2 properties pass, mix q passes, git diff --check clean. The optional independent hidden-Bcc evidence path remains zaq-emb.14.2.5; no claim of confirmed hidden recipient or Person grants. PR A .4 must resolve addresses against connector-scoped People and authorize persistence before consumers read them; do not treat the attributes map as an authenticated external Event.",
+      "timestamp": "2026-09-26T10:10:18Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.2] Normalize inbound email recipient evidence",
   "type": "task",
-  "updated_at": "2026-09-26T10:00:11Z"
+  "updated_at": "2026-09-26T10:10:18Z"
 }
