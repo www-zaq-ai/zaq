@@ -52,11 +52,15 @@
     {
       "text": "2026-09-26 owning #799 bdc1b334c merged into #800 (78c022302) and #806 (23c935a45), all pushed. #800 merge required preserving Engine channel grant doc plus adjusting two new router tests to use StubConversations because the #800 real admission path enforces Person FK; 150 tests/1 property and mix q passed on #800. #806 focused 71 tests/2 properties and mix q passed, wider 401 tests/2 properties pass. Latest #799/#800/#806 CI pending; no claim of CI success yet.",
       "timestamp": "2026-09-26T07:01:13Z"
+    },
+    {
+      "text": "2026-09-26 trusted internal Event caller contract is human-selected; connector-scoped Person resolution and forged-prefilled identity regressions landed on #799 and restacked to #800/#806. Latest heads of #799/#800/#806 completed all CI checks green; focused 50+150+71 router/conversation tests with property and mix q passed on owning/descendant branches. Scope explicitly does not attest arbitrary NodeRouter callers; channel adapter ingress stamps connector, BO web supplies session Person. Closing .2; canonical .3 now unblocked.",
+      "timestamp": "2026-09-26T07:09:31Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.2] Trusted connector-scoped author identity",
   "type": "task",
-  "updated_at": "2026-09-26T07:01:13Z"
+  "updated_at": "2026-09-26T07:09:31Z"
 }
