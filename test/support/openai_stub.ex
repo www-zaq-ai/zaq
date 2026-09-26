@@ -101,6 +101,13 @@ defmodule Zaq.TestSupport.OpenAIStub do
     }
   end
 
+  @doc "OpenAI-compatible embedding response for the existing Req.Test HTTP boundary."
+  def embedding_response(dimension, value \\ 0.1) when is_integer(dimension) and dimension > 0 do
+    %{
+      "data" => [%{"embedding" => List.duplicate(value, dimension)}]
+    }
+  end
+
   defp free_port do
     {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}])
     {:ok, port} = :inet.port(socket)

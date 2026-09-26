@@ -61,7 +61,10 @@ until investigated or escalated.
 
 For agent service work, verify:
 
-- Does `Factory` already cover the LLM call? If yes, use it. If no, extend it — never bypass it.
+- Is this an agent-session request covered by `Factory.ask_with_config/4`? Use
+  it for configured-agent execution. A focused tool-free generation call belongs
+  in its owning operation and reuses `ProviderSpec` for provider setup; do not
+  extend Factory with a one-caller helper outside its lifecycle responsibility.
 - Does `Executor.run` already cover the execution path? If yes, route through it.
 - Does an `Outgoing` builder already construct the response? If yes, use it or extend it.
 - Are provider credentials / URL formatting already handled in `get_ai_provider_credential/1` or `Factory`?

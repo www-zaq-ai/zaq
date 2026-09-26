@@ -7,6 +7,100 @@
 @import "./drawer.css";
 @import "./form.css";
 
+/* A document's language-specific, language-neutral and unindexed chunks share one track. */
+.zaq-ingestion-progress {
+  display: grid;
+  gap: var(--zaq-layout-inline-gap-compact);
+  min-width: 0;
+  color: var(--zaq-text-color-body-secondary);
+}
+
+.zaq-ingestion-progress__track {
+  display: flex;
+  overflow: hidden;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--zaq-surface-color-elevated);
+}
+
+.zaq-ingestion-progress__specific {
+  background: var(--zaq-border-color-success);
+}
+
+.zaq-ingestion-progress__simple {
+  background: var(--zaq-border-color-warning);
+}
+
+.zaq-ingestion-progress__counts {
+  margin: 0;
+}
+
+.zaq-ingestion-progress__counts span::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 999px;
+}
+
+.zaq-ingestion-progress__label--specific::before {
+  background: var(--zaq-border-color-success);
+}
+
+.zaq-ingestion-progress__label--simple::before {
+  background: var(--zaq-border-color-warning);
+}
+
+.zaq-ingestion-progress__label--unindexed::before {
+  background: var(--zaq-surface-color-elevated);
+  border: 1px solid var(--zaq-border-color-strong);
+}
+
+.zaq-ingestion-progress__languages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--zaq-layout-inline-gap-compact);
+}
+
+.zaq-ingestion-progress__language {
+  padding: 0 4px;
+  border: 1px solid var(--zaq-border-color-default);
+  border-radius: 8px;
+  background: var(--zaq-surface-color-raised);
+}
+
+.zaq-ingestion-progress__errors {
+  color: var(--zaq-text-color-body-danger);
+}
+
+.zaq-ingestion-details-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.zaq-ingestion-details-trigger:hover,
+.zaq-ingestion-details-trigger:focus-visible {
+  outline: 2px solid var(--zaq-border-color-accent);
+  outline-offset: 1px;
+}
+
+.zaq-ingestion-details-content {
+  display: grid;
+  gap: var(--zaq-layout-stack-gap);
+}
+
+.zaq-ingestion-details-content .zaq-file-preview-scroll {
+  max-height: 48vh;
+  overflow: auto;
+}
+
 /* One code-entry row, including its independently submitted resend action. */
 .zaq-people-code-row {
   display: flex;

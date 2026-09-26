@@ -6,7 +6,7 @@ defmodule Zaq.Ingestion.FTSBackendTest do
   import ExUnit.CaptureLog
 
   alias Ecto.Adapters.SQL
-  alias Zaq.Ingestion.{Chunk, FTSBackend}
+  alias Zaq.Ingestion.{Chunk, Document, FTSBackend}
   alias Zaq.Repo
 
   setup do
@@ -125,6 +125,90 @@ defmodule Zaq.Ingestion.FTSBackendTest do
   end
 
   describe "fresh install bootstrap" do
+    test "migration reprocesses existing chunks and restores English-only vectors on rollback" do
+      Chunk.create_table(1536)
+
+      {:ok, document} =
+        Document.create(%{source: "migration-language-#{System.unique_integer([:positive])}"})
+
+      {:ok, chunk} =
+        Chunk.create(%{
+          document_id: document.id,
+          chunk_index: 1,
+          language: "french",
+          content: "Les voitures rouges traversent la ville"
+        })
+
+      Code.require_file(
+        "../../../priv/repo/migrations/20260923000001_rebuild_multilingual_content_tsv.exs",
+        __DIR__
+      )
+
+      migration = Zaq.Repo.Migrations.RebuildMultilingualContentTsv
+
+      Repo.query!(migration.down_sql())
+
+      assert %{rows: [[true]]} =
+               Repo.query!(
+                 "SELECT content_tsv = to_tsvector('english', content) FROM chunks WHERE id = $1",
+                 [chunk.id]
+               )
+
+      Repo.query!(migration.up_sql())
+
+      assert %{rows: [[true, false]]} =
+               Repo.query!(
+                 "SELECT content_tsv = to_tsvector('french', content), content_tsv = to_tsvector('english', content) FROM chunks WHERE id = $1",
+                 [chunk.id]
+               )
+
+      assert %{rows: [[1]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM pg_indexes WHERE indexname = 'chunks_content_tsv_idx'"
+               )
+    end
+
+    test "native generated vectors track content and detected language with one GIN index" do
+      Chunk.create_table(1536)
+
+      {:ok, document} =
+        Document.create(%{source: "fts-language-#{System.unique_integer([:positive])}"})
+
+      {:ok, chunk} =
+        Chunk.create(%{
+          document_id: document.id,
+          chunk_index: 0,
+          language: "french",
+          content: "Les voitures roulent"
+        })
+
+      assert %{rows: [[true]]} =
+               Repo.query!(
+                 "SELECT content_tsv @@ websearch_to_tsquery('french', 'voiture') FROM chunks WHERE id = $1",
+                 [chunk.id]
+               )
+
+      assert {:ok, grouped} = FTSBackend.Native.bm25_search_group_by("voitures", 10, [], "french")
+      assert Map.has_key?(grouped, document.id)
+      assert {:ok, %{}} = FTSBackend.Native.bm25_search_group_by("voitures", 10, [], "german")
+
+      {:ok, chunk} =
+        chunk
+        |> Chunk.changeset(%{language: "unsupported", content: "Running with words"})
+        |> Repo.update()
+
+      assert %{rows: [[true]]} =
+               Repo.query!(
+                 "SELECT content_tsv = to_tsvector('simple', content) FROM chunks WHERE id = $1",
+                 [chunk.id]
+               )
+
+      assert %{rows: [[1]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM pg_indexes WHERE indexname = 'chunks_content_tsv_idx'"
+               )
+    end
+
     # Reproduces the real bootstrap sequence on a ParadeDB server instead of
     # hand-creating chunks_bm25_idx: boot-time detection runs before the
     # chunks table exists, then an admin configures embeddings
@@ -201,6 +285,74 @@ defmodule Zaq.Ingestion.FTSBackendTest do
   end
 
   describe "query helpers" do
+    test "unscoped native searches and counts use each stored vector's language" do
+      :persistent_term.put({FTSBackend, :backend}, FTSBackend.Native)
+      Chunk.create_table(1536)
+
+      {:ok, document} = Document.create(%{source: "fts/mixed-languages.md"})
+
+      for {index, language, content} <- [
+            {0, "simple", "Emergency Shutdown Criteria"},
+            {1, "english", "Emergency procedures for shutdowns"},
+            {2, "french", "Les voitures rouges traversent la ville"}
+          ] do
+        assert {:ok, _} =
+                 Chunk.create(%{
+                   document_id: document.id,
+                   chunk_index: index,
+                   language: language,
+                   section_path: [language],
+                   content: content
+                 })
+      end
+
+      assert {:ok, grouped} = FTSBackend.Native.bm25_search_group_by("Criteria", 10)
+
+      assert Map.has_key?(grouped[document.id], ["simple"])
+
+      assert {:ok, grouped} = FTSBackend.Native.bm25_search_group_by("voitures", 10)
+
+      assert Map.has_key?(grouped[document.id], ["french"])
+
+      assert {:ok, %{}} =
+               FTSBackend.Native.bm25_search_group_by("Criteria", 10, [], "english")
+
+      assert {:ok, %{}} =
+               FTSBackend.Native.bm25_search_group_by("Criteria", 10, ["other"])
+
+      assert {:ok, limited} = FTSBackend.Native.bm25_search_group_by("Emergency", 1)
+
+      assert limited |> Map.values() |> Enum.flat_map(&Map.values/1) |> List.flatten() |> length() ==
+               1
+
+      assert [%{id: id}] = Repo.all(FTSBackend.Native.fts_count_query("Criteria", 10))
+      assert Repo.get!(Chunk, id).chunk_index == 0
+    end
+
+    test "uses installed PostgreSQL configurations and simple for unsupported detected languages" do
+      for language <-
+            ~w(english french spanish german portuguese italian arabic russian hindi urdu chinese japanese) do
+        config = FTSBackend.Native.configuration_for(language)
+
+        assert config in ["pg_catalog.#{language}", "public.#{language}", "pg_catalog.simple"]
+        assert %{rows: [[true]]} = Repo.query!("SELECT $1::text::regconfig IS NOT NULL", [config])
+      end
+
+      assert FTSBackend.Native.configuration_for("unsupported_language") == "pg_catalog.simple"
+    end
+
+    test "ParadeDB limits translated-query candidates to the requested chunk language" do
+      {sql, params} =
+        SQL.to_sql(
+          :all,
+          Repo,
+          FTSBackend.ParadeDB.bm25_query("voitures", 10, [], "french")
+        )
+
+      assert sql =~ ~s("language" =)
+      assert "french" in params
+    end
+
     test "rows_present? returns true only when a SQL result has rows" do
       assert FTSBackend.rows_present?({:ok, %{rows: [[1]]}})
       refute FTSBackend.rows_present?({:ok, %{rows: []}})

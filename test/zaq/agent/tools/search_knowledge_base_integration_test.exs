@@ -15,12 +15,38 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Agent.Tools.SearchKnowledgeBase
-  alias Zaq.Ingestion.{Chunk, Document, DocumentProcessor}
+  alias Zaq.Ingestion.{Chunk, ChunkLanguages, Document, DocumentProcessor}
   alias Zaq.Permissions
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
+  alias Zaq.TestSupport.OpenAIStub
 
   @embedding_dim 1536
+
+  defmodule TranslationGeneration do
+    def generate_text(_spec, [message], _opts) do
+      prompt = Enum.map_join(message.content, "", & &1.text)
+      %{"query" => query, "languages" => languages} = Jason.decode!(prompt)
+
+      {:ok,
+       %ReqLLM.Response{
+         id: "test-translation",
+         model: "test-model",
+         context: ReqLLM.Context.new(),
+         message: ReqLLM.Context.assistant(Jason.encode!(Map.new(languages, &{&1, query})))
+       }}
+    end
+  end
+
+  defp translation_context(extra \\ %{}) do
+    Map.merge(
+      %{
+        generation: TranslationGeneration,
+        llm_config: OpenAIStub.llm_config("http://example.test/v1") |> Map.new()
+      },
+      extra
+    )
+  end
 
   setup_all do
     Sandbox.mode(Repo, :auto)
@@ -57,6 +83,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       |> Plug.Conn.send_resp(200, body)
     end)
 
+    ChunkLanguages.invalidate()
+
     :ok
   end
 
@@ -67,7 +95,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       insert_chunk(private_doc.id, "Private content about Elixir internals.", 0)
       insert_chunk(public_doc.id, "Public Elixir documentation.", 0)
 
-      context = %{person_id: nil}
+      context = translation_context(%{person_id: nil})
 
       assert {:ok, result} = SearchKnowledgeBase.run(%{query: "elixir"}, context)
       assert chunk_content?(result.chunks, "Public Elixir documentation.")
@@ -86,7 +114,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       public_doc = create_doc(public?: true)
       insert_chunk(public_doc.id, "Phoenix is a web framework for Elixir.", 0)
 
-      context = %{}
+      context = translation_context()
 
       assert {:ok, result} = SearchKnowledgeBase.run(%{query: "phoenix web framework"}, context)
       assert is_integer(result.count)
@@ -98,7 +126,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       private_doc = create_doc()
       insert_chunk(private_doc.id, "Restricted Elixir content.", 0)
 
-      context = %{person_id: nil, skip_permissions: true}
+      context = translation_context(%{person_id: nil, skip_permissions: true})
 
       assert {:ok, result} = SearchKnowledgeBase.run(%{query: "restricted elixir"}, context)
       assert is_integer(result.count)
@@ -111,7 +139,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       doc = create_doc()
       insert_chunk(doc.id, "Elixir is a functional language built on the BEAM VM.", 0)
 
-      context = %{person_id: 999_999, team_ids: []}
+      context = translation_context(%{person_id: 999_999, team_ids: []})
 
       assert {:ok, result} = SearchKnowledgeBase.run(%{query: "elixir functional"}, context)
       assert is_integer(result.count)
@@ -162,6 +190,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
       language: "english"
     })
     |> Repo.insert!()
+    |> tap(fn _ -> ChunkLanguages.invalidate() end)
   end
 
   defp chunk_content?(chunks, content) do

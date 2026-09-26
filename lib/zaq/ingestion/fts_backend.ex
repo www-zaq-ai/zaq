@@ -27,6 +27,8 @@ defmodule Zaq.Ingestion.FTSBackend do
 
   @callback bm25_search_group_by(String.t(), pos_integer(), list()) ::
               {:ok, map()} | {:error, term()}
+  @callback bm25_search_group_by(String.t(), pos_integer(), list(), String.t()) ::
+              {:ok, map()} | {:error, term()}
   @callback fts_count_query(String.t(), pos_integer()) :: Ecto.Query.t()
   @callback sanitize_query(String.t()) :: String.t()
   @callback setup_bm25_index(module(), pos_integer()) :: :ok
@@ -231,6 +233,17 @@ defmodule Zaq.Ingestion.FTSBackend do
     query
     |> join(:inner, [c], d in Document, on: c.document_id == d.id, as: :doc)
     |> where(^DocumentAccess.build_source_filter_condition(source_filter))
+  end
+
+  @doc "Limits a chunk query to one detected language (including legacy nil/simple)."
+  def maybe_filter_language(query, nil), do: query
+
+  def maybe_filter_language(query, "simple") do
+    where(query, [c], c.language == "simple" or is_nil(c.language))
+  end
+
+  def maybe_filter_language(query, language) when is_binary(language) do
+    where(query, [c], c.language == ^language)
   end
 
   @doc """

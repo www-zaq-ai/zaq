@@ -3,11 +3,16 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Event
+  alias Zaq.TestSupport.OpenAIStub
 
   defmodule StubNodeRouter do
-    def dispatch(
-          %Event{request: %{function: :query_extraction, args: ["find elixir", _opts]}} = event
-        ) do
+    def dispatch(%Event{request: request} = event) when map_size(request) == 0,
+      do: %{event | response: {:ok, ["simple"]}}
+
+    def dispatch(%Event{request: %{chunks: chunks}} = event),
+      do: %{event | response: {:ok, chunks}}
+
+    def dispatch(%Event{request: %{query: "find elixir"}} = event) do
       %{
         event
         | response:
@@ -19,17 +24,18 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       }
     end
 
-    def dispatch(
-          %Event{request: %{function: :query_extraction, args: ["timeout query", _opts]}} = event
-        ),
-        do: %{event | response: {:error, :timeout}}
+    def dispatch(%Event{request: %{query: "timeout query"}} = event),
+      do: %{event | response: {:error, :timeout}}
 
-    def dispatch(%Event{request: %{function: :query_extraction}} = event),
+    def dispatch(%Event{request: %{query: _query}} = event),
       do: %{event | response: {:ok, []}}
   end
 
   defmodule RaisingNodeRouter do
-    def dispatch(%Event{request: %{function: :query_extraction}}) do
+    def dispatch(%Event{request: request} = event) when map_size(request) == 0,
+      do: %{event | response: {:ok, ["simple"]}}
+
+    def dispatch(%Event{request: %{query: _query}}) do
       raise "router crashed"
     end
   end
@@ -38,24 +44,42 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   # skip_permissions: false — any deviation causes the fallback to return an
   # error, which fails the test that asserts {:ok, _}.
   defmodule PermissionRouter do
+    def dispatch(%Event{request: request} = event) when map_size(request) == 0,
+      do: %{event | response: {:ok, ["simple"]}}
+
+    def dispatch(%Event{request: %{chunks: chunks}} = event),
+      do: %{event | response: {:ok, chunks}}
+
     def dispatch(
           %Event{
             request: %{
-              function: :query_extraction,
-              args: [_query, [person_id: 42, team_ids: [1, 2], skip_permissions: false]]
+              query: _query,
+              access_opts: [
+                person_id: 42,
+                team_ids: [1, 2],
+                skip_permissions: false,
+                language: "simple",
+                unbounded: true
+              ]
             }
           } = event
         ) do
       %{event | response: {:ok, []}}
     end
 
-    def dispatch(%Event{request: %{function: :query_extraction, args: [_query, opts]}} = event) do
+    def dispatch(%Event{request: %{access_opts: opts}} = event) do
       %{event | response: {:error, {:unexpected_opts, opts}}}
     end
   end
 
   defmodule SkipPermissionsRouter do
-    def dispatch(%Event{request: %{function: :query_extraction, args: [_query, opts]}} = event) do
+    def dispatch(%Event{request: request} = event) when map_size(request) == 0,
+      do: %{event | response: {:ok, ["simple"]}}
+
+    def dispatch(%Event{request: %{chunks: chunks}} = event),
+      do: %{event | response: {:ok, chunks}}
+
+    def dispatch(%Event{request: %{access_opts: opts}} = event) do
       response =
         case {Keyword.get(opts, :person_id), Keyword.get(opts, :skip_permissions)} do
           {nil, false} -> {:ok, []}
@@ -69,7 +93,13 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   defmodule DefaultTeamIdsRouter do
-    def dispatch(%Event{request: %{function: :query_extraction, args: [_query, opts]}} = event) do
+    def dispatch(%Event{request: request} = event) when map_size(request) == 0,
+      do: %{event | response: {:ok, ["simple"]}}
+
+    def dispatch(%Event{request: %{chunks: chunks}} = event),
+      do: %{event | response: {:ok, chunks}}
+
+    def dispatch(%Event{request: %{access_opts: opts}} = event) do
       response =
         case Keyword.get(opts, :team_ids) do
           [] -> {:ok, []}
@@ -77,6 +107,138 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
         end
 
       %{event | response: response}
+    end
+  end
+
+  defmodule FrenchGeneration do
+    def generate_text(_spec, _messages, _opts), do: response(~s({"french":"voiture rouge"}))
+
+    def response(text) do
+      {:ok,
+       %ReqLLM.Response{
+         id: "test-translation",
+         model: "test-model",
+         context: ReqLLM.Context.new(),
+         message: ReqLLM.Context.assistant(text)
+       }}
+    end
+  end
+
+  defmodule MissingTranslationGeneration do
+    def generate_text(_spec, _messages, _opts), do: FrenchGeneration.response("{}")
+  end
+
+  defp translation_context(router, generator) do
+    %{
+      node_router: router,
+      generation: generator,
+      llm_config: OpenAIStub.llm_config("http://example.test/v1") |> Map.new(),
+      skip_permissions: true
+    }
+  end
+
+  defmodule MultilingualRouter do
+    def dispatch(%Event{request: request} = event) when map_size(request) == 0,
+      do: %{event | response: {:ok, ["simple", "french"]}}
+
+    def dispatch(%Event{request: %{chunks: chunks}} = event),
+      do: %{event | response: {:ok, chunks}}
+
+    def dispatch(%Event{request: %{query: query, access_opts: opts}} = event) do
+      response =
+        case {Keyword.fetch!(opts, :language), query} do
+          {"french", "voiture rouge"} ->
+            {:ok,
+             [
+               %{
+                 "document_id" => 2,
+                 "chunk_index" => 1,
+                 "distance" => 0.03,
+                 "language" => "french",
+                 "content" => "voiture rouge"
+               }
+             ]}
+
+          {"simple", _} ->
+            {:ok,
+             [
+               %{
+                 "document_id" => 1,
+                 "chunk_index" => 1,
+                 "distance" => 0.02,
+                 "language" => "simple",
+                 "content" => "red car"
+               }
+             ]}
+
+          _ ->
+            {:error, :unexpected_query}
+        end
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule PartialRouter do
+    def dispatch(%Event{request: %{query: _query, access_opts: opts}} = event) do
+      if Keyword.get(opts, :language) == "french",
+        do: %{event | response: {:error, :timeout}},
+        else: MultilingualRouter.dispatch(event)
+    end
+
+    def dispatch(event), do: MultilingualRouter.dispatch(event)
+  end
+
+  describe "multilingual search" do
+    test "translates once, searches each language and sorts by existing fused score" do
+      assert {:ok, %{chunks: [french, simple], count: 2, partial: false, errors: []}} =
+               SearchKnowledgeBase.run(
+                 %{query: "red car"},
+                 translation_context(MultilingualRouter, FrenchGeneration)
+               )
+
+      assert french["language"] == "french"
+      assert simple["language"] == "simple"
+    end
+
+    test "keeps successful results alongside a per-language failure" do
+      assert {:ok,
+              %{chunks: [simple], partial: true, errors: [%{language: "french", stage: :search}]}} =
+               SearchKnowledgeBase.run(
+                 %{query: "red car"},
+                 translation_context(PartialRouter, FrenchGeneration)
+               )
+
+      assert simple["language"] == "simple"
+    end
+
+    test "never silently retries an untranslated language; retains simple results" do
+      assert {:ok,
+              %{
+                chunks: [simple],
+                partial: true,
+                errors: [%{language: "french", stage: :translation}]
+              }} =
+               SearchKnowledgeBase.run(
+                 %{query: "red car"},
+                 translation_context(MultilingualRouter, MissingTranslationGeneration)
+               )
+
+      assert simple["language"] == "simple"
+    end
+
+    test "Zoi rejects non-string search input through validated Action execution" do
+      assert {:error, _} =
+               Jido.Exec.run(SearchKnowledgeBase, %{query: 3}, %{node_router: StubNodeRouter})
+    end
+
+    test "Zoi validates structured partial-result output through Action execution" do
+      assert {:ok, %{partial: true, errors: [%{language: "french"}]}} =
+               Jido.Exec.run(
+                 SearchKnowledgeBase,
+                 %{query: "red car"},
+                 translation_context(PartialRouter, FrenchGeneration)
+               )
     end
   end
 
@@ -96,14 +258,15 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       context = %{person_id: 42, node_router: StubNodeRouter}
 
       assert {:error, message} = SearchKnowledgeBase.run(%{query: "timeout query"}, context)
-      assert message == "Knowledge base search failed: :timeout"
+      assert message =~ "Knowledge base search failed for all languages"
     end
 
     test "returns wrapped error when node router raises exception" do
       context = %{person_id: 42, node_router: RaisingNodeRouter}
 
       assert {:error, message} = SearchKnowledgeBase.run(%{query: "any query"}, context)
-      assert message == "Knowledge base search error: router crashed"
+      assert message =~ "Knowledge base search failed for all languages"
+      refute message =~ "router crashed"
     end
 
     test "returns empty chunks when no results found" do

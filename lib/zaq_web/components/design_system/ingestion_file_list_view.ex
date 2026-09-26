@@ -302,6 +302,30 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
               </svg>
               ingested
+              <button
+                :if={is_map(Map.get(status, :ingestion_summary))}
+                type="button"
+                phx-click="open_ingestion_details"
+                phx-value-path={record_path(@entry)}
+                class="zaq-ingestion-details-trigger"
+                aria-label={"View ingestion details for #{@entry.name}"}
+                title="View ingestion details"
+              >
+                <svg
+                  class="zaq-icon-sm"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    d="M13 5h6m0 0v6m0-6-9 9M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"
+                  />
+                </svg>
+              </button>
             </.table_badge>
             <.table_datetime value={status.ingested_at} />
           </div>

@@ -170,4 +170,8 @@
     preview={@preview}
     cancel_event="close_preview_modal"
   />
+  <ZaqWeb.Components.DesignSystem.IngestionDetails.modal
+    :if={@modal == :ingestion_details and @ingestion_details}
+    details={@ingestion_details}
+  />
 </ZaqWeb.Components.BOLayout.bo_layout>
