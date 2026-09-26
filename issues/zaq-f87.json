@@ -3,12 +3,12 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-26T09:25:07Z",
-  "description": "Stack onto zaq-aj2/chunk-level-fusion PR #814. SearchKnowledgeBase requires lexical_terms; translate supplied terms in existing TranslateKnowledgeQuery action, preserve originals for simple, remove lexical-term count/length cutoffs in Agent and Ingestion. Update pipeline retrieval LLM output to supply terms, direct callers, tests and service docs. No per-language ranking changes. Reuse existing Action/NodeRouter; no new operation. Validate mix q, isolated tests and final precommit gate; note existing unrelated full-suite failures.",
+  "description": "Implemented on stacked PR #814 branch. Reuse assessment: EXTEND existing TranslateKnowledgeQuery internal Jido Action and SearchKnowledgeBase tool; its existing ProviderSpec generation and Ingestion NodeRouter dispatch remain the only path. Retrieval LLM produces query plus required JSON lexical_terms; Pipeline forwards both; simple passes all caller terms unchanged and other languages translate them in one Action call; Ingestion trims/deduplicates without lexical-term count or per-term length truncation. Internal normalization is local-only, not a new Action; scope is Agent/SQL search, no workflow tool auto-exposure or identity change. Regression tests cover missing/malformed terms, \u003e8 terms/name, long identifiers, translated output, normalization property, native/ParadeDB fixture tests. mix q passes, focused agent 60/60 + property, ingestion/tool integration 135/135 + properties, eval native and ParadeDB 11/11 each. mix precommit rerun fails broad suite 93/9798 tests; prior baseline on this branch failed 88/9793, including same untouched DiskDocument configuration test (returns :enoent vs expected :disk_channel_config_not_found). Keep draft PR; do not request final human approval until final gate passes. Per-language RRF rank is explicitly deferred.",
   "id": "zaq-f87",
   "labels": [],
   "priority": 2,
   "status": "in_progress",
   "title": "[#814] Use LLM-authored lexical terms throughout knowledge search",
   "type": "task",
-  "updated_at": "2026-09-26T09:25:11Z"
+  "updated_at": "2026-09-26T09:45:19Z"
 }
