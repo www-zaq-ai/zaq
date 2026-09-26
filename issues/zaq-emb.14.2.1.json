@@ -7,7 +7,7 @@
   ],
   "closed_at": "2026-09-26T08:34:07Z",
   "created": "2026-09-26T08:21:37Z",
-  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.12; no self-approval.\n\nChannels bridge/JidoChat slice stacked on #812. Normalize a typed history kind (direct vs channel) and verified provider/connector/channel/thread coordinates from configured bridge and adapter-sourced channel metadata, not arbitrary Incoming.metadata or webhook body claims. Keep author Person resolution on Engine IncomingMessageRouter; do not grant access here or change mention gating. Tests FIRST: DM versus room, unknown kind fail closed, forged metadata/config mismatch, cross-connector isolation and existing routing regression. Reuse CommunicationBridge.put_routing_context and Incoming.RoutingContext; do not create a new Action or agent tool. Docs Channels guide, test handbook; no feature E2E authored before human UX approval.",
+  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR A. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.12; no self-approval.\n\nChannels bridge/JidoChat slice within PR A, sequenced after .14.1 internally. Normalize a typed history kind (direct vs channel) and verified provider/connector/channel/thread coordinates from configured bridge and adapter-sourced channel metadata, not arbitrary Incoming.metadata or webhook body claims. Keep author Person resolution on Engine IncomingMessageRouter; do not grant access here or change mention gating. Tests FIRST: DM versus room, unknown kind fail closed, forged metadata/config mismatch, cross-connector isolation and existing routing regression. Reuse CommunicationBridge.put_routing_context and Incoming.RoutingContext; do not create a new Action or agent tool. Docs Channels guide, test handbook; no feature E2E authored before human UX approval.",
   "id": "zaq-emb.14.2.1",
   "labels": [],
   "parent": "zaq-emb.14.2",
@@ -29,5 +29,5 @@
   "status": "closed",
   "title": "[zaq-emb.14.2.1] Stamp verified channel history kinds",
   "type": "task",
-  "updated_at": "2026-09-26T09:48:26Z"
+  "updated_at": "2026-09-26T09:51:46Z"
 }
