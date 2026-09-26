@@ -17,11 +17,15 @@
     {
       "text": "2026-09-26 test-first additive private record delivered locally on feature/issue-768-private-execution-records: 00013 creates execution_records with mandatory Person/input, hashed (Base64 SHA-256 shape) finalization capability, private trace/tool-results/usage/outcome, optional unique public answer and DB status/FK checks. 00014 (new migration because 00013 was already applied in test DB) forbids input==public answer; down of 00013 refuses to drop populated private records. No existing migration or legacy Message data was rewritten; legacy finalization remains unchanged until .15. Integration test links canonical transcript input+answer to separate ExecutionRecord and proves read projection excludes capability/trace/usage; direct tests cover duplicate answer/hash, bad capability, nil/missing Person, status, property over capabilities. Focused 161 tests/3 properties pass, mix q passes; MIX_ENV=test reports 00010..14 up. No agent/tool/BO exposure or feature E2E.",
       "timestamp": "2026-09-26T08:05:51Z"
+    },
+    {
+      "text": "2026-09-26 committed bda9dcc21; pushed feature/issue-768-private-execution-records and opened draft stacked PR #811 on #808 (GitHub assigned #811, not #809). Validation: 161 focused tests/3 properties, 0 failures; mix q green; test migrations 00010..14 up. PR #811 CI pending, no failures so far. Schema-only: trusted execution writer and legacy cutover still pending downstream. No new-feature E2E authored.",
+      "timestamp": "2026-09-26T08:08:26Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.3.3] Add private Person-bound execution records",
   "type": "task",
-  "updated_at": "2026-09-26T08:05:51Z"
+  "updated_at": "2026-09-26T08:08:26Z"
 }
