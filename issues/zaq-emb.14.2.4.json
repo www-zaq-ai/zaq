@@ -9,9 +9,15 @@
   "id": "zaq-emb.14.2.4",
   "labels": [],
   "parent": "zaq-emb.14.2",
+  "comments": [
+    {
+      "text": "Action reuse: outbound delivery is already SmtpSender.send_notification/3,/4 and EmailBridge.send_reply/2. Extend existing SmtpSender delivery path with a receipt-bearing variant returning only after Mailer.deliver/2 reports success; preserve existing :ok/error callers. EmailBridge adds receipt facts to its existing threading receipt only for confirmed delivery; no new send operation or agent tool. Inputs: existing payload/metadata and selected SMTP connector; outputs: legacy :ok/error or evidence of actual Swoosh from/envelope to on success; errors pass through without evidence, ambiguous/mismatched connector fails closed. Actor permissions unchanged; SmtpSender delivery is the only side effect; retries remain caller-owned and must not synthesize success. Code consumer EmailBridge only, not workflow/agent tool. Verify sender override/settings, explicit IMAP binding, failed transport, hidden Bcc isolation, legacy notifications and fake sender behavior; existing configured SMTP encryption/decryption unchanged.",
+      "timestamp": "2026-09-26T10:26:56Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.4] Return confirmed SMTP history evidence",
   "type": "task",
-  "updated_at": "2026-09-26T10:26:49Z"
+  "updated_at": "2026-09-26T10:26:56Z"
 }
