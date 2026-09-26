@@ -10,9 +10,9 @@ defmodule Zaq.Ingestion.ArtifactType do
 
   alias Plug.Conn.Utils
 
-  @safe_extension ~r/\A\.[a-z0-9]+\z/
+  @safe_extension ~r/\A\.[a-z0-9-]+\z/
 
-  @doc "Returns the first safe extension for an explicitly registered MIME type."
+  @doc "Returns the first extension for an explicitly registered MIME type."
   @spec canonical_extension(String.t() | nil) :: String.t() | nil
   def canonical_extension(mime_type), do: mime_type |> extensions() |> List.first()
 
@@ -28,9 +28,13 @@ defmodule Zaq.Ingestion.ArtifactType do
   @doc "Returns a safe, lowercase filename extension or nil."
   @spec filename_extension(String.t() | nil) :: String.t() | nil
   def filename_extension(filename) when is_binary(filename) do
-    filename
-    |> Path.extname()
-    |> normalize_extension()
+    if String.contains?(filename, ["/", "\\"]) do
+      nil
+    else
+      filename
+      |> Path.extname()
+      |> normalize_extension()
+    end
   end
 
   def filename_extension(_filename), do: nil
@@ -50,8 +54,7 @@ defmodule Zaq.Ingestion.ArtifactType do
          true <- Map.has_key?(MIME.known_types(), normalized) do
       normalized
       |> MIME.extensions()
-      |> Enum.map(&normalize_extension("." <> &1))
-      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&("." <> &1))
     else
       _ -> []
     end

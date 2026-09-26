@@ -6,9 +6,11 @@ defmodule Zaq.Ingestion.RecordSource do
   signed handles. It does not resolve provider-specific paths or mounted volumes.
 
   Binary downloads use a safe, lowercase downloaded filename suffix when compatible
-  with the downloaded MIME type, or when that MIME is missing, blank or octet-stream.
+  with the downloaded MIME type, or when that MIME is missing, blank, octet-stream
+  or unmapped.
   Otherwise the downloaded MIME's canonical suffix wins. Only nonspecific downloaded
-  MIME permits fallback to the original filename; unknown specific types use `.bin`.
+  MIME permits fallback to the original filename; unmapped specific types without
+  a safe downloaded suffix use `.bin`.
   Original MIME never determines the staged extension. Source metadata stays intact,
   and row/plain-text downloads continue to use Markdown.
   """
@@ -257,17 +259,19 @@ defmodule Zaq.Ingestion.RecordSource do
   defp extension_for(%Record{} = original, %Record{} = downloaded) do
     extension = ArtifactType.filename_extension(downloaded.name)
     nonspecific? = ArtifactType.nonspecific_mime?(downloaded.mime_type)
+    canonical_extension = ArtifactType.canonical_extension(downloaded.mime_type)
 
     cond do
       extension &&
-          (nonspecific? || ArtifactType.compatible_extension?(downloaded.mime_type, extension)) ->
+          (nonspecific? || is_nil(canonical_extension) ||
+             ArtifactType.compatible_extension?(downloaded.mime_type, extension)) ->
         extension
 
       nonspecific? ->
         ArtifactType.filename_extension(original.name) || ".bin"
 
       true ->
-        ArtifactType.canonical_extension(downloaded.mime_type) || ".bin"
+        canonical_extension || ".bin"
     end
   end
 

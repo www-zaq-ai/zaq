@@ -48,9 +48,15 @@ defmodule Zaq.Ingestion.RecordSourceTest do
         {"blank metadata", "Report", nil, "", " ", ".bin"},
         {"generic metadata", "Report", nil, nil, "application/octet-stream", ".bin"},
         {"unknown specific MIME", "Report.docx", @docx, "Report.docx",
-         "application/x-zaq-unknown", ".bin"},
+         "application/x-zaq-unknown", ".docx"},
         {"unknown structured-suffix MIME", "Report.docx", @docx, "Report.zip",
-         "application/vnd.zaq-unknown+zip", ".bin"},
+         "application/vnd.zaq-unknown+zip", ".zip"},
+        {"unknown MIME without downloaded suffix", "Report.docx", @docx, "Report",
+         "application/x-zaq-unknown", ".bin"},
+        {"unknown MIME with unsafe downloaded suffix", "Report.docx", @docx, "Report.bad suffix",
+         "application/x-zaq-unknown", ".bin"},
+        {"unknown structured-suffix MIME without downloaded suffix", "Report.docx", @docx,
+         "Report", "application/vnd.zaq-unknown+zip", ".bin"},
         {"unsafe downloaded suffix", "Report", nil, "Report.pdf\\evil", "application/pdf",
          ".pdf"},
         {"unsafe suffix fallback", "Report.pdf", nil, "Report.bad suffix", nil, ".pdf"},
@@ -120,6 +126,34 @@ defmodule Zaq.Ingestion.RecordSourceTest do
     refute String.starts_with?(document.content, "PK")
     refute document.content =~ "[Content_Types].xml"
     refute document.content =~ "word/document.xml"
+  end
+
+  test "preserves a genuine downloaded DOCX suffix when its MIME type is unknown" do
+    fixture = File.read!("test/fixtures/offline_conversion/google_drive_docx_export.docx")
+    source = %{external_record() | name: "Budget", mime_type: nil}
+
+    downloaded = %Record{
+      id: "provider-file-1",
+      kind: :file,
+      name: "Budget.docx",
+      mime_type: "application/x-zaq-unknown",
+      content: Base.encode64(fixture),
+      attributes: %{"encoding" => "base64"}
+    }
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      assert event.next_hop.destination == :channels
+      assert event.opts[:action] == :data_source_download_document
+      assert event.request.provider == "google_drive"
+      assert event.request.params["file_id"] == "provider-file-1"
+      %{event | response: {:ok, %{record: downloaded}}}
+    end)
+
+    assert {:ok, materialized} = RecordSource.materialize(source, router_context())
+    on_exit(fn -> Enum.each(materialized.cleanup_paths, &File.rm_rf!/1) end)
+
+    assert File.read!(materialized.path) == fixture
+    assert Path.extname(materialized.path) == ".docx"
   end
 
   defp assert_artifact(source, name, mime_type, extension) do
