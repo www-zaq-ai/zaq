@@ -57,11 +57,15 @@
     {
       "text": "Follow-up regression checks: canonical provider IDs can no longer be reused in a different room (while the existing parent-to-child append case remains supported), and replays after adopting an external message preserve its user role and UUID. Admission replays now reject changed author/content and changed IMAP mailbox source; legacy reuse accepts only external/user inputs with matching attested author, not assistant messages. Added explicit nil-author historical-row test: it refuses placement rather than guessing the sender, so legacy reconciliation remains required before rollout. 170 targeted tests/2 properties and mix q pass after final change; broader affected suite 350 tests/6 properties passed before the last nil-author regression; JidoChatBridge 182 tests passed separately. No migrations altered, no ingress wiring, no E2E authoring or Git/PR mutations.",
       "timestamp": "2026-09-26T12:19:12Z"
+    },
+    {
+      "text": "PR A People-facing read reuse assessment before coding: PeopleConversations.dispatch/2 already authenticates confidential People bearer per operation and checks access_message_history; Conversations.list_canonical_messages/3 already checks Person plus transcript-path grant/owner and bounds projected content. Extend existing PeopleConversations with read-only :channel_history operation accepting transcript_id and bounded cursor, sourcing Person only from authenticated token, and delegate to Conversations.list_canonical_messages/3. No new Action/tool or parallel auth implementation; preserve existing legacy :detail/:message operation semantics; no channel-history shares/citations/exports until explicitly scoped. Tests first through existing Engine.Api :people_conversations confidential event with token and two People, check nil/unauthorized/revoked access, cursor, private metadata and trace exclusion. No UI changes.",
+      "timestamp": "2026-09-26T12:45:48Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T12:19:12Z"
+  "updated_at": "2026-09-26T12:45:48Z"
 }
