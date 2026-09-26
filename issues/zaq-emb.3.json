@@ -13,9 +13,15 @@
   "id": "zaq-emb.3",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "2026-09-26 storage preparation while prerequisites CI run: existing messages table has required conversation_id and owns ratings/trace_artifact FKs; consider evolving Message rows in place with nullable legacy conversation_id and separate transcript/message associations, preserving message UUIDs and downstream references. Keep .3 structural primitives separate from .15 legacy backfill/cutover; prove authorization via transcript path, serial sequence allocation, idempotent provider/account key. No implementation yet: .3 remains blocked by .2/.21/.22 status and latest stacked CI; record final schema decision/tests before editing. Action reuse candidate Conversations.add_message/admit_incoming, not parallel persistence Action.",
+      "timestamp": "2026-09-26T07:02:40Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.3] Universal canonical messages and transcript associations",
   "type": "task",
-  "updated_at": "2026-09-25T09:37:05Z"
+  "updated_at": "2026-09-26T07:02:40Z"
 }
