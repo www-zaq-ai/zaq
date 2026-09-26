@@ -82,18 +82,18 @@ defmodule Zaq.Ingestion.RecordSourceTest do
 
   test "converts a genuine extensionless Google DOCX export to readable Markdown" do
     expected_text = "ZAQ issue 568 genuine DOCX regression"
-    fixture = File.read!("test/fixtures/issue_568_google_doc.docx")
+    fixture = File.read!("test/fixtures/offline_conversion/google_drive_docx_export.docx")
 
     source = %{
       external_record()
-      | name: "Issue 568 export",
+      | name: "Google Drive document export",
         mime_type: "application/vnd.google-apps.document"
     }
 
     downloaded = %Record{
       id: "provider-file-1",
       kind: :file,
-      name: "Issue 568 export",
+      name: "Google Drive document export",
       mime_type: @docx,
       content: Base.encode64(fixture),
       attributes: %{"encoding" => "base64"}
