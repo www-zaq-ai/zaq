@@ -23,7 +23,8 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
       handler = fn _conn, _body ->
         {200,
          OpenAIStub.chat_completion("""
-         **Query:** elixir beam scheduler
+          **Query:** elixir beam scheduler
+          **Lexical Terms:** ["elixir", "beam", "scheduler"]
          **Language:** eng
          **Positive Answer:** Please wait while I search.
          **Negative Answer:** No information found, try rephrasing.
@@ -45,7 +46,8 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
       handler = fn _conn, _body ->
         {200,
          OpenAIStub.chat_completion("""
-         **Query:** some query
+          **Query:** some query
+          **Lexical Terms:** ["some", "query"]
          **Language:** und (undetermined, see note)
          **Positive Answer:** Searching...
          **Negative Answer:** Not found.
@@ -64,7 +66,8 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
       handler = fn _conn, _body ->
         {200,
          OpenAIStub.chat_completion("""
-         **Query:** some query
+          **Query:** some query
+          **Lexical Terms:** ["some", "query"]
          **Positive Answer:** Searching...
          **Negative Answer:** Not found.
          """)}
@@ -82,7 +85,8 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
       handler = fn _conn, _body ->
         {200,
          OpenAIStub.chat_completion("""
-         **Language:** fra
+          **Language:** fra
+          **Lexical Terms:** ["Original", "question"]
          **Positive Answer:** Searching...
          **Negative Answer:** Not found.
          """)}

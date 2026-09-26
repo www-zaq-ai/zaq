@@ -408,20 +408,21 @@ without safe permission mutation support return `:unsupported`.
 ### Built-in Agent Tools (`Zaq.Agent.Tools.SearchKnowledgeBase`, `Zaq.Agent.Tools.ListKnowledgeBaseFiles`)
 - Tool implementations exposed to configured agents through `Tools.Registry`
 - Availability remains controlled by enabled tool keys and provider capabilities
-- `SearchKnowledgeBase` discovers globally persisted chunk languages from
-  Ingestion's ETS-backed inventory, prepares bounded semantic queries and ORed
-  lexical terms in one internal `TranslateKnowledgeQuery` Action using
-  `ProviderSpec` for the configured model, and searches
-  each language concurrently through explicit Ingestion events. Ingestion
-  applies ACLs after retrieval and filters candidates/chunks by language.
-   Direct matches are merged by chunk-level hybrid-fusion score and globally limited by
-  Ingestion's context budget. The tool returns chunks with their detected
-  language and explicit per-language errors plus a `partial` flag when only
-  some searches succeed. `simple` chunks retain the original semantic query and
-  use bounded terms split from it without translation. RRF scores are separate
-  from measured chunk cosine distances; expanded siblings have no measured
-   distance or direct-match RRF score. No translation
-  operation is exposed in `Tools.Registry`.
+- `SearchKnowledgeBase` requires a semantic `query` and LLM-authored
+  `lexical_terms` (including names and identifiers, without filler words). The
+  legacy Pipeline's Retrieval LLM supplies both fields; the tool discovers
+  persisted chunk languages from Ingestion's ETS inventory and passes the terms
+  to the internal `TranslateKnowledgeQuery` Action. It translates terms for
+  detected languages via `ProviderSpec`, while `simple` preserves the original
+  query and terms without calling the generator. Every supplied term reaches
+  Ingestion as an independent OR clause; no first-N or per-term length cutoff
+  applies. Searches run concurrently through explicit Ingestion events, which
+  apply ACLs after retrieval and filter candidates/chunks by language. Direct
+  matches are merged by chunk-level hybrid-fusion score and limited globally by
+  Ingestion's context budget. The tool returns chunk languages, per-language
+  errors and a `partial` flag. RRF scores are separate from measured cosine
+  distances; section-only siblings inherit neither score nor distance. The
+  translation Action is not exposed in `Tools.Registry`.
 
 ### Conversation Recall Tool (`Zaq.Agent.Tools.Accounts.History`, key `accounts.fetch_history`)
 - Recalls the requesting person's past conversations by topic (`query`) and/or time

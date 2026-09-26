@@ -97,6 +97,7 @@ defmodule Zaq.Agent.PipelineTest do
       {:ok,
        %{
          "query" => "test query",
+         "lexical_terms" => ["test"],
          "language" => "en",
          "positive_answer" => "positive answer",
          "negative_answer" => "negative answer"
@@ -120,7 +121,7 @@ defmodule Zaq.Agent.PipelineTest do
 
   test "search fixture follows the explicit ingestion search contract" do
     assert {:ok, %{chunks: [chunk]}} =
-             SearchKnowledgeBase.run(%{query: "test query"}, %{
+             SearchKnowledgeBase.run(%{query: "test query", lexical_terms: ["test"]}, %{
                node_router: StubNodeRouter,
                document_processor: StubDocumentProcessor
              })
