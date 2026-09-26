@@ -127,6 +127,65 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
     end
   end
 
+  defmodule DiscoveryErrorRouter do
+    def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]} = event),
+      do: %{event | response: {:error, :inventory_unavailable}}
+
+    def dispatch(event), do: raise("unexpected ingestion action: #{inspect(event.opts)}")
+  end
+
+  defmodule RaisingDiscoveryRouter do
+    def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]}),
+      do: raise("inventory offline")
+
+    def dispatch(event), do: raise("unexpected ingestion action: #{inspect(event.opts)}")
+  end
+
+  defmodule EmptyDiscoveryRouter do
+    def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]} = event),
+      do: %{event | response: {:ok, []}}
+
+    def dispatch(event), do: raise("unexpected ingestion action: #{inspect(event.opts)}")
+  end
+
+  defmodule LimiterErrorRouter do
+    def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]} = event),
+      do: %{event | response: {:ok, ["simple"]}}
+
+    def dispatch(
+          %Event{opts: [{:action, :search_knowledge_base} | _], request: %{access_opts: opts}} =
+            event
+        ) do
+      if Keyword.get(opts, :language) == "simple" and
+           Keyword.get(opts, :lexical_terms) == ["known", "term"] do
+        %{
+          event
+          | response: {:ok, [%{"document_id" => 7, "chunk_index" => 1, "rrf_score" => 0.5}]}
+        }
+      else
+        %{event | response: {:error, :unexpected_search_options}}
+      end
+    end
+
+    def dispatch(
+          %Event{opts: [{:action, :limit_knowledge_results} | _], request: %{chunks: chunks}} =
+            event
+        ) do
+      if chunks == [%{"document_id" => 7, "chunk_index" => 1, "rrf_score" => 0.5}],
+        do: %{event | response: {:error, :context_budget_unavailable}},
+        else: %{event | response: {:error, :unexpected_chunks}}
+    end
+
+    def dispatch(event), do: raise("unexpected ingestion action: #{inspect(event.opts)}")
+  end
+
+  defmodule TranslationFailureRouter do
+    def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]} = event),
+      do: %{event | response: {:ok, ["simple", "french"]}}
+
+    def dispatch(event), do: raise("unexpected ingestion action: #{inspect(event.opts)}")
+  end
+
   defmodule FrenchGeneration do
     def generate_text(_spec, _messages, _opts),
       do:
@@ -270,6 +329,49 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   describe "run/2 — basic behaviour" do
+    test "returns the exact error when language discovery fails" do
+      assert {:error, "Knowledge base language discovery failed: :inventory_unavailable"} =
+               SearchKnowledgeBase.run(
+                 %{query: "find something", lexical_terms: ["something"]},
+                 %{node_router: DiscoveryErrorRouter}
+               )
+    end
+
+    test "wraps an exception raised synchronously during language discovery" do
+      assert {:error, "Knowledge base search error: inventory offline"} =
+               SearchKnowledgeBase.run(
+                 %{query: "find something", lexical_terms: ["something"]},
+                 %{node_router: RaisingDiscoveryRouter}
+               )
+    end
+
+    test "returns an empty result immediately when discovery finds no languages" do
+      assert {:ok, %{chunks: [], count: 0, errors: [], partial: false}} =
+               SearchKnowledgeBase.run(
+                 %{query: "find something", lexical_terms: ["something"]},
+                 %{node_router: EmptyDiscoveryRouter}
+               )
+    end
+
+    test "returns the exact error when context limiting fails after a successful search" do
+      assert {:error, "Knowledge base context limiting failed: :context_budget_unavailable"} =
+               SearchKnowledgeBase.run(
+                 %{query: "find known term", lexical_terms: ["known", "term"]},
+                 translation_context(LimiterErrorRouter, MissingTranslationGeneration)
+               )
+    end
+
+    test "reports global translation failure for every language on empty lexical terms" do
+      assert {:error, message} =
+               SearchKnowledgeBase.run(
+                 %{query: "find something", lexical_terms: []},
+                 translation_context(TranslationFailureRouter, FrenchGeneration)
+               )
+
+      assert message =~ "%{error: :translation_failed, language: \"simple\", stage: :translation}"
+      assert message =~ "%{error: :translation_failed, language: \"french\", stage: :translation}"
+    end
+
     test "simple uses all supplied terms including the name after eight other terms" do
       terms = Enum.map(1..9, &"term#{&1}") ++ ["Saint-Saturnin"]
 

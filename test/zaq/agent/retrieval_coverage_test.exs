@@ -102,6 +102,50 @@ defmodule Zaq.Agent.RetrievalCoverageTest do
     end
   end
 
+  describe "ask/2 — malformed lexical terms" do
+    test "rejects malformed JSON and JSON values that are not non-empty arrays" do
+      for lexical_terms <- ["[\"unterminated", "null", "{\"term\":\"x\"}", "\"x\"", "[]"] do
+        handler = fn _conn, _body ->
+          {200,
+           OpenAIStub.chat_completion("""
+           **Query:** a valid query
+           **Lexical Terms:** #{lexical_terms}
+           **Language:** eng
+           **Positive Answer:** Searching...
+           **Negative Answer:** Not found.
+           """)}
+        end
+
+        {child_spec, endpoint} = OpenAIStub.server(handler, self())
+        start_supervised!(child_spec)
+        OpenAIStub.seed_llm_config(endpoint)
+
+        assert Retrieval.ask("Question", system_prompt: "Prompt") ==
+                 {:error, :invalid_lexical_terms}
+      end
+    end
+
+    test "trims and de-duplicates valid lexical terms" do
+      handler = fn _conn, _body ->
+        {200,
+         OpenAIStub.chat_completion("""
+         **Query:** Paris landmarks
+         **Lexical Terms:** ["  Paris  ", "Paris", "Saint-Saturnin"]
+         **Language:** eng
+         **Positive Answer:** Searching...
+         **Negative Answer:** Not found.
+         """)}
+      end
+
+      {child_spec, endpoint} = OpenAIStub.server(handler, self())
+      start_supervised!(child_spec)
+      OpenAIStub.seed_llm_config(endpoint)
+
+      assert {:ok, result} = Retrieval.ask("Question", system_prompt: "Prompt")
+      assert result["lexical_terms"] == ["Paris", "Saint-Saturnin"]
+    end
+  end
+
   describe "ask/2 — whitespace response" do
     test "returns error when LLM returns only whitespace" do
       handler = fn _conn, _body ->

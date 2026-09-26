@@ -631,6 +631,9 @@ defmodule Zaq.Ingestion.FTSBackendTest do
     @tag :paradedb
     test "executes OR lexical clauses with multiword AND and filters on indexed chunks" do
       Chunk.create_table(1536)
+      FTSBackend.reset_cache()
+      assert FTSBackend.impl() == FTSBackend.ParadeDB
+
       prefix = "lexical-#{System.unique_integer([:positive])}"
       {:ok, wanted} = Document.create(%{source: "#{prefix}/wanted.md"})
       {:ok, other} = Document.create(%{source: "#{prefix}/other.md"})
@@ -641,14 +644,33 @@ defmodule Zaq.Ingestion.FTSBackendTest do
           document_id: wanted.id,
           content: "Council resolved the city hall dispute, ref MAYOR:42",
           language: "english",
-          chunk_index: 1
+          section_path: ["Council", "Resolution"],
+          chunk_index: 11
+        })
+
+      {:ok, _} =
+        Chunk.create(%{
+          document_id: wanted.id,
+          content: "City hall approved a new plan, ref MAYOR:42",
+          language: "english",
+          section_path: ["Council", "Approval"],
+          chunk_index: 12
+        })
+
+      {:ok, _} =
+        Chunk.create(%{
+          document_id: wanted.id,
+          content: "The city hall published its annual report, ref MAYOR:42",
+          language: "french",
+          section_path: ["Council", "French report"],
+          chunk_index: 13
         })
 
       {:ok, _} =
         Chunk.create(%{
           document_id: other.id,
-          content: "The city manager saw a hall nearby",
-          language: "french",
+          content: "The city hall published its annual report, ref MAYOR:42",
+          language: "english",
           chunk_index: 1
         })
 
@@ -668,12 +690,25 @@ defmodule Zaq.Ingestion.FTSBackendTest do
                  "english"
                )
 
-      assert Map.has_key?(grouped, wanted.id)
+      assert Map.keys(grouped) == [wanted.id]
+
+      assert MapSet.new(Map.keys(grouped[wanted.id])) ==
+               MapSet.new([["Council", "Resolution"], ["Council", "Approval"]])
+
+      assert Enum.all?(grouped[wanted.id], fn {_section_path, chunks} ->
+               Enum.all?(chunks, &is_number(&1.bm25_score))
+             end)
+
+      assert Enum.map(grouped[wanted.id][["Council", "Resolution"]], & &1.chunk_index) == [11]
+      assert Enum.map(grouped[wanted.id][["Council", "Approval"]], & &1.chunk_index) == [12]
 
       assert grouped[wanted.id]
              |> Map.values()
              |> List.flatten()
-             |> Enum.all?(&is_number(&1.bm25_score))
+             |> Enum.map(& &1.chunk_index)
+             |> Enum.sort() == [11, 12]
+
+      refute Map.has_key?(grouped, other.id)
 
       # Baseline whole-question AND loses this chunk; generated OR clauses
       # above retain the directly matching "city hall" term.
@@ -698,7 +733,7 @@ defmodule Zaq.Ingestion.FTSBackendTest do
 
       assert {:ok, %{}} =
                FTSBackend.ParadeDB.bm25_search_group_by(
-                 ["city absent"],
+                 ["uniqueabsentlexicaltoken"],
                  10,
                  ["#{prefix}/wanted.md"],
                  "english"

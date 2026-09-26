@@ -15,6 +15,27 @@ defmodule Zaq.Ingestion.ApiTest do
     end
   end
 
+  defmodule StubChunkLanguages do
+    def list, do: ["english", "french"]
+  end
+
+  defmodule StubDocumentProcessor do
+    def limit_chunks(chunks) do
+      send(self(), {:limit_chunks, chunks})
+      Enum.take(chunks, 1)
+    end
+
+    def query_extraction("failure", access_opts) do
+      send(self(), {:query_extraction, "failure", access_opts})
+      {:error, :search_failed}
+    end
+
+    def query_extraction(query, access_opts) do
+      send(self(), {:query_extraction, query, access_opts})
+      {:ok, [%{content: "matched result"}]}
+    end
+  end
+
   defp handle(request, action) do
     request
     |> Event.new(:ingestion, opts: [action: action])
@@ -69,6 +90,99 @@ defmodule Zaq.Ingestion.ApiTest do
     result = Api.handle_event(event, :list_document_sources, nil)
 
     assert result.response == [{:source, "handbook"}]
+  end
+
+  test "lists chunk languages through the configured inventory" do
+    event =
+      Event.new(%{}, :ingestion,
+        opts: [action: :list_chunk_languages, chunk_languages: StubChunkLanguages]
+      )
+
+    result = Api.handle_event(event, :list_chunk_languages, nil)
+
+    assert result.response == {:ok, ["english", "french"]}
+    assert result.request == event.request
+    assert result.opts == event.opts
+  end
+
+  test "limits knowledge results through the configured document processor" do
+    first = %{content: "first"}
+    second = %{content: "second"}
+    request = %{chunks: [first, second]}
+
+    event =
+      Event.new(request, :ingestion,
+        opts: [action: :limit_knowledge_results, document_processor: StubDocumentProcessor]
+      )
+
+    result = Api.handle_event(event, :limit_knowledge_results, nil)
+
+    assert result.response == {:ok, [first]}
+    assert_received {:limit_chunks, [^first, ^second]}
+    assert result.request == event.request
+    assert result.opts == event.opts
+  end
+
+  test "rejects malformed knowledge-result chunks without invoking the processor" do
+    event =
+      Event.new(%{chunks: :invalid}, :ingestion,
+        opts: [action: :limit_knowledge_results, document_processor: StubDocumentProcessor]
+      )
+
+    assert Api.handle_event(event, :limit_knowledge_results, nil).response ==
+             {:error, {:unsupported_action, :limit_knowledge_results}}
+
+    refute_received {:limit_chunks, _chunks}
+  end
+
+  test "searches the knowledge base and preserves the processor result" do
+    request = %{
+      query: "handbook",
+      access_opts: [person_id: 7, source_filter: ["manual"]]
+    }
+
+    event =
+      Event.new(request, :ingestion,
+        opts: [action: :search_knowledge_base, document_processor: StubDocumentProcessor]
+      )
+
+    result = Api.handle_event(event, :search_knowledge_base, nil)
+
+    assert result.response == {:ok, [%{content: "matched result"}]}
+    assert_received {:query_extraction, "handbook", [person_id: 7, source_filter: ["manual"]]}
+    assert result.request == event.request
+    assert result.opts == event.opts
+  end
+
+  test "passes through knowledge search errors" do
+    request = %{query: "failure", access_opts: []}
+
+    event =
+      Event.new(request, :ingestion,
+        opts: [action: :search_knowledge_base, document_processor: StubDocumentProcessor]
+      )
+
+    result = Api.handle_event(event, :search_knowledge_base, nil)
+
+    assert result.response == {:error, :search_failed}
+    assert_received {:query_extraction, "failure", []}
+  end
+
+  test "rejects malformed knowledge search inputs without invoking the processor" do
+    for request <- [
+          %{query: :invalid, access_opts: []},
+          %{query: "handbook", access_opts: :invalid}
+        ] do
+      event =
+        Event.new(request, :ingestion,
+          opts: [action: :search_knowledge_base, document_processor: StubDocumentProcessor]
+        )
+
+      assert Api.handle_event(event, :search_knowledge_base, nil).response ==
+               {:error, {:unsupported_action, :search_knowledge_base}}
+    end
+
+    refute_received {:query_extraction, _, _}
   end
 
   test "rejects malformed document source queries" do
