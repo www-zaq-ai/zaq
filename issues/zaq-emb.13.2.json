@@ -3,7 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-26T09:22:34Z",
-  "description": "Persistent consolidated feature E2E, PR B partition. Author only after explicit B UX approval, not A approval. Cover user-visible live activity incorporation, no cross-Person leakage or duplicate context, busy/finalizing requests not lost, ordered intermediary/final delivery and delayed timeout outcome. Cursor invariants, tool-call pairing, synchronization acknowledgment and denied/revoked reads also need deterministic integration/property tests before implementation. Reuse existing journeys and real internal boundaries, mock external LLM/transport only. Include B results in B; never block A E2E on this partition.",
+  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR B. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.32; no self-approval.\n\nPersistent consolidated feature E2E, PR B partition. Author only after explicit B UX approval, not A approval. Cover user-visible live activity incorporation, no cross-Person leakage or duplicate context, busy/finalizing requests not lost, ordered intermediary/final delivery and delayed timeout outcome. Cursor invariants, tool-call pairing, synchronization acknowledgment and denied/revoked reads also need deterministic integration/property tests before implementation. Reuse existing journeys and real internal boundaries, mock external LLM/transport only. Include B results in B; never block A E2E on this partition.",
   "id": "zaq-emb.13.2",
   "labels": [],
   "parent": "zaq-emb.13",
@@ -11,5 +11,5 @@
   "status": "open",
   "title": "[zaq-emb.13.2] PR B live-execution and completion E2E",
   "type": "task",
-  "updated_at": "2026-09-26T09:22:34Z"
+  "updated_at": "2026-09-26T09:48:26Z"
 }
