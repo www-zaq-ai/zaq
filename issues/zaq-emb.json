@@ -26,11 +26,15 @@
     {
       "text": "User authorized two stacked PRs and asked to stop after publication. Created open draft PR #799 (feature/issue-768-communication-connectors -\u003e main), commit 56a5f6d0b, isolated 750 tests + 2 properties pass and mix q pass. Created open draft PR #800 (feature/issue-768-history-permission-foundations -\u003e PR799 branch), commit eba6d105f, mix q passes; isolated changed-test group 6 doctests/11 properties/690 tests with 23 ExecutorTest failures, confirmed in isolated ExecutorTest (unregistered atom runtime stubs fail PID resolution). Both PR bodies cross-link, document validation/migration/future work, no merge/close/auto-merge. User communications-only scope respected: data-source-specific files excluded. Deferred stash 5b67b9b46763905831da433de5eaadb7ccc30ff0 retains data-source work; initial full backup stash 6c510c6a8bed1813491c0819b91c5f8bdddddc54; intermediate split stash 4e9aa25df6f1b21d50540257b36021cd542cd023. Keep all snapshots; do not blindly apply deferred stash (contains selected history snapshot too); diff stash index parent to stash tree for held-only changes. Current branch PR800 clean, tracks origin. No beads closed; reporting back before further implementation.",
       "timestamp": "2026-09-25T22:48:09Z"
+    },
+    {
+      "text": "PR799 CI repair ownership: child zaq-emb.21.1 is claimed by this session; avoid overlapping Channels.Api delivery and four notification/email regression test files (plus channels/api_test.exs). Coordinate with child issue before editing. Do not independently apply this fix to downstream PR stacks; integrate PR799 commit after it lands.",
+      "timestamp": "2026-09-26T00:12:47Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb] Canonical messages, history strategies and person-bound execution",
   "type": "epic",
-  "updated_at": "2026-09-25T22:48:09Z"
+  "updated_at": "2026-09-26T00:12:47Z"
 }
