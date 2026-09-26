@@ -25,11 +25,15 @@
     {
       "text": "Migration reconciliation evidence: this worktree’s MIX_ENV=test DB already reports 20260922000000..09 up, so new storage needs a fresh later version rather than editing/replaying those applied migrations. MIX_ENV=dev database named zaq_feature_issue_768_data_source_watch_lifecycle is absent; migration check failed with PostgreSQL 3D000, and no existing populated database was created/dropped/reset. Legacy backfill belongs .15 and should operate incrementally on preserved rows.",
       "timestamp": "2026-09-26T07:07:27Z"
+    },
+    {
+      "text": "2026-09-26 split as required by deployment/test risk: child .3.1 owns schema/structural migration, child .3.2 owns authorized transactional API, .3.1 blocks .3.2; parent .3 remains open until both completed, then its existing edges unblock .14/.15. Beadwork forbids descendant-\u003eancestor dependency (child .3.2 blocks parent rejected); containment and parent closure enforce that ordering. Root .3.1 is ready; .3.2 blocked. No new feature E2E until .12/.13. Proposed in-place messages preserves UUID/FK references and uses later migration version because test DB already applied 00000..09.",
+      "timestamp": "2026-09-26T07:14:10Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.3] Universal canonical messages and transcript associations",
   "type": "task",
-  "updated_at": "2026-09-26T07:07:27Z"
+  "updated_at": "2026-09-26T07:14:10Z"
 }
