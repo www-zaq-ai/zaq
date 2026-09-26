@@ -3,7 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-26T09:22:32Z",
-  "description": "After B coverage/review, run final mix precommit through Context Mode with 900000ms timeout; resolve failures and repeat required full gates. Record current B regression, E2E, coverage, review and docs evidence, distinguish persisted completion from delivery. Request final human approval only after clean gates. Do not automatically commit/push/merge/close. Action reuse N/A.",
+  "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR B. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.32; no self-approval.\n\nAfter B coverage/review, run final mix precommit through Context Mode with 900000ms timeout; resolve failures and repeat required full gates. Record current B regression, E2E, coverage, review and docs evidence, distinguish persisted completion from delivery. Request final human approval only after clean gates. Do not automatically commit/push/merge/close. Action reuse N/A.",
   "id": "zaq-emb.34",
   "labels": [],
   "parent": "zaq-emb",
@@ -11,5 +11,5 @@
   "status": "open",
   "title": "[zaq-emb.34] PR B final precommit and human implementation approval",
   "type": "task",
-  "updated_at": "2026-09-26T09:22:32Z"
+  "updated_at": "2026-09-26T09:48:17Z"
 }
