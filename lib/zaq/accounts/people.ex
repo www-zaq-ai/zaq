@@ -184,7 +184,7 @@ defmodule Zaq.Accounts.People do
 
   def match_by_channel(_platform, _identifier, _config_id), do: {:error, :not_found}
 
-  @doc "Binds an old unscoped opaque identity only to its sole live provider connector."
+  @doc "Binds an old unscoped opaque identity only when its provider has one known connector."
   @spec link_legacy_channel_to_connector(String.t(), String.t(), pos_integer()) ::
           {:ok, PersonChannel.t()} | {:error, term()}
   def link_legacy_channel_to_connector(platform, identifier, config_id) do
@@ -207,9 +207,7 @@ defmodule Zaq.Accounts.People do
       config_ids =
         Repo.all(
           from c in ChannelConfig,
-            where:
-              c.provider == ^platform and c.kind == "retrieval" and c.enabled == true and
-                is_nil(c.archived_at),
+            where: c.provider == ^platform and c.kind == "retrieval",
             select: c.id,
             limit: 2
         )
