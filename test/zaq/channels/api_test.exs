@@ -157,6 +157,20 @@ defmodule Zaq.Channels.ApiTest do
     end
   end
 
+  defmodule StubReplyTimeoutBridge do
+    def send_reply(%Outgoing{} = outgoing, _details) do
+      send(self(), {:attempted_final_delivery, outgoing})
+      {:error, :timeout}
+    end
+  end
+
+  defmodule StubCommunicationReplyTimeout do
+    def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubReplyTimeoutBridge
+    def bridge_for(provider, _opts), do: bridge_for(provider)
+    def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
+    def fetch_connection_details(_provider), do: %{}
+  end
+
   defmodule StubBridgeNoCallbacks do
     def send_reply(%Outgoing{} = outgoing, details) do
       send(self(), {:bridge_send_reply, outgoing, details})
@@ -396,6 +410,26 @@ defmodule Zaq.Channels.ApiTest do
 
     assert %Outgoing{metadata: %{format: :markdown}} = delivered_outgoing
     assert %{delivered_outgoing | metadata: %{}} == outgoing
+  end
+
+  test "final channel delivery reports transport timeout even when the outgoing answer exists" do
+    outgoing = %Outgoing{
+      body: "5 in Arabic is ٥ — pronounced khamsa (خمسة).",
+      channel_id: "c1",
+      provider: :mattermost
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationReplyTimeout]
+      )
+
+    delivered = Api.handle_event(event, :deliver_outgoing, nil)
+
+    assert delivered.response == {:error, :timeout}
+
+    assert_received {:attempted_final_delivery,
+                     %Outgoing{body: "5 in Arabic is ٥ — pronounced khamsa (خمسة)."}}
   end
 
   test "reply to one of two provider connectors uses its ingress routing context" do
