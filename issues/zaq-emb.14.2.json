@@ -9,9 +9,15 @@
   "id": "zaq-emb.14.2",
   "labels": [],
   "parent": "zaq-emb.14",
+  "comments": [
+    {
+      "text": "2026-09-26 children .14.2.1 shipped as draft PR #813 on #812; .14.2.2 email evidence and .14.2.3 Jido Chat room-type evidence remain open. Email discovery before implementation: ImapAdapter.Parser currently extracts only first To and reply_from (possibly Delivered-To); IMAP mailbox field is folder, not receiving address. EmailBridge.send_reply uses SmtpSender.send_notification(identifier,payload,..) which returns only :ok/error and derives actual sender via payload/settings. Do not infer sender or Bcc from reply thread, Delivered-To, IMAP folder, or configured notification default. To fulfill sender copy and confirmed outbound-envelope Bcc, a receipt must carry the actual sender/envelope recipient without duplicating SmtpSender delivery; preserve legacy return compatibility or extend receipt at owning boundary. Channels normalizes address evidence, Engine .4 resolves Person identities/authorizes targets; no raw Bcc in shared projection. #807/#808/#811 CI green, #812/#813 pending E2E; no new-feature E2E authored.",
+      "timestamp": "2026-09-26T08:35:41Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.14.2] Normalize trusted provider history facts",
   "type": "task",
-  "updated_at": "2026-09-26T08:09:47Z"
+  "updated_at": "2026-09-26T08:35:41Z"
 }
