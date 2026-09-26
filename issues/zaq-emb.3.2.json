@@ -21,11 +21,15 @@
     {
       "text": "2026-09-26 implementation on feature/issue-768-canonical-transcript-api: Conversations delegates internal append/list to TranscriptHistory. Append checks persisted retrieval connector/provider, rejects archived ingress, verifies channel permission coordinate/parent strategy, requires Replicated recipient match, derives provider+connector+mailbox source key, uses partial-index conflict target and content conflict validation, locks transcript FOR UPDATE and increments next_position only for new association; no provider ID means no guessed dedup. Read requires persisted Person + direct grant for Direct/Shared or owner for Replicated; pages bounded by cursor/up-to/limit; returns only content and primitive attachment descriptors. Descriptor sanitization happens before DB insert and again on read. Legacy rate_message_by_id now rejects conversation-less canonical UUID, preventing crash/unauthorized mutation. Test-first regressions demonstrate missing APIs, null-content replay bug, bogus Person, and raw attachment persistence; focused 193 tests/6 properties plus mix q passed before latest narrow test additions, and current 13 new tests/1 property pass. Shared sandbox task test checks overlapping append positions but cannot prove multi-connection lock contention; database row lock and unique constraints provide cross-connection enforcement. #807 prerequisite CI green; no new-feature E2E authored.",
       "timestamp": "2026-09-26T07:55:08Z"
+    },
+    {
+      "text": "2026-09-26 final issue-level validation on staged scope: 194 focused tests/6 properties, 0 failures across canonical schema/store, legacy Conversations and Permissions; mix q passed, staged diff --check clean. Existing Action PersistMessageHistory intentionally not reused because agent/workflow input and one-conversation semantics cannot safely represent passive canonical fanout. Observed overlap task test uses DataCase shared sandbox, so do not claim independent Postgres-connection contention tested; unique constraints plus FOR UPDATE implement serial committed positions. No new-feature E2E until human UX approval; raw traces/rating UUID path guarded.",
+      "timestamp": "2026-09-26T07:56:37Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.3.2] Add authorized canonical transcript persistence primitives",
   "type": "task",
-  "updated_at": "2026-09-26T07:55:08Z"
+  "updated_at": "2026-09-26T07:56:37Z"
 }
