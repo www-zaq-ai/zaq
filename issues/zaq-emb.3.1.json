@@ -1,10 +1,9 @@
 {
-  "assignee": "Julien",
+  "assignee": "",
   "blocked_by": [],
   "blocks": [
     "zaq-emb.3.2"
   ],
-  "closed_at": "2026-09-26T07:29:49Z",
   "created": "2026-09-26T07:13:38Z",
   "description": "Structural storage slice for #768, stacked on #806: evolve existing messages UUID rows in place (retain ratings/trace FKs) with nullable legacy conversation_id for new shared messages; add source/account identity, author snapshot and timestamp; introduce transcripts with strategy/scope and associations with stable local sequence/provenance plus uniqueness and FK safeguards. No legacy row rewrite, no automatic hydration, no BO UI. Before implementation test preserved legacy rows/references, multi-transcript same message, constraint/idempotency and reversible safe schema changes without resetting populated DB. Reuse existing Message/Conversation schemas; new schema modules are Engine-owned persistence (local-only, no Action/tool). Mocks none: database integration/property tests with isolated state. Read Engine guide, docs/action-reuse.md, docs/testing-approach.md and module docs. Update docs/services/engine.md. New-feature E2E remains behind zaq-emb.12; .15 owns backfill/cutover.",
   "id": "zaq-emb.3.1",
@@ -25,8 +24,8 @@
     }
   ],
   "priority": 1,
-  "status": "closed",
+  "status": "open",
   "title": "[zaq-emb.3.1] Add canonical message and transcript association schema",
   "type": "task",
-  "updated_at": "2026-09-26T07:29:49Z"
+  "updated_at": "2026-09-26T07:30:10Z"
 }
