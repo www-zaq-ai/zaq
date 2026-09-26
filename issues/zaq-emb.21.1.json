@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T00:08:57Z",
+  "description": "Own PR #799 CI 31-test regression only. Reserved paths: lib/zaq/channels/api.ex; test/zaq/channels/email_html_delivery_test.exs; test/zaq/engine/notifications/{notification_test,email_threading_test,outbound_threading_regression_test}. Verify generic email uses configured SMTP default/sole without bypassing explicit IMAP connector validation; adjust notification bridge fixtures to new connector lookup contract without weakening assertions; add regression for ambiguous/missing/default. Reuse Channels.Api delivery_connection and ChannelConfig.resolve_notification_smtp; no new Action or agent tool (existing outbound delivery operation). Consumers: Channels :deliver_outgoing and Engine notifications, no UI/E2E changes. Test focused red then green, mix q, isolated suites, final precommit only at approval gate. This issue is exclusively claimed for PR799; other zaq-emb workers please avoid these paths and do not duplicate fix.",
+  "id": "zaq-emb.21.1",
+  "labels": [],
+  "parent": "zaq-emb.21",
+  "priority": 1,
+  "status": "open",
+  "title": "[PR799] Restore email delivery and notification regression tests",
+  "type": "bug",
+  "updated_at": "2026-09-26T00:08:57Z"
+}
