@@ -13,11 +13,15 @@
     {
       "text": "Action reuse: no independent operation; normalize provider-origin room type as a private Channels bridge guard in existing JidoChatBridge.to_internal/2 and listener ingress, with existing Jido.Chat.* adapters as sole producers. Jido.Chat.ChannelMeta.is_dm defaults false; upstream Mattermost maps unknown channel_type to :channel and Discord missing guild_id to :dm, so metadata alone may misstate an unknown event. Inputs: normalized adapter Incoming + configured provider/room and original raw provider event facts; outputs: :direct/:channel/nil fail-closed, no grants or persistence, deterministic/idempotent. No agent tool or workflow Action: local-only policy normalization is not a composable business operation. Tests first: real provider event fixtures for Mattermost/Discord/Telegram, conflicting claimed metadata, unknown types, nonmentions, configured provider mismatch. Supported first-release matrix must be explicit; Slack/Teams not configured in config/config.exs. No dependency edits and no outbound changes.",
       "timestamp": "2026-09-26T10:35:01Z"
+    },
+    {
+      "text": "Local uncommitted implementation: JidoChatBridge stamps history_kind only when normalized ChannelMeta adapter provider/room and raw provider-origin event kind agree. Tested actual Mattermost, Telegram and Discord adapter transforms, nonmention-shaped text, wrong provider/room, unknown kind, Discord absent guild and explicit parent, and conflicting metadata. Bounded matrix documented in Channels: Mattermost D/O/P, Telegram explicit private/group/supergroup/channel, Discord guild and threads with explicit guild+parent; Mattermost group DM and unproven Discord DM fail closed, Slack/Teams not configured. The prior unit assertions asserting kind from naked is_dm maps were replaced with stronger positive examples requiring source event facts; 182 bridge tests pass, mix q passes. This verifies kind evidence only, NOT passive nonmention persistence or grant/authorization; zaq-emb.4 must implement that and record supported connector matrix in integrated validation. No new feature E2E.",
+      "timestamp": "2026-09-26T10:45:42Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.3] Verify platform room-type evidence",
   "type": "task",
-  "updated_at": "2026-09-26T10:35:01Z"
+  "updated_at": "2026-09-26T10:45:42Z"
 }
