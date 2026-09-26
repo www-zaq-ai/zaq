@@ -47,11 +47,15 @@
     {
       "text": "Publication unblocked on 2026-09-26: draft #806 open, stacked on #800. CI pending. Any lifecycle fixes remain on #806 branch; do not create micro-PRs.",
       "timestamp": "2026-09-26T06:02:54Z"
+    },
+    {
+      "text": "2026-09-26 after trust restack: focused affected #806 engine/channels/BO suite 401 tests/2 properties, 0 failures; mix q green on current head 23c935a45. Test DB has 20260922000000..09 migrations up; dev worktree DB is absent, so no dev migration status or populated-DB reset was attempted. CI for #806 latest head still running. Archive failure/retry and late-watch cleanup regressions remain in suite; keep issue open until CI/audit finalization.",
+      "timestamp": "2026-09-26T07:01:01Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.22] Archive connector while retaining scoped identities and history",
   "type": "task",
-  "updated_at": "2026-09-26T06:02:54Z"
+  "updated_at": "2026-09-26T07:01:01Z"
 }
