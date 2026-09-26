@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-26T08:32:25Z",
+  "description": "Follow-up to .14.2.1 discovered during adapter review: Jido.Chat.ChannelMeta defaults is_dm=false without proving a room; shared-history stamping therefore remains nil for typed metadata without explicit room type. Audit supported Mattermost/Slack/Teams/Discord/Telegram adapter event facts at the verified event origin, normalize explicit channel/group type or adapter-confirmed DM before bridge routing, and keep missing/unknown kinds fail-closed. Do not use untrusted webhook is_dm/metadata, fallback false or a first connector guess. Tests FIRST with real provider event fixtures and cross-provider/config mismatch, including nonmention passive capture readiness; keep channel-specific code in Channels. No new Action/tool or E2E authoring; consult Channels guide and Action reuse.",
+  "id": "zaq-emb.14.2.3",
+  "labels": [],
+  "parent": "zaq-emb.14.2",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.14.2.3] Verify platform room-type evidence",
+  "type": "task",
+  "updated_at": "2026-09-26T08:32:25Z"
+}
