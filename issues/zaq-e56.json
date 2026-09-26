@@ -3,12 +3,12 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-26T09:58:15Z",
-  "description": "On stacked PR #814 branch, drop the redundant output distance alias (which currently equals rrf_score) and obsolete vector candidate :distance fallback; sort agent tool results by rrf_score only. Update ingestion/agent tests, test fakes, docs and exact context-budget regression. No new Action: reuse existing DocumentProcessor hydration and SearchKnowledgeBase merge; permissions and NodeRouter contract unchanged. Verify native/ParadeDB fixtures, mix q and isolated tests. Existing broad-suite precommit and push credentials blockers must be reported.",
+  "description": "On stacked draft PR #814 branch: removed redundant output distance alias (rrf_score remains for ranking, measured vector_distance remains), obsolete vector candidate :distance fallback, and tool-side score fallback. Reuse assessment: extend existing DocumentProcessor hydration and SearchKnowledgeBase tool merger in their current domains; no new operation/Action, unchanged NodeRouter and permission contracts. Updated tests/fakes/docs and exact context-budget fixture. Existing E2E knowledge ops test exposed prior change's stale fake LLM response; updated only test fake to emit required lexical_terms and respond to TranslateKnowledgeQuery. mix q passed, 210 focused tests and 5 properties pass, native and ParadeDB retrieval evals each 11/11, existing knowledge-ops E2E 9/9. Final mix precommit failed broad suite 92/9799 (same unaffected disk-config failure previously isolated); do not seek final approval. Previous commit 1b3092c42 remains unpushed due SSH key absence and HTTPS token 403.",
   "id": "zaq-e56",
   "labels": [],
   "priority": 2,
   "status": "in_progress",
   "title": "[#814] Remove misleading retrieval distance alias",
   "type": "task",
-  "updated_at": "2026-09-26T09:58:18Z"
+  "updated_at": "2026-09-26T10:21:58Z"
 }
