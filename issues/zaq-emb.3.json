@@ -21,11 +21,15 @@
     {
       "text": "2026-09-26 read-only discovery: ConversationMessage currently requires conversation_id (messages table UUID PK) and MessageRating/MessageTraceArtifact FK directly to messages.id; Conversations.list_messages and get_conversation_message filter conversation_id. Preferred candidate for test-first evaluation after prerequisites: evolve Message in place (retain IDs/FKs) plus new transcript + association tables, leave legacy reads unchanged until .15 cutover. First regressions should prove one Message in two transcripts without duplicating ratings/traces, no direct ID read bypass, stable per-transcript sequence under concurrency, idempotent reattachment, no retroactive grant. Do not infer provider-level dedup scope; source key from verified ingress. No schema work has started.",
       "timestamp": "2026-09-26T07:04:47Z"
+    },
+    {
+      "text": "Migration reconciliation evidence: this worktree’s MIX_ENV=test DB already reports 20260922000000..09 up, so new storage needs a fresh later version rather than editing/replaying those applied migrations. MIX_ENV=dev database named zaq_feature_issue_768_data_source_watch_lifecycle is absent; migration check failed with PostgreSQL 3D000, and no existing populated database was created/dropped/reset. Legacy backfill belongs .15 and should operate incrementally on preserved rows.",
+      "timestamp": "2026-09-26T07:07:27Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.3] Universal canonical messages and transcript associations",
   "type": "task",
-  "updated_at": "2026-09-26T07:04:47Z"
+  "updated_at": "2026-09-26T07:07:27Z"
 }
