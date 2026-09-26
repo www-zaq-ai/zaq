@@ -6,7 +6,10 @@ JSON file per question in `questions/`. The integration test discovers every
 question file automatically. It exercises real `NodeRouter`, SQL vector and
 lexical searches, fusion, hydration and public-permission filtering; it uses
 stored vectors rather than network calls. Translation generation and embedding
-HTTP responses are fixture-backed.
+HTTP responses are fixture-backed. Judge direct chunk matches and their own
+lexical/vector RRF contributions separately from context-only section siblings;
+a sibling sharing a heading must not inherit another chunk's score or measured
+vector distance. Bounded section expansion is tracked separately in #810.
 
 ## Add or revise a fixture
 
