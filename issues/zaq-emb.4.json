@@ -21,11 +21,15 @@
     {
       "text": "PR A capture foundation remains uncommitted and NOT ingress-wired. Action reuse assessment: reused Engine Conversations.append_canonical_message/3 + TranscriptHistory.append/3 and History.Facts/Strategy association_targets rather than a parallel writer/Action. Extended Conversations.capture_canonical_message/3 as Engine-local atomic target-resolver/orchestrator; not an agent-tool Action because it requires internally attested provider, connector, source account, actor and per-message recipient People, and would be unsafe to expose to agent arguments. Inputs Facts + message attrs + trusted source; returns placement IDs/positions or errors; SQL writes transactional; same external ID/source_scope replay idempotent; nil ID distinct; changed email recipient set denied under a per-identity transaction lock. Seed direct participant grants once when parent is created, not on replay/new child; shared remains provider-grant-only; Replicated owned by individual Person. Isolated capture/transcript tests pass (23 tests, 2 properties), mix q passes. Still needed: connector-scoped recipient resolution, passive nonmention ingress, legacy message-ID reuse/cutover preserving UUID/rating/attachment/trace, authorized BO/API shares/citations/export readers, membership synchronization and full PR A integration. Do not treat this foundation as a completed .4 or as proof of authorized caller provenance. No feature E2E authored.",
       "timestamp": "2026-09-26T11:07:06Z"
+    },
+    {
+      "text": "Capture foundation follow-up: verified against existing StrategyTest that Direct thread replies reuse the one parent transcript (not a child), while Shared threads get a child; corrected the new integration test and documentation without weakening existing assertions. Added regression tests for missing Person, unscoped email UID, nil external ID (distinct placements), changed email recipient replay, simultaneous conflicting audience replays, transaction rollback, direct provider grant revocation vs manual grant. SQL transaction advisory lock serializes same replicated source identity before checking existing audience. Current broad isolated affected suite: 371 tests, 6 properties, 0 failures; mix q passes. Ingress, consumer cutover, and identity/grant wiring remain outstanding for PR A.",
+      "timestamp": "2026-09-26T11:14:27Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T11:07:06Z"
+  "updated_at": "2026-09-26T11:14:27Z"
 }
