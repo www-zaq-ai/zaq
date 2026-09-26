@@ -11,9 +11,15 @@
   "id": "zaq-emb.14.2.2",
   "labels": [],
   "parent": "zaq-emb.14.2",
+  "comments": [
+    {
+      "text": "2026-09-26 pre-implementation discovery: ImapAdapter.Parser currently chooses one Mail.get_to/first raw To recipient and records Delivered-To as reply_from; it does not normalize all To/Cc or Bcc. IMAP selected mailbox is folder name; NotificationImapLive settings persist username and selected_mailboxes but no separately verified receiving-account email identity. Even when username looks like an address or Delivered-To is present, do NOT infer hidden Bcc; normalize visible To/Cc and sender only, accepting Bcc evidence only from future independently verified connector account identity. SMTP outbound actual sender and explicit envelope recipient receipt belongs .14.2.4. Actor Person resolution happens after Channels in IncomingMessageRouter; this slice carries address evidence only, not authorized Person IDs. Tests first from parsed RFC822 fixtures; no feature E2E before UX gate.",
+      "timestamp": "2026-09-26T08:36:55Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.14.2.2] Normalize inbound email recipient evidence",
   "type": "task",
-  "updated_at": "2026-09-26T08:36:09Z"
+  "updated_at": "2026-09-26T08:36:55Z"
 }
