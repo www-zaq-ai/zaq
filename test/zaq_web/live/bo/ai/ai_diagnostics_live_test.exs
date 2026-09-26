@@ -54,7 +54,16 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
 
     {child_spec, endpoint} =
       OpenAIStub.server(
-        fn _conn, _body -> {200, OpenAIStub.chat_completion("{}")} end,
+        fn _conn, _body ->
+          {200,
+           OpenAIStub.chat_completion("""
+           **Query:** ping
+           **Lexical Terms:** ["ping"]
+           **Language:** eng
+           **Positive Answer:** Searching...
+           **Negative Answer:** No answer
+           """)}
+        end,
         self()
       )
 

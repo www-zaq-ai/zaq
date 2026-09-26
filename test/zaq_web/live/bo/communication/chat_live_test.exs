@@ -842,6 +842,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       {:ok,
        %{
          "query" => "zaq",
+         "lexical_terms" => ["ZAQ"],
          "language" => "en",
          "positive_answer" => "Searching...",
          "negative_answer" => "No answer"
@@ -1126,6 +1127,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       {:ok,
        %{
          "query" => "zaq",
+         "lexical_terms" => ["zaq"],
          "language" => "en",
          "positive_answer" => "Searching...",
          "negative_answer" => "No related sources for this question."
@@ -1150,6 +1152,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       {:ok,
        %{
          "query" => "zaq",
+         "lexical_terms" => ["zaq"],
          "language" => "en",
          "positive_answer" => "Searching...",
          "negative_answer" => "Could not find supporting material."
@@ -1174,6 +1177,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       {:ok,
        %{
          "query" => "zaq",
+         "lexical_terms" => ["zaq"],
          "language" => "en",
          "positive_answer" => "Searching...",
          "negative_answer" => "No answer"
@@ -1255,6 +1259,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       {:ok,
        %{
          "query" => "zaq",
+         "lexical_terms" => ["ZAQ"],
          "language" => "en",
          "positive_answer" => "Searching...",
          "negative_answer" => "No answer"
@@ -1342,6 +1347,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       {:ok,
        %{
          "query" => "zaq",
+         "lexical_terms" => ["ZAQ"],
          "language" => "en",
          "positive_answer" => "Searching...",
          "negative_answer" => "No answer"
@@ -2655,6 +2661,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :ok,
       %{
         "query" => "existing conversation question",
+        "lexical_terms" => ["existing conversation"],
         "language" => "en",
         "positive_answer" => "Searching...",
         "negative_answer" => "No answer"
@@ -2741,6 +2748,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :ok,
       %{
         "query" => "fresh conversation question",
+        "lexical_terms" => ["fresh conversation"],
         "language" => "en",
         "positive_answer" => "Searching...",
         "negative_answer" => "No answer"
