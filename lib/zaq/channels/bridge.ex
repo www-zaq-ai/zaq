@@ -360,12 +360,13 @@ defmodule Zaq.Channels.Bridge do
     end
   end
 
-  @doc "Fetches channel config by provider, including disabled entries."
+  @doc "Fetches the sole non-archived connector, including disabled entries; rejects ambiguity."
   @spec fetch_any_channel_config(atom() | String.t()) :: {:ok, map()} | {:error, term()}
   def fetch_any_channel_config(provider) do
-    case ChannelConfig.get_any_by_provider(to_string(provider)) do
-      nil -> {:error, {:channel_not_configured, provider}}
-      config -> {:ok, normalize_channel_config(config)}
+    case ChannelConfig.list_by_provider(to_string(provider)) do
+      [] -> {:error, {:channel_not_configured, provider}}
+      [config] -> {:ok, normalize_channel_config(config)}
+      _ -> {:error, :ambiguous_connector}
     end
   end
 

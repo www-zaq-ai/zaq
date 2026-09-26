@@ -2605,6 +2605,12 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp fetch_webhook_config(%{"config_id" => id, "provider" => provider}) do
     case Repo.get(ChannelConfig, id) do
+      %ChannelConfig{archived_at: %DateTime{}} ->
+        {:cancel, :connector_archived}
+
+      %ChannelConfig{enabled: false} ->
+        {:cancel, :connector_disabled}
+
       %ChannelConfig{kind: "data_source", provider: config_provider} = config ->
         if to_string(config_provider) == to_string(provider) do
           {:ok, config}
