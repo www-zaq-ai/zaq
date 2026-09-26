@@ -81,11 +81,15 @@
     {
       "text": "Publication unblocked on 2026-09-26: SSH push succeeded; draft stacked PR #806 opened against #800 with both scoped-watch and archive commits. CI pending; any #806 follow-up must land on feature/issue-768-data-source-watch-lifecycle. Moving to #800 owning branch for source-grant follow-up instead of mixing fixes into #806.",
       "timestamp": "2026-09-26T06:02:50Z"
+    },
+    {
+      "text": "2026-09-26 follow-up audit on owning #806 branch: Engine.DataSources.resolve_watch_channel target_source branch orders/limits to one regardless of matching connector IDs; malformed explicit config_id in maybe_filter_config_id silently drops scope in both target_source and channel_id lookup. Security contract for provider-only ambiguous selection is fail closed, preserving latest-watch ordering only within one connector. Extend existing DataSources/Engine API (not agent Action: internal watch lookup invoked by JidoConnectBridge through NodeRouter); add regression tests for malformed explicit ID and cross-connector unscoped target, then mix q/focused suite. Existing test asserts unsafe fallback; revise to assert rejection as intentional contract correction, not weaken assertions.",
+      "timestamp": "2026-09-26T06:35:36Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.21] Multi-connector provider configuration and explicit selection",
   "type": "task",
-  "updated_at": "2026-09-26T06:02:50Z"
+  "updated_at": "2026-09-26T06:35:36Z"
 }
