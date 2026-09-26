@@ -23,8 +23,12 @@ retrieval connector matches their provider, failing on ambiguous mappings.
 `CommunicationBridge.route_incoming_message/4` stamps the connector ID from
 its configured bridge options and discards any ID supplied only in incoming
 metadata. A caller bypassing that Channels ingress path still must not be
-treated as a trusted provider event; the cross-node origin boundary remains
-part of `zaq-emb.2`.
+treated as a trusted provider event. `IncomingMessageRouter` discards valid
+prefilled channel Person claims in both the request and actor and uses only
+connector-scoped author resolution; invalid/conflicting claims fail validation.
+BO web chat retains its internally trusted session-derived Person. This policy
+trusts internal event callers; it does not authenticate an arbitrary caller at
+`NodeRouter` or attest the event's stated provider/connector.
 
 The unconsumed provider-multiplicity migration permits more than one connector
 with the same provider. `ChannelConfig.resolve_by_provider/2` accepts an explicit
