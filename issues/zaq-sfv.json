@@ -10,11 +10,15 @@
     {
       "text": "Implemented the separate Mix-task CLI test module at test/mix/tasks/retrieval_eval_embed_task_test.exs. Added positional/unknown-option rejection, independent model and dimension validation, HTTP-backed missing-vector preparation and idempotency, refresh, and a guarded default-path compatible-complete no-op that snapshots all fixture JSON bytes. Validation intentionally not run per coordinator instruction; ready for authorized isolated test execution after shared workers finish.",
       "timestamp": "2026-09-26T11:39:53Z"
+    },
+    {
+      "text": "Follow-up review fixes: aliased Zaq.System as SystemConfig and qualified temp-dir/unique-integer calls with Elixir.System; success/refresh scenarios now compare question, expected and forbidden fields exactly against their pre-operation fixture values; default-path gate now explicitly asserts every document chunk and question variant has a vector and model/dimension-compatible provenance after Fixtures.load! validates vector/provenance integrity. No tests run (coordinator gate pending).",
+      "timestamp": "2026-09-26T11:41:30Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-sfv] Cover retrieval.eval.embed CLI task branches",
   "type": "task",
-  "updated_at": "2026-09-26T11:39:53Z"
+  "updated_at": "2026-09-26T11:41:30Z"
 }
