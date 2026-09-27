@@ -9,7 +9,7 @@
   "parent": "zaq-gmx",
   "priority": 1,
   "status": "open",
-  "title": "Clean up legacy AI auth metadata with reversible migration",
+  "title": "[zaq-gmx.6] Clean up legacy AI auth metadata with reversible migration",
   "type": "task",
-  "updated_at": "2026-09-27T18:44:32Z"
+  "updated_at": "2026-09-27T18:44:33Z"
 }
