@@ -11,9 +11,15 @@
   "id": "zaq-gmx.8",
   "labels": [],
   "parent": "zaq-gmx",
+  "comments": [
+    {
+      "text": "Browser walkthrough on isolated E2E server (localhost:4002): created UX Review No Auth Demo from AI Credentials using OpenAI provider, example.test endpoint and No authentication; row renders No authentication / No authentication without grant. Auth Credentials shows linked AI: UX Review No Auth Demo with canonical openai · none, and Edit modal has No authentication selected with no secret controls. Selected API key to inspect key-required controls; no approval has been received. Automated LiveView tests cover linked edits, validation and personal-grant restriction. Human review/approval still required before zaq-gmx.9 feature E2E authoring. E2E server uses test-only credentials/database.",
+      "timestamp": "2026-09-27T20:49:07Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-gmx.8] Obtain human approval of final no-auth credential UX",
   "type": "task",
-  "updated_at": "2026-09-27T18:44:45Z"
+  "updated_at": "2026-09-27T20:49:07Z"
 }
