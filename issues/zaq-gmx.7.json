@@ -9,7 +9,7 @@
   "parent": "zaq-gmx",
   "priority": 1,
   "status": "open",
-  "title": "Verify canonical AI runtime cutover and document no-auth contract",
+  "title": "[zaq-gmx.7] Verify canonical AI runtime cutover and document no-auth contract",
   "type": "task",
-  "updated_at": "2026-09-27T18:44:34Z"
+  "updated_at": "2026-09-27T18:44:35Z"
 }
