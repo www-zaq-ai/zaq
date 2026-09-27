@@ -38,7 +38,8 @@ services:
       ZAQ_READER: "${ZAQ_READER:-zaq_reader}"
       ZAQ_OWNER_PASSWORD: "${ZAQ_OWNER_PASSWORD:?Set the password used by DATABASE_URL}"
       ZAQ_READER_PASSWORD: "${ZAQ_READER_PASSWORD:?Set the read-only database password}"
-      DATABASE_URL: "${DATABASE_URL:?Set the application-owner database URL}"
+      # When unset, the entrypoint builds an owner URL for the bundled PostgreSQL service.
+      DATABASE_URL: "${DATABASE_URL:-}"
     restart: "no"
   zaq:
     <<: *zaq-image
@@ -53,7 +54,11 @@ services:
       PORT: "4000"
       # Public hostname for production; requires a TLS reverse proxy (see README).
       PHX_HOST: "${PHX_HOST:-localhost}"
-      DATABASE_URL: "${DATABASE_URL:?Set the application-owner database URL}"
+      PGHOST: postgres
+      ZAQ_DATABASE: "${ZAQ_DATABASE:-zaq_prod}"
+      ZAQ_OWNER: "${ZAQ_OWNER:-zaq_owner}"
+      ZAQ_OWNER_PASSWORD: "${ZAQ_OWNER_PASSWORD:?Set the application-owner database password}"
+      DATABASE_URL: "${DATABASE_URL:-}"
       SECRET_KEY_BASE: "${SECRET_KEY_BASE}"
       # LLM, Embedding, and Image-to-Text settings are configured
       # via the back-office UI at /bo/system-config (persisted in the database).

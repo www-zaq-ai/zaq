@@ -1,6 +1,9 @@
 -- Connect safely using a conninfo-quoted target (same contract as DBA bootstrap).
-SELECT 'dbname=' || chr(39) || replace(replace(:'zaq_database', chr(92), chr(92) || chr(92)), chr(39), chr(92) || chr(39)) || chr(39) AS target \gset
-\connect -reuse-previous=on :"target"
+\if :{?zaq_already_connected}
+\else
+  SELECT 'dbname=' || chr(39) || replace(replace(:'zaq_database', chr(92), chr(92) || chr(92)), chr(39), chr(92) || chr(39)) || chr(39) AS target \gset
+  \connect -reuse-previous=on :"target"
+\endif
 SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'zaq_bootstrap') AS has_receipt \gset
 \if :has_receipt
   -- Reject even a lookalike schema/table created by the application owner.

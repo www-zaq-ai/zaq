@@ -36,18 +36,26 @@ From the repository root:
 mkdir -p ingestion-volumes/documents
 export SECRET_KEY_BASE="$(openssl rand -hex 64)"
 export SYSTEM_CONFIG_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+export ZAQ_OWNER_PASSWORD="$(openssl rand -hex 32)"
+export ZAQ_READER_PASSWORD="$(openssl rand -hex 32)"
 docker compose up --build
 ```
 
-Before `docker compose up --build`, supply `DATABASE_URL` for the restricted owner
-and `ZAQ_OWNER_PASSWORD` and `ZAQ_READER_PASSWORD` as independently managed secrets.
-The owner password in the URL must match the raw owner password supplied to the
-provisioning job. For the bundled database, point the URL to `postgres:5432` and
-the selected database; provide `POSTGRES_PASSWORD` for the DBA login. See
+For the bundled database, the containers construct `DATABASE_URL` using the
+`ZAQ_OWNER_PASSWORD` and selected owner/database names. Supply both owner and reader
+passwords as stable, independently managed secrets; the commands above generate
+values for a *new* installation only. Optionally supply `POSTGRES_PASSWORD` for
+the bundled DBA login (otherwise Compose defaults to `postgres`). An explicit
+`DATABASE_URL` overrides the constructed URL and must authenticate as the
+provisioned owner on `postgres:5432` with the same raw owner password. See
 [automatic Compose bootstrap](../database-setup.md#docker-image-and-automatic-compose-bootstrap)
 for all variables, restart behavior and legacy-database handling. The Compose job
 bootstraps before ZAQ migrations; on later starts it validates instead of rotating
 passwords. For an external database, follow the explicit DBA path in that guide.
+For an already migrated, manually provisioned bundled database, run the
+[one-shot adoption command](../database-setup.md#adopt-a-manually-provisioned-migrated-database)
+before starting the full stack; automatic bootstrap intentionally refuses an
+existing migration ledger without a receipt.
 
 **Keep these keys stable across restarts.** Store them securely in your deployment environment or a protected, untracked `.env` file. Do not regenerate the encryption key on an existing installation: previously encrypted credentials require their original key. The key must represent exactly 32 bytes; Base64 is recommended. Raw 32-byte and 64-character hex values are also accepted. Production startup requires a valid encryption key, not just SMTP configuration. See [secret configuration](../services/system-config.md#smtp-password-encryption).
 

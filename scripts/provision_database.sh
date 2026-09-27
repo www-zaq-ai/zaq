@@ -4,10 +4,12 @@ set -eu
 
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 automatic=false
+adopt_existing=false
 engine=auto
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --automatic) automatic=true; shift ;;
+    --adopt-existing) adopt_existing=true; shift ;;
     --engine|--database|--owner|--reader)
       [ "$#" -ge 2 ] || fail "Missing value for $1"
       case "$1" in
@@ -21,6 +23,7 @@ while [ "$#" -gt 0 ]; do
     *) fail 'Unknown provisioning option.' ;;
   esac
 done
+[ "$automatic" = false ] || [ "$adopt_existing" = false ] || fail 'Cannot combine automatic bootstrap and adoption.'
 case "$engine" in auto|postgres|paradedb) ;; *) fail 'Expected engine auto, postgres or paradedb.' ;; esac
 : "${ZAQ_DATABASE:?Required target database}" "${ZAQ_OWNER:?Required owner login}"
 : "${ZAQ_READER:?Required reader login}" "${ZAQ_OWNER_PASSWORD:?Required owner password}"
@@ -28,7 +31,7 @@ case "$engine" in auto|postgres|paradedb) ;; *) fail 'Expected engine auto, post
 export PGHOST="${PGHOST:-localhost}" PGPORT="${PGPORT:-5432}"
 export PGUSER="${PGUSER:-postgres}" PGDATABASE="${PGDATABASE:-postgres}"
 export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-10}"
-if [ "$automatic" = true ]; then
+if [ "$automatic" = true ] || [ "$adopt_existing" = true ]; then
   : "${DATABASE_URL:?Required application-owner DATABASE_URL}"
   case "$DATABASE_URL" in
     ecto://*) ZAQ_OWNER_DATABASE_URL="postgresql://${DATABASE_URL#ecto://}" ;;
@@ -49,11 +52,8 @@ fi
 case "$engine" in postgres|paradedb) ;; *) fail 'Unexpected engine probe result.' ;; esac
 script="$scripts/setup_${engine}_extensions.sql"
 if [ "$automatic" = true ]; then script="$scripts/docker_database_setup.sql"; fi
-psql -X -w -q --set ON_ERROR_STOP=1 \
-  --set "zaq_database=$ZAQ_DATABASE" --set "zaq_owner=$ZAQ_OWNER" \
-  --set "zaq_reader=$ZAQ_READER" --set "zaq_bootstrap_engine=$engine" --file "$script"
-
-if [ "$automatic" = true ]; then
+if [ "$adopt_existing" = true ]; then script="$scripts/docker_database_adopt.sql"; fi
+verify_credentials() {
   # Suppress libpq URI diagnostics, which can include credentials on malformed URLs.
   if ! psql -X -w -q --set ON_ERROR_STOP=1 \
     --set "zaq_database=$ZAQ_DATABASE" --set "zaq_owner=$ZAQ_OWNER" \
@@ -70,5 +70,17 @@ if [ "$automatic" = true ]; then
       fail 'Supplied owner/reader credentials failed validation; use explicit DBA maintenance, not bootstrap, for rotation.'
     fi
   done
+}
+
+# Adoption must not write a receipt until *all* authentication checks pass.
+if [ "$adopt_existing" = true ]; then verify_credentials; fi
+psql -X -w -q --set ON_ERROR_STOP=1 \
+  --set "zaq_database=$ZAQ_DATABASE" --set "zaq_owner=$ZAQ_OWNER" \
+  --set "zaq_reader=$ZAQ_READER" --set "zaq_bootstrap_engine=$engine" --file "$script"
+
+if [ "$automatic" = true ]; then verify_credentials; fi
+if [ "$adopt_existing" = true ]; then
+  printf '%s\n' 'Existing database adopted and owner/reader credentials verified.'
+elif [ "$automatic" = true ]; then
   printf '%s\n' 'Database bootstrap verified; supplied owner credentials are ready.'
 fi

@@ -106,6 +106,10 @@ db_snapshots/
 !/scripts/docker_database_receipt.sql
 !/scripts/docker_database_status.sql
 !/scripts/docker_database_validate.sql
+!/scripts/docker_database_adopt.sql
+!/scripts/docker_database_adopt_validate.sql
+!/scripts/transfer_legacy_database.sh
+!/scripts/transfer_legacy_database.sql
 !/.github/scripts/
 /.github/scripts/*
 !/.github/scripts/provision-test-database.exs

@@ -143,7 +143,7 @@ Supply these environment variables before running Compose:
 
 | Variable | Purpose |
 | --- | --- |
-| `DATABASE_URL` | Existing application-owner connection URL; passed unchanged to ZAQ |
+| `DATABASE_URL` | Optional explicit application-owner URL; otherwise built for the bundled database |
 | `ZAQ_OWNER_PASSWORD` | The same owner password, unencoded, for the DBA scripts |
 | `ZAQ_READER_PASSWORD` | Independently supplied read-only login password |
 | `ZAQ_DATABASE` | Target DB; Compose defaults to `zaq_prod` |
@@ -151,13 +151,15 @@ Supply these environment variables before running Compose:
 | `ZAQ_READER` | Reader login; Compose defaults to `zaq_reader` |
 | `POSTGRES_PASSWORD` | Bundled DBA password, used only by PostgreSQL and the provisioning service |
 
-For the bundled Compose network, `DATABASE_URL` must point to host `postgres`, port
-5432, and the selected database/owner. URI-encode its credentials; the separate
-password variables must contain the raw values. Use your existing environment or
-secret manager. **No credentials are generated, written to files, or embedded in
-the image.** Only `DATABASE_URL` is passed to ZAQ; DBA and reader credentials remain
-in the provisioning service. Avoid logging rendered Compose configuration, which
-contains the supplied secrets.
+For the bundled Compose network, an absent `DATABASE_URL` is assembled at container
+startup for host `postgres`, port 5432, and the selected database/owner. Credentials
+are URI-encoded in that URL; the separate password variables contain raw values.
+An explicit URL is passed unchanged to ZAQ and must use the same owner credentials
+and bundled database. Use your existing environment or secret manager. **No
+credentials are generated, written to files, or embedded in the image.** ZAQ
+receives the owner password only to construct its URL when none was supplied;
+DBA and reader credentials remain in the provisioning service. Avoid logging
+rendered Compose configuration, which contains the supplied secrets.
 
 On first run, automatic mode invokes the selected canonical DBA script and records
 a DBA-owned `zaq_bootstrap.receipt` in the **same transaction** as credentials,
@@ -177,11 +179,83 @@ can be retried with the same environment. Concurrent first-time runs may race an
 one may fail; retry after the other finishes. Keep other migrators stopped.
 
 Changing environment passwords is **not** a rotation mechanism: validation fails
-until a DBA reconciles the database credentials. A missing/untrusted/mismatched
-receipt on a migrated database requires DBA maintenance; do not delete migration
-ledgers to bypass this. Compatible legacy databases without a receipt are not
-automatically adopted after migrations. A pristine database still follows the
-canonical bootstrap guards.
+until a DBA reconciles the database credentials. A missing receipt on a migrated
+database requires the explicit adoption check below; untrusted/mismatched receipts
+require DBA investigation. Do not delete migration ledgers to bypass this.
+Compatible legacy databases without a receipt are not automatically adopted
+after migrations. A pristine database still follows the canonical bootstrap guards.
+
+### Adopt a manually provisioned, migrated database
+
+For an existing database provisioned by the DBA scripts before Compose receipts,
+keep ZAQ/migrators stopped and back up the database. Supply the **existing**
+`ZAQ_OWNER_PASSWORD`, `ZAQ_READER_PASSWORD`, owner/database names and (optionally)
+`DATABASE_URL`; do not generate replacement credentials.
+
+If this is a legacy database whose application tables were created as `postgres`,
+or adoption reports unsafe database privileges, use the **separate DBA repair**
+below first. Adoption never changes ownership or grants.
+
+Run this one-shot command:
+
+```sh
+docker compose run --rm db-provision adopt-existing-db
+```
+
+The command may start bundled PostgreSQL, but **never starts ZAQ or runs
+migrations**. It requires a migrated database and a superuser DBA connection;
+checks role isolation, ownership, extensions, reader privileges and defaults,
+and authenticates the URL and both logins. Only after all checks pass does it
+create a DBA-owned receipt in a transaction. An existing matching receipt is
+validated without writing; a mismatched/untrusted receipt fails. This command
+never resets passwords or repairs ACLs. Resolve failed checks through explicit
+DBA maintenance and retry. When `pg_search` is available but the existing DB
+uses only PostgreSQL, specify `--engine postgres` after `adopt-existing-db`.
+
+After successful adoption, start normally with `docker compose up -d`. Do not
+delete `schema_migrations` or create a receipt by hand.
+
+### Repair a legacy postgres-owned database (explicit DBA operation)
+
+Back up the database and stop ZAQ, migrators and other writers. For the legacy
+`zaq_main` database, configure `ZAQ_DATABASE=zaq_main`, `ZAQ_OWNER=zaq_owner`,
+`ZAQ_READER=zaq_reader` and the **existing** role passwords in your protected
+Compose environment. Build the current image, then review the preview:
+
+```sh
+docker compose build db-provision
+docker compose run --rm db-provision transfer-legacy-db
+```
+
+Only if the preview includes **only the ZAQ application objects you intend to
+transfer**, and you have a backup, apply the repair:
+
+```sh
+docker compose run --rm db-provision transfer-legacy-db --apply
+```
+
+The preview changes no persistent data; `--apply` is the only mutating command. It
+requires a superuser DBA, an existing migrated database with `public.schema_migrations`,
+and roles that already exist. In one transaction it transfers database ownership and
+DBA-owned application tables, views, sequences, routines, enums, domains and
+ranges in `public` to the configured owner. The preview lists each type, with
+its domain base or dependent multirange; multirange ownership follows its range.
+Extension-owned objects are excluded, and an orphaned multirange or third-party
+owner requires manual DBA review. The repair reuses the canonical
+bootstrap ACL setup to remove unsafe `PUBLIC` database privileges (including the
+PostgreSQL default `TEMPORARY`), grant reader SELECT, and configure future defaults.
+It does not create/change logins, passwords or a bootstrap receipt, and refuses
+unrecognized ownership or non-extension relations in custom schemas. Review any
+unusual preview or preflight failure with your DBA; do not use
+`REASSIGN OWNED BY postgres` on a cluster account or run this on a database
+with a receipt.
+
+After repair, remove the old `DATABASE_URL=ecto://postgres:...` from `.env` (or
+replace it with the actual owner URL). Run
+`docker compose run --rm db-provision adopt-existing-db` to validate and create
+the receipt, then start with
+`docker compose up -d`. Never run automatic bootstrap before a migrated database
+has been successfully adopted.
 
 Retain/back up `pgdata` and retain your externally managed credential configuration.
 If the database is intentionally dropped, it has no receipt and is bootstrapped

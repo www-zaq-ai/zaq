@@ -1,8 +1,12 @@
 -- Restart validation is read-only. Never run bootstrap or repair ACLs here.
-SELECT 'dbname=' || chr(39) || replace(replace(:'zaq_database', chr(92), chr(92) || chr(92)), chr(39), chr(92) || chr(39)) || chr(39) AS target \gset
-\connect -reuse-previous=on :"target"
+\if :{?zaq_already_connected}
+\else
+  SELECT 'dbname=' || chr(39) || replace(replace(:'zaq_database', chr(92), chr(92) || chr(92)), chr(39), chr(92) || chr(39)) || chr(39) AS target \gset
+  \connect -reuse-previous=on :"target"
+\endif
 SELECT set_config('zaq.bootstrap_owner', :'zaq_owner', false) AS owner_setting,
-       set_config('zaq.bootstrap_reader', :'zaq_reader', false) AS reader_setting \gset
+       set_config('zaq.bootstrap_reader', :'zaq_reader', false) AS reader_setting,
+       set_config('zaq.bootstrap_engine', :'zaq_bootstrap_engine', false) AS engine_setting \gset
 DO $$
 DECLARE
   owner_name text := current_setting('zaq.bootstrap_owner');
@@ -25,7 +29,7 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Provisioned vector capability changed; explicit DBA maintenance required';
   END IF;
-  IF (SELECT engine FROM zaq_bootstrap.receipt) = 'paradedb' THEN
+  IF current_setting('zaq.bootstrap_engine') = 'paradedb' THEN
     IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_search'
       AND extowner = (SELECT oid FROM pg_roles WHERE rolname = current_user)) THEN
       RAISE EXCEPTION 'Provisioned pg_search extension changed';

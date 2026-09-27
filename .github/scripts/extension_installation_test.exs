@@ -458,7 +458,10 @@ defmodule Zaq.ExtensionInstallationTest do
     {output, status} = docker_provision(context, ["--automatic", "--engine", "auto"])
     assert status == 0, output
 
-    for name <- ["DATABASE_URL", "ZAQ_OWNER_PASSWORD", "ZAQ_READER_PASSWORD"] do
+    {output, status} = docker_provision(context, ["--automatic"], [{"DATABASE_URL", ""}])
+    assert status == 0, output
+
+    for name <- ["ZAQ_OWNER_PASSWORD", "ZAQ_READER_PASSWORD"] do
       {output, status} = docker_provision(context, ["--automatic"], [{name, ""}])
       assert status != 0
       refute output =~ context.password
@@ -526,7 +529,231 @@ defmodule Zaq.ExtensionInstallationTest do
     assert %{rows: [[nil]]} = Repo.query!("SELECT to_regnamespace('zaq_bootstrap')::text")
   end
 
-  defp docker_provision(context, args \\ ["--automatic"], overrides \\ []) do
+  test "explicit adoption validates a manually provisioned migrated database and enables restart",
+       context do
+    provision_twice(context)
+    start_supervised!(Repo)
+    Repo.query!("CREATE TABLE schema_migrations(version bigint)")
+    {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+    try do
+      {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+      assert status == 0, output
+      refute output =~ context.password
+
+      assert %{rows: [[1]]} =
+               Postgrex.query!(admin, "SELECT count(*) FROM zaq_bootstrap.receipt", [])
+
+      {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+      assert status == 0, output
+      {output, status} = docker_provision(context)
+      assert status == 0, output
+    after
+      GenServer.stop(admin)
+    end
+  end
+
+  test "adoption fails closed without changing a migrated database", context do
+    provision_twice(context)
+    start_supervised!(Repo)
+    Repo.query!("CREATE TABLE schema_migrations(version bigint)")
+    {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+    try do
+      for candidate <- [
+            %{context | reader_password: "incorrect"},
+            %{context | password: "incorrect"}
+          ] do
+        {output, status} = docker_provision(candidate, [], [], "adopt-existing-db")
+        assert status != 0
+        refute output =~ "incorrect"
+      end
+
+      Postgrex.query!(admin, "GRANT CREATE ON SCHEMA public TO #{context.reader}", [])
+      {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+      assert status != 0
+      assert output =~ "privileges"
+      assert %{rows: [[nil]]} = Repo.query!("SELECT to_regnamespace('zaq_bootstrap')::text")
+
+      Postgrex.query!(admin, "REVOKE CREATE ON SCHEMA public FROM #{context.reader}", [])
+
+      Postgrex.query!(
+        admin,
+        "ALTER DEFAULT PRIVILEGES FOR ROLE #{context.owner} GRANT EXECUTE ON FUNCTIONS TO PUBLIC",
+        []
+      )
+
+      {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+      assert status != 0
+      assert output =~ "Function default privileges are not restricted"
+      assert %{rows: [[nil]]} = Repo.query!("SELECT to_regnamespace('zaq_bootstrap')::text")
+
+      Postgrex.query!(
+        admin,
+        "ALTER DEFAULT PRIVILEGES FOR ROLE #{context.owner} REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC",
+        []
+      )
+
+      {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+      assert status == 0, output
+      Postgrex.query!(admin, "UPDATE zaq_bootstrap.receipt SET version = 99", [])
+      {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+      assert status != 0
+      assert output =~ "receipt does not match"
+    after
+      GenServer.stop(admin)
+    end
+  end
+
+  test "adoption refuses an unmigrated database", context do
+    provision_twice(context)
+    {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+    assert status != 0
+    assert output =~ "schema_migrations missing"
+  end
+
+  test "adoption refuses an untrusted lookalike receipt", context do
+    provision_twice(context)
+    start_supervised!(Repo)
+    Repo.query!("CREATE TABLE schema_migrations(version bigint)")
+    Repo.query!("CREATE SCHEMA zaq_bootstrap")
+
+    {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+    assert status != 0
+    assert output =~ "Untrusted database bootstrap receipt"
+  end
+
+  test "legacy repair previews, transfers only application ownership and enables adoption",
+       context do
+    provision_twice(context)
+    {:ok, admin} = Postgrex.start_link(context.admin_config)
+
+    try do
+      Postgrex.query!(admin, "CREATE TABLE public.schema_migrations(version bigint)", [])
+      Postgrex.query!(admin, "CREATE TABLE public.legacy_records(id bigint)", [])
+      Postgrex.query!(admin, "CREATE TYPE public.legacy_enum AS ENUM ('ready', 'done')", [])
+      Postgrex.query!(admin, "CREATE DOMAIN public.legacy_domain AS public.legacy_enum", [])
+      Postgrex.query!(admin, "CREATE TYPE public.legacy_range AS RANGE (subtype=int4)", [])
+
+      %{rows: [[extension_type_owner]]} =
+        Postgrex.query!(
+          admin,
+          "SELECT typowner FROM pg_type WHERE oid = 'public.halfvec'::regtype",
+          []
+        )
+
+      Postgrex.query!(
+        admin,
+        "ALTER DATABASE #{context.admin_config[:database]} OWNER TO #{context.maintenance_config[:username]}",
+        []
+      )
+
+      Postgrex.query!(
+        admin,
+        "GRANT TEMPORARY ON DATABASE #{context.admin_config[:database]} TO PUBLIC",
+        []
+      )
+
+      {preview, status} = docker_provision(context, [], [], "transfer-legacy-db")
+      assert status == 0, preview
+      assert preview =~ "public.legacy_records"
+      assert preview =~ "public.legacy_enum"
+      assert preview =~ "public.legacy_domain (base:"
+      assert preview =~ "public.legacy_range"
+      assert preview =~ "dependent multirange"
+      assert preview =~ "database"
+      assert preview =~ "Preview only"
+
+      assert %{rows: [[dba]]} =
+               Postgrex.query!(
+                 admin,
+                 "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.legacy_records'::regclass",
+                 []
+               )
+
+      assert dba == context.maintenance_config[:username]
+
+      assert %{rows: [[true]]} =
+               Postgrex.query!(
+                 admin,
+                 "SELECT has_database_privilege($1, current_database(), 'TEMPORARY')",
+                 [context.reader]
+               )
+
+      Postgrex.query!(admin, "CREATE SCHEMA unrelated", [])
+      Postgrex.query!(admin, "CREATE TABLE unrelated.private_data(id integer)", [])
+      {refusal, status} = docker_provision(context, ["--apply"], [], "transfer-legacy-db")
+      assert status != 0
+      assert refusal =~ "non-extension objects in custom schemas"
+      Postgrex.query!(admin, "DROP SCHEMA unrelated CASCADE", [])
+
+      {output, status} = docker_provision(context, ["--apply"], [], "transfer-legacy-db")
+      assert status == 0, output
+
+      assert %{rows: [[owner]]} =
+               Postgrex.query!(
+                 admin,
+                 "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.legacy_records'::regclass",
+                 []
+               )
+
+      assert owner == context.owner
+
+      assert %{rows: [[enum_owner], [domain_owner], [range_owner], [multirange_owner]]} =
+               Postgrex.query!(
+                 admin,
+                 "SELECT pg_get_userbyid(typowner) FROM pg_type WHERE typname IN ('legacy_enum', 'legacy_domain', 'legacy_range') OR oid = (SELECT rngmultitypid FROM pg_range WHERE rngtypid = 'public.legacy_range'::regtype) ORDER BY CASE typname WHEN 'legacy_enum' THEN 1 WHEN 'legacy_domain' THEN 2 WHEN 'legacy_range' THEN 3 ELSE 4 END",
+                 []
+               )
+
+      assert [enum_owner, domain_owner, range_owner, multirange_owner] ==
+               List.duplicate(context.owner, 4)
+
+      assert %{rows: [[database_owner]]} =
+               Postgrex.query!(
+                 admin,
+                 "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()",
+                 []
+               )
+
+      assert database_owner == context.owner
+
+      assert %{rows: [[false]]} =
+               Postgrex.query!(
+                 admin,
+                 "SELECT has_database_privilege($1, current_database(), 'TEMPORARY')",
+                 [context.reader]
+               )
+
+      assert %{rows: [[extension_owner]]} =
+               Postgrex.query!(
+                 admin,
+                 "SELECT pg_get_userbyid(extowner) FROM pg_extension WHERE extname = 'vector'",
+                 []
+               )
+
+      assert extension_owner == context.maintenance_config[:username]
+
+      assert %{rows: [[^extension_type_owner]]} =
+               Postgrex.query!(
+                 admin,
+                 "SELECT typowner FROM pg_type WHERE oid = 'public.halfvec'::regtype",
+                 []
+               )
+
+      {output, status} = docker_provision(context, [], [], "adopt-existing-db")
+      assert status == 0, output
+    after
+      GenServer.stop(admin)
+    end
+  end
+
+  defp docker_provision(
+         context,
+         args \\ ["--automatic"],
+         overrides \\ [],
+         command \\ "provision-db"
+       ) do
     config = context.admin_config
     encode = &URI.encode(&1, fn char -> URI.char_unreserved?(char) end)
 
@@ -551,9 +778,12 @@ defmodule Zaq.ExtensionInstallationTest do
         Map.new(overrides)
       )
 
+    command_args =
+      if command == "transfer-legacy-db", do: args, else: ["--engine", context.engine | args]
+
     System.cmd(
       "sh",
-      ["scripts/docker_entrypoint.sh", "provision-db", "--engine", context.engine | args],
+      ["scripts/docker_entrypoint.sh", command | command_args],
       env: Map.to_list(env),
       stderr_to_stdout: true
     )
