@@ -9,7 +9,7 @@
   "parent": "zaq-gmx",
   "priority": 1,
   "status": "open",
-  "title": "Use canonical auth mode in AI form and provisioning writers",
+  "title": "[zaq-gmx.5] Use canonical auth mode in AI form and provisioning writers",
   "type": "task",
   "updated_at": "2026-09-27T18:44:31Z"
 }
