@@ -15,11 +15,15 @@
     {
       "text": "Implemented preflight-gated transactional backfill for API-key, OAuth and explicit no-auth rows, non-null final association, OAuth metadata sanitization, retained rollback source grants, guarded down migration, and migration replay/down-up tests. Action reuse: local-only Ecto migration reusing canonical storage contracts; no Action/tool exposure. Pending commit/final validation.",
       "timestamp": "2026-09-18T11:57:17Z"
+    },
+    {
+      "text": "Planning reconciliation: user-approved corrective follow-up is tracked in zaq-gmx, specifically zaq-gmx.3, zaq-gmx.6. Preserve this original rollout issue's broader scope/status; do not duplicate those follow-up changes here. Legacy API-key/default-mode empty keys now migrate to canonical none; future writes remain explicit. Auth Credential owns mode and AI metadata no longer selects it. This follow-up includes actual UI changes, with a separate final human UX approval -\u003e feature E2E gate. No implementation completed by this planning update.",
+      "timestamp": "2026-09-27T18:44:48Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.25] Restartable AI credential backfill",
   "type": "task",
-  "updated_at": "2026-09-18T11:57:17Z"
+  "updated_at": "2026-09-27T18:44:48Z"
 }
