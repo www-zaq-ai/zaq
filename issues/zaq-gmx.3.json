@@ -9,7 +9,7 @@
   "parent": "zaq-gmx",
   "priority": 1,
   "status": "open",
-  "title": "Align legacy empty-key preflight and Connect backfill",
+  "title": "[zaq-gmx.3] Align legacy empty-key preflight and Connect backfill",
   "type": "task",
   "updated_at": "2026-09-27T18:44:28Z"
 }
