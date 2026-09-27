@@ -10,11 +10,15 @@
     {
       "text": "Implementation iteration across .1-.7 is uncommitted in the current worktree (do not mark issues complete until landed). Canonical Connect no-auth transition + linked-AI guards; explicit AI auth_kind and canonical projection; legacy keyless preflight/backfill agreement; both BO forms; metadata retirement migration and provisioning writers; system-config docs/Storybook. Validation: mix q passed; mix test test/zaq/system test/zaq/engine/connect test/zaq_web/live/bo/system test/zaq_web/components/connect_credential_form_test.exs test/zaq/user_portal =\u003e 1190 tests, 29 properties, 0 failures; existing system-config Firefox E2E =\u003e 55 passed. Full npm run test =\u003e 397 passed, 3 skipped, 99 failed (97 Storybook cases cannot connect to localhost:4000 because default Playwright config only starts Storybook under STORYBOOK_ONLY=1; two unrelated WebKit navigation timeouts). Human final UX approval (.8) not yet given; do not author .9 E2E. mix precommit is the final gate after review, coverage and approval prerequisites.",
       "timestamp": "2026-09-27T20:44:24Z"
+    },
+    {
+      "text": "Action reuse assessment (.1-.7): Reuse/extend existing Zaq.Engine.Connect.Mutations.save_credential_configuration/4 and the :system_config_connect_update_credential Engine dispatch for linked AI/Auth mode changes; System.AIProviderCredentialConfiguration adapts AI request shape, Connect.update_admin_credential adapts BO direct edits to the same transaction. Searched Connect implementation, Engine API and agent/tools for existing Action; no composable credential-auth Action was found. No new Action or registry tool: this is a privileged admin configuration write tied to the existing authenticated BO/NodeRouter boundary, not safe/general standalone agent or workflow execution. Contract: explicit mode+credential attrs; returns canonical credential result/changeset error; atomically updates auth state/grants, rejects linked-incompatible or active-personal-grant changes; no retries or agent exposure. Verified by Connect mutations, System AI transactions, migration, and BO LiveView suites including invalid transitions and grant rotation.",
+      "timestamp": "2026-09-27T20:44:53Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-gmx] Explicit no-auth for AI and Auth Credentials",
   "type": "epic",
-  "updated_at": "2026-09-27T20:44:24Z"
+  "updated_at": "2026-09-27T20:44:53Z"
 }
