@@ -55,6 +55,8 @@ config :zaq, Zaq.Embedding.Client,
 
 config :zaq, :litellm_base_url, "http://litellm.test"
 
+config :bcrypt_elixir, :log_rounds, 4
+
 # --MOX--
 config :zaq,
   chunk_title_module: Zaq.Agent.ChunkTitleMock,
