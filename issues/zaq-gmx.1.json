@@ -9,9 +9,15 @@
   "id": "zaq-gmx.1",
   "labels": [],
   "parent": "zaq-gmx",
+  "comments": [
+    {
+      "text": "Implementation in progress in fix/ai-cred-no-auth-migration: added shared Connect no-auth normalization/grant removal and linked-AI auth/provider validation; added focused regression tests first. mix q passes; git diff --check passes. Isolated test cannot start because localhost:5432 refuses connections (no running PostgreSQL; no server binary found in common paths). Keep issue open and do not advance dependency chain until focused DB tests pass. No commit or application PR made.",
+      "timestamp": "2026-09-27T19:00:28Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-gmx.1] Extend canonical Connect no-auth transitions and linked-AI guards",
   "type": "task",
-  "updated_at": "2026-09-27T18:51:46Z"
+  "updated_at": "2026-09-27T19:00:28Z"
 }
