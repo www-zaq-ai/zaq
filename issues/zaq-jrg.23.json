@@ -13,11 +13,15 @@
     {
       "text": "Implemented secret-free bounded preflight with deterministic API-key/OAuth/explicit-no-auth/missing/ambiguous/unreadable classification, keyset pagination, and no-write tests. Action reuse: local-only privileged migration operation; reused Repo, SecretConfig and legacy Connect grant storage; no Action/tool exposure because this is deployment migration inspection. Focused tests pass; pending commit/final validation.",
       "timestamp": "2026-09-18T11:57:15Z"
+    },
+    {
+      "text": "Planning reconciliation: user-approved corrective follow-up is tracked in zaq-gmx, specifically zaq-gmx.3. Preserve this original rollout issue's broader scope/status; do not duplicate those follow-up changes here. Legacy API-key/default-mode empty keys now migrate to canonical none; future writes remain explicit. Auth Credential owns mode and AI metadata no longer selects it. This follow-up includes actual UI changes, with a separate final human UX approval -\u003e feature E2E gate. No implementation completed by this planning update.",
+      "timestamp": "2026-09-27T18:44:47Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-jrg.23] AI credential compatibility preflight",
   "type": "task",
-  "updated_at": "2026-09-18T11:57:15Z"
+  "updated_at": "2026-09-27T18:44:47Z"
 }
