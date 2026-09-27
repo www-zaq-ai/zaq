@@ -15,11 +15,15 @@
     {
       "text": "Converged System AI create/update/delete and BO global OAuth onto associated Connect credentials, canonical Mutations, OAuthAttempts and an explicit Engine dispatch action. Portal provisioning/account sync now use canonical grants; keyless scaffold is explicit no-auth. Removed parallel BO OAuth backing-credential creation. Action reuse: reused/extended System, Connect mutations and OAuthAttempts; no new business Action needed. Focused tests pass; pending commit/final validation.",
       "timestamp": "2026-09-18T11:57:17Z"
+    },
+    {
+      "text": "Planning reconciliation: user-approved corrective follow-up is tracked in zaq-gmx, specifically zaq-gmx.2, zaq-gmx.4, zaq-gmx.5. Preserve this original rollout issue's broader scope/status; do not duplicate those follow-up changes here. Legacy API-key/default-mode empty keys now migrate to canonical none; future writes remain explicit. Auth Credential owns mode and AI metadata no longer selects it. This follow-up includes actual UI changes, with a separate final human UX approval -\u003e feature E2E gate. No implementation completed by this planning update.",
+      "timestamp": "2026-09-27T18:44:49Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-jrg.26] Converge AI credential writers",
   "type": "task",
-  "updated_at": "2026-09-18T11:57:17Z"
+  "updated_at": "2026-09-27T18:44:49Z"
 }
