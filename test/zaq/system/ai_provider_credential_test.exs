@@ -150,6 +150,26 @@ defmodule Zaq.System.AIProviderCredentialTest do
     assert loaded.metadata["auth_profile"] == "openai_chatgpt_codex"
   end
 
+  test "stores list-valued OAuth scopes in AI and Connect credentials" do
+    scopes = ["openid", "profile"]
+
+    assert {:ok, credential} =
+             System.create_ai_provider_credential(%{
+               name: "List OAuth scopes #{Ecto.UUID.generate()}",
+               provider: "openai",
+               endpoint: "https://api.openai.com/v1",
+               auth_kind: "oauth2",
+               personal_credential_policy: :required,
+               metadata: %{"client_id" => "client-id", "scope" => scopes}
+             })
+
+    connect_credential = Connect.get_credential!(credential.connect_credential_id)
+    assert connect_credential.auth_kind == "oauth2"
+    assert connect_credential.client_id == "client-id"
+    assert connect_credential.scopes == scopes
+    assert credential.metadata["scope"] == scopes
+  end
+
   test "create_ai_provider_credential/0 returns an invalid changeset error" do
     assert {:error, %Ecto.Changeset{} = changeset} = System.create_ai_provider_credential()
     assert "can't be blank" in errors_on(changeset).name

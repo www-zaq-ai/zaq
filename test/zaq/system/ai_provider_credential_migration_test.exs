@@ -146,6 +146,44 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
     refute inspect([blank_item, unreadable_item]) =~ "malformed"
   end
 
+  test "classifies invalid legacy API-key storage without reporting the raw value" do
+    {:ok, ai} = ai_credential(%{name: unique("invalid-key-storage"), auth_kind: "none"})
+
+    item = AIProviderCredentialMigration.classify_legacy_row([ai.id, 42, %{}, nil])
+
+    assert item == %{
+             ai_provider_credential_id: ai.id,
+             classification: :unreadable,
+             reason: :invalid_api_key_storage,
+             source_grant_id: nil,
+             source_connect_credential_id: nil
+           }
+
+    refute 42 in Map.values(item)
+  end
+
+  test "unsupported auth kinds remain missing auth for keyless and blank-key rows" do
+    {:ok, encrypted_blank} = SecretConfig.encrypt(" \n\t ")
+
+    rows = [
+      {nil, %{"auth_kind" => "jwt_bearer"}},
+      {"", %{"auth_kind" => "jwt_bearer"}},
+      {encrypted_blank, %{auth_kind: "jwt_bearer"}}
+    ]
+
+    for {raw, metadata} <- rows do
+      {:ok, ai} = ai_credential(%{name: unique("unsupported-auth-kind"), auth_kind: "none"})
+
+      assert AIProviderCredentialMigration.classify_legacy_row([ai.id, raw, metadata, nil]) == %{
+               ai_provider_credential_id: ai.id,
+               classification: :missing_auth,
+               reason: :unsupported_auth_kind,
+               source_grant_id: nil,
+               source_connect_credential_id: nil
+             }
+    end
+  end
+
   test "keyless legacy API-key rows migrate without guessing away incomplete OAuth intent" do
     for raw <- [nil, ""] do
       assert %{classification: :no_auth} =
