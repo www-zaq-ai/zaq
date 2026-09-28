@@ -11,9 +11,15 @@
   "id": "zaq-gmx.9",
   "labels": [],
   "parent": "zaq-gmx",
+  "comments": [
+    {
+      "text": "Post-approval consolidated browser coverage added to test/e2e/specs/system_config.spec.js: create no-auth AI and verify linked Auth mode/grant absence; switch Auth none→API key and AI back to none with cross-tab reload; validate new key-required mode and blank-key edit; enforce Codex OAuth-only selection. Updated existing required-personal-policy journey to use OAuth2 (preserving assertion that required policy may have no global grant; API-key-mode rows now require a key). Existing system-config journeys across Firefox, Chromium and WebKit: 174 passed. Controlled local LLM no-auth request is covered by test/zaq/agent/executor_integration_test.exs with explicit Ollama-compatible backend and header==[]; native OpenAI ReqLLM backend rejects absent API keys, so no browser request was added for native OpenAI. Production E2E operations reused; no new Action/tool.",
+      "timestamp": "2026-09-28T10:35:09Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-gmx.9] Add approved no-auth credential E2E journeys",
   "type": "task",
-  "updated_at": "2026-09-27T18:44:46Z"
+  "updated_at": "2026-09-28T10:35:09Z"
 }
