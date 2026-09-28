@@ -6,9 +6,15 @@
   "description": "Extend existing MattermostAdmin /api/v4/users/me identity fetch (currently fetch_bot_user_id/2) to return ID and username, wire ChannelsLive Fetch Identity adjacent to Bot Token, and make identity inputs readonly. Action reuse assessment: extend existing MattermostAdmin admin-only operation, no new Action or agent tool; inputs instance URL and token, outputs {:ok, %{id, username}} or {:error, reason}, no writes/retry concerns; BO calls existing local admin helper (existing pattern), explicit Save persists settings via ChannelConfig and NodeRouter runtime sync. Verify HTTP valid/malformed/error and LiveView missing URL/token, populated readonly fields and error; no feature E2E needed for narrow adjustment already covered at LiveView level. Review existing tests before implementation.",
   "id": "zaq-s2e",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented identity fetch from /users/me with username + ID; Mattermost-only read-only fields and Fetch Identity beside token. mix q passed; 80 isolated tests passed. mix precommit failed full suite (3/9742); mix test --failed reduced to one unrelated environment failure: missing .venv/bin/python3 (Runner resolves python3). MCP econnrefused errors also appeared. No commit/close pending final gate.",
+      "timestamp": "2026-09-28T13:48:38Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Fetch and lock Mattermost bot identity from token",
   "type": "bug",
-  "updated_at": "2026-09-28T13:37:38Z"
+  "updated_at": "2026-09-28T13:48:38Z"
 }
