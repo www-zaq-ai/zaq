@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-28T13:37:34Z",
+  "description": "Extend existing MattermostAdmin /api/v4/users/me identity fetch (currently fetch_bot_user_id/2) to return ID and username, wire ChannelsLive Fetch Identity adjacent to Bot Token, and make identity inputs readonly. Action reuse assessment: extend existing MattermostAdmin admin-only operation, no new Action or agent tool; inputs instance URL and token, outputs {:ok, %{id, username}} or {:error, reason}, no writes/retry concerns; BO calls existing local admin helper (existing pattern), explicit Save persists settings via ChannelConfig and NodeRouter runtime sync. Verify HTTP valid/malformed/error and LiveView missing URL/token, populated readonly fields and error; no feature E2E needed for narrow adjustment already covered at LiveView level. Review existing tests before implementation.",
+  "id": "zaq-s2e",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Fetch and lock Mattermost bot identity from token",
+  "type": "bug",
+  "updated_at": "2026-09-28T13:37:34Z"
+}
