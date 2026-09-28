@@ -126,6 +126,8 @@ defmodule ZaqWeb.PeopleBrowserTest do
             name: "Personal API #{suffix}-#{width}",
             provider: "openai",
             endpoint: "https://api.openai.com/v1",
+            auth_kind: "api_key",
+            api_key: "PERSON_BROWSER_TEST_KEY",
             personal_credential_policy: "required"
           })
 
@@ -134,9 +136,9 @@ defmodule ZaqWeb.PeopleBrowserTest do
             name: "Personal OAuth #{suffix}-#{width}",
             provider: "example",
             endpoint: "https://provider.example/v1",
+            auth_kind: "oauth2",
             personal_credential_policy: "required",
             metadata: %{
-              "auth_kind" => "oauth2",
               "auth_profile" => "standard",
               "authorize_url" => "#{oauth_base_url}/authorize",
               "token_url" => "#{oauth_base_url}/token",

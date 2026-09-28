@@ -36,6 +36,8 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
         name: "Personal OpenAI",
         provider: "openai",
         endpoint: "https://api.openai.com/v1",
+        auth_kind: "api_key",
+        api_key: "PERSON_GLOBAL_TEST_KEY",
         personal_credential_policy: "required"
       })
 
@@ -208,9 +210,9 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
         name: "Personal Codex",
         provider: "openai_codex",
         endpoint: "https://chatgpt.com/backend-api",
+        auth_kind: "oauth2",
         personal_credential_policy: "required",
         metadata: %{
-          "auth_kind" => "oauth2",
           "auth_profile" => "openai_chatgpt_codex",
           "authorize_url" => "https://auth.openai.com/oauth/authorize",
           "token_url" => "https://auth.openai.com/oauth/token",
@@ -730,9 +732,9 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
         name: "Personal Codex Failure",
         provider: "openai_codex",
         endpoint: "https://chatgpt.com/backend-api",
+        auth_kind: "oauth2",
         personal_credential_policy: "required",
         metadata: %{
-          "auth_kind" => "oauth2",
           "auth_profile" => "openai_chatgpt_codex",
           "authorize_url" => "https://auth.openai.com/oauth/authorize",
           "token_url" => "https://auth.openai.com/oauth/token",
