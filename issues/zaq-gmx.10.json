@@ -9,9 +9,15 @@
   "id": "zaq-gmx.10",
   "labels": [],
   "parent": "zaq-gmx",
+  "comments": [
+    {
+      "text": "Implementation validation at UX-approved E2E boundary: mix q passed; isolated combined suite (System/Connect/BO/Portal plus Agent executor) =\u003e 1221 tests, 29 properties, 0 failures; system-config Playwright journeys across Firefox, Chromium, WebKit =\u003e 174 passed; git diff --check clean. A representative local LLM no-auth request asserted authorization header [] using ReqLLM Ollama-compatible backend. Self-review found/fixed required-policy API-key creation without global secret and direct Auth switch from required OAuth to keyless API mode; regression tests added. Prior npm run test full default: 397 passed, 3 skipped, 99 failed (97 Storybook tests require localhost:4000 not launched by default config, two WebKit navigation timeouts); all 174 directly related journeys now pass. PR review approval, coverage handoff, final mix precommit (900000ms) and final human approval remain gated: worktree is uncommitted and user has not authorized commit/push/PR. Action reuse not applicable to review/validation; domain writes reuse Connect.Mutations.",
+      "timestamp": "2026-09-28T10:43:14Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-gmx.10] Complete no-auth review coverage and final validation",
   "type": "task",
-  "updated_at": "2026-09-27T18:44:46Z"
+  "updated_at": "2026-09-28T10:43:14Z"
 }
