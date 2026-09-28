@@ -10,11 +10,15 @@
     {
       "text": "Implemented identity fetch from /users/me with username + ID; Mattermost-only read-only fields and Fetch Identity beside token. mix q passed; 80 isolated tests passed. mix precommit failed full suite (3/9742); mix test --failed reduced to one unrelated environment failure: missing .venv/bin/python3 (Runner resolves python3). MCP econnrefused errors also appeared. No commit/close pending final gate.",
       "timestamp": "2026-09-28T13:48:38Z"
+    },
+    {
+      "text": "Committed e659f4b5 and pushed origin/fix/mattermost-fetch-identity with user authorization. Issue remains open: mix precommit still blocked by unrelated broken .venv/bin/python3 symlink; full gate not green. Isolated 80 tests and mix q green.",
+      "timestamp": "2026-09-28T13:59:01Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Fetch and lock Mattermost bot identity from token",
   "type": "bug",
-  "updated_at": "2026-09-28T13:48:38Z"
+  "updated_at": "2026-09-28T13:59:01Z"
 }
