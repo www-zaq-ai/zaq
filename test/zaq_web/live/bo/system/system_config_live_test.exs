@@ -1957,8 +1957,119 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       credential = System.get_ai_provider_credential_by_name("Codex Subscription")
       assert credential.provider == "openai_codex"
       assert credential.api_key in [nil, ""]
-      assert credential.metadata["auth_kind"] == "oauth2"
+      assert credential.auth_kind == "oauth2"
+      refute Map.has_key?(credential.metadata, "auth_kind")
       assert credential.metadata["auth_profile"] == "openai_chatgpt_codex"
+    end
+
+    test "no-auth AI entry is backed by the same selectable Auth Credential", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+
+      view
+      |> element("button[phx-click='new_ai_credential']")
+      |> render_click()
+
+      render_submit(view, "save_ai_credential", %{
+        "ai_credential" => %{
+          "name" => "Local inference #{Ecto.UUID.generate()}",
+          "provider" => "openai",
+          "endpoint" => "https://example.test/v1",
+          "auth_mode" => "none",
+          "metadata" => "{}"
+        }
+      })
+
+      assert render(view) =~ "AI credential saved."
+
+      ai =
+        System.list_ai_provider_credentials()
+        |> Enum.find(&String.starts_with?(&1.name, "Local inference"))
+
+      assert ai.auth_kind == "none"
+      assert Connect.get_credential!(ai.connect_credential_id).auth_kind == "none"
+
+      {:ok, auth_view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      auth_view
+      |> element(
+        "button[phx-click='edit_connect_credential'][phx-value-id='#{ai.connect_credential_id}']"
+      )
+      |> render_click()
+
+      assert has_element?(
+               auth_view,
+               "select[name='credential[auth_kind]'] option[value='none'][selected]"
+             )
+    end
+
+    test "switching a linked Auth Credential to no-auth updates the AI entry and removes its grant",
+         %{conn: conn} do
+      {:ok, ai} =
+        System.create_ai_provider_credential(%{
+          name: "Auth switch #{Ecto.UUID.generate()}",
+          provider: "openai",
+          endpoint: "https://example.test/v1",
+          auth_kind: "api_key",
+          api_key: "before-switch"
+        })
+
+      assert Connect.list_grant_summaries(credential_id: ai.connect_credential_id) != []
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=auth_credentials")
+
+      view
+      |> element(
+        "button[phx-click='edit_connect_credential'][phx-value-id='#{ai.connect_credential_id}']"
+      )
+      |> render_click()
+
+      render_submit(view, "save_connect_credential", %{
+        "credential" => %{
+          "name" => "AI: #{ai.name}",
+          "auth_kind" => "none",
+          "metadata" => %{}
+        }
+      })
+
+      assert System.get_ai_provider_credential!(ai.id).auth_kind == "none"
+      assert Connect.list_grant_summaries(credential_id: ai.connect_credential_id) == []
+      assert Connect.get_credential!(ai.connect_credential_id).auth_kind == "none"
+
+      view
+      |> element(
+        "button[phx-click='edit_connect_credential'][phx-value-id='#{ai.connect_credential_id}']"
+      )
+      |> render_click()
+
+      render_submit(view, "save_connect_credential", %{
+        "credential" => %{
+          "name" => "AI: #{ai.name}",
+          "auth_kind" => "api_key",
+          "api_key" => "after-switch",
+          "metadata" => %{}
+        }
+      })
+
+      assert System.get_ai_provider_credential!(ai.id).auth_kind == "api_key"
+      assert Connect.get_credential!(ai.connect_credential_id).secret_binding == :grant
+      assert length(Connect.list_grant_summaries(credential_id: ai.connect_credential_id)) == 1
+
+      view
+      |> element(
+        "button[phx-click='edit_connect_credential'][phx-value-id='#{ai.connect_credential_id}']"
+      )
+      |> render_click()
+
+      render_submit(view, "save_connect_credential", %{
+        "credential" => %{
+          "auth_kind" => "api_key",
+          "api_key" => "rotated-key",
+          "metadata" => %{}
+        }
+      })
+
+      assert {:ok, resolved} = System.resolve_ai_provider_authentication(ai)
+      assert resolved.authentication == %{api_key: "rotated-key"}
+      assert Connect.get_credential!(ai.connect_credential_id).api_key == nil
     end
 
     test "stages a new optional OAuth policy until the global grant callback succeeds", %{
@@ -2007,7 +2118,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           name: "Primary",
           provider: "openai",
           endpoint: "https://api.openai.com/v1",
-          metadata: %{"auth_kind" => "none"},
+          auth_kind: "none",
           description: "main"
         })
 
@@ -2433,7 +2544,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           name: "LLM Credential",
           provider: "openai",
           endpoint: "https://api.openai.com/v1",
-          metadata: %{"auth_kind" => "none"}
+          auth_kind: "none"
         })
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
@@ -2822,7 +2933,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           name: "Embedding Credential",
           provider: "openai",
           endpoint: "https://api.openai.com/v1",
-          metadata: %{"auth_kind" => "none"}
+          auth_kind: "none"
         })
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
@@ -3611,7 +3722,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           name: "LLM Fusion Weights",
           provider: "openai",
           endpoint: "https://api.openai.com/v1",
-          metadata: %{"auth_kind" => "none"}
+          auth_kind: "none"
         })
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")

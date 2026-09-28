@@ -34,9 +34,13 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
 
     global = global_instruction(candidate, attrs, existing, auth_kind)
 
-    case Connect.save_credential_configuration(existing, config, global, opts) do
-      {:ok, %{credential_id: id}} -> {:ok, id}
-      {:error, reason} -> {:error, reason}
+    if auth_kind == "api_key" and global == :remove do
+      {:error, :global_grant_unusable}
+    else
+      case Connect.save_credential_configuration(existing, config, global, opts) do
+        {:ok, %{credential_id: id}} -> {:ok, id}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
@@ -47,26 +51,13 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
 
   defp existing_connect(_), do: nil
 
-  defp auth_kind(%AIProviderCredential{metadata: metadata, api_key: api_key}, attrs, existing) do
-    submitted_kind = submitted_auth_kind(attrs)
-    candidate_kind = MapUtils.metadata_value(metadata || %{}, "auth_kind")
+  defp auth_kind(_candidate, attrs, existing) do
+    explicit_kind = Map.get(attrs, :auth_kind, Map.get(attrs, "auth_kind"))
 
-    cond do
-      submitted_kind in ["oauth2", "none"] -> submitted_kind
-      submitted_secret?(attrs, :api_key) -> "api_key"
-      not is_nil(existing) -> existing.auth_kind
-      is_binary(api_key) and api_key != "" -> "api_key"
-      candidate_kind in ["oauth2", "none"] -> candidate_kind
-      true -> "api_key"
-    end
-  end
-
-  defp submitted_auth_kind(attrs) do
-    attrs
-    |> Map.get(:metadata, Map.get(attrs, "metadata"))
-    |> case do
-      metadata when is_map(metadata) -> MapUtils.metadata_value(metadata, "auth_kind")
-      _ -> nil
+    case explicit_kind do
+      nil -> if(existing, do: existing.auth_kind, else: "api_key")
+      kind when kind in ["api_key", "oauth2", "none"] -> kind
+      _ -> :invalid
     end
   end
 
@@ -87,6 +78,11 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
   defp connect_attrs(ai, existing, "oauth2", attrs) do
     metadata = oauth_source_metadata(ai, existing, attrs)
 
+    scopes =
+      if MapUtils.metadata_value(metadata, "scope") || is_nil(existing),
+        do: oauth_scopes(metadata),
+        else: existing.scopes
+
     base_attrs(ai, existing, "oauth2")
     |> Map.merge(%{
       personal_credential_policy: policy(attrs, existing, :required),
@@ -94,7 +90,7 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
       metadata: oauth_metadata(metadata),
       client_id: MapUtils.metadata_value(metadata, "client_id"),
       client_secret: MapUtils.metadata_value(metadata, "client_secret"),
-      scopes: oauth_scopes(metadata)
+      scopes: scopes
     })
   end
 
@@ -109,7 +105,7 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
 
   defp oauth_source_metadata(ai, %Credential{} = existing, attrs) do
     if Map.has_key?(attrs, :metadata) or Map.has_key?(attrs, "metadata"),
-      do: ai.metadata || %{},
+      do: Map.merge(existing.metadata || %{}, ai.metadata || %{}),
       else: existing.metadata || %{}
   end
 
@@ -137,7 +133,7 @@ defmodule Zaq.System.AIProviderCredentialConfiguration do
   defp global_instruction(candidate, attrs, existing, "api_key") do
     cond do
       submitted_secret?(attrs, :api_key) -> {:replace, %{api_key: candidate.api_key}}
-      is_nil(existing) -> :remove
+      is_nil(existing) or existing.auth_kind != "api_key" -> :remove
       true -> :keep
     end
   end

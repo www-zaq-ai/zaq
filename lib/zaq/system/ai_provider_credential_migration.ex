@@ -4,7 +4,8 @@ defmodule Zaq.System.AIProviderCredentialMigration do
 
   This module may inspect encrypted legacy storage, but its result contains only IDs,
   classification atoms and fixed reasons. It does not migrate, decrypt into logs, infer
-  no-auth from a missing secret, or expose an Action/tool boundary.
+  no-auth from corrupt secrets or incomplete OAuth setup, or expose an Action/tool
+  boundary. Legacy API-key-mode rows with no usable key are classified as no-auth.
   """
 
   import Ecto.Query
@@ -71,7 +72,7 @@ defmodule Zaq.System.AIProviderCredentialMigration do
   defp raw_rows(after_id, limit) do
     Repo.query(
       """
-      SELECT id, api_key, metadata, connect_credential_id
+      SELECT id, api_key, metadata, connect_credential_id, provider
       FROM ai_provider_credentials
       WHERE id > $1
       ORDER BY id
@@ -81,38 +82,78 @@ defmodule Zaq.System.AIProviderCredentialMigration do
     )
   end
 
-  defp classify([id, _raw, _metadata, connect_id]) when is_integer(connect_id) do
+  defp classify([id, raw, metadata, connect_id]),
+    do: classify([id, raw, metadata, connect_id, nil])
+
+  defp classify([id, _raw, _metadata, connect_id, _provider]) when is_integer(connect_id) do
     item(id, :already_migrated, nil, nil, connect_id)
   end
 
-  defp classify([id, raw, metadata, nil]) do
+  defp classify([id, raw, metadata, nil, provider]) do
     case legacy_grants(id) do
       [%{id: grant_id, credential_id: credential_id, auth_kind: "oauth2"}] ->
         item(id, :oauth2, nil, grant_id, credential_id)
 
       [] ->
-        cond do
-          explicit_no_auth?(metadata) and is_nil(raw) -> item(id, :no_auth)
-          present_raw?(raw) -> classify_api_key(id, raw)
-          true -> item(id, :missing_auth, :no_explicit_authentication)
-        end
+        if provider == "openai_codex",
+          do: item(id, :missing_auth, :incomplete_oauth),
+          else: classify_without_grant(id, raw, metadata)
 
       _ ->
         item(id, :ambiguous, :legacy_grant_set)
     end
   end
 
-  defp classify_api_key(id, raw) do
+  defp classify_without_grant(id, raw, metadata) do
+    cond do
+      oauth_intent?(metadata) -> item(id, :missing_auth, :incomplete_oauth)
+      explicit_no_auth?(metadata) and is_nil(raw) -> item(id, :no_auth)
+      is_nil(raw) or raw == "" -> keyless_classification(id, metadata)
+      present_raw?(raw) -> classify_api_key(id, raw, metadata)
+      true -> item(id, :unreadable, :invalid_api_key_storage)
+    end
+  end
+
+  defp classify_api_key(id, raw, metadata) do
     case SecretConfig.decrypt(raw) do
       {:ok, value} when is_binary(value) ->
-        if String.trim(value) == "",
-          do: item(id, :missing_auth, :blank_api_key),
-          else: item(id, :api_key)
+        cond do
+          String.trim(value) == "" -> keyless_classification(id, metadata)
+          explicit_no_auth?(metadata) -> item(id, :ambiguous, :no_auth_with_api_key)
+          true -> item(id, :api_key)
+        end
 
       _ ->
         item(id, :unreadable, :api_key_decryption_failed)
     end
   end
+
+  defp keyless_classification(id, metadata) when is_map(metadata) do
+    if Map.get(metadata, "auth_kind", Map.get(metadata, :auth_kind)) in [nil, "api_key", "none"],
+      do: item(id, :no_auth),
+      else: item(id, :missing_auth, :unsupported_auth_kind)
+  end
+
+  defp keyless_classification(id, _), do: item(id, :missing_auth, :no_explicit_authentication)
+
+  defp oauth_intent?(metadata) when is_map(metadata) do
+    Map.get(metadata, "auth_kind", Map.get(metadata, :auth_kind)) == "oauth2" or
+      Enum.any?(
+        [
+          "auth_profile",
+          "client_id",
+          "authorize_url",
+          "token_url",
+          :auth_profile,
+          :client_id,
+          :authorize_url,
+          :token_url
+        ],
+        &Map.has_key?(metadata, &1)
+      )
+  end
+
+  defp oauth_intent?(_), do: false
 
   defp legacy_grants(id) do
     Repo.all(

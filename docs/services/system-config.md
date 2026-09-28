@@ -81,19 +81,36 @@ selection belongs to the Connect credential, so global and Person grants use the
 redirect, PKCE, authorization-parameter and token-normalization behavior. Submitted
 module names are never accepted or converted to atoms.
 
-Keyless endpoints require explicit `metadata["auth_kind"] == "none"`. Their Connect
-credential is constrained to disabled personal policy, configuration binding and no
-secret fields, has no grant, and resolves to empty authentication. A missing or blank
-API key without that marker is invalid; it is never interpreted as no-auth.
+Administrators choose API key, OAuth2 or No authentication explicitly in either
+credential form. The associated Connect credential's `auth_kind` is the sole
+authentication-mode authority; AI metadata does not select or override it. Editing
+the AI mode updates that same Connect credential. A no-auth credential has disabled
+personal policy, configuration binding, no authentication secrets or org grant, and
+resolves to empty authentication. New API-key credentials require a usable key;
+leaving the key blank on edit retains the current key rather than selecting no-auth.
+Outbound execution also requires a provider backend that accepts keyless requests;
+the local OpenAI-compatible Ollama backend is covered by the executor integration
+test, while the native OpenAI backend rejects requests with no API key.
+Direct Auth Credential edits to linked AI entries must also respect provider/mode
+compatibility (OpenAI Codex remains OAuth-only). Changes that conflict with active
+personal grants fail without deleting those grants.
 
 The rollout first adds the nullable association and no-auth constraints, then runs the
 secret-free bounded preflight. Backfill proceeds only when every legacy row is an
 already-associated row, readable/nonblank API key, exactly one legacy OAuth org grant,
-or explicit no-auth row. It creates disabled Connect definitions, copies API-key or
-OAuth material into canonical org slots, associates each AI row, and finally makes the
-association non-null. Legacy OAuth source rows and the encrypted AI key remain only for
-guarded rollback; runtime and portal provisioning do not read them. Rollback refuses
-after personal policy/grants exist and never deletes the retained OAuth source grant.
+or a legacy API-key-mode row with an absent/decrypted-blank key. This *migration-only*
+compatibility rule does not apply to future credential writes. Explicit OAuth intent
+without a usable grant, unreadable ciphertext and ambiguous grants remain blockers.
+It creates disabled Connect definitions, copies API-key or OAuth material into canonical
+org slots, associates each AI row, and finally makes the association non-null. Migrated
+legacy OAuth source grants are deleted after their canonical slots are populated; down
+restores resource-bound OAuth grants from canonical slots. The encrypted legacy AI key
+is not a runtime source. A later forward
+migration removes the obsolete AI `metadata["auth_kind"]` from previously associated
+rows; its rollback reconstructs the marker from the canonical credential without
+changing canonical authentication. The backfill down path refuses after personal
+policy/grants exist and clears the legacy AI key while restoring the supported OAuth
+resource-bound state.
 
 ## People Access
 

@@ -27,6 +27,7 @@ defmodule Zaq.Engine.Connect.Mutations do
   alias Zaq.Engine.Connect.{Credential, Grant, MutationEvents}
   alias Zaq.Engine.Connect.OAuth.Registry, as: OAuthBehaviourRegistry
   alias Zaq.Repo
+  alias Zaq.System.AIProviderCredential
   alias Zaq.System.SecretConfig
   alias Zaq.Utils.DateUtils
 
@@ -34,6 +35,20 @@ defmodule Zaq.Engine.Connect.Mutations do
   @config_secrets ~w(api_key private_key client_secret)a
   @auth_config ~w(provider auth_kind request_format scopes issuer key_id client_id client_secret metadata)a
   @config_fields ~w(name provider auth_kind user_level personal_credential_policy secret_binding request_format metadata client_id client_secret scopes issuer private_key key_id api_key expires_at)a
+  @no_auth_configuration %{
+    personal_credential_policy: :disabled,
+    secret_binding: :configuration,
+    user_level: false,
+    metadata: %{},
+    client_id: nil,
+    client_secret: nil,
+    scopes: [],
+    api_key: nil,
+    private_key: nil,
+    issuer: nil,
+    key_id: nil,
+    expires_at: nil
+  }
 
   @type owner :: :org | {:person, pos_integer()}
   @type credential_ref :: Credential.t() | integer()
@@ -61,7 +76,7 @@ defmodule Zaq.Engine.Connect.Mutations do
           | :not_found
   @type result :: {:ok, configuration_result() | grant_result()} | {:error, error()}
 
-  @doc "Atomically saves completed configuration; omitted global instruction means keep."
+  @doc "Atomically saves completed configuration; selecting no-auth clears secrets and the org grant."
   @spec save_credential_configuration(
           credential_ref() | nil,
           map(),
@@ -73,8 +88,10 @@ defmodule Zaq.Engine.Connect.Mutations do
       attrs = normalize_attrs(attrs, @config_fields, :invalid_configuration)
       validate_instruction(global)
       original = if is_nil(ref), do: %Credential{}, else: lock_credential(ref)
+      {attrs, global} = normalize_no_auth(original, attrs, global)
       candidate = configuration_candidate(original, attrs)
 
+      validate_linked_ai_credential(original, Changeset.apply_changes(candidate))
       validate_auth_change(original, Changeset.apply_changes(candidate), global)
 
       encrypted_attrs =
@@ -134,6 +151,50 @@ defmodule Zaq.Engine.Connect.Mutations do
     )
 
     candidate
+  end
+
+  defp normalize_no_auth(original, attrs, global) do
+    if Map.get(attrs, :auth_kind, original.auth_kind) == "none" do
+      ensure(global in [:keep, :remove], :invalid_instruction)
+
+      ensure(
+        Map.get(attrs, :personal_credential_policy, :disabled) == :disabled and
+          Enum.all?(
+            [:api_key, :client_id, :client_secret, :private_key],
+            &is_nil(Map.get(attrs, &1))
+          ),
+        :invalid_configuration
+      )
+
+      {Map.merge(attrs, @no_auth_configuration), :remove}
+    else
+      {attrs, global}
+    end
+  end
+
+  defp validate_linked_ai_credential(%Credential{id: nil}, _candidate), do: :ok
+
+  defp validate_linked_ai_credential(%Credential{id: id}, candidate) do
+    case Repo.one(
+           from ai in AIProviderCredential,
+             where: ai.connect_credential_id == ^id,
+             select: ai.provider
+         ) do
+      nil ->
+        :ok
+
+      "openai_codex" ->
+        ensure(
+          candidate.auth_kind == "oauth2" and candidate.provider == "openai",
+          :invalid_configuration
+        )
+
+      provider ->
+        ensure(
+          candidate.auth_kind in ["api_key", "oauth2", "none"] and candidate.provider == provider,
+          :invalid_configuration
+        )
+    end
   end
 
   @doc "Replaces complete grant material in the credential/owner slot and reactivates it."

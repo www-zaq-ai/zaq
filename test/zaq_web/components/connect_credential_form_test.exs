@@ -75,6 +75,35 @@ defmodule ZaqWeb.Components.ConnectCredentialFormTest do
     refute html =~ "credential[scopes]"
   end
 
+  test "renders no-auth selection without secret or OAuth controls" do
+    changeset =
+      Credential.changeset(%Credential{}, %{
+        name: "Local model",
+        provider: "local",
+        auth_kind: "none",
+        request_format: "bearer",
+        user_level: false,
+        metadata: %{}
+      })
+
+    html =
+      render_component(&ConnectCredentialForm.credential_form/1,
+        form: to_form(changeset, as: :credential),
+        changeset: changeset,
+        submit_event: "save_connect_credential",
+        change_event: "validate_connect_credential",
+        cancel_event: "close_connect_credential_modal"
+      )
+
+    assert html =~ ~s(value="none" selected)
+    assert html =~ "No authentication"
+    refute html =~ "credential[api_key]"
+    refute html =~ "credential[client_id]"
+    refute html =~ "credential[client_secret]"
+    refute html =~ "credential[private_key]"
+    refute html =~ "credential[scopes]"
+  end
+
   test "renders jwt bearer inputs and hides oauth2/api_key-only inputs" do
     changeset =
       Credential.changeset(%Credential{}, %{

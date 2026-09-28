@@ -8,6 +8,7 @@ defmodule Zaq.System do
   import Ecto.Query
 
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.Credential
   alias Zaq.Engine.Connect.Grant
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Telemetry.Collector
@@ -565,6 +566,7 @@ defmodule Zaq.System do
     AIProviderCredential
     |> order_by([c], asc: c.name)
     |> Repo.all()
+    |> project_ai_auth_kinds()
   end
 
   @doc "Lists canonical credential IDs exposed by AI provider configurations."
@@ -598,14 +600,35 @@ defmodule Zaq.System do
   end
 
   @doc "Gets an AI provider credential by id, raising if not found."
-  def get_ai_provider_credential!(id), do: Repo.get!(AIProviderCredential, id)
+  def get_ai_provider_credential!(id),
+    do: id |> then(&Repo.get!(AIProviderCredential, &1)) |> project_ai_auth_kind()
 
   @doc "Gets an AI provider credential by id, returning `nil` when not found."
-  def get_ai_provider_credential(id), do: Repo.get(AIProviderCredential, id)
+  def get_ai_provider_credential(id),
+    do: id |> then(&Repo.get(AIProviderCredential, &1)) |> project_ai_auth_kind()
 
   @doc "Gets an AI provider credential by name, returning `nil` when not found."
   def get_ai_provider_credential_by_name(name) when is_binary(name) do
-    Repo.get_by(AIProviderCredential, name: name)
+    AIProviderCredential |> Repo.get_by(name: name) |> project_ai_auth_kind()
+  end
+
+  defp project_ai_auth_kind(nil), do: nil
+
+  defp project_ai_auth_kind(%AIProviderCredential{} = credential) do
+    [credential] |> project_ai_auth_kinds() |> hd()
+  end
+
+  defp project_ai_auth_kinds(credentials) do
+    ids = Enum.map(credentials, & &1.connect_credential_id)
+
+    kinds =
+      Credential
+      |> where([c], c.id in ^ids)
+      |> select([c], {c.id, c.auth_kind})
+      |> Repo.all()
+      |> Map.new()
+
+    Enum.map(credentials, &%{&1 | auth_kind: Map.get(kinds, &1.connect_credential_id)})
   end
 
   @doc "Resolves canonical global runtime authentication through Engine's confidential boundary."
@@ -671,10 +694,12 @@ defmodule Zaq.System do
 
   @doc "Creates an AI provider credential."
   def create_ai_provider_credential(attrs \\ %{}) do
+    attrs = strip_ai_auth_metadata(attrs)
     initial = AIProviderCredential.changeset(%AIProviderCredential{}, attrs)
 
     if initial.valid? or errors_only_for_connection?(initial) do
       Repo.transaction(fn -> create_ai_provider_credential_transaction(attrs) end)
+      |> project_ai_auth_result()
     else
       {:error, initial}
     end
@@ -682,11 +707,12 @@ defmodule Zaq.System do
 
   @doc "Updates an AI provider credential."
   def update_ai_provider_credential(%AIProviderCredential{} = credential, attrs) do
-    attrs = maybe_drop_blank_api_key(attrs)
+    attrs = attrs |> strip_ai_auth_metadata() |> maybe_drop_blank_api_key()
     initial = AIProviderCredential.changeset(credential, attrs)
 
     if initial.valid? do
       Repo.transaction(fn -> update_ai_provider_credential_transaction(credential.id, attrs) end)
+      |> project_ai_auth_result()
     else
       {:error, initial}
     end
@@ -725,17 +751,20 @@ defmodule Zaq.System do
   defp update_ai_provider_credential_transaction(id, attrs) do
     current = lock_ai_provider_credential(id)
 
-    with {:ok, connect_id} <- AIProviderCredentialConfiguration.save(current, attrs),
-         {:ok, updated} <-
+    with {:ok, updated} <-
            current
-           |> AIProviderCredential.changeset(Map.put(attrs, connection_key(attrs), connect_id))
-           |> save_ai_provider_credential(:update) do
+           |> AIProviderCredential.changeset(attrs)
+           |> save_ai_provider_credential(:update),
+         {:ok, _connect_id} <- AIProviderCredentialConfiguration.save(updated, attrs) do
       updated
     else
       {:error, %Ecto.Changeset{} = changeset} -> Repo.rollback(changeset)
       {:error, reason} -> Repo.rollback(ai_credential_error(attrs, reason))
     end
   end
+
+  defp project_ai_auth_result({:ok, credential}), do: {:ok, project_ai_auth_kind(credential)}
+  defp project_ai_auth_result(error), do: error
 
   defp delete_ai_provider_credential_transaction(id) do
     current = lock_ai_provider_credential(id)
@@ -794,11 +823,19 @@ defmodule Zaq.System do
         end
 
       :global_grant_unusable ->
-        Ecto.Changeset.add_error(
-          changeset,
-          :base,
-          "a usable global credential is required for disabled or optional personal credentials"
-        )
+        if Map.get(attrs, :auth_kind, Map.get(attrs, "auth_kind")) == "api_key" do
+          Ecto.Changeset.add_error(
+            changeset,
+            :api_key,
+            "enter an API key or choose No authentication"
+          )
+        else
+          Ecto.Changeset.add_error(
+            changeset,
+            :base,
+            "a usable global credential is required for disabled or optional personal credentials"
+          )
+        end
 
       _ ->
         Ecto.Changeset.add_error(
@@ -817,6 +854,20 @@ defmodule Zaq.System do
     attrs
     |> Map.drop(blank_api_key_attr_keys(attrs))
   end
+
+  defp strip_ai_auth_metadata(attrs) when is_map(attrs) do
+    Enum.reduce([:metadata, "metadata"], attrs, fn key, acc ->
+      case Map.fetch(acc, key) do
+        {:ok, metadata} when is_map(metadata) ->
+          Map.put(acc, key, Map.drop(metadata, ["auth_kind", :auth_kind]))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp strip_ai_auth_metadata(attrs), do: attrs
 
   defp blank_api_key_attr_keys(attrs) do
     []

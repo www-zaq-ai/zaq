@@ -184,12 +184,19 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
               API key
             </option>
             <option value="oauth2" selected={auth_mode(@form) == "oauth2"}>OAuth2</option>
+            <option
+              :if={not oauth_only_provider?(@form)}
+              value="none"
+              selected={auth_mode(@form) == "none"}
+            >
+              No authentication
+            </option>
           </select>
           <p class="font-mono text-[0.7rem] text-black/40 mt-1.5">
             <%= if oauth_only_provider?(@form) do %>
               OpenAI Codex uses ChatGPT subscription OAuth2 and does not accept API keys.
             <% else %>
-              API keys are preferred when present. OAuth2 uses Connect grants bound to this AI credential.
+              Choose the authentication this endpoint requires. No authentication sends requests without credentials.
             <% end %>
           </p>
         </div>
@@ -219,7 +226,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
           </p>
         </div>
 
-        <div>
+        <div :if={auth_mode(@form) != "none"}>
           <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
             Personal credentials
           </label>
@@ -257,7 +264,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
           </p>
         </div>
 
-        <div :if={not oauth_only_provider?(@form)}>
+        <div :if={auth_mode(@form) == "api_key" and not oauth_only_provider?(@form)}>
           <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
             API Key
           </label>
@@ -334,11 +341,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
           >
             {translate_error({msg, opts})}
           </p>
-          <p
-            :if={auth_mode(@form) != "api_key"}
-            class="font-mono text-[0.7rem] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 mt-2"
-          >
-            Leave the API key blank to use the OAuth2 bearer token. If an API key is saved here, it will remain preferred.
+          <p class="font-mono text-[0.7rem] text-black/45 mt-1.5">
+            Leave blank when editing to retain the current key. New API-key credentials require a key.
           </p>
         </div>
 
@@ -443,14 +447,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
   end
 
   defp auth_mode(form) do
-    metadata = form[:metadata].value
-    auth_kind = MapUtils.metadata_value(metadata, "auth_kind")
-    auth_profile = MapUtils.metadata_value(metadata, "auth_profile")
-
-    case {form[:provider].value, auth_kind} do
+    case {form[:provider].value, form[:auth_kind].value} do
       {"openai_codex", _} -> "oauth2"
       {_, "oauth2"} -> "oauth2"
-      _ -> if(auth_profile == "openai_chatgpt_codex", do: "oauth2", else: "api_key")
+      {_, "none"} -> "none"
+      _ -> "api_key"
     end
   end
 
@@ -464,24 +465,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
       )
   end
 
-  defp auth_mode_label(%{provider: "openai_codex"}), do: "OAuth2"
-
-  defp auth_mode_label(%{api_key: api_key}) when is_binary(api_key) and api_key != "",
-    do: "API key"
-
-  defp auth_mode_label(%{metadata: metadata}) do
-    case MapUtils.metadata_value(metadata, "auth_kind") do
-      "oauth2" ->
-        "OAuth2"
-
-      _ ->
-        if MapUtils.metadata_value(metadata, "auth_profile") == "openai_chatgpt_codex" do
-          "OAuth2"
-        else
-          "API key"
-        end
-    end
-  end
+  defp auth_mode_label(%{auth_kind: "oauth2"}), do: "OAuth2"
+  defp auth_mode_label(%{auth_kind: "api_key"}), do: "API key"
+  defp auth_mode_label(%{auth_kind: "none"}), do: "No authentication"
+  defp auth_mode_label(_), do: "Authentication unavailable"
 
   defp bearer_status(credential, grants), do: bearer_grant_status(credential, grants)
 
@@ -496,6 +483,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
   end
 
   defp grant_status(credential, grant) do
+    case credential.auth_kind do
+      "none" -> {"No authentication", "text-emerald-700 bg-emerald-50 border-emerald-200"}
+      nil -> {"Authentication unavailable", "text-red-700 bg-red-50 border-red-200"}
+      _ -> configured_grant_status(credential, grant)
+    end
+  end
+
+  defp configured_grant_status(credential, grant) do
     cond do
       is_nil(grant) ->
         {"No bearer grant", "text-amber-700 bg-amber-50 border-amber-200"}

@@ -72,7 +72,7 @@ defmodule Zaq.UserPortal.AccountSyncTest do
           provider: "zaq_router",
           endpoint: "http://localhost:4020",
           sovereign: false,
-          metadata: %{"auth_kind" => "none"}
+          auth_kind: "none"
         })
 
       credential = System.get_ai_provider_credential_by_name(Provisioner.credential_name())
@@ -105,7 +105,7 @@ defmodule Zaq.UserPortal.AccountSyncTest do
           provider: "zaq_router",
           endpoint: "http://localhost:4020",
           sovereign: false,
-          metadata: %{"auth_kind" => "none"}
+          auth_kind: "none"
         })
 
       credential = System.get_ai_provider_credential_by_name(Provisioner.credential_name())

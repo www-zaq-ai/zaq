@@ -721,14 +721,95 @@ test.describe("System Config", () => {
       await expect(row).toContainText("Non-sovereign")
     })
 
+    test("no-auth AI credential and linked Auth Credential reflect edits in either form", async ({ page }) => {
+      const name = `E2E No Auth ${Date.now()}`
+      await page.locator('[phx-click="new_ai_credential"]').click()
+      await page.locator('input[name="ai_credential[name]"]').fill(name)
+      await pickSearchableSelect(page, "#ai-credential-provider-select", "Custom")
+      await page.locator('input[name="ai_credential[endpoint]"]').fill(E2E_ENDPOINT)
+      await page.locator('select[name="ai_credential[auth_mode]"]').selectOption("none")
+      await expect(page.locator("#ai-credential-api-key-input")).toHaveCount(0)
+      await expect(page.locator('[name="ai_credential[personal_credential_policy]"]')).toHaveCount(0)
+      await page.locator("#ai-credential-modal").getByRole("button", { name: "Save credential" }).click()
+
+      const aiRow = page.locator('button[phx-click="edit_ai_credential"]').filter({ hasText: name })
+      await expect(aiRow).toContainText("No authentication")
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=auth_credentials`)
+
+      const authRow = page.getByText(`AI: ${name}`, { exact: true }).locator("..").locator("..")
+      await expect(authRow).toContainText("custom · none")
+      await authRow.getByRole("button", { name: "Edit" }).click()
+      await expect(page.locator('select[name="credential[auth_kind]"]')).toHaveValue("none")
+      await expect(page.locator('[name="credential[api_key]"]')).toHaveCount(0)
+
+      await page.locator('select[name="credential[auth_kind]"]').selectOption("api_key")
+      await page.locator('[name="credential[api_key]"]').fill("e2e-linked-key")
+      await page.locator("#edit-connect-credential-modal").getByRole("button", { name: "Save", exact: true }).click()
+      await expect(authRow).toContainText("custom · api_key")
+
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=ai_credentials`)
+      await expect(aiRow).toContainText("API key configured")
+      await aiRow.click()
+      await expect(page.locator('select[name="ai_credential[auth_mode]"]')).toHaveValue("api_key")
+      await page.locator('select[name="ai_credential[auth_mode]"]').selectOption("none")
+      await page.locator("#ai-credential-modal").getByRole("button", { name: "Save credential" }).click()
+      await expect(aiRow).toContainText("No authentication")
+
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=auth_credentials`)
+      await expect(authRow).toContainText("custom · none")
+      await authRow.getByRole("button", { name: "View grants" }).click()
+      await expect(page.getByText("No grants for this credential.")).toBeVisible()
+    })
+
+    test("new API-key credential requires a key, while blank edit retains the saved key", async ({ page }) => {
+      const name = `E2E API validation ${Date.now()}`
+      await page.locator('[phx-click="new_ai_credential"]').click()
+      await page.locator('input[name="ai_credential[name]"]').fill(name)
+      await pickSearchableSelect(page, "#ai-credential-provider-select", "Custom")
+      await page.locator('input[name="ai_credential[endpoint]"]').fill(E2E_ENDPOINT)
+      await page.locator("#ai-credential-modal").getByRole("button", { name: "Save credential" }).click()
+      await expect(page.locator("#ai-credential-modal")).toContainText("enter an API key or choose No authentication")
+
+      await page.locator("#ai-credential-api-key-input").fill("e2e-preserved-key")
+      await page.locator("#ai-credential-modal").getByRole("button", { name: "Save credential" }).click()
+      const aiRow = page.locator('button[phx-click="edit_ai_credential"]').filter({ hasText: name })
+      await expect(aiRow).toContainText("API key configured")
+
+      await aiRow.click()
+      await page.locator('input[name="ai_credential[endpoint]"]').fill(`${E2E_ENDPOINT}/updated`)
+      await page.locator("#ai-credential-api-key-input").fill("")
+      await expect(page.locator("#ai-credential-api-key-input")).toHaveValue("")
+      await page.locator("#ai-credential-modal").getByRole("button", { name: "Save credential" }).click()
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=ai_credentials`)
+      await expect(aiRow).toContainText("API key configured")
+
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=auth_credentials`)
+      const authRow = page.getByText(`AI: ${name}`, { exact: true }).locator("..").locator("..")
+      await expect(authRow).toContainText("custom · api_key")
+      await authRow.getByRole("button", { name: "View grants" }).click()
+      await expect(page.getByText("No grants for this credential.")).toHaveCount(0)
+      await expect(page.locator("#connect-grants-modal")).toContainText("owner=org:nil · status=active")
+    })
+
+    test("OAuth-only provider cannot select no authentication", async ({ page }) => {
+      await page.locator('[phx-click="new_ai_credential"]').click()
+      await pickSearchableSelect(page, "#ai-credential-provider-select", "OpenAI Codex")
+      await expect(page.locator('select[name="ai_credential[auth_mode]"]')).toBeDisabled()
+      await expect(page.locator('input[name="ai_credential[auth_mode]"]')).toHaveValue("oauth2")
+      await expect(page.locator('select[name="ai_credential[auth_mode]"] option[value="none"]')).toHaveCount(0)
+    })
+
     test("personal policy and masked global API-key grant persist", async ({ page }) => {
-      const required = await createAiCredential(page, {
-        name: `E2E Required Personal ${Date.now()}`,
-        provider: "Custom",
-        endpoint: E2E_ENDPOINT,
-        apiKey: "",
-        personalCredentialPolicy: "required",
-      })
+      const required = { name: `E2E Required Personal ${Date.now()}` }
+      await page.locator('[phx-click="new_ai_credential"]').click()
+      await page.locator('input[name="ai_credential[name]"]').fill(required.name)
+      await pickSearchableSelect(page, "#ai-credential-provider-select", "Custom")
+      await page.locator('input[name="ai_credential[endpoint]"]').fill(E2E_ENDPOINT)
+      await page.locator('select[name="ai_credential[auth_mode]"]').selectOption("oauth2")
+      await page.locator('textarea[name="ai_credential[metadata]"]').fill('{"client_id":"e2e-client"}')
+      await page.locator('[name="ai_credential[personal_credential_policy]"]').selectOption("required")
+      await page.locator("#ai-credential-modal").getByRole("button", { name: "Save credential" }).click()
+      await expect(page.getByText("AI credential saved.")).toBeVisible()
       const requiredRow = page
         .locator('button[phx-click="edit_ai_credential"]')
         .filter({ hasText: required.name })

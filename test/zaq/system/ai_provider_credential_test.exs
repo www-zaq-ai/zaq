@@ -38,7 +38,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: "OpenAI EU #{unique}",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
-               metadata: %{"auth_kind" => "none"},
+               auth_kind: "none",
                sovereign: true,
                description: "EU sovereign endpoint"
              })
@@ -51,21 +51,102 @@ defmodule Zaq.System.AIProviderCredentialTest do
     refute Enum.any?(System.list_ai_provider_credentials(), &(&1.id == credential.id))
   end
 
+  test "explicit AI auth mode is projected from its Auth Credential after either entry is edited" do
+    assert {:ok, ai} =
+             System.create_ai_provider_credential(%{
+               name: "Explicit auth #{Ecto.UUID.generate()}",
+               provider: "openai",
+               endpoint: "https://example.test/v1",
+               auth_kind: "none"
+             })
+
+    assert System.get_ai_provider_credential!(ai.id).auth_kind == "none"
+
+    assert {:ok, _} =
+             Connect.save_credential_configuration(
+               ai.connect_credential_id,
+               %{auth_kind: "api_key", secret_binding: :grant},
+               {:replace, %{api_key: "secret"}}
+             )
+
+    assert System.get_ai_provider_credential!(ai.id).auth_kind == "api_key"
+
+    assert Enum.find(System.list_ai_provider_credentials(), &(&1.id == ai.id)).auth_kind ==
+             "api_key"
+
+    assert {:ok, updated} = System.update_ai_provider_credential(ai, %{auth_kind: "none"})
+    assert updated.connect_credential_id == ai.connect_credential_id
+    assert Connect.get_credential!(ai.connect_credential_id).auth_kind == "none"
+    assert System.get_ai_provider_credential!(ai.id).auth_kind == "none"
+  end
+
+  test "explicit mode overrides obsolete AI metadata for atom and string requests" do
+    attrs = %{
+      name: "Mode precedence #{Ecto.UUID.generate()}",
+      provider: "openai",
+      endpoint: "https://example.test/v1",
+      auth_kind: "none",
+      metadata: %{"auth_kind" => "api_key"}
+    }
+
+    assert {:ok, ai} = System.create_ai_provider_credential(attrs)
+    assert ai.auth_kind == "none"
+    assert Connect.get_credential!(ai.connect_credential_id).auth_kind == "none"
+
+    assert {:ok, updated} =
+             System.update_ai_provider_credential(ai, %{
+               "auth_kind" => "none",
+               "metadata" => %{"auth_kind" => "oauth2"}
+             })
+
+    assert updated.auth_kind == "none"
+    assert Connect.get_credential!(ai.connect_credential_id).auth_kind == "none"
+
+    assert {:error, %Ecto.Changeset{}} =
+             System.update_ai_provider_credential(updated, %{auth_kind: "jwt_bearer"})
+
+    assert Connect.get_credential!(ai.connect_credential_id).auth_kind == "none"
+  end
+
+  test "new API-key credentials require a key rather than silently becoming no-auth" do
+    assert {:error, %Ecto.Changeset{} = changeset} =
+             System.create_ai_provider_credential(%{
+               name: "Empty key #{Ecto.UUID.generate()}",
+               provider: "openai",
+               endpoint: "https://example.test/v1",
+               auth_kind: "api_key",
+               api_key: ""
+             })
+
+    assert "enter an API key or choose No authentication" in errors_on(changeset).api_key
+
+    assert {:error, %Ecto.Changeset{} = required_changeset} =
+             System.create_ai_provider_credential(%{
+               name: "Keyless BYOK #{Ecto.UUID.generate()}",
+               provider: "openai",
+               endpoint: "https://example.test/v1",
+               auth_kind: "api_key",
+               personal_credential_policy: :required
+             })
+
+    assert "enter an API key or choose No authentication" in errors_on(required_changeset).api_key
+  end
+
   test "stores metadata for OpenAI Codex OAuth2 configuration" do
     assert {:ok, credential} =
              System.create_ai_provider_credential(%{
                name: "OpenAI Codex Metadata",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
+               auth_kind: "oauth2",
                metadata: %{
-                 "auth_kind" => "oauth2",
                  "auth_profile" => "openai_chatgpt_codex",
                  "client_id" => "client-id"
                }
              })
 
     loaded = System.get_ai_provider_credential!(credential.id)
-    assert loaded.metadata["auth_kind"] == "oauth2"
+    assert loaded.auth_kind == "oauth2"
     assert loaded.metadata["auth_profile"] == "openai_chatgpt_codex"
   end
 
@@ -212,10 +293,11 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: "Migrated OAuth Edit",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
+               auth_kind: "oauth2",
                metadata: %{
-                 "auth_kind" => "oauth2",
                  "client_id" => "client-id",
-                 "token_url" => "https://provider.example/token"
+                 "token_url" => "https://provider.example/token",
+                 "scope" => "openid profile"
                }
              })
 
@@ -223,12 +305,14 @@ defmodule Zaq.System.AIProviderCredentialTest do
 
     assert {:ok, updated} =
              System.update_ai_provider_credential(migrated, %{
-               "endpoint" => "https://api.openai.com/v2"
+               "endpoint" => "https://api.openai.com/v2",
+               "metadata" => %{}
              })
 
     connect = Connect.get_credential!(updated.connect_credential_id)
     assert connect.auth_kind == "oauth2"
     assert connect.client_id == "client-id"
+    assert connect.scopes == ["openid", "profile"]
     assert connect.metadata["token_url"] == "https://provider.example/token"
   end
 
@@ -238,6 +322,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: "Required BYOK",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
+               auth_kind: "oauth2",
+               metadata: %{"client_id" => "client-id"},
                personal_credential_policy: "required"
              })
 
@@ -311,9 +397,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
              })
 
     assert {:ok, updated} =
-             System.update_ai_provider_credential(ai_credential, %{
-               metadata: %{"auth_kind" => "none"}
-             })
+             System.update_ai_provider_credential(ai_credential, %{auth_kind: "none"})
 
     connect_credential = Connect.get_credential!(updated.connect_credential_id)
     assert connect_credential.auth_kind == "none"
@@ -334,7 +418,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: "OpenAI Bearer Fallback",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
-               metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"}
+               auth_kind: "oauth2",
+               metadata: %{"client_id" => "client-id"}
              })
 
     connect_credential = create_connect_token_credential("openai")
@@ -351,7 +436,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: "OpenAI Missing Grant",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
-               metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"}
+               auth_kind: "oauth2",
+               metadata: %{"client_id" => "client-id"}
              })
 
     assert System.resolve_ai_provider_api_key(
@@ -369,7 +455,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: "Canonical OAuth #{Ecto.UUID.generate()}",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
-               metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"}
+               auth_kind: "oauth2",
+               metadata: %{"client_id" => "client-id"}
              })
 
     assert {:ok, _grant} =
@@ -452,6 +539,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: "Required transition #{Ecto.UUID.generate()}",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
+               auth_kind: "oauth2",
+               metadata: %{"client_id" => "client-id"},
                personal_credential_policy: :required
              })
 
@@ -490,7 +579,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                  provider: "openai",
                  endpoint: "https://api.openai.com/v1",
                  api_key: "legacy-key-must-not-persist",
-                 metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"},
+                 auth_kind: "oauth2",
+                 metadata: %{"client_id" => "client-id"},
                  personal_credential_policy: :required
                })
 
@@ -513,7 +603,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: name,
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
-               metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"},
+               auth_kind: "oauth2",
+               metadata: %{"client_id" => "client-id"},
                personal_credential_policy: :required
              })
 
@@ -529,7 +620,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                System.update_ai_provider_credential(credential, %{
                  endpoint: "https://api.openai.com/v2",
                  api_key: "legacy-update-must-not-persist",
-                 metadata: %{"auth_kind" => "oauth2", "client_id" => "client-id"}
+                 auth_kind: "oauth2",
+                 metadata: %{"client_id" => "client-id"}
                })
 
       assert errors_on(changeset).api_key ==
@@ -560,8 +652,8 @@ defmodule Zaq.System.AIProviderCredentialTest do
                  name: name,
                  provider: "openai",
                  endpoint: "https://api.openai.com/v1",
+                 auth_kind: "oauth2",
                  metadata: %{
-                   "auth_kind" => "oauth2",
                    "client_id" => "client-id",
                    "client_secret" => "client-secret-must-not-persist"
                  }
@@ -584,7 +676,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: name,
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
-               metadata: %{"auth_kind" => "oauth2"}
+               auth_kind: "oauth2"
              })
 
     {base_error, metadata} = changeset.errors[:base]
@@ -643,7 +735,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
                name: "In Use Credential",
                provider: "openai",
                endpoint: "https://api.openai.com/v1",
-               metadata: %{"auth_kind" => "none"}
+               auth_kind: "none"
              })
 
     System.set_config("llm.credential_id", credential.id)
@@ -697,7 +789,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
       name: name,
       provider: "openai",
       endpoint: "https://api.openai.com/v1",
-      metadata: %{"auth_kind" => "none"}
+      auth_kind: "none"
     })
   end
 

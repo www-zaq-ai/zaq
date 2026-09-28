@@ -26,12 +26,41 @@ defmodule Zaq.SystemConfigFixtures do
     credential
   end
 
-  defp explicit_test_authentication(%{metadata: _metadata} = params), do: params
-
   defp explicit_test_authentication(params) do
-    case Map.get(params, :api_key) do
-      value when is_binary(value) and value != "" -> params
-      _ -> params |> Map.delete(:api_key) |> Map.put(:metadata, %{"auth_kind" => "none"})
+    metadata = Map.get(params, :metadata, %{})
+    kind = Map.get(params, :auth_kind) || test_auth_kind(params, metadata)
+
+    metadata =
+      if params[:provider] == "openai_codex" and is_map(metadata),
+        do: Map.put_new(metadata, "client_id", "test-codex-client"),
+        else: metadata
+
+    params =
+      params
+      |> Map.put(:auth_kind, kind)
+      |> Map.put(
+        :metadata,
+        if(is_map(metadata), do: Map.delete(metadata, "auth_kind"), else: metadata)
+      )
+
+    params =
+      if params[:provider] == "openai_codex",
+        do: Map.put_new(params, :personal_credential_policy, :required),
+        else: params
+
+    if kind == "none", do: Map.delete(params, :api_key), else: params
+  end
+
+  defp test_auth_kind(%{provider: "openai_codex"}, _metadata), do: "oauth2"
+
+  defp test_auth_kind(params, metadata) do
+    declared = if is_map(metadata), do: Map.get(metadata, "auth_kind"), else: nil
+
+    cond do
+      declared in ["none", "oauth2", "api_key"] -> declared
+      is_map(metadata) and Map.has_key?(metadata, "client_id") -> "oauth2"
+      is_binary(params[:api_key]) and String.trim(params[:api_key]) != "" -> "api_key"
+      true -> "none"
     end
   end
 

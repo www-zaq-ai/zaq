@@ -82,7 +82,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
     assert result["provider"] == "openai_codex"
     refute Map.has_key?(result, "api_key")
     assert result["metadata"]["audience"] == "openai"
-    assert result["metadata"]["auth_kind"] == "oauth2"
+    assert result["auth_kind"] == "oauth2"
+    refute Map.has_key?(result["metadata"], "auth_kind")
     assert result["metadata"]["auth_profile"] == "openai_chatgpt_codex"
     assert result["metadata"]["authorize_url"] == "https://auth.openai.com/oauth/authorize"
     assert result["metadata"]["client_id"] == "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -128,7 +129,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
 
     result = AICredentialEvents.normalize_params(params)
 
-    assert result["metadata"] == %{"audience" => "openai", "auth_kind" => "oauth2"}
+    assert result["metadata"] == %{"audience" => "openai"}
+    assert result["auth_kind"] == "oauth2"
   end
 
   test "normalize_params/1 persists the selected registered OAuth behaviour" do
@@ -155,7 +157,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
 
     result = AICredentialEvents.normalize_params(params)
 
-    assert result["metadata"] == %{"auth_kind" => "oauth2", "project" => "zaq"}
+    assert result["metadata"] == %{"project" => "zaq"}
+    assert result["auth_kind"] == "oauth2"
   end
 
   test "normalize_params/1 forces OpenAI Codex to oauth2" do
@@ -167,7 +170,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
 
     result = AICredentialEvents.normalize_params(params)
 
-    assert result["metadata"]["auth_kind"] == "oauth2"
+    assert result["auth_kind"] == "oauth2"
     assert result["metadata"]["auth_profile"] == "openai_chatgpt_codex"
   end
 
@@ -179,6 +182,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
     }
 
     assert AICredentialEvents.normalize_params(params) == %{
+             "auth_kind" => "api_key",
              "metadata" => %{"project" => "zaq"}
            }
   end
@@ -187,7 +191,21 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
     params = %{"auth_mode" => "oauth2", "metadata" => "not-json"}
 
     assert AICredentialEvents.normalize_params(params) == %{
+             "auth_kind" => "oauth2",
              "metadata" => "not-json"
+           }
+  end
+
+  test "no-auth selection is explicit and removes stale hidden secrets and AI mode metadata" do
+    assert AICredentialEvents.normalize_params(%{
+             "provider" => "openai",
+             "auth_mode" => "none",
+             "api_key" => "stale-key",
+             "metadata" => ~s({"auth_kind":"oauth2","project":"zaq"})
+           }) == %{
+             "provider" => "openai",
+             "auth_kind" => "none",
+             "metadata" => %{"project" => "zaq"}
            }
   end
 
@@ -207,11 +225,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
 
     result = AICredentialEvents.normalize_params(params)
 
-    assert result == %{"metadata" => %{}}
+    assert result == %{"auth_kind" => "api_key", "metadata" => %{}}
     refute Map.has_key?(result, "auth_mode")
   end
 
-  test "normalize_params/1 preserves metadata for unknown auth mode" do
+  test "normalize_params/1 passes unknown auth mode for backend rejection without preserving hidden mode metadata" do
     metadata = %{
       "project" => "zaq",
       "auth_kind" => "oauth2",
@@ -225,7 +243,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEventsTest do
 
     result = AICredentialEvents.normalize_params(params)
 
-    assert result == %{"metadata" => metadata}
+    assert result == %{
+             "auth_kind" => "custom_mode",
+             "metadata" => Map.delete(metadata, "auth_kind")
+           }
+
     refute Map.has_key?(result, "auth_mode")
   end
 end

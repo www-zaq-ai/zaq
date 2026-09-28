@@ -153,6 +153,75 @@ defmodule Zaq.Engine.Connect do
     |> MutationEvents.persist("credential_updated")
   end
 
+  @doc "Saves an administrator's auth-mode change through the canonical configuration/grant transaction."
+  def update_admin_credential(%Credential{} = credential, attrs) when is_map(attrs) do
+    kind = Map.get(attrs, "auth_kind", Map.get(attrs, :auth_kind))
+
+    if admin_mode_change?(kind, credential.auth_kind, attrs) do
+      save_admin_mode_change(credential, attrs, kind)
+    else
+      update_credential(credential, attrs)
+    end
+  end
+
+  defp admin_mode_change?(kind, existing_kind, attrs) do
+    api_key = Map.get(attrs, "api_key", Map.get(attrs, :api_key))
+
+    kind == "none" or (kind != nil and kind != existing_kind) or
+      (kind == "api_key" and is_binary(api_key) and String.trim(api_key) != "")
+  end
+
+  defp save_admin_mode_change(credential, attrs, kind) do
+    {attrs, instruction} = admin_mode_change(attrs, kind)
+
+    if kind == "api_key" and instruction == :remove do
+      {:error, admin_configuration_error(credential, attrs, :global_grant_unusable)}
+    else
+      case save_credential_configuration(credential, attrs, instruction) do
+        {:ok, %{credential_id: id}} -> {:ok, get_credential!(id)}
+        {:error, reason} -> {:error, admin_configuration_error(credential, attrs, reason)}
+      end
+    end
+  end
+
+  defp admin_mode_change(attrs, kind) do
+    api_key = Map.get(attrs, "api_key", Map.get(attrs, :api_key))
+    attrs = Map.drop(attrs, ["api_key", :api_key])
+
+    attrs =
+      if kind == "api_key" do
+        binding_key =
+          if Map.has_key?(attrs, "auth_kind"), do: "secret_binding", else: :secret_binding
+
+        Map.put(attrs, binding_key, :grant)
+      else
+        attrs
+      end
+
+    instruction =
+      if kind == "api_key" and is_binary(api_key) and String.trim(api_key) != "",
+        do: {:replace, %{api_key: api_key}},
+        else: :remove
+
+    {attrs, instruction}
+  end
+
+  defp admin_configuration_error(credential, attrs, reason) do
+    message =
+      case reason do
+        :incompatible_live_grants ->
+          "Remove active personal grants before changing authentication"
+
+        :global_grant_unusable ->
+          "A usable global credential is required for this authentication mode"
+
+        _ ->
+          "Authentication configuration is invalid"
+      end
+
+    credential |> change_credential(attrs) |> Changeset.add_error(:base, message)
+  end
+
   @spec delete_credential(Credential.t()) :: {:ok, Credential.t()} | {:error, mutation_error()}
   def delete_credential(%Credential{} = credential), do: MutationEvents.delete(credential)
 

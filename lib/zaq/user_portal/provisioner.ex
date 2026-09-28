@@ -84,7 +84,7 @@ defmodule Zaq.UserPortal.Provisioner do
   def ensure_offline_credential(opts \\ []) do
     case System.get_ai_provider_credential_by_name(@credential_name) do
       nil ->
-        credential_attrs(%{metadata: %{"auth_kind" => "none"}})
+        credential_attrs(%{auth_kind: "none"})
         |> create_credential(opts)
 
       %AIProviderCredential{} = existing ->
@@ -95,7 +95,7 @@ defmodule Zaq.UserPortal.Provisioner do
   @spec provision_with_key(%{litellm_api_key: String.t()}, keyword()) ::
           {:ok, AIProviderCredential.t()} | {:error, term()}
   def provision_with_key(%{litellm_api_key: api_key}, opts \\ []) when is_binary(api_key) do
-    attrs = credential_attrs(%{api_key: api_key, metadata: %{"auth_kind" => "api_key"}})
+    attrs = credential_attrs(%{api_key: api_key, auth_kind: "api_key"})
 
     result =
       case System.get_ai_provider_credential_by_name(@credential_name) do

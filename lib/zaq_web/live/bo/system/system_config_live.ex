@@ -1511,7 +1511,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp staged_new_oauth_policy?(socket, params) do
     socket.assigns.ai_credential_action == :new and
-      MapUtils.metadata_value(params["metadata"] || %{}, "auth_kind") == "oauth2" and
+      params["auth_kind"] == "oauth2" and
       params["personal_credential_policy"] in ["disabled", "optional"]
   end
 
@@ -1568,12 +1568,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  defp ensure_ai_oauth_credential(%{metadata: metadata}) do
+  defp ensure_ai_oauth_credential(%{auth_kind: auth_kind, metadata: metadata}) do
     cond do
       not codex_oauth_metadata?(metadata) and is_nil(engine_get_global_base_url()) ->
         {:error, :missing_global_base_url}
 
-      MapUtils.metadata_value(metadata, "auth_kind") != "oauth2" ->
+      auth_kind != "oauth2" ->
         {:error, :unsupported_auth_mode}
 
       true ->

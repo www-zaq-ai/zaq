@@ -2,9 +2,17 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
   use Ecto.Migration
 
   def up do
-    ensure_preflight_ready!()
+    repo().query!(
+      "LOCK TABLE ai_provider_credentials, connect_credentials, connect_grants IN SHARE ROW EXCLUSIVE MODE"
+    )
 
-    execute "LOCK TABLE ai_provider_credentials, connect_credentials, connect_grants IN SHARE ROW EXCLUSIVE MODE"
+    repo().query!("DROP TABLE IF EXISTS zaq_ai_migration_modes")
+
+    repo().query!(
+      "CREATE TEMP TABLE zaq_ai_migration_modes (ai_id bigint PRIMARY KEY, auth_kind text NOT NULL) ON COMMIT DROP"
+    )
+
+    ensure_preflight_ready!()
 
     execute """
     WITH legacy AS (
@@ -22,8 +30,8 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
         ai.name AS ai_name,
         ai.provider AS ai_provider,
         ai.api_key AS ai_api_key,
-        ai.metadata AS ai_metadata,
         legacy.grant_id,
+        classified.auth_kind AS classified_auth_kind,
         source.request_format AS source_request_format,
         source.metadata AS source_metadata,
         source.client_id AS source_client_id,
@@ -37,6 +45,7 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
       LEFT JOIN legacy ON legacy.ai_id = ai.id
       LEFT JOIN connect_grants old_grant ON old_grant.id = legacy.grant_id
       LEFT JOIN connect_credentials source ON source.id = old_grant.credential_id
+      JOIN zaq_ai_migration_modes classified ON classified.ai_id = ai.id
       WHERE ai.connect_credential_id IS NULL
     )
     INSERT INTO connect_credentials (
@@ -50,8 +59,7 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
       CASE WHEN ai_provider = 'openai_codex' THEN 'openai' ELSE ai_provider END,
       CASE
         WHEN grant_id IS NOT NULL THEN 'oauth2'
-        WHEN COALESCE(ai_metadata->>'auth_kind', '') = 'none' THEN 'none'
-        ELSE 'api_key'
+        ELSE classified_auth_kind
       END,
       FALSE,
       CASE WHEN grant_id IS NOT NULL THEN COALESCE(source_request_format, 'bearer') ELSE 'bearer' END,
@@ -82,7 +90,7 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
       source_private_key,
       source_key_id,
       'disabled',
-      CASE WHEN COALESCE(ai_metadata->>'auth_kind', '') = 'none'
+      CASE WHEN classified_auth_kind = 'none'
         THEN 'configuration' ELSE 'grant' END,
       now(),
       now()
@@ -240,6 +248,7 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
     """
 
     execute "DROP TABLE zaq_ai_migrated_oauth_sources"
+    execute "DROP TABLE zaq_ai_migration_modes"
 
     alter table(:ai_provider_credentials) do
       modify :connect_credential_id, :bigint, null: false
@@ -344,10 +353,12 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
 
   defp do_preflight(after_id) do
     case Zaq.System.AIProviderCredentialMigration.preflight(after_id: after_id, limit: 500) do
-      {:ok, %{ready?: true, next_after_id: nil}} ->
+      {:ok, %{ready?: true, items: items, next_after_id: nil}} ->
+        stage_modes(items)
         :ok
 
-      {:ok, %{ready?: true, next_after_id: next}} ->
+      {:ok, %{ready?: true, items: items, next_after_id: next}} ->
+        stage_modes(items)
         do_preflight(next)
 
       {:ok, %{items: items}} ->
@@ -360,6 +371,26 @@ defmodule Zaq.Repo.Migrations.BackfillConnectBackedAiCredentials do
 
       {:error, reason} ->
         raise "AI credential Connect migration preflight failed: #{inspect(reason)}"
+    end
+  end
+
+  defp stage_modes(items) do
+    items = Enum.reject(items, &(&1.classification == :already_migrated))
+
+    if items != [] do
+      ids = Enum.map(items, & &1.ai_provider_credential_id)
+
+      modes =
+        Enum.map(items, fn item ->
+          if item.classification == :no_auth,
+            do: "none",
+            else: Atom.to_string(item.classification)
+        end)
+
+      repo().query!(
+        "INSERT INTO zaq_ai_migration_modes (ai_id, auth_kind) SELECT * FROM UNNEST($1::bigint[], $2::text[])",
+        [ids, modes]
+      )
     end
   end
 end

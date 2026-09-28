@@ -9,8 +9,8 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
 
   test "classifies explicit API-key, no-auth and unresolved credentials without secrets" do
     {:ok, api} = ai_credential(%{name: unique("api"), api_key: "do-not-report"})
-    {:ok, none} = ai_credential(%{name: unique("none"), metadata: %{"auth_kind" => "none"}})
-    {:ok, missing} = ai_credential(%{name: unique("missing"), metadata: %{"auth_kind" => "none"}})
+    {:ok, none} = ai_credential(%{name: unique("none"), auth_kind: "none"})
+    {:ok, missing} = ai_credential(%{name: unique("missing"), auth_kind: "none"})
     {:ok, encrypted} = SecretConfig.encrypt("do-not-report")
 
     items = [
@@ -27,12 +27,12 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
     projected = Map.new(items, &{&1.ai_provider_credential_id, &1})
     assert projected[api.id].classification == :api_key
     assert projected[none.id].classification == :no_auth
-    assert projected[missing.id].classification == :missing_auth
+    assert projected[missing.id].classification == :no_auth
     refute inspect(items) =~ "do-not-report"
   end
 
   test "classifies exactly one legacy OAuth grant and rejects ambiguous sets" do
-    {:ok, ai} = ai_credential(%{name: unique("oauth"), metadata: %{"auth_kind" => "none"}})
+    {:ok, ai} = ai_credential(%{name: unique("oauth"), auth_kind: "none"})
     c1 = oauth_credential(unique("connect"))
     grant = legacy_oauth_grant(c1, ai.id)
 
@@ -51,8 +51,8 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
   end
 
   test "uses bounded keyset pagination and validates options" do
-    {:ok, first} = ai_credential(%{name: unique("first"), metadata: %{"auth_kind" => "none"}})
-    {:ok, second} = ai_credential(%{name: unique("second"), metadata: %{"auth_kind" => "none"}})
+    {:ok, first} = ai_credential(%{name: unique("first"), auth_kind: "none"})
+    {:ok, second} = ai_credential(%{name: unique("second"), auth_kind: "none"})
 
     assert {:ok, %{items: [item], next_after_id: next}} =
              AIProviderCredentialMigration.preflight(after_id: first.id - 1, limit: 1)
@@ -76,7 +76,7 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
 
   test "treats non-map legacy metadata as missing explicit authentication" do
     {:ok, ai} =
-      ai_credential(%{name: unique("invalid-metadata"), metadata: %{"auth_kind" => "none"}})
+      ai_credential(%{name: unique("invalid-metadata"), auth_kind: "none"})
 
     for metadata <- [nil, [], "none", false, 42] do
       assert AIProviderCredentialMigration.classify_legacy_row([ai.id, nil, metadata, nil]) == %{
@@ -107,7 +107,7 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
     {:ok, ai} =
       ai_credential(%{
         name: unique("property-invalid-metadata"),
-        metadata: %{"auth_kind" => "none"}
+        auth_kind: "none"
       })
 
     check all(
@@ -139,11 +139,68 @@ defmodule Zaq.System.AIProviderCredentialMigrationTest do
     unreadable_item =
       AIProviderCredentialMigration.classify_legacy_row([102, "enc:v1:malformed", %{}, nil])
 
-    assert blank_item.classification == :missing_auth
-    assert blank_item.reason == :blank_api_key
+    assert blank_item.classification == :no_auth
+    assert blank_item.reason == nil
     assert unreadable_item.classification == :unreadable
     assert unreadable_item.reason == :api_key_decryption_failed
     refute inspect([blank_item, unreadable_item]) =~ "malformed"
+  end
+
+  test "keyless legacy API-key rows migrate without guessing away incomplete OAuth intent" do
+    for raw <- [nil, ""] do
+      assert %{classification: :no_auth} =
+               AIProviderCredentialMigration.classify_legacy_row([101, raw, %{}, nil])
+
+      assert %{classification: :missing_auth} =
+               AIProviderCredentialMigration.classify_legacy_row([
+                 101,
+                 raw,
+                 %{"auth_kind" => "oauth2"},
+                 nil
+               ])
+    end
+
+    {:ok, blank} = SecretConfig.encrypt(" \n\t ")
+
+    assert %{classification: :no_auth} =
+             AIProviderCredentialMigration.classify_legacy_row([101, blank, %{}, nil])
+
+    assert %{classification: :missing_auth} =
+             AIProviderCredentialMigration.classify_legacy_row([
+               101,
+               blank,
+               %{"auth_profile" => "openai_chatgpt_codex"},
+               nil
+             ])
+
+    assert %{classification: :missing_auth, reason: :incomplete_oauth} =
+             AIProviderCredentialMigration.classify_legacy_row([
+               101,
+               nil,
+               %{"client_id" => "oauth-client"},
+               nil
+             ])
+
+    assert %{classification: :missing_auth, reason: :incomplete_oauth} =
+             AIProviderCredentialMigration.classify_legacy_row([
+               101,
+               nil,
+               %{},
+               nil,
+               "openai_codex"
+             ])
+  end
+
+  property "readable whitespace-only legacy keys are no-auth, never usable API keys" do
+    check all(
+            chars <- list_of(member_of([" ", "\t", "\n", "\r"]), min_length: 1, max_length: 16),
+            max_runs: 18
+          ) do
+      {:ok, encrypted} = SecretConfig.encrypt(Enum.join(chars))
+
+      assert %{classification: :no_auth, reason: nil} =
+               AIProviderCredentialMigration.classify_legacy_row([101, encrypted, %{}, nil])
+    end
   end
 
   defp ai_credential(attrs) do

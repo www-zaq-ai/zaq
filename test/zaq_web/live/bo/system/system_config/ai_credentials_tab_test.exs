@@ -8,10 +8,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
   alias Zaq.System.AIProviderCredential
   alias ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab
 
-  test "non-Codex oauth2 metadata selects oauth2 mode and keeps api key input" do
+  test "canonical non-Codex OAuth mode selects OAuth controls instead of an API key" do
     credential = %AIProviderCredential{
       name: "OpenAI OAuth2",
       provider: "openai",
+      auth_kind: "oauth2",
       endpoint: "https://api.openai.com/v1",
       metadata: %{"auth_kind" => "oauth2"},
       api_key: ""
@@ -28,10 +29,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
       )
 
     assert html =~ ~s(value="oauth2" selected)
-    assert html =~ "OAuth2 uses Connect grants bound to this AI credential."
+    assert html =~ "Choose the authentication this endpoint requires."
     assert html =~ "ai_credential[oauth_behaviour]"
     assert html =~ "Standard OAuth2"
-    assert html =~ "ai-credential-api-key-input"
+    refute html =~ "ai-credential-api-key-input"
   end
 
   test "renders metadata validation errors under metadata json" do
@@ -58,12 +59,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
     assert html =~ "is invalid"
   end
 
-  test "credential rows label oauth2 metadata and revoked grants" do
+  test "credential rows label canonical OAuth and revoked grants" do
     credential = %AIProviderCredential{
       id: 101,
       connect_credential_id: 501,
       name: "OAuth Anthropic",
       provider: "anthropic",
+      auth_kind: "oauth2",
       endpoint: "https://api.anthropic.com",
       api_key: "",
       metadata: %{"auth_kind" => "oauth2"}
@@ -96,6 +98,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
       connect_credential_id: 502,
       name: "OpenAI Codex Active Grant",
       provider: "openai_codex",
+      auth_kind: "oauth2",
       endpoint: "https://chatgpt.com/backend-api",
       api_key: "",
       metadata: %{"auth_profile" => "openai_chatgpt_codex"}
@@ -127,6 +130,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
       connect_credential_id: 503,
       name: "OpenAI Codex Person Grant",
       provider: "openai_codex",
+      auth_kind: "oauth2",
       endpoint: "https://chatgpt.com/backend-api",
       api_key: "",
       metadata: %{"auth_profile" => "openai_chatgpt_codex"}
@@ -158,6 +162,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
       connect_credential_id: 504,
       name: "Legacy API Key",
       provider: "openai",
+      auth_kind: "api_key",
       endpoint: "https://api.openai.com/v1",
       api_key: "legacy-only-key",
       metadata: %{"auth_kind" => "api_key"}
@@ -167,6 +172,32 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
 
     assert html =~ "No bearer grant"
     refute html =~ "API key configured"
+  end
+
+  test "canonical no-auth mode is selectable and does not require a bearer grant" do
+    credential = %AIProviderCredential{
+      id: 205,
+      connect_credential_id: 505,
+      name: "Local model",
+      provider: "openai",
+      endpoint: "https://example.test/v1",
+      auth_kind: "none"
+    }
+
+    html =
+      render_panel(
+        credentials: [credential],
+        ai_grants: [],
+        modal: true,
+        action: :edit,
+        form: credential |> AIProviderCredential.changeset(%{}) |> to_form(as: :ai_credential)
+      )
+
+    assert html =~ ~s(value="none" selected)
+    assert html =~ "No authentication"
+    refute html =~ "No bearer grant"
+    refute html =~ "ai-credential-api-key-input"
+    refute html =~ "ai_credential[personal_credential_policy]"
   end
 
   test "nil metadata renders as an empty json object" do

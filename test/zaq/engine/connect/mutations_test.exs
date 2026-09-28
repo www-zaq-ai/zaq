@@ -5,6 +5,7 @@ defmodule Zaq.Engine.Connect.MutationsTest do
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{Credential, Grant}
+  alias Zaq.System.AIProviderCredential
   alias Zaq.System.SecretConfig
 
   defp attrs(extra) do
@@ -62,6 +63,28 @@ defmodule Zaq.Engine.Connect.MutationsTest do
       refute inspect(saved) =~ "SENTINEL"
       assert {:ok, ^saved} = Connect.save_credential_configuration(saved.credential_id, %{})
     end
+  end
+
+  test "admin switch from required OAuth to API key rejects a missing new key" do
+    assert {:ok, saved} =
+             Connect.save_credential_configuration(nil, %{
+               name: "required-oauth-#{Ecto.UUID.generate()}",
+               provider: "example",
+               auth_kind: "oauth2",
+               personal_credential_policy: :required,
+               client_id: "client"
+             })
+
+    original = Connect.get_credential!(saved.credential_id)
+
+    assert {:error, %Ecto.Changeset{} = changeset} =
+             Connect.update_admin_credential(original, %{"auth_kind" => "api_key"})
+
+    assert {"A usable global credential is required for this authentication mode", _} =
+             Keyword.fetch!(changeset.errors, :base)
+
+    assert Connect.get_credential!(original.id).auth_kind == "oauth2"
+    assert Connect.list_grants(credential_id: original.id) == []
   end
 
   test "global removal is atomic, idempotent, and valid only for required policy" do
@@ -130,6 +153,125 @@ defmodule Zaq.Engine.Connect.MutationsTest do
 
     refute Repo.get(Grant, global.grant_id)
     assert Repo.reload!(config).auth_kind == "oauth2"
+  end
+
+  test "selecting no authentication clears incompatible configuration and org grant atomically" do
+    assert {:ok, saved} =
+             Connect.save_credential_configuration(
+               nil,
+               attrs(%{
+                 auth_kind: "oauth2",
+                 client_id: "client",
+                 client_secret: "secret",
+                 scopes: ["profile"],
+                 personal_credential_policy: :optional,
+                 secret_binding: :grant
+               }),
+               {:replace, %{access_token: "access"}}
+             )
+
+    grant_id = saved.global_grant.grant_id
+
+    assert {:ok, %{credential_id: id, global_grant: nil, personal_credential_policy: :disabled}} =
+             Connect.save_credential_configuration(saved.credential_id, %{auth_kind: "none"})
+
+    assert id == saved.credential_id
+    refute Repo.get(Grant, grant_id)
+
+    credential = Repo.get!(Credential, id)
+    assert credential.auth_kind == "none"
+    assert credential.personal_credential_policy == :disabled
+    assert credential.secret_binding == :configuration
+    assert credential.client_id == nil
+    assert credential.client_secret == nil
+    assert credential.scopes == []
+    assert credential.metadata == %{}
+
+    assert {:ok, %{credential_id: ^id, global_grant: nil}} =
+             Connect.save_credential_configuration(id, %{auth_kind: "none"})
+  end
+
+  test "no authentication rejects contradictory global instructions and active personal grants" do
+    config = credential(%{personal_credential_policy: :required, secret_binding: :grant})
+    person = Repo.insert!(%Person{full_name: "Owner"})
+
+    assert {:ok, personal} =
+             Connect.replace_credential_grant(config, {:person, person.id}, %{api_key: "personal"})
+
+    assert {:error, :incompatible_live_grants} =
+             Connect.save_credential_configuration(config, %{auth_kind: "none"})
+
+    assert Repo.reload!(config).auth_kind == "api_key"
+    assert Repo.get!(Grant, personal.grant_id).status == "active"
+
+    assert {:ok, _} = Connect.revoke_credential_grant(config, {:person, person.id})
+
+    assert {:error, :invalid_instruction} =
+             Connect.save_credential_configuration(
+               config,
+               %{auth_kind: "none"},
+               {:replace, %{api_key: "should-not-be-used"}}
+             )
+
+    assert {:ok, %{global_grant: nil}} =
+             Connect.save_credential_configuration(config, %{auth_kind: "none"})
+  end
+
+  test "a directly edited Auth Credential cannot become incompatible with its AI entry" do
+    config =
+      credential(%{
+        provider: "openai",
+        auth_kind: "oauth2",
+        client_id: "client",
+        personal_credential_policy: :required
+      })
+
+    Repo.insert!(%AIProviderCredential{
+      name: "Codex #{Ecto.UUID.generate()}",
+      provider: "openai_codex",
+      endpoint: "https://example.test",
+      connect_credential_id: config.id
+    })
+
+    for mode <- ["api_key", "none", "jwt_bearer"] do
+      assert {:error, :invalid_configuration} =
+               Connect.save_credential_configuration(config, %{auth_kind: mode})
+
+      assert Repo.reload!(config).auth_kind == "oauth2"
+    end
+
+    assert {:error, :invalid_configuration} =
+             Connect.save_credential_configuration(config, %{provider: "unrelated"})
+
+    assert {:ok, _} = Connect.save_credential_configuration(config, %{name: "Updated Codex"})
+  end
+
+  property "no-auth selection removes previously configured OAuth material" do
+    check all(
+            client_id <- string(:alphanumeric, min_length: 2, max_length: 24),
+            scope <- string(:alphanumeric, min_length: 1, max_length: 24),
+            max_runs: 12
+          ) do
+      assert {:ok, saved} =
+               Connect.save_credential_configuration(
+                 nil,
+                 attrs(%{
+                   auth_kind: "oauth2",
+                   client_id: client_id,
+                   scopes: [scope],
+                   personal_credential_policy: :required
+                 })
+               )
+
+      assert {:ok, %{global_grant: nil}} =
+               Connect.save_credential_configuration(saved.credential_id, %{auth_kind: "none"})
+
+      credential = Repo.get!(Credential, saved.credential_id)
+      assert credential.auth_kind == "none"
+      assert credential.client_id == nil
+      assert credential.scopes == []
+      assert credential.personal_credential_policy == :disabled
+    end
   end
 
   test "global grant status, expiry, corruption and auth compatibility fail closed" do

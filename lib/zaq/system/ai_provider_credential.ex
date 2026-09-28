@@ -17,6 +17,7 @@ defmodule Zaq.System.AIProviderCredential do
     field :endpoint, :string
     field :api_key, Zaq.Types.EncryptedString
     field :metadata, :map, default: %{}
+    field :auth_kind, :string, virtual: true
     field :sovereign, :boolean, default: false
     field :description, :string
 
@@ -37,6 +38,7 @@ defmodule Zaq.System.AIProviderCredential do
       :provider,
       :endpoint,
       :api_key,
+      :auth_kind,
       :metadata,
       :sovereign,
       :description,
@@ -44,6 +46,7 @@ defmodule Zaq.System.AIProviderCredential do
       :connect_credential_id
     ])
     |> validate_required([:name, :provider, :endpoint, :connect_credential_id])
+    |> validate_inclusion(:auth_kind, ~w(api_key oauth2 none))
     |> validate_length(:name, max: 255)
     |> validate_length(:provider, max: 255)
     |> validate_length(:endpoint, max: 2048)

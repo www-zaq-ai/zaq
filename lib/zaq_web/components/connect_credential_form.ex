@@ -79,10 +79,14 @@ defmodule ZaqWeb.Components.ConnectCredentialForm do
         >
           <option value="oauth2" selected={auth_kind(@changeset) == "oauth2"}>oauth2</option>
           <option value="api_key" selected={auth_kind(@changeset) == "api_key"}>api_key</option>
+          <option value="none" selected={auth_kind(@changeset) == "none"}>No authentication</option>
           <option value="jwt_bearer" selected={auth_kind(@changeset) == "jwt_bearer"}>
             jwt_bearer
           </option>
         </select>
+        <p :if={auth_kind(@changeset) == "none"} class="mt-1 font-mono text-[0.65rem] text-black/45">
+          Requests using this credential will carry no authentication.
+        </p>
       </div>
 
       <div :if={auth_kind(@changeset) == "jwt_bearer"}>

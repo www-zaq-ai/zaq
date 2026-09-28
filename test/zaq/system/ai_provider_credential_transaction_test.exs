@@ -31,7 +31,7 @@ defmodule Zaq.System.AIProviderCredentialTransactionTest do
       SystemConfigFixtures.ai_credential_fixture(%{
         provider: "openai",
         endpoint: "https://api.openai.com/v1",
-        metadata: %{"auth_kind" => "none"}
+        auth_kind: "none"
       })
 
     connect = Connect.get_credential!(ai.connect_credential_id)

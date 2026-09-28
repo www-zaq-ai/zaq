@@ -321,6 +321,32 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     refute_received {:llm_authorization, ^endpoint, _headers}
   end
 
+  test "a no-auth AI credential sends no authorization header to a local LLM endpoint" do
+    test_pid = self()
+
+    handler = fn conn, _body ->
+      send(test_pid, {:no_auth_headers, Plug.Conn.get_req_header(conn, "authorization")})
+      {200, streamed_reply(conn.request_path, "No auth", "gpt-4.1-mini")}
+    end
+
+    {child_spec, endpoint} = OpenAIStub.server(handler, test_pid)
+    start_supervised!(child_spec)
+
+    credential =
+      ai_credential_fixture(%{provider: "openai", endpoint: endpoint, auth_kind: "none"})
+
+    {:ok, configured_agent} =
+      create_http_agent(credential, %{
+        "stream" => false,
+        "provider_options" => %{"openai_compatible_backend" => "ollama"}
+      })
+
+    on_exit(fn -> _ = ServerManager.stop_server(configured_agent) end)
+
+    assert_successful_execution(configured_agent, %{kind: :system, subject: "no-auth"})
+    assert_receive {:no_auth_headers, []}
+  end
+
   test "a rejected personal credential is never retried with the global credential" do
     test_pid = self()
 
@@ -1667,7 +1693,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert :ok = CredentialMutationJob.deliver!(job, "credential-runtime-test")
   end
 
-  defp create_http_agent(credential) do
+  defp create_http_agent(credential, advanced_options \\ %{"stream" => false}) do
     Agent.create_agent(%{
       name: "Credential HTTP Agent #{System.unique_integer([:positive, :monotonic])}",
       description: "",
@@ -1678,7 +1704,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       enabled_tool_keys: [],
       conversation_enabled: false,
       active: true,
-      advanced_options: %{"stream" => false}
+      advanced_options: advanced_options
     })
   end
 

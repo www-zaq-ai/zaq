@@ -586,7 +586,7 @@ defmodule Zaq.Engine.Api do
   def handle_event(%Event{} = event, :system_config_connect_update_credential, _context) do
     case event.request do
       %{credential: credential, attrs: attrs} when is_map(attrs) ->
-        %{event | response: Connect.update_credential(credential, attrs)}
+        %{event | response: Connect.update_admin_credential(credential, attrs)}
 
       other ->
         %{event | response: {:error, {:invalid_request, other}}}

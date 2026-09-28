@@ -32,11 +32,14 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
     assert :ok = migrate(:down, @association_version, AddConnectBackedAiCredentials)
 
     {:ok, encrypted_api_key} = SecretConfig.encrypt("legacy-api-key")
+    {:ok, encrypted_blank_key} = SecretConfig.encrypt(" \t ")
     {:ok, encrypted_access_token} = SecretConfig.encrypt("legacy-access-token")
     {:ok, encrypted_refresh_token} = SecretConfig.encrypt("legacy-refresh-token")
 
     api_id = insert_ai("migration-api", encrypted_api_key, %{})
     none_id = insert_ai("migration-none", nil, %{"auth_kind" => "none"})
+    legacy_empty_id = insert_ai("migration-empty", nil, %{})
+    legacy_blank_id = insert_ai("migration-blank", encrypted_blank_key, %{})
     # A retained key does not change the declared OAuth source credential type.
     oauth_id = insert_ai("migration-oauth", encrypted_api_key, %{})
     source_credential_id = insert_oauth_credential()
@@ -80,7 +83,7 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
         WHERE ai.id = ANY($1)
         ORDER BY ai.id
         """,
-        [[api_id, none_id, oauth_id]]
+        [[api_id, none_id, legacy_empty_id, legacy_blank_id, oauth_id]]
       ).rows
 
     projected = Map.new(rows, fn [id | values] -> {id, values} end)
@@ -89,6 +92,8 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
              projected[api_id]
 
     assert ["none", "disabled", "configuration", nil, nil, nil, nil] = projected[none_id]
+    assert projected[legacy_empty_id] == projected[none_id]
+    assert projected[legacy_blank_id] == projected[none_id]
 
     assert [
              "oauth2",
@@ -122,16 +127,16 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
     generated_ids =
       Repo.query!(
         "SELECT connect_credential_id FROM ai_provider_credentials WHERE id = ANY($1)",
-        [[api_id, none_id, oauth_id]]
+        [[api_id, none_id, legacy_empty_id, legacy_blank_id, oauth_id]]
       ).rows
       |> List.flatten()
 
     assert :ok = migrate(:down, @backfill_version, BackfillConnectBackedAiCredentials)
 
-    assert [[nil], [nil], [nil]] ==
+    assert [[nil], [nil], [nil], [nil], [nil]] ==
              Repo.query!(
                "SELECT connect_credential_id FROM ai_provider_credentials WHERE id = ANY($1) ORDER BY id",
-               [[api_id, none_id, oauth_id]]
+               [[api_id, none_id, legacy_empty_id, legacy_blank_id, oauth_id]]
              ).rows
 
     assert [["ai_provider_credential", ^encrypted_access_token, ^encrypted_refresh_token]] =
@@ -150,10 +155,10 @@ defmodule Zaq.System.AIProviderCredentialBackfillMigrationTest do
                [generated_ids]
              ).rows
 
-    assert [[nil], [nil], [nil]] ==
+    assert [[nil], [nil], [nil], [nil], [nil]] ==
              Repo.query!(
                "SELECT api_key FROM ai_provider_credentials WHERE id = ANY($1) ORDER BY id",
-               [[api_id, none_id, oauth_id]]
+               [[api_id, none_id, legacy_empty_id, legacy_blank_id, oauth_id]]
              ).rows
 
     assert [["configuration"]] ==

@@ -110,19 +110,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
       auth_mode = auth_mode_for_provider(params, auth_mode)
 
       params
-      |> maybe_drop_api_key_for_oauth_only_provider()
+      |> maybe_drop_api_key(auth_mode)
       |> apply_auth_mode_to_metadata(auth_mode, metadata, opts)
     else
-      Map.delete(params, "auth_mode")
+      params
+      |> Map.put("auth_kind", auth_mode_for_provider(params, auth_mode))
+      |> Map.delete("auth_mode")
     end
   end
 
   defp apply_auth_mode(params, _opts), do: params
 
   defp apply_auth_mode_to_metadata(params, auth_mode, metadata, opts) do
+    metadata = Map.drop(metadata, ["auth_kind", :auth_kind])
+
     metadata =
       case auth_mode do
-        "api_key" -> Map.drop(metadata, ["auth_kind", :auth_kind, "auth_profile", :auth_profile])
+        "api_key" -> Map.drop(metadata, ["auth_profile", :auth_profile])
         "oauth2" -> oauth2_metadata(params, metadata, opts)
         _ -> metadata
       end
@@ -130,6 +134,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
 
     params
     |> Map.put("metadata", metadata)
+    |> Map.put("auth_kind", auth_mode)
     |> Map.delete("auth_mode")
     |> Map.delete("oauth_behaviour")
   end
@@ -145,14 +150,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialEvents do
   defp auth_mode_for_provider(%{"provider" => "openai_codex"}, _auth_mode), do: "oauth2"
   defp auth_mode_for_provider(_params, auth_mode), do: auth_mode
 
-  defp maybe_drop_api_key_for_oauth_only_provider(%{"provider" => "openai_codex"} = params),
+  defp maybe_drop_api_key(params, "none"), do: Map.delete(params, "api_key")
+
+  defp maybe_drop_api_key(%{"provider" => "openai_codex"} = params, _auth_mode),
     do: Map.delete(params, "api_key")
 
-  defp maybe_drop_api_key_for_oauth_only_provider(params), do: params
+  defp maybe_drop_api_key(params, _auth_mode), do: params
 
   defp oauth2_metadata(params, metadata, opts) do
-    metadata = Map.put(metadata, "auth_kind", "oauth2")
-
     if params["provider"] == "openai_codex" do
       metadata
       |> Map.put_new("auth_profile", "openai_chatgpt_codex")

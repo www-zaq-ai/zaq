@@ -3,7 +3,7 @@ defmodule Storybook.Patterns.Credentials do
 
   def description,
     do:
-      "credential_form — reusable form for OAuth2 and API key credentials. Requires a live form/changeset so it is documented here as a usage pattern."
+       "credential_form — reusable form for OAuth2, API key, JWT bearer, and no-auth credentials. Requires a live form/changeset so it is documented here as a usage pattern."
 
   def render(assigns) do
     ~H"""
@@ -13,7 +13,7 @@ defmodule Storybook.Patterns.Credentials do
       </p>
 
       <p style="font-size: 0.85rem; opacity: 0.6; line-height: 1.6;">
-        Use this form whenever creating or editing a Connect integration credential. It handles both OAuth2 (with scope restoration) and API key flows based on the changeset schema.
+         Use this form whenever creating or editing a Connect integration credential. It shows only controls for the selected OAuth2, API key, JWT bearer, or No authentication mode. No-auth configuration has no grant or secrets.
       </p>
 
       <pre style="background: var(--zaq-color-surface, #faf9f7); border: 1px solid var(--zaq-color-surface-border, #e8e6e1); border-radius: 6px; padding: 1rem; font-size: 0.75rem; overflow-x: auto;"><code>&lt;ZaqWeb.Components.ConnectCredentialForm.credential_form
