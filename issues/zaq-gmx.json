@@ -14,11 +14,15 @@
     {
       "text": "Action reuse assessment (.1-.7): Reuse/extend existing Zaq.Engine.Connect.Mutations.save_credential_configuration/4 and the :system_config_connect_update_credential Engine dispatch for linked AI/Auth mode changes; System.AIProviderCredentialConfiguration adapts AI request shape, Connect.update_admin_credential adapts BO direct edits to the same transaction. Searched Connect implementation, Engine API and agent/tools for existing Action; no composable credential-auth Action was found. No new Action or registry tool: this is a privileged admin configuration write tied to the existing authenticated BO/NodeRouter boundary, not safe/general standalone agent or workflow execution. Contract: explicit mode+credential attrs; returns canonical credential result/changeset error; atomically updates auth state/grants, rejects linked-incompatible or active-personal-grant changes; no retries or agent exposure. Verified by Connect mutations, System AI transactions, migration, and BO LiveView suites including invalid transitions and grant rotation.",
       "timestamp": "2026-09-27T20:44:53Z"
+    },
+    {
+      "text": "User authorized commit and push on 2026-09-28. Committed 74ba9a3c fix(credentials): migrate keyless AI auth to canonical no-auth (zaq-gmx), pushed branch fix/ai-cred-no-auth-migration to origin and set tracking; working tree clean. No PR created or merged yet; keep review, coverage, full E2E limitations and final mix precommit/final approval prerequisites open.",
+      "timestamp": "2026-09-28T10:53:32Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-gmx] Explicit no-auth for AI and Auth Credentials",
   "type": "epic",
-  "updated_at": "2026-09-27T20:44:53Z"
+  "updated_at": "2026-09-28T10:53:32Z"
 }
