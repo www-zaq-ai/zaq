@@ -6,20 +6,30 @@ defmodule Zaq.Channels.MattermostAdminTest do
   alias Zaq.Repo
   alias Zaq.TestSupport.OpenAIStub
 
-  describe "fetch_bot_user_id/2" do
-    test "returns bot id on HTTP 200" do
+  describe "fetch_bot_identity/2" do
+    test "returns bot id and username on HTTP 200" do
       {child_spec, url} =
         OpenAIStub.server(
           fn conn, _body ->
             assert conn.request_path == "/v1/api/v4/users/me"
-            {200, %{"id" => "bot-user-1"}}
+            {200, %{"id" => "bot-user-1", "username" => "zaq-local", "nickname" => "Zaq Local"}}
           end,
           self()
         )
 
       start_supervised!(child_spec)
 
-      assert {:ok, "bot-user-1"} = MattermostAdmin.fetch_bot_user_id(url, "token-1")
+      assert {:ok, %{id: "bot-user-1", username: "zaq-local"}} =
+               MattermostAdmin.fetch_bot_identity(url, "token-1")
+    end
+
+    test "rejects incomplete identity responses" do
+      {child_spec, url} =
+        OpenAIStub.server(fn _conn, _body -> {200, %{"id" => "bot-user-1"}} end, self())
+
+      start_supervised!(child_spec)
+
+      assert {:error, :invalid_identity} = MattermostAdmin.fetch_bot_identity(url, "token-1")
     end
 
     test "returns formatted HTTP error on non-200" do
@@ -33,13 +43,13 @@ defmodule Zaq.Channels.MattermostAdminTest do
 
       start_supervised!(child_spec)
 
-      assert {:error, "HTTP 401"} = MattermostAdmin.fetch_bot_user_id(url, "token-1")
+      assert {:error, "HTTP 401"} = MattermostAdmin.fetch_bot_identity(url, "token-1")
     end
 
     test "returns inspected reason on transport error" do
       url = unavailable_local_url()
 
-      assert {:error, reason} = MattermostAdmin.fetch_bot_user_id(url, "token-1")
+      assert {:error, reason} = MattermostAdmin.fetch_bot_identity(url, "token-1")
       assert is_binary(reason)
     end
   end

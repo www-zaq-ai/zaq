@@ -1244,14 +1244,26 @@
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           Bot Token
         </label>
-        <.secret_input
-          id="mattermost-token"
-          name="form[token]"
-          value={@form[:token].value}
-          placeholder="••••••••••••••••"
-          input_class="w-full h-11 px-4 pr-11 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
-          button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
-        />
+        <div class="flex items-center gap-2">
+          <div class="flex-1 min-w-0">
+            <.secret_input
+              id="mattermost-token"
+              name="form[token]"
+              value={@form[:token].value}
+              placeholder="••••••••••••••••"
+              input_class="w-full h-11 px-4 pr-11 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+              button_class="absolute right-3 top-1/2 -translate-y-1/2 text-black/30 hover:text-black/60 transition-colors focus:outline-none"
+            />
+          </div>
+          <button
+            :if={@provider == "mattermost"}
+            type="button"
+            phx-click="fetch_bot_identity"
+            class="h-11 px-4 rounded-xl border border-[#03b6d4]/30 text-[#03b6d4] font-mono text-[0.7rem] font-bold hover:bg-[#03b6d4]/5 transition-all shrink-0"
+          >
+            Fetch Identity
+          </button>
+        </div>
         <p class="font-mono text-[0.6rem] text-black/30 mt-1">
           Bot or personal access token with post:write permissions
         </p>
@@ -1322,11 +1334,12 @@
           type="text"
           name="form[settings][jido_chat][bot_name]"
           value={jido_chat_bot_name_from_changeset(@changeset)}
+          readonly={@provider == "mattermost"}
           placeholder="zaq"
           class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
         />
         <p class="font-mono text-[0.6rem] text-black/30 mt-1">
-          Used for @mention detection (e.g. zaq)
+          Mattermost username (not display name), used for @mention detection
         </p>
       </div>
 
@@ -1339,17 +1352,10 @@
             type="text"
             name="form[settings][jido_chat][bot_user_id]"
             value={jido_chat_bot_user_id_from_changeset(@changeset)}
+            readonly={@provider == "mattermost"}
             placeholder="xxxxxxxxxxxxxxxxxxxxxxxx"
             class="flex-1 h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
           />
-          <button
-            :if={@provider == "mattermost"}
-            type="button"
-            phx-click="fetch_bot_user_id"
-            class="h-11 px-4 rounded-xl border border-[#03b6d4]/30 text-[#03b6d4] font-mono text-[0.7rem] font-bold hover:bg-[#03b6d4]/5 transition-all shrink-0"
-          >
-            Fetch
-          </button>
         </div>
         <p class="font-mono text-[0.6rem] text-black/30 mt-1">
           Mattermost user ID of the bot account

@@ -25,13 +25,27 @@ defmodule Zaq.Channels.MattermostAdmin do
   # Channel discovery
   # ---------------------------------------------------------------------------
 
-  @doc "Fetches the bot's Mattermost user ID by calling /api/v4/users/me."
-  def fetch_bot_user_id(url, token) do
+  @doc "Fetches the authenticated Mattermost account's ID and username."
+  def fetch_bot_identity(url, token) do
     case get([url: url, token: token], "/api/v4/users/me", []) do
-      {:ok, %{"id" => id}} -> {:ok, id}
-      {:error, {status, _body}} -> {:error, "HTTP #{status}"}
-      {:error, reason} -> {:error, inspect(reason)}
+      {:ok, %{"id" => id, "username" => username}}
+      when is_binary(id) and id != "" and is_binary(username) and username != "" ->
+        {:ok, %{id: id, username: username}}
+
+      {:ok, _body} ->
+        {:error, :invalid_identity}
+
+      {:error, {status, _body}} ->
+        {:error, "HTTP #{status}"}
+
+      {:error, reason} ->
+        {:error, inspect(reason)}
     end
+  end
+
+  @doc "Fetches only the Mattermost user ID (use fetch_bot_identity/2 for both fields)."
+  def fetch_bot_user_id(url, token) do
+    with {:ok, %{id: id}} <- fetch_bot_identity(url, token), do: {:ok, id}
   end
 
   @doc "Lists all teams the bot belongs to."

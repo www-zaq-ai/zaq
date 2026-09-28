@@ -759,37 +759,38 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   end
 
   # -------------------------------------------------------------------------
-  # Fetch bot user ID
+  # Fetch bot identity
   # -------------------------------------------------------------------------
 
-  def handle_event("fetch_bot_user_id", _params, socket) do
+  def handle_event("fetch_bot_identity", _params, socket) do
     changeset = socket.assigns.changeset
     url = Ecto.Changeset.get_field(changeset, :url)
     token = Ecto.Changeset.get_field(changeset, :token) |> EncryptedString.decrypt!()
 
     cond do
       is_nil(url) or url == "" ->
-        {:noreply, put_flash(socket, :error, "URL is required to fetch the bot user ID.")}
+        {:noreply, put_flash(socket, :error, "URL is required to fetch the bot identity.")}
 
       is_nil(token) or token == "" ->
-        {:noreply, put_flash(socket, :error, "Token is required to fetch the bot user ID.")}
+        {:noreply, put_flash(socket, :error, "Token is required to fetch the bot identity.")}
 
       true ->
-        case mattermost_api().fetch_bot_user_id(url, token) do
-          {:ok, user_id} ->
+        case mattermost_api().fetch_bot_identity(url, token) do
+          {:ok, %{id: user_id, username: username}} ->
             settings = Ecto.Changeset.get_field(changeset, :settings) || %{}
 
             new_settings =
               settings
               |> Map.put_new("jido_chat", %{})
               |> put_in(["jido_chat", "bot_user_id"], user_id)
+              |> put_in(["jido_chat", "bot_name"], username)
 
             new_cs = Ecto.Changeset.put_change(changeset, :settings, new_settings)
             {:noreply, assign(socket, changeset: new_cs, form: to_form(new_cs, as: :form))}
 
           {:error, reason} ->
             {:noreply,
-             put_flash(socket, :error, "Failed to fetch bot user ID: #{inspect(reason)}")}
+             put_flash(socket, :error, "Failed to fetch bot identity: #{inspect(reason)}")}
         end
     end
   end

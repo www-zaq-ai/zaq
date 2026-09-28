@@ -99,7 +99,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       Map.get(users, user_id, {:error, :not_found})
     end
 
-    def fetch_bot_user_id(_url, _token), do: fetch_state(:fetch_bot_user_id, {:ok, "bot-user-1"})
+    def fetch_bot_identity(_url, _token),
+      do: fetch_state(:fetch_bot_identity, {:ok, %{id: "bot-user-1", username: "zaq-bot"}})
 
     def put(key, value), do: put_state(key, value)
 
@@ -408,13 +409,31 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert render(view) =~ "Channel agent assignment updated"
   end
 
-  test "fetch_bot_user_id handles required fields, success, and adapter error", %{conn: conn} do
+  test "fetch_bot_identity fills readonly bot fields and handles missing credentials and errors",
+       %{
+         conn: conn
+       } do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 
     view |> element("#new-config-button") |> render_click()
 
-    render_hook(view, "fetch_bot_user_id", %{})
-    assert render(view) =~ "URL is required to fetch the bot user ID"
+    render_hook(view, "fetch_bot_identity", %{})
+    assert render(view) =~ "URL is required to fetch the bot identity"
+
+    view
+    |> element("#config-form")
+    |> render_change(%{
+      "form" => %{
+        "provider" => "mattermost",
+        "kind" => "retrieval",
+        "name" => "Bot Config",
+        "url" => "https://mattermost.example.com",
+        "token" => ""
+      }
+    })
+
+    render_hook(view, "fetch_bot_identity", %{})
+    assert render(view) =~ "Token is required to fetch the bot identity"
 
     view
     |> element("#config-form")
@@ -428,16 +447,21 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       }
     })
 
-    MattermostAPIFake.put(:fetch_bot_user_id, {:ok, "bot-123"})
-    render_hook(view, "fetch_bot_user_id", %{})
+    MattermostAPIFake.put(:fetch_bot_identity, {:ok, %{id: "bot-123", username: "real-bot"}})
+    render_hook(view, "fetch_bot_identity", %{})
 
-    assert render(view) =~ "bot-123"
+    html = render(view)
+    assert html =~ ~s(name="form[settings][jido_chat][bot_user_id]" value="bot-123" readonly)
+    assert html =~ ~s(name="form[settings][jido_chat][bot_name]" value="real-bot" readonly)
+    assert html =~ "Fetch Identity"
+    assert html =~ ~r/name="form\[token\]".*?phx-click="fetch_bot_identity"/s
 
-    MattermostAPIFake.put(:fetch_bot_user_id, {:error, :unauthorized})
-    render_hook(view, "fetch_bot_user_id", %{})
+    MattermostAPIFake.put(:fetch_bot_identity, {:error, :unauthorized})
+    render_hook(view, "fetch_bot_identity", %{})
 
-    assert render(view) =~ "Failed to fetch bot user ID"
+    assert render(view) =~ "Failed to fetch bot identity"
     assert render(view) =~ "unauthorized"
+    assert render(view) =~ "real-bot"
   end
 
   test "handles missing config on delete branch", %{conn: conn} do
