@@ -11,9 +11,15 @@
   "id": "zaq-xfj.3",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "Implemented admin-owned browser domains via Engine event read before each command, explicit empty --allowed-domains to override inherited env on fresh daemon, no agent schema override, improved agent guidance. Isolated browser + System tests pass: 1 property, 41 tests, 0 failures; mix q passes. Pinned real-browser allow/deny/redirect integration remains for zaq-xfj.7: local agent-browser is 0.12.0, Docker pins a newer source revision; no matching local pinned binary. Existing daemon changes require full Agent-container restart, documented. Session selection unchanged. No commit/push.",
+      "timestamp": "2026-09-29T21:15:49Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.3] Make browser policy admin-owned and clarify tool descriptions",
   "type": "task",
-  "updated_at": "2026-09-29T21:10:31Z"
+  "updated_at": "2026-09-29T21:15:49Z"
 }
