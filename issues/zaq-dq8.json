@@ -14,11 +14,15 @@
     {
       "text": "Follow-up: BO test now constructs Outgoing and dispatches existing :deliver_outgoing event to Channels, reusing the same EmailBridge.send_reply/SmtpSender path as production notifications. Deleted duplicate BO SMTP option, sender, TLS and delivery-password code. Action reuse: reuse existing Channels event/bridge/sender rather than local-only SMTP operation; no new Action, no agent tool exposure. Removed four BO-only decrypt-failure tests whose old UI-only behavior diverged from production sender; replaced with delegation regression and real SMTP sender integration test. Tests: isolated LiveView + SMTP sender 62 passed; mix q and strict Credo pass; existing system_config E2E 183 passed. Full E2E suite remains unverified (previous five-minute timeout).",
       "timestamp": "2026-09-29T17:44:20Z"
+    },
+    {
+      "text": "Committed as 9f093d91 after successful MIX_TEST_PARTITION=_smtp_fix_dq8 mix precommit (9900 tests, 0 failures). Push blocked: origin SSH denied publickey; HTTPS using existing gh auth jfayad GITHUB_TOKEN returned 403 permission denied for www-zaq-ai/zaq. Leave issue in progress pending push; branch local commit retained.",
+      "timestamp": "2026-09-29T18:29:45Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[BUG] Fix SMTP test delivery adapter and LiveView crash",
   "type": "task",
-  "updated_at": "2026-09-29T17:44:20Z"
+  "updated_at": "2026-09-29T18:29:45Z"
 }
