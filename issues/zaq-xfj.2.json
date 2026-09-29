@@ -11,9 +11,15 @@
   "id": "zaq-xfj.2",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "Implemented System Configuration Web browsing tab with shared DataSourceFolderPicker, scope-aware folder selection/navigation, optional clear, creation via validated CreateDocument Action, Engine-backed save and restart warning. Focused tests: 1 property + 13 tests total (config + five new LiveView tests), all pass; mix q passes. Full pre-existing SystemConfigLive test file: 13 existing Skills tests fail attempting unique disk config insert; confirmed even on a fresh MIX_TEST_PARTITION test database seeded with disk provider id=2. Not caused by web browsing changes; left seeded data untouched. No commit/push.",
+      "timestamp": "2026-09-29T21:10:21Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.2] Add Web browsing tab with reused datasource destination picker",
   "type": "task",
-  "updated_at": "2026-09-29T20:52:41Z"
+  "updated_at": "2026-09-29T21:10:21Z"
 }
