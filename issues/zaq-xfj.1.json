@@ -9,9 +9,15 @@
   "id": "zaq-xfj.1",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "Started on feat/web-browsing-config-screenshots in current worktree. Added typed grouped System config with validated exact-host policy, optional datasource destination, Engine events, atomic persistence, focused regression/property tests, and documentation draft. mix compile and mix q pass (mix q does not run tests). Isolated mix test cannot start: PostgreSQL localhost:5432 connection refused; docker ps shows no running containers. Issue remains in progress and dependent work blocked pending database-backed validation. No commit/push.",
+      "timestamp": "2026-09-29T20:45:59Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.1] Add typed global Web browsing configuration",
   "type": "task",
-  "updated_at": "2026-09-29T20:38:03Z"
+  "updated_at": "2026-09-29T20:45:59Z"
 }
