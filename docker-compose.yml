@@ -69,6 +69,8 @@ services:
       # Runtime filesystem base; keep aligned with the bind-mount destination below.
       STORAGE_VOLUMES_BASE: "${STORAGE_VOLUMES_BASE:-/zaq/volumes}"
       SYSTEM_CONFIG_ENCRYPTION_KEY: "${SYSTEM_CONFIG_ENCRYPTION_KEY}"
+      SYSTEM_CONFIG_ENCRYPTION_KEY_ID: "${SYSTEM_CONFIG_ENCRYPTION_KEY_ID}"
+      WORKFLOWS_ENABLED: "${WORKFLOWS_ENABLED:-true}"
     volumes:
       - ./ingestion-volumes:/zaq/volumes
     extra_hosts:
