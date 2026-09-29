@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-xfj.6"
+  ],
   "blocks": [],
   "created": "2026-09-29T20:22:21Z",
   "description": "## Functional specifications and files\nAuthor only after the human UX approval issue is closed with explicit evidence. Extend test/e2e/specs/system_config.spec.js and existing fixtures for the approved Web browsing settings journey. Reuse opt-in actual-browser Agent harness from zaq-5j6 and its completed child zaq-5j6.2; verify live paths and pin instead of copying a parallel harness. Add deterministic local fixture page and datasource destination evidence for Docker/browser capture -\u003e actual stored PNG. Do not rely on public zaq.ai availability.\n\n## Planned scenarios and branches\nAdmin save/reload, blank and restrictive policy validation, datasource source/scope/folder navigation, changing destination affects next capture, missing destination and denied upload, correct domain/page/timestamp/random naming, two non-overwriting captures, final stored binary and Record metadata, no false success on upload failure. Fresh Agent/browser startup with allowed host versus blocked host and redirect proves configured restrictions; existing daemon behavior and restart guidance are explicit. Channel-originated execution must work without workflow run_id while preserving current session behavior. Avoid cross-test sharing with unique sessions and destinations; ensure browser/files cleanup.\n\n## Tests before implementation / mocking\nScenarios are specified now; implement final feature specs only after human approval. Real browser and internal Agent/Channels/System boundaries, local HTTP fixtures and controllable provider edge where real remote access is unavailable. Demonstrate at least real Disk persistence across the service boundary; do not claim remote-provider end-to-end success from stubs. Record exact Docker CLI/Chromium prerequisites and skip/block reasons.\n\n## Action reuse assessment\nVerification-only: reuse existing System config UI spec and browser integration runner. No new production operations or backdoor/test-only affordances.\n\n## Documentation\nUpdate docs/e2e-testing.md for actual run prerequisites only when changed; record evidence and unresolved limitations in this issue. Read testing handbook, E2E guide and Agent harness checks. Parent epic remains open until E2E and final validation finish.\n\n## Execution constraints and policies\nPlanning only; do not mark complete without implementation evidence. Future implementation uses a new branch in the current worktree, not another worktree; do not commit/push without authorization. Read AGENTS.md, docs/WORKFLOW_AGENT.md, docs/agent-tools.md, docs/action-reuse.md and docs/testing-approach.md. Read each affected module @moduledoc and relevant service owner before editing. Follow the authoritative validation lifecycle rather than inventing alternate gates. Preserve existing assertions. New feature E2E authoring is deferred until the separate human approval issue closes.\n",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-xfj.7] Finalize Web browsing UI and Docker screenshot end-to-end coverage",
   "type": "task",
-  "updated_at": "2026-09-29T20:22:22Z"
+  "updated_at": "2026-09-29T20:22:29Z"
 }
