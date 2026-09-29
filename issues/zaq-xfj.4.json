@@ -9,7 +9,7 @@
   "parent": "zaq-xfj",
   "priority": 2,
   "status": "open",
-  "title": "Preserve datasource scope in reusable create_document action",
+  "title": "[zaq-xfj.4] Preserve datasource scope in reusable create_document action",
   "type": "task",
-  "updated_at": "2026-09-29T20:22:17Z"
+  "updated_at": "2026-09-29T20:22:18Z"
 }
