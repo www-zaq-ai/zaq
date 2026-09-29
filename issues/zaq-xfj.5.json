@@ -11,9 +11,15 @@
   "id": "zaq-xfj.5",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "Implemented screenshot command in existing Browsing Action: current-session get url -\u003e validated HTTP(S) final host/path -\u003e existing destination folder lookup/create via Channels + validated CreateDocument -\u003e viewport capture to one unpredictable owned temp PNG -\u003e \u003c=10 MiB PNG check -\u003e base64 into validated CreateDocument upload -\u003e return compact output + canonical document_id only on success; cleanup in after. Duplicate folder creation is not retried; failed create checks existing once. Incomplete paginated folder listings fail rather than risk duplicate folders. Source/config/actor propagate through trusted context; no skip_permissions or LLM path/base64 parameter. Tests include validated screenshot Action + final redirect naming, byte integrity, two distinct names, reuse/create, nonweb/missing/oversize PNG, incomplete list and upload denial; remote and disk contract fixtures in zaq-xfj.4. Focused combined run: 2 properties, 123 tests, 0 failures (selected config/UI/bridge files). mix q passes. Existing full SystemConfigLive file has 13 unrelated seeded disk fixture failures; real pinned-browser/provider network checks remain for zaq-xfj.7; no live remote upload guarantee from stubs. No commit/push.",
+      "timestamp": "2026-09-29T21:35:45Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.5] Capture page screenshots and persist to configured datasource",
   "type": "task",
-  "updated_at": "2026-09-29T21:22:52Z"
+  "updated_at": "2026-09-29T21:35:45Z"
 }
