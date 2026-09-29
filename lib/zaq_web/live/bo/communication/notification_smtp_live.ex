@@ -2,11 +2,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   use ZaqWeb, :live_view
 
   import Zaq.Helpers, only: [blank?: 1]
+  require Logger
 
   alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.EmailBridge.TlsHelpers
-  alias Zaq.Config
-  alias Zaq.Mailer
+  alias Zaq.Engine.Messages.Outgoing
+  alias Zaq.Event
+  alias Zaq.NodeRouter
   alias Zaq.System.EmailConfig
   alias Zaq.Types.EncryptedString
   alias ZaqWeb.ChangesetErrors
@@ -162,29 +163,33 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   def handle_info({:send_test, recipient}, socket) do
     result =
       try do
-        case email_delivery_opts() do
-          {:error, :not_configured} ->
-            {:error, "Email is not configured or disabled."}
+        cfg = current_email_config()
 
-          {:ok, delivery_opts} ->
-            {from_name, from_email} = email_sender()
+        if cfg.enabled and not blank?(cfg.relay) do
+          outgoing = %Outgoing{
+            provider: @smtp_provider,
+            channel_id: recipient,
+            body:
+              "This is a test email from your ZAQ instance. If you received this, email delivery is working correctly.",
+            metadata: %{"subject" => "ZAQ — Email configuration test"}
+          }
 
-            email =
-              Swoosh.Email.new()
-              |> Swoosh.Email.to(recipient)
-              |> Swoosh.Email.from({from_name, from_email})
-              |> Swoosh.Email.subject("ZAQ — Email configuration test")
-              |> Swoosh.Email.text_body(
-                "This is a test email from your ZAQ instance. If you received this, email delivery is working correctly."
-              )
-
-            case Mailer.deliver(email, delivery_opts) do
-              {:ok, _} -> :ok
-              {:error, reason} -> {:error, format_email_error(reason)}
-            end
+          case outgoing
+               |> Event.new(:channels, opts: [action: :deliver_outgoing])
+               |> NodeRouter.dispatch() do
+            %Event{response: {:ok, _receipt}} -> :ok
+            %Event{response: {:error, reason}} -> {:error, format_email_error(reason)}
+            _ -> {:error, "Email delivery returned an unexpected response."}
+          end
+        else
+          {:error, "Email is not configured or disabled."}
         end
       rescue
         exception -> {:error, Exception.message(exception)}
+      catch
+        :exit, _reason ->
+          Logger.warning("SMTP test delivery exited unexpectedly")
+          {:error, "Email delivery failed unexpectedly. Check the server logs."}
       end
 
     test_status = result
@@ -336,23 +341,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
   defp persist_email_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
 
-  defp email_delivery_opts do
-    cfg = current_email_config()
-
-    with true <- cfg.enabled and not blank?(cfg.relay),
-         {:ok, password} <- password_for_delivery(cfg) do
-      {:ok, build_delivery_opts(cfg, password)}
-    else
-      false -> {:error, :not_configured}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp email_sender do
-    cfg = current_email_config()
-    {cfg.from_name || "ZAQ", cfg.from_email || "noreply@zaq.local"}
-  end
-
   defp decrypt_password_value(value) do
     case EncryptedString.decrypt(value) do
       {:ok, decrypted} -> decrypted
@@ -365,89 +353,6 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
   defp encrypt_password_value(value) when is_binary(value) do
     if EncryptedString.encrypted?(value), do: {:ok, value}, else: EncryptedString.encrypt(value)
   end
-
-  defp password_for_delivery(%EmailConfig{username: username}) when username in [nil, ""] do
-    {:ok, ""}
-  end
-
-  defp password_for_delivery(%EmailConfig{}) do
-    settings =
-      case ChannelConfig.get_any_by_provider(@smtp_provider) do
-        %ChannelConfig{settings: map} when is_map(map) -> map
-        _ -> %{}
-      end
-
-    case EncryptedString.decrypt(map_get(settings, "password")) do
-      {:ok, nil} -> {:ok, ""}
-      {:ok, password} -> {:ok, password}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp build_delivery_opts(%EmailConfig{} = cfg, password) do
-    auth = if blank?(cfg.username), do: :never, else: :always
-    {ssl, tls} = transport_settings(cfg)
-
-    tls_options =
-      if ssl or tls != :never do
-        smtp_tls_options(cfg)
-      else
-        []
-      end
-
-    opts = [
-      adapter: mailer_adapter(),
-      relay: String.trim(cfg.relay),
-      port: cfg.port,
-      ssl: ssl,
-      tls: tls,
-      tls_options: tls_options,
-      auth: auth
-    ]
-
-    if blank?(cfg.username), do: opts, else: opts ++ [username: cfg.username, password: password]
-  end
-
-  defp mailer_adapter do
-    :zaq
-    |> Config.get(Mailer, [])
-    |> Keyword.get(:adapter, Swoosh.Adapters.SMTP)
-  end
-
-  defp transport_settings(%EmailConfig{transport_mode: "ssl"}), do: {true, :never}
-  defp transport_settings(%EmailConfig{} = cfg), do: {false, normalize_tls_mode(cfg.tls)}
-
-  defp normalize_tls_mode("enabled"), do: :if_available
-  defp normalize_tls_mode("if_available"), do: :if_available
-  defp normalize_tls_mode("always"), do: :always
-  defp normalize_tls_mode("never"), do: :never
-  defp normalize_tls_mode(_), do: :if_available
-
-  defp smtp_tls_options(%EmailConfig{} = cfg) do
-    verify = normalize_tls_verify_mode(cfg.tls_verify)
-    relay = String.trim(cfg.relay)
-
-    options = [
-      versions: [:"tlsv1.2", :"tlsv1.3"],
-      verify: verify,
-      depth: 4,
-      server_name_indication: to_charlist(relay)
-    ]
-
-    cond do
-      verify == :verify_none ->
-        options
-
-      not blank?(cfg.ca_cert_path) ->
-        options ++ [cacertfile: to_charlist(cfg.ca_cert_path)]
-
-      true ->
-        options ++ [cacerts: TlsHelpers.default_cacerts()]
-    end
-  end
-
-  defp normalize_tls_verify_mode("verify_none"), do: :verify_none
-  defp normalize_tls_verify_mode(_), do: :verify_peer
 
   defp parse_int(str, default), do: ParseUtils.parse_int(str, default)
 
