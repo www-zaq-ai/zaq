@@ -10,11 +10,15 @@
     {
       "text": "Action reuse assessment: affected operation is the existing BO SMTP test send via Zaq.Mailer.deliver/2; production SMTP sender lib/zaq/channels/email_bridge/smtp_sender.ex already selects Swoosh.Adapters.SMTP for channel delivery, but is channel-specific and not an appropriate BO call. Decision: local-only adapter selection correction in existing BO test path; no new Action/agent exposure. Inputs: saved enabled SMTP config + recipient, outputs: status or user-visible failure; delivery remains a single attempt using Swoosh and existing auth/config, no new permission boundary. Verification: LiveView tests for Local-\u003eSMTP and exit recovery; isolated suite 31/31, mix q and strict Credo pass. Full E2E attempt timed out after 5min; final review/precommit gates pending.",
       "timestamp": "2026-09-29T17:13:10Z"
+    },
+    {
+      "text": "Follow-up: BO test now constructs Outgoing and dispatches existing :deliver_outgoing event to Channels, reusing the same EmailBridge.send_reply/SmtpSender path as production notifications. Deleted duplicate BO SMTP option, sender, TLS and delivery-password code. Action reuse: reuse existing Channels event/bridge/sender rather than local-only SMTP operation; no new Action, no agent tool exposure. Removed four BO-only decrypt-failure tests whose old UI-only behavior diverged from production sender; replaced with delegation regression and real SMTP sender integration test. Tests: isolated LiveView + SMTP sender 62 passed; mix q and strict Credo pass; existing system_config E2E 183 passed. Full E2E suite remains unverified (previous five-minute timeout).",
+      "timestamp": "2026-09-29T17:44:20Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[BUG] Fix SMTP test delivery adapter and LiveView crash",
   "type": "task",
-  "updated_at": "2026-09-29T17:13:10Z"
+  "updated_at": "2026-09-29T17:44:20Z"
 }
