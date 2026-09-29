@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-29T20:22:23Z",
+  "description": "## Scope and ownership\nAfter approved E2E, review cohesive implementation diff and documentation: Agent service/tool contract; System Configuration keys, empty semantics, environment migration and full Agent-container restart; screenshot destination/naming/error/cleanup semantics; existing Channels/CreateDocument contract as amended. Recheck action reuse and source-boundary policy. Link deferred GitHub #825 and retain current session selection; no screenshot visual reasoning, general artifact infrastructure, hot domain updates or unrelated refactors.\n\n## Tests and branches\nEach implementation issue must already record tests-first and per-issue validation. Verify config/authorization/policy/redirect/CLI/upload/cleanup/property tests, existing System config E2E, approved new E2E and real-browser/Docker evidence. Run the repository authoritative docs/WORKFLOW_AGENT.md validation lifecycle, including failure handling, post-review coverage-upper handoff, and final precommit gate before requesting final human approval. No artificial per-step coverage percentage; preserve assertions and report blockers honestly.\n\n## Mocking plan\nNo new mocks or runtime seams here. Verify evidence distinguishes real end-to-end transport from provider stubs; no unsupported claim of all-provider compatibility.\n\n## Action reuse assessment\nNot applicable to this review/validation milestone; audit previous reuse assessments and verify no duplicated datasource uploader, browser runner or bypassed permission boundaries.\n\n## Delivery constraints\nFuture implementation remains in current worktree on a new feature branch as requested. Do not create a second worktree, commit, push, merge or close issues merely from this plan. Human approval remains required according to workflow. Record final validation/coverage results and exceptions in Beadwork, not new plan files. Update policy-owned docs only; follow documentation hygiene.\n\n## Execution constraints and policies\nPlanning only; do not mark complete without implementation evidence. Future implementation uses a new branch in the current worktree, not another worktree; do not commit/push without authorization. Read AGENTS.md, docs/WORKFLOW_AGENT.md, docs/agent-tools.md, docs/action-reuse.md and docs/testing-approach.md. Read each affected module @moduledoc and relevant service owner before editing. Follow the authoritative validation lifecycle rather than inventing alternate gates. Preserve existing assertions. New feature E2E authoring is deferred until the separate human approval issue closes.\n",
+  "id": "zaq-xfj.8",
+  "labels": [],
+  "parent": "zaq-xfj",
+  "priority": 2,
+  "status": "open",
+  "title": "Complete documentation consistency and final validation handoff",
+  "type": "task",
+  "updated_at": "2026-09-29T20:22:23Z"
+}
