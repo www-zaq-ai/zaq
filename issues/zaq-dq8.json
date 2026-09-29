@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-29T17:01:23Z",
+  "description": "SMTP BO test inherits Local mailer adapter even in production where local storage is disabled; deliver exits and kills LiveView. Use SMTP for configured SMTP test and render delivery failures without crashing. Add regression tests. Action reuse: local-only existing mailer delivery; no new operation or agent tool. Existing docker-compose.yml modifications are out of scope.",
+  "id": "zaq-dq8",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[BUG] Fix SMTP test delivery adapter and LiveView crash",
+  "type": "task",
+  "updated_at": "2026-09-29T17:01:23Z"
+}
