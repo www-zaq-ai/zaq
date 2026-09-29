@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-29T20:15:00Z",
+  "description": "Planning only. Approved scope: admin-owned global domain policy, reused datasource folder picker for screenshots, clearer web_browsing descriptions, automatic screenshot upload through create_document, and final-URL page slug + UTC timestamp + collision-resistant filenames. Preserve current session selection; deferred conversation/actor identity work is GitHub #825 (https://github.com/www-zaq-ai/zaq/issues/825). Detailed child issues and dependencies will be added next. No application changes, branch creation, commits or pushes are authorized in this planning pass.",
+  "id": "zaq-xfj",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Web browsing global policy and automatic screenshot storage",
+  "type": "epic",
+  "updated_at": "2026-09-29T20:15:00Z"
+}
