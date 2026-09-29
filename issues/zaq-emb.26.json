@@ -24,11 +24,15 @@
     {
       "text": "User authorized coordinated rebase repair after #799 moved to 0ef9ed87. Snapshot remote stack: #800 35e20f80; #806 bc7c1b03; #807 fefb5d7e; #808 ab9331ad; #811 ba355624; #812 d775e9eb; #813 7ba7933a. git cherry confirms only eba6d105, 9d42e878, 0d739ccd are unique to #800; old connector commits are patch-equivalent duplicates. Plan: backup all tips; rebase #800-only work onto frozen #799; compare resulting tree to expected three-way integration; replay each descendant relative to saved old parent; validate each tree/diff and affected regressions; publish atomically with explicit force-with-lease checks. Action reuse: not applicable — history maintenance only.",
       "timestamp": "2026-09-29T09:21:50Z"
+    },
+    {
+      "text": "Coordinated rebase repair completed and atomically pushed with explicit force-with-lease for all seven refs. #799 held at 0ef9ed87; new heads #800=1fb547a0, #806=fb29ecc4, #807=be72ed82, #808=540efc34, #811=045d18e4, #812=c646057d, #813=b2b17ca0. Removed patch-equivalent old connector commits from #800 replay; retained three unique commits plus explicit router admission-setup commit previously hidden in merge resolutions. #800 tree exactly equals expected three-way integration (2e317e7e); every downstream binary incremental diff is unchanged. Local branch refs aligned; previous remote and local tips retained under backup/stack-800-20260929/*. No changes to #799 or integration worktree. mix q passed on #800 and final stack; #800 focused tests: 86 tests/5 properties/0 failures. Final-stack precommit initially hit LLMPerformanceFailureTest telemetry fallback flake; isolated rerun passed and complete precommit rerun passed: 10026 tests, 192 properties, 48 doctests, zero failures, 1 skipped/100 excluded. GitHub confirms all seven PRs MERGEABLE (other required checks remain BLOCKED). Worktree clean on #800. Future restacks should use saved old-parent tips with rebase --onto and proceed bottom-up; avoid replaying obsolete merged connector ancestry.",
+      "timestamp": "2026-09-29T09:41:58Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "[zaq-emb.26] Consolidate stacked #768 fixes into owning PRs",
   "type": "task",
-  "updated_at": "2026-09-29T09:21:50Z"
+  "updated_at": "2026-09-29T09:41:58Z"
 }
