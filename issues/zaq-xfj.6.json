@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-29T20:22:20Z",
+  "description": "## Scope and gate\nAfter all implementation children: demonstrate the new settings tab, domain helper/restart messaging, reused datasource folder navigation and destination persistence, one screenshot request producing the expected domain folder/page/timestamp/random filename, and clear failures. Request explicit human UX/UI approval before authoring final feature E2E. Earlier approval of this plan does not satisfy this implementation UX gate. Keep issue open until human approval is recorded; reopen if material UX changes invalidate it.\n\n## Acceptance evidence\nLink screenshots/demo and unit/integration validation from preceding steps. Demonstrate no session redesign; confirm restart-required domain rollout is honestly presented. Record approved routes, screenshot naming and output, accessibility/layout issues, and requested corrections. No source changes are authorized by this issue alone.\n\n## Action reuse assessment\nNot applicable: human review milestone, no operation implementation.\n\n## Tests / branches / mocking / docs\nImmediate tests remain in implementation children; author no new feature E2E here. Review success/failure/no-source/unauthorized states. No mocks or new docs required beyond approval evidence in Beadwork. Consolidated E2E must depend on this issue, not on parent epic closure.\n\n## Execution constraints and policies\nPlanning only; do not mark complete without implementation evidence. Future implementation uses a new branch in the current worktree, not another worktree; do not commit/push without authorization. Read AGENTS.md, docs/WORKFLOW_AGENT.md, docs/agent-tools.md, docs/action-reuse.md and docs/testing-approach.md. Read each affected module @moduledoc and relevant service owner before editing. Follow the authoritative validation lifecycle rather than inventing alternate gates. Preserve existing assertions. New feature E2E authoring is deferred until the separate human approval issue closes.\n",
+  "id": "zaq-xfj.6",
+  "labels": [],
+  "parent": "zaq-xfj",
+  "priority": 2,
+  "status": "open",
+  "title": "Obtain human approval of Web browsing settings and screenshot workflow",
+  "type": "task",
+  "updated_at": "2026-09-29T20:22:20Z"
+}
