@@ -20,11 +20,15 @@
     {
       "text": "Completed PR #800 base repair: pushed ancestry-preserving merge 35e20f80 (parents 8f4e6b22 and updated #799 3a47ca63). No force push. All six downstream PR heads (#806, #807, #808, #811, #812, #813) merge cleanly with repaired #800 via git merge-tree simulations. mix q and focused regressions passed; final mix precommit passed: 48 doctests, 184 properties, 9931 tests, zero failures, 1 skipped and 100 excluded. No new feature behavior or E2E scope; conflict hunks preserve existing #800 docs/test setup. Commit and push hooks passed.",
       "timestamp": "2026-09-29T08:30:38Z"
+    },
+    {
+      "text": "User authorized coordinated rebase repair after #799 moved to 0ef9ed87. Snapshot remote stack: #800 35e20f80; #806 bc7c1b03; #807 fefb5d7e; #808 ab9331ad; #811 ba355624; #812 d775e9eb; #813 7ba7933a. git cherry confirms only eba6d105, 9d42e878, 0d739ccd are unique to #800; old connector commits are patch-equivalent duplicates. Plan: backup all tips; rebase #800-only work onto frozen #799; compare resulting tree to expected three-way integration; replay each descendant relative to saved old parent; validate each tree/diff and affected regressions; publish atomically with explicit force-with-lease checks. Action reuse: not applicable — history maintenance only.",
+      "timestamp": "2026-09-29T09:21:50Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "[zaq-emb.26] Consolidate stacked #768 fixes into owning PRs",
   "type": "task",
-  "updated_at": "2026-09-29T08:30:38Z"
+  "updated_at": "2026-09-29T09:21:50Z"
 }
