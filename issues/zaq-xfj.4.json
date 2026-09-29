@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-xfj.3"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-xfj",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-xfj.4] Verify screenshot destination with existing create_document contract",
   "type": "task",
-  "updated_at": "2026-09-29T20:36:49Z"
+  "updated_at": "2026-09-29T21:15:59Z"
 }
