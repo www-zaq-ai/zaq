@@ -11,9 +11,15 @@
   "id": "zaq-xfj.6",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "Human UX/UI approval pending. Route /bo/system-config?tab=web_browsing and screenshot naming/output are implemented; focused validations: 2 properties, 123 tests, 0 failures and mix q passes. App HTTP servers on localhost:4000 and :4002 were unavailable, so no real authenticated BO screenshot/demo was captured; remote provider/browser integration is not claimed. Review tab helper/restart/no-source/error states and stored screenshot hostname folder + path/timestamp/random name once a BO server and datasource are available. Do not author new feature E2E or close this gate until explicit approval. No commit/push.",
+      "timestamp": "2026-09-29T21:36:16Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.6] Obtain human approval of Web browsing settings and screenshot workflow",
   "type": "task",
-  "updated_at": "2026-09-29T21:36:08Z"
+  "updated_at": "2026-09-29T21:36:16Z"
 }
