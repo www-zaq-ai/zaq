@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-xfj.3"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-xfj.5"
+  ],
   "created": "2026-09-29T20:22:17Z",
   "description": "## Functional specifications and files\nAudit/extend lib/zaq/agent/tools/data_source/create_document.ex so the existing validated Action can create a domain folder and upload binary screenshots in the exact admin-selected provider/config/scope/folder. Its current schema forwards config_id/path/parent_id but omits scope_id, while Skills upload already sends scope_id to Channels. Add backward-compatible optional scope_id passthrough only where required by the existing datasource contract; preserve existing text/base64 creation and kind: folder behavior. Do not add filesystem path loading or materialization-handle support in this release.\n\n## Contract and Action reuse assessment\nReuse CreateDocument -\u003e DataSourceTool -\u003e Channels data_source_create_file and canonical Record results; preserve NodeRouter dispatch and TrustedContext. Called programmatically through the existing validated Action execution path (e.g. Jido.Exec), not direct run/2. Model screenshot calls do not choose provider/destination: trusted config is assembled internally by the browser operation. List/find folders through existing list operation, create through CreateDocument with kind: folder, and retain returned canonical folder IDs. Do not assume all providers accept joined display paths; maintain scope/parent semantics of DataSourceBrowser/Channels. No bypass of write ACLs because admin chose a destination; absent actor never implies skip_permissions.\n\n## Tests to add before implementation / branches\nAction and Channels integration tests: scope/config passthrough; folder creation with canonical parent; PNG binary/base64 round trip; malformed base64; existing textual creation; disabled/mismatched config; unsupported creation; write denial and nil identity; error propagation. Test at least Disk and configured remote-provider contract via existing provider fixtures. No screenshot-specific schema on this generic action.\n\n## Mocking and docs\nReal validated Action/internal router boundary; external provider API stubs only, except established distributed-role test constraints explicitly documented. Read docs/services/channels.md and materialization contracts for boundary context. Update CreateDocument parameter docs and Channels service docs only if its public contract changes. New screenshot orchestration depends on this verified reusable primitive.\n\n## Execution constraints and policies\nPlanning only; do not mark complete without implementation evidence. Future implementation uses a new branch in the current worktree, not another worktree; do not commit/push without authorization. Read AGENTS.md, docs/WORKFLOW_AGENT.md, docs/agent-tools.md, docs/action-reuse.md and docs/testing-approach.md. Read each affected module @moduledoc and relevant service owner before editing. Follow the authoritative validation lifecycle rather than inventing alternate gates. Preserve existing assertions. New feature E2E authoring is deferred until the separate human approval issue closes.\n",
   "id": "zaq-xfj.4",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-xfj.4] Preserve datasource scope in reusable create_document action",
   "type": "task",
-  "updated_at": "2026-09-29T20:22:27Z"
+  "updated_at": "2026-09-29T20:22:28Z"
 }
