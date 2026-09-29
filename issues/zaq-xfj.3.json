@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-xfj.2"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-xfj",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-xfj.3] Make browser policy admin-owned and clarify tool descriptions",
   "type": "task",
-  "updated_at": "2026-09-29T20:22:27Z"
+  "updated_at": "2026-09-29T21:10:31Z"
 }
