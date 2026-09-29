@@ -11,9 +11,15 @@
   "id": "zaq-xfj.4",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "REUSE confirmed; no CreateDocument production/schema edits. Validated Jido.Exec.run CreateDocument test creates remote folder with %{provider: \"google_drive\", config_id: \"12\", parent_id: \"selected-folder-id\", name: \"example.org\", kind: \"folder\"} and returns canonical Record.id \"new-canonical-folder-id\"; PNG upload with name, mime_type: \"image/png\", content: Base.encode64(png), encoding: \"base64\", config_id, parent_id arrives at Channels as original binary bytes with trusted actor. JidoConnectBridge remote fixture converts parent_id to parents: [\"selected-folder-id\"] and chooses upload; Disk bridge uses volume-qualified path \"volume-a/Captures/example.org\" (not parent_id), preserving PNG bytes; folder creation uses path \"volume-a/Captures\". Folder upload should use returned canonical folder.id for remote and returned folder.path for Disk. Tests: 1 property, 70 tests (selected files), 0 failures; mix q passes. Provider stubs do not prove live remote API success or remote binary transport outside this contract. Actor/config authorization remains Channels-owned, never skip_permissions. No commit or push.",
+      "timestamp": "2026-09-29T21:22:44Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.4] Verify screenshot destination with existing create_document contract",
   "type": "task",
-  "updated_at": "2026-09-29T21:15:59Z"
+  "updated_at": "2026-09-29T21:22:44Z"
 }
