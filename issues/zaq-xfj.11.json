@@ -9,9 +9,15 @@
   "id": "zaq-xfj.11",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "User explicitly requested backend screenshot-to-Disk CI scenario 2026-09-30; BO UX approval zaq-xfj.6 remains separate, UI feature E2E zaq-xfj.7 stays blocked. Extended real agent-browser integration harness: admin domain policy, existing Disk fixture, unique grant/destination, two agent-captured screenshots, actual Disk PNG signatures/dimensions/content, exact catalog identities and paths, UTC filename/suffix, signed canonical Record verified after model-facing opaque provenance alias resolution, staging cleanup/session cleanup. Existing navigation/blocked-host/form tests preserved. Local Docker v0.38.1 Chromium via shared staging and macOS fixture-host override: 2 tests, 0 failures; focused browsing/system/disk tests 1 property, 53 tests, 0 failures; mix q passes. Hosted CI pending authorization/dispatch. No commit/push.",
+      "timestamp": "2026-09-30T08:09:15Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-xfj.11] Prove real screenshot uploads two PNGs to Disk",
   "type": "task",
-  "updated_at": "2026-09-30T07:30:18Z"
+  "updated_at": "2026-09-30T08:09:15Z"
 }
