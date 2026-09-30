@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-30T07:29:21Z",
+  "description": "Set up run-scoped bind-mounted writable TMPDIR at same host/container path in browser-tool CI. Preserve nonroot runtime, host networking, cleanup and separate host Disk destination. Requires runtime pin. Action reuse: local-only CI transport, no production operation.",
+  "id": "zaq-xfj.10",
+  "labels": [],
+  "parent": "zaq-xfj",
+  "priority": 2,
+  "status": "open",
+  "title": "[browser-ci] Share temporary capture path between host and browser container",
+  "type": "task",
+  "updated_at": "2026-09-30T07:29:21Z"
+}
