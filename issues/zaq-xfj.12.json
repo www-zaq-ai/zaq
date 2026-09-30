@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-30T11:40:57Z",
+  "description": "Planning-only coverage task; full executable plan to follow in issue description. Existing zaq-xfj.1 is closed; this task only adds focused tests.",
+  "id": "zaq-xfj.12",
+  "labels": [],
+  "parent": "zaq-xfj",
+  "priority": 2,
+  "status": "open",
+  "title": "Cover WebBrowsingConfig uncovered lines 36, 64, 77",
+  "type": "task",
+  "updated_at": "2026-09-30T11:40:57Z"
+}
