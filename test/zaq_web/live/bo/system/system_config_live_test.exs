@@ -17,9 +17,54 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.DiskBridge
   alias Zaq.Contracts.{Record, RecordPage}
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.Engine.Connect
   alias Zaq.Repo
   alias Zaq.System
+  alias Zaq.System.EmbeddingConfig
+
+  # Explicit non-mutating mount reads and the credential changeset builder; all other actions fail.
+  @web_browsing_stub_read_actions [
+    :system_config_list_ai_provider_credentials,
+    :connect_oauth_behaviours,
+    :system_config_connect_list_credentials,
+    :connect_list_grants,
+    :system_config_agent_list_active_agents,
+    :system_config_mcp_filter_endpoints,
+    :system_config_mcp_predefined_catalog,
+    :system_config_get_telemetry_config,
+    :system_config_get_llm_config,
+    :system_config_get_embedding_config,
+    :system_config_get_image_to_text_config,
+    :system_config_embedding_ready,
+    :system_config_get_global_default_agent_id,
+    :system_config_get_global_base_url,
+    :system_config_get_outbound_http_policy,
+    :system_config_list_http_credential_providers,
+    :system_config_get_skill_resource_config,
+    :system_config_change_ai_provider_credential,
+    :system_config_mcp_change_endpoint,
+    :system_config_change_http_credential_provider,
+    :system_config_get_system_language,
+    :system_config_get_system_timezone
+  ]
+
+  # Only deterministic sandbox-backed reads and valid credential creation/fetch cross the real router.
+  @oauth_failure_real_actions [
+    :system_config_create_ai_provider_credential,
+    :system_config_get_ai_provider_credential,
+    :system_config_get_ai_provider_credential_bang,
+    :system_config_list_ai_provider_credentials,
+    :system_config_connect_list_credentials,
+    :system_config_connect_list_grants,
+    :connect_fetch_credential,
+    :connect_list_grants,
+    :system_config_connect_next_refresh_jobs_for_grants,
+    :system_config_get_llm_config,
+    :system_config_get_embedding_config,
+    :system_config_get_image_to_text_config,
+    :system_config_embedding_ready
+  ]
 
   defmodule MCPTestStub do
     def test_list_tools(_endpoint_id, _opts), do: {:ok, %{status: :ok}}
@@ -430,6 +475,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             %{event | response: System.get_web_browsing_config()}
 
           :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
             %{event | response: {:ok, []}}
 
           _ ->
@@ -443,12 +489,24 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert has_element?(view, "button[phx-click='open_web_browsing_folder_modal'][disabled]")
     end
 
-    test "creates a screenshot destination folder using the existing data-source operation", %{
+    test "clears a saved screenshot destination without changing the allowlist until save", %{
       conn: conn
     } do
+      source = channel_config_fixture(%{name: "Saved Web Drive", provider: "google_drive"})
+
+      {:ok, _} =
+        System.save_web_browsing_config(%{
+          "provider" => "google_drive",
+          "config_id" => source.id,
+          "scope_id" => "main",
+          "folder_id" => "saved-folder",
+          "folder_path" => "Evidence",
+          "allowed_domains" => "zaq.ai"
+        })
+
+      before_skills = System.get_skill_resource_config()
+      before_config = System.get_web_browsing_config()
       conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
-      source = channel_config_fixture(%{name: "Screenshot Drive", provider: "google_drive"})
-      caller = self()
 
       Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
         case event.opts[:action] do
@@ -456,9 +514,450 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             %{event | response: System.get_web_browsing_config()}
 
           :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
             %{event | response: {:ok, [source]}}
 
           :data_source_list_source_scopes ->
+            assert event.next_hop.destination == :channels
+            assert event.actor == nil
+            assert event.request.params["config_id"] == source.id
+
+            %{
+              event
+              | response:
+                  {:ok,
+                   [
+                     %{
+                       provider: "google_drive",
+                       config_id: source.id,
+                       scope_id: "main",
+                       label: "Main",
+                       filters: %{"parent" => "main"}
+                     }
+                   ]}
+            }
+
+          :system_config_save_web_browsing_config ->
+            %{event | response: System.save_web_browsing_config(event.request.attrs)}
+
+          action when action in @web_browsing_stub_read_actions ->
+            build_stub_response(event)
+
+          action ->
+            flunk("unexpected clear-destination router action: #{inspect(action)}")
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      assert has_element?(view, "#web-browsing-selected-folder", "Evidence")
+
+      for {field, value} <- [
+            {"provider", "google_drive"},
+            {"config_id", to_string(source.id)},
+            {"scope_id", "main"},
+            {"folder_id", "saved-folder"},
+            {"folder_path", "Evidence"}
+          ] do
+        assert has_element?(view, "input[name='web_browsing[#{field}]'][value='#{value}']")
+      end
+
+      render_click(view, "clear_web_browsing_folder", %{})
+      assert has_element?(view, "#web-browsing-selected-folder", "No folder selected")
+      assert has_element?(view, "input[name='web_browsing[allowed_domains]'][value='zaq.ai']")
+
+      for field <- ["provider", "config_id", "scope_id", "folder_id", "folder_path"] do
+        assert has_element?(view, "input[name='web_browsing[#{field}]']:not([value])") or
+                 has_element?(view, "input[name='web_browsing[#{field}]'][value='']")
+      end
+
+      assert System.get_web_browsing_config() == before_config
+
+      view
+      |> form("#web-browsing-config-form")
+      |> render_submit(%{
+        "web_browsing" => %{
+          "provider" => "",
+          "config_id" => "",
+          "scope_id" => "",
+          "folder_id" => "",
+          "folder_path" => "",
+          "allowed_domains" => "zaq.ai"
+        }
+      })
+
+      assert {:ok,
+              %{
+                provider: nil,
+                config_id: nil,
+                scope_id: nil,
+                folder_id: nil,
+                folder_path: nil,
+                allowed_domains: "zaq.ai"
+              }} = System.get_web_browsing_config()
+
+      assert System.get_skill_resource_config() == before_skills
+    end
+
+    test "restores the persisted source, switches sources, and ignores an unknown source", %{
+      conn: conn,
+      user: user
+    } do
+      first = channel_config_fixture(%{name: "First Web Disk", provider: "disk"})
+      second = channel_config_fixture(%{name: "Second Web Drive", provider: "google_drive"})
+
+      {:ok, _} =
+        System.save_web_browsing_config(%{
+          "provider" => "google_drive",
+          "config_id" => second.id,
+          "scope_id" => "second-root",
+          "folder_id" => "persisted-folder",
+          "folder_path" => "Second Saved"
+        })
+
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      parent = self()
+      expected_user_id = user.id
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{event | response: System.get_web_browsing_config()}
+
+          :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
+            %{event | response: {:ok, [first, second]}}
+
+          :data_source_list_source_scopes ->
+            config_id = event.request.params["config_id"]
+            assert event.next_hop.destination == :channels
+            assert event.actor == nil
+            scope_id = if config_id == second.id, do: "second-root", else: "first-root"
+            provider = if config_id == second.id, do: "google_drive", else: "disk"
+
+            %{
+              event
+              | response:
+                  {:ok,
+                   [
+                     %{
+                       provider: provider,
+                       config_id: config_id,
+                       scope_id: scope_id,
+                       label: scope_id,
+                       filters: %{"parent" => scope_id}
+                     }
+                   ]}
+            }
+
+          :data_source_list_files ->
+            assert event.next_hop.destination == :channels
+            assert event.actor.user_id == expected_user_id
+
+            expected_provider =
+              if event.request.params["config_id"] == second.id, do: "google_drive", else: "disk"
+
+            assert event.request.provider == expected_provider
+
+            send(
+              parent,
+              {:web_list, event.next_hop.destination, event.actor.user_id,
+               event.request.params["config_id"], event.request.params["filters"]["parent"]}
+            )
+
+            name =
+              if event.request.params["config_id"] == second.id,
+                do: "Second Only",
+                else: "First Only"
+
+            %{
+              event
+              | response:
+                  {:ok,
+                   %{records: [%Record{id: "#{name}-id", name: name, path: name, kind: :folder}]}}
+            }
+
+          action
+          when action in [:data_source_create_file, :system_config_save_web_browsing_config] ->
+            flunk("unexpected mutation: #{inspect(action)}")
+
+          action when action in @web_browsing_stub_read_actions ->
+            build_stub_response(event)
+
+          action ->
+            flunk("unexpected source-restoration router action: #{inspect(action)}")
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      render_click(view, "open_web_browsing_folder_modal", %{})
+      assert_received {:web_list, :channels, ^expected_user_id, second_id, "second-root"}
+      assert second_id == second.id
+      assert has_element?(view, "#web-browsing-folder-picker", "Second Only")
+
+      assert has_element?(
+               view,
+               "button[phx-value-source='source:google_drive:#{second.id}:second-root'][aria-pressed='true']"
+             )
+
+      render_click(view, "switch_source", %{"source" => "source:disk:#{first.id}:first-root"})
+      assert_received {:web_list, :channels, ^expected_user_id, first_id, "first-root"}
+      assert first_id == first.id
+      assert has_element?(view, "#web-browsing-folder-picker", "First Only")
+
+      assert has_element?(
+               view,
+               "button[phx-value-source='source:disk:#{first.id}:first-root'][aria-pressed='true']"
+             )
+
+      render_click(view, "switch_source", %{"source" => "source:does-not-exist"})
+      assert has_element?(view, "#web-browsing-folder-picker", "First Only")
+
+      assert has_element?(
+               view,
+               "button[phx-value-source='source:disk:#{first.id}:first-root'][aria-pressed='true']"
+             )
+
+      refute_received {:web_list, _, _, _, _}
+
+      render_click(view, "web_browsing_folder_navigate", %{"id" => "First Only-id"})
+      render_click(view, "confirm_web_browsing_folder", %{})
+      assert has_element?(view, "#web-browsing-selected-folder", "First Only")
+      assert has_element?(view, "input[name='web_browsing[provider]'][value='disk']")
+      assert has_element?(view, "input[name='web_browsing[config_id]'][value='#{first.id}']")
+      assert has_element?(view, "input[name='web_browsing[scope_id]'][value='first-root']")
+      assert has_element?(view, "input[name='web_browsing[folder_id]'][value='First Only-id']")
+      assert has_element?(view, "input[name='web_browsing[folder_path]'][value='First Only']")
+
+      assert {:ok, %{folder_id: "persisted-folder", config_id: persisted_id}} =
+               System.get_web_browsing_config()
+
+      assert persisted_id == second.id
+    end
+
+    test "stale picker events without a source are guarded", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{event | response: System.get_web_browsing_config()}
+
+          :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
+            %{event | response: {:ok, []}}
+
+          action when action in [:data_source_list_files, :data_source_create_file] ->
+            flunk("unexpected picker dispatch: #{inspect(action)}")
+
+          action when action in @web_browsing_stub_read_actions ->
+            build_stub_response(event)
+
+          action ->
+            flunk("unexpected source-less picker action: #{inspect(action)}")
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      assert has_element?(view, "button[phx-click='open_web_browsing_folder_modal'][disabled]")
+      render_click(view, "open_web_browsing_folder_modal", %{})
+      assert has_element?(view, "#web-browsing-folder-picker")
+      render_click(view, "confirm_web_browsing_folder", %{})
+      assert render(view) =~ "Choose a data source first"
+      render_click(view, "show_new_folder_modal", %{})
+      html = render_submit(view, "create_folder", %{"name" => "Captures"})
+      assert html =~ "Could not create folder: no data source selected"
+      assert has_element?(view, "#web-browsing-folder-picker")
+      assert has_element?(view, "#new-folder-input")
+    end
+
+    test "nested web folder modal closes before its picker and clears validation", %{
+      conn: conn,
+      user: user
+    } do
+      source = channel_config_fixture(%{name: "Modal Web Drive", provider: "google_drive"})
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{event | response: System.get_web_browsing_config()}
+
+          :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
+            %{event | response: {:ok, [source]}}
+
+          :data_source_list_source_scopes ->
+            assert event.next_hop.destination == :channels
+            assert event.actor == nil
+            assert event.request.params["config_id"] == source.id
+
+            %{
+              event
+              | response:
+                  {:ok,
+                   [
+                     %{
+                       provider: "google_drive",
+                       config_id: source.id,
+                       scope_id: "root",
+                       label: "Root",
+                       filters: %{"parent" => "root"}
+                     }
+                   ]}
+            }
+
+          :data_source_list_files ->
+            assert event.next_hop.destination == :channels
+            assert event.request.provider == "google_drive"
+            assert event.request.params["config_id"] == source.id
+            assert event.request.params["filters"]["parent"] == "root"
+            assert event.actor.user_id == user.id
+            %{event | response: {:ok, %{records: []}}}
+
+          action
+          when action in [:data_source_create_file, :system_config_save_web_browsing_config] ->
+            flunk("unexpected mutation: #{inspect(action)}")
+
+          action when action in @web_browsing_stub_read_actions ->
+            build_stub_response(event)
+
+          action ->
+            flunk("unexpected nested-modal router action: #{inspect(action)}")
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      render_click(view, "open_web_browsing_folder_modal", %{})
+      render_click(view, "show_new_folder_modal", %{})
+      render_submit(view, "create_folder", %{"name" => " \t "})
+      assert render(view) =~ "Folder name cannot be empty."
+      render_click(view, "close_modal", %{})
+      assert has_element?(view, "#web-browsing-folder-picker")
+      refute has_element?(view, "#new-folder-input")
+      render_click(view, "show_new_folder_modal", %{})
+      refute render(view) =~ "Folder name cannot be empty."
+      render_click(view, "close_modal", %{})
+      render_click(view, "close_modal", %{})
+      refute has_element?(view, "#web-browsing-folder-picker")
+      assert {:ok, %{provider: nil}} = System.get_web_browsing_config()
+    end
+
+    test "folder listing error clears after a successful same-source reload", %{
+      conn: conn,
+      user: user
+    } do
+      source = channel_config_fixture(%{name: "Recover Web Drive", provider: "google_drive"})
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      calls = :atomics.new(1, [])
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{event | response: System.get_web_browsing_config()}
+
+          :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
+            %{event | response: {:ok, [source]}}
+
+          :data_source_list_source_scopes ->
+            assert event.next_hop.destination == :channels
+            assert event.actor == nil
+            assert event.request.params["config_id"] == source.id
+
+            %{
+              event
+              | response:
+                  {:ok,
+                   [
+                     %{
+                       provider: "google_drive",
+                       config_id: source.id,
+                       scope_id: "root",
+                       label: "Root",
+                       filters: %{"parent" => "root"}
+                     }
+                   ]}
+            }
+
+          :data_source_list_files ->
+            assert event.next_hop.destination == :channels
+            assert event.request.provider == "google_drive"
+            assert event.request.params["config_id"] == source.id
+            assert event.request.params["filters"]["parent"] == "root"
+            assert event.actor.user_id == user.id
+
+            if :atomics.get(calls, 1) == 0 do
+              :atomics.put(calls, 1, 1)
+              %{event | response: {:error, :unavailable}}
+            else
+              %{
+                event
+                | response:
+                    {:ok,
+                     %{
+                       records: [
+                         %Record{
+                           id: "evidence",
+                           name: "Evidence",
+                           path: "Evidence",
+                           kind: :folder
+                         }
+                       ]
+                     }}
+              }
+            end
+
+          action when action in @web_browsing_stub_read_actions ->
+            build_stub_response(event)
+
+          action ->
+            flunk("unexpected folder-recovery router action: #{inspect(action)}")
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      render_click(view, "open_web_browsing_folder_modal", %{})
+      assert render(view) =~ "Could not load folders: :unavailable"
+      refute has_element?(view, "#web-browsing-folder-picker", "Evidence")
+
+      html =
+        render_click(view, "switch_source", %{"source" => "source:google_drive:#{source.id}:root"})
+
+      assert html =~ "Evidence"
+      refute html =~ "Could not load folders: :unavailable"
+    end
+
+    test "creates a screenshot destination folder using the existing data-source operation", %{
+      conn: conn,
+      user: user
+    } do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      source = channel_config_fixture(%{name: "Screenshot Drive", provider: "google_drive"})
+      caller = self()
+      created? = :atomics.new(1, [])
+
+      {:ok, created_record} =
+        Provenance.seal(%Record{
+          id: "created-folder",
+          name: "Captures",
+          path: "Parent/Captures",
+          kind: :folder
+        })
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{event | response: System.get_web_browsing_config()}
+
+          :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
+            %{event | response: {:ok, [source]}}
+
+          :data_source_list_source_scopes ->
+            assert event.next_hop.destination == :channels
+            assert event.actor == nil
+            assert event.request.params["config_id"] == source.id
+
             %{
               event
               | response:
@@ -475,31 +974,75 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             }
 
           :data_source_list_files ->
-            %{event | response: {:ok, %{records: []}}}
+            assert event.next_hop.destination == :channels
+            assert event.actor.user_id == user.id
+            parent = get_in(event.request, [:params, "filters", "parent"])
+
+            records =
+              cond do
+                parent == "root" ->
+                  [%Record{id: "parent-folder", name: "Parent", path: "Parent", kind: :folder}]
+
+                parent == "parent-folder" and :atomics.get(created?, 1) == 1 ->
+                  [
+                    %Record{
+                      id: "created-folder",
+                      name: "Captures",
+                      path: "Parent/Captures",
+                      kind: :folder
+                    }
+                  ]
+
+                true ->
+                  []
+              end
+
+            send(caller, {:screenshot_folder_list, parent})
+            %{event | response: {:ok, %{records: records}}}
 
           :data_source_create_file ->
-            send(caller, {:screenshot_folder_request, event.request})
+            assert event.next_hop.destination == :channels
+            assert event.actor.user_id == user.id
+            send(caller, {:screenshot_folder_request, event.request, event.actor})
+            :atomics.put(created?, 1, 1)
 
             %{
               event
-              | response:
-                  {:ok, %{record: %Record{id: "created-folder", name: "Captures", kind: :folder}}}
+              | response: {:ok, %{record: created_record}}
             }
 
-          _ ->
+          action when action in @web_browsing_stub_read_actions ->
             build_stub_response(event)
+
+          action ->
+            flunk("unexpected screenshot-folder router action: #{inspect(action)}")
         end
       end)
 
       {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=web_browsing")
       view |> element("button[phx-click='open_web_browsing_folder_modal']") |> render_click()
+      assert_received {:screenshot_folder_list, "root"}
+      render_click(view, "web_browsing_folder_navigate", %{"id" => "parent-folder"})
+      assert_received {:screenshot_folder_list, "parent-folder"}
       view |> element("button[phx-click='show_new_folder_modal']") |> render_click()
-      render_submit(view, "create_folder", %{"name" => "Captures"})
+      html = render_submit(view, "create_folder", %{"name" => " Captures "})
 
-      assert_received {:screenshot_folder_request, %{provider: "google_drive", params: params}}
+      assert_received {:screenshot_folder_request, %{provider: "google_drive", params: params},
+                       actor}
+
       assert params["config_id"] == to_string(source.id)
       assert params["kind"] == "folder"
+      assert params["name"] == "Captures"
+      assert params["parent_id"] == "parent-folder"
+      assert params["path"] == "root/Parent"
+      assert actor.user_id == user.id
+      assert has_element?(view, "#web-browsing-folder-picker")
+      refute has_element?(view, "#new-folder-input")
+      refute html =~ "Could not create folder"
       refute has_element?(view, "#web-browsing-folder-picker [role='alert']")
+      assert_received {:screenshot_folder_list, "parent-folder"}
+      assert has_element?(view, "#web-browsing-folder-picker", "Captures")
+      assert {:ok, %{provider: nil}} = System.get_web_browsing_config()
     end
   end
 
@@ -2306,6 +2849,102 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
                })
 
       assert connect.id in System.list_ai_provider_connect_credential_ids()
+    end
+
+    test "new staged OAuth creation remains saved when starting its global grant fails", %{
+      conn: conn
+    } do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      caller = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :connect_oauth_start_global_configuration ->
+            assert event.next_hop.destination == :engine
+            assert is_integer(event.request.credential_id)
+            assert event.actor == nil
+            send(caller, {:oauth_start_failure_request, event.request})
+            %{event | response: {:error, :unavailable}}
+
+          action when action in @oauth_failure_real_actions ->
+            Zaq.NodeRouter.dispatch(event)
+
+          :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
+            %{event | response: {:ok, []}}
+
+          :system_config_get_web_browsing_config ->
+            %{event | response: System.get_web_browsing_config()}
+
+          action when action in @web_browsing_stub_read_actions ->
+            build_stub_response(event)
+
+          action ->
+            flunk("unexpected staged OAuth router action: #{inspect(action)}")
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "new_ai_credential", %{})
+
+      html =
+        render_submit(view, "save_ai_credential", %{
+          "ai_credential" => %{
+            "name" => "Staged URL Failure",
+            "provider" => "openai_codex",
+            "endpoint" => "https://chatgpt.com/backend-api",
+            "auth_mode" => "oauth2",
+            "oauth_behaviour" => "openai_chatgpt_codex",
+            "personal_credential_policy" => "optional",
+            "metadata" => "{}"
+          }
+        })
+
+      assert_received {:oauth_start_failure_request,
+                       %{
+                         credential_id: credential_id,
+                         attrs: %{personal_credential_policy: "optional"}
+                       }}
+
+      assert is_integer(credential_id)
+      credential = System.get_ai_provider_credential_by_name("Staged URL Failure")
+      assert credential.id
+      assert credential.connect_credential_id == credential_id
+      assert credential.metadata["oauth_setup_pending"]
+      assert credential.auth_kind == "oauth2"
+
+      connect = Connect.get_credential!(credential_id)
+      assert connect.personal_credential_policy == :required
+      refute connect.id in System.list_ai_provider_connect_credential_ids()
+      assert html =~ "OAuth2 grant flow could not start: :unavailable"
+      refute html =~ "access_token"
+      refute html =~ "refresh_token"
+      refute has_element?(view, "#ai-credential-form")
+      refute_push_event(view, "open_oauth_popup", %{url: _})
+    end
+
+    test "invalid staged optional OAuth credentials remain in the form", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "new_ai_credential", %{})
+      before_credentials = System.list_ai_provider_credentials()
+
+      render_submit(view, "save_ai_credential", %{
+        "ai_credential" => %{
+          "name" => "",
+          "provider" => "openai_codex",
+          "endpoint" => "https://chatgpt.com/backend-api",
+          "auth_mode" => "oauth2",
+          "oauth_behaviour" => "openai_chatgpt_codex",
+          "personal_credential_policy" => "optional",
+          "metadata" => "not-json"
+        }
+      })
+
+      assert has_element?(view, "#ai-credential-form")
+      assert has_element?(view, "#ai-credential-form", "can't be blank")
+      refute has_element?(view, "#oauth-claim-modal")
+      assert System.list_ai_provider_credentials() == before_credentials
+      refute_push_event(view, "open_oauth_popup", %{url: _})
     end
 
     test "editing row opens modal", %{conn: conn} do
@@ -7184,6 +7823,73 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "planned system configuration gaps" do
+    test "web browsing source and policy load failures stay distinct", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
+            %{event | response: {:error, :unavailable}}
+
+          :system_config_get_web_browsing_config ->
+            %{event | response: {:error, :corrupt}}
+
+          :data_source_list_files ->
+            flunk("failed settings load opened the folder picker")
+
+          action when action in @web_browsing_stub_read_actions ->
+            build_stub_response(event)
+
+          action ->
+            flunk("unexpected failed-settings router action: #{inspect(action)}")
+        end
+      end)
+
+      {:ok, view, html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      assert html =~ "Could not load Web browsing settings"
+      refute has_element?(view, "#web-browsing-config-form")
+      refute has_element?(view, "#web-browsing-folder-picker")
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_list_skill_resource_data_sources ->
+            assert event.next_hop.destination == :engine
+            %{event | response: {:error, :unavailable}}
+
+          :system_config_get_web_browsing_config ->
+            %{
+              event
+              | response: {:ok, struct(Zaq.System.WebBrowsingConfig, allowed_domains: "zaq.ai")}
+            }
+
+          :data_source_list_files ->
+            flunk("source-list failure opened the folder picker")
+
+          action when action in @web_browsing_stub_read_actions ->
+            build_stub_response(event)
+
+          action ->
+            flunk("unexpected available-policy router action: #{inspect(action)}")
+        end
+      end)
+
+      {:ok, second_view, second_html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      assert has_element?(second_view, "#web-browsing-config-form")
+
+      assert has_element?(
+               second_view,
+               "input[name='web_browsing[allowed_domains]'][value='zaq.ai']"
+             )
+
+      assert has_element?(
+               second_view,
+               "button[phx-click='open_web_browsing_folder_modal'][disabled]"
+             )
+
+      assert second_html =~ "Browsing works, but screenshots cannot be stored"
+    end
+
     test "rejects an invalid outbound port without changing the policy", %{conn: conn} do
       before = System.get_outbound_http_policy()
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
@@ -7336,11 +8042,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         {[provider | Enum.reject(providers, &(&1.id == :zaq_router))], models}
       end)
 
+      ReqLLM.Providers.unregister(:zaq_router)
+      assert {:ok, router_provider} = LLMDB.provider(:zaq_router)
+      refute router_provider.alias_of
+      refute router_provider.catalog_only
+      refute match?({:ok, _}, ReqLLM.provider(:zaq_router))
+
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
       view |> element("button[phx-click='new_ai_credential']") |> render_click()
       html = render(view)
       assert html =~ ~s(data-select-value="zaq_router")
       assert html =~ ~s(data-select-value="custom")
+
+      assert has_element?(
+               view,
+               "#ai-credential-provider-select [data-select-value='zaq_router'][data-select-disabled='false']"
+             )
 
       previous = Application.fetch_env(:zaq, :litellm_base_url)
       Application.put_env(:zaq, :litellm_base_url, "https://router.example.test/v1")
@@ -7502,6 +8219,135 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "embedding-config-form"
       assert html =~ ~s(id="embedding-model-select")
+    end
+
+    test "embedding capability booleans and dimension metadata drive model validation", %{
+      conn: conn
+    } do
+      with_catalog(fn providers, models ->
+        provider =
+          Enum.find(providers, &(&1.id == :openai))
+          |> Map.merge(%{
+            id: :embedding_capabilities,
+            name: "Embedding Capabilities",
+            alias_of: nil,
+            catalog_only: true
+          })
+
+        source =
+          Enum.find(models, fn model ->
+            model.provider == :openai and not model.deprecated and not model.retired
+          end) || raise "OpenAI catalog must include an active model"
+
+        model_specs = [
+          {"capability-affirmed", "Capability Affirmed", true},
+          {"dimension-max-only", "Maximum Only", %{max_dimensions: 2048}},
+          {"dimension-default-and-max", "Default and Maximum",
+           %{default_dimensions: 1024, max_dimensions: 4096}},
+          {"capability-denied", "Capability Denied", false}
+        ]
+
+        custom_models =
+          Enum.map(model_specs, fn {id, name, embeddings} ->
+            Map.merge(source, %{
+              provider: :embedding_capabilities,
+              id: id,
+              name: name,
+              capabilities: %{embeddings: embeddings},
+              deprecated: false,
+              retired: false
+            })
+          end)
+
+        {[provider | Enum.reject(providers, &(&1.id == :embedding_capabilities))],
+         custom_models ++ Enum.reject(models, &(&1.provider == :embedding_capabilities))}
+      end)
+
+      catalog_models =
+        LLMDB.models(:embedding_capabilities) |> Map.new(&{&1.id, &1.capabilities.embeddings})
+
+      assert catalog_models["capability-affirmed"] == true
+      assert catalog_models["dimension-max-only"] == %{max_dimensions: 2048}
+
+      assert catalog_models["dimension-default-and-max"] == %{
+               default_dimensions: 1024,
+               max_dimensions: 4096
+             }
+
+      assert catalog_models["capability-denied"] == false
+
+      credential =
+        ai_credential_fixture(%{
+          name: "Embedding capability credential",
+          provider: "embedding_capabilities",
+          endpoint: "https://embedding.example.test/v1",
+          auth_kind: "none"
+        })
+
+      initial_changeset =
+        EmbeddingConfig.changeset(%EmbeddingConfig{}, %{
+          credential_id: credential.id,
+          model: "capability-affirmed",
+          dimension: 768,
+          chunk_min_tokens: 400,
+          chunk_max_tokens: 900
+        })
+
+      assert {:ok, _} = System.save_embedding_config(initial_changeset)
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+      render_click(view, "unlock_embedding", %{})
+      render_click(view, "confirm_unlock_embedding", %{})
+
+      assert has_element?(
+               view,
+               "#embedding-model-select [data-select-option='Capability Affirmed']"
+             )
+
+      assert has_element?(view, "#embedding-model-select [data-select-option='Maximum Only']")
+
+      assert has_element?(
+               view,
+               "#embedding-model-select [data-select-option='Default and Maximum']"
+             )
+
+      refute has_element?(
+               view,
+               "#embedding-model-select [data-select-option='Capability Denied']"
+             )
+
+      common = %{
+        "credential_id" => to_string(credential.id),
+        "dimension" => "768",
+        "chunk_min_tokens" => "400",
+        "chunk_max_tokens" => "900"
+      }
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => Map.merge(common, %{"model" => "dimension-max-only"})
+      })
+
+      assert has_element?(view, "input[name='embedding_config[dimension]'][value='2048']")
+
+      assert has_element?(
+               view,
+               "input[name='embedding_config[credential_id]'][value='#{credential.id}']"
+             )
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => Map.merge(common, %{"model" => "dimension-default-and-max"})
+      })
+
+      assert has_element?(view, "input[name='embedding_config[dimension]'][value='1024']")
+
+      assert has_element?(
+               view,
+               "input[name='embedding_config[credential_id]'][value='#{credential.id}']"
+             )
+
+      persisted = System.get_embedding_config()
+      assert persisted.credential_id == credential.id
+      assert persisted.model == "capability-affirmed"
+      assert persisted.dimension == 768
     end
 
     test "ordinary OAuth credentials use OpenAI with empty scopes", %{conn: conn} do

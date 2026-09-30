@@ -13,6 +13,52 @@ defmodule Zaq.System.WebBrowsingConfigTest do
              System.get_web_browsing_config()
   end
 
+  test "changeset rejects non-map settings" do
+    for attrs <- [nil, [], %WebBrowsingConfig{}] do
+      changeset = WebBrowsingConfig.changeset(%WebBrowsingConfig{}, attrs)
+
+      refute changeset.valid?
+      assert {:base, {"invalid settings", []}} in changeset.errors
+    end
+
+    changeset = WebBrowsingConfig.changeset(%WebBrowsingConfig{}, %{allowed_domains: "ZAQ.AI"})
+    assert changeset.valid?
+    assert Ecto.Changeset.get_field(changeset, :allowed_domains) == "zaq.ai"
+  end
+
+  test "domain normalization rejects non-binary input" do
+    for input <- [nil, 42, ["zaq.ai"], %{allowed_domains: "zaq.ai"}] do
+      assert WebBrowsingConfig.normalize_domains(input) == {:error, :invalid_domains}
+    end
+  end
+
+  test "domain normalization enforces the total hostname length limit" do
+    label = String.duplicate("a", 63)
+    host_253 = Enum.join([label, label, label, String.duplicate("a", 61)], ".")
+    host_254 = Enum.join([label, label, label, String.duplicate("a", 62)], ".")
+
+    assert byte_size(host_253) == 253
+    assert {:ok, ^host_253} = WebBrowsingConfig.normalize_domains(host_253)
+    assert byte_size(host_254) == 254
+    assert {:error, :invalid_domains} = WebBrowsingConfig.normalize_domains(host_254)
+
+    changeset =
+      WebBrowsingConfig.changeset(%WebBrowsingConfig{}, %{allowed_domains: host_254})
+
+    assert {:allowed_domains, {"enter comma-separated hostnames", []}} in changeset.errors
+  end
+
+  property "domain normalization rejects generated overlength hostnames" do
+    label = String.duplicate("a", 63)
+
+    check all(last_label_length <- integer(62..63), max_runs: 20) do
+      host = Enum.join([label, label, label, String.duplicate("a", last_label_length)], ".")
+
+      assert byte_size(host) in 254..255
+      assert WebBrowsingConfig.normalize_domains(host) == {:error, :invalid_domains}
+    end
+  end
+
   test "normalizes hosts and preserves a configured datasource folder" do
     {:ok, source} =
       %ChannelConfig{}

@@ -96,6 +96,10 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
       assert {:error, _} = Zoi.parse(Browsing.schema(), %{command: "eval"})
       assert {:error, _} = Zoi.parse(Browsing.schema(), %{command: "fill", selector: "@e1"})
       assert {:error, _} = Zoi.parse(Browsing.schema(), %{command: "snapshot", timeout_ms: 0})
+
+      assert {:ok, %{command: "snapshot", timeout_ms: 1234}} =
+               Zoi.parse(Browsing.schema(), %{command: "snapshot", timeout_ms: 1234})
+
       assert {:ok, _} = Zoi.parse(Browsing.schema(), %{command: "open"})
 
       assert {:error, _} =
@@ -414,6 +418,234 @@ if [ "$1" = "get" ]; then echo 'about:blank'; else exit 14; fi
                Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
     end
 
+    test "rejects an HTTP scheme without a host without listing or capturing" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then echo 'https:relative'; else exit 14; fi
+))
+      before = Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png"))
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        assert event.opts[:action] == :system_config_get_web_browsing_config
+
+        %{
+          event
+          | response:
+              {:ok,
+               %Zaq.System.WebBrowsingConfig{
+                 provider: "disk",
+                 config_id: 2,
+                 folder_path: "volume-a/Captures"
+               }}
+        }
+      end)
+
+      assert {:error, "Screenshot requires a current HTTP(S) page"} =
+               Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
+
+      assert Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) == before
+    end
+
+    test "fails closed when the destination folder cannot be listed" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then echo 'https://example.org/'; else exit 14; fi
+))
+      before = Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png"))
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   %Zaq.System.WebBrowsingConfig{
+                     provider: "disk",
+                     config_id: 2,
+                     folder_path: "volume-a/Captures"
+                   }}
+            }
+
+          :data_source_list_files ->
+            assert event.request.provider == "disk"
+            assert event.request.params["config_id"] == 2
+            assert event.request.params["filters"]["parent"] == "volume-a/Captures"
+            %{event | response: {:error, :unavailable}}
+
+          other ->
+            flunk("unexpected action #{inspect(other)}")
+        end
+      end)
+
+      assert {:error, "Screenshot destination folder could not be listed"} =
+               Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
+
+      assert Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) == before
+    end
+
+    test "recovers a concurrent folder creation from the canonical second listing" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then
+  echo 'https://example.org/'
+elif [ "$1" = "screenshot" ]; then
+  printf '\211PNG\r\n\032\nDATA' > "$2"
+else
+  exit 14
+fi
+))
+
+      {:ok, raced_folder} =
+        Provenance.seal(%Record{id: "race-folder-42", kind: :folder, name: "example.org"})
+
+      {:ok, saved_record} = Provenance.seal(%Record{id: "saved-race-43", kind: :file})
+      counter = start_supervised!({Agent, fn -> 0 end})
+      test_pid = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   %Zaq.System.WebBrowsingConfig{
+                     provider: "google_drive",
+                     config_id: 12,
+                     folder_id: "parent-17"
+                   }}
+            }
+
+          :data_source_list_files ->
+            params = event.request.params
+            assert event.request.provider == "google_drive"
+            assert params["config_id"] == 12
+            assert params["filters"]["parent"] == "parent-17"
+
+            case Agent.get_and_update(counter, fn n -> {n, n + 1} end) do
+              0 ->
+                send(test_pid, :race_initial_listing)
+                %{event | response: {:ok, %{records: []}}}
+
+              1 ->
+                send(test_pid, :race_relisting)
+                %{event | response: {:ok, %{records: [raced_folder]}}}
+
+              n ->
+                flunk("unexpected listing number #{n + 1}")
+            end
+
+          :data_source_create_file ->
+            params = event.request.params
+
+            case params["kind"] do
+              "folder" ->
+                send(test_pid, {:race_folder_create, params})
+                assert params["parent_id"] == "parent-17"
+                assert params["name"] == "example.org"
+                %{event | response: {:error, :already_exists}}
+
+              nil ->
+                send(test_pid, {:race_upload, params})
+                %{event | response: {:ok, %{record: saved_record}}}
+
+              kind ->
+                flunk("unexpected create kind #{inspect(kind)}")
+            end
+
+          other ->
+            flunk("unexpected action #{inspect(other)}")
+        end
+      end)
+
+      before = Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png"))
+
+      assert {:ok, %{record: %Record{id: "saved-race-43"}, output: "Screenshot saved"} = result} =
+               Jido.Exec.run(Browsing, %{command: "screenshot"}, %{
+                 node_router: Zaq.NodeRouterMock
+               })
+
+      assert result == %{command: "screenshot", record: saved_record, output: "Screenshot saved"}
+      assert_received :race_initial_listing
+      assert_received {:race_folder_create, %{"kind" => "folder"}}
+      assert_received :race_relisting
+
+      assert_received {:race_upload,
+                       %{
+                         "parent_id" => "race-folder-42",
+                         "content" => content,
+                         "name" => name,
+                         "mime_type" => "image/png"
+                       }}
+
+      assert content == <<137, 80, 78, 71, 13, 10, 26, 10, 68, 65, 84, 65>>
+      assert name =~ ~r/^home--\d{8}T\d{9}Z--[a-f0-9]{24}\.png$/
+      response = Jason.encode!(result)
+      refute response =~ Base.encode64(<<137, 80, 78, 71, 13, 10, 26, 10, 68, 65, 84, 65>>)
+      refute response =~ <<137, 80, 78, 71, 13, 10, 26, 10, 68, 65, 84, 65>>
+      refute response =~ System.tmp_dir!()
+      refute_received :race_initial_listing
+      refute_received :race_relisting
+      refute_received {:race_folder_create, _}
+      refute_received {:race_upload, _}
+      assert Agent.get(counter, & &1) == 2
+      assert Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) == before
+    end
+
+    test "does not accept a same-name file as the concurrently created folder" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then echo 'https://example.org/'; else exit 14; fi
+))
+
+      {:ok, same_name_file} =
+        Provenance.seal(%Record{id: "not-a-folder", kind: :file, name: "example.org"})
+
+      counter = start_supervised!({Agent, fn -> 0 end})
+      before = Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png"))
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   %Zaq.System.WebBrowsingConfig{
+                     provider: "google_drive",
+                     config_id: 12,
+                     folder_id: "parent-17"
+                   }}
+            }
+
+          :data_source_list_files ->
+            assert event.request.provider == "google_drive"
+            assert event.request.params["config_id"] == 12
+            assert event.request.params["filters"]["parent"] == "parent-17"
+
+            case Agent.get_and_update(counter, fn n -> {n, n + 1} end) do
+              0 -> %{event | response: {:ok, %{records: []}}}
+              1 -> %{event | response: {:ok, %{records: [same_name_file]}}}
+              n -> flunk("unexpected listing number #{n + 1}")
+            end
+
+          :data_source_create_file ->
+            assert event.request.params["kind"] == "folder"
+            assert event.request.provider == "google_drive"
+            assert event.request.params["config_id"] == "12"
+            assert event.request.params["parent_id"] == "parent-17"
+            assert event.request.params["name"] == "example.org"
+            %{event | response: {:error, :already_exists}}
+
+          other ->
+            flunk("unexpected action #{inspect(other)}")
+        end
+      end)
+
+      assert {:error, "Screenshot destination folder could not be created"} =
+               Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
+
+      assert Agent.get(counter, & &1) == 2
+      assert Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) == before
+    end
+
     test "missing PNG fails without reporting storage success and cleans its owned file" do
       fake_bin(~S(#!/bin/sh
 if [ "$1" = "get" ]; then echo 'https://example.org/'; else echo 'ok'; fi
@@ -638,6 +870,24 @@ fi
   end
 
   describe "run/2 error mapping" do
+    test "maps a binary removed after reading the page URL to the screenshot install hint" do
+      path = fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then
+  echo 'https://example.org/'
+  rm -f "$0"
+else
+  exit 14
+fi
+))
+      before = Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png"))
+
+      assert {:error, "Screenshot capture failed: agent-browser not installed"} =
+               Browsing.run(%{command: "screenshot"}, stub_screenshot_destination())
+
+      refute File.exists?(path)
+      assert Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) == before
+    end
+
     test "screenshot CLI failure retains bounded diagnostics without leaking local path or page URL" do
       fake_bin(~S(#!/bin/sh
 if [ "$1" = "get" ]; then

@@ -446,7 +446,7 @@ defmodule Zaq.Agent.Tools.Web.Browsing do
   end
 
   defp create_screenshot_folder(config, host, context) do
-    case Jido.Exec.run(CreateDocument, folder_params(config, host), context) do
+    case Jido.Exec.run(CreateDocument, folder_params(config, host), context, max_retries: 0) do
       {:ok, %{record: %{id: id} = folder}} when is_binary(id) and id != "" ->
         {:ok, folder}
 
