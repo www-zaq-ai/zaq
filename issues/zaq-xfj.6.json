@@ -15,11 +15,15 @@
     {
       "text": "Human UX/UI approval pending. Route /bo/system-config?tab=web_browsing and screenshot naming/output are implemented; focused validations: 2 properties, 123 tests, 0 failures and mix q passes. App HTTP servers on localhost:4000 and :4002 were unavailable, so no real authenticated BO screenshot/demo was captured; remote provider/browser integration is not claimed. Review tab helper/restart/no-source/error states and stored screenshot hostname folder + path/timestamp/random name once a BO server and datasource are available. Do not author new feature E2E or close this gate until explicit approval. No commit/push.",
       "timestamp": "2026-09-29T21:36:16Z"
+    },
+    {
+      "text": "Human BO review feedback: screenshot destination field did not match Skills selection row; aligned label/value/hint/change button layout and shared the canonical folder label helper across both tabs, preserving screenshot clear action. Browser screenshot CLI exit errors previously discarded; now preserve bounded sanitized exit status/stderr, distinguish timeout and missing binary, redact page URLs/local capture paths. Pinned Docker agent-browser 0.22.0 smoke open -\u003e get url -\u003e screenshot succeeded on example.com; deliberately unwritable /proc capture produced exit 1 with actionable Failed to save screenshot... reason. User-reported page-specific failure not reproducible from code 1 alone; request new sanitized error after retry. Focused tests 2 properties, 57 tests, 0 failures; mix q passes on rerun (first build transient missing HistoryBrowser during concurrent dev-server compilation). No new E2E authoring; UX approval still pending. No commit/push.",
+      "timestamp": "2026-09-30T06:41:40Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.6] Obtain human approval of Web browsing settings and screenshot workflow",
   "type": "task",
-  "updated_at": "2026-09-29T21:36:16Z"
+  "updated_at": "2026-09-30T06:41:40Z"
 }
