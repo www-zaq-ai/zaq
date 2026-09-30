@@ -11,11 +11,15 @@
     {
       "text": "Execution clarification: include the bounded ExUnitProperties overlength property (not optional): fix first three ASCII labels to 63 bytes each; generate fourth label length in 62..63, giving 254..255 total bytes; assert normalize_domains/1 always returns {:error, :invalid_domains}. Keep the concrete 253/254 boundary test too; no production edits.",
       "timestamp": "2026-09-30T11:42:18Z"
+    },
+    {
+      "text": "Coordinator review complete: exclusive ownership test/zaq/system/web_browsing_config_test.exs. No overlap with other current plans; independent root. Test-only Action reuse N/A. Supplied-line mode: never run mix coveralls.json or mix coverup. Workers edit first; coordinator serializes isolated Mix validation, runs mix q after all edits, then final targeted mix test edited-files --cover.",
+      "timestamp": "2026-09-30T11:50:23Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-xfj.12] Cover WebBrowsingConfig uncovered lines 36, 64, 77",
   "type": "task",
-  "updated_at": "2026-09-30T11:42:18Z"
+  "updated_at": "2026-09-30T11:50:23Z"
 }
