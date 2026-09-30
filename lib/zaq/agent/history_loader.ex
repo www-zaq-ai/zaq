@@ -29,13 +29,28 @@ defmodule Zaq.Agent.HistoryLoader do
   """
   @spec load_context(map(), keyword()) :: AIContext.t()
   def load_context(spawn_opts, opts \\ []) do
-    case Map.get(spawn_opts, :conversation_id) do
-      id when is_binary(id) and id != "" ->
-        load_for_conversation(id, opts)
+    conversation_id = Map.get(spawn_opts, :conversation_id)
 
-      _ ->
-        load(Map.get(spawn_opts, :person_id), Map.get(spawn_opts, :channel_type), opts)
+    if is_binary(conversation_id) and conversation_id != "" do
+      load_for_conversation(conversation_id, opts)
+    else
+      load(Map.get(spawn_opts, :person_id), Map.get(spawn_opts, :channel_type), opts)
     end
+  end
+
+  defp fetch_messages_for_conversations(conversation_ids_query) do
+    from(m in Message,
+      where: m.conversation_id in subquery(conversation_ids_query),
+      order_by: [desc: m.inserted_at],
+      limit: @max_db_fetch,
+      select: %{
+        role: m.role,
+        content: m.content,
+        metadata: m.metadata,
+        inserted_at: m.inserted_at
+      }
+    )
+    |> Repo.all()
   end
 
   @doc """
@@ -51,7 +66,9 @@ defmodule Zaq.Agent.HistoryLoader do
 
   def load_for_conversation(conversation_id, opts) do
     from(m in Message,
-      where: m.conversation_id == ^conversation_id,
+      where:
+        m.conversation_id == ^conversation_id and
+          fragment("COALESCE(?->>'execution_status', 'completed') = 'completed'", m.metadata),
       order_by: [desc: m.inserted_at],
       limit: @max_db_fetch,
       select: %{
@@ -92,18 +109,7 @@ defmodule Zaq.Agent.HistoryLoader do
         select: c.id
       )
 
-    from(m in Message,
-      where: m.conversation_id in subquery(conv_ids),
-      order_by: [desc: m.inserted_at],
-      limit: @max_db_fetch,
-      select: %{
-        role: m.role,
-        content: m.content,
-        metadata: m.metadata,
-        inserted_at: m.inserted_at
-      }
-    )
-    |> Repo.all()
+    fetch_messages_for_conversations(conv_ids)
   end
 
   defp build_context(messages, opts) do

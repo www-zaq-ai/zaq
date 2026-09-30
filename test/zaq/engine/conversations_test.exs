@@ -10,6 +10,8 @@ defmodule Zaq.Engine.ConversationsTest do
   alias Zaq.Channels.CommunicationBridge
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.Message
+  alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Telemetry.{Buffer, Point}
 
   # Production stamps conversation identity on the channels node before the
@@ -25,6 +27,12 @@ defmodule Zaq.Engine.ConversationsTest do
     incoming
     |> CommunicationBridge.put_conversation_identity()
     |> Conversations.persist_message_history(attrs)
+  end
+
+  defp admit_incoming(incoming) do
+    incoming
+    |> CommunicationBridge.put_conversation_identity()
+    |> Conversations.admit_incoming()
   end
 
   # ── Helpers ────────────────────────────────────────────────────────
@@ -90,6 +98,27 @@ defmodule Zaq.Engine.ConversationsTest do
     test "returns error changeset for invalid channel_type" do
       assert {:error, changeset} = Conversations.create_conversation(%{channel_type: "fax"})
       assert %{channel_type: _} = errors_on(changeset)
+    end
+
+    test "enforces one active conversation per complete communication scope" do
+      attrs = %{
+        channel_type: "mattermost",
+        channel_user_id: "scope-user",
+        external_channel_id: "room-1",
+        external_thread_id: "thread-1"
+      }
+
+      assert {:ok, conversation} = Conversations.create_conversation(attrs)
+      assert {:error, changeset} = Conversations.create_conversation(attrs)
+      assert %{channel_user_id: ["has already been taken"]} = errors_on(changeset)
+
+      assert {:ok, _archived} =
+               conversation
+               |> Ecto.Changeset.change(status: "archived")
+               |> Zaq.Repo.update()
+
+      assert {:ok, replacement} = Conversations.create_conversation(attrs)
+      refute replacement.id == conversation.id
     end
   end
 
@@ -291,6 +320,148 @@ defmodule Zaq.Engine.ConversationsTest do
     end
   end
 
+  describe "admit_incoming/1" do
+    test "persists the user message before execution and returns trusted references" do
+      incoming =
+        Incoming.new(%{
+          content: "Inspect this request",
+          channel_id: "channel-1",
+          author_id: "person-1",
+          message_id: "provider-message-1",
+          provider: :mattermost
+        })
+
+      assert {:ok, %{conversation_id: conversation_id, user_message_id: user_message_id}} =
+               admit_incoming(incoming)
+
+      assert %{id: ^user_message_id, conversation_id: ^conversation_id, role: "user"} =
+               Repo.get(Message, user_message_id)
+    end
+
+    test "reuses the admitted user message for a provider redelivery" do
+      incoming =
+        Incoming.new(%{
+          content: "Retry me",
+          channel_id: "channel-1",
+          author_id: "person-1",
+          message_id: "provider-message-2",
+          provider: :mattermost
+        })
+
+      assert {:ok, first} = admit_incoming(incoming)
+      assert {:ok, second} = admit_incoming(incoming)
+      assert first.admitted?
+      refute second.admitted?
+      assert second.finalization_token == nil
+      assert first.conversation_id == second.conversation_id
+      assert first.user_message_id == second.user_message_id
+
+      conversation = Conversations.get_conversation(first.conversation_id)
+      assert length(Conversations.list_messages(conversation)) == 1
+    end
+  end
+
+  describe "finalize_incoming/2" do
+    test "completes the admitted input and persists one assistant response idempotently" do
+      incoming =
+        Incoming.new(%{
+          content: "Question",
+          channel_id: "channel-1",
+          author_id: "person-1",
+          message_id: "provider-message-3",
+          provider: :mattermost
+        })
+
+      assert {:ok, binding} = admit_incoming(incoming)
+
+      result = %{answer: "Answer", error: false, trace: [%{"kind" => "llm"}]}
+
+      assert {:ok, finalized} =
+               Conversations.finalize_incoming(
+                 binding.user_message_id,
+                 binding.finalization_token,
+                 result
+               )
+
+      assert {:ok, duplicate} =
+               Conversations.finalize_incoming(
+                 binding.user_message_id,
+                 binding.finalization_token,
+                 result
+               )
+
+      assert finalized == duplicate
+
+      input = Repo.get!(Message, binding.user_message_id)
+      assert input.metadata["execution_status"] == "completed"
+
+      conversation = Conversations.get_conversation(binding.conversation_id)
+      assert [persisted_input, assistant] = Conversations.list_messages(conversation)
+      assert persisted_input.id == input.id
+      assert assistant.role == "assistant"
+      assert assistant.content == "Answer"
+      assert assistant.metadata["in_reply_to_message_id"] == input.id
+    end
+
+    test "stores handled failure traces on the input without adding an assistant turn" do
+      incoming =
+        Incoming.new(%{
+          content: "Question",
+          channel_id: "channel-1",
+          author_id: "person-1",
+          provider: :mattermost
+        })
+
+      assert {:ok, binding} = admit_incoming(incoming)
+
+      result = %{
+        answer: "Safe error",
+        error: true,
+        error_type: "provider_error",
+        reason: ":rate_limited",
+        trace: [%{"kind" => "llm", "status" => "failed"}]
+      }
+
+      assert {:ok, %{assistant_message_id: nil}} =
+               Conversations.finalize_incoming(
+                 binding.user_message_id,
+                 binding.finalization_token,
+                 result
+               )
+
+      input = Repo.get!(Message, binding.user_message_id)
+      assert input.metadata["execution_status"] == "failed"
+      assert input.metadata["execution"]["error_type"] == "provider_error"
+      assert input.trace == [%{"kind" => "llm", "status" => "failed"}]
+
+      conversation = Conversations.get_conversation(binding.conversation_id)
+      assert [persisted_input] = Conversations.list_messages(conversation)
+      assert persisted_input.id == input.id
+    end
+
+    test "rejects a finalization that does not carry the admission capability" do
+      incoming =
+        Incoming.new(%{
+          content: "Question",
+          channel_id: "channel-1",
+          author_id: "person-1",
+          provider: :mattermost
+        })
+
+      assert {:ok, binding} = admit_incoming(incoming)
+
+      assert {:error, :invalid_finalization_token} =
+               Conversations.finalize_incoming(
+                 binding.user_message_id,
+                 Ecto.UUID.generate(),
+                 %{answer: "forged", error: false}
+               )
+
+      input = Repo.get!(Message, binding.user_message_id)
+      assert input.metadata["execution_status"] == "pending"
+    end
+  end
+
   describe "persist_from_incoming/2" do
     test "accepts nil trace artifacts and falls back from an invalid configured byte limit" do
       {:ok, conversation} =
@@ -319,7 +490,10 @@ defmodule Zaq.Engine.ConversationsTest do
       end)
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               persist_from_incoming(incoming, %{answer: "All clear.", trace_artifacts: nil})
+               Conversations.persist_from_incoming(incoming, %{
+                 answer: "All clear.",
+                 trace_artifacts: nil
+               })
 
       assert conversation_id == conversation.id
       assert length(Conversations.list_messages(conversation)) == 2
@@ -338,7 +512,10 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:error, :invalid_trace_artifact} =
-               persist_from_incoming(incoming, %{answer: "Nope", trace_artifacts: [nil]})
+               Conversations.persist_from_incoming(incoming, %{
+                 answer: "Nope",
+                 trace_artifacts: [nil]
+               })
 
       assert Conversations.list_messages(conversation) == []
       assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
@@ -356,7 +533,10 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:error, :invalid_trace_artifact} =
-               persist_from_incoming(incoming, %{answer: "Nope", trace_artifacts: %{}})
+               Conversations.persist_from_incoming(incoming, %{
+                 answer: "Nope",
+                 trace_artifacts: %{}
+               })
 
       assert Conversations.list_messages(conversation) == []
       assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
@@ -383,7 +563,10 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:error, changeset} =
-               persist_from_incoming(incoming, %{answer: "Failed", trace_artifacts: [artifact]})
+               Conversations.persist_from_incoming(incoming, %{
+                 answer: "Failed",
+                 trace_artifacts: [artifact]
+               })
 
       assert %{record: _} = errors_on(changeset)
       assert Conversations.list_messages(conversation) == []
@@ -496,7 +679,7 @@ defmodule Zaq.Engine.ConversationsTest do
       existing_id = existing.id
 
       assert {:ok, %{conversation_id: ^existing_id}} =
-               persist_from_incoming(incoming, result)
+               Conversations.persist_from_incoming(incoming, result)
 
       messages = Conversations.list_messages(existing)
 
@@ -982,6 +1165,144 @@ defmodule Zaq.Engine.ConversationsTest do
   end
 
   describe "persist_message_history/2" do
+    test "isolates communication history by configuration, channel, participant, and thread" do
+      config_one = channel_config_fixture("mattermost")
+      config_two = channel_config_fixture("discord")
+
+      identity = fn overrides ->
+        Map.merge(
+          %{
+            "channel_type" => "mattermost",
+            "key" => nil,
+            "channel_config_id" => config_one.id,
+            "channel_id" => "town-square",
+            "thread_id" => "root-1",
+            "participant_id" => "user-1"
+          },
+          overrides
+        )
+      end
+
+      incoming = fn overrides ->
+        conversation = identity.(Map.get(overrides, :identity, %{}))
+
+        struct!(Zaq.Engine.Messages.Incoming, %{
+          content: "hello",
+          channel_id: conversation["channel_id"],
+          author_id: conversation["participant_id"],
+          provider: :mattermost,
+          thread_id: conversation["thread_id"],
+          metadata: %{"conversation" => conversation}
+        })
+      end
+
+      base = incoming.(%{})
+
+      assert {:ok, %{conversation_id: conversation_id}} =
+               Conversations.persist_message_history(base, %{content: "first"})
+
+      assert {:ok, %{conversation_id: ^conversation_id}} =
+               Conversations.persist_message_history(base, %{content: "second"})
+
+      for changed <- [
+            %{"channel_config_id" => config_two.id},
+            %{"channel_id" => "other-room"},
+            %{"thread_id" => "root-2"},
+            %{"thread_id" => nil},
+            %{"participant_id" => "user-2"}
+          ] do
+        assert {:ok, %{conversation_id: other_id}} =
+                 Conversations.persist_message_history(incoming.(%{identity: changed}), %{
+                   content: "isolated"
+                 })
+
+        other = Conversations.get_conversation!(other_id)
+
+        assert other.channel_config_id ==
+                 Map.get(changed, "channel_config_id", config_one.id)
+
+        assert other.external_channel_id == Map.get(changed, "channel_id", "town-square")
+        assert other.external_thread_id == Map.get(changed, "thread_id", "root-1")
+        assert other.channel_user_id == Map.get(changed, "participant_id", "user-1")
+
+        refute other_id == conversation_id,
+               "expected an isolated conversation for #{inspect(changed)}"
+      end
+
+      conversation = Conversations.get_conversation!(conversation_id)
+      assert conversation.channel_config_id == config_one.id
+      assert conversation.external_channel_id == "town-square"
+      assert conversation.external_thread_id == "root-1"
+      assert conversation.channel_user_id == "user-1"
+    end
+
+    test "does not reuse a mixed legacy conversation for newly scoped channel history" do
+      {:ok, legacy} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: "legacy-user"
+        })
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "new scoped message",
+        channel_id: "room-1",
+        author_id: "legacy-user",
+        provider: :mattermost,
+        metadata: %{
+          "conversation" => %{
+            "channel_type" => "mattermost",
+            "key" => nil,
+            "channel_config_id" => nil,
+            "channel_id" => "room-1",
+            "thread_id" => nil,
+            "participant_id" => "legacy-user"
+          }
+        }
+      }
+
+      assert {:ok, %{conversation_id: scoped_id}} =
+               Conversations.persist_message_history(incoming, %{content: "new response"})
+
+      refute scoped_id == legacy.id
+      assert Conversations.get_conversation!(scoped_id).external_channel_id == "room-1"
+    end
+
+    test "rejects an explicit conversation from another communication scope" do
+      config = channel_config_fixture("mattermost")
+
+      {:ok, existing} =
+        Conversations.create_conversation(%{
+          channel_type: "mattermost",
+          channel_user_id: "user-1",
+          channel_config_id: config.id,
+          external_channel_id: "room-1",
+          external_thread_id: "root-1"
+        })
+
+      incoming = %Zaq.Engine.Messages.Incoming{
+        content: "wrong room",
+        channel_id: "room-2",
+        author_id: "user-1",
+        provider: :mattermost,
+        metadata: %{
+          "conversation_id" => existing.id,
+          "conversation" => %{
+            "channel_type" => "mattermost",
+            "key" => nil,
+            "channel_config_id" => config.id,
+            "channel_id" => "room-2",
+            "thread_id" => "root-1",
+            "participant_id" => "user-1"
+          }
+        }
+      }
+
+      assert {:error, :conversation_scope_mismatch} =
+               Conversations.persist_message_history(incoming, %{content: "must not append"})
+
+      assert Conversations.list_messages(existing) == []
+    end
+
     test "creates a conversation and stores exactly one assistant message by default" do
       incoming = %Zaq.Engine.Messages.Incoming{
         content: "Routing envelope content",
@@ -1023,7 +1344,7 @@ defmodule Zaq.Engine.ConversationsTest do
       existing_id = existing.id
 
       assert {:ok, %{conversation_id: ^existing_id, message_id: _}} =
-               persist_message_history(incoming, %{
+               Conversations.persist_message_history(incoming, %{
                  role: "user",
                  content: "Manual user note"
                })

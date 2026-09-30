@@ -14,6 +14,8 @@ defmodule Zaq.Engine.Conversations.Conversation do
     field :channel_user_id, :string
     field :channel_type, :string
     field :channel_config_id, :integer
+    field :external_channel_id, :string
+    field :external_thread_id, :string
     field :status, :string, default: "active"
     field :metadata, :map, default: %{}
 
@@ -38,11 +40,16 @@ defmodule Zaq.Engine.Conversations.Conversation do
       :channel_user_id,
       :channel_type,
       :channel_config_id,
+      :external_channel_id,
+      :external_thread_id,
       :status,
       :metadata
     ])
     |> validate_required([:channel_type])
     |> validate_inclusion(:channel_type, @valid_channel_types)
     |> validate_inclusion(:status, @valid_statuses)
+    |> unique_constraint(:channel_user_id,
+      name: :conversations_active_communication_scope_index
+    )
   end
 end

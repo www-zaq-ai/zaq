@@ -654,7 +654,7 @@ defmodule Zaq.Agent.StreamEventsTest do
         event(:request_cancelled, 20, %{reason: "user stopped"})
       ]
 
-      assert {:ok, result} =
+      assert {:error, :cancelled, result} =
                StreamEvents.consume(events, incoming, status_module: FakeStatus)
 
       assert result.answer == "partial"

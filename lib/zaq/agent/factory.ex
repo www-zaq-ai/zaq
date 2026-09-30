@@ -264,60 +264,25 @@ defmodule Zaq.Agent.Factory do
   step's turns via `opts[:context]`), it is used **as-is** and no history is loaded
   — the caller has already assembled the agent's entire starting context. This is
   exactly right for a per-step workflow scope, which would load no DB history anyway.
-  Otherwise (`nil`), history is loaded from the scope encoded in `server_id`.
+  Otherwise (`nil`), history is loaded only from the explicit Engine-issued history binding.
+  Runtime server IDs are opaque process names and are never parsed for persistence identity.
   """
   @spec build_initial_context(ConfiguredAgent.t(), String.t(), AIContext.t() | nil) ::
           AIContext.t()
   def build_initial_context(configured_agent, server_id, context \\ nil)
 
-  def build_initial_context(%ConfiguredAgent{}, _server_id, %AIContext{} = context), do: context
+  def build_initial_context(configured_agent, server_id, context),
+    do: build_initial_context(configured_agent, server_id, context, nil)
 
-  def build_initial_context(%ConfiguredAgent{}, server_id, _context) do
-    spawn_opts = spawn_opts_from_server_id(server_id)
+  @spec build_initial_context(ConfiguredAgent.t(), String.t(), AIContext.t() | nil, map() | nil) ::
+          AIContext.t()
+  def build_initial_context(configured_agent, server_id, context, history_binding)
 
-    HistoryLoader.load_context(spawn_opts, opaque_alias_scope: server_id)
-  end
+  def build_initial_context(%ConfiguredAgent{}, _server_id, %AIContext{} = context, _binding),
+    do: context
 
-  def spawn_opts_from_server_id(server_id) when is_binary(server_id) do
-    case String.split(server_id, ":") |> Enum.reverse() do
-      [id, "conv", encoded_provider, "scope" | [_agent | _]] when id != "" ->
-        case decode_scope_provider(encoded_provider) do
-          {:ok, provider} -> %{conversation_id: id, person_id: nil, channel_type: provider}
-          :error -> %{}
-        end
-
-      [id, "person", encoded_provider, "scope" | [_agent | _]] when id != "" ->
-        case decode_scope_provider(encoded_provider) do
-          {:ok, provider} -> %{conversation_id: nil, person_id: id, channel_type: provider}
-          :error -> %{}
-        end
-
-      # Per-run scope `workflow:run:<id>` (derived by Executor.derive_scope/2 from
-      # the incoming's run_id) has no prior conversation/person to load — a
-      # workflow-run agent starts fresh. Matched explicitly so this is
-      # intentional, not a fall-through.
-      [_id, "run", "workflow" | [_agent | _]] ->
-        %{}
-
-      _ ->
-        %{}
-    end
-  end
-
-  def spawn_opts_from_server_id(_server_id), do: nil
-
-  defp decode_scope_provider(encoded_provider) when is_binary(encoded_provider) do
-    if encoded_provider != "" and valid_percent_encoding?(encoded_provider) do
-      decoded = URI.decode(encoded_provider)
-
-      if decoded == "", do: :error, else: {:ok, decoded}
-    else
-      :error
-    end
-  end
-
-  defp valid_percent_encoding?(value) do
-    not Regex.match?(~r/%(?![0-9A-Fa-f]{2})/, value)
+  def build_initial_context(%ConfiguredAgent{}, server_id, _context, history_binding) do
+    HistoryLoader.load_context(history_binding || %{}, opaque_alias_scope: server_id)
   end
 
   @doc """

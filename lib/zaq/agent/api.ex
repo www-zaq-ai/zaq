@@ -385,7 +385,9 @@ defmodule Zaq.Agent.Api do
     incoming_dims = incoming.metadata |> Map.get("telemetry_dimensions", %{})
 
     pipeline_opts =
-      Keyword.put_new(pipeline_opts, :telemetry_dimensions, incoming_dims)
+      pipeline_opts
+      |> Keyword.put_new(:telemetry_dimensions, incoming_dims)
+      |> Keyword.put(:conversation_binding, conversation_binding(event.assigns))
 
     outgoing =
       case selected_agent_id(event.assigns) do
@@ -393,7 +395,6 @@ defmodule Zaq.Agent.Api do
           pipeline_module.run(
             incoming,
             pipeline_opts
-            |> Keyword.put(:scope, Executor.derive_scope(incoming, event.actor))
             |> Keyword.put(:person_id, person_id)
             |> Keyword.put(:team_ids, team_ids)
             |> Keyword.put(:event, event)
@@ -402,7 +403,7 @@ defmodule Zaq.Agent.Api do
         selected_id ->
           executor_module.run(incoming,
             agent_id: selected_id,
-            scope: Executor.derive_scope(incoming, event.actor),
+            conversation_binding: conversation_binding(event.assigns),
             person_id: person_id,
             team_ids: team_ids,
             source_filter: incoming.content_filter,
@@ -416,6 +417,41 @@ defmodule Zaq.Agent.Api do
 
     maybe_dispatch_return_hop(event, incoming, outgoing)
   end
+
+  defp conversation_binding(assigns) when is_map(assigns) do
+    case Map.get(assigns, "conversation_binding") || Map.get(assigns, :conversation_binding) do
+      %{
+        "conversation_id" => conversation_id,
+        "user_message_id" => user_message_id,
+        "finalization_token" => finalization_token
+      }
+      when is_binary(conversation_id) and is_binary(user_message_id) and
+             is_binary(finalization_token) ->
+        %{
+          conversation_id: conversation_id,
+          user_message_id: user_message_id,
+          finalization_token: finalization_token
+        }
+
+      %{
+        conversation_id: conversation_id,
+        user_message_id: user_message_id,
+        finalization_token: finalization_token
+      }
+      when is_binary(conversation_id) and is_binary(user_message_id) and
+             is_binary(finalization_token) ->
+        %{
+          conversation_id: conversation_id,
+          user_message_id: user_message_id,
+          finalization_token: finalization_token
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp conversation_binding(_assigns), do: nil
 
   # This function is a good candidate to go into the NodeRouter for generalization
   defp maybe_dispatch_return_hop(%Event{} = event, %Incoming{} = incoming, %Outgoing{} = outgoing) do
@@ -496,11 +532,7 @@ defmodule Zaq.Agent.Api do
          %Incoming{} = incoming,
          %Outgoing{} = outgoing
        ) do
-    persist_event =
-      Event.new(%{incoming: incoming, metadata: outgoing.metadata}, :engine,
-        opts: [action: :persist_from_incoming],
-        trace_id: event.trace_id
-      )
+    persist_event = finalization_event(event, incoming, outgoing)
 
     case node_router_mod.dispatch(%{persist_event | assigns: event.assigns}).response do
       :ok -> {:ok, %{}}
@@ -508,6 +540,32 @@ defmodule Zaq.Agent.Api do
       {:ok, _} -> {:ok, %{}}
       {:error, reason} -> {:error, reason}
       other -> {:error, {:invalid_persist_response, other}}
+    end
+  end
+
+  defp finalization_event(%Event{} = event, incoming, outgoing) do
+    case conversation_binding(event.assigns) do
+      %{user_message_id: user_message_id, finalization_token: finalization_token} ->
+        Event.new(
+          %{
+            user_message_id: user_message_id,
+            finalization_token: finalization_token,
+            outcome: outgoing.metadata
+          },
+          :engine,
+          actor: event.actor,
+          opts: [action: :finalize_incoming],
+          trace_id: event.trace_id
+        )
+
+      nil ->
+        # Compatibility for trusted internal callers that have not crossed the
+        # Engine admission boundary (for example isolated legacy tests).
+        Event.new(%{incoming: incoming, metadata: outgoing.metadata}, :engine,
+          actor: event.actor,
+          opts: [action: :persist_from_incoming],
+          trace_id: event.trace_id
+        )
     end
   end
 
@@ -524,6 +582,10 @@ defmodule Zaq.Agent.Api do
       |> maybe_put_persisted(
         :assistant_message_id,
         Map.get(persisted, :assistant_message_id) || Map.get(persisted, "assistant_message_id")
+      )
+      |> maybe_put_persisted(
+        :user_message_id,
+        Map.get(persisted, :user_message_id) || Map.get(persisted, "user_message_id")
       )
 
     %{outgoing | metadata: metadata}

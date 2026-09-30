@@ -42,7 +42,8 @@ defmodule Zaq.Permissions do
 
   `attrs` must include either `person_id` or `team_id`, plus `access_rights`.
   Uses upsert semantics — if a permission row already exists for the same
-  (resource_type, resource_id, person_id/team_id), the access_rights are updated.
+  (resource_type, resource_id, person_id/team_id, source_key), the access_rights are updated.
+  Source defaults to `"manual"`; provider synchronization must pass its own source.
   """
   @spec grant(resource(), map(), keyword()) ::
           {:ok, ResourcePermission.t()} | {:error, Ecto.Changeset.t()}
@@ -50,13 +51,16 @@ defmodule Zaq.Permissions do
     {resource_type, resource_id} = resource_coords(resource)
     now = DateTime.utc_now(:second)
 
-    attrs = Map.merge(attrs, %{resource_type: resource_type, resource_id: resource_id})
+    attrs =
+      attrs
+      |> Map.merge(%{resource_type: resource_type, resource_id: resource_id})
+      |> Map.put_new(:source_key, "manual")
 
     conflict_fragment =
       if Map.has_key?(attrs, :person_id) do
-        "(resource_type, resource_id, person_id) WHERE person_id IS NOT NULL"
+        "(resource_type, resource_id, person_id, source_key) WHERE person_id IS NOT NULL"
       else
-        "(resource_type, resource_id, team_id) WHERE team_id IS NOT NULL"
+        "(resource_type, resource_id, team_id, source_key) WHERE team_id IS NOT NULL"
       end
 
     access_rights = Map.get(attrs, :access_rights, ["read"])
@@ -88,6 +92,9 @@ defmodule Zaq.Permissions do
 
   Checks both direct person grants and grants via any of the person's teams.
   A `nil` person always returns `false` — it is never an implicit grant.
+
+  Pass `direct_person_only: true` for shared communication history, where a
+  team/Everyone grant must not substitute for an explicit Person grant.
 
   Pass `skip_permissions: true` in opts for explicit admin bypass.
   """
@@ -199,33 +206,48 @@ defmodule Zaq.Permissions do
     )
   end
 
-  @doc "Replaces all direct grants on a resource with the desired grant maps."
+  @doc "Replaces manual direct grants without changing provider-derived grants."
   @spec replace(resource(), [map()], keyword()) ::
           {:ok, [ResourcePermission.t()]} | {:error, term()}
   def replace(resource, desired_grants, opts \\ []) when is_list(desired_grants) do
-    Repo.transaction(fn ->
-      revoke_existing(resource, opts)
-      grant_desired(resource, desired_grants)
-    end)
+    if manual_grants?(desired_grants) do
+      Repo.transaction(fn ->
+        revoke_existing(resource, opts)
+        grant_desired(resource, desired_grants)
+      end)
+    else
+      {:error, :invalid_grant_source}
+    end
   end
 
   @doc """
-  Applies direct grant upserts and principal revocations in one transaction.
+  Applies manual direct grant upserts and principal revocations in one transaction.
 
   Grants for principals not named by either collection are preserved. Callers
   must normalize and reject conflicting principal commands before invoking this
-  function.
+  function. Provider-derived grants are never changed through this operation.
   """
   def mutate(resource, desired_grants, revocations, _opts \\ [])
       when is_list(desired_grants) and is_list(revocations) do
-    Repo.transaction(fn ->
-      Enum.each(revocations, &revoke_principal(resource, &1))
-      grant_desired(resource, desired_grants)
+    if manual_grants?(desired_grants) do
+      Repo.transaction(fn ->
+        Enum.each(revocations, &revoke_principal(resource, &1))
+        grant_desired(resource, desired_grants)
+      end)
+    else
+      {:error, :invalid_grant_source}
+    end
+  end
+
+  defp manual_grants?(grants) do
+    Enum.all?(grants, fn attrs ->
+      is_map(attrs) and
+        Map.get(attrs, :source_key, Map.get(attrs, "source_key")) in [nil, "manual"]
     end)
   end
 
   defp revoke_existing(resource, opts) do
-    Enum.each(list(resource), fn permission ->
+    Enum.each(Enum.filter(list(resource), &(&1.source_key == "manual")), fn permission ->
       case revoke(resource, permission, opts) do
         :ok -> :ok
         {:error, reason} -> Repo.rollback(reason)
@@ -249,7 +271,7 @@ defmodule Zaq.Permissions do
     |> where(
       [permission],
       permission.resource_type == ^resource_type and permission.resource_id == ^resource_id and
-        permission.person_id == ^person_id
+        permission.person_id == ^person_id and permission.source_key == "manual"
     )
     |> Repo.delete_all()
   end
@@ -261,7 +283,7 @@ defmodule Zaq.Permissions do
     |> where(
       [permission],
       permission.resource_type == ^resource_type and permission.resource_id == ^resource_id and
-        permission.team_id == ^team_id
+        permission.team_id == ^team_id and permission.source_key == "manual"
     )
     |> Repo.delete_all()
   end
@@ -289,7 +311,9 @@ defmodule Zaq.Permissions do
 
   defp permission_exists?(person, right, resource, opts) do
     right_str = to_string(right)
-    team_ids = effective_team_ids(person)
+
+    team_ids =
+      if Keyword.get(opts, :direct_person_only, false), do: [], else: effective_team_ids(person)
 
     resource
     |> resources_with_ancestors(Keyword.get(opts, :ancestors, []))
@@ -384,7 +408,7 @@ defmodule Zaq.Permissions do
         where:
           p.resource_type == ^resource_type and
             p.resource_id == ^resource_id and
-            p.team_id == ^everyone_team_id(),
+            p.team_id == ^everyone_team_id() and p.source_key == "manual",
         preload: [:person, :team],
         limit: 1
     )

@@ -49,12 +49,20 @@ defmodule Zaq.Agent.ServerManagerTest do
     config = valid_configured_agent(System.unique_integer([:positive]))
     scope = "identity:#{config.id}:scope:web:person:999"
     actor = %{person: %{id: 42, full_name: "Original", team_ids: [3]}, name: "Origin"}
+    history_binding = %{conversation_id: Ecto.UUID.generate()}
     context = AIContext.new() |> AIContext.append_user("Initial history")
-    {:ok, ref} = ServerManager.ensure_server(config, scope, context, actor: actor)
+
+    {:ok, ref} =
+      ServerManager.ensure_server(config, scope, context,
+        actor: actor,
+        history_binding: history_binding
+      )
+
     on_exit(fn -> ServerManager.stop_server(config, scope) end)
     pid = GenServer.whereis(ref)
     {:ok, initial} = Jido.AgentServer.status(ref)
     assert initial.raw_state.execution_actor == actor
+    assert initial.raw_state.history_binding == history_binding
     assert initial.raw_state.runtime_config.execution_actor == actor
     assert initial.raw_state.runtime_config.tool_context.actor == actor
     assert initial.raw_state.tool_context.actor == actor
@@ -63,7 +71,19 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert initial.raw_state.context == context
 
     updated_actor = put_in(actor, [:person, :full_name], "Updated")
-    assert {:ok, ^ref} = ServerManager.ensure_server(config, scope, nil, actor: updated_actor)
+
+    assert {:ok, ^ref} =
+             ServerManager.ensure_server(config, scope, nil,
+               actor: updated_actor,
+               history_binding: history_binding
+             )
+
+    assert {:error, :history_binding_mismatch} =
+             ServerManager.ensure_server(config, scope, nil,
+               actor: updated_actor,
+               history_binding: %{conversation_id: Ecto.UUID.generate()}
+             )
+
     assert GenServer.whereis(ref) == pid
     assert {:ok, _} = ServerManager.sync_runtime(%{config | job: "Refreshed"})
     {:ok, refreshed} = Jido.AgentServer.status(ref)
@@ -74,18 +94,28 @@ defmodule Zaq.Agent.ServerManagerTest do
     before = :sys.get_state(ServerManager)
 
     assert {:error, :execution_actor_mismatch} =
-             ServerManager.ensure_server(changed, scope, nil, actor: %{person: %{id: 43}})
+             ServerManager.ensure_server(changed, scope, nil,
+               actor: %{person: %{id: 43}},
+               history_binding: history_binding
+             )
 
     assert :sys.get_state(ServerManager) == before
     assert GenServer.whereis(ref) == pid
 
     assert {:ok, ^ref} =
-             ServerManager.ensure_server(changed, scope, context, actor: updated_actor)
+             ServerManager.ensure_server(changed, scope, context,
+               actor: updated_actor,
+               history_binding: history_binding
+             )
 
     refute GenServer.whereis(ref) == pid
     {:ok, replaced} = Jido.AgentServer.status(ref)
     assert replaced.raw_state.execution_actor == updated_actor
     assert replaced.raw_state.context == context
+
+    replacement_pid = GenServer.whereis(ref)
+    assert :ok = ServerManager.stop_server_if_current(changed, scope, pid)
+    assert GenServer.whereis(ref) == replacement_pid
   end
 
   @tag :execution_identity
@@ -2179,11 +2209,12 @@ defmodule Zaq.Agent.ServerManagerTest do
       insert_message_for_sm(conv, "user", "hello from this conversation")
 
       configured_agent = make_agent_for_routing("HistConv")
-      server_id = "routing_conv_test_:scope:bo:conv:#{conv.id}"
+      server_id = "routing_conv_test_#{conv.id}"
 
       assert {:ok, server_ref} =
                ServerManager.ensure_server(configured_agent, server_id, nil,
-                 actor: @execution_actor
+                 actor: @execution_actor,
+                 history_binding: %{conversation_id: conv.id}
                )
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
@@ -2194,7 +2225,7 @@ defmodule Zaq.Agent.ServerManagerTest do
              end)
     end
 
-    test "injects person+channel history when incoming has person_id but no conversation_id" do
+    test "does not derive history identity from the runtime server name" do
       person = insert_person_for_sm()
       conv = insert_conversation_for_sm(person.id, "bo")
       insert_message_for_sm(conv, "user", "person-channel message")
@@ -2210,12 +2241,10 @@ defmodule Zaq.Agent.ServerManagerTest do
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
       messages = AIContext.to_messages(status.raw_state.context)
 
-      assert Enum.any?(messages, fn m ->
-               String.ends_with?(m.content, "person-channel message")
-             end)
+      assert messages == []
     end
 
-    test "injects email history using decoded provider scope on cold spawn" do
+    test "injects email history using an explicit conversation binding on cold spawn" do
       person = insert_person_for_sm()
       email_conv = insert_conversation_for_sm(person.id, "email:imap")
       other_conv = insert_conversation_for_sm(person.id, "mattermost")
@@ -2225,11 +2254,12 @@ defmodule Zaq.Agent.ServerManagerTest do
       insert_message_for_sm(other_conv, "user", "wrong provider turn")
 
       configured_agent = make_agent_for_routing("HistEmail")
-      server_id = "routing_email_test_:scope:email%3Aimap:person:#{person.id}"
+      server_id = "routing_email_test_#{email_conv.id}"
 
       assert {:ok, server_ref} =
                ServerManager.ensure_server(configured_agent, server_id, nil,
-                 actor: @execution_actor
+                 actor: @execution_actor,
+                 history_binding: %{conversation_id: email_conv.id}
                )
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
@@ -2244,7 +2274,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       person = insert_person_for_sm()
       email_conv = insert_conversation_for_sm(person.id, "email:imap")
       canonical = "signed-handle-#{System.unique_integer([:positive])}"
-      server_id = "routing_email_attach_test_:scope:email%3Aimap:person:#{person.id}"
+      server_id = "routing_email_attach_test_#{email_conv.id}"
 
       OpaqueAliases.clear_scope(server_id)
       on_exit(fn -> OpaqueAliases.clear_scope(server_id) end)
@@ -2265,7 +2295,8 @@ defmodule Zaq.Agent.ServerManagerTest do
 
       assert {:ok, server_ref} =
                ServerManager.ensure_server(configured_agent, server_id, nil,
-                 actor: @execution_actor
+                 actor: @execution_actor,
+                 history_binding: %{conversation_id: email_conv.id}
                )
 
       assert {:ok, status} = Jido.AgentServer.status(server_ref)

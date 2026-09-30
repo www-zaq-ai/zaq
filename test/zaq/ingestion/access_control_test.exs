@@ -1,10 +1,13 @@
 defmodule Zaq.Ingestion.AccessControlTest do
   use Zaq.DataCase, async: true
 
+  import Ecto.Query
+
   alias Zaq.Accounts.{People, Team}
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
   alias Zaq.Permissions
+  alias Zaq.Permissions.ResourcePermission
   alias Zaq.SystemConfigFixtures
 
   setup do
@@ -35,6 +38,32 @@ defmodule Zaq.Ingestion.AccessControlTest do
   end
 
   defp unique_source, do: "file_#{System.unique_integer([:positive])}.md"
+
+  test "document manual upsert leaves a provider-sourced grant intact" do
+    {:ok, doc} = Document.upsert(%{source: unique_source()})
+    person = create_person()
+
+    assert {:ok, _} =
+             Permissions.grant(doc, %{
+               person_id: person.id,
+               access_rights: ["read"],
+               source_key: "provider:connector-1"
+             })
+
+    assert {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["read"])
+    assert {:ok, _} = Ingestion.set_document_permission(doc.id, :person, person.id, ["write"])
+
+    rows =
+      Repo.all(
+        from p in ResourcePermission,
+          where:
+            p.resource_type == "document" and p.resource_id == ^to_string(doc.id) and
+              p.person_id == ^person.id
+      )
+
+    assert Enum.sort(Enum.map(rows, &{&1.source_key, &1.access_rights})) ==
+             [{"manual", ["write"]}, {"provider:connector-1", ["read"]}]
+  end
 
   setup do
     admin_person = create_person()

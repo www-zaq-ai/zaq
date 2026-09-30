@@ -14,7 +14,7 @@ defmodule Zaq.Accounts.PersonMergeTest do
   alias Zaq.Ingestion.{Document, DocumentAccess}
   alias Zaq.People.IdentityResolver
   alias Zaq.Permissions
-  alias Zaq.Permissions.{PermissionRevokerMock, ResourcePermission}
+  alias Zaq.Permissions.{ChannelHistoryResource, PermissionRevokerMock, ResourcePermission}
 
   import Mox
   import Zaq.SystemConfigFixtures, only: [ai_credential_fixture: 0]
@@ -334,6 +334,26 @@ defmodule Zaq.Accounts.PersonMergeTest do
              grants,
              &(is_nil(&1.person_id) and &1.team_id == team.id and &1.access_rights == ["read"])
            )
+  end
+
+  test "merging people retains separate manual and provider channel grants" do
+    survivor = legacy(nil, "Survivor")
+    loser = legacy(nil, "Loser")
+    resource = ChannelHistoryResource.for("mattermost", 12, "room-A")
+
+    {:ok, _} = Permissions.grant(resource, %{person_id: survivor.id, access_rights: ["read"]})
+
+    {:ok, _} =
+      Permissions.grant(resource, %{
+        person_id: loser.id,
+        source_key: "provider:mattermost:12:user-9",
+        access_rights: ["view"]
+      })
+
+    assert {:ok, _} = People.merge_persons(survivor, loser)
+
+    assert Enum.sort(Enum.map(Permissions.list(resource), &{&1.source_key, &1.access_rights})) ==
+             [{"manual", ["read"]}, {"provider:mattermost:12:user-9", ["view"]}]
   end
 
   test "grant validation failure prevents all writes to originals and merged channels" do

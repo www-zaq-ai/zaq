@@ -17,6 +17,7 @@ defmodule ZaqWeb.History.ConversationRow do
     ]
 
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
+  alias ZaqWeb.History.ConversationContext
 
   @doc "Default BO row destination, overridden by self-service callers."
   def bo_destination(id), do: "/bo/conversations/#{id}"
@@ -91,6 +92,12 @@ defmodule ZaqWeb.History.ConversationRow do
         <.table_badge status="processing">
           {@conversation.channel_type}
         </.table_badge>
+        <.table_text
+          :for={label <- ConversationContext.labels(@conversation)}
+          label={label}
+          tone={:secondary}
+          class="zaq-text-caption break-all"
+        />
       </.table_cell>
 
       <.table_cell>

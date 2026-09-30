@@ -35,7 +35,8 @@ defmodule Zaq.Agent.StreamEvents do
           trace_artifacts: [map()],
           tool_calls: [map()],
           termination_reason: term(),
-          incoming: Incoming.t()
+          incoming: Incoming.t(),
+          runtime_pid: pid() | nil
         }
 
   @spec consume(Enumerable.t(), Incoming.t(), keyword()) ::
@@ -73,6 +74,7 @@ defmodule Zaq.Agent.StreamEvents do
       status_module: Keyword.get(opts, :status_module, Status),
       request_id: request_id(incoming),
       server_id: Keyword.get(opts, :server_id),
+      runtime_pid: Keyword.get(opts, :runtime_pid),
       agent: Keyword.get(opts, :agent),
       started_at: started_at,
       last_flush_ms: started_at,
@@ -116,6 +118,7 @@ defmodule Zaq.Agent.StreamEvents do
     state
     |> flush_trace_segment(event)
     |> Map.put(:termination_reason, :cancelled)
+    |> Map.put(:error, :cancelled)
     |> register(:cancelled)
   end
 
@@ -445,7 +448,8 @@ defmodule Zaq.Agent.StreamEvents do
       measurements: measurements(state),
       model: model(state),
       agent: sanitize_agent(state.agent),
-      incoming: state.incoming
+      incoming: state.incoming,
+      runtime_pid: state.runtime_pid
     }
   end
 

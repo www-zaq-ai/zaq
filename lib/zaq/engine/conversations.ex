@@ -22,7 +22,7 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Accounts.{Person, PersonChannel, User}
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
-  alias Zaq.Engine.Messages.{Incoming, Measurements}
+  alias Zaq.Engine.Messages.{ConversationIdentity, Incoming, Measurements}
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
 
@@ -242,6 +242,276 @@ defmodule Zaq.Engine.Conversations do
   end
 
   @doc """
+  Resolves the canonical conversation and persists an incoming user message before execution.
+
+  The returned IDs are trusted Engine references. When the provider supplies a message ID,
+  redelivery within the same conversation reuses the previously admitted message.
+  """
+  @spec admit_incoming(Incoming.t()) ::
+          {:ok,
+           %{
+             conversation_id: Ecto.UUID.t(),
+             user_message_id: Ecto.UUID.t(),
+             admitted?: boolean(),
+             finalization_token: String.t() | nil
+           }}
+          | {:error, term()}
+  def admit_incoming(%Incoming{} = msg) do
+    identity = conversation_identity(msg)
+    channel_user_id = identity.conversation_key || identity.participant_id || msg.author_id
+
+    with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, identity),
+         {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
+         {:ok, conv} <- maybe_assign_person(conv, Incoming.person_id(msg)),
+         {:ok, {user_message, admitted?, finalization_token}} <-
+           get_or_insert_admitted_message(conv, msg) do
+      {:ok,
+       %{
+         conversation_id: conv.id,
+         user_message_id: user_message.id,
+         admitted?: admitted?,
+         finalization_token: finalization_token
+       }}
+    end
+  end
+
+  defp get_or_insert_admitted_message(%Conversation{} = conv, %Incoming{} = msg) do
+    case admitted_message(conv.id, msg.message_id) do
+      %Message{} = message ->
+        {:ok, {message, false, nil}}
+
+      nil ->
+        insert_admitted_message(conv, msg)
+    end
+  end
+
+  defp insert_admitted_message(conv, msg) do
+    finalization_token = Ecto.UUID.generate()
+
+    metadata =
+      msg
+      |> incoming_attachment_metadata()
+      |> Map.put("execution_status", "pending")
+      |> Map.put("finalization_token_hash", finalization_token_hash(finalization_token))
+      |> maybe_put_external_message_id(msg.message_id)
+
+    conv
+    |> add_message(%{role: "user", content: msg.content || "", metadata: metadata})
+    |> case do
+      {:ok, message} -> {:ok, {message, true, finalization_token}}
+      error -> error
+    end
+    |> recover_admitted_message_conflict(conv.id, msg.message_id)
+  end
+
+  defp recover_admitted_message_conflict(
+         {:error, %Ecto.Changeset{} = changeset} = error,
+         conversation_id,
+         external_message_id
+       ) do
+    if Keyword.has_key?(changeset.errors, :metadata) do
+      case admitted_message(conversation_id, external_message_id) do
+        %Message{} = message -> {:ok, {message, false, nil}}
+        nil -> error
+      end
+    else
+      error
+    end
+  end
+
+  defp recover_admitted_message_conflict(result, _conversation_id, _external_message_id),
+    do: result
+
+  defp admitted_message(_conversation_id, nil), do: nil
+  defp admitted_message(_conversation_id, ""), do: nil
+
+  defp admitted_message(conversation_id, external_message_id) do
+    external_message_id = to_string(external_message_id)
+
+    Repo.one(
+      from m in Message,
+        where:
+          m.conversation_id == ^conversation_id and m.role == "user" and
+            fragment("?->>'external_message_id' = ?", m.metadata, ^external_message_id),
+        limit: 1
+    )
+  end
+
+  defp maybe_put_external_message_id(metadata, nil), do: metadata
+  defp maybe_put_external_message_id(metadata, ""), do: metadata
+
+  defp maybe_put_external_message_id(metadata, external_message_id),
+    do: Map.put(metadata, "external_message_id", to_string(external_message_id))
+
+  @doc """
+  Finalizes a handled Agent outcome against its previously admitted user message.
+
+  Successful outcomes add one assistant message. Failed outcomes retain their trace and
+  safe diagnostics on the user message without introducing an assistant turn into history.
+  """
+  @spec finalize_incoming(Ecto.UUID.t(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def finalize_incoming(user_message_id, finalization_token, result, opts \\ [])
+
+  def finalize_incoming(user_message_id, finalization_token, result, opts)
+      when is_binary(user_message_id) and is_binary(finalization_token) and is_map(result) and
+             is_list(opts) do
+    with {:ok, artifacts} <- prepare_trace_artifacts(result, opts) do
+      Repo.transaction(fn ->
+        finalize_transaction(user_message_id, finalization_token, result, artifacts, opts)
+      end)
+      |> case do
+        {:ok, %{assistant_message: %Message{} = assistant} = finalized} ->
+          after_message_insert(get_conversation(assistant.conversation_id), assistant)
+          {:ok, Map.delete(finalized, :assistant_message)}
+
+        {:ok, finalized} ->
+          {:ok, finalized}
+
+        {:error, reason} ->
+          {:error, normalize_artifact_error(reason)}
+      end
+    end
+  end
+
+  def finalize_incoming(_user_message_id, _finalization_token, _result, _opts),
+    do: {:error, :invalid_finalization}
+
+  defp finalize_transaction(user_message_id, finalization_token, result, artifacts, opts) do
+    case lock_admitted_message(user_message_id) do
+      nil ->
+        Repo.rollback(:user_message_not_found)
+
+      %Message{} = user_message ->
+        if valid_finalization_token?(user_message, finalization_token) do
+          finalize_locked_message(user_message, result, artifacts, opts)
+        else
+          Repo.rollback(:invalid_finalization_token)
+        end
+    end
+  end
+
+  defp finalization_token_hash(token),
+    do: token |> then(&:crypto.hash(:sha256, &1)) |> Base.encode64()
+
+  defp valid_finalization_token?(user_message, token) do
+    expected_hash = Map.get(user_message.metadata || %{}, "finalization_token_hash")
+    is_binary(expected_hash) and expected_hash == finalization_token_hash(token)
+  end
+
+  defp lock_admitted_message(user_message_id) do
+    Repo.one(
+      from m in Message,
+        where: m.id == ^user_message_id and m.role == "user",
+        lock: "FOR UPDATE"
+    )
+  end
+
+  defp finalize_locked_message(%Message{} = user_message, result, artifacts, opts) do
+    case Map.get(user_message.metadata || %{}, "execution_status") do
+      status when status in ["completed", "failed"] ->
+        finalized_result(user_message)
+
+      "pending" ->
+        if failed_execution?(result) do
+          finalize_failed_message(user_message, result, artifacts, opts)
+        else
+          finalize_successful_message(user_message, result, artifacts, opts)
+        end
+
+      _ ->
+        Repo.rollback(:message_not_admitted)
+    end
+  end
+
+  defp finalize_successful_message(user_message, result, artifacts, opts) do
+    %{body: assistant_body, sources: assistant_sources} = normalize_assistant_response(result)
+
+    with {:ok, user_message} <- update_execution_message(user_message, result, "completed", []),
+         assistant_attrs <-
+           result
+           |> assistant_message_attrs(assistant_body, assistant_sources, artifacts)
+           |> update_in(
+             [:metadata],
+             &Map.put(&1 || %{}, "in_reply_to_message_id", user_message.id)
+           ),
+         {:ok, assistant_message} <-
+           Repo.insert(
+             message_changeset(%Conversation{id: user_message.conversation_id}, assistant_attrs)
+           ),
+         {:ok, _artifacts} <-
+           insert_trace_artifacts(Repo, assistant_message, artifacts, artifact_max_bytes(opts)) do
+      %{
+        conversation_id: user_message.conversation_id,
+        user_message_id: user_message.id,
+        assistant_message_id: assistant_message.id,
+        assistant_message: assistant_message
+      }
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp finalize_failed_message(user_message, result, artifacts, opts) do
+    trace = assistant_trace(result, artifacts)
+
+    with {:ok, user_message} <- update_execution_message(user_message, result, "failed", trace),
+         {:ok, _artifacts} <-
+           insert_trace_artifacts(Repo, user_message, artifacts, artifact_max_bytes(opts)) do
+      %{
+        conversation_id: user_message.conversation_id,
+        user_message_id: user_message.id,
+        assistant_message_id: nil
+      }
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp update_execution_message(user_message, result, status, trace) do
+    metadata =
+      (user_message.metadata || %{})
+      |> Map.put("execution_status", status)
+      |> Map.put("execution", execution_metadata(result))
+
+    user_message
+    |> Message.changeset(%{metadata: metadata, trace: trace})
+    |> Repo.update()
+  end
+
+  defp execution_metadata(result) do
+    ~w(error error_type error_recovery error_retryable reason termination_reason model provider agent)a
+    |> Enum.reduce(%{}, fn key, metadata ->
+      case map_get(result, Atom.to_string(key)) do
+        nil -> metadata
+        value -> Map.put(metadata, Atom.to_string(key), value)
+      end
+    end)
+    |> StreamEvents.json_safe()
+  end
+
+  defp failed_execution?(result) do
+    map_get(result, "error") == true or map_get(result, "suppressed") == true
+  end
+
+  defp finalized_result(user_message) do
+    assistant =
+      Repo.one(
+        from m in Message,
+          where:
+            m.conversation_id == ^user_message.conversation_id and m.role == "assistant" and
+              fragment("?->>'in_reply_to_message_id' = ?", m.metadata, ^user_message.id),
+          limit: 1
+      )
+
+    %{
+      conversation_id: user_message.conversation_id,
+      user_message_id: user_message.id,
+      assistant_message_id: assistant && assistant.id
+    }
+  end
+
+  @doc """
   Persists a user message and its pipeline result into a conversation.
   Gets or creates a conversation scoped to the sender and provider (channel type).
   """
@@ -251,11 +521,11 @@ defmodule Zaq.Engine.Conversations do
   @doc "Persists an incoming exchange with optional artifact/config overrides."
   def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result, opts)
       when is_list(opts) do
-    {channel_type, conversation_key} = conversation_identity(msg)
-    channel_user_id = conversation_key || msg.author_id
+    identity = conversation_identity(msg)
+    channel_user_id = identity.conversation_key || identity.participant_id || msg.author_id
     %{body: assistant_body, sources: assistant_sources} = normalize_assistant_response(result)
 
-    with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, channel_type),
+    with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, identity),
          {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
          {:ok, conv} <-
            maybe_assign_person(conv, Incoming.person_id(msg) || Map.get(result, :person_id)),
@@ -407,12 +677,14 @@ defmodule Zaq.Engine.Conversations do
   or notifications without fabricating a user turn.
   """
   def persist_message_history(%Incoming{} = msg, attrs) when is_map(attrs) do
-    {channel_type, conversation_key} = conversation_identity(msg)
-    channel_user_id = conversation_key || msg.author_id || msg.channel_id
+    identity = conversation_identity(msg)
+
+    channel_user_id =
+      identity.conversation_key || identity.participant_id || msg.author_id || msg.channel_id
 
     message_attrs = message_history_attrs(attrs, msg)
 
-    with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, channel_type),
+    with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, identity),
          {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
          {:ok, conv} <-
            maybe_assign_person(conv, Incoming.person_id(msg) || map_get(attrs, "person_id")),
@@ -432,18 +704,41 @@ defmodule Zaq.Engine.Conversations do
     case msg.metadata do
       %{"conversation" => %{"channel_type" => channel_type} = identity}
       when is_binary(channel_type) and channel_type != "" ->
-        {channel_type, identity_key(identity)}
+        conversation_identity_from_stamp(channel_type, identity)
 
       _ ->
-        {default_channel_type(msg.provider), nil}
+        unscoped_conversation_identity(default_channel_type(msg.provider))
     end
   end
 
-  defp identity_key(identity) do
-    case Map.get(identity, "key") do
-      key when is_binary(key) and key != "" -> key
-      _ -> nil
-    end
+  defp conversation_identity_from_stamp(channel_type, identity) do
+    conversation_key = ConversationIdentity.identifier(identity, "key")
+    external_channel_id = ConversationIdentity.identifier(identity, "channel_id")
+    participant_id = ConversationIdentity.identifier(identity, "participant_id")
+
+    %{
+      channel_type: channel_type,
+      conversation_key: conversation_key,
+      channel_config_id: ConversationIdentity.channel_config_id(identity),
+      external_channel_id: external_channel_id,
+      external_thread_id: ConversationIdentity.identifier(identity, "thread_id"),
+      participant_id: participant_id,
+      scoped?:
+        is_nil(conversation_key) and channel_type not in ["api", "bo", "email:imap"] and
+          not is_nil(external_channel_id) and not is_nil(participant_id)
+    }
+  end
+
+  defp unscoped_conversation_identity(channel_type) do
+    %{
+      channel_type: channel_type,
+      conversation_key: nil,
+      channel_config_id: nil,
+      external_channel_id: nil,
+      external_thread_id: nil,
+      participant_id: nil,
+      scoped?: false
+    }
   end
 
   defp default_channel_type(nil), do: "api"
@@ -455,16 +750,93 @@ defmodule Zaq.Engine.Conversations do
   defp default_channel_type(provider) when is_binary(provider), do: provider
   defp default_channel_type(_provider), do: "api"
 
-  defp conversation_for_persistence(msg, channel_user_id, channel_type) do
+  defp conversation_for_persistence(msg, channel_user_id, identity) do
     case metadata_conversation_id(msg.metadata) do
       id when is_binary(id) and id != "" ->
         case get_conversation(id) do
-          %Conversation{} = conv -> {:ok, conv}
+          %Conversation{} = conv -> validate_conversation_scope(conv, channel_user_id, identity)
           nil -> {:error, :conversation_not_found}
         end
 
       _ ->
-        get_or_create_conversation_for_channel(channel_user_id, channel_type, nil)
+        get_or_create_conversation_for_identity(channel_user_id, identity)
+    end
+  end
+
+  defp validate_conversation_scope(
+         %Conversation{} = conversation,
+         channel_user_id,
+         %{scoped?: true} = identity
+       ) do
+    if conversation.channel_type == identity.channel_type and
+         conversation.channel_user_id == channel_user_id and
+         conversation.channel_config_id == identity.channel_config_id and
+         conversation.external_channel_id == identity.external_channel_id and
+         conversation.external_thread_id == identity.external_thread_id do
+      {:ok, conversation}
+    else
+      {:error, :conversation_scope_mismatch}
+    end
+  end
+
+  defp validate_conversation_scope(%Conversation{} = conversation, _channel_user_id, _identity),
+    do: {:ok, conversation}
+
+  defp get_or_create_conversation_for_identity(channel_user_id, %{scoped?: true} = identity) do
+    query = communication_scope_query(channel_user_id, identity)
+
+    case Repo.one(query) do
+      %Conversation{} = conversation ->
+        {:ok, conversation}
+
+      nil ->
+        attrs = %{
+          channel_user_id: channel_user_id,
+          channel_type: identity.channel_type,
+          channel_config_id: identity.channel_config_id,
+          external_channel_id: identity.external_channel_id,
+          external_thread_id: identity.external_thread_id
+        }
+
+        case create_conversation(attrs) do
+          {:ok, conversation} -> {:ok, conversation}
+          {:error, %Ecto.Changeset{} = changeset} -> recover_scope_conflict(changeset, query)
+        end
+    end
+  end
+
+  defp get_or_create_conversation_for_identity(channel_user_id, identity) do
+    get_or_create_conversation_for_channel(channel_user_id, identity.channel_type, nil)
+  end
+
+  defp communication_scope_query(channel_user_id, identity) do
+    query =
+      from c in Conversation,
+        where:
+          c.channel_user_id == ^channel_user_id and
+            c.channel_type == ^identity.channel_type and
+            c.external_channel_id == ^identity.external_channel_id and
+            c.status == "active",
+        limit: 1
+
+    query
+    |> scope_nullable_field(:channel_config_id, identity.channel_config_id)
+    |> scope_nullable_field(:external_thread_id, identity.external_thread_id)
+  end
+
+  defp scope_nullable_field(query, field, nil), do: where(query, [c], is_nil(field(c, ^field)))
+
+  defp scope_nullable_field(query, field, value),
+    do: where(query, [c], field(c, ^field) == ^value)
+
+  defp recover_scope_conflict(changeset, query) do
+    if Keyword.has_key?(changeset.errors, :channel_user_id) do
+      case Repo.one(query) do
+        %Conversation{} = conversation -> {:ok, conversation}
+        nil -> {:error, changeset}
+      end
+    else
+      {:error, changeset}
     end
   end
 
