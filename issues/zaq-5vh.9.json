@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-30T11:43:21Z",
+  "description": "Planning only; detailed executable plan follows in issue description.",
+  "id": "zaq-5vh.9",
+  "labels": [],
+  "parent": "zaq-5vh",
+  "priority": 2,
+  "status": "open",
+  "title": "Plan remaining SystemConfigLive line coverage (31 lines, test-only)",
+  "type": "task",
+  "updated_at": "2026-09-30T11:43:21Z"
+}
