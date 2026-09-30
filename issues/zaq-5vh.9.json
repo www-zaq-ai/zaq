@@ -11,11 +11,15 @@
     {
       "text": "Coordinator review complete: exclusive ownership test/zaq_web/live/bo/system/system_config_live_test.exs. zaq-5vh.3 predates this task (last update Sept 5); its existing tests are baseline, not another current implementation assignment. Git clean before workers. No overlap with current other two plans; independent root. Preserve documented contract exceptions and report runtime blockers without production changes. Supplied-line mode: no full coverage report; coordinator serializes Mix checks and final edited-tests-only coverage.",
       "timestamp": "2026-09-30T11:50:25Z"
+    },
+    {
+      "text": "Validation update (2026-09-30): final allowed test file passes serial seeds 1 and 2 (each 1 property, 225 tests, 0 failures; exit 0). Initial run exposed test-stub allowlist gaps and fixture-contract issues; fixed only in system_config_live_test.exs, including signed Record.Provenance for create_document. Runtime ProviderModels.models(\"openai_codex\") under normal loaded catalog returned 90 models; entries include tool-capable true (e.g. gpt-5.2-pro, gpt-5, gpt-4o), but controlled with_catalog setup unregisters ReqLLM openai_codex and ProviderModels.models then returned [], so model-options coverage cannot be demonstrated without violating the do-not-mock dependency-internals constraint. No planned test left failing; please decide whether catalog/dependency work is warranted. Scenario 11 is reachable through public validation: metadata=\"not-json\" normalizes to a non-map string; apply_auth_mode enters its non-map else branch, then test confirms invalid staged OAuth remains unpersisted. No mix q/format/coverage/full suite/precommit run.",
+      "timestamp": "2026-09-30T13:32:09Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5vh.9] Plan remaining SystemConfigLive coverage (31 lines; tests only)",
   "type": "task",
-  "updated_at": "2026-09-30T11:54:26Z"
+  "updated_at": "2026-09-30T13:32:09Z"
 }
