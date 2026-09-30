@@ -4755,7 +4755,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert opts[:bridge_config][:credentials][:token] == "plain-token"
 
       assert opts[:target_url] ==
-               "https://zaq.example/base/channels/webhook/conversation/mattermost"
+               "https://zaq.example/base/channels/webhook/conversation/mattermost/#{config.id}"
     end
 
     test "delete_ingress_subscription/2 uses explicit subscription_id" do
@@ -4839,7 +4839,9 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert {:ok, []} = JidoChatBridge.list_ingress_subscriptions(config, %{})
       assert_received {:list_ingress_subscriptions, _bridge_id, opts}
-      assert opts[:target_url] == "https://zaq.example/channels/webhook/conversation/mattermost"
+
+      assert opts[:target_url] ==
+               "https://zaq.example/channels/webhook/conversation/mattermost/#{config.id}"
     end
 
     test "capability_snapshot resolves public capabilities from adapter matrix" do

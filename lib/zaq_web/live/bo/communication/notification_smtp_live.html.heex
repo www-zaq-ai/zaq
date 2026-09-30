@@ -39,6 +39,7 @@
     </div>
     <div class="flex items-center justify-end">
       <button
+        :if={length(@configs) <= 1 or @selected_config_id}
         type="button"
         phx-click="activate"
         class={[
@@ -55,7 +56,38 @@
     </div>
   </div>
 
-  <div class="max-w-2xl space-y-8">
+  <div :if={@configs != []} class="max-w-2xl space-y-3 mb-6">
+    <ZaqWeb.Components.DesignSystem.ChannelConnectorCard.channel_connector_card
+      :for={config <- @configs}
+      id={"smtp-connector-#{config.id}"}
+      name={config.name}
+      provider="SMTP"
+      url={config.url}
+      enabled={config.enabled}
+      connector_id={config.id}
+      select_event="select_connector"
+      selected={@selected_config_id == config.id}
+    >
+      <:actions>
+        <button
+          id={"smtp-default-#{config.id}"}
+          phx-click="set_default_connector"
+          phx-value-id={config.id}
+          aria-pressed={to_string(config.notification_default)}
+          disabled={!config.enabled}
+          class="zaq-btn zaq-btn-tertiary"
+        >
+          {if config.notification_default, do: "Default sender", else: "Set as default"}
+        </button>
+      </:actions>
+    </ZaqWeb.Components.DesignSystem.ChannelConnectorCard.channel_connector_card>
+  </div>
+
+  <p :if={length(@configs) > 1 and is_nil(@selected_config_id)} class="max-w-2xl mb-6">
+    Select a connector above to edit its SMTP settings or send a test message.
+  </p>
+
+  <div :if={length(@configs) <= 1 or @selected_config_id} class="max-w-2xl space-y-8">
     <!-- SMTP Configuration Form -->
     <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
       <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa] flex items-center gap-3">

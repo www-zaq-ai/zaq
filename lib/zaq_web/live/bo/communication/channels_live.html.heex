@@ -80,72 +80,39 @@
 
     <!-- Config Cards -->
     <div :if={@configs != []} class="space-y-3">
-      <div
+      <ChannelConnectorCard.channel_connector_card
         :for={config <- @configs}
         id={"config-card-#{config.id}"}
-        class="bg-white rounded-xl border border-black/10 p-5 flex items-center justify-between"
+        name={config.name}
+        provider={@provider_label}
+        url={config.url}
+        enabled={config.enabled}
       >
-        <div class="flex items-center gap-4">
-          <div class={[
-            "w-10 h-10 rounded-xl grid place-items-center",
-            if(config.enabled, do: "bg-[#0058CC]/10", else: "bg-black/5")
-          ]}>
-            <svg
-              class={["w-5 h-5", if(config.enabled, do: "text-[#0058CC]", else: "text-black/30")]}
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.8"
-              viewBox="0 0 24 24"
-            >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-            </svg>
+        <:status>
+          <button
+            id={"ingress-status-dot-#{config.id}"}
+            type="button"
+            phx-click="open_ingress_status"
+            phx-value-id={config.id}
+            class="inline-flex items-center justify-center"
+            title="Ingress status"
+          >
+            <span class={[
+              "status",
+              if(Map.get(@ingress_status_loading || %{}, config.id),
+                do: "status-neutral animate-pulse",
+                else: IngressStatusUI.color(Map.get(@ingress_statuses || %{}, config.id))
+              )
+            ]} />
+          </button>
+        </:status>
+        <:detail :if={@kind == :data_source}>
+          <div class="mt-2 font-mono text-[0.65rem] text-black/35">
+            <% grant = active_grant_for_config(config, @grants_by_config) %>
+            <span>{if grant, do: "Grant active (#{grant.auth_kind})", else: "No active grant"}</span>
           </div>
-          <div>
-            <div class="flex items-center gap-2 mb-1">
-              <p class="font-mono text-sm font-bold text-black">{config.name}</p>
-              <button
-                id={"ingress-status-dot-#{config.id}"}
-                type="button"
-                phx-click="open_ingress_status"
-                phx-value-id={config.id}
-                class="inline-flex items-center justify-center"
-                title="Ingress status"
-              >
-                <span class={[
-                  "status",
-                  if(Map.get(@ingress_status_loading || %{}, config.id),
-                    do: "status-neutral animate-pulse",
-                    else: IngressStatusUI.color(Map.get(@ingress_statuses || %{}, config.id))
-                  )
-                ]} />
-              </button>
-              <span class={[
-                "font-mono text-[0.6rem] px-2 py-0.5 rounded-full uppercase tracking-wider",
-                if(config.enabled,
-                  do: "bg-emerald-100 text-emerald-700",
-                  else: "bg-black/5 text-black/30"
-                )
-              ]}>
-                {if config.enabled, do: "Active", else: "Disabled"}
-              </span>
-            </div>
-            <div class="flex items-center gap-3">
-              <p class="font-mono text-[0.7rem] text-black/40">Mattermost</p>
-              <span class="text-black/10">·</span>
-              <p class="font-mono text-[0.7rem] text-black/30 truncate max-w-[280px]">
-                {config.url}
-              </p>
-            </div>
-            <div :if={@kind == :data_source} class="mt-2 font-mono text-[0.65rem] text-black/35">
-              <% grant = active_grant_for_config(config, @grants_by_config) %>
-              <span>
-                {if grant, do: "Grant active (#{grant.auth_kind})", else: "No active grant"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex items-center gap-2">
+        </:detail>
+        <:actions>
           <button
             id={"toggle-config-#{config.id}"}
             phx-click="toggle_enabled"
@@ -207,8 +174,8 @@
               <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
           </button>
-        </div>
-      </div>
+        </:actions>
+      </ChannelConnectorCard.channel_connector_card>
     </div>
   </div>
 
@@ -224,12 +191,40 @@
       to ask questions. ZAQ will only respond to messages that mention the bot in the selected channel.
     </p>
 
-    <div class="bg-white rounded-xl border border-black/10 p-4 mb-4">
+    <form
+      :if={length(@configs) > 1}
+      id="retrieval-config-form"
+      phx-change="select_retrieval_config"
+    >
+      <label
+        for="retrieval-config-select"
+        class="font-mono text-[0.68rem] font-semibold text-black/60 uppercase tracking-wider block mb-2"
+      >
+        Connector
+      </label>
+      <select
+        id="retrieval-config-select"
+        name="config_id"
+        class="w-full font-mono text-[0.8rem] text-black border border-black/10 rounded-lg h-10 px-3 bg-[#fafafa] focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20"
+      >
+        <option value="" selected={is_nil(@selected_config_id)}>Select a connector</option>
+        <option
+          :for={config <- @configs}
+          value={config.id}
+          selected={@selected_config_id == config.id}
+          disabled={!config.enabled}
+        >
+          {config.name} (#{config.id})
+        </option>
+      </select>
+    </form>
+
+    <div :if={@selected_config_id} class="bg-white rounded-xl border border-black/10 p-4 mb-4">
       <label class="font-mono text-[0.68rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
         Provider Default Agent
       </label>
       <form id="provider-default-agent-form" phx-change="set_provider_default_agent">
-        <input type="hidden" name="config_id" value={List.first(@configs).id} />
+        <input type="hidden" name="config_id" value={@selected_config_id} />
         <select
           id="provider-default-agent-select"
           name="configured_agent_id"

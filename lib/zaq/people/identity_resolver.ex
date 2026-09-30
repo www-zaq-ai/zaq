@@ -12,9 +12,12 @@ defmodule Zaq.People.IdentityResolver do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.NodeRouter
   alias Zaq.People.Resolver
+  alias Zaq.Repo
 
   @type person_payload :: %{id: integer(), full_name: String.t() | nil, team_ids: [integer()]}
 
@@ -27,6 +30,32 @@ defmodule Zaq.People.IdentityResolver do
   def resolve(%Incoming{} = incoming, opts) do
     platform = incoming.provider |> to_string() |> canonical_platform()
 
+    with :ok <- validate_connector(incoming.routing_context, platform) do
+      resolve_author(incoming, platform, opts)
+    end
+  end
+
+  defp validate_connector(%RoutingContext{channel_config_id: nil}, _platform), do: :ok
+
+  defp validate_connector(%RoutingContext{channel_config_id: id}, platform)
+       when is_integer(id) and id > 0 do
+    case Repo.get(ChannelConfig, id) do
+      %ChannelConfig{provider: "email:imap", kind: "retrieval", archived_at: nil}
+      when platform == "email" ->
+        :ok
+
+      %ChannelConfig{provider: ^platform, kind: "retrieval", archived_at: nil} ->
+        :ok
+
+      _ ->
+        {:error, :connector_mismatch}
+    end
+  end
+
+  defp validate_connector(_, _platform), do: {:error, :connector_mismatch}
+
+  defp resolve_author(incoming, platform, opts) do
+    config_id = incoming.routing_context.channel_config_id
     raw_dm_channel_id = if incoming.is_dm, do: incoming.channel_id, else: nil
 
     canonical =
@@ -39,16 +68,29 @@ defmodule Zaq.People.IdentityResolver do
 
     channel_id = canonical["channel_id"] || ""
 
-    case People.match_by_channel(platform, channel_id) do
+    case match_author(platform, channel_id, config_id) do
       {:ok, %{incomplete: false} = person} ->
-        channel = find_channel(person, platform, channel_id)
+        channel = find_channel(person, platform, channel_id, config_id)
         touch_channel(channel, canonical["dm_channel_id"])
         maybe_backfill_dm_channel(channel, platform, incoming, opts)
         {:ok, person}
 
       _ ->
-        enriched = maybe_enrich(platform, incoming.author_id, canonical, opts)
-        slow_path(platform, enriched, channel_id, incoming, opts)
+        enriched = maybe_enrich(platform, incoming.author_id, canonical, config_id, opts)
+        slow_path(platform, enriched, channel_id, config_id, incoming, opts)
+    end
+  end
+
+  defp match_author(platform, channel_id, nil), do: People.match_by_channel(platform, channel_id)
+
+  defp match_author(platform, channel_id, config_id) do
+    case People.match_by_channel(platform, channel_id, config_id) do
+      {:error, :not_found} when platform != "email" ->
+        People.link_legacy_channel_to_connector(platform, channel_id, config_id)
+        People.match_by_channel(platform, channel_id, config_id)
+
+      match ->
+        match
     end
   end
 
@@ -61,10 +103,14 @@ defmodule Zaq.People.IdentityResolver do
     }
   end
 
-  defp slow_path(platform, enriched, fallback_channel_id, incoming, opts) do
-    case People.find_or_create_from_channel(platform, enriched) do
+  defp slow_path(platform, enriched, fallback_channel_id, config_id, incoming, opts) do
+    attrs = if config_id, do: Map.put(enriched, "channel_config_id", config_id), else: enriched
+
+    case People.find_or_create_from_channel(platform, attrs) do
       {:ok, person} ->
-        channel = find_channel(person, platform, enriched["channel_id"] || fallback_channel_id)
+        channel =
+          find_channel(person, platform, enriched["channel_id"] || fallback_channel_id, config_id)
+
         if channel, do: People.record_interaction(channel)
         maybe_backfill_dm_channel(channel, platform, incoming, opts)
         {:ok, person}
@@ -74,7 +120,7 @@ defmodule Zaq.People.IdentityResolver do
     end
   end
 
-  defp maybe_enrich(platform, author_id, canonical, opts) do
+  defp maybe_enrich(platform, author_id, canonical, config_id, opts) do
     channels_mod =
       Keyword.get(
         opts,
@@ -85,7 +131,9 @@ defmodule Zaq.People.IdentityResolver do
     result =
       if channels_mod == Zaq.Channels.Api do
         event =
-          Zaq.Event.new(%{provider: platform, author_id: author_id}, :channels,
+          Zaq.Event.new(
+            %{provider: platform, author_id: author_id, channel_config_id: config_id},
+            :channels,
             opts: [action: :fetch_profile]
           )
 
@@ -136,7 +184,13 @@ defmodule Zaq.People.IdentityResolver do
     result =
       if channels_mod == Zaq.Channels.Api do
         event =
-          Zaq.Event.new(%{provider: platform, author_id: incoming.author_id}, :channels,
+          Zaq.Event.new(
+            %{
+              provider: platform,
+              author_id: incoming.author_id,
+              channel_config_id: incoming.routing_context.channel_config_id
+            },
+            :channels,
             opts: [action: :open_dm_channel]
           )
 
@@ -162,16 +216,17 @@ defmodule Zaq.People.IdentityResolver do
     end
   end
 
-  defp find_channel(person, platform, channel_id)
+  defp find_channel(person, platform, channel_id, config_id)
        when is_binary(channel_id) and channel_id != "" do
     channel_id = PersonChannel.normalize_identifier(platform, channel_id)
 
     Enum.find(person.channels || [], fn c ->
-      c.platform == platform and c.channel_identifier == channel_id
+      c.platform == platform and c.channel_identifier == channel_id and
+        c.channel_config_id == config_id
     end)
   end
 
-  defp find_channel(_person, _platform, _channel_id), do: nil
+  defp find_channel(_person, _platform, _channel_id, _config_id), do: nil
 
   defp canonical_platform("email:imap"), do: "email"
   defp canonical_platform(platform), do: platform

@@ -17,12 +17,37 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.HtmlUtils
 
-  @smtp_provider "email:smtp"
   alias Zaq.Channels.SmtpHelpers
   alias Zaq.Utils.ParseUtils
 
   def send_notification(identifier, payload, metadata) do
-    settings = smtp_settings()
+    case ChannelConfig.resolve_notification_smtp() do
+      {:error, :ambiguous_connector} ->
+        {:error, :ambiguous_connector}
+
+      {:ok, %ChannelConfig{settings: settings}} ->
+        deliver_notification(identifier, payload, metadata, settings || %{})
+
+      {:error, :not_found} ->
+        deliver_notification(identifier, payload, metadata, %{})
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc "Delivers through the exact enabled SMTP connector selected for an IMAP inbox."
+  def send_notification(identifier, payload, metadata, config_id) do
+    case ChannelConfig.resolve_by_provider("email:smtp", config_id) do
+      {:ok, %ChannelConfig{settings: settings}} ->
+        deliver_notification(identifier, payload, metadata, settings || %{})
+
+      _ ->
+        {:error, :connector_mismatch}
+    end
+  end
+
+  defp deliver_notification(identifier, payload, metadata, settings) do
     {from_name, from_email} = email_sender(payload, metadata, settings)
     delivery_opts = email_delivery_opts(settings)
 
@@ -131,14 +156,6 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
     map_get(metadata, "from_name") ||
       map_get(payload, "from_name") ||
       from_value_name(from_value)
-  end
-
-  defp smtp_settings do
-    case ChannelConfig.get_by_provider(@smtp_provider) do
-      nil -> %{}
-      %ChannelConfig{settings: settings} when is_map(settings) -> settings
-      %ChannelConfig{} -> %{}
-    end
   end
 
   defp email_delivery_opts(settings), do: build_delivery_opts_from_settings(settings)

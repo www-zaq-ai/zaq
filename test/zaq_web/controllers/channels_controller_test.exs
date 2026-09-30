@@ -72,6 +72,22 @@ defmodule ZaqWeb.ChannelsControllerTest do
     assert payload["payload"]["event"] == "file.changed"
   end
 
+  test "connector-scoped webhook forwards a parsed config ID, not a payload claim", %{conn: conn} do
+    Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.WebhookRouter)
+
+    conn =
+      post(conn, "/channels/webhook/conversation/mattermost/42", %{
+        "event" => "posted",
+        "channel_config_id" => 99
+      })
+
+    assert response(conn, 202) == "verified"
+
+    assert_received {:webhook_event,
+                     %{type: "conversation", provider: "mattermost", config_id: 42},
+                     :webhook_delivered}
+  end
+
   test "webhook conversation passes through adapter webhook response", %{conn: conn} do
     Application.put_env(:zaq, :channels_controller_node_router_module, __MODULE__.WebhookRouter)
 

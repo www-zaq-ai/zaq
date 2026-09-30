@@ -22,8 +22,11 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
   end
 
   defmodule OkCommunicationBridge do
+    alias Zaq.Channels.Bridge
+
     def bridge_for(_provider), do: __MODULE__
     def fetch_connection_details(_provider), do: %{}
+    def fetch_channel_config(provider), do: Bridge.fetch_channel_config(provider)
 
     def send_reply(%Outgoing{} = outgoing, _connection_details) do
       send(self(), {:delivered, outgoing.provider, outgoing.channel_id})

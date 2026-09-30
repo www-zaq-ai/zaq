@@ -11,6 +11,7 @@
   "/storybook/chat/transcript",
   "/storybook/chat/user_bubble",
   "/storybook/components/cards/card_shell",
+  "/storybook/components/cards/channel_connector_card",
   "/storybook/components/cards/diagnostic_card",
   "/storybook/components/cards/metric_card",
   "/storybook/components/charts/charts",

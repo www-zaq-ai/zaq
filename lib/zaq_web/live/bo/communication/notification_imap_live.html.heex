@@ -47,6 +47,7 @@
 
       <div class="flex items-center justify-end">
         <button
+          :if={length(@configs) <= 1 or @selected_config_id}
           type="button"
           phx-click="activate"
           class={[
@@ -63,7 +64,28 @@
       </div>
     </div>
 
-    <div class="max-w-2xl bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
+    <div :if={@configs != []} class="max-w-2xl space-y-3 mb-6">
+      <ZaqWeb.Components.DesignSystem.ChannelConnectorCard.channel_connector_card
+        :for={config <- @configs}
+        id={"imap-connector-#{config.id}"}
+        name={config.name}
+        provider="IMAP"
+        url={config.url}
+        enabled={config.enabled}
+        connector_id={config.id}
+        select_event="select_connector"
+        selected={@selected_config_id == config.id}
+      />
+    </div>
+
+    <p :if={length(@configs) > 1 and is_nil(@selected_config_id)} class="max-w-2xl mb-6">
+      Select a connector above to manage its IMAP settings.
+    </p>
+
+    <div
+      :if={length(@configs) <= 1 or @selected_config_id}
+      class="max-w-2xl bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden"
+    >
       <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
         <h2 class="font-mono text-[0.95rem] font-bold text-black">IMAP Settings</h2>
         <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
@@ -79,6 +101,31 @@
           phx-change="validate"
           class="space-y-5"
         >
+          <div>
+            <label
+              for="imap-reply-smtp-select"
+              class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2"
+            >
+              SMTP account for replies
+            </label>
+            <select
+              id="imap-reply-smtp-select"
+              name="imap_config[smtp_config_id]"
+              class="w-full rounded-lg border border-black/10 p-2"
+            >
+              <option value="" selected={is_nil(@smtp_reply_config_id)}>
+                Select an SMTP connector
+              </option>
+              <option
+                :for={smtp <- @smtp_configs}
+                value={smtp.id}
+                selected={to_string(@smtp_reply_config_id) == to_string(smtp.id)}
+                disabled={!smtp.enabled}
+              >
+                {smtp.name} (#{smtp.id})
+              </option>
+            </select>
+          </div>
           <div class="grid grid-cols-3 gap-4">
             <div class="col-span-3 sm:col-span-1">
               <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">

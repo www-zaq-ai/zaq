@@ -226,7 +226,8 @@ defmodule Zaq.Accounts.PersonMerger do
     channels
     |> Enum.sort_by(&{&1.person_id != survivor_id, &1.person_id, &1.id})
     |> Enum.group_by(
-      &{&1.platform, PersonChannel.normalize_identifier(&1.platform, &1.channel_identifier)}
+      &{&1.platform, &1.channel_config_id,
+       PersonChannel.normalize_identifier(&1.platform, &1.channel_identifier)}
     )
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.map(fn {_key, [first | rest] = group} ->

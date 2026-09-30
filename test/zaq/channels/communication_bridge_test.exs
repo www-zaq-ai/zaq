@@ -4,6 +4,7 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
   alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig, CommunicationBridge}
   alias Zaq.Channels.EventNames
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Repo
 
   defmodule StubBridge do
@@ -233,6 +234,7 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       defdelegate fetch_connection_details(provider), to: Zaq.Channels.BridgeBase
       defdelegate fetch_connection_details_for_config(config), to: Zaq.Channels.BridgeBase
       defdelegate fetch_channel_config_by_id(id), to: Zaq.Channels.BridgeBase
+      defdelegate fetch_channel_config(provider, config_id), to: Zaq.Channels.BridgeBase
       defdelegate fetch_any_channel_config(provider), to: Zaq.Channels.BridgeBase
       defdelegate dispatch_provider_runtime_sync(bridge, config), to: Zaq.Channels.BridgeBase
       defdelegate capability_snapshot(provider), to: Zaq.Channels.BridgeBase
@@ -684,6 +686,25 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
     end
   end
 
+  test "scoped webhook uses the selected connector, not the first matching provider" do
+    first = insert_config(:mattermost)
+    second = insert_config(:mattermost)
+    payload = %{event: "message"}
+
+    assert {:ok, %{processed: true}} =
+             CommunicationBridge.handle_webhook(:mattermost, payload, second.id)
+
+    assert_received {:handle_webhook, config, ^payload}
+    assert config.id == second.id
+    refute config.id == first.id
+
+    assert {:error, :connector_mismatch} =
+             CommunicationBridge.handle_webhook(:email, payload, second.id)
+
+    assert {:error, :ambiguous_connector} =
+             CommunicationBridge.handle_webhook(:mattermost, payload)
+  end
+
   describe "ingress subscription delegates" do
     setup do
       original_channels = Application.get_env(:zaq, :channels)
@@ -1010,6 +1031,27 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       assert event.name == :incoming_message_routing_requested
       assert event.opts[:action] == :route_incoming_message
       refute_received {:node_router_fire, _}
+    end
+
+    test "does not forward a connector ID supplied only by incoming metadata" do
+      msg =
+        Incoming.new(%{
+          content: "hi",
+          provider: :mattermost,
+          channel_id: "c1",
+          metadata: %{"channel_config_id" => 123}
+        })
+
+      assert %Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 %{id: "u1", provider: :mattermost},
+                 node_router: StubNodeRouter
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.request.routing_context.channel_config_id == nil
     end
 
     test "returns outgoing from an ok tuple response" do

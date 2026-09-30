@@ -1,7 +1,7 @@
 defmodule Zaq.Channels.ChannelConfig do
   @moduledoc """
   Schema for channel connector configurations stored in the database.
-  Single-tenant: one config per provider (mattermost, slack, teams, etc.).
+  Single-tenant: multiple named connector configs may share a provider.
 
   ## Kinds
   - `:data_source` — document source adapters (Google Drive, SharePoint, ...)
@@ -33,6 +33,8 @@ defmodule Zaq.Channels.ChannelConfig do
     field :url, :string
     field :token, Zaq.Types.EncryptedString
     field :enabled, :boolean, default: true
+    field :archived_at, :utc_datetime
+    field :notification_default, :boolean, default: false
     field :settings, :map, default: %{}
 
     has_many :retrieval_channels, Zaq.Channels.RetrievalChannel,
@@ -52,8 +54,25 @@ defmodule Zaq.Channels.ChannelConfig do
     |> maybe_validate_imap_settings()
     |> maybe_validate_disk_settings()
     |> maybe_validate_imap_smtp_dependency_on_persist()
-    |> unique_constraint(:provider)
     |> maybe_encrypt_token()
+    |> reject_archived_reactivation()
+  end
+
+  defp reject_archived_reactivation(changeset) do
+    if get_field(changeset, :archived_at) && get_field(changeset, :enabled) do
+      add_error(changeset, :enabled, "archived connectors cannot be reactivated")
+    else
+      changeset
+    end
+  end
+
+  @doc "Archives a connector without deleting its scoped identities or history references."
+  def archive(%__MODULE__{archived_at: %DateTime{}} = config), do: {:ok, config}
+
+  def archive(%__MODULE__{} = config) do
+    config
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Zaq.Repo.update()
   end
 
   def to_runtime_config(nil), do: nil
@@ -162,7 +181,10 @@ defmodule Zaq.Channels.ChannelConfig do
   end
 
   defp smtp_enabled?(repo) do
-    match?(%__MODULE__{}, repo.get_by(__MODULE__, provider: @smtp_provider, enabled: true))
+    repo.exists?(
+      from c in __MODULE__,
+        where: c.provider == @smtp_provider and c.enabled and is_nil(c.archived_at)
+    )
   end
 
   defp maybe_encrypt_token(changeset) do
@@ -247,7 +269,7 @@ defmodule Zaq.Channels.ChannelConfig do
     __MODULE__
     |> where(
       [c],
-      c.kind == ^kind_str and c.enabled == true and
+      c.kind == ^kind_str and c.enabled == true and is_nil(c.archived_at) and
         (c.provider in ^providers or fragment("split_part(?, ':', 1)", c.provider) in ^providers)
     )
     |> Zaq.Repo.all()
@@ -256,7 +278,7 @@ defmodule Zaq.Channels.ChannelConfig do
   @doc "Returns all enabled data source configs."
   def list_enabled_data_source_configs do
     __MODULE__
-    |> where([c], c.kind == "data_source" and c.enabled == true)
+    |> where([c], c.kind == "data_source" and c.enabled == true and is_nil(c.archived_at))
     |> order_by([c], asc: c.provider, asc: c.name)
     |> Zaq.Repo.all()
   end
@@ -292,8 +314,88 @@ defmodule Zaq.Channels.ChannelConfig do
   defp kind_to_config_kind(kind), do: Atom.to_string(kind)
 
   def get_by_provider(provider) do
-    Zaq.Repo.get_by(__MODULE__, provider: provider, enabled: true)
+    case resolve_by_provider(provider) do
+      {:ok, config} -> config
+      {:error, _} -> nil
+    end
   end
+
+  @doc "Designates a live SMTP connector for unscoped notification delivery."
+  def set_default_smtp_connector(id) when is_integer(id) and id > 0 do
+    Zaq.Repo.transaction(fn ->
+      Zaq.Repo.query!("SELECT pg_advisory_xact_lock($1)", [7_681_901])
+
+      case get(id) do
+        %__MODULE__{provider: @smtp_provider, enabled: true, archived_at: nil} ->
+          __MODULE__
+          |> where([c], c.provider == @smtp_provider and c.notification_default)
+          |> Zaq.Repo.update_all(set: [notification_default: false])
+
+          __MODULE__
+          |> where([c], c.id == ^id)
+          |> Zaq.Repo.update_all(set: [notification_default: true])
+
+          get(id)
+
+        _ ->
+          Zaq.Repo.rollback(:connector_mismatch)
+      end
+    end)
+  end
+
+  def set_default_smtp_connector(_), do: {:error, :connector_mismatch}
+
+  @doc "Resolves the explicit SMTP notification default or a sole live connector."
+  def resolve_notification_smtp do
+    defaults =
+      __MODULE__
+      |> where([c], c.provider == @smtp_provider and c.notification_default)
+      |> limit(2)
+      |> Zaq.Repo.all()
+
+    case defaults do
+      [%__MODULE__{enabled: true, archived_at: nil} = config] -> {:ok, config}
+      [%__MODULE__{}] -> {:error, :missing_default_smtp_connector}
+      [] -> resolve_by_provider(@smtp_provider)
+      _ -> {:error, :ambiguous_connector}
+    end
+  end
+
+  @doc "Selects one enabled connector by ID, or only if the provider is unambiguous."
+  @spec resolve_by_provider(String.t(), pos_integer() | nil) ::
+          {:ok, struct()} | {:error, :not_found | :connector_mismatch | :ambiguous_connector}
+  def resolve_by_provider(provider, config_id \\ nil)
+
+  def resolve_by_provider(provider, nil) when is_binary(provider) do
+    case __MODULE__
+         |> where([c], c.provider == ^provider and is_nil(c.archived_at))
+         |> limit(2)
+         |> Zaq.Repo.all() do
+      [%__MODULE__{enabled: true} = config] -> {:ok, config}
+      [] -> {:error, :not_found}
+      [%__MODULE__{}] -> {:error, :not_found}
+      _ -> {:error, :ambiguous_connector}
+    end
+  end
+
+  def resolve_by_provider(provider, config_id)
+      when is_binary(provider) and is_integer(config_id) and config_id > 0 do
+    case get(config_id) do
+      %__MODULE__{provider: ^provider, enabled: true, archived_at: nil} = config ->
+        {:ok, config}
+
+      %__MODULE__{provider: ^provider, archived_at: %DateTime{}} ->
+        {:error, :not_found}
+
+      %__MODULE__{} ->
+        {:error, :connector_mismatch}
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  def resolve_by_provider(_, _), do: {:error, :not_found}
 
   @doc "Returns a config by primary key, including disabled entries."
   def get(id) when is_integer(id) and id > 0 do
@@ -311,7 +413,22 @@ defmodule Zaq.Channels.ChannelConfig do
 
   @doc "Returns a config for `provider`, including disabled entries."
   def get_any_by_provider(provider) do
-    Zaq.Repo.get_by(__MODULE__, provider: provider)
+    unique_config(where(__MODULE__, [c], c.provider == ^provider and is_nil(c.archived_at)))
+  end
+
+  @doc "Lists live (non-archived) connectors of a provider, including disabled entries."
+  def list_by_provider(provider) when is_binary(provider) do
+    __MODULE__
+    |> where([c], c.provider == ^provider and is_nil(c.archived_at))
+    |> order_by([c], asc: c.id)
+    |> Zaq.Repo.all()
+  end
+
+  defp unique_config(query) do
+    case query |> limit(2) |> Zaq.Repo.all() do
+      [config] -> config
+      _ -> nil
+    end
   end
 
   @doc """
@@ -323,16 +440,22 @@ defmodule Zaq.Channels.ChannelConfig do
   def upsert_by_provider(provider, attrs) when is_binary(provider) and is_map(attrs) do
     attrs = Map.put(attrs, :provider, provider)
 
-    case get_any_by_provider(provider) do
-      nil ->
+    case __MODULE__
+         |> where([c], c.provider == ^provider and is_nil(c.archived_at))
+         |> limit(2)
+         |> Zaq.Repo.all() do
+      [] ->
         %__MODULE__{}
         |> changeset(attrs)
         |> Zaq.Repo.insert()
 
-      %__MODULE__{} = config ->
+      [%__MODULE__{} = config] ->
         config
         |> changeset(attrs)
         |> Zaq.Repo.update()
+
+      _ ->
+        {:error, :ambiguous_connector}
     end
   end
 
@@ -343,15 +466,25 @@ defmodule Zaq.Channels.ChannelConfig do
   Both `provider` and `channel_id` are required to avoid collisions: two
   different providers may share the same channel ID string.
   """
-  def get_by_channel_id(provider, channel_id) do
-    Zaq.Channels.RetrievalChannel
-    |> join(:inner, [r], c in __MODULE__, on: r.channel_config_id == c.id)
-    |> where(
-      [r, c],
-      r.channel_id == ^channel_id and c.provider == ^provider and c.enabled == true
-    )
-    |> select([_r, c], c)
-    |> Zaq.Repo.one()
+  def get_by_channel_id(provider, channel_id, config_id \\ nil) do
+    query =
+      Zaq.Channels.RetrievalChannel
+      |> join(:inner, [r], c in __MODULE__, on: r.channel_config_id == c.id)
+      |> where(
+        [r, c],
+        r.channel_id == ^channel_id and c.provider == ^provider and is_nil(c.archived_at)
+      )
+      |> select([_r, c], c)
+
+    query =
+      if is_nil(config_id),
+        do: query,
+        else: where(query, [_r, c], c.id == ^config_id)
+
+    case unique_config(query) do
+      %__MODULE__{enabled: true} = config -> config
+      _ -> nil
+    end
   end
 
   @doc "Returns jido_chat settings map for a channel config."
