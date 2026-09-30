@@ -22,11 +22,15 @@
     {
       "text": "Production fix implemented with user approval: Browsing.create_screenshot_folder/3 now calls Jido.Exec.run(CreateDocument, ..., context, max_retries: 0) at browsing.ex:449 to honor the never-retry-create contract. Validated execution and one recovery listing remain unchanged; upload call retry behavior untouched. Action reuse decision: extend existing Browsing orchestration, reuse CreateDocument unchanged; no new operation/tool. git diff --check clean; no Mix/tests/formatting run per task scope.",
       "timestamp": "2026-09-30T12:34:56Z"
+    },
+    {
+      "text": "Approved regression resolution validated after production max_retries: 0 fix: Running ExUnit with seed: 931141, max_cases: 16\nExcluding tags: [:integration, :paradedb, :real_browser]\n\n.................................................\nFinished in 14.0 seconds (0.00s async, 14.0s sync)\n49 tests, 0 failures =\u003e 49 tests, 0 failures.  passes. Run log: /private/var/folders/9p/mdzhcqxx7hs8bw_10vwjvfp00000gn/T/opencode/zaq-7yd-browsing-test.log. Line 379 remains the supported-contract unreachable rescue exception; no coverage/q/format/full-suite run. Keeping issue in progress pending final quality/coverage.",
+      "timestamp": "2026-09-30T13:34:17Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-7yd] Plan Browsing action coverage for lines 174,315,379,395,443,456,457",
   "type": "task",
-  "updated_at": "2026-09-30T12:34:56Z"
+  "updated_at": "2026-09-30T13:34:17Z"
 }
