@@ -17,11 +17,15 @@
     {
       "text": "Commit/push requested after user local verification, but final mix precommit failed 90/9933 (1 skipped). Isolated SystemConfigLiveTest reproduces 13 existing Skills Disk fixture collisions; isolated PersonConversationSourceIntegrationTest reproduces 3 stale action-route fixture failures. mix q and focused Web browsing plus Docker tests previously passed. Final gate remains blocked; no commit/push until scope/validation decision. User informed.",
       "timestamp": "2026-09-30T09:41:17Z"
+    },
+    {
+      "text": "Human explicitly authorized an exception on 2026-09-30: commit and push feature branch despite failing local mix precommit (90 failures / 9,933 tests; Skills Disk fixture and person-source fixture cases reproduced in isolation) to compare GitHub CI. No claim that gate passed. Keep final validation/merge approval pending independent CI results and fixes.",
+      "timestamp": "2026-09-30T09:45:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.9] Pin agent-browser v0.38.1 for production and CI",
   "type": "task",
-  "updated_at": "2026-09-30T09:41:17Z"
+  "updated_at": "2026-09-30T09:45:11Z"
 }
