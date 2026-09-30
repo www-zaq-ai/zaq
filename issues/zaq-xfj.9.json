@@ -21,11 +21,15 @@
     {
       "text": "Human explicitly authorized an exception on 2026-09-30: commit and push feature branch despite failing local mix precommit (90 failures / 9,933 tests; Skills Disk fixture and person-source fixture cases reproduced in isolation) to compare GitHub CI. No claim that gate passed. Keep final validation/merge approval pending independent CI results and fixes.",
       "timestamp": "2026-09-30T09:45:11Z"
+    },
+    {
+      "text": "Commit 3b16ef92 pushed to origin/feat/web-browsing-config-screenshots per explicit human authorization to compare GitHub CI despite failed local full precommit. Commit/push hooks qf and format passed; working tree clean. Browser-tool integration CI workflow is manual workflow_dispatch; hosted browser run not claimed. Full validation gate still needs passing results before merge/final approval.",
+      "timestamp": "2026-09-30T09:47:31Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.9] Pin agent-browser v0.38.1 for production and CI",
   "type": "task",
-  "updated_at": "2026-09-30T09:45:11Z"
+  "updated_at": "2026-09-30T09:47:31Z"
 }
