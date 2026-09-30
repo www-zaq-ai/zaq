@@ -7,9 +7,15 @@
   "id": "zaq-xfj.12",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "Execution clarification: include the bounded ExUnitProperties overlength property (not optional): fix first three ASCII labels to 63 bytes each; generate fourth label length in 62..63, giving 254..255 total bytes; assert normalize_domains/1 always returns {:error, :invalid_domains}. Keep the concrete 253/254 boundary test too; no production edits.",
+      "timestamp": "2026-09-30T11:42:18Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-xfj.12] Cover WebBrowsingConfig uncovered lines 36, 64, 77",
   "type": "task",
-  "updated_at": "2026-09-30T11:42:03Z"
+  "updated_at": "2026-09-30T11:42:18Z"
 }
