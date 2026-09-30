@@ -11,9 +11,15 @@
   "id": "zaq-xfj.10",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "Implemented run-scoped bind-mounted TMPDIR in browser-tool CI with runner owner/GID 1000 write permission and container UID/GID 1000; verified container writes to shared path locally. Disk destination is not mounted. Scoped always cleanup handles Mix lock/pubsub temp directories. Workflow syntax/runtime hosted Ubuntu not yet executed because branch unpushed. Local macOS container/host test uses host.docker.internal override; CI retains 127.0.0.1.",
+      "timestamp": "2026-09-30T08:08:59Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-xfj.10] Share temporary capture path between host and browser container",
   "type": "task",
-  "updated_at": "2026-09-30T07:30:12Z"
+  "updated_at": "2026-09-30T08:08:59Z"
 }
