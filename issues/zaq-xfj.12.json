@@ -19,11 +19,15 @@
     {
       "text": "Isolated validation evidence: Running ExUnit with seed: 569370, max_cases: 16\nExcluding tags: [:integration, :paradedb, :real_browser]\n\n.............\nFinished in 1.3 seconds (0.00s async, 1.3s sync)\n2 properties, 11 tests, 0 failures exited 0; 11 tests, 2 properties, 0 failures. Execution log retained at /private/var/folders/9p/mdzhcqxx7hs8bw_10vwjvfp00000gn/T/opencode/web_browsing_config_test.log. Issue remains in progress pending final coverage.",
       "timestamp": "2026-09-30T11:54:39Z"
+    },
+    {
+      "text": "Final targeted coverage: mix test test/zaq/system/web_browsing_config_test.exs test/zaq_web/live/bo/system/system_config_live_test.exs test/zaq/agent/tools/web/browsing_test.exs --cover produced 3 properties, 285 tests, 0 failures. WebBrowsingConfig 100.0% (32 relevant lines, 0 missed), up from user-supplied 90%. mix q passed after one alias fix. Final mix precommit exceeded required 900000ms timeout; no live Mix BEAM process remained. Overall final approval gate remains blocked; no full-suite coverage run performed. Coverage log: /private/var/folders/9p/mdzhcqxx7hs8bw_10vwjvfp00000gn/T/opencode/targeted-web-browsing-coverage.log. The post-run shell wrapper hit zsh readonly status assignment; the complete test/coverage log was subsequently filtered with grep, without rerunning tests.",
+      "timestamp": "2026-09-30T13:58:18Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.12] Cover WebBrowsingConfig uncovered lines 36, 64, 77",
   "type": "task",
-  "updated_at": "2026-09-30T11:54:39Z"
+  "updated_at": "2026-09-30T13:58:18Z"
 }
