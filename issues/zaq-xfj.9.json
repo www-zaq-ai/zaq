@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-xfj.10"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-xfj",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-xfj.9] Pin agent-browser v0.38.1 for production and CI",
   "type": "task",
-  "updated_at": "2026-09-30T07:30:06Z"
+  "updated_at": "2026-09-30T07:30:52Z"
 }
