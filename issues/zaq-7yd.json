@@ -10,11 +10,15 @@
     {
       "text": "Coordinator review complete: exclusive ownership test/zaq/agent/tools/web/browsing_test.exs. zaq-5qu concerns ingestion and data_source_browser, not this tool; no overlap. Independent root. Preserve line 379 supported-contract exception. Supplied-line mode overrides fresh full coverage instructions: no coveralls.json/coverup. Coordinator serializes Mix validation and runs final edited-tests-only coverage.",
       "timestamp": "2026-09-30T11:50:24Z"
+    },
+    {
+      "text": "Isolated validation: Running ExUnit with seed: 150544, max_cases: 16\nExcluding tags: [:integration, :paradedb, :real_browser]\n\n..............................................\n\n  1) test run/2 validation recovers a concurrent folder creation from the canonical second listing (Zaq.Agent.Tools.Web.BrowsingTest)\n     test/zaq/agent/tools/web/browsing_test.exs:468\n     Unexpectedly received message {:race_folder_create, %{\"config_id\" =\u003e \"12\", \"kind\" =\u003e \"folder\", \"name\" =\u003e \"example.org\", \"parent_id\" =\u003e \"parent-17\"}} (which matched {:race_folder_create, _})\n     code: refute_received {:race_folder_create, _}\n     stacktrace:\n       test/zaq/agent/tools/web/browsing_test.exs:551: (test)\n\n     The following output was logged:\n     14:12:44.605 module=Jido.Action.Util [error] Action Zaq.Agent.Tools.DataSource.CreateDocument failed: \"Data source document creation failed: :already_exists\"\n     14:12:44.859 module=Jido.Action.Util [error] Action Zaq.Agent.Tools.DataSource.CreateDocument failed: \"Data source document creation failed: :already_exists\"\n     \n..\nFinished in 21.2 seconds (0.00s async, 21.2s sync)\n49 tests, 1 failure =\u003e 49 tests, 1 failure. All added scenarios pass except concurrent-folder recovery: the real Jido.Exec/Browsing/CreateDocument path dispatches the folder create twice (both return :already_exists), so the approved exact-one-create assertion fails. Two listing calls are observed; no test-only means to suppress duplicate dispatch without violating real-path/no-production-change constraints. Treat as blocked pending coordinator decision on whether to investigate existing dispatch retry behavior or revise the approved contract.  passes. Line 379 remains a supported-contract unreachable rescue exception; no fabricated test. Work remains in progress; no coverage run.",
+      "timestamp": "2026-09-30T12:12:45Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-7yd] Plan Browsing action coverage for lines 174,315,379,395,443,456,457",
   "type": "task",
-  "updated_at": "2026-09-30T11:52:13Z"
+  "updated_at": "2026-09-30T12:12:45Z"
 }
