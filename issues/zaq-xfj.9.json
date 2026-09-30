@@ -11,7 +11,7 @@
   "parent": "zaq-xfj",
   "priority": 2,
   "status": "open",
-  "title": "[browser-runtime] Pin agent-browser v0.38.1 for production and CI",
+  "title": "[zaq-xfj.9] Pin agent-browser v0.38.1 for production and CI",
   "type": "task",
-  "updated_at": "2026-09-30T07:29:32Z"
+  "updated_at": "2026-09-30T07:30:06Z"
 }
