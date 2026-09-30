@@ -9,9 +9,15 @@
   "id": "zaq-xfj.9",
   "labels": [],
   "parent": "zaq-xfj",
+  "comments": [
+    {
+      "text": "Implemented shared v0.38.1 Git pin aff6125c023b810ea3f2e5deec5379e9a4270bdc (Cargo --locked retained). Local Docker browser-runtime and production app targets built successfully; browser-runtime sha256:f0cbd5f247ce605ee3163129035305e35a80770beed558ccd798c9e3a600eabe, app sha256:0d68e62b98c1fd494623ef77ce08b4524971ec31a552ad4d3a3b60b719e2e20b, Chromium 154.0.8037.57. Raw Chromium smoke and local real-browser suite passed 2/2 using macOS host.docker.internal fixture override; hosted Ubuntu CI remains pending push/dispatch authorization. mix q passes. No commit/push; keep in progress until landing per workflow.",
+      "timestamp": "2026-09-30T08:08:48Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-xfj.9] Pin agent-browser v0.38.1 for production and CI",
   "type": "task",
-  "updated_at": "2026-09-30T07:30:52Z"
+  "updated_at": "2026-09-30T08:08:48Z"
 }
