@@ -18,11 +18,15 @@
     {
       "text": "FOLLOW-UP BLOCKER (supersedes scenario 6 execution until human approval; no code edits): source audit of deps/jido_action/lib/jido_action/exec.ex:165-178,345-419 shows Jido.Exec.run/3 always enters retry engine. deps/jido_action/lib/jido_action/exec/retry.ex:136-161 defaults max_retries=1/backoff=250ms, no project config override found; Retry.should_retry?/4 delegates to Jido.Action.Error.retryable?/1. deps/jido_action/lib/jido_action/error.ex:483-484 treats string reasons retryable. lib/zaq/agent/tools/data_source_tool.ex:30-32 stringifies {:error, :already_exists} as Data source document creation failed: :already_exists; CreateDocument.run/2 at create_document.ex:42-64 passes it back. Browsing.create_screenshot_folder/3 at browsing.ex:448-460 invokes Jido.Exec.run(CreateDocument,...,context) without retry override and its comment promises never retry create; only after Jido returns does it relist ONCE. Therefore two identical :data_source_create_file dispatches before the second listing are Jido generic default retry of a non-transient collision, NOT necessary retry and NOT two Browsing create calls. Worker test diff browsing_test.exs:468-555 and test failure at :551 confirm exactly one extra folder-create observation; two error logs consistent with retry. The exact-one assertion protects non-idempotent folder creation and must NOT be weakened to two or hidden by malformed stub. Human approval needed for production change: pass max_retries: 0 as 4th option ONLY to folder creation Jido.Exec.run at browsing.ex:449, preserving validated action execution, upload/default retries at :504, original recovery relist, public error semantics. After authorization, worker/owner retains test with one create plus two listings, check before upload, canonical record and no extra creates; add a real-path regression for repeated :already_exists in existing test file and optionally fail-after-transient error to verify no duplicate creation. No test-only seam/global retry override; no production edits by this planner. Line 379 remains supported-contract inaccessible rescue exception. Coordinator serializes Mix; no Mix/coverage run in followup.",
       "timestamp": "2026-09-30T12:15:36Z"
+    },
+    {
+      "text": "Production fix implemented with user approval: Browsing.create_screenshot_folder/3 now calls Jido.Exec.run(CreateDocument, ..., context, max_retries: 0) at browsing.ex:449 to honor the never-retry-create contract. Validated execution and one recovery listing remain unchanged; upload call retry behavior untouched. Action reuse decision: extend existing Browsing orchestration, reuse CreateDocument unchanged; no new operation/tool. git diff --check clean; no Mix/tests/formatting run per task scope.",
+      "timestamp": "2026-09-30T12:34:56Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-7yd] Plan Browsing action coverage for lines 174,315,379,395,443,456,457",
   "type": "task",
-  "updated_at": "2026-09-30T12:15:36Z"
+  "updated_at": "2026-09-30T12:34:56Z"
 }
