@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-09-30T11:44:14Z",
@@ -13,8 +13,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-7yd] Plan Browsing action coverage for lines 174,315,379,395,443,456,457",
   "type": "task",
-  "updated_at": "2026-09-30T11:50:24Z"
+  "updated_at": "2026-09-30T11:52:13Z"
 }
