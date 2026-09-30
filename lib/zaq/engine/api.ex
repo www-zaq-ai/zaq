@@ -531,6 +531,19 @@ defmodule Zaq.Engine.Api do
   def handle_event(%Event{} = event, :system_config_get_skill_resource_config, _context),
     do: %{event | response: System.get_skill_resource_config()}
 
+  def handle_event(%Event{} = event, :system_config_get_web_browsing_config, _context),
+    do: %{event | response: System.get_web_browsing_config()}
+
+  def handle_event(%Event{} = event, :system_config_save_web_browsing_config, _context) do
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: System.save_web_browsing_config(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
   def handle_event(%Event{} = event, :system_config_list_skill_resource_data_sources, _context),
     do: %{event | response: {:ok, ChannelConfig.list_enabled_data_source_configs()}}
 

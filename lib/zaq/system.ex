@@ -7,6 +7,7 @@ defmodule Zaq.System do
 
   import Ecto.Query
 
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Engine.Connect.Grant
@@ -26,6 +27,7 @@ defmodule Zaq.System do
   alias Zaq.System.OutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
   alias Zaq.System.TelemetryConfig
+  alias Zaq.System.WebBrowsingConfig
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.Map, as: MapUtils
   alias Zaq.Utils.ParseUtils
@@ -68,6 +70,8 @@ defmodule Zaq.System do
   )
 
   @skill_resource_prefix "system.agent_skills.resources"
+  @web_browsing_prefix "system.web_browsing"
+  @web_browsing_fields ~w(allowed_domains provider config_id scope_id folder_id folder_path)a
   # ── Generic key/value ─────────────────────────────────────────────────
 
   @doc "Returns the stored value for `key`, or `nil`."
@@ -227,6 +231,75 @@ defmodule Zaq.System do
 
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(value), do: value
+
+  # ── Web browsing ───────────────────────────────────────────────────────
+
+  @doc "Reads the global browser policy and screenshot destination in one query."
+  @spec get_web_browsing_config() :: {:ok, WebBrowsingConfig.t()} | {:error, term()}
+  def get_web_browsing_config do
+    with {:ok, config} <- read_web_browsing_config(),
+         :ok <- validate_web_browsing_source(config) do
+      {:ok, config}
+    end
+  end
+
+  @doc "Validates and atomically persists the global browser settings."
+  @spec save_web_browsing_config(map()) :: {:ok, WebBrowsingConfig.t()} | {:error, term()}
+  def save_web_browsing_config(attrs) when is_map(attrs) and not is_struct(attrs) do
+    with {:ok, current} <- read_web_browsing_config(),
+         {:ok, config} <-
+           current
+           |> WebBrowsingConfig.changeset(attrs)
+           |> Ecto.Changeset.apply_action(:validate),
+         :ok <- validate_web_browsing_source(config) do
+      persist_web_browsing_config(config)
+    end
+  end
+
+  def save_web_browsing_config(_attrs), do: {:error, :invalid_web_browsing_config}
+
+  defp persist_web_browsing_config(config) do
+    multi =
+      Enum.reduce(@web_browsing_fields, Ecto.Multi.new(), fn field, multi ->
+        Ecto.Multi.run(multi, field, fn _repo, _changes ->
+          set_config(web_browsing_key(field), Map.get(config, field) || "")
+        end)
+      end)
+
+    case Repo.transaction(multi) do
+      {:ok, _} -> {:ok, config}
+      {:error, _field, reason, _changes} -> {:error, reason}
+    end
+  end
+
+  defp read_web_browsing_config do
+    keys = Enum.map(@web_browsing_fields, &web_browsing_key/1)
+
+    attrs =
+      from(c in Config, where: c.key in ^keys, select: {c.key, c.value})
+      |> Repo.all()
+      |> Map.new(fn {key, value} ->
+        {key |> String.split(".") |> List.last(), value}
+      end)
+
+    case WebBrowsingConfig.changeset(%WebBrowsingConfig{}, attrs)
+         |> Ecto.Changeset.apply_action(:validate) do
+      {:ok, config} -> {:ok, config}
+      {:error, changeset} -> {:error, {:invalid_web_browsing_config, changeset}}
+    end
+  end
+
+  defp web_browsing_key(:allowed_domains), do: "#{@web_browsing_prefix}.allowed_domains"
+  defp web_browsing_key(field), do: "#{@web_browsing_prefix}.screenshots.#{field}"
+
+  defp validate_web_browsing_source(%WebBrowsingConfig{provider: nil}), do: :ok
+
+  defp validate_web_browsing_source(%WebBrowsingConfig{provider: provider, config_id: id}) do
+    case ChannelConfig.get(id) do
+      %ChannelConfig{provider: ^provider, enabled: true, kind: "data_source"} -> :ok
+      _ -> {:error, :invalid_web_browsing_destination}
+    end
+  end
 
   # ── People access ─────────────────────────────────────────────────────
 

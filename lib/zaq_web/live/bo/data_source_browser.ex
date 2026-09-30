@@ -61,6 +61,11 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowser do
     |> Enum.map(&folder/1)
   end
 
+  @doc "Shows the selected folder path, its root fallback, or an unconfigured label."
+  def folder_label(%{folder_path: path}) when is_binary(path) and path != "", do: path
+  def folder_label(%{folder_id: id}) when not is_nil(id), do: "root"
+  def folder_label(_), do: "No folder selected"
+
   def list_params(source, parent_id, include_permissions \\ false) do
     source_filters = source.filters || %{}
 

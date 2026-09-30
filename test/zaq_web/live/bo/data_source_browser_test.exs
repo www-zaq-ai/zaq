@@ -4,6 +4,16 @@ defmodule ZaqWeb.Live.BO.DataSourceBrowserTest do
 
   alias ZaqWeb.Live.BO.DataSourceBrowser
 
+  test "labels selected folders consistently for all BO datasource pickers" do
+    assert DataSourceBrowser.folder_label(%{folder_path: "Evidence", folder_id: "opaque"}) ==
+             "Evidence"
+
+    assert DataSourceBrowser.folder_label(%{folder_path: nil, folder_id: "root"}) == "root"
+
+    assert DataSourceBrowser.folder_label(%{folder_path: nil, folder_id: nil}) ==
+             "No folder selected"
+  end
+
   describe "source/2" do
     property "preserves explicit filters, including empty maps, regardless of scope identity" do
       check all(

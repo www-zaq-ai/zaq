@@ -56,12 +56,28 @@ jobs:
           cache-from: type=gha,scope=browser-tool
           cache-to: type=gha,mode=max,scope=browser-tool
 
+      # Mix runs on the host; docker exec runs the CLI in the container. Both
+      # processes must see the same absolute PNG staging path, but the Disk
+      # destination remains on the host and is not mounted into the container.
+      - name: Prepare shared screenshot staging directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          capture_dir="$RUNNER_TEMP/zaq-browser-capture-${{ github.run_id }}-${{ github.run_attempt }}"
+          mkdir -m 0770 "$capture_dir"
+          sudo chown "$(id -u):1000" "$capture_dir"
+          echo "TMPDIR=$capture_dir" >> "$GITHUB_ENV"
+
       - name: Start isolated browser runtime
         run: |
           docker run --detach --init --network host \
-            --name "$ZAQ_BROWSER_CONTAINER" --user 1000 \
+            --name "$ZAQ_BROWSER_CONTAINER" --user 1000:1000 \
+            --mount "type=bind,src=$TMPDIR,dst=$TMPDIR" \
             --env AGENT_BROWSER_ALLOWED_DOMAINS=127.0.0.1 \
             --entrypoint /bin/sleep zaq-browser-flow:ci infinity
+          docker exec "$ZAQ_BROWSER_CONTAINER" touch "$TMPDIR/container-writecheck"
+          test -f "$TMPDIR/container-writecheck"
+          rm "$TMPDIR/container-writecheck"
           "$AGENT_BROWSER_BIN" --version
           docker exec "$ZAQ_BROWSER_CONTAINER" /usr/bin/chromium --version
           docker image inspect zaq-browser-flow:ci --format '{{.Id}}'
@@ -105,4 +121,15 @@ jobs:
         run: |
           if docker container inspect "$ZAQ_BROWSER_CONTAINER" >/dev/null 2>&1; then
             docker rm --force "$ZAQ_BROWSER_CONTAINER"
+          fi
+
+      - name: Remove shared screenshot staging directory
+        if: always()
+        shell: bash
+        run: |
+          capture_dir="$RUNNER_TEMP/zaq-browser-capture-${{ github.run_id }}-${{ github.run_attempt }}"
+          if [[ "${TMPDIR:-}" == "$capture_dir" ]] && [ -d "$capture_dir" ]; then
+            # Mix also creates short-lived lock/pubsub directories under TMPDIR.
+            find "$TMPDIR" -mindepth 1 -depth -delete
+            rmdir "$TMPDIR"
           fi

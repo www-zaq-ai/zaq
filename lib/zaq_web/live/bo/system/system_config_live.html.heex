@@ -94,6 +94,19 @@
           </button>
           <button
             phx-click="switch_tab"
+            phx-value-tab="web_browsing"
+            class={[
+              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
+              if(@active_tab == :web_browsing,
+                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
+                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
+              )
+            ]}
+          >
+            Web browsing
+          </button>
+          <button
+            phx-click="switch_tab"
             phx-value-tab="skills"
             class={[
               "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
@@ -236,6 +249,20 @@
         folder_entries={@skill_resource_folder_entries}
         folder_stack={@skill_resource_folder_stack}
         folder_error={@skill_resource_folder_error}
+        modal_error={@modal_error}
+        modal_name={@modal_name}
+      />
+      <ZaqWeb.Live.BO.System.SystemConfig.WebBrowsingTab.panel
+        :if={@active_tab == :web_browsing}
+        config={@web_browsing_config}
+        load_error={@web_browsing_load_error}
+        sources={@web_browsing_sources}
+        source_id={@web_browsing_source_id}
+        folder_modal={@web_browsing_folder_modal}
+        new_folder_modal={@web_browsing_new_folder_modal}
+        folder_entries={@web_browsing_folder_entries}
+        folder_stack={@web_browsing_folder_stack}
+        folder_error={@web_browsing_folder_error}
         modal_error={@modal_error}
         modal_name={@modal_name}
       />

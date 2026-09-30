@@ -49,8 +49,8 @@ RUN apt-get update -y && \
     apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# crates.io stops at 0.19.0, whose native Fetch interception stalls navigation.
-# Pin the upstream fix by immutable revision and retain its dependency lockfile.
+# The crates.io 0.19.0 native Fetch interceptor stalls allowlisted navigation.
+# Build a fixed upstream release from its immutable revision and lockfile.
 COPY priv/browser/agent-browser.version /tmp/agent-browser.version
 COPY priv/browser/agent-browser.revision /tmp/agent-browser.revision
 RUN cargo install agent-browser \

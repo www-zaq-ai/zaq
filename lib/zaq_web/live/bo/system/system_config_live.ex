@@ -19,6 +19,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.System.OutboundHttpPolicy, as: SystemOutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
   alias Zaq.System.TelemetryConfig
+  alias Zaq.System.WebBrowsingConfig
   alias Zaq.Utils.Map, as: MapUtils
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.Helpers.Timezone
@@ -79,6 +80,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:global_timezone, engine_get_system_timezone())
      |> assign(:skill_resource_config, engine_get_skill_resource_config())
      |> assign_skill_resource_picker()
+     |> assign(:web_browsing_config, %WebBrowsingConfig{})
+     |> assign(:web_browsing_load_error, nil)
+     |> assign(:web_browsing_sources, [])
+     |> assign(:web_browsing_source_id, nil)
+     |> assign(:web_browsing_folder_modal, false)
+     |> assign(:web_browsing_new_folder_modal, false)
+     |> assign(:web_browsing_folder_entries, [])
+     |> assign(:web_browsing_folder_stack, [])
+     |> assign(:web_browsing_folder_error, nil)
      |> assign(:detected_timezone, nil)
      |> assign(:ai_provider_options, provider_options(fn _ -> true end))
      |> assign(:connect_grants_modal, false)
@@ -110,6 +120,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_params(%{"tab" => "people_access"}, _uri, socket) do
     {:noreply, socket |> assign(:active_tab, :people_access) |> load_people_access_form()}
+  end
+
+  def handle_params(%{"tab" => "web_browsing"}, _uri, socket) do
+    {:noreply, socket |> assign(:active_tab, :web_browsing) |> load_web_browsing_settings()}
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
@@ -178,8 +192,156 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
+  def handle_event("save_web_browsing_config", %{"web_browsing" => attrs}, socket) do
+    case dispatch_engine(:system_config_save_web_browsing_config, %{attrs: attrs}) do
+      {:ok, %WebBrowsingConfig{} = config} ->
+        {:noreply,
+         socket
+         |> assign(:web_browsing_config, config)
+         |> put_flash(
+           :info,
+           "Web browsing settings saved. Restart Agent containers if allowed domains changed."
+         )}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> assign(
+           :web_browsing_config,
+           Map.put(
+             socket.assigns.web_browsing_config,
+             :allowed_domains,
+             Map.get(attrs, "allowed_domains", "")
+           )
+         )
+         |> put_flash(
+           :error,
+           "Could not save Web browsing settings. Check the allowed domains and destination; your edits are retained."
+         )}
+    end
+  end
+
+  def handle_event("open_web_browsing_folder_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:web_browsing_folder_modal, true)
+     |> assign(:web_browsing_folder_stack, DataSourceBrowser.reset_stack())
+     |> load_web_browsing_folder_entries(nil)}
+  end
+
+  def handle_event("clear_web_browsing_folder", _params, socket) do
+    config =
+      Enum.reduce(
+        [:provider, :config_id, :scope_id, :folder_id, :folder_path],
+        socket.assigns.web_browsing_config,
+        &Map.put(&2, &1, nil)
+      )
+
+    {:noreply, assign(socket, :web_browsing_config, config)}
+  end
+
+  def handle_event(
+        "switch_source",
+        %{"source" => "source:" <> source_id},
+        %{assigns: %{web_browsing_folder_modal: true}} = socket
+      )
+      when source_id != "" do
+    if Enum.any?(socket.assigns.web_browsing_sources, &(&1.id == source_id)) do
+      {:noreply,
+       socket
+       |> assign(:web_browsing_source_id, source_id)
+       |> assign(:web_browsing_folder_stack, DataSourceBrowser.reset_stack())
+       |> load_web_browsing_folder_entries(nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("web_browsing_folder_navigate", %{"id" => id}, socket) do
+    stack =
+      DataSourceBrowser.enter_folder(
+        socket.assigns.web_browsing_folder_stack,
+        socket.assigns.web_browsing_folder_entries,
+        id
+      )
+
+    {:noreply,
+     socket
+     |> assign(:web_browsing_folder_stack, stack)
+     |> load_web_browsing_folder_entries((List.last(stack) || %{})[:id])}
+  end
+
+  def handle_event("web_browsing_folder_up", _params, socket) do
+    stack = DataSourceBrowser.up_stack(socket.assigns.web_browsing_folder_stack)
+
+    {:noreply,
+     socket
+     |> assign(:web_browsing_folder_stack, stack)
+     |> load_web_browsing_folder_entries((List.last(stack) || %{})[:id])}
+  end
+
+  def handle_event("confirm_web_browsing_folder", _params, socket) do
+    source = active_web_browsing_source(socket.assigns)
+
+    case source do
+      nil ->
+        {:noreply, assign(socket, :web_browsing_folder_error, "Choose a data source first")}
+
+      source ->
+        folder =
+          DataSourceBrowser.current_folder(source, socket.assigns.web_browsing_folder_stack)
+
+        config =
+          socket.assigns.web_browsing_config
+          |> Map.put(:provider, source.provider)
+          |> Map.put(:config_id, source.config_id)
+          |> Map.put(:scope_id, source.scope_id)
+          |> Map.put(:folder_id, folder.id)
+          |> Map.put(:folder_path, folder.path)
+
+        {:noreply,
+         socket
+         |> assign(:web_browsing_config, config)
+         |> assign(:web_browsing_folder_modal, false)}
+    end
+  end
+
   def handle_event("open_skill_resource_folder_modal", _params, socket) do
     {:noreply, open_skill_resource_folder_modal(socket)}
+  end
+
+  def handle_event(
+        "close_modal",
+        _params,
+        %{assigns: %{web_browsing_new_folder_modal: true}} = socket
+      ) do
+    {:noreply, assign(socket, web_browsing_new_folder_modal: false, modal_error: nil)}
+  end
+
+  def handle_event(
+        "close_modal",
+        _params,
+        %{assigns: %{web_browsing_folder_modal: true}} = socket
+      ) do
+    {:noreply,
+     assign(socket, web_browsing_folder_modal: false, web_browsing_new_folder_modal: false)}
+  end
+
+  def handle_event(
+        "show_new_folder_modal",
+        _params,
+        %{assigns: %{web_browsing_folder_modal: true}} = socket
+      ) do
+    {:noreply,
+     assign(socket, web_browsing_new_folder_modal: true, modal_name: "", modal_error: nil)}
+  end
+
+  def handle_event(
+        "create_folder",
+        %{"name" => name},
+        %{assigns: %{web_browsing_new_folder_modal: true}} = socket
+      ) do
+    {:noreply, create_web_browsing_folder(socket, name)}
   end
 
   def handle_event("switch_source", %{"source" => "source:" <> source_id}, socket)
@@ -1724,6 +1886,110 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp engine_save_skill_resource_config(attrs),
     do: dispatch_engine(:system_config_save_skill_resource_config, %{attrs: attrs})
+
+  defp load_web_browsing_settings(socket) do
+    sources =
+      case engine_list_skill_resource_data_sources() do
+        {:ok, configs} -> Enum.flat_map(configs, &skill_resource_sources_for_config/1)
+        _ -> []
+      end
+
+    case dispatch_engine(:system_config_get_web_browsing_config) do
+      {:ok, %WebBrowsingConfig{} = config} ->
+        source_id =
+          configured_skill_resource_source_id(config) ||
+            (List.first(sources) && List.first(sources).id)
+
+        socket
+        |> assign(:web_browsing_config, config)
+        |> assign(:web_browsing_sources, sources)
+        |> assign(:web_browsing_source_id, source_id)
+        |> assign(:web_browsing_load_error, nil)
+
+      {:error, _reason} ->
+        socket
+        |> assign(:web_browsing_sources, sources)
+        |> assign(:web_browsing_load_error, "Could not load settings")
+
+      _ ->
+        socket
+        |> assign(:web_browsing_sources, sources)
+        |> assign(:web_browsing_load_error, "Could not load settings")
+    end
+  end
+
+  defp active_web_browsing_source(assigns) do
+    Enum.find(assigns.web_browsing_sources, &(&1.id == assigns.web_browsing_source_id))
+  end
+
+  defp load_web_browsing_folder_entries(socket, parent_id) do
+    case active_web_browsing_source(socket.assigns) do
+      nil ->
+        assign(socket, :web_browsing_folder_entries, [])
+
+      source ->
+        request = %{
+          provider: source.provider,
+          params: DataSourceBrowser.list_params(source, parent_id, false)
+        }
+
+        case dispatch_channels(
+               :data_source_list_files,
+               request,
+               BOActor.build(socket.assigns.current_user)
+             ) do
+          {:ok, %{records: records}} ->
+            socket
+            |> assign(
+              :web_browsing_folder_entries,
+              DataSourceBrowser.folders_from_records(records)
+            )
+            |> assign(:web_browsing_folder_error, nil)
+
+          {:error, reason} ->
+            socket
+            |> assign(:web_browsing_folder_entries, [])
+            |> assign(:web_browsing_folder_error, "Could not load folders: #{inspect(reason)}")
+        end
+    end
+  end
+
+  defp create_web_browsing_folder(socket, name) do
+    source = active_web_browsing_source(socket.assigns)
+    name = String.trim(to_string(name || ""))
+
+    cond do
+      is_nil(source) ->
+        assign(socket, :modal_error, "Could not create folder: no data source selected")
+
+      name == "" ->
+        assign(socket, :modal_error, "Folder name cannot be empty.")
+
+      true ->
+        params =
+          DataSourceBrowser.create_folder_params(
+            source,
+            socket.assigns.web_browsing_folder_stack,
+            name
+          )
+
+        context = skill_resource_create_context(socket)
+
+        case Jido.Exec.run(CreateDocument, params, context) do
+          {:ok, %{record: _record}} ->
+            parent_id =
+              DataSourceBrowser.current_folder(source, socket.assigns.web_browsing_folder_stack).id
+
+            socket
+            |> assign(:web_browsing_new_folder_modal, false)
+            |> assign(:modal_error, nil)
+            |> load_web_browsing_folder_entries(parent_id)
+
+          {:error, reason} ->
+            assign(socket, :modal_error, "Could not create folder: #{inspect(reason)}")
+        end
+    end
+  end
 
   defp assign_skill_resource_picker(socket) do
     sources =

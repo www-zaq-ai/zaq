@@ -1257,6 +1257,37 @@ defmodule Zaq.Channels.JidoConnectBridgeTest do
                      %{"name" => "Doc", "content" => "hello"}}
   end
 
+  test "create_file chooses upload for binary PNG content in a selected folder" do
+    config = insert_data_source_config(:google_drive)
+    credential = create_credential!()
+    _grant = create_active_grant!(credential, config.id)
+
+    Application.put_env(
+      :zaq,
+      :jido_connect_bridge_jido_connect_module,
+      StubJidoConnectCreateUpload
+    )
+
+    png = <<137, 80, 78, 71, 13, 10, 26, 10, 0, 255>>
+
+    params = %{
+      "name" => "capture.png",
+      "content" => png,
+      "parent_id" => "selected-folder-id",
+      "mime_type" => "image/png"
+    }
+
+    assert {:ok, %{status: "created"}} = JidoConnectBridge.create_file(config, params)
+
+    assert_received {:invoke_create_file, "stub.file.upload",
+                     %{
+                       "name" => "capture.png",
+                       "content" => ^png,
+                       "parents" => ["selected-folder-id"],
+                       "mime_type" => "image/png"
+                     }}
+  end
+
   test "create_file keeps metadata create when content is blank or missing" do
     config = insert_data_source_config(:google_drive)
     credential = create_credential!()

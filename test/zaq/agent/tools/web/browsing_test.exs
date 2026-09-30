@@ -2,14 +2,18 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
   # async: false — mutates global env vars (AGENT_BROWSER_BIN,
   # AGENT_BROWSER_ALLOWED_DOMAINS, AGENT_BROWSER_TIMEOUT_MS); parallel tests
   # would collide on them.
-  use ExUnit.Case, async: false
+  use Zaq.DataCase, async: false
 
   @moduletag capture_log: true
 
+  alias Jido.Action.Schema
   alias Zaq.Agent.Tools.Web.Browsing
+  alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
   alias Zaq.System.Command
 
   setup do
+    assert {:ok, _} = Zaq.System.save_web_browsing_config(%{})
     prev_bin = System.get_env("AGENT_BROWSER_BIN")
     prev_domains = System.get_env("AGENT_BROWSER_ALLOWED_DOMAINS")
     prev_timeout = System.get_env("AGENT_BROWSER_TIMEOUT_MS")
@@ -43,17 +47,102 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
 
   defp argv({:ok, %{output: output}}), do: String.split(output, "\n", trim: true)
 
-  describe "schema/0 and output_schema/0" do
-    test "exposes the command surface" do
-      keys = Keyword.keys(Browsing.schema())
-      assert :command in keys
-      assert :url in keys
-      assert :selector in keys
-      assert :text in keys
-      assert :wait_for in keys
-      assert :session in keys
+  defp stub_screenshot_destination do
+    {:ok, folder} = Provenance.seal(%Record{id: "folder-1", kind: :folder, name: "example.org"})
 
-      assert Keyword.keys(Browsing.output_schema()) == [:command, :output]
+    Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      case event.opts[:action] do
+        :system_config_get_web_browsing_config ->
+          %{
+            event
+            | response:
+                {:ok,
+                 %Zaq.System.WebBrowsingConfig{
+                   provider: "google_drive",
+                   config_id: 12,
+                   folder_id: "parent-17"
+                 }}
+          }
+
+        :data_source_list_files ->
+          %{event | response: {:ok, %{records: [folder]}}}
+
+        other ->
+          flunk("unexpected action #{inspect(other)}")
+      end
+    end)
+
+    %{node_router: Zaq.NodeRouterMock}
+  end
+
+  describe "schema/0 and output_schema/0" do
+    test "declares Zoi schemas and excludes model-controlled policy and screenshot path" do
+      assert Schema.schema_type(Browsing.schema()) == :zoi
+      assert Schema.schema_type(Browsing.output_schema()) == :zoi
+      assert :ok = Schema.validate_config_schema(Browsing.schema())
+      assert :ok = Schema.validate_config_schema(Browsing.output_schema())
+
+      input = Schema.to_json_schema(Browsing.schema())
+      assert "screenshot" in get_in(input, [:properties, :command, :enum])
+      refute Map.has_key?(input.properties, :allowed_domains)
+      refute Map.has_key?(input.properties, :path)
+
+      output = Schema.to_json_schema(Browsing.output_schema())
+      assert Map.has_key?(output.properties, :record)
+      refute Map.has_key?(output.properties, :document_id)
+    end
+
+    test "validates command-specific inputs, positive timeout, and Record output" do
+      assert {:error, _} = Zoi.parse(Browsing.schema(), %{command: "eval"})
+      assert {:error, _} = Zoi.parse(Browsing.schema(), %{command: "fill", selector: "@e1"})
+      assert {:error, _} = Zoi.parse(Browsing.schema(), %{command: "snapshot", timeout_ms: 0})
+      assert {:ok, _} = Zoi.parse(Browsing.schema(), %{command: "open"})
+
+      assert {:error, _} =
+               Zoi.parse(Browsing.output_schema(), %{
+                 command: "screenshot",
+                 output: "Screenshot saved"
+               })
+
+      assert {:error, _} =
+               Zoi.parse(Browsing.output_schema(), %{
+                 command: "screenshot",
+                 output: "Screenshot saved",
+                 record: %Record{id: "unsigned", kind: :file}
+               })
+
+      assert {:ok, _} =
+               Zoi.parse(Browsing.output_schema(), %{command: "snapshot", output: "page"})
+
+      {:ok, record} = Provenance.seal(%Record{id: "capture-1", kind: :file})
+
+      assert {:ok, %{record: %Record{id: "capture-1"}}} =
+               Zoi.parse(Browsing.output_schema(), %{
+                 command: "screenshot",
+                 output: "Screenshot saved",
+                 record: record |> Jason.encode!() |> Jason.decode!()
+               })
+
+      assert {:error, _} =
+               Zoi.parse(Browsing.output_schema(), %{
+                 command: "screenshot",
+                 output: "Screenshot saved",
+                 record: %{record | id: "tampered"}
+               })
+    end
+
+    test "validated execution rejects unknown or malformed input before spawning" do
+      System.put_env("AGENT_BROWSER_BIN", "/nonexistent/should-not-run")
+
+      for params <- [
+            %{command: "eval"},
+            %{command: "fill", selector: "@e1"},
+            %{command: "snapshot", timeout_ms: -1},
+            %{command: "snapshot", allowed_domains: "attacker.test"},
+            %{command: "screenshot", path: "/tmp/attacker.png"}
+          ] do
+        assert {:error, _} = Jido.Exec.run(Browsing, params, %{})
+      end
     end
 
     test "declares a react per-tool timeout above its per-command self-timeout" do
@@ -117,24 +206,45 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
       refute "r1" in args
     end
 
-    test "allowed_domains param adds the --allowed-domains flag" do
+    test "model-supplied domains cannot override administrator policy" do
+      assert {:ok, _} =
+               Zaq.System.save_web_browsing_config(%{allowed_domains: "acme.test"})
+
       args =
         argv(
           Browsing.run(
-            %{command: "open", url: "https://acme.test", allowed_domains: "acme.test"},
+            %{command: "open", url: "https://acme.test", allowed_domains: "attacker.test"},
             %{}
           )
         )
 
       assert "--allowed-domains" in args
       assert "acme.test" in args
+      refute "attacker.test" in args
     end
 
-    test "allowed_domains falls back to the env var" do
+    test "administrator policy takes precedence over the legacy environment variable" do
+      System.put_env("AGENT_BROWSER_ALLOWED_DOMAINS", "env.test")
+      assert {:ok, _} = Zaq.System.save_web_browsing_config(%{allowed_domains: "admin.test"})
+      args = argv(Browsing.run(%{command: "snapshot"}, %{}))
+      assert "--allowed-domains" in args
+      assert "admin.test" in args
+      refute "env.test" in args
+    end
+
+    test "blank policy explicitly overrides inherited domain restriction" do
       System.put_env("AGENT_BROWSER_ALLOWED_DOMAINS", "env.test")
       args = argv(Browsing.run(%{command: "snapshot"}, %{}))
       assert "--allowed-domains" in args
-      assert "env.test" in args
+      refute "env.test" in args
+    end
+
+    test "blank policy is passed as an actual empty argv value" do
+      fake_bin(~s(#!/bin/sh\nfor a in "$@"; do printf '[%s]\\n' "$a"; done\n))
+      System.put_env("AGENT_BROWSER_ALLOWED_DOMAINS", "env.test")
+
+      assert {:ok, %{output: output}} = Browsing.run(%{command: "snapshot"}, %{})
+      assert output =~ "[--allowed-domains]\n[]"
     end
 
     test "wait passes a selector-or-milliseconds value" do
@@ -197,6 +307,292 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
   end
 
   describe "run/2 validation" do
+    test "captures the current redirected page to its hostname folder and never returns bytes or local path" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then
+  printf 'https://final.example.org/Reports/Q3?secret=yes\n'
+elif [ "$1" = "screenshot" ]; then
+  printf '\211PNG\r\n\032\nDATA' > "$2"
+  echo "screenshot saved $2"
+fi
+))
+
+      {:ok, folder} =
+        Provenance.seal(%Record{
+          id: "canonical-folder-99",
+          kind: :folder,
+          name: "final.example.org"
+        })
+
+      {:ok, document} = Provenance.seal(%Record{id: "saved-100", kind: :file})
+      test_pid = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   %Zaq.System.WebBrowsingConfig{
+                     provider: "google_drive",
+                     config_id: 12,
+                     folder_id: "parent-17",
+                     allowed_domains: ""
+                   }}
+            }
+
+          :data_source_list_files ->
+            %{event | response: {:ok, %{records: [folder]}}}
+
+          :data_source_create_file ->
+            params = event.request.params
+            send(test_pid, {:screenshot_upload, params, event.actor})
+            %{event | response: {:ok, %{record: document}}}
+
+          other ->
+            flunk("unexpected action #{inspect(other)}")
+        end
+      end)
+
+      assert {:ok, %{record: %Record{id: "saved-100"} = saved, output: "Screenshot saved"}} =
+               Jido.Exec.run(Browsing, %{command: "screenshot"}, %{
+                 node_router: Zaq.NodeRouterMock
+               })
+
+      assert saved.provenance_ref == document.provenance_ref
+
+      assert_received {:screenshot_upload,
+                       %{
+                         "parent_id" => "canonical-folder-99",
+                         "config_id" => "12",
+                         "content" => content,
+                         "name" => name,
+                         "mime_type" => "image/png"
+                       }, _actor}
+
+      assert content == <<137, 80, 78, 71, 13, 10, 26, 10, 68, 65, 84, 65>>
+      assert name =~ ~r/^reports-q3--\d{8}T\d{9}Z--[a-f0-9]{24}\.png$/
+      refute name =~ "secret"
+
+      assert {:ok, %{record: %Record{id: "saved-100"}}} =
+               Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
+
+      assert_received {:screenshot_upload, %{"name" => second_name}, _actor}
+      refute second_name == name
+      refute Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) |> Enum.any?()
+    end
+
+    test "screenshot without destination never invokes the CLI" do
+      System.put_env("AGENT_BROWSER_BIN", "/nonexistent/should-not-run")
+
+      assert {:error, "Screenshot destination is not configured"} =
+               Browsing.run(%{command: "screenshot"}, %{})
+    end
+
+    test "rejects a non-web current page without creating a folder or screenshot" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then echo 'about:blank'; else exit 14; fi
+))
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        assert event.opts[:action] == :system_config_get_web_browsing_config
+
+        %{
+          event
+          | response:
+              {:ok,
+               %Zaq.System.WebBrowsingConfig{
+                 provider: "disk",
+                 config_id: 2,
+                 folder_path: "volume-a/Captures"
+               }}
+        }
+      end)
+
+      assert {:error, "Screenshot requires a current HTTP(S) page"} =
+               Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
+    end
+
+    test "missing PNG fails without reporting storage success and cleans its owned file" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then echo 'https://example.org/'; else echo 'ok'; fi
+))
+
+      {:ok, folder} = Provenance.seal(%Record{id: "folder-1", kind: :folder, name: "example.org"})
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   %Zaq.System.WebBrowsingConfig{
+                     provider: "google_drive",
+                     config_id: 12,
+                     folder_id: "parent-17"
+                   }}
+            }
+
+          :data_source_list_files ->
+            %{event | response: {:ok, %{records: [folder]}}}
+
+          other ->
+            flunk("unexpected action #{inspect(other)}")
+        end
+      end)
+
+      assert {:error, "Screenshot file missing, too large or not a valid PNG"} =
+               Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
+
+      assert Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) == []
+    end
+
+    test "oversized PNG is rejected before upload and its temporary file is removed" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then
+  echo 'https://example.org/'
+elif [ "$1" = "screenshot" ]; then
+  printf '\211PNG\r\n\032\n' > "$2"
+  dd if=/dev/zero bs=1048576 count=11 >> "$2" 2>/dev/null
+fi
+))
+
+      {:ok, folder} = Provenance.seal(%Record{id: "folder-1", kind: :folder, name: "example.org"})
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   %Zaq.System.WebBrowsingConfig{
+                     provider: "google_drive",
+                     config_id: 12,
+                     folder_id: "parent-17"
+                   }}
+            }
+
+          :data_source_list_files ->
+            %{event | response: {:ok, %{records: [folder]}}}
+
+          other ->
+            flunk("unexpected action #{inspect(other)}")
+        end
+      end)
+
+      assert {:error, "Screenshot file missing, too large or not a valid PNG"} =
+               Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
+
+      assert Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) == []
+    end
+
+    test "incomplete folder listing stops capture rather than creating a duplicate" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then echo 'https://example.org/'; else exit 37; fi
+))
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   %Zaq.System.WebBrowsingConfig{
+                     provider: "google_drive",
+                     config_id: 12,
+                     folder_id: "parent-17"
+                   }}
+            }
+
+          :data_source_list_files ->
+            %{
+              event
+              | response: {:ok, %{records: [], pagination: %{has_more?: true, cursor: "next"}}}
+            }
+
+          other ->
+            flunk("unexpected action #{inspect(other)}")
+        end
+      end)
+
+      assert {:error, "Screenshot destination folder listing is incomplete"} =
+               Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
+    end
+
+    test "creates a hostname folder, uses its canonical ID and does not claim success on upload failure" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then
+  echo 'https://example.org/'
+elif [ "$1" = "screenshot" ]; then
+  printf '\211PNG\r\n\032\nDATA' > "$2"
+fi
+))
+
+      {:ok, folder} =
+        Provenance.seal(%Record{id: "created-folder-77", kind: :folder, name: "example.org"})
+
+      test_pid = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   %Zaq.System.WebBrowsingConfig{
+                     provider: "google_drive",
+                     config_id: 12,
+                     folder_id: "root-folder"
+                   }}
+            }
+
+          :data_source_list_files ->
+            %{event | response: {:ok, %{records: []}}}
+
+          :data_source_create_file ->
+            params = event.request.params
+            send(test_pid, {:screenshot_create, params})
+
+            response =
+              if params["kind"] == "folder",
+                do: {:ok, %{record: folder}},
+                else: {:error, :permission_denied}
+
+            %{event | response: response}
+        end
+      end)
+
+      assert {:error, "Screenshot could not be saved to the configured destination"} =
+               Browsing.run(%{command: "screenshot"}, %{node_router: Zaq.NodeRouterMock})
+
+      assert_received {:screenshot_create,
+                       %{
+                         "parent_id" => "root-folder",
+                         "name" => "example.org",
+                         "kind" => "folder"
+                       }}
+
+      assert_received {:screenshot_create, %{"parent_id" => "created-folder-77", "name" => name}}
+      assert name =~ ~r/^home--.*\.png$/
+      assert Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) == []
+    end
+
+    test "fails closed when the Engine cannot supply an administrator policy" do
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        %Zaq.Event{event | response: {:error, :unavailable}}
+      end)
+
+      System.put_env("AGENT_BROWSER_BIN", "/nonexistent/should-not-run")
+
+      assert {:error, "Web browsing policy unavailable; browser command not executed"} =
+               Browsing.run(%{command: "snapshot"}, %{node_router: Zaq.NodeRouterMock})
+    end
+
     test "rejects a command outside the allowlist without spawning" do
       # No fake bin set — a spawn would fail with :enoent; validation must short-circuit.
       System.put_env("AGENT_BROWSER_BIN", "/nonexistent/should-not-run")
@@ -242,6 +638,40 @@ defmodule Zaq.Agent.Tools.Web.BrowsingTest do
   end
 
   describe "run/2 error mapping" do
+    test "screenshot CLI failure retains bounded diagnostics without leaking local path or page URL" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then
+  echo 'https://example.org/page?secret=do-not-log'
+else
+  echo "Capture denied at $2 for https://example.org/private?token=do-not-log" >&2
+  exit 42
+fi
+))
+
+      assert {:error, message} =
+               Browsing.run(%{command: "screenshot"}, stub_screenshot_destination())
+
+      assert message =~ "Screenshot capture failed (exit 42)"
+      assert message =~ "Capture denied"
+      refute message =~ "do-not-log"
+      refute message =~ "example.org"
+      refute message =~ System.tmp_dir!()
+      assert String.length(message) <= 400
+      assert Path.wildcard(Path.join(System.tmp_dir!(), "zaq-browser-*.png")) == []
+    end
+
+    test "screenshot timeout is distinguished from a CLI failure" do
+      fake_bin(~S(#!/bin/sh
+if [ "$1" = "get" ]; then echo 'https://example.org/'; else sleep 5; fi
+))
+
+      assert {:error, "Screenshot capture timed out"} =
+               Browsing.run(
+                 %{command: "screenshot", timeout_ms: 800},
+                 stub_screenshot_destination()
+               )
+    end
+
     test "maps a CLI non-zero exit to a descriptive error" do
       fake_bin("#!/bin/sh\necho 'element not found'\nexit 4\n")
 

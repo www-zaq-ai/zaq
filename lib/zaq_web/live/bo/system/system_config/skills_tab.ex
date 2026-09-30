@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.SkillsTab do
   alias ZaqWeb.Components.DesignSystem.DataSourceFolderPicker
   alias ZaqWeb.Components.DesignSystem.Input, as: DSInput
   alias ZaqWeb.Components.DesignSystem.ModalNewFolder
+  alias ZaqWeb.Live.BO.DataSourceBrowser
 
   attr :config, :map, required: true
   attr :sources, :list, default: []
@@ -22,7 +23,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.SkillsTab do
   def panel(assigns) do
     assigns =
       assigns
-      |> assign(:folder_label, folder_label(assigns.config))
+      |> assign(:folder_label, DataSourceBrowser.folder_label(assigns.config))
       |> assign(:can_choose_folder?, assigns.sources != [])
 
     ~H"""
@@ -99,8 +100,4 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.SkillsTab do
     </div>
     """
   end
-
-  defp folder_label(%{folder_path: path}) when is_binary(path) and path != "", do: path
-  defp folder_label(%{folder_id: id}) when not is_nil(id), do: "root"
-  defp folder_label(_), do: "No folder selected"
 end

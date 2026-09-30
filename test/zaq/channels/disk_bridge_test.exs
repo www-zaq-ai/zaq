@@ -398,6 +398,27 @@ defmodule Zaq.Channels.DiskBridgeTest do
   end
 
   describe "create_file/2" do
+    test "persists screenshot PNG bytes under the selected volume and nested folder" do
+      stub_response({:ok, %{status: "created", entry: entry("capture")}})
+      png = <<137, 80, 78, 71, 13, 10, 26, 10, 0, 255>>
+
+      assert {:ok, %{record: %Record{}}} =
+               DiskBridge.create_file(config(), %{
+                 "config_id" => "24",
+                 "name" => "capture.png",
+                 "path" => "volume-a/Captures/example.org",
+                 "content" => png,
+                 "mime_type" => "image/png"
+               })
+
+      assert_received {:dispatch, :storage, :persist_document,
+                       %{
+                         "path" => "volume-a/Captures/example.org",
+                         "name" => "capture.png",
+                         "content" => ^png
+                       }}
+    end
+
     test "dispatches :persist_document carrying name, path, content, and encoding" do
       stub_response({:ok, %{status: "created", entry: entry("42")}})
 

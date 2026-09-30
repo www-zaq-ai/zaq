@@ -66,6 +66,11 @@ the exact POST nonce/value, and a confirmation page. After the first successful
 navigation, it also calls the real browsing tool against `localhost` on the same
 fixture port while only `127.0.0.1` is allowed. It requires an explicit policy
 denial and no new fixture request, then completes the flow in the same session.
+The test configures the real administrator-owned domain policy rather than passing
+a removed `allowed_domains` tool argument. A separate screenshot scenario opens a
+local form page through the Agent, captures it twice using the real CLI, and verifies
+two distinct signed Records and nonempty PNGs with valid dimensions in a unique
+folder beneath the configured Disk volume. Temporary capture files must be gone.
 Each incoming message waits
 for Jido's actual terminal state before the next one. Selector waits replace
 timed sleeps. A unique browser session is closed on success and again during
@@ -92,6 +97,20 @@ profile. Each command has a 20-second deadline plus a 5-second kill grace inside
 the container; the workflow also bounds the whole step. The profile is cleaned up
 on success or failure. Its stdout/stderr is retained as a seven-day artifact.
 
+Mix runs on the CI host while the browser runs as UID/GID 1000 in Docker. CI sets
+host `TMPDIR` to a run-scoped, shared writable staging directory under
+`$RUNNER_TEMP` and bind-mounts it at the same absolute path in the container.
+The Disk datasource itself is **not** mounted into the browser container; the
+stored PNG assertions therefore prove a real upload. To run the suite through
+`test/support/bin/agent-browser-container` locally, arrange the same mount and
+`TMPDIR` before invoking the `mix test` command above. Use a unique staging
+directory per run; CI removes its directory after container cleanup.
+On Docker Desktop for macOS, container `127.0.0.1` does not reach the host fixture.
+Set `ZAQ_BROWSER_FIXTURE_HOST=host.docker.internal` on the host test process and
+set the container's `AGENT_BROWSER_ALLOWED_DOMAINS=host.docker.internal` instead.
+Only for this explicit local override, the trusted fixture binds to all interfaces
+so the container can reach it; CI keeps its loopback-only bind and policy.
+
 All CLI navigation uses the existing Bandit `BrowserFlowSite` in the integration
 test. There is no extra server, CLI probe session or warm-up navigation. The first
 `Executor` request opens its `http://127.0.0.1:<port>` URL with the domain allowlist
@@ -116,14 +135,16 @@ Ordinary tool timeouts still report a generic error to the LLM.
 The CLI is built with Cargo `--locked` from the immutable upstream commit in
 `priv/browser/agent-browser.revision`; the build verifies its reported version
 against `priv/browser/agent-browser.version`. Both production and CI inherit this
-same build. The current pin is v0.22.0, commit
-`ce1f1f5f8123b97f16aa08e9375659fcdf9c47ab`.
+same build. The current pin is v0.38.1, commit
+`aff6125c023b810ea3f2e5deec5379e9a4270bdc`.
 
 The published crates.io 0.19.0 package processes `Fetch.requestPaused` only at
 command boundaries: allowlisted navigation can wait for a paused request that
-cannot be resumed while the navigation command is running. The pinned source
-starts a background Fetch handler before installing interception. v0.22.0 was
-not available through crates.io when this pin was selected, so changing only
+cannot be resumed while the navigation command is running. The earlier v0.22.0
+pin (`ce1f1f5f8123b97f16aa08e9375659fcdf9c47ab`) introduced a background Fetch
+handler before interception; v0.38.1 includes that fix, with allowlisted navigation
+still covered by the real integration test. v0.22.0 was not available through
+crates.io when first pinned, so changing only
 the version argument of the old registry install would fail. Do not remove
 the allowlist or raise timeouts to work around this dependency defect.
 

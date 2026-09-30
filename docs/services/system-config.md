@@ -206,6 +206,42 @@ Reads and writes go through `NodeRouter.dispatch/1` data-source actions. Runtime
 uses the DB rows only. Content reads first call `get_document` to mint a fresh
 `materialization_handle`, then immediately call `download_document`; handles are never persisted.
 
+## Web Browsing Configuration
+
+System owns the grouped `system.web_browsing.*` settings: `allowed_domains` and
+`screenshots.{provider,config_id,scope_id,folder_id,folder_path}` for the screenshot
+destination. `Zaq.System.get_web_browsing_config/0` reads these settings together;
+`save_web_browsing_config/1` validates them and persists them atomically through
+Engine events. Missing settings default to an empty allowlist and no destination;
+an empty allowlist means all domains are permitted. Entries are comma-separated,
+exact ASCII DNS hostnames (including any required redirect hostnames). Invalid
+stored settings return an error instead of being silently treated as unrestricted.
+The optional destination must identify an enabled data-source configuration and
+a folder. The BO Web browsing tab reuses the datasource folder picker under
+`/bo/system-config?tab=web_browsing`, saving through Engine events. It displays
+the configured allowlist and folder separately from Skills settings.
+
+The `web_browsing` action reads this policy before running any browser command;
+the model cannot provide `allowed_domains`. Deployments using the previous
+`AGENT_BROWSER_ALLOWED_DOMAINS` environment restriction must save the same
+hostnames in global settings **before deployment**; the environment variable is
+no longer a policy source for the action. After changing allowed domains, restart every Agent container so existing
+`agent-browser` daemons cannot retain a previous policy. Screenshot destination
+changes will apply to the next capture without moving previously stored files.
+
+The `screenshot` command captures the current viewport of the current HTTP(S)
+page in the existing browser session. It reads the final URL (after redirects),
+then finds or creates a subfolder named after its hostname beneath the configured
+destination. The stored PNG is named
+`<sanitized-page-path>--<UTC-timestamp>--<random-id>.png` (root path: `home`),
+with no query, userinfo or fragment. An application-owned temporary capture file
+is bounded to 10 MiB, uploaded internally using `create_document`, and removed
+after success or failure. No image bytes or local file path are returned to the
+agent. A missing destination, invalid page, unreadable PNG or rejected upload
+returns an error; the command reports success only after a canonical signed
+`Record` is returned. Destination permissions still apply; an existing capture is not
+moved when settings change.
+
 ### Signal Adapter Pattern
 
 The `:mcp_endpoint_updated` action acts as an adapter signal from configuration

@@ -706,6 +706,35 @@ Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
 - `Zaq.Channels.Api` asks Engine to load policy and credentials, then `Zaq.Channels.HttpClient` resolves DNS, blocks private/special-use addresses, disables redirects/retries, and injects the Engine-rendered credential into final Req options.
 - BO policy and provider management live under `/bo/system-config?tab=outbound_http`.
 
+## Web Browsing Tool
+
+`Zaq.Agent.Tools.Web.Browsing` runs one allowlisted `agent-browser` CLI command
+per call. The browser daemon retains state within the chosen session; the current
+tool still accepts an explicit session, otherwise uses a workflow `run_id` or the
+legacy `zaq` default. Conversation/actor binding is deferred to GitHub #825.
+
+The action reads the global domain policy from Engine before every command.
+Agents cannot pass an `allowed_domains` override. A blank administrator policy
+passes an explicit empty CLI argument so newly started browser daemons do not
+inherit `AGENT_BROWSER_ALLOWED_DOMAINS`. Running daemons retain their original
+policy until all Agent containers are restarted. An unreadable policy prevents
+execution rather than falling back to unrestricted browsing. See
+[Web Browsing Configuration](system-config.md#web-browsing-configuration)
+for setup and migration.
+
+`snapshot` returns interactive accessibility refs, not a guarantee that text is
+absent. Use `text` on `body` for readable content and to diagnose a `Blocked`
+page. A successful `open` or `click` confirms CLI execution, not that the
+requested content loaded or a form submitted; verify with `url` and page text.
+`screenshot` captures a viewport PNG from the current session to the BO-managed
+datasource. The action obtains the final page URL and selects a hostname folder,
+then uploads through the validated `create_document` Action. It returns the
+canonical signed `Record` only after successful storage. Capture bytes and its
+bounded temporary PNG are never surfaced to the model; missing destination,
+invalid page and storage failures are errors. A failed screenshot CLI invocation
+reports its exit status and a bounded, sanitized CLI reason; temporary paths and
+page URLs are redacted. A capture error occurs before the PNG upload step.
+
 ---
 
 ## Key Design Decisions

@@ -307,6 +307,202 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
     end
   end
 
+  describe "web browsing settings" do
+    test "shows the tab and saves an exact host policy", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+
+      assert html =~ "Web browsing"
+      assert html =~ "Allowed domains"
+      assert html =~ "Restart every Agent container"
+
+      html =
+        render_submit(view, "save_web_browsing_config", %{
+          "web_browsing" => %{"allowed_domains" => " ZAQ.AI ,www.zaq.ai "}
+        })
+
+      assert html =~ "Web browsing settings saved"
+      assert {:ok, %{allowed_domains: "zaq.ai,www.zaq.ai"}} = System.get_web_browsing_config()
+    end
+
+    test "invalid policy retains the submitted value", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+
+      html =
+        render_submit(view, "save_web_browsing_config", %{
+          "web_browsing" => %{"allowed_domains" => "https://zaq.ai"}
+        })
+
+      assert html =~ "https://zaq.ai"
+      assert html =~ "Could not save Web browsing settings"
+      assert {:ok, %{allowed_domains: ""}} = System.get_web_browsing_config()
+    end
+
+    test "chooses a scoped screenshot folder without changing Skills settings", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      source = channel_config_fixture(%{name: "Screenshot Drive", provider: "google_drive"})
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{event | response: System.get_web_browsing_config()}
+
+          :system_config_list_skill_resource_data_sources ->
+            %{event | response: {:ok, [source]}}
+
+          :data_source_list_source_scopes ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   [
+                     %{
+                       provider: "google_drive",
+                       config_id: source.id,
+                       scope_id: "root",
+                       label: "Drive",
+                       filters: %{"parent" => "root"}
+                     }
+                   ]}
+            }
+
+          :data_source_list_files ->
+            parent = get_in(event.request, [:params, "filters", "parent"])
+
+            records =
+              if parent == "root",
+                do: [
+                  %Record{id: "opaque-folder", name: "Evidence", path: "Evidence", kind: :folder}
+                ],
+                else: []
+
+            %{event | response: {:ok, %{records: records}}}
+
+          :system_config_save_web_browsing_config ->
+            %{event | response: System.save_web_browsing_config(event.request.attrs)}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      view |> element("button[phx-click='open_web_browsing_folder_modal']") |> render_click()
+      assert has_element?(view, "#web-browsing-folder-picker")
+
+      view
+      |> element("button[phx-click='web_browsing_folder_navigate'][phx-value-id='opaque-folder']")
+      |> render_click()
+
+      view |> element("button[phx-click='web_browsing_folder_up']") |> render_click()
+
+      view
+      |> element("button[phx-click='web_browsing_folder_navigate'][phx-value-id='opaque-folder']")
+      |> render_click()
+
+      view |> element("button[phx-click='confirm_web_browsing_folder']") |> render_click()
+
+      assert has_element?(view, "#web-browsing-selected-folder", "Evidence")
+      assert has_element?(view, "button[phx-click='open_web_browsing_folder_modal']", "Change")
+
+      view
+      |> element("#web-browsing-config-form")
+      |> render_submit(%{"web_browsing" => %{"allowed_domains" => "zaq.ai"}})
+
+      assert {:ok,
+              %{
+                provider: "google_drive",
+                config_id: config_id,
+                scope_id: "root",
+                folder_id: "opaque-folder"
+              }} =
+               System.get_web_browsing_config()
+
+      assert config_id == source.id
+      assert System.get_skill_resource_config().folder_id == nil
+    end
+
+    test "no destination can be selected when no data source is available", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{event | response: System.get_web_browsing_config()}
+
+          :system_config_list_skill_resource_data_sources ->
+            %{event | response: {:ok, []}}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      assert html =~ "Browsing works, but screenshots cannot be stored"
+      assert has_element?(view, "#web-browsing-selected-folder", "No folder selected")
+      assert has_element?(view, "button[phx-click='open_web_browsing_folder_modal'][disabled]")
+    end
+
+    test "creates a screenshot destination folder using the existing data-source operation", %{
+      conn: conn
+    } do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      source = channel_config_fixture(%{name: "Screenshot Drive", provider: "google_drive"})
+      caller = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{event | response: System.get_web_browsing_config()}
+
+          :system_config_list_skill_resource_data_sources ->
+            %{event | response: {:ok, [source]}}
+
+          :data_source_list_source_scopes ->
+            %{
+              event
+              | response:
+                  {:ok,
+                   [
+                     %{
+                       provider: "google_drive",
+                       config_id: source.id,
+                       scope_id: "root",
+                       label: "Drive",
+                       filters: %{"parent" => "root"}
+                     }
+                   ]}
+            }
+
+          :data_source_list_files ->
+            %{event | response: {:ok, %{records: []}}}
+
+          :data_source_create_file ->
+            send(caller, {:screenshot_folder_request, event.request})
+
+            %{
+              event
+              | response:
+                  {:ok, %{record: %Record{id: "created-folder", name: "Captures", kind: :folder}}}
+            }
+
+          _ ->
+            build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      view |> element("button[phx-click='open_web_browsing_folder_modal']") |> render_click()
+      view |> element("button[phx-click='show_new_folder_modal']") |> render_click()
+      render_submit(view, "create_folder", %{"name" => "Captures"})
+
+      assert_received {:screenshot_folder_request, %{provider: "google_drive", params: params}}
+      assert params["config_id"] == to_string(source.id)
+      assert params["kind"] == "folder"
+      refute has_element?(view, "#web-browsing-folder-picker [role='alert']")
+    end
+  end
+
   describe "skills resource settings" do
     test "saves the global Skills resource location", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=skills")
