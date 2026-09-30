@@ -32,7 +32,12 @@ defmodule Zaq.Engine.Workflows.ConditionTriggerFailureTest do
 
   # Workflow B: a single halting Condition node off the trigger, requiring the
   # person's `position` to equal BOTH "CFO" and "CEO" (so a "CTO" fails both).
-  defp setup_workflow do
+  @failing_conditions [
+    %{"key" => "position", "op" => "eq", "value" => "CFO"},
+    %{"key" => "position", "op" => "eq", "value" => "CEO"}
+  ]
+
+  defp setup_workflow(conditions \\ @failing_conditions) do
     {:ok, workflow} =
       Workflows.create_workflow(%{
         name: "Position Gate Test #{System.unique_integer()}",
@@ -43,11 +48,9 @@ defmodule Zaq.Engine.Workflows.ConditionTriggerFailureTest do
             type: "action",
             module: @condition_module,
             params: %{
+              "input" => "start",
               "on_fail" => "halt",
-              "conditions" => [
-                %{"key" => "position", "op" => "eq", "value" => "CFO"},
-                %{"key" => "position", "op" => "eq", "value" => "CEO"}
-              ]
+              "conditions" => conditions
             },
             index: 0
           }
@@ -113,6 +116,29 @@ defmodule Zaq.Engine.Workflows.ConditionTriggerFailureTest do
       run = latest_run(workflow)
       assert run.log_summary["failed_step_count"] == 1
       assert run.log_summary["failed_steps"] == ["check_position"]
+    end
+  end
+
+  describe "passing condition off a trigger (string reference input)" do
+    test "completes the run and passes the referenced trigger fact through" do
+      workflow =
+        setup_workflow([
+          %{"key" => "position", "op" => "eq", "value" => "CTO"},
+          %{"key" => "age", "op" => "gte", "value" => 18},
+          # `default` is a live condition field: it supplies the actual value when the
+          # key is absent, and must survive persistence and Jido param conversion.
+          %{"key" => "tier", "op" => "eq", "value" => "gold", "default" => "gold"}
+        ])
+
+      assert :ok = fire()
+
+      run = latest_run(workflow)
+      assert run.status == "completed"
+
+      step = step_runs(run)["check_position"]
+      assert step.status == "completed"
+      assert step.results["passed"] == true
+      assert step.results["input"]["position"] == "CTO"
     end
   end
 end

@@ -10,25 +10,30 @@ defmodule Zaq.Agent.Tools.Workflow.ScheduleAction do
   use Zaq.Engine.Workflows.Action,
     name: "schedule_action",
     description: "Create or update a pending scheduled action by schedule id.",
-    schema: [
-      schedule_id: [type: :string, required: true, doc: "Stable identifier for this schedule."],
-      action_key: [
-        type: :string,
-        required: true,
-        doc: "Tool registry key for the action to run when the schedule fires."
-      ],
-      params: [type: :map, required: true, doc: "Params map passed to the scheduled action."],
-      scheduled_at: [
-        type: :string,
-        required: true,
-        doc: "Absolute UTC ISO8601 datetime, e.g. 2026-07-15T12:00:00Z."
-      ]
-    ],
-    output_schema: [
-      schedule_id: [type: :string, required: true],
-      job_id: [type: :integer, required: true],
-      scheduled_at: [type: :string, required: true]
-    ]
+    schema:
+      Zoi.object(
+        %{
+          schedule_id: Zoi.string(description: "Stable identifier for this schedule."),
+          action_key:
+            Zoi.string(
+              description: "Tool registry key for the action to run when the schedule fires."
+            ),
+          params:
+            Zoi.map(
+              description: "Opaque params object passed unchanged to the scheduled target Action."
+            ),
+          scheduled_at:
+            Zoi.string(description: "Absolute UTC ISO8601 datetime, e.g. 2026-07-15T12:00:00Z.")
+        },
+        coerce: true,
+        unrecognized_keys: :preserve
+      ),
+    output_schema:
+      Zoi.object(%{
+        schedule_id: Zoi.string(),
+        job_id: Zoi.integer(),
+        scheduled_at: Zoi.string()
+      })
 
   alias Zaq.Engine.ActionSchedules
   alias Zaq.MapUtils

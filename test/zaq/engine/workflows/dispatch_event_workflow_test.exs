@@ -51,7 +51,9 @@ defmodule Zaq.Engine.Workflows.DispatchEventWorkflowTest do
       name: "seed_items",
       description: "Emit a fixed list of items to fan out over.",
       schema: [count: [type: :integer, required: false, default: 3, doc: "How many items."]],
-      output_schema: [items: [type: {:list, :map}, required: true, doc: "Items to dispatch."]]
+      output_schema: [
+        items: [type: {:list, {:map, :any, :any}}, required: true, doc: "Items to dispatch."]
+      ]
 
     @impl Jido.Action
     def run(params, _ctx) do
@@ -73,8 +75,10 @@ defmodule Zaq.Engine.Workflows.DispatchEventWorkflowTest do
     use Zaq.Engine.Workflows.Action,
       name: "prepare_item",
       description: "Pass a single batch item through as `input`.",
-      schema: [input: [type: :map, required: true, doc: "One item from the batch."]],
-      output_schema: [input: [type: :map, required: true, doc: "The item, unchanged."]]
+      schema: [input: [type: {:map, :any, :any}, required: true, doc: "One item from the batch."]],
+      output_schema: [
+        input: [type: {:map, :any, :any}, required: true, doc: "The item, unchanged."]
+      ]
 
     @impl Jido.Action
     def run(%{input: input}, _ctx), do: {:ok, %{input: input}}

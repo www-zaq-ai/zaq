@@ -79,6 +79,7 @@ defmodule Zaq.Engine.Workflows.EdgeStepStructCascadeE2ETest do
             from: "a",
             to: "gate",
             mapping: %{
+              "input" => "a.metadata",
               "row" => "a.row",
               "last_message_date" => "a.metadata.last_message_date"
             }

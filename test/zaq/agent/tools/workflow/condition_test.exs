@@ -2,9 +2,28 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias Jido.Action.Error
   alias Zaq.Agent.Tools.Workflow.Condition
 
   @ctx %{}
+
+  # Keep the established business-message assertions while exercising real
+  # executor validation and checking every failure is explicitly non-retryable.
+  defp run_condition(params, context) do
+    case Jido.Exec.run(Condition, params, context,
+           timeout: 0,
+           max_retries: 0,
+           backoff: 0,
+           telemetry: :silent
+         ) do
+      {:error, error} ->
+        refute Error.retryable?(error)
+        {:error, Error.to_map(error).message}
+
+      result ->
+        result
+    end
+  end
 
   describe "run/2 — all conditions pass" do
     test "atom-keyed input" do
@@ -16,7 +35,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       ]
 
       assert {:ok, %{passed: true, input: ^input}} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "string-keyed input" do
@@ -28,14 +47,14 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       ]
 
       assert {:ok, %{passed: true, input: ^input}} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "empty conditions list always passes" do
       input = %{active: false}
 
       assert {:ok, %{passed: true}} =
-               Condition.run(%{input: input, conditions: []}, @ctx)
+               run_condition(%{input: input, conditions: []}, @ctx)
     end
   end
 
@@ -49,7 +68,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       ]
 
       assert {:error, reason} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
 
       assert String.starts_with?(reason, "Condition not met:")
       assert reason =~ "active must equal true but was false"
@@ -65,7 +84,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       ]
 
       assert {:error, reason} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
 
       assert reason == "Condition not met: flagged must equal false but was true"
     end
@@ -80,7 +99,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         %{"key" => "position", "op" => "eq", "value" => "CEO"}
       ]
 
-      assert {:error, reason} = Condition.run(%{input: person, conditions: conditions}, @ctx)
+      assert {:error, reason} = run_condition(%{input: person, conditions: conditions}, @ctx)
 
       assert reason ==
                ~s(Condition not met: position must equal "CFO" but was "CTO"; ) <>
@@ -93,7 +112,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       input = %{"email_state" => 3}
       conditions = [%{"key" => "email_state", "op" => "lt", "value" => 4}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "lt fails when actual equals value" do
@@ -101,49 +120,49 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "email_state", "op" => "lt", "value" => 4}]
 
       assert {:error, "Condition not met: email_state must be less than 4 but was 4"} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "gt passes when actual is greater than value" do
       input = %{"score" => 10}
       conditions = [%{"key" => "score", "op" => "gt", "value" => 5}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "neq passes when actual differs from value" do
       input = %{"status" => "active"}
       conditions = [%{"key" => "status", "op" => "neq", "value" => "inactive"}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "in passes when actual is a member of value list" do
       input = %{"role" => "admin"}
       conditions = [%{"key" => "role", "op" => "in", "value" => ["admin", "owner"]}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "not_empty passes for non-blank value" do
       input = %{"name" => "Alice"}
       conditions = [%{"key" => "name", "op" => "not_empty"}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "empty passes for nil value" do
       input = %{"name" => nil}
       conditions = [%{"key" => "name", "op" => "empty"}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "defaults to eq when op is omitted" do
       input = %{"active" => true}
       conditions = [%{"key" => "active", "value" => true}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "not_empty failure produces special message without actual value" do
@@ -151,7 +170,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "name", "op" => "not_empty"}]
 
       assert {:error, "Condition not met: name must not be empty"} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "empty failure includes rendered actual value" do
@@ -159,7 +178,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "name", "op" => "empty"}]
 
       assert {:error, ~s(Condition not met: name must be empty but was "Alice")} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "neq failure renders must not equal" do
@@ -167,7 +186,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "status", "op" => "neq", "value" => "active"}]
 
       assert {:error, ~s(Condition not met: status must not equal "active" but was "active")} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "gt failure renders must be greater than" do
@@ -175,7 +194,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "score", "op" => "gt", "value" => 10}]
 
       assert {:error, "Condition not met: score must be greater than 10 but was 5"} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "gte failure renders must be at least" do
@@ -183,7 +202,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "score", "op" => "gte", "value" => 5}]
 
       assert {:error, "Condition not met: score must be at least 5 but was 4"} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "lte failure renders must be at most" do
@@ -191,7 +210,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "score", "op" => "lte", "value" => 5}]
 
       assert {:error, "Condition not met: score must be at most 5 but was 6"} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "in failure renders must be one of" do
@@ -200,7 +219,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
 
       assert {:error,
               ~s(Condition not met: role must be one of ["admin", "owner"] but was "viewer")} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
   end
 
@@ -209,7 +228,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       input = %{"active" => true}
       conditions = [%{"key" => "email_state", "op" => "lt", "value" => 4, "default" => 0}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "uses default when key is absent and condition fails" do
@@ -217,7 +236,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "email_state", "op" => "lt", "value" => 0, "default" => 0}]
 
       assert {:error, "Condition not met: email_state must be less than 0 but was 0"} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "missing key without default fails the condition" do
@@ -225,7 +244,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "email_state", "op" => "lt", "value" => 4}]
 
       assert {:error, "Condition not met: email_state must be less than 4 but was empty"} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
   end
 
@@ -237,7 +256,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
 
       # Routing mode omits `input` so it cannot clobber a downstream node's own param.
       assert {:ok, result} =
-               Condition.run(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
+               run_condition(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
 
       assert %{passed: false, failed_conditions: [_]} = result
       refute Map.has_key?(result, :input)
@@ -248,7 +267,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "active", "value" => true}]
 
       assert {:ok, result} =
-               Condition.run(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
+               run_condition(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
 
       assert result == %{passed: true}
     end
@@ -260,7 +279,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{key: :active, value: true}]
 
       assert {:ok, %{passed: true}} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "fetch_value with atom key falls back to string-keyed input" do
@@ -268,7 +287,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{key: :active, value: true}]
 
       assert {:ok, %{passed: true}} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "fetch_value with atom key falls back to string key in input" do
@@ -279,7 +298,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{key: "active", value: true}]
 
       assert {:ok, %{passed: true}} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "fetch_value with atom key finds value directly in atom-keyed input" do
@@ -288,7 +307,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{key: "score", value: 10}]
 
       assert {:ok, %{passed: true}} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "to_op with atom op is a pass-through" do
@@ -297,7 +316,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "active", "op" => :eq, "value" => true}]
 
       assert {:ok, %{passed: true}} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
   end
 
@@ -312,7 +331,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
 
       # The condition will fail (key not found, no default) but must not raise
       assert {:error, "Condition not met: " <> _} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "fetch_value rescues ArgumentError when binary key atom does not exist (line 141)" do
@@ -325,18 +344,16 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
 
       # With a default that matches value, the condition passes
       assert {:ok, %{passed: true}} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
   end
 
   # ---------------------------------------------------------------------------
-  # Blocker 1 (issue #508): a Condition as the FIRST node of a run triggered by
-  # a dispatched event has no upstream node to produce an `:input` key. The
-  # trigger payload seeds the fact at root, so the condition must evaluate
-  # against the incoming fact at root instead of crashing on a missing `:input`.
+  # Trigger-first conditions must now declare input explicitly; the previous
+  # absent-input fallback bypassed the required Jido parameter contract.
   # ---------------------------------------------------------------------------
   describe "run/2 — first node off a trigger (root-fact contract)" do
-    test "evaluates a root key when the trigger payload seeds the fact (no :input)" do
+    test "rejects a root fact without explicit input" do
       params = %{
         "name" => "Jad",
         "age" => 32,
@@ -344,16 +361,17 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         conditions: [%{"key" => "position", "op" => "eq", "value" => "CTO"}]
       }
 
-      assert {:ok, %{passed: true}} = Condition.run(params, @ctx)
+      assert {:error, message} = run_condition(params, @ctx)
+      assert message =~ "input"
     end
 
-    test "resolves a dotted path into a nested map at root" do
+    test "resolves a dotted path into an explicit input map" do
       params = %{
-        profile: %{"position" => "CTO"},
+        input: %{profile: %{"position" => "CTO"}},
         conditions: [%{"key" => "profile.position", "op" => "eq", "value" => "CTO"}]
       }
 
-      assert {:ok, %{passed: true}} = Condition.run(params, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(params, @ctx)
     end
 
     test "explicit :input still wins (mid-DAG behaviour preserved)" do
@@ -363,7 +381,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         conditions: [%{"key" => "position", "op" => "eq", "value" => "CTO"}]
       }
 
-      assert {:ok, %{passed: true}} = Condition.run(params, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(params, @ctx)
     end
 
     # Additive guarantee: the root-fallback never weakens mid-DAG behaviour — when
@@ -387,8 +405,8 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         # Plant a conflicting root value; :input must still win.
         noisy = noise |> Map.put("field", val + 1) |> Map.merge(base)
 
-        assert {:ok, %{passed: true}} = Condition.run(base, @ctx)
-        assert {:ok, %{passed: true}} = Condition.run(noisy, @ctx)
+        assert {:ok, %{passed: true}} = run_condition(base, @ctx)
+        assert {:ok, %{passed: true}} = run_condition(noisy, @ctx)
       end
     end
   end
@@ -398,14 +416,15 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       ctx = %{__cascade__: %{"store_context" => %{record: %{id: 7}}}}
       conditions = [%{"key" => "store_context.record.id", "op" => "eq", "value" => 7}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{conditions: conditions}, ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: %{}, conditions: conditions}, ctx)
     end
 
     test "resolves the persistent start.* namespace from the cascade" do
       ctx = %{__cascade__: %{start: %{"company context file" => "drive-123"}}}
       conditions = [%{"key" => "start.company context file", "op" => "not_empty"}]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{conditions: conditions}, ctx)
+      assert {:ok, %{passed: true}} =
+               run_condition(%{input: "start", conditions: conditions}, ctx)
     end
 
     test "the original input is returned unchanged (cascade only augments the lookup view)" do
@@ -414,7 +433,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "company context file", "op" => "empty"}]
 
       assert {:ok, %{passed: true, input: ^input}} =
-               Condition.run(%{input: input, conditions: conditions}, ctx)
+               run_condition(%{input: input, conditions: conditions}, ctx)
     end
   end
 
@@ -424,7 +443,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "active", "value" => true}]
 
       assert {:ok, %{passed: false, failed_conditions: [_]}} =
-               Condition.run(%{input: input, conditions: conditions, on_fail: "continue"}, @ctx)
+               run_condition(%{input: input, conditions: conditions, on_fail: "continue"}, @ctx)
     end
 
     test "string \"halt\" stops the step" do
@@ -432,26 +451,29 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "active", "value" => true}]
 
       assert {:error, "Condition not met: active must equal true but was false"} =
-               Condition.run(%{input: input, conditions: conditions, on_fail: "halt"}, @ctx)
+               run_condition(%{input: input, conditions: conditions, on_fail: "halt"}, @ctx)
     end
 
-    test "an unrecognized on_fail value defaults to halt" do
+    test "an unrecognized on_fail value fails validation" do
       input = %{active: false}
       conditions = [%{"key" => "active", "value" => true}]
 
-      assert {:error, "Condition not met: active must equal true but was false"} =
-               Condition.run(%{input: input, conditions: conditions, on_fail: "bogus"}, @ctx)
+      assert {:error, message} =
+               run_condition(%{input: input, conditions: conditions, on_fail: "bogus"}, @ctx)
+
+      assert message =~ "on_fail"
     end
   end
 
   describe "run/2 — non-map input" do
-    test "a scalar input falls back to condition defaults without raising" do
+    test "an unresolved reference is rejected even when condition defaults would match" do
       params = %{
         input: "scalar-input",
         conditions: [%{"key" => "x", "op" => "eq", "value" => 1, "default" => 1}]
       }
 
-      assert {:ok, %{passed: true, input: "scalar-input"}} = Condition.run(params, @ctx)
+      assert {:error, "Condition input reference must resolve to a map"} =
+               run_condition(params, @ctx)
     end
   end
 
@@ -464,7 +486,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       ]
 
       assert {:ok, %{passed: true, input: ^input}} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "fails with a date-phrased message when the date is not before the bound" do
@@ -474,7 +496,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         %{"key" => "due_date", "type" => "date", "op" => "lt", "value" => "2026-07-01"}
       ]
 
-      assert {:error, reason} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:error, reason} = run_condition(%{input: input, conditions: conditions}, @ctx)
 
       assert reason ==
                ~s(Condition not met: due_date must be before "2026-07-01" but was "2026-07-10")
@@ -496,7 +518,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
           %{"key" => "due_date", "type" => "date", "op" => op, "value" => expected}
         ]
 
-        assert {:error, reason} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+        assert {:error, reason} = run_condition(%{input: input, conditions: conditions}, @ctx)
         assert reason == ~s(Condition not met: due_date #{phrase} but was "2026-07-10")
       end
     end
@@ -515,7 +537,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
 
       assert {:error,
               ~s(Condition not met: due_date must be one of ["2026-07-08", "2026-07-09"] but was "2026-07-10")} =
-               Condition.run(%{input: input, conditions: conditions}, @ctx)
+               run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "regression: two dates where term order disagrees with chronology" do
@@ -527,7 +549,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         %{"key" => "created", "type" => "date", "op" => "lt", "value" => "2021-01-01"}
       ]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "relative age: last_sent_at older than 7 days (datetime, relative map)" do
@@ -544,7 +566,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         }
       ]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{input: input, conditions: conditions}, @ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: input, conditions: conditions}, @ctx)
     end
 
     test "routes (continue) on a failing date condition" do
@@ -555,7 +577,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       ]
 
       assert {:ok, %{passed: false, failed_conditions: [_]}} =
-               Condition.run(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
+               run_condition(%{input: input, conditions: conditions, on_fail: :continue}, @ctx)
     end
 
     test "resolves a node-qualified date key from the cascade" do
@@ -570,7 +592,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
         }
       ]
 
-      assert {:ok, %{passed: true}} = Condition.run(%{conditions: conditions}, ctx)
+      assert {:ok, %{passed: true}} = run_condition(%{input: %{}, conditions: conditions}, ctx)
     end
   end
 
@@ -604,18 +626,18 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       # last_message_date is within the allowed window → passes. Without reference
       # resolution the string input would make the key miss and pin passed to false.
       assert {:ok, %{passed: true}} =
-               Condition.run(
+               run_condition(
                  %{input: "build_history.metadata", conditions: conditions, on_fail: :continue},
                  ctx
                )
     end
 
-    test "an unresolvable reference falls back to the raw string (keys miss, no crash)",
+    test "an unresolvable reference fails validation even in continue mode",
          %{ctx: ctx} do
       conditions = [%{"key" => "total.last_message_date", "op" => "not_empty"}]
 
-      assert {:ok, %{passed: false, failed_conditions: [_]}} =
-               Condition.run(
+      assert {:error, "Condition input reference must resolve to a map"} =
+               run_condition(
                  %{input: "does_not.exist", conditions: conditions, on_fail: :continue},
                  ctx
                )
@@ -625,7 +647,7 @@ defmodule Zaq.Agent.Tools.Workflow.ConditionTest do
       conditions = [%{"key" => "flag", "value" => true}]
 
       assert {:ok, %{passed: true}} =
-               Condition.run(%{input: %{"flag" => true}, conditions: conditions}, ctx)
+               run_condition(%{input: %{"flag" => true}, conditions: conditions}, ctx)
     end
   end
 

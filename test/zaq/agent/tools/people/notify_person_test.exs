@@ -4,6 +4,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
   import Mox
   setup :verify_on_exit!
 
+  alias Jido.Action.Schema
   alias Zaq.Accounts.People
   alias Zaq.Accounts.Person
   alias Zaq.Agent.Tools.People.EnsurePerson
@@ -46,7 +47,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
 
   describe "schema/0" do
     test "does not expose channel or sheet-specific fields" do
-      keys = Keyword.keys(NotifyPerson.schema())
+      keys = Schema.known_keys(NotifyPerson.schema())
 
       assert :person in keys
       assert :subject in keys

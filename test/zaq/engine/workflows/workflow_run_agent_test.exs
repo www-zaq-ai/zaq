@@ -2,6 +2,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
   use Zaq.DataCase, async: false
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   alias Zaq.Accounts.People
   alias Zaq.Engine.Workflows
@@ -9,7 +10,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
   alias Zaq.Engine.Workflows.{WorkflowRun, WorkflowRunAgent}
   alias Zaq.Event
   alias Zaq.Repo
-  @waiting_module "Zaq.Engine.Workflows.Test.WaitingAction"
+  @waiting_module "Zaq.Engine.Workflows.Steps.HumanInTheLoop"
 
   @ok_module "Zaq.Engine.Workflows.Test.OkAction"
   @error_module "Zaq.Engine.Workflows.Test.ErrorAction"
@@ -46,6 +47,18 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
 
     {:ok, run} = Workflows.create_run(wf, @source_event)
     run
+  end
+
+  defp collect_dispatched_actions(actions) do
+    receive do
+      {:dispatched, %Event{request: %{action: action}}} ->
+        collect_dispatched_actions([action | actions])
+
+      {:dispatched, _event} ->
+        collect_dispatched_actions(actions)
+    after
+      0 -> Enum.reverse(actions)
+    end
   end
 
   defp probe_workflow do
@@ -118,6 +131,63 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
     end
   end
 
+  describe "execute/1 — competing terminal transitions" do
+    for {finalization, module, step_status, forbidden_event} <- [
+          {:completed, @ok_module, "completed", "run.completed"},
+          {:failed, @error_module, "failed", "run.failed"}
+        ] do
+      test "a committed interruption survives stale #{finalization} finalization" do
+        run = create_run(unquote(module))
+        test_pid = self()
+        step_status = unquote(step_status)
+
+        stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+          case event.request do
+            {:broadcast, _topic, {:step_updated, %{status: ^step_status}}} ->
+              send(test_pid, {:driver_ready_to_finalize, self()})
+
+              receive do
+                :continue_after_interruption -> :ok
+              end
+
+            _ ->
+              :ok
+          end
+
+          send(test_pid, {:dispatched, event})
+          event
+        end)
+
+        callers = [self() | Process.get(:"$callers", [])]
+
+        driver =
+          spawn(fn ->
+            Process.put(:"$callers", callers)
+            send(test_pid, {:driver_result, WorkflowRunAgent.execute(run)})
+          end)
+
+        assert_receive {:driver_ready_to_finalize, ^driver}, 3_000
+        assert Workflows.get_run!(run.id).status == "running"
+
+        assert {:ok, %{status: "interrupted"}} =
+                 run.id
+                 |> Workflows.get_run!()
+                 |> Workflows.interrupt_run(reason: "recovery", message: "driver presumed lost")
+
+        send(driver, :continue_after_interruption)
+
+        assert_receive {:driver_result, {:ok, %{status: "interrupted"}}}, 3_000
+        assert Workflows.get_run!(run.id).status == "interrupted"
+        assert [%{status: ^step_status}] = Workflows.list_step_runs(run.id)
+
+        events = collect_dispatched_actions([])
+        assert "run.started" in events
+        assert "run.interrupted" in events
+        refute unquote(forbidden_event) in events
+      end
+    end
+  end
+
   describe "execute/1 — step failure" do
     test "transitions WorkflowRun to failed when a step errors" do
       run = create_run(@error_module)
@@ -137,7 +207,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert ar.errors["reason"] =~ "test_failure"
     end
 
-    test "history tool data-layer errors fail the step and workflow run" do
+    test "history tool invalid input fails before querying the data layer" do
       {:ok, person} =
         People.create_person(%{
           full_name: "History Failure",
@@ -174,7 +244,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
 
       [step_run] = Workflows.list_step_runs(updated.id)
       assert step_run.status == "failed"
-      assert step_run.errors["reason"] =~ "cannot be cast to type :integer"
+      assert step_run.errors["reason"] =~ "expected integer"
     end
   end
 
@@ -562,7 +632,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       wf
     end
 
-    test "run transitions to 'waiting' when WaitingAction step is reached" do
+    test "run transitions to 'waiting' when HumanInTheLoop step is reached" do
       wf = hitl_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
@@ -584,7 +654,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       refute Map.has_key?(by_name, "step2")
     end
 
-    test "WaitingAction suspends the run and WorkflowRunAgent transitions it to waiting" do
+    test "HumanInTheLoop suspends the run and WorkflowRunAgent transitions it to waiting" do
       wf = hitl_workflow()
       {:ok, run} = Workflows.create_run(wf, @source_event)
 
@@ -637,6 +707,107 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
       assert completed.request[:action] == "run.completed"
       assert completed.request[:run_id] == run.id
       assert completed.actor == run.source_event.actor
+    end
+
+    test "completed state survives a post-commit lifecycle notification failure" do
+      run = create_run()
+      flush_dispatched()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{action: "run.completed"} ->
+            assert Workflows.get_run!(run.id).status == "completed"
+            raise "completed notification failed"
+
+          _ ->
+            event
+        end
+      end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{status: "completed"}} = WorkflowRunAgent.execute(run)
+        end)
+
+      assert Workflows.get_run!(run.id).status == "completed"
+      assert log =~ "lifecycle notification failed"
+      assert log =~ "event_name=run.completed"
+      assert log =~ "run_id=#{run.id}"
+      assert log =~ "reason=completed notification failed"
+    end
+
+    test "waiting state survives a post-commit lifecycle notification failure" do
+      wf = hitl_workflow()
+      {:ok, run} = Workflows.create_run(wf, @source_event)
+      flush_dispatched()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          %{action: "run.waiting"} ->
+            assert Workflows.get_run!(run.id).status == "waiting"
+            exit(:waiting_notification_failed)
+
+          _ ->
+            event
+        end
+      end)
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %{status: "waiting"}} = WorkflowRunAgent.execute(run)
+        end)
+
+      assert Workflows.get_run!(run.id).status == "waiting"
+      assert log =~ "lifecycle notification failed"
+      assert log =~ "event_name=run.waiting"
+      assert log =~ "run_id=#{run.id}"
+      assert log =~ "failure_kind=exit"
+      assert log =~ "reason=:waiting_notification_failed"
+    end
+
+    for status <- ["completed", "waiting"] do
+      test "#{status} state survives a post-commit UI broadcast failure" do
+        status = unquote(status)
+
+        run =
+          if status == "waiting" do
+            {:ok, run} = Workflows.create_run(hitl_workflow(), @source_event)
+            run
+          else
+            create_run()
+          end
+
+        run_id = run.id
+        flush_dispatched()
+
+        stub(Zaq.NodeRouterMock, :dispatch, fn %Event{} = event ->
+          case event.request do
+            {:broadcast, _topic, {:run_updated, %{id: ^run_id, status: ^status}}} ->
+              assert Workflows.get_run!(run_id).status == status
+              raise "post-commit UI broadcast failed"
+
+            _ ->
+              event
+          end
+        end)
+
+        # Inspect the durable outcome even when dispatch unwinds through the driver.
+        # A caught notification error must not let the stale running struct overwrite it.
+        result =
+          try do
+            WorkflowRunAgent.execute(run)
+          rescue
+            error in RuntimeError -> {:raised, error}
+          end
+
+        assert Workflows.get_run!(run_id).status == status
+        assert {:ok, %{id: ^run_id, status: ^status}} = result
+
+        if status == "waiting" do
+          assert %{status: "pending", step_name: "hitl"} =
+                   Workflows.get_pending_approval(run_id)
+        end
+      end
     end
 
     test "step failure dispatches run.started then run.failed" do
@@ -737,17 +908,13 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
     end
   end
 
-  describe "execute/1 — update_run failure at start (lines 110-116)" do
+  describe "execute/1 — locked transition failure at start" do
     test "returns {:error, reason} when the initial status transition fails" do
       run = create_run()
 
-      # Inject a stub workflows module that returns {:error, :forced} for the
-      # first update_run call (status transition to "running").
+      # Inject a stub workflows module that rejects the initial transition.
       defmodule FailingStartWorkflows do
-        alias Zaq.Engine.Workflows
-        def update_run(_run, %{status: "running"} = _attrs), do: {:error, :start_blocked}
-        def update_run(run, attrs), do: Workflows.update_run(run, attrs)
-        def list_step_runs(id), do: Workflows.list_step_runs(id)
+        def transition_run_to_running(_run), do: {:error, :start_blocked}
       end
 
       Application.put_env(:zaq, :workflow_run_agent_workflows_mod, FailingStartWorkflows)
@@ -1018,7 +1185,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
   # EXPECTED TO FAIL until the mapping feature lands.
   # ---------------------------------------------------------------------------
   describe "execute/1 — maps a renamed trigger field onto the first node (issue #508)" do
-    test "condition as first node passes against a start-mapped renamed field" do
+    test "condition as first node receives its input through a renamed trigger mapping" do
       {:ok, wf} =
         Workflows.create_workflow(%{
           name: "WB Mapping #{System.unique_integer()}",
@@ -1030,7 +1197,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
               module: "Zaq.Agent.Tools.Workflow.Condition",
               params: %{
                 "conditions" => [
-                  %{"key" => "current_position", "op" => "eq", "value" => "CTO"}
+                  %{"key" => "position", "op" => "eq", "value" => "CTO"}
                 ]
               },
               index: 0
@@ -1040,14 +1207,16 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
             %{
               "from" => "start",
               "to" => "check_position",
-              "mapping" => %{"current_position" => "start.position"}
+              "mapping" => %{"input" => "start.person"}
             }
           ]
         })
 
       # The raw dispatched payload, exactly as TriggerNode would plant it
       # (Workflow A's output, string-keyed at the root of assigns.input).
-      source = flat_trigger_source(%{"name" => "Jad", "age" => 32, "position" => "CTO"})
+      source =
+        flat_trigger_source(%{"person" => %{"name" => "Jad", "age" => 32, "position" => "CTO"}})
+
       {:ok, run} = Workflows.create_run(wf, source)
 
       assert {:ok, updated} = WorkflowRunAgent.execute(run)
