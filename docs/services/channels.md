@@ -63,11 +63,26 @@ promote a different account. IMAP settings bind each inbox to an enabled SMTP
 connector for replies. Legacy unbound inboxes can use a sole SMTP connector,
 but multiple SMTP accounts require a binding even with a notification default.
 Disabled or archived bindings fail closed rather than falling back.
+Data-source watch registration and renewal use the selected connector ID in
+their callback URLs. Engine keys watch rows by connector, provider, and external
+watch ID; a legacy provider-only delivery with colliding watch IDs fails closed
+rather than choosing the first account. Verified webhook jobs pass their
+persisted connector ID through the Engine watch lookup, and scoped webhook
+dispatch checks provider/config consistency before invoking an adapter.
+Target-source watch lookups likewise reject matches across connectors; within
+one connector they use the latest matching watch. An explicitly supplied but
+malformed connector ID is rejected instead of becoming an unscoped lookup.
 BO connector removal archives rather than deletes the config: it disables
 runtime selection, retains historical lookup by ID and preserves the FK of
 PersonChannel identities. Archived configs are excluded from ordinary BO
 lists and provider-only upserts. Ingress teardown is attempted before archive;
 the BO reports failure instead of silently archiving when teardown fails.
+For data-source connectors, archiving first unwatches each active/error watch;
+successful stops are persisted and failed IDs remain retryable with the connector
+still live. The post-archive reconciliation and late watch upserts schedule
+durable cleanup on the existing renewal worker. Only this cleanup path may use
+archived credentials to unwatch the exact matching connector; regular ingress
+and watch creation remain unavailable after archive.
 
 ### Replicated email history contract (#768)
 
