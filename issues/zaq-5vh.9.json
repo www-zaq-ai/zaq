@@ -19,11 +19,15 @@
     {
       "text": "Quality follow-up: applied the requested test-only Credo nested-module alias correction in test/zaq_web/live/bo/system/system_config_live_test.exs (added Zaq.System.EmbeddingConfig alias; updated only the new embedding capability test call). git diff --check passes. No Mix, formatting, or test command run; parent validation pending.",
       "timestamp": "2026-09-30T13:37:06Z"
+    },
+    {
+      "text": "Final targeted coverage across 3 edited test files: 3 properties, 285 tests, 0 failures. SystemConfigLive 95.9% (2437 source lines, 670 relevant, 27 missed), up from supplied 95%; table truncates path and 2437 source line count confirms target row. Both isolated seeds passed 225 tests each. Catalog/contract exceptions remain as documented; no claim every supplied line is covered. mix q passed after EmbeddingConfig alias correction. mix precommit timed out at 900000ms; final approval gate incomplete. No full-suite coverage regeneration/reassessment. Coverage log: /private/var/folders/9p/mdzhcqxx7hs8bw_10vwjvfp00000gn/T/opencode/targeted-web-browsing-coverage.log.",
+      "timestamp": "2026-09-30T13:58:21Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5vh.9] Plan remaining SystemConfigLive coverage (31 lines; tests only)",
   "type": "task",
-  "updated_at": "2026-09-30T13:37:06Z"
+  "updated_at": "2026-09-30T13:58:21Z"
 }
