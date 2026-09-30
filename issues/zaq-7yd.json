@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-09-30T11:44:14Z",
+  "description": "Planning-only, test-only scope: lib/zaq/agent/tools/web/browsing.ex lines 174,315,379,395,443,456,457; implementation file test/zaq/agent/tools/web/browsing_test.exs. Full executable plan to follow in description. Overlap check: zaq-xfj screenshot flow, zaq-xfj.11 real browser screenshot, zaq-5qu ingestion/browser branches, zaq-5vh eight OTHER files; do not change these other owners. Parent reviews overlap before execution.",
+  "id": "zaq-7yd",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Plan Browsing action coverage for supplied lines 174,315,379,395,443,456,457",
+  "type": "task",
+  "updated_at": "2026-09-30T11:44:14Z"
+}
