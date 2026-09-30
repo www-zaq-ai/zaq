@@ -1054,6 +1054,44 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       assert event.request.routing_context.channel_config_id == nil
     end
 
+    test "history kind is stamped from bridge options rather than Incoming metadata or routing claims" do
+      msg =
+        Incoming.new(%{
+          content: "hi",
+          provider: :mattermost,
+          channel_id: "room-1",
+          routing_context: %{history_kind: :direct, channel_config_id: 999},
+          metadata: %{"history_kind" => "direct"}
+        })
+
+      assert %Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 %{id: "u1", provider: :mattermost},
+                 node_router: StubNodeRouter,
+                 channel_config_id: 12
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.request.routing_context.channel_config_id == 12
+      assert event.request.routing_context.history_kind == nil
+
+      assert %Outgoing{} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [],
+                 %{id: "u1", provider: :mattermost},
+                 node_router: StubNodeRouter,
+                 channel_config_id: 13,
+                 history_kind: :channel
+               )
+
+      assert_received {:node_router_dispatch, second_event}
+      assert second_event.request.routing_context.channel_config_id == 13
+      assert second_event.request.routing_context.history_kind == :channel
+    end
+
     test "returns outgoing from an ok tuple response" do
       msg = %Zaq.Engine.Messages.Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
       actor = %{id: "u1", provider: :mattermost}

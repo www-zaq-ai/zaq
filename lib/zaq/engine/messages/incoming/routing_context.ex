@@ -11,6 +11,7 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
     :channel_config_id,
     :retrieval_channel_id,
     :topic_id,
+    :history_kind,
     attributes: %{}
   ]
 
@@ -18,6 +19,7 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
           channel_config_id: integer() | nil,
           retrieval_channel_id: integer() | nil,
           topic_id: String.t() | nil,
+          history_kind: :direct | :channel | :email | nil,
           attributes: map()
         }
 
@@ -28,6 +30,7 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
       channel_config_id: normalize_id(context.channel_config_id),
       retrieval_channel_id: normalize_id(context.retrieval_channel_id),
       topic_id: normalize_topic_id(context.topic_id),
+      history_kind: normalize_history_kind(context.history_kind),
       attributes: normalize_attributes(context.attributes)
     }
   end
@@ -37,6 +40,7 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
       channel_config_id: normalize_id(fetch(context, :channel_config_id)),
       retrieval_channel_id: normalize_id(fetch(context, :retrieval_channel_id)),
       topic_id: normalize_topic_id(fetch(context, :topic_id)),
+      history_kind: normalize_history_kind(fetch(context, :history_kind)),
       attributes: normalize_attributes(fetch(context, :attributes))
     }
   end
@@ -64,6 +68,9 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
   end
 
   defp normalize_topic_id(_topic_id), do: nil
+
+  defp normalize_history_kind(kind) when kind in [:direct, :channel, :email], do: kind
+  defp normalize_history_kind(_kind), do: nil
 
   defp normalize_attributes(attributes) when is_map(attributes), do: attributes
   defp normalize_attributes(_attributes), do: %{}

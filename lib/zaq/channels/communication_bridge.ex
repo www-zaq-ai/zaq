@@ -669,6 +669,9 @@ defmodule Zaq.Channels.CommunicationBridge do
       # Connector provenance must be stamped from the bridge's configured
       # instance, never inherited from untrusted incoming metadata.
       |> Map.put(:channel_config_id, Keyword.get(opts, :channel_config_id))
+      # A caller's Incoming metadata/routing context is not kind attestation.
+      # Only the configured bridge may stamp an adapter-derived history kind.
+      |> Map.put(:history_kind, Keyword.get(opts, :history_kind))
       |> maybe_put_routing_context(
         :retrieval_channel_id,
         Keyword.get(opts, :retrieval_channel_id)

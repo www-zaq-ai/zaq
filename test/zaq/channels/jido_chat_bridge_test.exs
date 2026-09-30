@@ -3511,6 +3511,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       msg = JidoChatBridge.to_internal(incoming, :mattermost)
       assert msg.is_dm == true
+      assert msg.routing_context.history_kind == :direct
     end
 
     test "sets is_dm: false when channel_meta is nil" do
@@ -3525,6 +3526,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       msg = JidoChatBridge.to_internal(incoming, :mattermost)
       assert msg.is_dm == false
+      assert msg.routing_context.history_kind == nil
     end
 
     test "sets is_dm: false when channel_meta.is_dm is false" do
@@ -3540,6 +3542,44 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       msg = JidoChatBridge.to_internal(incoming, :mattermost)
       assert msg.is_dm == false
+      assert msg.routing_context.history_kind == :channel
+    end
+
+    test "typed ChannelMeta without an explicit room type cannot authorize shared history" do
+      incoming = %ChatIncoming{
+        text: "default room metadata",
+        external_room_id: "room-1",
+        external_message_id: "post-1",
+        channel_meta: %ChannelMeta{is_dm: false}
+      }
+
+      assert JidoChatBridge.to_internal(incoming, :mattermost).routing_context.history_kind == nil
+
+      with_type = %{incoming | channel_meta: %ChannelMeta{is_dm: false, chat_type: :channel}}
+
+      assert JidoChatBridge.to_internal(with_type, :mattermost).routing_context.history_kind ==
+               :channel
+    end
+
+    test "claimed provider or room metadata never overrides the configured bridge scope" do
+      base = %ChatIncoming{
+        text: "room message",
+        external_room_id: "room-1",
+        external_message_id: "post-1"
+      }
+
+      for metadata <- [
+            %{is_dm: true, adapter_name: :slack},
+            %{is_dm: true, external_room_id: "room-2"},
+            %{is_dm: true, adapter_name: %{"provider" => "mattermost"}},
+            %{is_dm: false, adapter_name: :slack, external_room_id: "room-1"}
+          ] do
+        incoming = %{base | channel_meta: metadata}
+
+        assert JidoChatBridge.to_internal(incoming, %{provider: :mattermost, id: 12})
+               |> Map.get(:routing_context)
+               |> Map.get(:history_kind) == nil
+      end
     end
   end
 
