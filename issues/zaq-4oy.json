@@ -3,12 +3,12 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-01T12:05:09Z",
-  "description": "Fix shared-Oban rolling deployment race: startup job carries inserting pod version; worker uses it for comparison, falling back for legacy/cron jobs. Preserve force and enabled-badge skip. Action reuse assessment: operation is internal startup release check; inspected Zaq.System.ReleaseUpdate.check_for_update/0, Zaq.System.UpdateBadgeWorker.perform/1, Zaq.System.get_config/set_config and startup Oban insertion. Extend existing domain checker and reuse worker/config persistence; no standalone actor/permission contract or agent/workflow consumer, so local-only (no new Action/tool). Inputs: trusted runtime app version string or absent; output existing status/error, badge persisted only on successful fetch, retries via Oban. Verify explicit version, legacy fallback, skip/force, GitHub errors with isolated tests. No Kubernetes or version-ordering changes.",
+  "description": "Implemented startup version in force-job args, explicit comparison with fallback for cron/legacy jobs, preserved boolean skip. Action reuse: extend existing Zaq.System.ReleaseUpdate; reuse UpdateBadgeWorker and config persistence; internal-only startup worker, no composable Action or external actor/tool surface. Isolated tests 11 passed; mix q passed on retry (first ExDNA 5s timeout). mix precommit blocked: full suite reported 91 unrelated failures (SystemConfigLive etc.) and inconsistent exit statuses; do not treat as green. Branch hotfix/update-badge-rollout-version, no commit/push. First deployment still needs forced check once old workers gone.",
   "id": "zaq-4oy",
   "labels": [],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[update-badge-rollout] Compare startup badge against scheduling pod version",
   "type": "bug",
-  "updated_at": "2026-10-01T12:05:09Z"
+  "updated_at": "2026-10-01T12:40:17Z"
 }
