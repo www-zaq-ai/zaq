@@ -7,9 +7,15 @@
   "id": "zaq-emb.27.1",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implemented global normalized-email fallback for new connector identities through existing People.find_or_create_from_channel/2; linking remains connector-scoped and atomic. Reproduced exact unresolved_history_author in real-adapter HTTP-mocked ingress on both same and different Mattermost servers before fix; both now link existing Person and capture/process/deliver/store reply, including replay suppression. Added property for normalized email + same/different opaque IDs, no-email isolation, conflicting owner rollback, concurrent discovery, and sanitized resolution diagnostic test. Router logs connector/error category without changeset data or profile values. Updated Channels service contract. mix q passed after extracting fixture email response helper to satisfy complexity; focused 175 tests/4 properties pass. No new feature E2E; outcome-wide review/coverage/final gate remain with PR A.",
+      "timestamp": "2026-10-01T19:15:19Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-emb.27] Fix global Person discovery across connectors",
   "type": "bug",
-  "updated_at": "2026-10-01T19:08:29Z"
+  "updated_at": "2026-10-01T19:15:19Z"
 }
