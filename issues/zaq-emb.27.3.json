@@ -20,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.27] Reproduce Telegram confirmed reply history lifecycle",
   "type": "bug",
-  "updated_at": "2026-10-01T21:13:22Z"
+  "updated_at": "2026-10-01T21:13:23Z"
 }
