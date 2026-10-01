@@ -27,11 +27,15 @@
     {
       "text": "Manual QA handoff updated in docs/ux/communication-channel-history.md. Local PORT=4010 BO server responds; unauthenticated /bo/channels/history correctly redirects to /bo/login (no existing credentials used). Browser login/super-admin visual pass requires human sign-in and real connector data; no fabricated persisted QA messages or new-feature E2E authored. Focused groups 287 tests/3 properties and adjacent 427 tests/3 properties pass; mix q and git diff --check pass. Full mix test reported 9932 tests/187 properties, 2 failures on broad-suite run including BO telemetry OwnershipError/Repo holder teardown; mix test --failed reran 1 property/1 test with 0 failures, and individually isolated three suspect files passed 80 tests/2 properties. Treat full-suite interaction as unresolved for final PR validation, not a blocker to first human UX review. No final UX approval, coverage, precommit, commit, push or PR claim.",
       "timestamp": "2026-09-26T22:23:17Z"
+    },
+    {
+      "text": "Manual-QA iteration: added reusable MattermostHistoryFixture and seven real-adapter integration tests (six Shared activation cases, each with redelivery; independent connector scope). Original six-case baseline: channel cases passed, four thread cases failed to persist with :missing_parent. Fix strategy: validate capture coordinates separately, resolve/create parent atomically, retain strict Facts.new/1 resolved-parent/resource validation. All six then passed with confirmed assistant UUID reuse and provider destinations. Expanded UI work found wrong cursor option (:after rather than :after_position) and canonical-only feedback nil conversation handling; both fixed with regressions. Added actual room names/provider icons, optional ChatMessage alignment and round Person/Agent initials, existing message-info/copy/feedback controls, sharing modal beside name, saved feedback reload and Storybook variants. Current focused validation: 24 tests + 2 properties pass; q/final validation pending. Browser 4010 still requires human login; final UX approval and new-feature E2E remain pending. Action reuse assessment: extend Facts validation and canonical capture, no new standalone Action (transaction-internal scope validation); reuse Conversations.upsert_rating on the already-authorized placement, not legacy UUID-only lookup, via confidential current-super-admin Engine API; read-only projection/info remains local-only BO inspection, not agent/workflow authority. Existing RefreshChannelHistoryMembership Action remains the refresh implementation. Tests verify current actor overrides forged request actor, foreign transcript IDs/staff denied, bounded public projection unchanged, feedback upserts stable identity. No PR/Git publication or database reset.",
+      "timestamp": "2026-10-01T15:00:34Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-09-26T22:23:17Z"
+  "updated_at": "2026-10-01T15:00:34Z"
 }
