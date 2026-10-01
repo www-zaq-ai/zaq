@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.27.5"
+  ],
   "blocks": [],
   "created": "2026-10-01T21:01:50Z",
   "description": "Approved steps 6-7 for PR A: real boundary lifecycle tests for Mattermost six scenarios, Telegram DM/groups/topics, Discord guild/thread and verified DM capability, IMAP/SMTP message-local audience and selected binding, Web trusted sessions. Generic replay/concurrency/invalid evidence/revocation properties; legacy populated and fresh DB assurance. Reuse existing test fixtures, ChannelIcons and BO timeline. Fix E2E availability; separate explicit UX approval before feature E2E, then review/coverage/final precommit. Existing zaq-emb.6 owns normalized membership events/capabilities and Person+connector refresh; .28/.8 own PR B. No commit/push authorization.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.27] Verify cross-channel contracts and independent history outcome",
   "type": "task",
-  "updated_at": "2026-10-01T21:01:50Z"
+  "updated_at": "2026-10-01T21:01:58Z"
 }
