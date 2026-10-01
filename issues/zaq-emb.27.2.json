@@ -11,11 +11,15 @@
     {
       "text": "Implemented approved generic fixes. Index requests explicit connector IDs; API resolves that config; IngressStatusUI aggregates and modal lists each connector. Incoming normalizes room/thread/message IDs through existing ConversationIdentity; shared bridge accepts signed external IDs. Real Telegram private/group/topic regression uncovered chat-local message ID collisions and capture/admission mismatch: Channels now stamps typed source_scope (Telegram chat ID), Engine consumes it generically for capture and admission locks/lookups. Same numeric message ID across three chats captures once each; admission reuses captured UUID and replays do not re-admit. SMTP/IMAP Add Config uses explicit new selection, named form, distinct insert and selects saved ID; tests preserve original rows and edit second row. Runtime integer-message-ID expectation deliberately updated to canonical string while asserting original transport remains integer. mix q PASS; 558 tests/2 properties PASS; diff check clean. Required existing full Playwright E2E attempted via npm run test -- --reporter=line, exceeded 900s; available traces report localhost:4002 server connectivity/beforeEach navigation failures. No complete E2E pass; issue remains open for browser validation. No new feature E2E authored, no migrations or commit/push.",
       "timestamp": "2026-10-01T20:28:34Z"
+    },
+    {
+      "text": "History rows now reuse ChannelIcons for both thread/root rows; email/IMAP/SMTP aliases share existing email logo in ChannelIcons. Existing BO history tests pass with final regression set. E2E availability and outcome validation remain open.",
+      "timestamp": "2026-10-01T21:13:24Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-emb.27] Fix generic ingress status, numeric identity and email config creation",
   "type": "bug",
-  "updated_at": "2026-10-01T20:28:34Z"
+  "updated_at": "2026-10-01T21:13:24Z"
 }
