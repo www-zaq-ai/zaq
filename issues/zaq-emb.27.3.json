@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27.4"
+  ],
   "created": "2026-10-01T21:01:19Z",
   "description": "Approved boundary plan step 1. Real Telegram adapter + external transport stub: capture/admission/finalization/stream edits/final confirmation/canonical placement and replay. Prove same-content edit hypothesis before fixing. Extend existing HistoryIngress and Channels delivery tests, no parallel operation or new agent tool. Preserve canonical UUIDs and existing data. Read AGENTS.md, agent-tools, action-reuse, testing-approach and Channels/Engine owners. Regression first; mix q plus isolated tests. New feature browser E2E remains behind separate human UX approval.",
   "id": "zaq-emb.27.3",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.27] Reproduce Telegram confirmed reply history lifecycle",
   "type": "bug",
-  "updated_at": "2026-10-01T21:01:19Z"
+  "updated_at": "2026-10-01T21:01:56Z"
 }
