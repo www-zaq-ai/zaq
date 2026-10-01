@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-01T21:01:40Z",
+  "description": "Approved step 4. Extend existing send/edit and history association operation with normalized receipts and execution binding. Provider no-op normalization stays Channels-owned; pending/failed is not confirmed. Capture failures retain sanitized diagnostics and reconcile idempotently without resend. Preserve data; no vendor edits or parallel sender. Tests first for real adapter success/no-op/error, history failure, duplicate confirmation. PR B owns delayed asynchronous completion and runtime synchronization. Depends on normalized inbound contracts.",
+  "id": "zaq-emb.27.5",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.27] Preserve delivery receipts and reconcile confirmed history",
+  "type": "task",
+  "updated_at": "2026-10-01T21:01:40Z"
+}
