@@ -50,7 +50,8 @@ config :zaq, :channels, %{
     message_format: :html
   },
   web: %{bridge: Zaq.Channels.WebBridge},
-  disk: %{bridge: Zaq.Channels.DiskBridge}
+  disk: %{bridge: Zaq.Channels.DiskBridge},
+  chat: %{bridge: Zaq.Channels.ChatBridge}
 }
 
 config :zaq,

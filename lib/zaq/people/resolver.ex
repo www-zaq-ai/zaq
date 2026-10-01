@@ -73,6 +73,30 @@ defmodule Zaq.People.Resolver do
     }
   end
 
+  # The chat channel (`ZaqWeb.ChatCompletionsController`) has no profile API to
+  # enrich from — see `Zaq.People.IdentityResolver.maybe_enrich/4` — so the
+  # calling backend is the only source of the user's identity, carried on
+  # `author_name` by `Zaq.Channels.ChatBridge`.
+  #
+  # `author_name` reaches here as `:username`, but it is mapped to
+  # `display_name`: the platform has no handle, and `display_name` is what seeds
+  # the Person's `full_name` — without it every chat Person lands in the People
+  # directory named after the opaque caller user id.
+  #
+  # No `"email"` key, deliberately. `Zaq.Accounts.People.match_person/1` matches
+  # on email FIRST and platform-agnostically, so emitting one here would let any
+  # holder of the shared `ZAQ_CHAT_TOKEN` select an arbitrary existing Person by
+  # guessing its address — inheriting that Person's `team_ids` (widening
+  # retrieval past public documents) and overwriting its `full_name`. The chat
+  # channel authenticates the calling *service*, never the end user, so its
+  # identity claims may only ever key a chat-owned Person.
+  def normalize("chat", attrs) do
+    %{
+      "channel_id" => get(attrs, :channel_id),
+      "display_name" => get(attrs, :display_name) || get(attrs, :username)
+    }
+  end
+
   def normalize("email:imap", attrs), do: normalize("email", attrs)
 
   def normalize(_platform, attrs) do

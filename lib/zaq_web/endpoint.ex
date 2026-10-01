@@ -49,6 +49,9 @@ defmodule ZaqWeb.Endpoint do
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
+  # Bearer-authenticate the OpenAI-compatible API before Plug.Parsers reads a body.
+  plug ZaqWeb.Plugs.ChatBearerAuth, path_prefixes: ["/v1"]
+
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],

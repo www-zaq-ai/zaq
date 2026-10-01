@@ -9,7 +9,9 @@ defmodule Zaq.Accounts.PersonChannel do
 
   alias Zaq.Accounts.Person
 
-  @valid_platforms ~w(mattermost slack microsoft_teams whatsapp email telegram discord)
+  # "chat" is the OpenAI-compatible chat channel: its identifier is the
+  # caller's user id (see ZaqWeb.ChatCompletionsController).
+  @valid_platforms ~w(mattermost slack microsoft_teams whatsapp email telegram discord chat)
 
   @type t :: %__MODULE__{}
 

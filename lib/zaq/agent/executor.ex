@@ -66,7 +66,7 @@ defmodule Zaq.Agent.Executor do
      node-internal callers such as `RunAgent`; overrides identity-derived scopes so each
      workflow run gets its own agent server). The caller only carries the run id (and
      step index) as data — this function owns the scope policy.
-  3. `:web` provider + `metadata.conversation_id` — `"scope:bo:conv:<id>"` (BO per-conversation isolation)
+  3. `:web` or `:chat` provider + `metadata.conversation_id` — canonical per-conversation scope
   4. `actor.person.id` — `"scope:<encoded_channel>:person:<person_id>"` when present
   5. `metadata.session_id` — `"bo:session:<session_id>"` when actor person is nil and session ID is a non-empty string
   6. `"anonymous"` — fallback for all other cases
@@ -121,6 +121,10 @@ defmodule Zaq.Agent.Executor do
       when is_binary(id) and id != "",
       do: scoped_id(:web, :conv, id)
 
+  def derive_scope(%Incoming{provider: :chat, metadata: %{conversation_id: id}}, _actor)
+      when is_binary(id) and id != "",
+      do: scoped_id(:chat, :conv, id)
+
   def derive_scope(%Incoming{provider: provider} = incoming, actor) do
     case ActorNormalizer.person_id(actor) do
       nil -> derive_scope_without_person(incoming)
@@ -169,11 +173,11 @@ defmodule Zaq.Agent.Executor do
     selected_agent_result = load_selected_agent(opts, agent_module, factory_module)
     dims = telemetry_dimensions(incoming, selected_agent_result)
 
-    :ok = Telemetry.record("qa.message.count", 1, dims)
-    :ok = Telemetry.record("qa.custom_agent.execution.start", 1, dims)
+    :ok = record_run_start(dims)
 
     question = Keyword.get(opts, :question, incoming.content)
     execution_opts = effective_execution_opts(opts, incoming, actor_result)
+    cancel_watcher = start_cancel_watcher(opts)
 
     result =
       with {:ok, actor} <- actor_result,
@@ -208,7 +212,7 @@ defmodule Zaq.Agent.Executor do
                node_router(execution_opts)
              ),
            %Incoming{} = incoming <- normalize_status_result(status_result, incoming),
-           {:ok, %{request: _request, events: events}} <-
+           {:ok, %{request: request, events: events}} <-
              factory_module.ask_with_config(server_ref, question, configured_agent,
                tool_context: %{
                  incoming: incoming,
@@ -220,6 +224,7 @@ defmodule Zaq.Agent.Executor do
                  node_router: Keyword.get(execution_opts, :node_router, Zaq.NodeRouter)
                }
              ),
+           :ok <- watch_request(cancel_watcher, factory_module, server_ref, request),
            {:ok, stream_result} <-
              StreamEvents.consume(events, incoming,
                started_at: started_at,
@@ -276,7 +281,8 @@ defmodule Zaq.Agent.Executor do
             dims,
             selected_agent_result,
             execution_opts,
-            server_manager_module
+            server_manager_module,
+            partial
           )
 
         {:error, reason} ->
@@ -291,6 +297,60 @@ defmodule Zaq.Agent.Executor do
       end
 
     result
+  end
+
+  # A channel that can end a request before its result (the chat channel:
+  # client gone, idle timeout) passes `:cancel_topic` and broadcasts
+  # `:cancel_run` there; the agent server's cancel API then ends the request, and
+  # the run with `termination_reason: :cancelled`. The watcher subscribes before
+  # the run starts, so an early cancel is kept until the request exists, and it
+  # ends with the run.
+  defp start_cancel_watcher(opts) do
+    case Keyword.get(opts, :cancel_topic) do
+      nil ->
+        nil
+
+      topic ->
+        run = self()
+
+        watcher =
+          spawn(fn ->
+            ref = Process.monitor(run)
+            :ok = Phoenix.PubSub.subscribe(Zaq.PubSub, topic)
+            send(run, {:cancel_watcher_ready, self()})
+            await_cancel(ref, nil)
+          end)
+
+        receive do
+          {:cancel_watcher_ready, ^watcher} -> watcher
+        after
+          5_000 -> nil
+        end
+    end
+  end
+
+  # `pending` is nil, `:requested` (cancelled before the request existed) or
+  # the function cancelling the request.
+  defp await_cancel(ref, pending) do
+    receive do
+      {:watch_request, cancel} when pending == :requested -> cancel.()
+      {:watch_request, cancel} -> await_cancel(ref, cancel)
+      :cancel_run when is_function(pending) -> pending.()
+      :cancel_run -> await_cancel(ref, :requested)
+      {:DOWN, ^ref, :process, _pid, _reason} -> :ok
+    end
+  end
+
+  defp watch_request(nil, _factory_module, _server_ref, _request), do: :ok
+
+  defp watch_request(watcher, factory_module, server_ref, request) do
+    send(
+      watcher,
+      {:watch_request,
+       fn -> factory_module.cancel(server_ref, request_id: request.id, reason: :cancelled) end}
+    )
+
+    :ok
   end
 
   # A streaming error after tokens were already delivered means the answer is
@@ -320,7 +380,8 @@ defmodule Zaq.Agent.Executor do
         dims,
         selected_agent_result,
         opts,
-        server_manager_module
+        server_manager_module,
+        partial
       )
     end
   end
@@ -337,13 +398,16 @@ defmodule Zaq.Agent.Executor do
 
   defp content_delivered?(_), do: false
 
+  # `partial` is the run's result so far: the usage of the model calls it made
+  # is reported on the error result too, never estimated.
   defp surface_execution_error(
          incoming,
          reason,
          dims,
          selected_agent_result,
          opts,
-         server_manager_module
+         server_manager_module,
+         partial \\ nil
        ) do
     reason =
       enrich_provider_authentication_error(
@@ -358,9 +422,21 @@ defmodule Zaq.Agent.Executor do
 
     Outgoing.from_pipeline_result(
       incoming,
-      error_result(reason, maybe_configured_agent(selected_agent_result))
+      reason
+      |> error_result(maybe_configured_agent(selected_agent_result))
+      |> Map.merge(partial_token_fields(partial))
     )
   end
+
+  defp partial_token_fields(%{measurements: %{} = measurements}) do
+    %{
+      prompt_tokens: measurement_value(measurements, "input_tokens"),
+      completion_tokens: measurement_value(measurements, "output_tokens"),
+      total_tokens: measurement_value(measurements, "total_tokens")
+    }
+  end
+
+  defp partial_token_fields(_partial), do: %{}
 
   defp enrich_provider_authentication_error(
          reason,
@@ -386,7 +462,17 @@ defmodule Zaq.Agent.Executor do
   defp owner_type(%{owner_type: owner_type}), do: owner_type
   defp owner_type(_dependency), do: nil
 
-  defp record_execution_error(dims, reason) do
+  # The telemetry helpers below are shared with `Zaq.Agent.ClientToolRun`, so
+  # runs with caller tools record the same metrics and dimensions.
+
+  @doc "Records the start of a run: `qa.message.count` and the execution start."
+  def record_run_start(dims) do
+    :ok = Telemetry.record("qa.message.count", 1, dims)
+    Telemetry.record("qa.custom_agent.execution.start", 1, dims)
+  end
+
+  @doc "Records a failed run, typed by `reason`."
+  def record_execution_error(dims, reason) do
     :ok =
       Telemetry.record(
         "qa.custom_agent.execution.error",
@@ -550,7 +636,11 @@ defmodule Zaq.Agent.Executor do
     ArgumentError -> nil
   end
 
-  defp record_success_telemetry(result, dims, actor, incoming, configured_agent) do
+  @doc """
+  Records a completed run: answer, latency, token, per-model-call and
+  confidence metrics read from the run result.
+  """
+  def record_success_telemetry(result, dims, actor, incoming, configured_agent) do
     :ok = Telemetry.record("qa.custom_agent.execution.complete", 1, dims)
     :ok = Telemetry.record("qa.answer.count", 1, dims)
 
@@ -627,8 +717,9 @@ defmodule Zaq.Agent.Executor do
 
   defp token_telemetry_dimensions(_result, dimensions), do: dimensions
 
-  defp record_partial_llm_telemetry(partial, dims, actor, incoming, selected_agent_result)
-       when is_map(partial) do
+  @doc "Records the model calls of a failed run's partial result."
+  def record_partial_llm_telemetry(partial, dims, actor, incoming, selected_agent_result)
+      when is_map(partial) do
     configured_agent =
       case selected_agent_result do
         {:ok, selected} -> selected
@@ -638,7 +729,7 @@ defmodule Zaq.Agent.Executor do
     record_llm_call_telemetry(partial, dims, actor, incoming, configured_agent)
   end
 
-  defp record_partial_llm_telemetry(_partial, _dims, _actor, _incoming, _selected_agent_result),
+  def record_partial_llm_telemetry(_partial, _dims, _actor, _incoming, _selected_agent_result),
     do: :ok
 
   defp telemetry_actor({:ok, actor}), do: actor
@@ -705,7 +796,8 @@ defmodule Zaq.Agent.Executor do
 
   defp normalize_status_result(_other, %Incoming{} = fallback_incoming), do: fallback_incoming
 
-  defp telemetry_dimensions(incoming, selected_agent_result) do
+  @doc "Dimensions every run metric carries: the incoming's, plus the agent's."
+  def telemetry_dimensions(incoming, selected_agent_result) do
     base = incoming_telemetry_dimensions(incoming)
 
     runtime =

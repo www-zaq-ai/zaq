@@ -19,15 +19,28 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformer do
   def transform_request(request, _state, %Config{} = config, runtime_context) do
     window = Map.get(runtime_context || %{}, :context_window, %{})
 
-    with {:ok, budget} <- input_budget(window, config),
-         {:ok, messages} <- fit_messages(request, config, window, budget) do
+    with {:ok, messages} <- fit(request, window, get_in(config.llm, [:max_tokens]), config.output) do
       {:ok, %{messages: messages}}
     end
   end
 
-  defp input_budget(window, %Config{} = config) do
+  @doc """
+  Fits `request.messages` into the `window`'s input budget (`max_context_tokens`
+  less `max_tokens` reserved for the output, less the safety margin), dropping
+  the oldest historical units first. The projection `transform_request/4`
+  applies to every Jido turn, for runs that call ReqLLM directly
+  (`Zaq.Agent.ClientToolRun`).
+  """
+  @spec fit(map(), map(), integer() | nil, term()) :: {:ok, [map()]} | {:error, term()}
+  def fit(request, window, max_tokens, output \\ nil) do
+    with {:ok, budget} <- input_budget(window, max_tokens) do
+      fit_messages(request, output, window, budget)
+    end
+  end
+
+  defp input_budget(window, max_tokens) do
     max_context_tokens = positive_int(Map.get(window, :max_context_tokens))
-    reserved_output_tokens = positive_int(get_in(config.llm, [:max_tokens])) || 0
+    reserved_output_tokens = positive_int(max_tokens) || 0
 
     with tokens when is_integer(tokens) <- max_context_tokens,
          raw_budget when raw_budget > 0 <- tokens - reserved_output_tokens do
@@ -38,9 +51,9 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformer do
     end
   end
 
-  defp fit_messages(%{messages: messages} = request, %Config{} = config, window, budget)
+  defp fit_messages(%{messages: messages} = request, output, window, budget)
        when is_list(messages) do
-    request = request_for_estimate(request, config)
+    request = request_for_estimate(request, output)
 
     if RequestEstimator.estimate(request, window) <= budget do
       {:ok, messages}
@@ -50,7 +63,7 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformer do
     end
   end
 
-  defp fit_messages(_request, _config, _window, _budget),
+  defp fit_messages(_request, _output, _window, _budget),
     do: {:error, {:context_window_exceeded, :invalid_messages}}
 
   defp fit_units(request, mandatory, [], window, budget) do
@@ -124,13 +137,8 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformer do
   defp message_value(%{} = map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
   defp message_value(_message, _key), do: nil
 
-  defp request_for_estimate(request, %Config{} = config) do
-    if is_nil(config.output) do
-      request
-    else
-      Map.put(request, :output, config.output)
-    end
-  end
+  defp request_for_estimate(request, nil), do: request
+  defp request_for_estimate(request, output), do: Map.put(request, :output, output)
 
   defp positive_int(value) when is_integer(value) and value > 0, do: value
   defp positive_int(_value), do: nil

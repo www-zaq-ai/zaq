@@ -78,7 +78,7 @@ defmodule Zaq.Channels.Api do
       config = bridge_module.fetch_channel_config(provider)
       details = bridge_module.fetch_connection_details(provider)
 
-      case config do
+      case normalize_channel_config(provider, config) do
         {:ok, cfg} -> %{event | response: bridge.send_typing(cfg, channel_id, details)}
         {:error, reason} -> %{event | response: {:error, reason}}
       end
@@ -107,7 +107,7 @@ defmodule Zaq.Channels.Api do
         |> maybe_attach_status_message_id()
         |> MessageFormatter.format_outgoing()
 
-      case normalize_upsert_config(outgoing.provider, config) do
+      case normalize_channel_config(outgoing.provider, config) do
         {:ok, cfg} ->
           response =
             bridge.upsert_message(cfg, outgoing_to_upsert_request(formatted_outgoing), details)
@@ -938,8 +938,11 @@ defmodule Zaq.Channels.Api do
   defp normalize_delivery_response({:ok, receipt} = response) when is_map(receipt), do: response
   defp normalize_delivery_response(response), do: response
 
-  defp normalize_upsert_config(provider, {:error, _reason}) when provider in [:web, "web"],
-    do: {:ok, %{provider: "web"}}
+  # web and chat have no ChannelConfig row — their bridges deliver over local
+  # PubSub, so a missing config is normal rather than an error.
+  defp normalize_channel_config(provider, {:error, _reason})
+       when provider in [:web, "web", :chat, "chat"],
+       do: {:ok, %{provider: to_string(provider)}}
 
-  defp normalize_upsert_config(_provider, config), do: config
+  defp normalize_channel_config(_provider, config), do: config
 end
