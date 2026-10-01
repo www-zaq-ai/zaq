@@ -9,9 +9,15 @@
   "id": "zaq-emb.27.3",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Reproduced real Telegram HTTP unchanged-edit response through Adapter -\u003e JidoChatBridge -\u003e Channels API after confirmed stream, canonical capture/admission/finalization. Initial test failed with ExGram response_status_not_match 400 message-is-not-modified and missing transcript. Added Channels-owned DeliveryResult edit normalizer (strict adapter/error code/prefix), preserving other errors and leaving create failures untouched. mix q passed; 41 tests + 1 property passed across Telegram, Mattermost full ingress, chat delivery, and history ingress. Remaining .3 acceptance: extend full ingress/agent streaming fixture and failed/timeout delivery integration cases before closing. No DB repair inferred from persisted replies alone.",
+      "timestamp": "2026-10-01T21:08:09Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.27] Reproduce Telegram confirmed reply history lifecycle",
   "type": "bug",
-  "updated_at": "2026-10-01T21:01:59Z"
+  "updated_at": "2026-10-01T21:08:09Z"
 }
