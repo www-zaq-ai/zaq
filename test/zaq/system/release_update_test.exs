@@ -37,6 +37,22 @@ defmodule Zaq.System.ReleaseUpdateTest do
     assert :up_to_date = ReleaseUpdate.check_for_update()
   end
 
+  test "compares the supplied version rather than the executing pod version" do
+    Req.Test.stub(HTTP, fn conn ->
+      Req.Test.json(conn, %{"tag_name" => "v0.18.0"})
+    end)
+
+    assert :up_to_date = ReleaseUpdate.check_for_update("0.18.0")
+    assert :update_available = ReleaseUpdate.check_for_update("0.17.0")
+    assert :up_to_date = ReleaseUpdate.check_for_update("v0.19.0")
+  end
+
+  test "rejects invalid supplied versions without fetching a release" do
+    Req.Test.stub(HTTP, fn _conn -> flunk("github should not be called") end)
+
+    assert {:error, {:invalid_version, "invalid"}} = ReleaseUpdate.check_for_update("invalid")
+  end
+
   test "returns error when github response is malformed" do
     Req.Test.stub(HTTP, fn conn ->
       Req.Test.json(conn, %{"name" => "latest"})

@@ -5,9 +5,10 @@ defmodule Zaq.System.ReleaseUpdate do
 
   @latest_release_url "https://api.github.com/repos/www-zaq-ai/zaq/releases/latest"
 
-  @spec check_for_update() :: :update_available | :up_to_date | {:error, term()}
-  def check_for_update do
-    with {:ok, current_version} <- current_version(),
+  @spec check_for_update(String.t() | charlist() | nil) ::
+          :update_available | :up_to_date | {:error, term()}
+  def check_for_update(current_version \\ Application.spec(:zaq, :vsn)) do
+    with {:ok, current_version} <- normalize_version(current_version),
          {:ok, latest_version} <- latest_version() do
       case Version.compare(current_version, latest_version) do
         :lt -> :update_available
@@ -15,12 +16,6 @@ defmodule Zaq.System.ReleaseUpdate do
         :gt -> :up_to_date
       end
     end
-  end
-
-  defp current_version do
-    :zaq
-    |> Application.spec(:vsn)
-    |> normalize_version()
   end
 
   defp latest_version do

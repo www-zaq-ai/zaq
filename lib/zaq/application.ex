@@ -111,7 +111,7 @@ defmodule Zaq.Application do
   end
 
   defp enqueue_release_badge_check_on_startup do
-    %{"force" => true}
+    %{"force" => true, "current_version" => to_string(Application.spec(:zaq, :vsn))}
     |> UpdateBadgeWorker.new()
     |> Oban.insert()
   end
