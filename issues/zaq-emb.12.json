@@ -15,11 +15,15 @@
     {
       "text": "First PR A UX review is staged at /bo/channels/history on branch feature/issue-768-history-a-integration (localhost:4010 for this worktree). Static Communication-only list/detail preview + nine scenarios: active room/thread, email per-message audience, revoked provider/manual grant survival, restricted legacy, empty, loading, error, denied, unsupported refresh. Fixture-only; no provider IO, persisted grant mutation or agent delivery claims. UX plan: docs/ux/communication-channel-history.md. Mix q and 8 isolated LiveView tests pass; browser checked list/detail and each scenario. Request FIRST UX confirmation of IA, labels, states and timeline; explicit FINAL E2E authoring approval remains pending after production implementation. PR A ingress, membership, migration and real UI wiring remain open.",
       "timestamp": "2026-09-26T14:00:57Z"
+    },
+    {
+      "text": "Latest requested UI iteration is implemented at /bo/channels/history: provider icon + room name in list/header, People left and assistants right using existing ChatMessage components with round name-initial avatars, copy/info/feedback controls, and Current access moved into the sharing-icon modal beside the room name. Component Storybook preview checked; real-data page requires login. Backend/LiveView regression tests and final reduced-concurrency precommit pass (10154 tests/199 properties/48 doctests); this is not human UX approval. Gate remains pending. A eventual E2E scope must cover six Mattermost Shared activation cases and silent persistence, correct root/thread scopes, replay deduplication, sharing modal and manual/provider grants, room names/icons, feedback persistence/info authorization and \u003e50-message pagination. No new-feature E2E authored.",
+      "timestamp": "2026-10-01T15:38:02Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-emb.12] PR A explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-09-26T14:00:57Z"
+  "updated_at": "2026-10-01T15:38:02Z"
 }
