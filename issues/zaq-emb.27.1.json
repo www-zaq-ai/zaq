@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-01T19:08:29Z",
+  "description": "User approved global Person identity by normalized provider-profile email with connector-scoped PersonChannel entries, across same or different Mattermost servers. Extend People.find_or_create_from_channel/2 (existing atomic discovery, linking, uniqueness retries); reuse IdentityResolver provider-profile fetch via Channels API and NodeRouter. EnsurePerson Action already delegates discovery; no new Action or agent exposure. Preserve opaque-ID isolation, explicit conflicting-owner failures, and atomic/idempotent links. Steps: reproduce with domain/property and transport-mocked integration regressions; fix email fallback and sanitized router diagnostics; run mix q and focused suites. E2E not needed for this backend regression; feature approval gate remains separate.",
+  "id": "zaq-emb.27.1",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-emb.27] Fix global Person discovery across connectors",
+  "type": "bug",
+  "updated_at": "2026-10-01T19:08:29Z"
+}
