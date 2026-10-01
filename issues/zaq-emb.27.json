@@ -35,11 +35,15 @@
     {
       "text": "Validation completed for thread regression/UI iteration: mix q and git diff --check pass; focused suites 283 tests/3 properties pass. Final mix precommit --max-cases 4 PASS: 48 doctests, 199 properties, 10154 tests, 0 failures, 1 skipped, 101 excluded. Earlier full runs exposed five missing-Python-environment failures (installed documented .venv with Python 3.12 and pinned requirements, pip check clean; all five then pass), one known telemetry sandbox teardown flake (isolated pass), and one existing executor sandbox queue timeout at default 16 cases (isolated pass). Lower-concurrency full gate passed without weakening assertions or changing unrelated executor work. Storybook assistant channel-history variant visually inspected at localhost:4010/storybook/chat/assistant_bubble; screenshot .openchamber/screenshots/channel-history-assistant-bubble-2026-10-01T15-25-02-199.jpg. Authenticated real-data BO visual pass still requires human sign-in. PR A remains open for its outstanding overall assurance/review/UX/E2E scope; no publication.",
       "timestamp": "2026-10-01T15:37:51Z"
+    },
+    {
+      "text": "Approved follow-up implemented in working tree: top-level channel-only list with thread counts and channel-scoped thread drill-down; root-author avatar/preview replaces IDs; stored root appears above independently paginated replies, with bounded read-only Mattermost fallback when absent. Provider root reads verify exact post/room and current super-admin via confidential NodeRouter event; unavailable is explicit, no admission or duplicate persistence. Shared PersonAvatar uses deterministic Person ID color; user bubbles no longer show info. Participant summaries use distinct People by latest contribution, three avatars + remainder, scoped to channel/children or thread/root. Action reuse: extend ChannelHistoryAdmin read projections and MattermostAdmin bounded provider read, reuse existing ChatMessage bubbles; display-only authenticated lookup is local BO operation, no agent/workflow exposure or parallel execution/capture implementation. New regressions cover grouping/root, provider room mismatch, participant count/order and avatar property. Focused initial check: 50 tests/1 property pass; final validation underway. UX approval/E2E still pending.",
+      "timestamp": "2026-10-01T16:50:43Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-10-01T15:37:51Z"
+  "updated_at": "2026-10-01T16:50:43Z"
 }
