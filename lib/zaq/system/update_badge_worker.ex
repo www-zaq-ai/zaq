@@ -17,14 +17,16 @@ defmodule Zaq.System.UpdateBadgeWorker do
     if not force? and badge_enabled?() do
       :ok
     else
-      check_and_persist_badge()
+      check_and_persist_badge(Map.get(args, "current_version"))
     end
   end
 
-  def perform(_), do: check_and_persist_badge()
+  def perform(_), do: check_and_persist_badge(nil)
 
-  defp check_and_persist_badge do
-    case ReleaseUpdate.check_for_update() do
+  defp check_and_persist_badge(nil), do: check_and_persist_badge(Application.spec(:zaq, :vsn))
+
+  defp check_and_persist_badge(current_version) do
+    case ReleaseUpdate.check_for_update(current_version) do
       :update_available ->
         persist_badge(true)
 

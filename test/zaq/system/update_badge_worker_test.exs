@@ -50,6 +50,31 @@ defmodule Zaq.System.UpdateBadgeWorkerTest do
     assert "false" == System.get_config("ui.update_badge_enabled")
   end
 
+  test "startup job clears badge using the scheduling pod version" do
+    assert {:ok, _} = System.set_config("ui.update_badge_enabled", "true")
+
+    Req.Test.stub(HTTP, fn conn ->
+      Req.Test.json(conn, %{"tag_name" => "v0.18.0"})
+    end)
+
+    job = UpdateBadgeWorker.new(%{"force" => true, "current_version" => "0.18.0"})
+    assert :ok = UpdateBadgeWorker.perform(%Oban.Job{args: job.changes.args})
+    assert "false" == System.get_config("ui.update_badge_enabled")
+  end
+
+  test "startup job enables badge when the scheduling pod is older" do
+    Req.Test.stub(HTTP, fn conn ->
+      Req.Test.json(conn, %{"tag_name" => "v0.18.0"})
+    end)
+
+    assert :ok =
+             UpdateBadgeWorker.perform(%Oban.Job{
+               args: %{"force" => true, "current_version" => "0.17.0"}
+             })
+
+    assert "true" == System.get_config("ui.update_badge_enabled")
+  end
+
   test "enables badge when newer release is available" do
     assert {:ok, _} = System.set_config("ui.update_badge_enabled", "false")
 
