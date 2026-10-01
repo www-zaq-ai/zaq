@@ -51,11 +51,15 @@
     {
       "text": "Approved history-layout reuse iteration complete: list heading/card/count sentence removed; DS table rows navigate with independent nested thread-count links. Channel context/title/icon and sharing control moved to BOLayout header via existing title/icon/subtitle and an optional page_actions slot. Existing ConversationDetail timeline extracted as message_timeline/1 and wired into both standard and channel history; roots use same renderer. ZAQ assistant icon restored, author names retained, footer aligns to bubble side. Shared date separators now group DateTime messages by configured local day (naive-date contract retained). Scope is presentation reuse, no new domain Action. mix q, git diff --check and 105 focused tests pass (both history LiveViews, bubbles, table, date helper; regressions for header, root renderer, independent nested link and midnight grouping). No new feature E2E authored or final human approval claimed; prior broad-suite timing blocker remains tracked.",
       "timestamp": "2026-10-01T18:14:55Z"
+    },
+    {
+      "text": "Approved breadcrumb/sizing follow-up implemented: one existing Breadcrumb.page_breadcrumb hierarchy replaces generic Transcript crumb and both standalone back links. Channel detail ends at channel name; threads list uses Engine-validated parent metadata even on empty/paged results; thread detail includes channel, Threads and root preview (Thread fallback). Parent lookup rejects missing/non-root scope and remains behind current-admin Engine authorization. Shared ConversationDetail.message_timeline now owns outer wrapper/bleed plus w-full/min-w-0/max-w-3xl sizing and padding; legacy and channel callers no longer maintain separate width wrappers. Action reuse: extend existing authorized read projection; layout/navigation presentation only, no new Action. mix q and 94 focused tests pass, git diff check clean. Manual browser sizing on the existing Storybook preview: 12 combinations of block/flex parents, 320/600/960px widths and short/long content all match expected min(parent width,768px). No new E2E authored, no final UX approval or broad gate claimed.",
+      "timestamp": "2026-10-01T18:40:57Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-10-01T18:14:55Z"
+  "updated_at": "2026-10-01T18:40:57Z"
 }
