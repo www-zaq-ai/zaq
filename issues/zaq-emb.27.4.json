@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-01T21:01:30Z",
+  "description": "Approved steps 2-3. Extend Incoming/RoutingContext, existing Facts and capture/admission operations; no new Action needed for internal persistence. Channels owns transport namespaces, audience evidence, timestamps and history semantics. Engine consumes one source identity and trusted captured UUID, generic Direct/Shared/Replicated policies, explicit unavailable/malformed states. Test concurrency, replay, connector isolation, per-message email audience and preserve legacy UUID/rating/trace metadata. Read AGENTS.md and owner docs; module docs before edits. Depends on lifecycle regression.",
+  "id": "zaq-emb.27.4",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.27] Normalize inbound history facts and generic Engine consumers",
+  "type": "task",
+  "updated_at": "2026-10-01T21:01:30Z"
+}
