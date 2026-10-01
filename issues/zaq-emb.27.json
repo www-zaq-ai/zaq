@@ -31,11 +31,15 @@
     {
       "text": "Manual-QA iteration: added reusable MattermostHistoryFixture and seven real-adapter integration tests (six Shared activation cases, each with redelivery; independent connector scope). Original six-case baseline: channel cases passed, four thread cases failed to persist with :missing_parent. Fix strategy: validate capture coordinates separately, resolve/create parent atomically, retain strict Facts.new/1 resolved-parent/resource validation. All six then passed with confirmed assistant UUID reuse and provider destinations. Expanded UI work found wrong cursor option (:after rather than :after_position) and canonical-only feedback nil conversation handling; both fixed with regressions. Added actual room names/provider icons, optional ChatMessage alignment and round Person/Agent initials, existing message-info/copy/feedback controls, sharing modal beside name, saved feedback reload and Storybook variants. Current focused validation: 24 tests + 2 properties pass; q/final validation pending. Browser 4010 still requires human login; final UX approval and new-feature E2E remain pending. Action reuse assessment: extend Facts validation and canonical capture, no new standalone Action (transaction-internal scope validation); reuse Conversations.upsert_rating on the already-authorized placement, not legacy UUID-only lookup, via confidential current-super-admin Engine API; read-only projection/info remains local-only BO inspection, not agent/workflow authority. Existing RefreshChannelHistoryMembership Action remains the refresh implementation. Tests verify current actor overrides forged request actor, foreign transcript IDs/staff denied, bounded public projection unchanged, feedback upserts stable identity. No PR/Git publication or database reset.",
       "timestamp": "2026-10-01T15:00:34Z"
+    },
+    {
+      "text": "Validation completed for thread regression/UI iteration: mix q and git diff --check pass; focused suites 283 tests/3 properties pass. Final mix precommit --max-cases 4 PASS: 48 doctests, 199 properties, 10154 tests, 0 failures, 1 skipped, 101 excluded. Earlier full runs exposed five missing-Python-environment failures (installed documented .venv with Python 3.12 and pinned requirements, pip check clean; all five then pass), one known telemetry sandbox teardown flake (isolated pass), and one existing executor sandbox queue timeout at default 16 cases (isolated pass). Lower-concurrency full gate passed without weakening assertions or changing unrelated executor work. Storybook assistant channel-history variant visually inspected at localhost:4010/storybook/chat/assistant_bubble; screenshot .openchamber/screenshots/channel-history-assistant-bubble-2026-10-01T15-25-02-199.jpg. Authenticated real-data BO visual pass still requires human sign-in. PR A remains open for its outstanding overall assurance/review/UX/E2E scope; no publication.",
+      "timestamp": "2026-10-01T15:37:51Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-10-01T15:00:34Z"
+  "updated_at": "2026-10-01T15:37:51Z"
 }
