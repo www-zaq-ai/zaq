@@ -39,11 +39,15 @@
     {
       "text": "Approved follow-up implemented in working tree: top-level channel-only list with thread counts and channel-scoped thread drill-down; root-author avatar/preview replaces IDs; stored root appears above independently paginated replies, with bounded read-only Mattermost fallback when absent. Provider root reads verify exact post/room and current super-admin via confidential NodeRouter event; unavailable is explicit, no admission or duplicate persistence. Shared PersonAvatar uses deterministic Person ID color; user bubbles no longer show info. Participant summaries use distinct People by latest contribution, three avatars + remainder, scoped to channel/children or thread/root. Action reuse: extend ChannelHistoryAdmin read projections and MattermostAdmin bounded provider read, reuse existing ChatMessage bubbles; display-only authenticated lookup is local BO operation, no agent/workflow exposure or parallel execution/capture implementation. New regressions cover grouping/root, provider room mismatch, participant count/order and avatar property. Focused initial check: 50 tests/1 property pass; final validation underway. UX approval/E2E still pending.",
       "timestamp": "2026-10-01T16:50:43Z"
+    },
+    {
+      "text": "Follow-up validation: mix q passed after one ExDNA internal 5s timeout rerun; focused 50 tests/1 property pass, including connector root fallback in all four thread scenarios and cross-room rejection. Full mix precommit --max-cases 4: 9031 tests/151 properties/17 doctests, one unrelated StepRunnerTest 200ms timeout fast-path failure (observed duration 220ms), 1 skipped/93 excluded. mix test --failed passes that test in isolation; broad final gate is not claimed green for this iteration. Existing timing assertion preserved. UI still requires authenticated real-data visual review; no feature E2E authored or publication performed.",
+      "timestamp": "2026-10-01T17:09:25Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-10-01T16:50:43Z"
+  "updated_at": "2026-10-01T17:09:25Z"
 }
