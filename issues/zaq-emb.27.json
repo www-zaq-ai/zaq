@@ -43,11 +43,15 @@
     {
       "text": "Follow-up validation: mix q passed after one ExDNA internal 5s timeout rerun; focused 50 tests/1 property pass, including connector root fallback in all four thread scenarios and cross-room rejection. Full mix precommit --max-cases 4: 9031 tests/151 properties/17 doctests, one unrelated StepRunnerTest 200ms timeout fast-path failure (observed duration 220ms), 1 skipped/93 excluded. mix test --failed passes that test in isolation; broad final gate is not claimed green for this iteration. Existing timing assertion preserved. UI still requires authenticated real-data visual review; no feature E2E authored or publication performed.",
       "timestamp": "2026-10-01T17:09:25Z"
+    },
+    {
+      "text": "Small approved UI polish applied to shared channel/thread list template: overlapping participant avatars with surface-colored separation and +N outside the stack; placeholder lists actual searchable fields (channel name, connector, provider, channel ID); Last activity reuses Table.table_datetime and configured system timezone. Presentation-only, Action reuse not applicable; existing DateFormat/Timezone behavior reused. mix q and 64 existing LiveView/date/timezone/table tests pass; positive/negative offset date-rollover checks pass. No new feature E2E, no authenticated visual approval claim, prior broad-suite timing gate remains separately tracked.",
+      "timestamp": "2026-10-01T17:47:46Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-10-01T17:09:25Z"
+  "updated_at": "2026-10-01T17:47:46Z"
 }
