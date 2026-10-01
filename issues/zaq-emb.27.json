@@ -47,11 +47,15 @@
     {
       "text": "Small approved UI polish applied to shared channel/thread list template: overlapping participant avatars with surface-colored separation and +N outside the stack; placeholder lists actual searchable fields (channel name, connector, provider, channel ID); Last activity reuses Table.table_datetime and configured system timezone. Presentation-only, Action reuse not applicable; existing DateFormat/Timezone behavior reused. mix q and 64 existing LiveView/date/timezone/table tests pass; positive/negative offset date-rollover checks pass. No new feature E2E, no authenticated visual approval claim, prior broad-suite timing gate remains separately tracked.",
       "timestamp": "2026-10-01T17:47:46Z"
+    },
+    {
+      "text": "Approved history-layout reuse iteration complete: list heading/card/count sentence removed; DS table rows navigate with independent nested thread-count links. Channel context/title/icon and sharing control moved to BOLayout header via existing title/icon/subtitle and an optional page_actions slot. Existing ConversationDetail timeline extracted as message_timeline/1 and wired into both standard and channel history; roots use same renderer. ZAQ assistant icon restored, author names retained, footer aligns to bubble side. Shared date separators now group DateTime messages by configured local day (naive-date contract retained). Scope is presentation reuse, no new domain Action. mix q, git diff --check and 105 focused tests pass (both history LiveViews, bubbles, table, date helper; regressions for header, root renderer, independent nested link and midnight grouping). No new feature E2E authored or final human approval claimed; prior broad-suite timing blocker remains tracked.",
+      "timestamp": "2026-10-01T18:14:55Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] PR A — Strategy-driven, authorized channel history",
   "type": "task",
-  "updated_at": "2026-10-01T17:47:46Z"
+  "updated_at": "2026-10-01T18:14:55Z"
 }
