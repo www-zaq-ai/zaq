@@ -26,11 +26,15 @@
     {
       "text": "Extended existing membership operation and Action for Person+connector refresh of existing Shared rooms, preserving other People/manual grants and rechecking super-admin authorization. Provider capability/ID checks moved to Channels. Added normalized revisioned member events plus pure MembershipOrder and additive membership_state column; per-member fences handle reordered events/snapshots and targeted refresh. Unversioned/versioned transitions fail closed; Mattermost remains snapshot-only until downstream provider event wiring. Action reuse: extended RefreshChannelHistoryMembership, no parallel Action or agent-tool exposure. Regression-first membership tests and ordering property pass; final affected validation in progress.",
       "timestamp": "2026-10-02T06:03:33Z"
+    },
+    {
+      "text": "Final self-review reproduced inactive-Person removal retaining a stale provider grant across reactivation. Fixed revocation to resolve the inactive Person while still granting only active People. Added regression and duplicate-snapshot revision protection. Final mix q and 73-test/6-property set pass.",
+      "timestamp": "2026-10-02T06:19:23Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "[zaq-emb.6] Membership reconciliation and reusable refresh Action",
   "type": "task",
-  "updated_at": "2026-10-02T06:17:41Z"
+  "updated_at": "2026-10-02T06:19:23Z"
 }
