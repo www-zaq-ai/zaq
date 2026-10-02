@@ -7,9 +7,15 @@
   "id": "zaq-emb.27.7",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implemented cleanup and regression-first gate. Initial missing-binding test reproduced unsafe delivery through the legacy fallback. Removed whole-exchange APIs/action/wrapper/helpers and migrated fixtures to admission+finalization; single-message persistence retained. Invalid-binding property covers atom/string keys, each field and both pipeline/executor paths; internal provider:nil without binding tested. Replay keeps both UUIDs; artifact rollback preserves admitted prompt. Action reuse: existing admission/finalization domain operations and dispatch, local-only shape validation. mix q passed and final 18-file run: 706 tests +5 properties, 0 failures (3 existing excluded). Diff whitespace clean. Historical source scan claim corrected in handoff; live API references now only rejection/no-fallback assertions. PR A acceptance gates remain .27.6. Async task error logs in passing run retained as assurance concern. No migration or git publication.",
+      "timestamp": "2026-10-02T06:59:35Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Remove legacy exchange writer and require admission bindings",
   "type": "task",
-  "updated_at": "2026-10-02T06:55:44Z"
+  "updated_at": "2026-10-02T06:59:35Z"
 }
