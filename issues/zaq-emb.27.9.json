@@ -16,11 +16,15 @@
     {
       "text": "Implemented one owner: HistoryIngress.record_confirmation commits canonical content/reference, bounded receipt, evidence fingerprint and fixed transcript IDs in existing private message metadata atomically with ID-only job enqueue; capture_confirmed and worker share associate_confirmation. Existing TranscriptHistory capture pipeline extended with prepare mode; messages remain unplaced until association. Removed older independent capture_delivered/associate_execution_response writers. Worker only schedules/delegates; no transport sending or second lifecycle. Legacy queued payloads promote in place on processing; failed promotion leaves evidence retryable. No new table/migration. Regressions cover initial failing payload assertion, original UUID, unplaced preparation, concurrent duplicate confirmation, transactional rollback, connector disable/re-enable, immutable recipients after PersonChannel relinking, conflicts, job pruning, legacy conversion and property replay. Final mix q passed after one transient ExDNA timeout and local lint fixes; combined 12-file suite 477 tests +6 properties passes, diff check and reference audit clean. PR A acceptance .27.6 still open; B .8 must reuse this owner.",
       "timestamp": "2026-10-02T08:52:25Z"
+    },
+    {
+      "text": "Latest user-approved audit supersedes legacy queued-payload promotion requirement from earlier comments: worker is absent on main and current enqueue produces only canonical message IDs. Removed promotion test, recover_legacy_confirmation, payload perform clause and alternate job-rewrite enqueue path. HistoryIngress remains the one atomic confirmation/fixed-target owner, with HistoryDeliveryWorker.enqueue called directly. Action reuse: local-only removal of unsupported WIP compatibility; no new operations/tools. Existing ID-only recovery/replay/rollback/UUID tests pass in affected suite and mix q passes. Engine docs and handoff updated. This is not outcome approval.",
+      "timestamp": "2026-10-02T15:11:33Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "Unify reference-only history association recovery",
   "type": "task",
-  "updated_at": "2026-10-02T08:52:32Z"
+  "updated_at": "2026-10-02T15:11:33Z"
 }
