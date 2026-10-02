@@ -13,11 +13,15 @@
     {
       "text": "Implemented and validated, uncommitted. Author and visible recipient discovery reuse People.find_or_create_from_channel; canonical history_context stores Person refs/roles and presentation hints. Replicated copies use normalized RFC conversation identity independently of sender/delivery route. ReplyTargets preserves explicit To/CC through Incoming/Outgoing; Reply-To/From, deduplication, configured self-address exclusion and selected SMTP are exercised through real Swoosh delivery. Actual envelope receipt uses existing HistoryIngress fixed-target/ID-only owner; admission/finalization preserves canonical input and assistant UUIDs. Email Sender Person: subject and Telegram Direct Person titles use existing BO layout with connector underneath. Targeted 105 tests+5 properties passed, then final mix q and precommit passed:17 doctests,159 properties,9089 tests,0 failures,1 skipped,93 excluded. Fresh migration chain passed on _identity_fresh after extensions setup. E2E not authored; separate human UX approval, review/coverage and outcome acceptance remain open. Action evidence: extend EnsurePerson/shared People discovery and existing SMTP/history owners; local-only normalization structs, no new exposed agent tool.",
       "timestamp": "2026-10-02T14:28:57Z"
+    },
+    {
+      "text": "Approved alias/loop fix in progress. Reproduced parser failures first. Action reuse assessment: extend existing Parser ReplyTargets normalization (local-only transport evidence; first Delivered-To exclusion, never permissions or inferred sender); reuse SMTP sender filtering and receipt operation, HistoryIngress source identity/confirmation lookup, Engine.Api/NodeRouter dispatch and CommunicationBridge passive capture. New confirmed_history_delivery event is an internal read of the existing durable owner, no parallel registry or agent tool. Automatic replies marked auto-replied; exact scoped confirmed echoes skipped, other auto-replies captured passively. Added real SMTP path, pre-confirmation, human sender, source/connector scope, empty-recipient and property regressions. Initial q found test alias style issue, corrected; validation underway.",
+      "timestamp": "2026-10-02T16:08:11Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Unify recipients and email conversation delivery presentation",
   "type": "task",
-  "updated_at": "2026-10-02T14:28:57Z"
+  "updated_at": "2026-10-02T16:08:11Z"
 }
