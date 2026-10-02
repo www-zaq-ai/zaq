@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-02T08:18:48Z",
+  "description": "Approved recap steps 2-4: HistoryIngress owns durable confirmation and association, TranscriptHistory owns placement. Canonical messages stored once, fixed target references, atomic enqueue with IDs only, existing worker thin adapter. Reuse owner for PR B .8/.28, no competing retry state machine or full-message confirmation store. Tests first: immutable audience/identity targets, missing canonical ID replicated path, concurrency/conflicts, enqueue rollback, recovery, migration existing jobs, no resend. Additive DB changes only. q and affected tests then .27.6 acceptance.",
+  "id": "zaq-emb.27.9",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 2,
+  "status": "open",
+  "title": "Unify reference-only history association recovery",
+  "type": "task",
+  "updated_at": "2026-10-02T08:18:48Z"
+}
