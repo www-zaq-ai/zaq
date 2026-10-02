@@ -34,6 +34,36 @@ not a broad test of unrelated subsystems.
 Property tests complement example-based tests. E2E guidance, fixtures, and commands
 live in `docs/e2e-testing.md`.
 
+## Existing test behavior approval gate
+
+**Do not change what an existing test verifies without explicit human approval.**
+This applies at every test level, including unit, integration, property, LiveView,
+component, and E2E tests. Approval of the feature or implementation plan does not
+implicitly approve a test behavior change that was not disclosed.
+
+- During planning, identify existing tests whose behavioral expectations would
+  change. Present the current and proposed contract, the affected assertions or
+  scenarios, and why production behavior should change. Obtain explicit approval
+  for that scope before implementing the test behavior change; record the decision,
+  approver, and source in Beadwork.
+- If implementation or validation reveals an unplanned need to change a test's
+  behavior, pause that change, investigate whether the failure is a regression,
+  and ask for explicit approval with the same current/proposed contract and
+  rationale. Record the decision before proceeding. A failing test or a desired
+  production change is not itself authorization to change its expectations.
+- Treat changes to expected values, removal or weakening of assertions, skipped
+  or deleted tests, and changes to fixtures, mocks, setup, or generators that alter
+  the scenario or what it verifies as test behavior changes. Do not relabel them
+  as cleanup or mechanical repairs to bypass this gate. Approval does not permit
+  hiding a regression; resolve conflicting behavior and keep regression coverage.
+- New tests and mechanical repairs that preserve an existing test's assertions,
+  scenario, and intent do not need this approval. Additional coverage that leaves
+  the existing contract intact may proceed under the usual testing rules. Verify
+  repairs and describe them in the PR.
+
+This gate is distinct from the feature E2E authoring/UX approval gate below;
+approval under one does not waive the other.
+
 ## Feature E2E approval gate
 
 **Plan E2E early; author it only at feature finalization, after explicit human
@@ -81,9 +111,10 @@ tests, not to running existing tests or testing behavior at smaller test levels.
 - Continue running existing E2E tests wherever required by the workflow. Deferring
   authoring does not waive execution or permit ignoring failures.
 - Existing E2E tests may receive minimal repairs when spotted, such as selector
-  changes, **only if they preserve the assertions and original intent**. Never
-  weaken/remove assertions, skip tests, or change expected behavior to hide a
-  regression. Verify the repaired tests and describe the repair in the PR.
+  changes, **only if they preserve the assertions and original intent**. Changes
+  to their behavioral expectations require the [existing test behavior approval
+  gate](#existing-test-behavior-approval-gate); never weaken/remove assertions,
+  skip tests, or change expected behavior to hide a regression.
 - A confirmed regression still needs a reproducing test. Prefer a smaller test
   level; if only new browser coverage can prove it, ask the human for an explicit
   exception to the authoring gate and record the decision in Beadwork. Do not
@@ -448,6 +479,7 @@ Read and follow the [validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate) 
 - Database ownership and child-process access are explicit.
 - Existing support helpers are reused without hiding scenario intent.
 - Applicable invariants have focused property tests.
+- Changes to existing test behavior have explicit, recorded human approval.
 - No test concerns leak into production code.
 - Coverage is at least 95%, or the exception is documented.
 - `mix q` passes.
