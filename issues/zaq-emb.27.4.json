@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-emb.27.5"
   ],
+  "closed_at": "2026-10-02T06:17:17Z",
+  "close_reason": "Implemented Channels-normalized source/audience/time/conversation semantics and generic Engine consumers; removed superseded provider-specific live branches and API variants. Final mix q passed; final targeted set 73 tests + 6 properties passed. Broad affected run 1744 tests + 29 properties exposed three fixture mismatches, repaired and verified in 206-test rerun. Independent outcome validation remains .27.6.",
   "created": "2026-10-01T21:01:30Z",
   "description": "Approved steps 2-3. Extend Incoming/RoutingContext, existing Facts and capture/admission operations; no new Action needed for internal persistence. Channels owns transport namespaces, audience evidence, timestamps and history semantics. Engine consumes one source identity and trusted captured UUID, generic Direct/Shared/Replicated policies, explicit unavailable/malformed states. Test concurrency, replay, connector isolation, per-message email audience and preserve legacy UUID/rating/trace metadata. Read AGENTS.md and owner docs; module docs before edits. Depends on lifecycle regression.",
   "id": "zaq-emb.27.4",
@@ -22,8 +24,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.27] Normalize inbound history facts and generic Engine consumers",
   "type": "task",
-  "updated_at": "2026-10-02T06:03:25Z"
+  "updated_at": "2026-10-02T06:17:17Z"
 }
