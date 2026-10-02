@@ -29,11 +29,15 @@
     {
       "text": "Reply-From regression corrected and validated: receiving alias takes precedence over configured mailbox/SMTP fallback; independent self-recipient exclusions retained. Exact user address regression passes through Parser -\u003e Outgoing -\u003e EmailBridge -\u003e Swoosh with expected From, To, Cc, auto-replied header and receipt sender/audience. Existing confirmed and pre-confirmation echo regressions remain green. Missing/invalid delivery headers retain mailbox fallback. Final affected suite 369 tests + 9 properties, 0 failures; mix q and git diff --check passed. Channels owner documentation and handoff corrected to supersede prior sender rule. Uncommitted; final PR A UX/E2E/review/coverage/precommit gates remain pending.",
       "timestamp": "2026-10-02T17:09:48Z"
+    },
+    {
+      "text": "User approved self-address audience correction. Reproduced with parsed email -\u003e HistoryIngress real People/replicas: configured SMTP bot Person created; property also proves alias retained in audience. Reuse/extend existing Parser/EmailBridge/SmtpSender exclusion, extracting one local-only pure self-address filter shared by reply targets and audience; no new Action/tool. Bridge reuses selected SMTP resolution before discovery. Generic confirmed assistant delivery will use recipient People only, preserving sender as provenance (not ownership). Preserve alias From, Reply-To and message-local recipients; no dev data repair. Tests -\u003e normalization/delivery -\u003e isolated email/history suite and mix q.",
+      "timestamp": "2026-10-02T22:16:42Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Unify recipients and email conversation delivery presentation",
   "type": "task",
-  "updated_at": "2026-10-02T17:09:48Z"
+  "updated_at": "2026-10-02T22:16:42Z"
 }
