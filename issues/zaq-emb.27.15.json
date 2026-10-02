@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-02T18:28:26Z",
+  "description": "Discovered by real People.merge_persons regression while validating replica-owner presentation. Merging away a Person with a Replicated transcript raises Ecto.ConstraintError transcripts_owner_person_id_fkey from PersonMerger deletion. Current merge coordination handles legacy conversations/ratings but not transcript ownership. Needs explicit history ownership/collision policy preserving canonical UUIDs, placements, access and immutable source scope; do not disable constraints or fake old-owner fixtures. Reproduce with current API capture, then merge owner into another Person. Separate from name/link projection and generic Jido ratings. Existing owner remains resolvable; merged historical aliases are projection-only.",
+  "id": "zaq-emb.27.15",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.27] Define Person merge handling for transcript owners",
+  "type": "bug",
+  "updated_at": "2026-10-02T18:28:26Z"
+}
