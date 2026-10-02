@@ -25,11 +25,15 @@
     {
       "text": "User authorized correction: remove reaction transcript-read gate; reuse canonical scoped rating/upsert. Consolidate transcript authorization on Permissions.can? with ordinary principal semantics, seed replicated owner grants on new resource creation, preserve source-aware grant lifecycle. Freshly migrated DB retest explicitly accepted; no development repair. Reuse existing Engine rate_message event, Conversations/upsert_rating and Permissions grant/can/list APIs; no new Action/tool. Sequence regressions -\u003e rating -\u003e permission/read lifecycle/projection -\u003e isolated tests/mix q. Existing PR A UX/E2E/final gates remain tracked.",
       "timestamp": "2026-10-02T21:02:36Z"
+    },
+    {
+      "text": "Implemented approved authorization correction, uncommitted. Reproduced actual missing-rating/not_found with zero grants before fix. Removed rating_access?/5 and transcript reads from provider feedback; retains connector/active canonical Person/source identity and exact channel-placement validation, shared upsert and distinct invalid_source_scope/invalid_connector/unresolved_actor/source_scope_mismatch/not_found errors. Deleted ChannelHistoryResource.can_read?/2 and direct_person_only. All new transcript strategies read via Permissions.can?; replicated capture seeds recipient grants atomically, conversation-scoped resource IDs prevent new conversations restoring old revoked access. No development-data repair (user accepted fresh DB). Source-preserving manual/provider operations retained. BO access projection includes Person/team/recipient grants with rights. Updated Engine docs and superseded tests, retained boundary/privacy coverage. Matrix dynamically includes configured Jido bridges plus Slack; Direct/Shared/thread finalized delivery -\u003e reaction -\u003e canonical persistence/display with zero grants; passive capture and no-legacy UUID coverage retained. Validation: affected suite 387 tests +17 properties passed; final post-projection changes 32 tests +1 property passed; final mix q passed after fixing two test alias suggestions. UX/E2E and overall PR A acceptance remain pending; user live fresh-DB retest still needed.",
+      "timestamp": "2026-10-02T21:20:57Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.27] Scope shared Jido ratings to canonical message identity",
   "type": "task",
-  "updated_at": "2026-10-02T21:02:36Z"
+  "updated_at": "2026-10-02T21:20:57Z"
 }
