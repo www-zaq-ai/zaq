@@ -25,11 +25,15 @@
     {
       "text": "User reported sender regression after alias loop fix; approved restoring receiving alias as reply From. Reproduced first: parser and two real SMTP-path tests failed because From was login/main account, including exact zaq-local@eweev.com -\u003e julien@fayad.fr + Cc j.tarabay@zaq.ai case. Action reuse: extend existing Parser reply_from precedence only; reuse existing EmailBridge/SmtpSender transport, connector selection, recipient filtering, receipts and loop guards. Local-only normalization, no new Action/tool/operation. Receiving alias now precedes configured mailbox; recipient exclusions independently retain mailbox + alias. Corrected incorrect previous test expectations; validation in progress.",
       "timestamp": "2026-10-02T17:06:09Z"
+    },
+    {
+      "text": "Reply-From regression corrected and validated: receiving alias takes precedence over configured mailbox/SMTP fallback; independent self-recipient exclusions retained. Exact user address regression passes through Parser -\u003e Outgoing -\u003e EmailBridge -\u003e Swoosh with expected From, To, Cc, auto-replied header and receipt sender/audience. Existing confirmed and pre-confirmation echo regressions remain green. Missing/invalid delivery headers retain mailbox fallback. Final affected suite 369 tests + 9 properties, 0 failures; mix q and git diff --check passed. Channels owner documentation and handoff corrected to supersede prior sender rule. Uncommitted; final PR A UX/E2E/review/coverage/precommit gates remain pending.",
+      "timestamp": "2026-10-02T17:09:48Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Unify recipients and email conversation delivery presentation",
   "type": "task",
-  "updated_at": "2026-10-02T17:06:09Z"
+  "updated_at": "2026-10-02T17:09:48Z"
 }
