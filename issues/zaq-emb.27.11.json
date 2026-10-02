@@ -17,11 +17,15 @@
     {
       "text": "Approved alias/loop fix in progress. Reproduced parser failures first. Action reuse assessment: extend existing Parser ReplyTargets normalization (local-only transport evidence; first Delivered-To exclusion, never permissions or inferred sender); reuse SMTP sender filtering and receipt operation, HistoryIngress source identity/confirmation lookup, Engine.Api/NodeRouter dispatch and CommunicationBridge passive capture. New confirmed_history_delivery event is an internal read of the existing durable owner, no parallel registry or agent tool. Automatic replies marked auto-replied; exact scoped confirmed echoes skipped, other auto-replies captured passively. Added real SMTP path, pre-confirmation, human sender, source/connector scope, empty-recipient and property regressions. Initial q found test alias style issue, corrected; validation underway.",
       "timestamp": "2026-10-02T16:08:11Z"
+    },
+    {
+      "text": "Alias/loop follow-up implemented and issue-validated, uncommitted. First Delivered-To is message-local receiving evidence; excludes alias in To/Cc without granting hidden history. Removed inferred sender fallback to Delivered-To/To; configured login or SMTP settings select sender. Replies retain selected SMTP and actual recipient receipt; sender module is loaded before receipt capability check. Auto-Submitted auto-replied suppresses generation before confirmation; exact confirmed source/provider/connector/Message-ID echoes skip capture and generation even without header. Tests exercise real SMTP, separate login/sender/alias, Reply-To, empty recipients without fallback, early/confirmed echoes, legitimate human sender, connector/source mismatches, folded/forwarded/malformed headers and recipient property invariants. Final affected suite: 367 tests + 9 properties, 0 failures; mix q and git diff --check passed. docs/services/channels.md and existing handoff updated. Final PR A UX approval/E2E/review/coverage/precommit remain pending; this is not outcome acceptance.",
+      "timestamp": "2026-10-02T16:14:12Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Unify recipients and email conversation delivery presentation",
   "type": "task",
-  "updated_at": "2026-10-02T16:08:11Z"
+  "updated_at": "2026-10-02T16:14:12Z"
 }
