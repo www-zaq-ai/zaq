@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-02T17:45:23Z",
+  "description": "Documentation-only policy update: define explicit human approval for planned or newly discovered changes to existing test behavioral expectations at every test level; wire concise planning/implementation reminders into workflow and AGENTS.md. Action reuse: not applicable; no executable operation changes.",
+  "id": "zaq-8t1",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Require approval for changes to existing test behavior",
+  "type": "task",
+  "updated_at": "2026-10-02T17:45:23Z"
+}
