@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-02T18:03:29Z",
+  "description": "Approved follow-up plan /Users/julien/.opencode/plan/channel-history-replica-owners-and-jido-ratings.md step 1. Extend existing admin Person projection and table/subtitle; names beneath replicated and Directory links. Tests first; remove superseded code and directly associated tests while retaining unique coverage. No feature E2E before separate UX approval. Reuse existing Engine projection and DS presentation, local-only no Action.",
+  "id": "zaq-emb.27.12",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-emb.27] Identify replica owners in Channel History",
+  "type": "task",
+  "updated_at": "2026-10-02T18:03:29Z"
+}
