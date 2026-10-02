@@ -9,9 +9,15 @@
   "id": "zaq-emb.27.13",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implemented and issue-validated, uncommitted. All Jido adapters use {:source, reference} in shared rating dispatch. Provider/connector/native room/source scope/external message ID resolve canonical target; normalized Thread/ChannelRef native coordinates fix Telegram prefix mismatch. Active rater uses existing People.match_by_channel; existing TranscriptHistory access verifies placement before message-lock serialized shared upsert. Canonical Person rating actor only. Removed get_message_by_external_id, rate_message_by_external_id and nine directly associated obsolete tests. Preserved BO UUID checks and shared mapper/ignored/removal behavior. Real bridge-\u003eEngine-\u003eDB tests cover Mattermost/Telegram/Discord/Slack, passive external and assistant targets, conflicting old rows, isolation, unknown/inaccessible actors; property covers identical IDs across two connectors/two Telegram chats. Final 635 tests + 12 properties, mix q, diff check pass; email regression suite included. No final PR acceptance or commit.",
+      "timestamp": "2026-10-02T18:33:20Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.27] Scope shared Jido ratings to canonical message identity",
   "type": "task",
-  "updated_at": "2026-10-02T18:21:25Z"
+  "updated_at": "2026-10-02T18:33:20Z"
 }
