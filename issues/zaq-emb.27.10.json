@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27.11"
+  ],
   "created": "2026-10-02T12:01:42Z",
   "description": "Approved identity/email plan step1. Canonical identity unique by platform/authority/native ID, separate connector links. Channels owns authority normalization; reuse People.find_or_create_from_channel and merger rather than new Action. Telegram global user ID, Mattermost server-scoped ID, email global normalized address; explicit conservative scopes elsewhere. Tests first cross-bot/server/inbox concurrency and connector retarget. Necessary schema only: no WIP data repair/backfill/duplicate reconciliation. Subsequent steps recipient discovery, email threads/reply-all/listing and fresh DB validation remain approved. Preserve unrelated work; no git publication.",
   "id": "zaq-emb.27.10",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Standardize external Person identity independently of connector links",
   "type": "task",
-  "updated_at": "2026-10-02T12:01:42Z"
+  "updated_at": "2026-10-02T12:02:04Z"
 }

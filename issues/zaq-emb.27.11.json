@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.27.10"
+  ],
   "blocks": [],
   "created": "2026-10-02T12:01:56Z",
   "description": "Approved plan steps2-6 after canonical identity .27.10. Extend shared discovery to From/To/CC, persist participant Person refs, replicated histories thread-scoped using normalized root refs independent sender, explicit reply-all To/Cc respecting Reply-To/self exclusion and selected SMTP, receipt actual audience through single HistoryIngress owner. Titles email Sender Person: trimmed subject; Telegram DM peer Person, connector beneath. Regression first; existing components/actions reused. No WIP historical repair. Fresh isolated DB migration+q+affected tests; feature E2E waits separate UX approval. No commit/push.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Unify recipients and email conversation delivery presentation",
   "type": "task",
-  "updated_at": "2026-10-02T12:01:56Z"
+  "updated_at": "2026-10-02T12:02:04Z"
 }
