@@ -7,9 +7,15 @@
   "id": "zaq-emb.27.12",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implemented and issue-validated, uncommitted. Batched owner summaries reuse existing Person/merged-alias resolution. Replicated rows show actual owner beneath strategy; header name deep-links to /bo/people?person_id. Real LiveView cases cover two same-title replicas, direct unchanged, and supported owner-survives merge. A losing transcript owner cannot currently merge because of FK; separate zaq-emb.27.15 records it. Final affected suite 635 tests + 12 properties passed; mix q and diff check passed. Browser localhost:4002 remains connection-error page; visual approval and feature E2E remain pending. Existing handoff file was unexpectedly empty on read; not overwritten, progress retained here.",
+      "timestamp": "2026-10-02T18:33:10Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.27] Identify replica owners in Channel History",
   "type": "task",
-  "updated_at": "2026-10-02T18:03:34Z"
+  "updated_at": "2026-10-02T18:33:10Z"
 }
