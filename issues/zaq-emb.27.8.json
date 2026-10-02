@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27.9"
+  ],
   "created": "2026-10-02T08:18:35Z",
   "description": "Approved recap step 1. Delete unused direct Agent event family/delegates/tests; preserve useful real Engine routing/admission/replay coverage. Reuse route_incoming_message and IncomingMessageRouter; no new operation. Update service docs; isolated tests and mix q. Preserve existing work.",
   "id": "zaq-emb.27.8",
@@ -11,5 +13,5 @@
   "status": "in_progress",
   "title": "Remove obsolete direct Agent bridge helpers",
   "type": "task",
-  "updated_at": "2026-10-02T08:43:13Z"
+  "updated_at": "2026-10-02T08:43:24Z"
 }
