@@ -9,9 +9,15 @@
   "id": "zaq-emb.27.10",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implementation validated, uncommitted. PersonIdentity/PersonIdentities plus Channels.IdentityScope separate native identity ownership from connector links; Telegram/Discord global native IDs, Mattermost endpoint authority, normalized global email, conservative connector-local fallback. Discovery handles conflicts, retries, retarget checks, update/delete ownership and explicit merge transfer. EnsurePerson extends the same People operation. Cross-bot and independent-connection regressions pass; legacy fixture inserts now model pre-canonical rows explicitly. Fresh isolated DB migrations passed after mix db.extensions. Final code validation: mix q passed using isolated dev build; mix precommit --max-cases 1 passed (17 doctests,159 properties,9089 tests,0 failures,1 skipped,93 excluded). No commits/pushes or development-data repairs. Outcome acceptance/review/E2E/coverage remain with .27.6; implementation status is not PR A approval.",
+      "timestamp": "2026-10-02T14:28:36Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Standardize external Person identity independently of connector links",
   "type": "task",
-  "updated_at": "2026-10-02T12:36:46Z"
+  "updated_at": "2026-10-02T14:28:36Z"
 }
