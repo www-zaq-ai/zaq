@@ -11,9 +11,15 @@
   "id": "zaq-emb.27.4",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "User explicitly requested completing the boundary refactor and removing superseded concern-leak branches. Implement one normalized source/audience contract, generic semantic strategy selection, unified confirmed history delivery, and capability-driven membership consumers. Preserve additive legacy data migration protections; remove obsolete live API variants only after migrating callers/tests. Reuse existing capture/admission, authorization and membership Actions.",
+      "timestamp": "2026-10-02T05:12:26Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.27] Normalize inbound history facts and generic Engine consumers",
   "type": "task",
-  "updated_at": "2026-10-02T05:12:25Z"
+  "updated_at": "2026-10-02T05:12:26Z"
 }
