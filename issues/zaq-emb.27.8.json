@@ -9,9 +9,15 @@
   "id": "zaq-emb.27.8",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Removed unused run_pipeline_with_node_router/build_agent_pipeline_event family, macro delegate, normalization/selection helpers and obsolete stub tests. Existing real Engine-routing tests preserve actor validation, persisted admission/binding, selection, workflow-only routing and replay suppression; real adapter lifecycle tests included in final suite. Reused route_incoming_message and IncomingMessageRouter; no replacement operation. Final mix q passed; combined 12-file validation passed 477 tests +6 properties. Whitespace and reference audit clean; no git publication.",
+      "timestamp": "2026-10-02T08:52:03Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Remove obsolete direct Agent bridge helpers",
   "type": "task",
-  "updated_at": "2026-10-02T08:43:24Z"
+  "updated_at": "2026-10-02T08:52:03Z"
 }
