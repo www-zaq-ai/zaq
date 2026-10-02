@@ -10,9 +10,15 @@
   "id": "zaq-emb.27.6",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Boundary refactor .27.4/.27.5 and membership .6 implemented/closed. Provider interpretation removed from affected Engine history/conversation/admin consumers; obsolete live APIs absent except intentional rejection test. Broad affected validation: 1744 tests +29 properties found three test-contract mismatches, fixed and verified by206-test rerun. Final post-edit mix q and73 tests+6 properties pass. New additive membership_state migration exercised in isolated test database, not populated dev DB. Supporting handoff updated at docs/exec-plans/active/2026-10-01-handoff-channel-boundaries.md. Remaining: independent complete lifecycle/fresh-populated DB assurance, E2E availability, explicit final UX gates, review/coverage/final precommit. No commit/push/merge.",
+      "timestamp": "2026-10-02T06:19:23Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] Verify cross-channel contracts and independent history outcome",
   "type": "task",
-  "updated_at": "2026-10-01T21:01:59Z"
+  "updated_at": "2026-10-02T06:19:23Z"
 }
