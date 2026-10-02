@@ -33,11 +33,15 @@
     {
       "text": "User approved self-address audience correction. Reproduced with parsed email -\u003e HistoryIngress real People/replicas: configured SMTP bot Person created; property also proves alias retained in audience. Reuse/extend existing Parser/EmailBridge/SmtpSender exclusion, extracting one local-only pure self-address filter shared by reply targets and audience; no new Action/tool. Bridge reuses selected SMTP resolution before discovery. Generic confirmed assistant delivery will use recipient People only, preserving sender as provenance (not ownership). Preserve alias From, Reply-To and message-local recipients; no dev data repair. Tests -\u003e normalization/delivery -\u003e isolated email/history suite and mix q.",
       "timestamp": "2026-10-02T22:16:42Z"
+    },
+    {
+      "text": "Implemented self-address audience fix. Shared Channels EmailBridge.SelfAddresses excludes normalized connector-local addresses from both reply targets and discovery recipients/participants. Parser supplies inbox and first receiving alias; EmailBridge.to_internal reuses selected SMTP resolution and applies configured sender before Engine routing, including passive capture. SMTP delivery uses same exclusion primitive. Confirmed assistant HistoryIngress deliveries use actual recipients only, keeping transport sender as author provenance even if an old bot Person exists. Regression first reproduced bot Person creation and property-preserved alias bug; now no bot Person/link/replica/grant, replay with old bot excluded, receiving-alias From/reply-all preserved, unselected SMTP address remains legitimate recipient. Updated Channels/Engine owner docs. Final affected suite 319 tests +10 properties passed; git diff --check passed. mix q hit intermittent ExDNA 5s task timeouts; final retry with +S 8:8 passed. No historical cleanup, no commit/push; live retest pending.",
+      "timestamp": "2026-10-02T22:28:41Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Unify recipients and email conversation delivery presentation",
   "type": "task",
-  "updated_at": "2026-10-02T22:16:42Z"
+  "updated_at": "2026-10-02T22:28:41Z"
 }
