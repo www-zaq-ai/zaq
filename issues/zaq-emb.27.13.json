@@ -17,11 +17,15 @@
     {
       "text": "Reopened production-path defect after user live Mattermost reaction failed. Read-only DB evidence: delivered Shared assistant UUID has confirmed receipt/placement but null canonical source fields; lookup correctly cannot resolve it. Prior tests seeded canonical capture, bypassing finalization+delivery. Added regression through admission/finalization -\u003e HistoryDelivery -\u003e HistoryIngress -\u003e Jido reaction -\u003e real rating/projection, first failing with exact not_found symptom. Action reuse: extend existing TranscriptHistory.prepare_execution_response under existing locked confirmation transaction; reuse Message.canonical_changeset immutable/unique binding; no new lookup fallback/registry. Preserve UUID/trace/legacy conversation and ID-only retry owner. No historical data repair.",
       "timestamp": "2026-10-02T19:55:15Z"
+    },
+    {
+      "text": "Production delivery binding fix implemented, uncommitted. TranscriptHistory.prepare_execution_response now binds existing response canonical source fields using Message.canonical_changeset inside HistoryIngress confirmation transaction after execution/target validation. UUID, trace and legacy conversation preserved; source collision rolls back without receipt or partial binding. Found and fixed second production seam: chat receipts omit history_source_scope, so HistoryDelivery now defaults to Outgoing.routing_context.source_scope while preserving explicit SMTP scope. New regression uses real HistoryIngress capture + admission + finalization + HistoryDelivery confirmation + Jido reaction + DB/projection (no real provider network call), covers Mattermost Direct/Shared/thread and toned +1, Telegram Direct, Discord Shared and Slack thread, repeated confirmation/association and collision rollback. Reproduced not_found before fix; reproduced missing Telegram namespace with actual chat receipt shape before fixing fallback. Final affected suite 207 tests +5 properties, 0 failures; mix q and git diff --check passed. Earlier live test row not backfilled; user should retest fresh exchange. No live-server verification claimed; broader PR A gates remain pending.",
+      "timestamp": "2026-10-02T20:03:29Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.27] Scope shared Jido ratings to canonical message identity",
   "type": "task",
-  "updated_at": "2026-10-02T19:55:15Z"
+  "updated_at": "2026-10-02T20:03:29Z"
 }
