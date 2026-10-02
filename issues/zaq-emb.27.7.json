@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-10-02T07:00:32Z",
   "created": "2026-10-02T06:55:13Z",
   "description": "User-approved cleanup: require structurally valid admission bindings before channel Agent execution/status; preserve provider:nil internal runs. Remove Conversations.persist_from_incoming/2,3, exchange helpers, Engine action and Bridge wrapper; migrate fixtures/tests to admission/finalization and update service docs. Regressions: malformed/missing bindings (including property coverage), no fallback on failed finalization, replay preserves prompt/answer UUIDs, artifact failure retains admitted prompt. Action reuse: reuse existing Conversations.admit_incoming/finalize_incoming and Engine dispatch actions; local-only Agent binding shape guard is internal boundary validation, not a new business operation/agent tool. Preserve persist_message_history for initiated messages. Pending targeted lifecycle/routing/delivery/media tests and mix q; PR A final assurance and approval remain zaq-emb.27.6.",
   "id": "zaq-emb.27.7",
@@ -14,8 +15,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Remove legacy exchange writer and require admission bindings",
   "type": "task",
-  "updated_at": "2026-10-02T06:59:35Z"
+  "updated_at": "2026-10-02T07:00:32Z"
 }
