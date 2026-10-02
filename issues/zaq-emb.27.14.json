@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.27.13"
+  ],
   "blocks": [],
   "created": "2026-10-02T18:21:05Z",
   "description": "Approved step 4. Extend existing ChannelHistoryAdmin batched projection with message-owned positive/negative counts; display summary for external and assistant roles, independently of BO mutation controls. Reuse current rating writer, no new rating store. Regression first in real database/LiveView tests. Separate final human UX approval still required before feature E2E authoring.",
@@ -11,5 +13,5 @@
   "status": "in_progress",
   "title": "[zaq-emb.27] Display channel ratings independently of BO viewer vote",
   "type": "task",
-  "updated_at": "2026-10-02T18:21:16Z"
+  "updated_at": "2026-10-02T18:21:25Z"
 }

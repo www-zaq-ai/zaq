@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27.14"
+  ],
   "created": "2026-10-02T18:05:30Z",
   "description": "Approved follow-up steps 2-3: replace unscoped external-ID rating lookup and its obsolete tests; preserve generic bridge rating pipeline, mapper, Person identity and permission checks, source isolation, canonical UUID and shared upsert. Real integration regressions first. Separate Engine resolution and Channels normalization, no provider parsing in Engine. Reuse SourceIdentity and TranscriptHistory authorization. Extend existing rate_message operation, no new tool.",
   "id": "zaq-emb.27.13",
@@ -11,5 +13,5 @@
   "status": "in_progress",
   "title": "[zaq-emb.27] Scope shared Jido ratings to canonical message identity",
   "type": "task",
-  "updated_at": "2026-10-02T18:21:12Z"
+  "updated_at": "2026-10-02T18:21:25Z"
 }
