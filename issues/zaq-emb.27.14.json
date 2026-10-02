@@ -9,9 +9,15 @@
   "id": "zaq-emb.27.14",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implemented and issue-validated, uncommitted. Bounded batched rating totals render for external/assistant transcript messages, separately from viewer-owned vote. Mutation reloads visible page and removes redundant local feedback map. Real projection+LiveView assertions show channel-only and mixed feedback and independently active BO button. Shared canonical upsert, no parallel store. Final 635 tests + 12 properties, mix q and diff check pass. Unchanged IMAP reconnect test hit its existing 50ms timing race earlier and passed final rerun. Browser inspection localhost:4002 failed; separate human UX gate/new E2E remain open, as do broader PR A review/coverage/precommit. Merge-owner FK blocker is .27.15.",
+      "timestamp": "2026-10-02T18:33:28Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.27] Display channel ratings independently of BO viewer vote",
   "type": "task",
-  "updated_at": "2026-10-02T18:21:25Z"
+  "updated_at": "2026-10-02T18:33:28Z"
 }
