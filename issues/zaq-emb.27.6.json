@@ -19,11 +19,15 @@
     {
       "text": "Legacy exchange cleanup zaq-emb.27.7 now closed: removed live persist_from_incoming API/action/Bridge wrapper/Agent fallback. Channel Agent entry rejects invalid admission bindings before side effects; internal provider:nil retained. Final mix q and diff check pass; 18-file affected run passed 706 tests +5 properties, 3 excluded. This corrects earlier overbroad obsolete-API scan claim. Handoff updated. Independent acceptance/migration assurance, E2E availability/UX gates, review/coverage/final precommit remain open. Passing affected suite still emits async-task dispatch/teardown errors, so isolation assurance should include these. No commits/pushes.",
       "timestamp": "2026-10-02T07:00:45Z"
+    },
+    {
+      "text": "Identity/email follow-up .27.10/.27.11 implemented and validated. Final code mix q passed in isolated dev MIX_BUILD_PATH; precommit --max-cases 1 passed 9089 tests+159 properties+17 doctests,0 failures (1 skipped,93 excluded). This precommit took 908.4s test time and used an extended1200s subprocess budget, so it is evidence rather than completion of the policy900s final gate after review/E2E/coverage. Earlier parallel/precommit attempts timed out or exposed fixes now verified. Fresh empty migration chain passed after mix db.extensions on isolated _identity_fresh DB; populated-main upgrade assurance remains separate. Mattermost integration waits for confirmed-placement transaction commit and writer termination, replacing sandbox-contention polling. Running phx.server shares _build/dev; isolated build avoided compilation races. E2E availability still unverified; explicit PR A UX approval, review/coverage and subsequent final gate remain pending. No Git mutation authorization, no historical development-data repair.",
+      "timestamp": "2026-10-02T14:29:14Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27] Verify cross-channel contracts and independent history outcome",
   "type": "task",
-  "updated_at": "2026-10-02T08:43:31Z"
+  "updated_at": "2026-10-02T14:29:14Z"
 }
