@@ -17,11 +17,15 @@
     {
       "text": "Confirmed bridge receipts now retain provider message IDs/confirmation; one HistoryDelivery boundary sends normalized evidence to HistoryIngress.capture_confirmed. Existing Oban/default queue provides durable association-only retry via HistoryDeliveryWorker; retries call the same execution/source-validated capture operation, never a sender. Pending/failed results enqueue nothing; storage errors remain sanitized history-unavailable success receipts. Regressions cover retryable failed association, duplicate confirmation, idempotent worker placement with original UUID, and real Telegram adapter lifecycle. Local-only decision: worker is internal persistence recovery, not a new user-facing Action. Final affected validation in progress.",
       "timestamp": "2026-10-02T06:03:42Z"
+    },
+    {
+      "text": "Final self-review added a failing regression for durable receipt retention outside Oban pruning, then persisted bounded confirmation on the assistant and rejected conflicting provider IDs. Final mix q passed; 73 tests and 6 properties passed after all code edits. Complete PR A assurance remains .27.6.",
+      "timestamp": "2026-10-02T06:19:22Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "[zaq-emb.27] Preserve delivery receipts and reconcile confirmed history",
   "type": "task",
-  "updated_at": "2026-10-02T06:17:27Z"
+  "updated_at": "2026-10-02T06:19:22Z"
 }
