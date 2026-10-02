@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-emb.27",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-emb.27] Normalize inbound history facts and generic Engine consumers",
   "type": "task",
-  "updated_at": "2026-10-01T21:01:57Z"
+  "updated_at": "2026-10-02T05:12:25Z"
 }
