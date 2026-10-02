@@ -21,11 +21,15 @@
     {
       "text": "Implemented approved inline reaction UI. ChatMessage feedback buttons accept optional aggregate count and read_only mode; only viewer feedback controls selected/aria-pressed state. Channel History shows count adjacent to each thumb, including read-only external-message spans, and removes separate summary paragraph. Existing countless callers retain their behavior. Storybook assistant variants show counts with/without viewer vote. LiveView regressions cover other actor count without highlight, own vote, vote switching (0 positive /2 negative), read-only external feedback, removed summary line and reload persistence. Validation: shared component + Channel History + ChatLive + People History 135 tests passed; after removing dynamic_tag attribute/deprecation warnings, final targeted 34 tests passed; mix q and git diff --check passed. Browser Storybook localhost:4000 unavailable (connection-error page); final visual approval/E2E remains pending. All changes uncommitted.",
       "timestamp": "2026-10-02T21:48:05Z"
+    },
+    {
+      "text": "User approved inline-count appearance and requested hiding zero values. Shared feedback controls now render count text only for positive counts; thumb and accessible count label remain. Updated existing vote-switch regression to assert zero-count badge disappears while unselected thumb remains. Reuses existing components/projection, no operation change. mix q initially hit ExDNA internal 5s timeout, passed unchanged on retry; 34 component/Channel History tests and git diff --check passed.",
+      "timestamp": "2026-10-02T22:00:02Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.27] Display channel ratings independently of BO viewer vote",
   "type": "task",
-  "updated_at": "2026-10-02T21:48:05Z"
+  "updated_at": "2026-10-02T22:00:02Z"
 }
