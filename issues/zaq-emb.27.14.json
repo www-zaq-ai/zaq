@@ -17,11 +17,15 @@
     {
       "text": "User approved reaction-count UI refinement: put aggregate counts beside thumbs; highlight only current BO viewer vote; remove separate summary line. Reuse ChatMessage feedback controls with optional counts/read-only mode, keep shared rating projection and mutation owners. No new Action/tool. Extend existing LiveView integration coverage for multiple actors, vote change and persistence. Existing PR A UX/E2E gates continue.",
       "timestamp": "2026-10-02T21:39:02Z"
+    },
+    {
+      "text": "Implemented approved inline reaction UI. ChatMessage feedback buttons accept optional aggregate count and read_only mode; only viewer feedback controls selected/aria-pressed state. Channel History shows count adjacent to each thumb, including read-only external-message spans, and removes separate summary paragraph. Existing countless callers retain their behavior. Storybook assistant variants show counts with/without viewer vote. LiveView regressions cover other actor count without highlight, own vote, vote switching (0 positive /2 negative), read-only external feedback, removed summary line and reload persistence. Validation: shared component + Channel History + ChatLive + People History 135 tests passed; after removing dynamic_tag attribute/deprecation warnings, final targeted 34 tests passed; mix q and git diff --check passed. Browser Storybook localhost:4000 unavailable (connection-error page); final visual approval/E2E remains pending. All changes uncommitted.",
+      "timestamp": "2026-10-02T21:48:05Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.27] Display channel ratings independently of BO viewer vote",
   "type": "task",
-  "updated_at": "2026-10-02T21:39:02Z"
+  "updated_at": "2026-10-02T21:48:05Z"
 }
