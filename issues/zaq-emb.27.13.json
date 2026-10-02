@@ -21,11 +21,15 @@
     {
       "text": "Production delivery binding fix implemented, uncommitted. TranscriptHistory.prepare_execution_response now binds existing response canonical source fields using Message.canonical_changeset inside HistoryIngress confirmation transaction after execution/target validation. UUID, trace and legacy conversation preserved; source collision rolls back without receipt or partial binding. Found and fixed second production seam: chat receipts omit history_source_scope, so HistoryDelivery now defaults to Outgoing.routing_context.source_scope while preserving explicit SMTP scope. New regression uses real HistoryIngress capture + admission + finalization + HistoryDelivery confirmation + Jido reaction + DB/projection (no real provider network call), covers Mattermost Direct/Shared/thread and toned +1, Telegram Direct, Discord Shared and Slack thread, repeated confirmation/association and collision rollback. Reproduced not_found before fix; reproduced missing Telegram namespace with actual chat receipt shape before fixing fallback. Final affected suite 207 tests +5 properties, 0 failures; mix q and git diff --check passed. Earlier live test row not backfilled; user should retest fresh exchange. No live-server verification claimed; broader PR A gates remain pending.",
       "timestamp": "2026-10-02T20:03:29Z"
+    },
+    {
+      "text": "User authorized correction: remove reaction transcript-read gate; reuse canonical scoped rating/upsert. Consolidate transcript authorization on Permissions.can? with ordinary principal semantics, seed replicated owner grants on new resource creation, preserve source-aware grant lifecycle. Freshly migrated DB retest explicitly accepted; no development repair. Reuse existing Engine rate_message event, Conversations/upsert_rating and Permissions grant/can/list APIs; no new Action/tool. Sequence regressions -\u003e rating -\u003e permission/read lifecycle/projection -\u003e isolated tests/mix q. Existing PR A UX/E2E/final gates remain tracked.",
+      "timestamp": "2026-10-02T21:02:36Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.27] Scope shared Jido ratings to canonical message identity",
   "type": "task",
-  "updated_at": "2026-10-02T20:03:29Z"
+  "updated_at": "2026-10-02T21:02:36Z"
 }
