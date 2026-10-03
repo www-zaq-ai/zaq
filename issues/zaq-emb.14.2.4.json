@@ -17,11 +17,15 @@
     {
       "text": "Local uncommitted PR A implementation: SmtpSender.send_notification_with_receipt/3,/4 composes through the existing Swoosh send path and emits actual email.from + envelope to/cc/bcc only after Mailer.deliver returns {:ok, _}; legacy send_notification/3,/4 still returns :ok/error. EmailBridge reply receipt adds history_evidence only from the receipt-bearing sender, never synthesizes it from :ok on legacy/stub senders. Tests include explicit sender override, real IMAP-\u003elinked SMTP selection with two connectors, missing binding/disabled connector (existing), fake Bcc/header exclusion, transport rejection, property envelope isolation and legacy consumers; isolated 173 tests/3 properties across Email/notification/workflow suites pass, mix q passes. Channels guide updated to distinguish transport evidence from Person grants and mailbox delivery; no secret/settings behavior changed. Independent inbound receiving-account Bcc proof remains optional .14.2.5 and is NOT inferred.",
       "timestamp": "2026-09-26T10:32:37Z"
+    },
+    {
+      "text": "Reconciled after completed implementation: receipt-bearing SMTP delivery emits actual sender/envelope evidence only after confirmed delivery while legacy callers retain :ok/error behavior. Email threading, binding, failure and audience regressions pass; live email retest passed.",
+      "timestamp": "2026-10-03T09:03:23Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.4] Return confirmed SMTP history evidence",
   "type": "task",
-  "updated_at": "2026-09-26T10:32:37Z"
+  "updated_at": "2026-10-03T09:03:23Z"
 }
