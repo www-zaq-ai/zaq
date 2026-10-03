@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T22:43:53Z",
+  "description": "User approved architecture correction on 2026-10-04. Extend existing Bridge.to_internal contract; Channels emits validated conversation type (one_to_one, room, recipient_addressed), source namespace, timestamps and message-local audience, never history_kind/title policy/capture decisions. Engine derives existing Direct/Shared/Replicated policies and owns ingress capture including nonmentions. Remove history-specific config and use existing bridge/provider integration for normalization and neutral room-member/message queries. Preserve previous uncommitted remediation, IDs/cursors/account encoding. Steps tracked as child issues. Action reuse: extend bridge and existing Engine ingress/domain APIs, local-only transport normalization, reuse membership Action, no new tool/Action exposure. Tests first: provider-independent Engine selection, contradictory/unknown facts, no strategy hints accepted from transport; real chat/email capture, recipient isolation, scoped reaction namespace, membership/root fallback regressions. Docs Channels/Engine authoritative contracts. Validation focused suites, mix q, existing E2E and final precommit; coverage handoff remains separate after review. No commit/push authorization.",
+  "id": "zaq-emb.27.28",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 2,
+  "status": "open",
+  "title": "Centralize history decisions in Engine and normalize communication facts in Channels",
+  "type": "task",
+  "updated_at": "2026-10-03T22:43:53Z"
+}
