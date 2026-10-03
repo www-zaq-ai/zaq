@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27.28.2"
+  ],
   "created": "2026-10-03T22:44:01Z",
   "description": "Extend Incoming.RoutingContext with conversation_type fact; Engine.History owns kind/title derivation. Tests first mapping for provider-independent one_to_one/room/recipient_addressed; unknown/malformed and spoofed history hint fail closed. Existing facts strategies preserved. Mocking none pure tests. Docs Engine and module contracts. Local-only policy extends current Facts/HistoryIngress no Action necessary.",
   "id": "zaq-emb.27.28.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.27.28.1] Define neutral communication facts and Engine selection",
   "type": "task",
-  "updated_at": "2026-10-03T22:44:01Z"
+  "updated_at": "2026-10-03T22:44:37Z"
 }

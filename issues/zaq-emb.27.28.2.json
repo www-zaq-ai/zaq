@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.27.28.1"
+  ],
   "blocks": [],
   "created": "2026-10-03T22:44:17Z",
   "description": "Depends .1; migrate chat/email to neutral facts, existing bridge normalization; remove history-specific config, provider parsing from shared bridge and capture decisions from Channels; bridge dispatch neutral receive-only vs response-eligible ingress. Neutral room-member/message query contract uses existing integration resolution. Tests first provider normalization including Discord fetched metadata, webhook reactions, email recipients, unknowns and passive capture. Edge transport stubs only; real Engine/DB regressions. Docs Channels. Reuse existing Bridge.to_internal and transport operations; internal normalization local-only.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.27.28.2] Normalize Channels ingress and neutral provider operations",
   "type": "task",
-  "updated_at": "2026-10-03T22:44:17Z"
+  "updated_at": "2026-10-03T22:44:37Z"
 }
