@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-pkd.14"
+  ],
   "blocks": [],
   "created": "2026-10-03T13:03:46Z",
   "description": "## Approved plan task V1\n\n- Review boundary leakage across all edited seams, especially BO→Channels→Engine, opaque transport metadata, configuration scope and privilege propagation.\n- Run isolated affected tests and `mix q` per implementation issue. Run existing relevant browser coverage during development; new consolidated E2E follows B3 approval.\n- After implementation and PR review approval, perform the workflow-required coverage handoff; use current coverage tooling and record exceptions rather than imposing per-task numeric gates.\n- Run final `mix precommit` per the authoritative workflow before requesting final approval. Resolve failures, and repeat only when changes/failures justify it.\n- Record commands/results and remaining external-widget integration work.\n- Commit, push and merge remain separately authorized actions.\n\n## Execution requirements\nBranch: refactor/webbridge. Source: GitHub www-zaq-ai/zaq#830. Read AGENTS.md, docs/exec-plans/PLAN_STRATEGY.md, docs/agent-tools.md, docs/action-reuse.md, docs/testing-approach.md, and applicable service guides before implementation. Shared contracts, module responsibilities, reuse evidence, decisions and regression obligations are in parent zaq-pkd. Write the specified immediate tests first; use real internal boundaries and mock only external edges. Preserve canonical-history authorization, config-scoped delivery and Engine admission/finalization. New/substantially rewritten feature E2E must wait for B3 human approval. Inbound message.edit is excluded; outbound streaming edits remain included.\n",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-03T13:03:46Z"
+  "updated_at": "2026-10-03T13:03:57Z"
 }
