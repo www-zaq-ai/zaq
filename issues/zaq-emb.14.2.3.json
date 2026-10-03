@@ -17,11 +17,15 @@
     {
       "text": "Local uncommitted implementation: JidoChatBridge stamps history_kind only when normalized ChannelMeta adapter provider/room and raw provider-origin event kind agree. Tested actual Mattermost, Telegram and Discord adapter transforms, nonmention-shaped text, wrong provider/room, unknown kind, Discord absent guild and explicit parent, and conflicting metadata. Bounded matrix documented in Channels: Mattermost D/O/P, Telegram explicit private/group/supergroup/channel, Discord guild and threads with explicit guild+parent; Mattermost group DM and unproven Discord DM fail closed, Slack/Teams not configured. The prior unit assertions asserting kind from naked is_dm maps were replaced with stronger positive examples requiring source event facts; 182 bridge tests pass, mix q passes. This verifies kind evidence only, NOT passive nonmention persistence or grant/authorization; zaq-emb.4 must implement that and record supported connector matrix in integrated validation. No new feature E2E.",
       "timestamp": "2026-09-26T10:45:42Z"
+    },
+    {
+      "text": "Reconciled after completed implementation: provider-origin room kind validation is live for the documented Mattermost, Telegram and Discord matrix, fail-closed on unknown/conflicting evidence. Cross-provider bridge tests and successful live Mattermost/Telegram retests confirm the boundary.",
+      "timestamp": "2026-10-03T09:03:22Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.3] Verify platform room-type evidence",
   "type": "task",
-  "updated_at": "2026-09-26T10:45:42Z"
+  "updated_at": "2026-10-03T09:03:22Z"
 }
