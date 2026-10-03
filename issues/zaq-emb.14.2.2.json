@@ -24,11 +24,15 @@
     {
       "text": "Local implementation (uncommitted/unpushed): Parser.to_incoming stamps routing_context.attributes[\"email\"] with normalized envelope sender + this-message visible To/Cc, case-folded/deduplicated. When RFC headers parse, only their To/Cc count; fallback structured values only without a parsed source. Bcc and Delivered-To remain excluded as audience evidence (Delivered-To still preserves legacy reply_from). Tests written before implementation include evolving audience, hidden/envelope recipient denial, malformed fallback, property dedup and fake IMAP adapter ingress; isolated 72 tests/2 properties pass, mix q passes, git diff --check clean. The optional independent hidden-Bcc evidence path remains zaq-emb.14.2.5; no claim of confirmed hidden recipient or Person grants. PR A .4 must resolve addresses against connector-scoped People and authorize persistence before consumers read them; do not treat the attributes map as an authenticated external Event.",
       "timestamp": "2026-09-26T10:10:18Z"
+    },
+    {
+      "text": "Reconciled after completed implementation: normalized per-message sender/To/Cc evidence is live in the IMAP parser and ingress; hidden Bcc remains deliberately excluded without independent proof. Covered by parser, bridge, ingress and real email lifecycle regressions plus successful live email retest. No inference from Delivered-To/folder.",
+      "timestamp": "2026-10-03T09:03:20Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2.2] Normalize inbound email recipient evidence",
   "type": "task",
-  "updated_at": "2026-09-26T10:10:18Z"
+  "updated_at": "2026-10-03T09:03:20Z"
 }
