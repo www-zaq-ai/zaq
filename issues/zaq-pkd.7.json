@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-pkd.6"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-pkd.8"
+  ],
   "created": "2026-10-03T13:03:39Z",
   "description": "## Approved plan task B3\n\n- **Functional scope/files:** review running BO against A0's matrix; no feature redesign.\n- **Tests/branches:** run existing relevant browser journeys and inspect send/stream/final/error, agent/filter use, new/resume chat, history, feedback, previews and trace information. Record screenshots or observations where useful.\n- **Mocking:** existing approved deterministic browser fixture environment.\n- **Documentation:** Beadwork records exact human UX/behavior approval and any corrections. New/substantially rewritten E2E authoring stays blocked until this approval.\n- **Action reuse:** not applicable; validation/approval only.\n- **Done:** user explicitly confirms BO parity; any deviation is fixed and revalidated before B4.\n\n## Execution requirements\nBranch: refactor/webbridge. Source: GitHub www-zaq-ai/zaq#830. Read AGENTS.md, docs/exec-plans/PLAN_STRATEGY.md, docs/agent-tools.md, docs/action-reuse.md, docs/testing-approach.md, and applicable service guides before implementation. Shared contracts, module responsibilities, reuse evidence, decisions and regression obligations are in parent zaq-pkd. Write the specified immediate tests first; use real internal boundaries and mock only external edges. Preserve canonical-history authorization, config-scoped delivery and Engine admission/finalization. New/substantially rewritten feature E2E must wait for B3 human approval. Inbound message.edit is excluded; outbound streaming edits remain included.\n",
   "id": "zaq-pkd.7",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[830] B3 — Human BO parity review gate",
   "type": "task",
-  "updated_at": "2026-10-03T13:03:51Z"
+  "updated_at": "2026-10-03T13:03:52Z"
 }
