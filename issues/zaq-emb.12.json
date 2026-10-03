@@ -19,11 +19,15 @@
     {
       "text": "Latest requested UI iteration is implemented at /bo/channels/history: provider icon + room name in list/header, People left and assistants right using existing ChatMessage components with round name-initial avatars, copy/info/feedback controls, and Current access moved into the sharing-icon modal beside the room name. Component Storybook preview checked; real-data page requires login. Backend/LiveView regression tests and final reduced-concurrency precommit pass (10154 tests/199 properties/48 doctests); this is not human UX approval. Gate remains pending. A eventual E2E scope must cover six Mattermost Shared activation cases and silent persistence, correct root/thread scopes, replay deduplication, sharing modal and manual/provider grants, room names/icons, feedback persistence/info authorization and \u003e50-message pagination. No new-feature E2E authored.",
       "timestamp": "2026-10-01T15:38:02Z"
+    },
+    {
+      "text": "APPROVED by Julien on 2026-10-03 in this OpenCode conversation: “I reviewed the UI for the channel history, now everything is good.” Scope: completed PR A /bo/channels/history list and detail presentation, Direct/Shared/Replicated labels and owners, message timeline/actions/ratings, Current access modal, grant/revoke and refresh states, restricted legacy/empty/error/denied states. This approval is PR A only and does not approve PR B live execution UX. Material UI changes reopen this gate.",
+      "timestamp": "2026-10-03T09:03:42Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-emb.12] PR A explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-10-01T15:38:02Z"
+  "updated_at": "2026-10-03T09:03:42Z"
 }
