@@ -11,9 +11,15 @@
   "id": "zaq-pkd.2",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Implemented ZAQ-owned version-1 web transport contracts under lib/zaq/channels/web/: Message, Command, Context, Delivery, Response, plus private shared Validation. Contracts strictly separate untrusted message/command fields from trusted actor/capability/delivery context; use closed mode/command/event sets without atom creation; reject executable/private fields recursively; enforce explicit capability grants and nil-identity denial; and retain Engine Incoming/Outgoing as canonical internal messages. Added 10 unit tests plus one property test and documented current contract-layer/legacy bridge status in docs/services/channels.md. Action reuse: local-only pure transport value objects; no side effects or independently composable business operation, so no Action/tool/workflow exposure. Validation: contracts 10 tests + 1 property pass; WebBridge regression 8 tests pass; mix q passes; git diff --check passes. Non-failing :license_manager environment warning remains.",
+      "timestamp": "2026-10-03T13:18:39Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] A1 — Define and implement shared message, command, context and response contracts",
   "type": "task",
-  "updated_at": "2026-10-03T13:11:42Z"
+  "updated_at": "2026-10-03T13:18:39Z"
 }
