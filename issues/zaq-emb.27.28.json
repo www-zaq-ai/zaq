@@ -11,11 +11,15 @@
     {
       "text": "Neutral-boundary implementation is now in the uncommitted working tree. Replaces the former HistoryEvidence/HistoryProvider plan rather than completing it: existing Bridge.to_internal emits conversation_type, provider-local integrations normalize once on listener ingress and own Discord enrichment; no history-specific config. Engine CommunicationPolicy owns kind/title derivation, receives nonmentions through receive_incoming_message and interprets delivery confirmations through History.Delivery. Bridge room_capabilities/room_members/fetch_room_message are consumer-neutral. Receipts use audience/source_scope/conversation_id; Channels preserves send success with confirmation_recording unavailable if Engine transport fails. Canonical IDs, account encoding, cursor and prior remediation preserved. mix q passed; affected regression run passed 1536 tests and 26 properties. Issue-scoped commit/landing remains blocked by no commit authorization; do not close dependent issues or treat this as final approval. Existing E2E and final precommit remain to rerun.",
       "timestamp": "2026-10-03T23:16:04Z"
+    },
+    {
+      "text": "Final neutral-boundary regression verification: mix q PASS; affected Channels/Engine/history/BO run PASS 1536 tests +26 properties; existing Playwright channels.spec.js/history.spec.js PASS 33 cases across Firefox/WebKit/Chromium. First full precommit hit unchanged telemetry sandbox checkout failure in llm_performance_failure_test.exs (dead PID exit rather than OwnershipError); isolated test PASS and repeated full mix precommit --max-cases 4 PASS 10217 tests +211 properties +48 doctests,0 failures,1 skipped,101 excluded,within900s. No assertions weakened or application edits after the green full run. Handoff updated in place: docs/exec-plans/active/2026-10-01-handoff-channel-boundaries.md includes all active/untracked files, public signatures, event/results, guarded migration, superseded design, failures and PR B constraints. Branch feature/issue-768-history-a-integration HEAD f634e990cc91f2974c7fda54ace5bb3958a56d63 unchanged; no fix commit SHA(s), no commit/push authorization. Issues remain open for landing; review/coverage/human approval are not inferred from validation.",
+      "timestamp": "2026-10-03T23:42:17Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "Centralize history decisions in Engine and normalize communication facts in Channels",
   "type": "task",
-  "updated_at": "2026-10-03T23:16:04Z"
+  "updated_at": "2026-10-03T23:42:17Z"
 }
