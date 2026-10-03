@@ -16,11 +16,15 @@
     {
       "text": "Human approved extending existing People detail UI without separate prototype; reuse existing design system, obtain final UX approval before new E2E.",
       "timestamp": "2026-09-23T14:15:48Z"
+    },
+    {
+      "text": "Completed channel-history access UI: super-admin Current access modal, manual Person grant/revoke, source-labelled nonmanual/team rows, capability-gated provider refresh and unsupported/failure states. LiveView/Engine regressions pass and the user explicitly approved the resulting channel-history UI on 2026-10-03.",
+      "timestamp": "2026-10-03T09:03:27Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-emb.10] People external-channel grants and membership refresh UI",
   "type": "task",
-  "updated_at": "2026-09-26T09:49:50Z"
+  "updated_at": "2026-10-03T09:03:27Z"
 }
