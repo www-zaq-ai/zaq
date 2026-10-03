@@ -69,11 +69,15 @@
     {
       "text": "New Engine read integration: PeopleConversations :channel_history uses authenticated bearer plus existing permission gate and TranscriptHistory Person grant/recipient check; foreign/malformed/missing transcript all surface :not_found, private metadata/trace excluded, 50 default/100 max cursor bounded. NodeRouter confidential action integration and live provider-grant revocation tested. Capture now rejects disabled or archived connectors for writes but preserves authorized preexisting reads after disable. Regression tests added for both. Latest affected isolated suite 367 tests/6 properties passed before final 2 tests; final focused suite 52 tests/2 properties passed; mix q and git diff --check pass. Uncommitted changes moved with new local feature/issue-768-history-a-integration branch; old draft branch ref untouched. No PR push yet; ingress evidence/cutover/membership/UI and human UX/E2E/coverage/review gates remain.",
       "timestamp": "2026-09-26T13:33:00Z"
+    },
+    {
+      "text": "Completion reconciliation 2026-10-03: PR A durable-history implementation is present end-to-end: trusted connector facts and Person resolution; transactional Direct/Shared/Replicated capture and replay; passive nonmention persistence; bounded authorized reads; provider/manual grant independence and membership ordering; channel-history BO; legacy restricted cutover; ratings, attachments, traces and Person-merge ownership. Current focused gate passes 200 tests + 7 properties; mix q and git diff --check pass. Approved browser scope passes. Branch-topology cleanup remains tracked by .29 and is not missing .4 behavior.",
+      "timestamp": "2026-10-03T09:35:07Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-09-26T13:33:00Z"
+  "updated_at": "2026-10-03T09:35:07Z"
 }
