@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [
     "zaq-emb.27.18",
+    "zaq-emb.27.2",
     "zaq-emb.27.20",
     "zaq-emb.27.22",
     "zaq-emb.27.24",
@@ -34,5 +35,5 @@
   "status": "open",
   "title": "[zaq-emb.27] Verify cross-channel contracts and independent history outcome",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:43Z"
+  "updated_at": "2026-10-03T14:03:44Z"
 }
