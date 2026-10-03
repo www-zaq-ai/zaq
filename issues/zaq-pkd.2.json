@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T13:03:34Z",
+  "description": "## Approved plan task A1\n\n- **Functional scope/files:** add the proposed structs/validators under `lib/zaq/channels/web/`; freeze required/optional fields, closed command/event types, errors, synchronous command returns, version 1 and trusted context rules. Limit implementation to BO-required fields while reserving concrete extension points for widget config/delivery.\n- **Tests before implementation:** constructor/ingress validation and focused property tests for untrusted maps, unknown keys/types, bounded identifiers, string/atom normalization without atom creation, and inability to set actor/capabilities/delivery via payload fields.\n- **Branches:** valid message/init/history, invalid type/mode, missing correlation, whitespace, malformed timestamp, optional conversation, nil identity with and without explicit trusted BO capability.\n- **Mocking:** none; pure contract tests.\n- **Documentation:** typespecs and moduledocs; proposed/current status clearly distinguished in Channels guide.\n- **Action reuse:** local-only transport value objects, no independent business operation or agent/workflow Action. Consumers are BO and widget adapters; validators have no side effects.\n- **Done:** a single typed payload family exists and does not depend on WebWidget or duplicate canonical Incoming/Outgoing.\n\n## Execution requirements\nBranch: refactor/webbridge. Source: GitHub www-zaq-ai/zaq#830. Read AGENTS.md, docs/exec-plans/PLAN_STRATEGY.md, docs/agent-tools.md, docs/action-reuse.md, docs/testing-approach.md, and applicable service guides before implementation. Shared contracts, module responsibilities, reuse evidence, decisions and regression obligations are in parent zaq-pkd. Write the specified immediate tests first; use real internal boundaries and mock only external edges. Preserve canonical-history authorization, config-scoped delivery and Engine admission/finalization. New/substantially rewritten feature E2E must wait for B3 human approval. Inbound message.edit is excluded; outbound streaming edits remain included.\n",
+  "id": "zaq-pkd.2",
+  "labels": [],
+  "parent": "zaq-pkd",
+  "priority": 2,
+  "status": "open",
+  "title": "[830] A1 — Define and implement shared message, command, context and response contracts",
+  "type": "task",
+  "updated_at": "2026-10-03T13:03:34Z"
+}
