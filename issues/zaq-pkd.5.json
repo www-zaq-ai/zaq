@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T13:03:37Z",
+  "description": "## Approved plan task B1\n\n- **Functional scope/files:** ChatLive and `ZaqWeb.Chat.BridgeClient`; replace direct Incoming/Event-to-Engine construction with shared Message → Channels ingress. Consume normalized responses using the BO delivery descriptor. Preserve the existing UI components and history/citation presentation behavior.\n- **Behavior:** send selected-agent/filter/history inputs as typed trusted options; retain authenticated actor and explicit permission override. UI retains only view state and rendering. Move failure normalization/fallback to its bridge-owned boundary so a LiveView PID is not required in cross-role metadata.\n- **Tests before implementation:** new-contract versions of the current send, streaming, stale-request, identity/bypass, prompt-blocked, empty-error-bubble, timeout, malformed dispatch response and no-duplicate-final scenarios. Preserve assertions on rendered output, source citations and persisted references.\n- **Branches:** default/selected agent, content filters, unrelated/stale response, nil-safe error body, timeout, status→stream→final, failed execution, new chat while an earlier request finishes.\n- **Mocking:** deterministic external model; actual transport dispatch and PubSub where feasible, with existing hard constraints explicitly documented.\n- **Documentation:** BO consumer example and migration notes; no change to UI design documentation unless behavior/layout actually changes and is approved.\n- **Action reuse:** reuse A2/A3; no new operation. BO no longer builds canonical Incoming or duplicates pipeline error orchestration.\n- **Done:** message send/receive uses the new boundary and existing visible behavior passes regression tests.\n\n## Execution requirements\nBranch: refactor/webbridge. Source: GitHub www-zaq-ai/zaq#830. Read AGENTS.md, docs/exec-plans/PLAN_STRATEGY.md, docs/agent-tools.md, docs/action-reuse.md, docs/testing-approach.md, and applicable service guides before implementation. Shared contracts, module responsibilities, reuse evidence, decisions and regression obligations are in parent zaq-pkd. Write the specified immediate tests first; use real internal boundaries and mock only external edges. Preserve canonical-history authorization, config-scoped delivery and Engine admission/finalization. New/substantially rewritten feature E2E must wait for B3 human approval. Inbound message.edit is excluded; outbound streaming edits remain included.\n",
+  "id": "zaq-pkd.5",
+  "labels": [],
+  "parent": "zaq-pkd",
+  "priority": 2,
+  "status": "open",
+  "title": "[830] B1 — Migrate BO send and response handling",
+  "type": "task",
+  "updated_at": "2026-10-03T13:03:37Z"
+}
