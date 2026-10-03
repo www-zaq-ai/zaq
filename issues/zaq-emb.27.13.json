@@ -33,11 +33,15 @@
     {
       "text": "Live Telegram Direct+Shared answers delivered but absent from transcript. Read-only DB confirms 8 recent assistant rows: numeric legacy external IDs, null canonical source fields, no confirmation/association, zero placements; incoming rows are correctly captured. Root cause: Jido Telegram returns numeric SentMessage.id, JidoChatBridge create/edit receipt forwards it, Engine canonical confirmation requires binary ID. Earlier all-provider regression fabricated string receipt and bypassed adapter result normalization. Reuse/extend Channels JidoChatBridge receipt normalization using existing ConversationIdentity.normalize before HistoryDelivery; no provider rule in Engine, no new Action/tool. Regression must exercise real Telegram adapter/Jido post pipeline with transport mock, numeric create/edit response, then HistoryDelivery/Engine placement and rating. Preserve send success and no resend on history error.",
       "timestamp": "2026-10-03T07:19:25Z"
+    },
+    {
+      "text": "Fixed Telegram response-history gap, uncommitted. JidoChatBridge now canonicalizes provider send and edit receipt message IDs through existing ConversationIdentity.normalize before dispatch_on_reply/HistoryDelivery. Transport payload still receives native numeric status ID; only shared Channels receipt contract changes. Regression first: Telegram stub returning native integer create ID and numeric edit target failed with integer receipts. Tests now assert create 42/edit 41 become string receipts. Expanded production-path scoped rating regression configures a numeric Telegram adapter and covers bridge -\u003e HistoryDelivery -\u003e Engine confirmation/source binding -\u003e Direct, Shared, thread placement -\u003e reaction/rating/display, rather than fabricated string receipt. Read-only live DB evidence recorded: 8 recent Telegram assistant rows had numeric legacy IDs, zero confirmations/source bindings/placements; Mattermost had 7/9 confirmed and source-bound. No historical repair. Updated Channels/Engine contracts. Validation: focused 14 tests+1 property; affected 227 tests+6 properties; mix q and git diff --check all passed. Fresh Telegram Direct/Shared live retest pending.",
+      "timestamp": "2026-10-03T07:23:36Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.27] Scope shared Jido ratings to canonical message identity",
   "type": "task",
-  "updated_at": "2026-10-03T07:19:25Z"
+  "updated_at": "2026-10-03T07:23:36Z"
 }
