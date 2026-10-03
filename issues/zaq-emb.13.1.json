@@ -11,9 +11,15 @@
   "id": "zaq-emb.13.1",
   "labels": [],
   "parent": "zaq-emb.13",
+  "comments": [
+    {
+      "text": "Authorized PR A browser suite authored in existing history.spec.js after recorded .12 approval. New persistent E2E fixture uses real Engine capture/permissions/merge/rating APIs (no broad internal mock). Covers passive nonmention with no assistant response; shared list/detail and inherited thread root; provider/manual grants, failed supported refresh preserving provider access, manual revoke/restore; unsupported refresh; merged replicated owner and aggregate ratings; restricted legacy attachments/traces; non-super-admin denial. New journeys pass 4/4 and full existing history.spec.js passes 8/8 on Chromium. Component/LiveView regressions pass 35/35. Final rerun remains required after clean PR A branch consolidation.",
+      "timestamp": "2026-10-03T09:35:09Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.13.1] PR A authorized durable-history E2E",
   "type": "task",
-  "updated_at": "2026-10-03T09:03:45Z"
+  "updated_at": "2026-10-03T09:35:09Z"
 }
