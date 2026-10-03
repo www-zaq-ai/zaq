@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T14:02:59Z",
+  "description": "Make SourceIdentity.valid_scope?/1 authoritative across normalization, capture, append, admission and storage. Regression/property boundaries nil, 1/160/161/255/256 bytes, multibyte/escaped scopes. Preserve exact account_key encoding. Action reuse: extend existing SourceIdentity and canonical APIs.",
+  "id": "zaq-emb.27.17",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "Unify source-scope validation and persistence boundaries",
+  "type": "task",
+  "updated_at": "2026-10-03T14:02:59Z"
+}
