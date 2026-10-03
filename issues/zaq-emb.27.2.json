@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.27.19"
+  ],
   "blocks": [],
   "created": "2026-10-01T19:51:28Z",
   "description": "Approved plan: reuse channel_ingress_status per connector with generic provider aggregate via IngressStatusUI; reuse ConversationIdentity.normalize at Incoming boundary; explicit SMTP/IMAP new/edit modes using existing forms and ChannelConnectorCard, insert instead of provider upsert, preserve defaults and reply bindings. Add regression/property tests, run mix q and isolated suites. Existing domain implementations extended, no new Action or automatic tool exposure. Feature E2E approval remains separate.",
@@ -25,5 +27,5 @@
   "status": "open",
   "title": "[zaq-emb.27] Fix generic ingress status, numeric identity and email config creation",
   "type": "bug",
-  "updated_at": "2026-10-03T12:12:29Z"
+  "updated_at": "2026-10-03T14:03:28Z"
 }
