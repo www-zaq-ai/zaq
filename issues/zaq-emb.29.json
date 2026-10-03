@@ -22,11 +22,15 @@
     {
       "text": "User authorized NEW independent A/B outcome branches, leaving eight draft refs untouched; no retarget/close/rebase of draft PRs. Created local feature/issue-768-history-a-integration from current HEAD while preserving all uncommitted PR A changes; old #813 branch ref unchanged. Non-destructive commit lineage inventory: B-only bda9dcc21 adds migrations 20260922000013/14 and execution_record; final-delivery regression 84ff37a11 lives before A schema in ancestor; A commits 7c725fa67/7842a1b8d/384d307d6/3b5194a30/969458673/998b03ea8 plus connector/grant/watch prerequisites; do not copy B migrations into independently validated A. Worktree-setup skill could not complete because checkout lacks .claude/settings.local.json required to copy; no worktree created. Current integration branch remains dirty; per repo final gate, no commit, PR push or clean-branch cherry-pick until completed work, UX approval/new-feature E2E, review/coverage, precommit and human approval. All original draft refs and applied migrations untouched.",
       "timestamp": "2026-09-26T13:32:52Z"
+    },
+    {
+      "text": "Required pre-coverage branch review found the current integration branch is not yet an independently reviewable PR A diff. Relative to origin/main it still contains live PR B runtime/finalization changes (including Agent Api/Executor/ServerManager/HistoryLoader and Engine finalization/execution-record paths) plus preserved unrelated data-source work. The working tree also contains the explicitly preserved executor edits. These must be separated without loss before .11/.13.1/.19 can close; current tests and migration checks ran against the superset, so they must be repeated on the clean A branch. Git commit/branch/push mutations remain unauthorized; do not discard or reset any of this work.",
+      "timestamp": "2026-10-03T09:35:11Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.29] Consolidate existing drafts into outcome PR A and PR B",
   "type": "task",
-  "updated_at": "2026-09-26T13:32:52Z"
+  "updated_at": "2026-10-03T09:35:11Z"
 }
