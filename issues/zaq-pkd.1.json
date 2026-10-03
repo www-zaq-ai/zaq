@@ -9,9 +9,15 @@
   "id": "zaq-pkd.1",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Baseline complete. Action reuse: not applicable — regression characterization only; no executable operation added or changed. Existing suites passed: WebBridge 5/5 before additions, ChatLive 93/93, Channels API 98/98, Engine admission/API 149/149 (345 total baseline assertions/tests across runs). Existing coverage already protects BO bypass, selected/default agent routing, filters, streaming replacement/finalization, stale responses, error fallbacks, conversation create/resume/missing fallback, empty/history restoration, persistence failures, connector-scoped delivery, admission deduplication and finalization. Added focused WebBridge characterizations for user_content metadata, atom status stage, streaming update intent, existing message update correlation, and malformed status no-op/no broadcast. Final focused suite 8/8; mix q passed; git diff --check passed. Observed non-failing environment warnings: unavailable :license_manager config and a transient MCP Finch GenServer error during ChatLive, while all tests passed.",
+      "timestamp": "2026-10-03T13:10:19Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] A0 — Establish BO regression coverage",
   "type": "task",
-  "updated_at": "2026-10-03T13:05:58Z"
+  "updated_at": "2026-10-03T13:10:19Z"
 }
