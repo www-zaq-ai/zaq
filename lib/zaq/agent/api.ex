@@ -10,6 +10,8 @@ defmodule Zaq.Agent.Api do
 
   Channel messages may carry a resolved `%Incoming.person`; this boundary
   promotes that transport identity into the canonical execution actor.
+  Channel execution requires an Engine admission binding before any status or
+  execution side effect; internal runs with no provider do not require one.
   """
 
   @behaviour Zaq.InternalBoundaries
@@ -82,8 +84,10 @@ defmodule Zaq.Agent.Api do
   def handle_event(%Event{} = event, :run_pipeline, _context) do
     case event.request do
       %Incoming{} = incoming ->
-        case ExecutionActor.from_event_request(event) do
-          {:ok, actor} -> run_pipeline(%{event | actor: actor}, incoming)
+        with {:ok, actor} <- ExecutionActor.from_event_request(event),
+             :ok <- validate_admission(event, incoming) do
+          run_pipeline(%{event | actor: actor}, incoming)
+        else
           {:error, reason} -> %{event | response: {:error, reason}, next_hop: nil}
         end
 
@@ -374,6 +378,12 @@ defmodule Zaq.Agent.Api do
     end
   end
 
+  defp validate_admission(_event, %Incoming{provider: nil}), do: :ok
+
+  defp validate_admission(event, _incoming) do
+    if conversation_binding(event.assigns), do: :ok, else: {:error, :invalid_conversation_binding}
+  end
+
   defp dispatch_pipeline(event, incoming) do
     pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
     pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
@@ -421,12 +431,10 @@ defmodule Zaq.Agent.Api do
   defp conversation_binding(assigns) when is_map(assigns) do
     case Map.get(assigns, "conversation_binding") || Map.get(assigns, :conversation_binding) do
       %{
-        "conversation_id" => conversation_id,
-        "user_message_id" => user_message_id,
-        "finalization_token" => finalization_token
-      }
-      when is_binary(conversation_id) and is_binary(user_message_id) and
-             is_binary(finalization_token) ->
+        "conversation_id" => <<_, _::binary>> = conversation_id,
+        "user_message_id" => <<_, _::binary>> = user_message_id,
+        "finalization_token" => <<_, _::binary>> = finalization_token
+      } ->
         %{
           conversation_id: conversation_id,
           user_message_id: user_message_id,
@@ -434,12 +442,10 @@ defmodule Zaq.Agent.Api do
         }
 
       %{
-        conversation_id: conversation_id,
-        user_message_id: user_message_id,
-        finalization_token: finalization_token
-      }
-      when is_binary(conversation_id) and is_binary(user_message_id) and
-             is_binary(finalization_token) ->
+        conversation_id: <<_, _::binary>> = conversation_id,
+        user_message_id: <<_, _::binary>> = user_message_id,
+        finalization_token: <<_, _::binary>> = finalization_token
+      } ->
         %{
           conversation_id: conversation_id,
           user_message_id: user_message_id,
@@ -458,7 +464,7 @@ defmodule Zaq.Agent.Api do
     if delivery_through_channels?(outgoing.provider) do
       node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
-      case persist_response_context(node_router_mod, event, incoming, outgoing) do
+      case persist_response_context(node_router_mod, event, outgoing) do
         {:ok, persisted} ->
           event
           |> schedule_return_hop(enrich_outgoing_with_persistence(outgoing, persisted))
@@ -529,12 +535,17 @@ defmodule Zaq.Agent.Api do
   defp persist_response_context(
          node_router_mod,
          %Event{} = event,
-         %Incoming{} = incoming,
          %Outgoing{} = outgoing
        ) do
-    persist_event = finalization_event(event, incoming, outgoing)
+    with {:ok, persist_event} <- finalization_event(event, outgoing) do
+      normalize_persistence_response(
+        node_router_mod.dispatch(%{persist_event | assigns: event.assigns}).response
+      )
+    end
+  end
 
-    case node_router_mod.dispatch(%{persist_event | assigns: event.assigns}).response do
+  defp normalize_persistence_response(response) do
+    case response do
       :ok -> {:ok, %{}}
       {:ok, persisted} when is_map(persisted) -> {:ok, persisted}
       {:ok, _} -> {:ok, %{}}
@@ -543,29 +554,24 @@ defmodule Zaq.Agent.Api do
     end
   end
 
-  defp finalization_event(%Event{} = event, incoming, outgoing) do
+  defp finalization_event(%Event{} = event, outgoing) do
     case conversation_binding(event.assigns) do
       %{user_message_id: user_message_id, finalization_token: finalization_token} ->
-        Event.new(
-          %{
-            user_message_id: user_message_id,
-            finalization_token: finalization_token,
-            outcome: outgoing.metadata
-          },
-          :engine,
-          actor: event.actor,
-          opts: [action: :finalize_incoming],
-          trace_id: event.trace_id
-        )
+        {:ok,
+         Event.new(
+           %{
+             user_message_id: user_message_id,
+             finalization_token: finalization_token,
+             outcome: outgoing.metadata
+           },
+           :engine,
+           actor: event.actor,
+           opts: [action: :finalize_incoming],
+           trace_id: event.trace_id
+         )}
 
       nil ->
-        # Compatibility for trusted internal callers that have not crossed the
-        # Engine admission boundary (for example isolated legacy tests).
-        Event.new(%{incoming: incoming, metadata: outgoing.metadata}, :engine,
-          actor: event.actor,
-          opts: [action: :persist_from_incoming],
-          trace_id: event.trace_id
-        )
+        {:error, :invalid_conversation_binding}
     end
   end
 

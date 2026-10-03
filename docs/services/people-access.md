@@ -120,6 +120,15 @@ bind UUID and literal current Person before loading messages, shares or artifact
 malformed, foreign and missing IDs are indistinguishable. Legacy unassociated
 conversations are not inferred or backfilled by self-service.
 
+The same confidential action also supports a read-only `:channel_history`
+operation by transcript UUID. It derives the Person from the bearer, checks
+the existing profile/history permissions and delegates to the transcript's
+own current grant or recipient-owner check. Cursor and page size are bounded;
+only public message content and attachment descriptors are returned, never
+execution metadata or trace. Missing, malformed and inaccessible transcript IDs
+all return `:not_found`. This domain operation is not yet a People UI route
+or a way to share, cite, rate or export channel history.
+
 History defaults to all active and archived owned conversations, optionally
 filtered by status/channel. SQL count and bounded 25-row pages use identical
 filters and deterministic updated-at/UUID ordering. Known local filter/page

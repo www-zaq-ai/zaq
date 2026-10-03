@@ -55,71 +55,51 @@ defmodule ZaqWeb.Components.DesignSystem.ConversationDetail do
         </p>
       </div>
       <div class="flex flex-col lg:flex-row gap-6 items-start min-w-0">
-        <div class={["flex-1 w-full min-w-0 rounded-xl overflow-hidden", @bleed && "-mx-8"]}>
-          <div class="max-w-3xl mx-auto px-6 py-6 space-y-5">
-            <%= for item <- inject_date_separators(@messages, :inserted_at) do %>
-              <%= if Map.get(item, :type) == :date_separator do %>
-                <div class="flex items-center gap-3 my-1">
-                  <div class="flex-1 h-px" style="background:#e8e6e1;"></div>
-                  <span
-                    class="font-mono text-[0.62rem] uppercase tracking-widest"
-                    style="color:#b8b5ae;"
-                  >{format_date(item.date)}</span>
-                  <div class="flex-1 h-px" style="background:#e8e6e1;"></div>
-                </div>
-              <% else %>
-                <%= if item.role == "user" do %>
-                  <ChatMessage.user_bubble
-                    content={item.content}
-                    timestamp={item.inserted_at}
-                    attachments={MessageHelpers.attachments_from_message(item)}
-                  />
-                <% else %>
-                  <% feedback = MessageHelpers.infer_feedback_from_ratings(item.ratings || []) %>
-                  <% display = MessageHelpers.rating_feedback_display(item.ratings || []) %>
-                  <ChatMessage.assistant_bubble
-                    content={item.content}
-                    timestamp={item.inserted_at}
-                    confidence={item.confidence_score}
-                    sources={item.sources || []}
-                    source_click_event="open_preview_modal"
-                    source_preview_path={@source_preview_path}
-                    saved_feedback_reasons={display && display.reasons}
-                    saved_feedback_user_comment={display && display.user_comment}
-                  >
-                    <:actions>
-                      <ChatMessage.message_info_button
-                        available={
-                          MessageHelpers.message_info_available?(
-                            MessageHelpers.message_info_from_message(item)
-                          )
-                        }
-                        message_id={item.id}
-                        open_event="open_message_info_modal"
-                      />
-                      <ChatMessage.copy_action_button text={item.content || ""} />
-                      <ChatMessage.feedback_positive_button
-                        :if={@can_rate}
-                        message_id={item.id}
-                        feedback={feedback}
-                      />
-                      <ChatMessage.feedback_negative_button
-                        :if={@can_rate}
-                        message_id={item.id}
-                        feedback={feedback}
-                      />
-                    </:actions>
-                  </ChatMessage.assistant_bubble>
-                <% end %>
-              <% end %>
-            <% end %>
-            <div :if={@messages == []} class="py-16 text-center">
-              <p class="font-mono text-sm" style="color:#b8b5ae;">
-                No messages yet.
-              </p>
-            </div>
-          </div>
-        </div>
+        <.message_timeline :let={item} messages={@messages} bleed={@bleed}>
+          <%= if item.role == "user" do %>
+            <ChatMessage.user_bubble
+              content={item.content}
+              timestamp={item.inserted_at}
+              attachments={MessageHelpers.attachments_from_message(item)}
+            />
+          <% else %>
+            <% feedback = MessageHelpers.infer_feedback_from_ratings(item.ratings || []) %>
+            <% display = MessageHelpers.rating_feedback_display(item.ratings || []) %>
+            <ChatMessage.assistant_bubble
+              content={item.content}
+              timestamp={item.inserted_at}
+              confidence={item.confidence_score}
+              sources={item.sources || []}
+              source_click_event="open_preview_modal"
+              source_preview_path={@source_preview_path}
+              saved_feedback_reasons={display && display.reasons}
+              saved_feedback_user_comment={display && display.user_comment}
+            >
+              <:actions>
+                <ChatMessage.message_info_button
+                  available={
+                    MessageHelpers.message_info_available?(
+                      MessageHelpers.message_info_from_message(item)
+                    )
+                  }
+                  message_id={item.id}
+                  open_event="open_message_info_modal"
+                />
+                <ChatMessage.copy_action_button text={item.content || ""} />
+                <ChatMessage.feedback_positive_button
+                  :if={@can_rate}
+                  message_id={item.id}
+                  feedback={feedback}
+                />
+                <ChatMessage.feedback_negative_button
+                  :if={@can_rate}
+                  message_id={item.id}
+                  feedback={feedback}
+                />
+              </:actions>
+            </ChatMessage.assistant_bubble>
+          <% end %>
+        </.message_timeline>
         <div :if={@can_share && @shares != []} class="w-full lg:w-64 flex-shrink-0">
           <div class="bg-white rounded-xl border border-black/10 overflow-hidden">
             <div class="px-5 py-3 border-b border-black/10">
@@ -212,6 +192,45 @@ defmodule ZaqWeb.Components.DesignSystem.ConversationDetail do
             </div>
           </.form>
         </div>
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  Shared history layout: fills available width in block or flex parents, caps the
+  inner transcript at the standard maximum, and owns padding and date separators.
+  Hosts supply messages/actions without additional transcript sizing wrappers.
+  """
+  attr :messages, :list, required: true
+  attr :bleed, :boolean, default: true
+  slot :inner_block, required: true
+
+  def message_timeline(assigns) do
+    ~H"""
+    <div
+      class={["flex-1 w-full min-w-0 rounded-xl overflow-hidden", @bleed && "-mx-8"]}
+      data-testid="history-transcript-layout"
+    >
+      <div
+        class="w-full min-w-0 max-w-3xl mx-auto px-6 py-6 space-y-5"
+        data-testid="history-message-timeline"
+      >
+        <%= for item <- inject_date_separators(@messages, :inserted_at) do %>
+          <%= if Map.get(item, :type) == :date_separator do %>
+            <div class="flex items-center gap-3 my-1" data-testid="history-date-separator">
+              <div class="flex-1 h-px" style="background: var(--zaq-border-color-default);"></div>
+              <span
+                class="zaq-text-caption uppercase tracking-widest"
+                style="color: var(--zaq-text-color-body-tertiary);"
+              >{format_date(item.date)}</span>
+              <div class="flex-1 h-px" style="background: var(--zaq-border-color-default);"></div>
+            </div>
+          <% else %>
+            {render_slot(@inner_block, item)}
+          <% end %>
+        <% end %>
+        <p :if={@messages == []} class="zaq-text-body-sm py-16 text-center">No messages yet.</p>
       </div>
     </div>
     """

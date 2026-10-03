@@ -11,11 +11,12 @@ defmodule Zaq.Engine.History.Facts do
   alias Zaq.Engine.Conversations.Transcript
   alias Zaq.Permissions.ChannelHistoryResource
 
-  @type kind :: :direct | :channel | :email
+  @type kind :: :direct | :channel | :replicated
   @type t :: %__MODULE__{
           provider: String.t() | nil,
           channel_config_id: pos_integer() | nil,
           channel_id: String.t() | nil,
+          conversation_id: String.t() | nil,
           kind: kind() | nil,
           actor_person_id: pos_integer() | nil,
           recipient_person_ids: [pos_integer()],
@@ -31,10 +32,29 @@ defmodule Zaq.Engine.History.Facts do
     :actor_person_id,
     :thread_id,
     :parent,
+    :conversation_id,
     recipient_person_ids: []
   ]
 
-  @shared_providers ~w(mattermost slack discord teams telegram)
+  @doc """
+  Validates capture coordinates before storage resolves their parent transcript.
+  Only canonical capture may consume these unresolved facts; policy selection
+  still requires `new/1` after the parent is resolved inside its transaction.
+  """
+  @spec for_capture(map()) :: {:ok, t()} | {:error, atom()}
+  def for_capture(attrs) when is_map(attrs) do
+    thread_id = Map.get(attrs, :thread_id)
+
+    with true <- optional_nonempty?(thread_id),
+         {:ok, root} <- new(Map.merge(attrs, %{thread_id: nil, parent: nil})) do
+      {:ok, %{root | thread_id: thread_id}}
+    else
+      false -> {:error, :invalid_history_facts}
+      {:error, _} = error -> error
+    end
+  end
+
+  def for_capture(_), do: {:error, :invalid_history_facts}
 
   @doc "Builds a validated policy snapshot; does not authenticate its caller."
   @spec new(map()) :: {:ok, t()} | {:error, atom()}
@@ -47,7 +67,8 @@ defmodule Zaq.Engine.History.Facts do
       :actor_person_id,
       :recipient_person_ids,
       :thread_id,
-      :parent
+      :parent,
+      :conversation_id
     ]
 
     facts = struct(__MODULE__, Map.take(attrs, fields))
@@ -63,15 +84,9 @@ defmodule Zaq.Engine.History.Facts do
 
   @doc "Selects the code-defined strategy, never guessing from a missing channel kind."
   @spec strategy(t()) :: {:ok, :direct | :shared | :replicated} | {:error, :unsupported_strategy}
-  def strategy(%__MODULE__{provider: provider, kind: kind})
-      when provider in @shared_providers and kind == :direct,
-      do: {:ok, :direct}
-
-  def strategy(%__MODULE__{provider: provider, kind: kind})
-      when provider in @shared_providers and kind == :channel,
-      do: {:ok, :shared}
-
-  def strategy(%__MODULE__{provider: "email:imap", kind: :email}), do: {:ok, :replicated}
+  def strategy(%__MODULE__{kind: :direct}), do: {:ok, :direct}
+  def strategy(%__MODULE__{kind: :channel}), do: {:ok, :shared}
+  def strategy(%__MODULE__{kind: :replicated}), do: {:ok, :replicated}
   def strategy(%__MODULE__{}), do: {:error, :unsupported_strategy}
 
   defp validate_identity(facts) do
@@ -79,14 +94,27 @@ defmodule Zaq.Engine.History.Facts do
       is_list(facts.recipient_person_ids) and
         Enum.all?(facts.recipient_person_ids, &positive_id?/1)
 
-    if positive_id?(facts.channel_config_id) and positive_id?(facts.actor_person_id) and
+    if positive_id?(facts.channel_config_id) and valid_author?(facts) and
          nonempty?(facts.provider) and nonempty?(facts.channel_id) and
-         optional_nonempty?(facts.thread_id) and valid_recipients? do
+         optional_nonempty?(facts.thread_id) and optional_nonempty?(facts.conversation_id) and
+         valid_recipients? do
       :ok
     else
       {:error, :invalid_history_facts}
     end
   end
+
+  defp valid_author?(%__MODULE__{actor_person_id: id}) when is_integer(id) and id > 0,
+    do: true
+
+  defp valid_author?(%__MODULE__{
+         kind: :replicated,
+         actor_person_id: nil,
+         recipient_person_ids: [_ | _]
+       }),
+       do: true
+
+  defp valid_author?(_), do: false
 
   defp validate_parent(%__MODULE__{parent: nil, thread_id: nil}, _strategy), do: :ok
   defp validate_parent(%__MODULE__{parent: nil, thread_id: _}, :replicated), do: :ok

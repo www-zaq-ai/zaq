@@ -305,6 +305,37 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
            )
   end
 
+  test "Add Config creates and selects a distinct named IMAP connector", %{conn: conn} do
+    original = insert_imap_channel(%{name: "Original IMAP", enabled: false})
+    original = Repo.get!(ChannelConfig, original.id)
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+    view |> element("#new-imap-config") |> render_click()
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{
+      "imap_config" => %{
+        "connector_name" => "Second IMAP",
+        "url" => "second.example.com",
+        "port" => "993",
+        "username" => "second@example.com",
+        "password" => "test-secret"
+      }
+    })
+
+    assert has_element?(view, "#save-status-ok")
+    second = Repo.get_by!(ChannelConfig, name: "Second IMAP")
+    assert second.id != original.id
+    assert Repo.get!(ChannelConfig, original.id) == original
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{"imap_config" => %{"url" => "edited.example.com"}})
+
+    assert Repo.get!(ChannelConfig, second.id).url == "edited.example.com"
+    assert length(ChannelConfig.list_by_provider("email:imap")) == 2
+  end
+
   test "save accepts blank optional username and parses positive strings", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
 

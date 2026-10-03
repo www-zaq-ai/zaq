@@ -93,9 +93,6 @@ defmodule Zaq.Permissions do
   Checks both direct person grants and grants via any of the person's teams.
   A `nil` person always returns `false` — it is never an implicit grant.
 
-  Pass `direct_person_only: true` for shared communication history, where a
-  team/Everyone grant must not substitute for an explicit Person grant.
-
   Pass `skip_permissions: true` in opts for explicit admin bypass.
   """
   @spec can?(Person.t() | nil, atom(), resource(), keyword()) :: boolean()
@@ -312,8 +309,7 @@ defmodule Zaq.Permissions do
   defp permission_exists?(person, right, resource, opts) do
     right_str = to_string(right)
 
-    team_ids =
-      if Keyword.get(opts, :direct_person_only, false), do: [], else: effective_team_ids(person)
+    team_ids = effective_team_ids(person)
 
     resource
     |> resources_with_ancestors(Keyword.get(opts, :ancestors, []))

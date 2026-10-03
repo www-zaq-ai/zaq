@@ -32,6 +32,17 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
     def person_payload(person), do: person
   end
 
+  defmodule InvalidIdentityResolver do
+    def resolve(_incoming, _opts) do
+      changeset =
+        %Zaq.Accounts.Person{}
+        |> Ecto.Changeset.change(email: "private@example.com")
+        |> Ecto.Changeset.add_error(:email, "private provider response", constraint: :unique)
+
+      {:error, changeset}
+    end
+  end
+
   defmodule RecordingNodeRouter do
     def fire(event) do
       send(self(), {:node_router_fire, event})
@@ -40,6 +51,27 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
   end
 
   describe "route/1" do
+    test "history resolution logs the connector and error category without profile data" do
+      event =
+        Event.new(
+          incoming(%{routing_context: %{channel_config_id: 42, history_kind: :channel}}),
+          :engine,
+          opts: [identity_resolver: InvalidIdentityResolver, capture_history: true]
+        )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          routed = IncomingMessageRouter.route(event)
+          assert routed.response == {:error, :unresolved_history_author}
+          assert routed.next_hop == nil
+        end)
+
+      assert log =~ "connector=42"
+      assert log =~ "{:validation, [email: :unique]}"
+      refute log =~ "private@example.com"
+      refute log =~ "private provider response"
+    end
+
     test "invalid Incoming Person cannot be normalized or downgraded to a channel actor" do
       for person <- [%{"id" => 2, id: 1}, %{id: "bad"}, %{}],
           resolver <- [RejectingIdentityResolver, ResolvingIdentityResolver] do

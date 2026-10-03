@@ -1,0 +1,373 @@
+<% context = header_context(@detail) %>
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  flash={@flash}
+  page_title={if context, do: context.channel_name, else: @page_title}
+  page_icon_provider={context && context.provider}
+  page_subtitle="Persisted communication-channel history"
+  current_path={@current_path}
+  features_version={@features_version}
+>
+  <:subtitle :if={context}>
+    <span>{context.connector} · {context.provider} · {context.strategy}</span>
+    <span :if={context.parent_id}> · Thread</span>
+    <span :if={context.strategy == "replicated"}>
+      · Recipient:
+      <Button.button
+        :if={context.owner}
+        variant={:ghost}
+        navigate={~p"/bo/people?person_id=#{context.owner.person_id}"}
+      >{context.owner.display_name}</Button.button>
+      <span :if={is_nil(context.owner)}>Person unavailable</span>
+    </span>
+    <p :if={context.strategy == "legacy"}>
+      Restricted legacy snapshot: original message IDs and audit references are preserved.
+      Audience provenance was not verified; this transcript cannot be granted as fresh channel history.
+    </p>
+  </:subtitle>
+  <:page_actions :if={context}>
+    <Button.button
+      variant={:ghost}
+      icon="hero-share"
+      icon_only
+      aria-label="Manage channel access"
+      title="Manage channel access"
+      phx-click="open_access"
+    />
+  </:page_actions>
+  <div class="zaq-layout-stack">
+    <Breadcrumb.page_breadcrumb
+      id="channel-history-breadcrumb"
+      items={history_breadcrumbs(@screen, @result)}
+    />
+    <%= if @screen == :list do %>
+      <%= case @result do %>
+        <% {:ok, %{rows: rows, has_more: has_more}} -> %>
+          <div id="channel-history-list" class="zaq-layout-stack">
+            <form id="channel-history-filter" phx-change="filter">
+              <Input.input
+                id="channel-history-search"
+                name="filter[query]"
+                label="Search loaded transcripts"
+                placeholder="Search channel name, connector, provider or channel ID…"
+                value={@search}
+                type="search"
+              />
+            </form>
+            <%= if filtered_rows(rows, @search) == [] do %>
+              <EmptyState.empty_state
+                title="No captured transcripts on this page"
+                hint="Unverified older channel history is not automatically exposed."
+              />
+            <% else %>
+              <Table.table id="channel-transcripts">
+                <:head>
+                  <Table.table_head_row>
+                    <Table.table_cell element={:th}>Connector and room</Table.table_cell>
+                    <Table.table_cell element={:th}>Strategy</Table.table_cell>
+                    <Table.table_cell element={:th}>Threads</Table.table_cell>
+                    <Table.table_cell element={:th}>Participants</Table.table_cell>
+                    <Table.table_cell element={:th}>Messages</Table.table_cell>
+                    <Table.table_cell element={:th}>Last activity</Table.table_cell>
+                  </Table.table_head_row>
+                </:head>
+                <:body>
+                  <Table.table_row
+                    :for={row <- filtered_rows(rows, @search)}
+                    id={"transcript-#{row.id}"}
+                    navigate={~p"/bo/channels/history/#{row.id}"}
+                  >
+                    <Table.table_cell>
+                      <div :if={row.parent_id} class="inline-flex items-center gap-2">
+                        <ChannelIcons.icon
+                          provider={row.provider}
+                          class="zaq-icon-md"
+                        />
+                        <span class="zaq-text-caption">{row.channel_name}</span>
+                      </div>
+                      <Button.button
+                        variant={:ghost}
+                        navigate={~p"/bo/channels/history/#{row.id}"}
+                      >
+                        <span class="inline-flex items-center gap-2">
+                          <ChannelIcons.icon
+                            :if={is_nil(row.parent_id)}
+                            provider={row.provider}
+                            class="zaq-icon-md"
+                          />
+                          <PersonAvatar.avatar
+                            :if={row.root_message}
+                            name={row.root_message.display_name}
+                            person_id={row.root_message.person_id}
+                          />
+                          <span class="truncate max-w-xs">{if row.parent_id,
+                            do: root_preview(row.root_message),
+                            else: row.channel_name}</span>
+                        </span>
+                      </Button.button>
+                      <p class="zaq-text-caption">{row.connector} · {row.provider}</p>
+                    </Table.table_cell>
+                    <Table.table_cell>
+                      {row.strategy}
+                      <p
+                        :if={row.strategy == "replicated"}
+                        data-replica-owner
+                        class="zaq-text-caption"
+                      >
+                        {if row.owner, do: row.owner.display_name, else: "Person unavailable"}
+                      </p>
+                    </Table.table_cell>
+                    <Table.table_cell>
+                      <Button.button
+                        :if={row.thread_count > 0}
+                        variant={:ghost}
+                        navigate={~p"/bo/channels/history?channel=#{row.id}"}
+                      >{row.thread_count} threads</Button.button>
+                      <span :if={row.thread_count == 0}>—</span>
+                    </Table.table_cell>
+                    <Table.table_cell>
+                      <div class="inline-flex items-center gap-2">
+                        <div class="inline-flex -space-x-2">
+                          <span
+                            :for={person <- row.participants}
+                            class="relative rounded-full ring-2 hover:z-10"
+                            style="--tw-ring-color: var(--zaq-surface-color-raised);"
+                          >
+                            <PersonAvatar.avatar
+                              name={person.display_name}
+                              person_id={person.person_id}
+                            />
+                          </span>
+                        </div>
+                        <span
+                          :if={row.participant_count > 3}
+                          class="zaq-text-caption"
+                          title="Additional participants"
+                        >+{row.participant_count - 3}</span>
+                      </div>
+                    </Table.table_cell>
+                    <Table.table_cell>{row.position}</Table.table_cell>
+                    <Table.table_cell>
+                      <Table.table_datetime value={row.updated_at} />
+                    </Table.table_cell>
+                  </Table.table_row>
+                </:body>
+              </Table.table>
+            <% end %>
+            <nav class="zaq-layout-inline-compact" aria-label="Transcript pages">
+              <Button.button
+                :if={@list_offset > 0}
+                variant={:secondary}
+                navigate={
+                  ~p"/bo/channels/history?#{page_params(@parent_id, max(@list_offset - 50, 0))}"
+                }
+              >Previous 50</Button.button>
+              <Button.button
+                :if={has_more and @list_offset < 10_000}
+                variant={:secondary}
+                navigate={~p"/bo/channels/history?#{page_params(@parent_id, @list_offset + 50)}"}
+              >Next 50</Button.button>
+            </nav>
+          </div>
+        <% {:error, :unauthorized} -> %>
+          <EmptyState.empty_state
+            title="Not authorized"
+            hint="Only a current BO super-admin can inspect all channel transcripts."
+          />
+        <% _ -> %>
+          <EmptyState.empty_state
+            title="History unavailable"
+            hint="The Engine could not load channel history."
+          />
+      <% end %>
+    <% else %>
+      <%= case @detail do %>
+        <% {:ok, %{transcript: transcript, messages: messages, grants: grants, root_message: root}} -> %>
+          <div class="zaq-layout-stack">
+            <section class="zaq-layout-stack" aria-label="Messages">
+              <p :if={transcript.parent_id && is_nil(root)} class="zaq-field-helper">
+                Root message unavailable
+              </p>
+              <ConversationDetail.message_timeline
+                :let={message}
+                messages={timeline_messages(root, messages)}
+              >
+                <div id={
+                  if message[:root_context?],
+                    do: "thread-root-message",
+                    else: "history-message-#{message.message_id}"
+                }>
+                  <%= if message.role == "assistant" do %>
+                    <ChatMessage.assistant_bubble
+                      content={message.content}
+                      timestamp={message.inserted_at}
+                      attachments={message.attachments}
+                      align={:right}
+                      author_name={message.display_name}
+                      person_id={message.person_id}
+                    >
+                      <:actions>
+                        <ChatMessage.copy_action_button text={message.content} />
+                        <ChatMessage.feedback_positive_button
+                          :if={!message[:root_context?]}
+                          message_id={message.message_id}
+                          feedback={message.feedback}
+                          count={message.rating_summary.positive}
+                        />
+                        <ChatMessage.feedback_negative_button
+                          :if={!message[:root_context?]}
+                          message_id={message.message_id}
+                          feedback={message.feedback}
+                          count={message.rating_summary.negative}
+                        />
+                        <ChatMessage.message_info_button
+                          :if={!message[:root_context?]}
+                          available
+                          message_id={message.message_id}
+                          open_event="open_message_info"
+                        />
+                      </:actions>
+                    </ChatMessage.assistant_bubble>
+                  <% else %>
+                    <ChatMessage.user_bubble
+                      content={message.content}
+                      timestamp={message.inserted_at}
+                      attachments={message.attachments}
+                      align={:left}
+                      author_name={message.display_name}
+                      person_id={message.person_id}
+                    >
+                      <:actions>
+                        <ChatMessage.copy_action_button text={message.content} />
+                        <ChatMessage.feedback_positive_button
+                          :if={!message[:root_context?]}
+                          message_id={message.message_id}
+                          feedback={message.feedback}
+                          count={message.rating_summary.positive}
+                          read_only
+                        />
+                        <ChatMessage.feedback_negative_button
+                          :if={!message[:root_context?]}
+                          message_id={message.message_id}
+                          feedback={message.feedback}
+                          count={message.rating_summary.negative}
+                          read_only
+                        />
+                      </:actions>
+                    </ChatMessage.user_bubble>
+                  <% end %>
+                </div>
+              </ConversationDetail.message_timeline>
+              <Button.button
+                :if={length(messages) == 50}
+                variant={:secondary}
+                patch={~p"/bo/channels/history/#{transcript.id}?after=#{next_cursor(messages)}"}
+              >Next 50 messages</Button.button>
+            </section>
+            <BOModal.modal_shell
+              :if={@show_access}
+              id="channel-access-modal"
+              title="Current access"
+              cancel_event="close_access"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Current access"
+            >
+              <CardShell.card_shell id="channel-history-access" variant={:muted}>
+                <Button.button
+                  :if={transcript.refresh_supported?}
+                  type="button"
+                  variant={:secondary}
+                  phx-click="refresh"
+                >Refresh Mattermost membership</Button.button>
+                <p :if={transcript.strategy == "replicated"} class="zaq-text-body">
+                  The recipient receives read access when this copy is created.
+                </p>
+                <form
+                  :if={transcript.strategy in ["direct", "shared"]}
+                  id="manual-channel-history-grant"
+                  phx-submit="grant"
+                  class="zaq-layout-inline-compact flex-wrap"
+                >
+                  <Input.input
+                    id="channel-history-person"
+                    name="grant[person_id]"
+                    label="Person ID for manual read access"
+                    type="number"
+                    min="1"
+                  />
+                  <Button.button type="submit" variant={:secondary}>Grant read access</Button.button>
+                </form>
+                <%= if grants == [] and transcript.strategy in ["direct", "shared"] do %>
+                  <EmptyState.empty_state
+                    title="No current grants"
+                    hint="History reads use Person and team grants; provider membership is not inferred."
+                  />
+                <% else %>
+                  <Table.table :if={grants != []} id="channel-access-grants">
+                    <:head>
+                      <Table.table_head_row>
+                        <Table.table_cell element={:th}>Principal</Table.table_cell>
+                        <Table.table_cell element={:th}>Source</Table.table_cell>
+                        <Table.table_cell element={:th}>Rights</Table.table_cell>
+                      </Table.table_head_row>
+                    </:head>
+                    <:body>
+                      <Table.table_row :for={grant <- grants}>
+                        <Table.table_cell>
+                          {if grant.person_id,
+                            do: "Person #{grant.person_id}",
+                            else: "Team #{grant.team_id}"}
+                        </Table.table_cell>
+                        <Table.table_cell>
+                          {grant.source}
+                          <Button.button
+                            :if={
+                              grant.source == "manual" and is_integer(grant.person_id) and
+                                transcript.strategy in ["direct", "shared"]
+                            }
+                            type="button"
+                            variant={:tertiary}
+                            phx-click="revoke"
+                            phx-value-id={grant.person_id}
+                          >Revoke manual</Button.button>
+                        </Table.table_cell>
+                        <Table.table_cell>
+                          {Enum.join(grant.access_rights, ", ")}
+                        </Table.table_cell>
+                      </Table.table_row>
+                    </:body>
+                  </Table.table>
+                <% end %>
+              </CardShell.card_shell>
+              <p class="zaq-field-helper">
+                <%= if transcript.refresh_supported? do %>
+                  Refresh reads a complete Mattermost member list before reconciling provider access. Failure or partial results leave existing access unchanged; independent manual grants remain.
+                <% else %>
+                  Provider membership refresh is unsupported for this connector or room. No grants are removed from an incomplete provider snapshot.
+                <% end %>
+              </p>
+            </BOModal.modal_shell>
+          </div>
+          <ChatMessage.message_info_popin
+            visible={not is_nil(@message_info_id)}
+            message_id={@message_info_id}
+            message_info={@message_info}
+            expanded_ids={@expanded_trace_ids}
+            close_event="close_message_info"
+            toggle_event="toggle_trace"
+          />
+        <% {:error, :unauthorized} -> %>
+          <EmptyState.empty_state
+            title="Not authorized"
+            hint="Only a current BO super-admin can inspect all channel transcripts."
+          />
+        <% _ -> %>
+          <EmptyState.empty_state
+            title="Transcript unavailable"
+            hint="No transcript or verified scope was found."
+          />
+      <% end %>
+    <% end %>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

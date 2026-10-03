@@ -14,6 +14,7 @@ defmodule Zaq.Engine.Messages.Incoming do
   """
 
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.Messages.ConversationIdentity
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Identity.ActorNormalizer
 
@@ -41,7 +42,7 @@ defmodule Zaq.Engine.Messages.Incoming do
           author_id: String.t() | nil,
           author_name: String.t() | nil,
           thread_id: String.t() | nil,
-          message_id: String.t() | integer() | nil,
+          message_id: String.t() | nil,
           provider: atom() | String.t(),
           person: map() | nil,
           attachments: [Record.t()],
@@ -59,13 +60,13 @@ defmodule Zaq.Engine.Messages.Incoming do
 
     incoming = %__MODULE__{
       content: fetch_required!(attrs, :content),
-      channel_id: fetch_required!(attrs, :channel_id),
+      channel_id: attrs |> fetch_required!(:channel_id) |> ConversationIdentity.normalize(),
       provider: fetch_required!(attrs, :provider),
       attachments: normalize_attachments(fetch_optional(attrs, :attachments)),
       author_id: fetch_optional(attrs, :author_id),
       author_name: fetch_optional(attrs, :author_name),
-      thread_id: fetch_optional(attrs, :thread_id),
-      message_id: fetch_optional(attrs, :message_id),
+      thread_id: attrs |> fetch_optional(:thread_id) |> ConversationIdentity.normalize(),
+      message_id: attrs |> fetch_optional(:message_id) |> ConversationIdentity.normalize(),
       person: normalize_person(fetch_optional(attrs, :person)),
       routing_context: routing_context,
       is_dm: fetch_optional(attrs, :is_dm) == true,

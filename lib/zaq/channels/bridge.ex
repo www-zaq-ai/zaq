@@ -8,18 +8,15 @@ defmodule Zaq.Channels.Bridge do
   - Provide optional runtime/lifecycle callback contracts used by bridge-specific
     runtimes.
   - Provide shared provider resolution and connection/config lookup helpers.
-  - Provide shared incoming routing hooks and persistence helper
-    (`persist_from_incoming/5`) that routes through `NodeRouter.dispatch/1` when
-    using the default engine conversations module.
+  - Provide shared incoming routing hooks for Engine admission.
 
   This module does not implement provider transport logic directly; concrete
   bridge modules own transport-specific behavior.
   """
 
   alias Zaq.Channels.{ChannelConfig, CommunicationBridge, DataSourceBridge}
-  alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
-  alias Zaq.{Event, NodeRouter}
+  alias Zaq.Event
 
   @smtp_provider "email:smtp"
   @imap_provider "email:imap"
@@ -246,39 +243,6 @@ defmodule Zaq.Channels.Bridge do
   def ack_from_event_response(%{"ack" => ack}), do: ack_from_event_response(ack)
   def ack_from_event_response(%Event{response: response}), do: ack_from_event_response(response)
   def ack_from_event_response(other), do: {:error, {:invalid_ack, other}}
-
-  @doc """
-  Persists a processed incoming message and its metadata through the engine.
-
-  If `conversations_module` is the default `Zaq.Engine.Conversations`, routing
-  goes through `NodeRouter.dispatch/1` and the event envelope. Otherwise the
-  override module is called directly for testability.
-  """
-  @spec persist_from_incoming(Incoming.t(), map(), module(), term(), module()) :: term()
-  def persist_from_incoming(
-        %Incoming{} = incoming,
-        metadata,
-        conversations_module,
-        actor,
-        node_router_module \\ NodeRouter
-      )
-      when is_map(metadata) and is_atom(conversations_module) and is_atom(node_router_module) do
-    incoming = CommunicationBridge.put_conversation_identity(incoming)
-
-    if conversations_module == Conversations do
-      event =
-        Event.new(
-          %{incoming: incoming, metadata: metadata},
-          :engine,
-          actor: actor,
-          opts: [action: :persist_from_incoming]
-        )
-
-      node_router_module.dispatch(event).response
-    else
-      conversations_module.persist_from_incoming(incoming, metadata)
-    end
-  end
 
   @doc "Returns the configured bridge module for provider."
   @spec bridge_for(atom() | String.t()) :: module() | nil

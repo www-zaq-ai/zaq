@@ -36,6 +36,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
            )
   end
 
+  test "provider status details include both connectors without ambiguous lookup", %{conn: conn} do
+    insert_channel_config(%{provider: "mattermost", name: "First connector"})
+    insert_channel_config(%{provider: "mattermost", name: "Second connector"})
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval")
+    render_async(view)
+    view |> element("#ingress-status-dot-mattermost") |> render_click()
+    assert has_element?(view, "#ingress-status-modal", "First connector")
+    assert has_element?(view, "#ingress-status-modal", "Second connector")
+    refute render(view) =~ "ambiguous_connector"
+  end
+
   test "renders provider cards on retrieval sub-page", %{conn: conn} do
     insert_channel_config(%{provider: "mattermost", name: "MM Config"})
 

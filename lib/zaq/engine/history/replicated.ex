@@ -6,19 +6,22 @@ defmodule Zaq.Engine.History.Replicated do
 
   @impl true
   def association_targets(facts) do
+    conversation_id = facts.conversation_id || facts.channel_id
+
     Enum.map(recipient_ids(facts), fn person_id ->
       %{
         strategy: "replicated",
         provider: facts.provider,
         channel_config_id: facts.channel_config_id,
-        external_channel_id: facts.channel_id,
-        external_thread_id: nil,
+        external_channel_id: conversation_id,
+        external_thread_id: facts.conversation_id,
         parent_id: nil,
         owner_person_id: person_id,
         permission_resource_type: "person_history",
         permission_resource_id:
-          Jason.encode!([facts.provider, facts.channel_config_id, person_id]),
-        scope_key: Strategy.scope_key(facts, "replicated", person_id)
+          Jason.encode!([facts.provider, facts.channel_config_id, conversation_id, person_id]),
+        scope_key:
+          Strategy.scope_key(%{facts | channel_id: conversation_id}, "replicated", person_id)
       }
     end)
   end
@@ -40,6 +43,7 @@ defmodule Zaq.Engine.History.Replicated do
     do:
       facts.recipient_person_ids
       |> Enum.concat([facts.actor_person_id])
+      |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
       |> Enum.sort()
 end

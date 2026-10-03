@@ -1,5 +1,6 @@
 defmodule Zaq.Channels.EmailBridgeTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
   import ExUnit.CaptureLog
 
   alias Zaq.Channels.ChannelConfig
@@ -183,12 +184,10 @@ defmodule Zaq.Channels.EmailBridgeTest do
     def deliver(_outgoing), do: :queued
   end
 
-  defmodule ConversationsOkStub do
-    def persist_from_incoming(_incoming, _metadata), do: :ok
-  end
+  defmodule RejectedSmtpAdapter do
+    use Swoosh.Adapter
 
-  defmodule ConversationsErrorStub do
-    def persist_from_incoming(_incoming, _metadata), do: {:error, :persist_failed}
+    def deliver(_email, _config), do: {:error, :smtp_rejected}
   end
 
   defmodule NodeRouterOkStub do
@@ -804,6 +803,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert event.request.content == "incoming"
       assert event.name == :incoming_message_routing_requested
       assert event.request.routing_context.topic_id == "INBOX"
+      assert event.request.routing_context.history_kind == :replicated
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
       refute_received {:node_router_run_pipeline_event, _}
     end
@@ -840,6 +840,71 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       second |> Ecto.Changeset.change(enabled: false) |> Repo.update!()
       assert {:error, :connector_mismatch} = EmailBridge.send_reply(outgoing, %{})
+    end
+
+    test "receipt describes actual selected sender and envelope recipient, not claimed Bcc" do
+      upsert_smtp_channel(%{settings: smtp_settings(%{"from_email" => "configured@example.com"})})
+
+      assert {:ok, receipt} =
+               SmtpSender.send_notification_with_receipt(
+                 "recipient@example.com",
+                 %{
+                   "body" => "reply",
+                   "from_email" => " override@example.com ",
+                   "bcc" => "hidden@example.com",
+                   "headers" => %{"Bcc" => "unconfirmed@example.com"}
+                 },
+                 %{}
+               )
+
+      assert receipt == %{
+               sender_address: "override@example.com",
+               recipient_addresses: ["recipient@example.com"]
+             }
+
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "override@example.com"}
+      assert email.to == [{"", "recipient@example.com"}]
+    end
+
+    test "failed transport returns no sender or recipient evidence" do
+      previous_config = Application.get_env(:zaq, Zaq.Mailer)
+      Application.put_env(:zaq, Zaq.Mailer, adapter: RejectedSmtpAdapter)
+      on_exit(fn -> Application.put_env(:zaq, Zaq.Mailer, previous_config) end)
+
+      assert {:error, :smtp_rejected} =
+               SmtpSender.send_notification_with_receipt(
+                 "recipient@example.com",
+                 %{"body" => "reply"},
+                 %{}
+               )
+
+      assert {:error, :smtp_rejected} =
+               EmailBridge.send_reply(
+                 %Zaq.Engine.Messages.Outgoing{
+                   body: "reply",
+                   channel_id: "recipient@example.com",
+                   provider: :"email:smtp"
+                 },
+                 %{}
+               )
+
+      refute_received {:email, _}
+    end
+
+    property "confirmed envelope evidence never includes a claimed hidden recipient" do
+      check all(local <- string(:alphanumeric, min_length: 1, max_length: 16), max_runs: 40) do
+        recipient = local <> "@example.com"
+
+        assert {:ok, receipt} =
+                 SmtpSender.send_notification_with_receipt(
+                   recipient,
+                   %{"body" => "reply", "bcc" => "hidden@example.com"},
+                   %{}
+                 )
+
+        assert receipt.recipient_addresses == [recipient]
+      end
     end
 
     test "an IMAP-bound reply uses its explicitly linked SMTP account" do
@@ -885,7 +950,14 @@ defmodule Zaq.Channels.EmailBridgeTest do
         routing_context: %Zaq.Engine.Messages.Incoming.RoutingContext{channel_config_id: imap.id}
       }
 
-      assert {:ok, _} = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, receipt} = EmailBridge.send_reply(outgoing, %{})
+
+      assert receipt.history_audience == %Zaq.Engine.Messages.Incoming.Audience{
+               platform: "email",
+               sender: "second@second.example.org",
+               recipients: ["recipient@example.com"]
+             }
+
       assert_receive {:email, email}
       assert email.from == {"ZAQ", "second@second.example.org"}
 
@@ -1239,10 +1311,12 @@ defmodule Zaq.Channels.EmailBridgeTest do
         }
       }
 
-      assert {:ok, _receipt} = EmailBridge.send_reply(outgoing, %{})
+      assert {:ok, receipt} = EmailBridge.send_reply(outgoing, %{})
 
       assert_receive {:email, email}
       assert email.from == {"Explicit Name", "explicit@example.com"}
+      assert receipt.history_audience.sender == "explicit@example.com"
+      assert receipt.history_audience.recipients == ["recipient@example.com"]
     end
 
     test "send_reply with non-binary thread metadata omits threading headers" do
@@ -1544,16 +1618,19 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
   describe "from_listener/3" do
     setup do
-      previous_pipeline = Application.get_env(:zaq, :email_bridge_pipeline_module)
-      previous_router = Application.get_env(:zaq, :email_bridge_router_module)
-      previous_conversations = Application.get_env(:zaq, :email_bridge_conversations_module)
-      previous_node_router = Application.get_env(:zaq, :email_bridge_node_router_module)
+      keys = [
+        :email_bridge_pipeline_module,
+        :email_bridge_router_module,
+        :email_bridge_node_router_module
+      ]
+
+      previous = Map.new(keys, &{&1, Application.fetch_env(:zaq, &1)})
 
       on_exit(fn ->
-        Application.put_env(:zaq, :email_bridge_pipeline_module, previous_pipeline)
-        Application.put_env(:zaq, :email_bridge_router_module, previous_router)
-        Application.put_env(:zaq, :email_bridge_conversations_module, previous_conversations)
-        Application.put_env(:zaq, :email_bridge_node_router_module, previous_node_router)
+        Enum.each(previous, fn
+          {key, {:ok, value}} -> Application.put_env(:zaq, key, value)
+          {key, :error} -> Application.delete_env(:zaq, key)
+        end)
       end)
 
       :ok
@@ -1562,7 +1639,6 @@ defmodule Zaq.Channels.EmailBridgeTest do
     test "processes inbound payload end-to-end" do
       Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineOkStub)
       Application.put_env(:zaq, :email_bridge_router_module, RouterOkStub)
-      Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsOkStub)
 
       config = %{provider: "email:imap"}
 
@@ -1578,7 +1654,6 @@ defmodule Zaq.Channels.EmailBridgeTest do
     test "returns adapter conversion error" do
       Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineOkStub)
       Application.put_env(:zaq, :email_bridge_router_module, RouterOkStub)
-      Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsOkStub)
 
       config = %{provider: "email:imap"}
 
@@ -1599,7 +1674,6 @@ defmodule Zaq.Channels.EmailBridgeTest do
     test "returns delivery error" do
       Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineOkStub)
       Application.put_env(:zaq, :email_bridge_router_module, RouterErrorStub)
-      Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsOkStub)
 
       config = %{provider: "email:imap"}
 
@@ -1620,7 +1694,6 @@ defmodule Zaq.Channels.EmailBridgeTest do
     test "wraps unexpected direct pipeline value" do
       Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineUnexpectedValueStub)
       Application.put_env(:zaq, :email_bridge_router_module, RouterOkStub)
-      Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsOkStub)
 
       config = %{provider: "email:imap"}
 
@@ -1642,7 +1715,6 @@ defmodule Zaq.Channels.EmailBridgeTest do
       Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineOkStub)
       Application.put_env(:zaq, :email_bridge_router_module, Zaq.Channels.Api)
       Application.put_env(:zaq, :email_bridge_node_router_module, ApiDeliveryNodeRouterStub)
-      Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsOkStub)
 
       config = %{provider: "email:imap"}
 
@@ -1660,31 +1732,9 @@ defmodule Zaq.Channels.EmailBridgeTest do
       assert event.request.channel_id == "recipient@example.com"
     end
 
-    test "ignores persistence module in bridge path" do
-      Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineOkStub)
-      Application.put_env(:zaq, :email_bridge_router_module, RouterOkStub)
-      Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsErrorStub)
-
-      config = %{provider: "email:imap"}
-
-      log =
-        capture_log(fn ->
-          assert :ok =
-                   EmailBridge.from_listener(
-                     config,
-                     %{"body_text" => "hello"},
-                     adapter: IncomingAdapterStub,
-                     mailbox: "INBOX"
-                   )
-        end)
-
-      refute log =~ "Failed to process inbound message"
-    end
-
     test "returns wrapped error for unexpected non-error pipeline chain value" do
       Application.put_env(:zaq, :email_bridge_pipeline_module, PipelineOkStub)
       Application.put_env(:zaq, :email_bridge_router_module, RouterUnexpectedStub)
-      Application.put_env(:zaq, :email_bridge_conversations_module, ConversationsOkStub)
 
       config = %{provider: "email:imap"}
 

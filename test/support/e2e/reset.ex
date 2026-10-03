@@ -1,6 +1,8 @@
 defmodule Zaq.E2E.Reset do
   @moduledoc false
 
+  import Ecto.Query
+
   # Per-describe reset invoked via POST /e2e/reset. The goal is to return the
   # E2E server to the state established by test/support/e2e/bootstrap.exs:
   #
@@ -23,11 +25,14 @@ defmodule Zaq.E2E.Reset do
   alias Zaq.Addons.FeatureStore
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.MCP.Endpoint, as: MCPEndpoint
+  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.E2E.DocumentProcessorFake
   alias Zaq.E2E.PortalState
   alias Zaq.E2E.ProcessorState
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.{ExecutionRecord, Transcript, TranscriptMessage}
   alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob}
+  alias Zaq.Permissions.ResourcePermission
   alias Zaq.Repo
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.Config, as: SystemConfig
@@ -61,8 +66,9 @@ defmodule Zaq.E2E.Reset do
 
     reset_filesystem!()
     reset_ingestion_tables!()
-    reset_people_tables!()
     reset_conversations!()
+    reset_people_tables!()
+    reset_history_configs!()
     reset_users!()
     reset_system_config!()
     reseed_seed_files!()
@@ -271,10 +277,25 @@ defmodule Zaq.E2E.Reset do
   end
 
   defp reset_conversations! do
+    Repo.delete_all(ExecutionRecord)
     Repo.query!("DELETE FROM message_ratings", [])
     Repo.query!("DELETE FROM conversation_shares", [])
+    Repo.delete_all(TranscriptMessage)
+    Repo.delete_all(Transcript)
+
+    Repo.delete_all(
+      from(p in ResourcePermission,
+        where: p.resource_type in ["channel_history", "person_history", "legacy_conversation"]
+      )
+    )
+
     Repo.query!("DELETE FROM messages", [])
     Repo.query!("DELETE FROM conversations", [])
+  end
+
+  defp reset_history_configs! do
+    Repo.delete_all(from(r in RetrievalChannel, where: like(r.channel_name, "E2E %")))
+    Repo.delete_all(from(c in ChannelConfig, where: like(c.name, "E2E %")))
   end
 
   @doc "Reset system configuration and AI credentials to the E2E baseline."

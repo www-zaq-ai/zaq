@@ -25,6 +25,7 @@ defmodule Zaq.Engine.Conversations.Transcript do
     field :permission_resource_type, :string
     field :permission_resource_id, :string
     field :next_position, :integer, default: 0
+    field :membership_state, :map, default: %{}
 
     belongs_to :owner_person, Zaq.Accounts.Person, type: :integer
     belongs_to :parent, __MODULE__
@@ -57,7 +58,7 @@ defmodule Zaq.Engine.Conversations.Transcript do
       :permission_resource_type,
       :permission_resource_id
     ])
-    |> validate_inclusion(:strategy, ~w(direct shared replicated))
+    |> validate_inclusion(:strategy, ~w(direct shared replicated legacy))
     |> validate_owner_strategy()
     |> unique_constraint(:scope_key, name: :transcripts_scope_index)
     |> check_constraint(:owner_person_id, name: :transcripts_owner_strategy_check)

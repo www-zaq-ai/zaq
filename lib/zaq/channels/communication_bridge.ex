@@ -10,7 +10,7 @@ defmodule Zaq.Channels.CommunicationBridge do
     `sync_provider_runtime/1`) with fallback behavior when optional callbacks
     are not implemented by a bridge.
   - Build and dispatch events through `Zaq.NodeRouter` for channel-originated
-    activity: agent pipeline events for incoming messages, and message ratings
+    activity: Engine routing events for incoming messages, and message ratings
     once a channel has mapped its provider vocabulary to a ZAQ rating.
   - Enforce conversation-agent eligibility for selection helpers.
 
@@ -19,7 +19,6 @@ defmodule Zaq.Channels.CommunicationBridge do
   """
 
   alias Zaq.Channels.Bridge
-  alias Zaq.Channels.EventNames
   alias Zaq.Engine.Messages.{ConversationIdentity, Incoming}
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Engine.Messages.Outgoing
@@ -86,16 +85,10 @@ defmodule Zaq.Channels.CommunicationBridge do
 
   defmacro __using__(_opts) do
     quote do
-      defdelegate run_pipeline_with_node_router(
-                    msg,
-                    pipeline_opts,
-                    agent_selection,
-                    actor,
-                    node_router_module
-                  ),
-                  to: Zaq.Channels.CommunicationBridge
-
       defdelegate route_incoming_message(msg, pipeline_opts, actor, opts \\ []),
+        to: Zaq.Channels.CommunicationBridge
+
+      defdelegate capture_passive_history(msg, opts \\ []),
         to: Zaq.Channels.CommunicationBridge
 
       defdelegate dispatch_message_rating(message_ref, rater_attrs, opts \\ []),
@@ -469,17 +462,19 @@ defmodule Zaq.Channels.CommunicationBridge do
   Stamps the channel-computed conversation identity onto the incoming envelope
   as `metadata["conversation"]` (`%{"channel_type" => ..., "key" => ...}`).
 
-  Called at the channel chokepoints (`route_incoming_message/5`,
-  `Bridge.persist_from_incoming/5`, the `:conversation_identity` event) so
+  Called at the channel chokepoints (`route_incoming_message/5` and
+  the `:conversation_identity` event) so
   every message reaching engine persistence already carries its identity.
   """
   @spec put_conversation_identity(Incoming.t(), keyword()) :: Incoming.t()
   def put_conversation_identity(%Incoming{} = msg, opts \\ []) do
     channel_type = conversation_channel_type(msg.provider, opts)
+    key = conversation_key(msg, channel_type, opts)
 
     identity = %{
       "channel_type" => channel_type,
-      "key" => conversation_key(msg, channel_type, opts),
+      "key" => key,
+      "scoped" => is_nil(key) and channel_type not in ["api", "bo", "email:imap"],
       "channel_config_id" => msg.routing_context.channel_config_id,
       "channel_id" => ConversationIdentity.normalize(msg.channel_id),
       "thread_id" => ConversationIdentity.normalize(msg.thread_id),
@@ -496,23 +491,7 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Runs pipeline through NodeRouter and normalizes response shape."
-  @spec run_pipeline_with_node_router(Incoming.t(), keyword(), map() | nil, map(), module()) ::
-          Outgoing.t() | {:error, term()}
-  def run_pipeline_with_node_router(
-        %Incoming{} = msg,
-        pipeline_opts,
-        agent_selection,
-        actor,
-        node_router_module
-      )
-      when is_list(pipeline_opts) and is_map(actor) and is_atom(node_router_module) do
-    msg
-    |> build_agent_pipeline_event(pipeline_opts, agent_selection, actor)
-    |> dispatch_agent_pipeline_event(node_router_module)
-  end
-
-  @doc "Builds and either dispatches or only fires the canonical agent pipeline event."
+  @doc "Builds and either dispatches or only fires the canonical Engine routing event."
   @spec route_incoming_message(Incoming.t(), keyword(), map(), keyword()) ::
           Outgoing.t() | :ok | {:error, term()}
   def route_incoming_message(%Incoming{} = msg, pipeline_opts, actor, opts \\ [])
@@ -533,6 +512,33 @@ defmodule Zaq.Channels.CommunicationBridge do
       node_router_module,
       pipeline_module
     )
+  end
+
+  @doc "Retains adapter-attested nonmentions without admitting an agent turn or firing a trigger."
+  @spec capture_passive_history(Incoming.t(), keyword()) :: :ok | {:error, term()}
+  def capture_passive_history(%Incoming{} = msg, opts \\ []) when is_list(opts) do
+    case Keyword.get(opts, :history_kind) do
+      kind when kind in [:direct, :channel, :replicated] ->
+        node_router = Keyword.get(opts, :node_router, NodeRouter)
+
+        event =
+          msg
+          |> put_routing_context(opts)
+          |> Event.new(:engine,
+            type: :sync,
+            name: :channel_history_capture_requested,
+            opts: [action: :capture_incoming_history]
+          )
+
+        case node_router.dispatch(event) do
+          %Event{response: {:ok, _}} -> :ok
+          %Event{response: {:error, reason}} -> {:error, reason}
+          _ -> {:error, :history_capture_failed}
+        end
+
+      _ ->
+        :ok
+    end
   end
 
   defp route_resolved_incoming_message(
@@ -568,6 +574,10 @@ defmodule Zaq.Channels.CommunicationBridge do
       |> maybe_put_event_opt(:identity_opts, Keyword.get(opts, :identity_opts))
       |> maybe_put_event_opt(:identity_resolver, Keyword.get(opts, :identity_resolver))
       |> maybe_put_event_opt(:node_router, Keyword.get(opts, :node_router))
+      |> maybe_put_event_opt(
+        :capture_history,
+        Keyword.get(opts, :history_kind) in [:direct, :channel, :replicated]
+      )
 
     Event.new(msg, :engine,
       type: :sync,
@@ -586,26 +596,6 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Builds the canonical event used by channel-originated agent pipeline routing."
-  @spec build_agent_pipeline_event(Incoming.t(), keyword(), map() | :none | nil, map(), keyword()) ::
-          Event.t()
-  def build_agent_pipeline_event(
-        %Incoming{} = msg,
-        pipeline_opts,
-        agent_selection,
-        actor,
-        opts \\ []
-      )
-      when is_list(pipeline_opts) and is_map(actor) and is_list(opts) do
-    msg
-    |> Event.new(:agent,
-      type: :async,
-      name: EventNames.message_received(msg, routing_outcome(agent_selection), opts),
-      opts: [action: :run_pipeline, pipeline_opts: pipeline_opts]
-    )
-    |> put_agent_selection_assign(agent_selection)
-  end
-
   @doc """
   Dispatches a channel-originated message rating to the engine.
 
@@ -615,13 +605,13 @@ defmodule Zaq.Channels.CommunicationBridge do
   calling this; the engine never learns the rating came from a reaction.
 
   `message_ref` is `{:id, uuid}` when the caller already holds the message's
-  primary key, or `{:external_id, provider_message_id}` when it only has the
-  provider's identifier.
+  primary key, or `{:source, reference}` for a Channels-normalized provider,
+  connector, channel, source scope and external message identity.
 
   Returns the engine's response verbatim.
   """
   @spec dispatch_message_rating(
-          {:id, String.t()} | {:external_id, String.t()},
+          {:id, String.t()} | {:source, map()},
           map(),
           keyword()
         ) :: {:ok, term()} | {:error, term()}
@@ -634,33 +624,6 @@ defmodule Zaq.Channels.CommunicationBridge do
     |> node_router_module.dispatch()
     |> Map.fetch!(:response)
   end
-
-  defp dispatch_agent_pipeline_event(%Event{} = event, node_router_module) do
-    case node_router_module.dispatch(event).response do
-      %Outgoing{} = outgoing -> outgoing
-      {:ok, %Outgoing{} = outgoing} -> outgoing
-      # Delivery receipt from a sync deliver_outgoing hop — delivered, nothing to return.
-      {:ok, receipt} when is_non_struct_map(receipt) -> :ok
-      {:error, _} = error -> error
-      nil -> :ok
-      :ok -> :ok
-      other -> {:error, {:invalid_pipeline_response, other}}
-    end
-  end
-
-  @spec put_agent_selection_assign(Event.t(), map() | nil) :: Event.t()
-  defp put_agent_selection_assign(%Event{} = event, nil), do: event
-
-  defp put_agent_selection_assign(%Event{} = event, :none), do: event
-
-  defp put_agent_selection_assign(%Event{} = event, %{"agent_id" => _} = selection) do
-    %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
-  end
-
-  defp put_agent_selection_assign(%Event{} = event, _selection), do: event
-
-  defp routing_outcome(:none), do: :workflow_only
-  defp routing_outcome(_agent_selection), do: :agent_requested
 
   defp put_routing_context(%Incoming{} = msg, opts) do
     context =

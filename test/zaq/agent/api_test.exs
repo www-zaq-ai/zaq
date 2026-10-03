@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.ApiTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.Api
   alias Zaq.Agent.MCP
@@ -134,7 +135,7 @@ defmodule Zaq.Agent.ApiTest do
 
       response =
         case Keyword.get(event.opts, :action) do
-          :persist_from_incoming -> {:error, :db_down}
+          :finalize_incoming -> {:error, :db_down}
           _ -> {:ok, %{message_id: "status-message"}}
         end
 
@@ -146,7 +147,7 @@ defmodule Zaq.Agent.ApiTest do
     def dispatch(event) do
       response =
         case Keyword.get(event.opts, :action) do
-          :persist_from_incoming -> :unexpected
+          :finalize_incoming -> :unexpected
           _ -> :ok
         end
 
@@ -158,7 +159,7 @@ defmodule Zaq.Agent.ApiTest do
     def dispatch(event) do
       response =
         case Keyword.get(event.opts, :action) do
-          :persist_from_incoming -> {:ok, %{persisted: true}}
+          :finalize_incoming -> {:ok, %{persisted: true}}
           _ -> :ok
         end
 
@@ -170,7 +171,7 @@ defmodule Zaq.Agent.ApiTest do
     def dispatch(event) do
       response =
         case Keyword.get(event.opts, :action) do
-          :persist_from_incoming -> {:ok, :persisted}
+          :finalize_incoming -> {:ok, :persisted}
           _ -> :ok
         end
 
@@ -220,7 +221,18 @@ defmodule Zaq.Agent.ApiTest do
     # These tests represent a trusted anonymous origin unless they explicitly
     # supply another actor or an Incoming Person to exercise promotion.
     actor = if is_nil(incoming.person), do: %{kind: :anonymous, subject: "api-test"}
-    Event.new(incoming, :agent, Keyword.put_new(opts, :actor, actor))
+    event = Event.new(incoming, :agent, Keyword.put_new(opts, :actor, actor))
+
+    %{
+      event
+      | assigns: %{
+          "conversation_binding" => %{
+            conversation_id: "conversation-fixture",
+            user_message_id: "message-fixture",
+            finalization_token: "token-fixture"
+          }
+        }
+    }
   end
 
   test "handles run_pipeline action" do
@@ -250,6 +262,88 @@ defmodule Zaq.Agent.ApiTest do
     assert result.response.body == "ok"
     assert_received {:pipeline_called, ^incoming, opts}
     assert Keyword.get(opts, :foo) == :bar
+  end
+
+  test "missing or malformed channel bindings reject before any execution or status side effect" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    for binding <- [
+          nil,
+          :not_a_map,
+          [],
+          %{},
+          %{conversation_id: "c", user_message_id: "u"},
+          %{conversation_id: "c", user_message_id: "u", finalization_token: ""}
+        ] do
+      event =
+        pipeline_event(incoming,
+          opts: [
+            pipeline_module: StubPipeline,
+            status_module: SpyStatus,
+            node_router: SpyNodeRouter
+          ]
+        )
+
+      event = %{event | assigns: %{"conversation_binding" => binding}}
+
+      assert %{response: {:error, :invalid_conversation_binding}, next_hop: nil} =
+               Api.handle_event(event, :run_pipeline, nil)
+
+      refute_received {:pipeline_called, _, _}
+      refute_received {:status_broadcast, _, _, _}
+      refute_received {:node_router_dispatch, _, _}
+    end
+  end
+
+  property "every binding field is required before either execution path can run" do
+    check all(
+            field <- member_of([:conversation_id, :user_message_id, :finalization_token]),
+            invalid <-
+              one_of([constant(nil), constant(""), integer(), boolean(), list_of(integer())]),
+            string_keys? <- boolean(),
+            selected? <- boolean()
+          ) do
+      binding =
+        %{
+          conversation_id: "conversation",
+          user_message_id: "message",
+          finalization_token: "token"
+        }
+        |> Map.put(field, invalid)
+
+      binding =
+        if string_keys?,
+          do: Map.new(binding, fn {k, v} -> {Atom.to_string(k), v} end),
+          else: binding
+
+      incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+      event =
+        pipeline_event(incoming,
+          opts: [
+            pipeline_module: StubPipeline,
+            executor_module: StubExecutor,
+            status_module: SpyStatus,
+            node_router: SpyNodeRouter
+          ]
+        )
+
+      event = %{
+        event
+        | assigns: %{
+            "conversation_binding" => binding,
+            "agent_selection" => if(selected?, do: %{agent_id: 42}, else: %{})
+          }
+      }
+
+      assert %{response: {:error, :invalid_conversation_binding}, next_hop: nil} =
+               Api.handle_event(event, :run_pipeline, nil)
+
+      refute_received {:pipeline_called, _, _}
+      refute_received {:executor_called, _, _}
+      refute_received {:status_broadcast, _, _, _}
+      refute_received {:node_router_dispatch, _, _}
+    end
   end
 
   test "run_pipeline normalizes incoming person into actor identity" do
@@ -499,7 +593,14 @@ defmodule Zaq.Agent.ApiTest do
       )
 
     event =
-      %{event | assigns: %{"agent_selection" => %{"agent_id" => "42", "source" => "bo_explicit"}}}
+      %{
+        event
+        | assigns:
+            Map.put(event.assigns, "agent_selection", %{
+              "agent_id" => "42",
+              "source" => "bo_explicit"
+            })
+      }
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
@@ -535,7 +636,7 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
-    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+    event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{"agent_id" => "42"})}
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
@@ -561,7 +662,7 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
-    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+    event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{"agent_id" => "42"})}
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
@@ -614,7 +715,7 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
-    event = %{event | assigns: %{"agent_selection" => %{agent_id: "9"}}}
+    event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{agent_id: "9"})}
 
     Api.handle_event(event, :run_pipeline, nil)
 
@@ -639,7 +740,7 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
-    event = %{event | assigns: %{"agent_selection" => %{agent_id: 7}}}
+    event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{agent_id: 7})}
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
@@ -671,7 +772,7 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
-    event = %{event | assigns: %{agent_selection: %{agent_id: 42}}}
+    event = %{event | assigns: Map.put(event.assigns, :agent_selection, %{agent_id: 42})}
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
@@ -698,7 +799,7 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
-    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+    event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{"agent_id" => "42"})}
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
@@ -781,7 +882,7 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
-    event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+    event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{"agent_id" => "42"})}
 
     Api.handle_event(event, :run_pipeline, nil)
 
@@ -805,7 +906,10 @@ defmodule Zaq.Agent.ApiTest do
       )
 
     event_empty_selection =
-      %{event_empty_selection | assigns: %{"agent_selection" => %{"agent_id" => ""}}}
+      %{
+        event_empty_selection
+        | assigns: Map.put(event_empty_selection.assigns, "agent_selection", %{"agent_id" => ""})
+      }
 
     result_1 = Api.handle_event(event_empty_selection, :run_pipeline, nil)
 
@@ -829,9 +933,8 @@ defmodule Zaq.Agent.ApiTest do
     event_bad_assigns = %{event_bad_assigns | assigns: :not_a_map}
     result_2 = Api.handle_event(event_bad_assigns, :run_pipeline, nil)
 
-    assert %Outgoing{} = result_2.response
-    assert result_2.response.body == "ok"
-    assert_received {:pipeline_called, ^incoming, _opts2}
+    assert result_2.response == {:error, :invalid_conversation_binding}
+    refute_received {:pipeline_called, ^incoming, _opts2}
   end
 
   test "run_pipeline falls back to pipeline when agent_selection has unsupported shape" do
@@ -847,7 +950,7 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
-    event = %{event | assigns: %{"agent_selection" => %{source: "bo"}}}
+    event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{source: "bo"})}
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
@@ -929,7 +1032,7 @@ defmodule Zaq.Agent.ApiTest do
     assert result.request == result.response
   end
 
-  test "run_pipeline blocks delivery when persist_from_incoming fails" do
+  test "run_pipeline blocks delivery without falling back when finalization fails" do
     incoming = %Incoming{
       content: "hi",
       channel_id: "c1",
@@ -967,7 +1070,8 @@ defmodule Zaq.Agent.ApiTest do
     assert_receive {:persist_fail_router_dispatch, :upsert_message,
                     %Event{request: %Outgoing{body: "Checking your request…"}}}
 
-    assert_receive {:persist_fail_router_dispatch, :persist_from_incoming, _}
+    assert_receive {:persist_fail_router_dispatch, :finalize_incoming, _}
+    refute_received {:persist_fail_router_dispatch, :persist_from_incoming, _}
 
     assert_receive {:persist_fail_router_dispatch, :upsert_message,
                     %Event{request: %Outgoing{body: failure_body, metadata: metadata}}}
@@ -1025,8 +1129,8 @@ defmodule Zaq.Agent.ApiTest do
     assert result.opts[:action] == :deliver_outgoing
   end
 
-  test "run_pipeline returns outgoing directly when provider is nil" do
-    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
+  test "internal runs need no binding and return outgoing directly when provider is nil" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: nil}
 
     event =
       pipeline_event(incoming,
@@ -1040,12 +1144,14 @@ defmodule Zaq.Agent.ApiTest do
         ]
       )
 
+    event = %{event | assigns: %{}}
+
     result = Api.handle_event(event, :run_pipeline, nil)
 
     assert %Outgoing{} = result.response
     assert result.response.body == "no-channel"
     assert result.response.provider == nil
-    refute_received {:node_router_dispatch, :persist_from_incoming, _}
+    refute_received {:node_router_dispatch, :finalize_incoming, _}
   end
 
   test "run_pipeline accepts {:ok, _} persist response and passes through unexpected pipeline output" do
@@ -1400,7 +1506,7 @@ defmodule Zaq.Agent.ApiTest do
           ]
         )
 
-      event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "42"}}}
+      event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{"agent_id" => "42"})}
 
       Api.handle_event(event, :run_pipeline, nil)
 
@@ -1432,7 +1538,7 @@ defmodule Zaq.Agent.ApiTest do
           ]
         )
 
-      event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "7"}}}
+      event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{"agent_id" => "7"})}
 
       Api.handle_event(event, :run_pipeline, nil)
 
@@ -1463,7 +1569,7 @@ defmodule Zaq.Agent.ApiTest do
           ]
         )
 
-      event = %{event | assigns: %{"agent_selection" => %{"agent_id" => "5"}}}
+      event = %{event | assigns: Map.put(event.assigns, "agent_selection", %{"agent_id" => "5"})}
 
       Api.handle_event(event, :run_pipeline, nil)
 
@@ -1574,7 +1680,7 @@ defmodule Zaq.Agent.ApiTest do
       }
 
       make_event = fn content ->
-        Event.new(%{incoming | content: content}, :agent,
+        pipeline_event(%{incoming | content: content},
           opts: [
             action: :run_pipeline,
             pipeline_module: StubPipeline,

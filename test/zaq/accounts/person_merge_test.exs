@@ -5,7 +5,10 @@ defmodule Zaq.Accounts.PersonMergeTest do
   alias Zaq.Accounts.{People, Person, PersonChannel}
   alias Zaq.Agent.Tools.Resources.QueryResources
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelHistoryAdmin
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.{ExecutionRecord, Message, Transcript, TranscriptMessage}
+  alias Zaq.Engine.History.Facts
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Engine.Messages.Incoming
@@ -20,134 +23,9 @@ defmodule Zaq.Accounts.PersonMergeTest do
   import Zaq.SystemConfigFixtures, only: [ai_credential_fixture: 0]
   setup :verify_on_exit!
 
-  setup context do
-    if context[:legacy_channels] do
-      # Serial sandbox DDL restores the pre-index migration schema only inside
-      # this transaction. Rollback restores the global index for other tests.
-      Repo.query!("DROP INDEX IF EXISTS channels_platform_channel_identifier_index")
-
-      Repo.query!(
-        "CREATE UNIQUE INDEX IF NOT EXISTS channels_person_id_platform_channel_identifier_index ON channels (person_id, platform, channel_identifier)"
-      )
-    end
-
-    :ok
-  end
-
-  for {winner_identifier, duplicate_identifier} <- [
-        {"\u2003ÄLİCE@EXAMPLE.COM ", "äli̇ce@example.com"},
-        {"äli̇ce@example.com", "\u2003ÄLİCE@EXAMPLE.COM "}
-      ] do
-    @winner_identifier winner_identifier
-    @duplicate_identifier duplicate_identifier
-    @tag :legacy_channels
-    test "legacy email merge preserves survivor winner #{inspect(winner_identifier)} and original history" do
-      loser = legacy(nil, " ")
-      third = legacy(nil, "Third")
-      survivor = legacy(nil, @winner_identifier)
-      # Raw rows reproduce legacy case variants that new changesets must reject.
-      duplicate =
-        Repo.insert!(%PersonChannel{
-          person_id: loser.id,
-          platform: "email",
-          channel_identifier: @duplicate_identifier,
-          weight: 0,
-          display_name: "Discarded",
-          phone: "123",
-          metadata: %{"nested" => %{"keep" => true, "fill" => "filled"}},
-          last_interaction_at: ~U[2026-02-01 00:00:00Z]
-        })
-
-      winner =
-        Repo.insert!(%PersonChannel{
-          person_id: survivor.id,
-          platform: "email",
-          channel_identifier: @winner_identifier,
-          weight: 7,
-          display_name: "Kept",
-          metadata: %{"nested" => %{"keep" => false, "fill" => " "}},
-          last_interaction_at: ~U[2026-01-01 00:00:00Z]
-        })
-
-      same_person_duplicate =
-        Repo.insert!(%PersonChannel{
-          person_id: survivor.id,
-          platform: "email",
-          channel_identifier: @duplicate_identifier,
-          weight: 1
-        })
-
-      extra =
-        Repo.insert!(%PersonChannel{
-          person_id: third.id,
-          platform: "email",
-          channel_identifier: "ÄLİCE@example.com",
-          metadata: %{"third" => 3},
-          last_interaction_at: ~U[2026-03-01 00:00:00Z]
-        })
-
-      opaque =
-        Repo.insert!(%PersonChannel{
-          person_id: loser.id,
-          platform: "slack",
-          channel_identifier: @duplicate_identifier,
-          weight: 9
-        })
-
-      assert {:ok, merged} = People.merge_persons(survivor, [third, loser])
-      assert [email] = Enum.filter(merged.channels, &(&1.platform == "email"))
-      assert email.id == winner.id
-      assert email.weight == 7
-      assert email.channel_identifier == "äli̇ce@example.com"
-      assert email.display_name == "Kept"
-      assert email.phone == "123"
-      assert email.metadata == %{"nested" => %{"keep" => false, "fill" => "filled"}, "third" => 3}
-      assert email.last_interaction_at == ~U[2026-03-01 00:00:00Z]
-      assert merged.full_name == "Third"
-
-      assert Enum.find(merged.merge_history, &(&1["id"] == loser.id))["label"] ==
-               @duplicate_identifier
-
-      assert People.get_channel(opaque.id).channel_identifier == @duplicate_identifier
-
-      for removed <- [duplicate, same_person_duplicate, extra],
-          do: assert(People.get_channel(removed.id) == nil)
-    end
-  end
-
-  test "email group without a survivor channel reparents the original lowest-person winner" do
-    survivor = legacy(nil, "Survivor")
-    first = legacy(nil, "First")
-    second = legacy(nil, "Second")
-
-    later =
-      Repo.insert!(%PersonChannel{
-        person_id: second.id,
-        platform: "email",
-        channel_identifier: "reparent@example.com"
-      })
-
-    winner =
-      Repo.insert!(%PersonChannel{
-        person_id: first.id,
-        platform: "email",
-        channel_identifier: " REPARENT@EXAMPLE.COM ",
-        weight: 8
-      })
-
-    assert {:ok, merged} = People.merge_persons(survivor, [second, first])
-    assert [channel] = merged.channels
-    assert channel.id == winner.id
-    assert channel.person_id == survivor.id
-    assert channel.weight == 8
-    assert channel.channel_identifier == "reparent@example.com"
-    assert channel.last_interaction_at == nil
-    assert People.get_channel(later.id) == nil
-  end
-
   test "merging Persons keeps equal opaque IDs from distinct connectors separate" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
 
     config_ids =
       for name <- ["Workspace A", "Workspace B"] do
@@ -178,100 +56,12 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert Enum.sort(Enum.map(merged.channels, & &1.channel_config_id)) == Enum.sort(config_ids)
   end
 
-  test "transferred channel persists calculated fields and latest activity from duplicate losers" do
-    survivor = legacy(nil, "Survivor")
-    first = legacy(nil, "First")
-    second = legacy(nil, "Second")
-
-    winner =
-      Repo.insert!(%PersonChannel{
-        person_id: first.id,
-        platform: "email",
-        channel_identifier: " TRANSFER@EXAMPLE.COM ",
-        username: "kept",
-        weight: 8,
-        metadata: %{"keep" => false},
-        last_interaction_at: ~U[2026-01-01 00:00:00Z]
-      })
-
-    duplicate =
-      Repo.insert!(%PersonChannel{
-        person_id: second.id,
-        platform: "email",
-        channel_identifier: "transfer@example.com",
-        username: "discarded",
-        display_name: "Filled",
-        phone: "123",
-        dm_channel_id: "dm-filled",
-        weight: 1,
-        metadata: %{"keep" => true, "fill" => "filled"},
-        last_interaction_at: ~U[2026-03-01 00:00:00Z]
-      })
-
-    assert {:ok, merged} = People.merge_persons(survivor, [second, first])
-    assert [channel] = merged.channels
-    assert channel.id == winner.id
-    assert channel.person_id == survivor.id
-    assert channel.platform == "email"
-    assert channel.channel_identifier == "transfer@example.com"
-    assert channel.username == "kept"
-    assert channel.display_name == "Filled"
-    assert channel.phone == "123"
-    assert channel.dm_channel_id == "dm-filled"
-    assert channel.weight == 8
-    assert channel.metadata == %{"keep" => false, "fill" => "filled"}
-    assert channel.last_interaction_at == ~U[2026-03-01 00:00:00Z]
-    assert People.get_channel(channel.id) == channel
-    assert People.get_channel(duplicate.id) == nil
-  end
-
-  test "invalid routing prevents all writes including canonical channel deduplication" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
-
-    winner =
-      Repo.insert!(%PersonChannel{
-        person_id: survivor.id,
-        platform: "email",
-        channel_identifier: " ROLLBACK@example.com ",
-        metadata: %{"kept" => 1}
-      })
-
-    duplicate =
-      Repo.insert!(%PersonChannel{
-        person_id: survivor.id,
-        platform: "email",
-        channel_identifier: "rollback@example.com"
-      })
-
-    moved =
-      Repo.insert!(%PersonChannel{
-        person_id: loser.id,
-        platform: "email",
-        channel_identifier: "Rollback@example.com",
-        last_interaction_at: ~U[2026-03-01 00:00:00Z]
-      })
-
-    rule = Repo.insert!(%IncomingMessageRoutingRule{person_id: loser.id, routing_mode: :agent})
-    capture_writes()
-    assert {:error, changeset} = People.merge_persons(survivor, loser)
-    refute_received {:merge_write, _, _}
-    assert errors_on(changeset).configured_agent_id == ["can't be blank"]
-
-    for original <- [winner, duplicate, moved],
-        do: assert(People.get_channel(original.id) == original)
-
-    assert Repo.get!(IncomingMessageRoutingRule, rule.id) == rule
-    assert Repo.get!(Person, survivor.id) == survivor
-    assert Repo.get!(Person, loser.id) == loser
-  end
-
   property "multi-loser resource and principal collisions union rights without team leakage" do
     check all(reversed <- boolean(), max_runs: 6) do
-      survivor = legacy(nil, "Survivor")
-      first = legacy(nil, "First")
-      second = legacy(nil, "Second")
-      outsider = legacy(nil, "Unaffected")
+      survivor = person(nil, "Survivor")
+      first = person(nil, "First")
+      second = person(nil, "Second")
+      outsider = person(nil, "Unaffected")
       {:ok, team} = People.create_team(%{name: "Collision team #{survivor.id}"})
       {:ok, _} = Permissions.grant(survivor, %{person_id: survivor.id, access_rights: ["manage"]})
       {:ok, _} = Permissions.grant(survivor, %{team_id: team.id, access_rights: ["view"]})
@@ -304,9 +94,9 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "principal collisions on other resources preserve independent team rights" do
-    survivor = legacy(nil, "Survivor")
-    first = legacy(nil, "First")
-    second = legacy(nil, "Second")
+    survivor = person(nil, "Survivor")
+    first = person(nil, "First")
+    second = person(nil, "Second")
     {:ok, team} = People.create_team(%{name: "Document team"})
     resource = %Zaq.Ingestion.Document{id: 42}
     {:ok, _} = Permissions.grant(resource, %{person_id: survivor.id, access_rights: ["manage"]})
@@ -337,8 +127,8 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "merging people retains separate manual and provider channel grants" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
     resource = ChannelHistoryResource.for("mattermost", 12, "room-A")
 
     {:ok, _} = Permissions.grant(resource, %{person_id: survivor.id, access_rights: ["read"]})
@@ -357,8 +147,8 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "grant validation failure prevents all writes to originals and merged channels" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
 
     {:ok, channel} =
       People.add_channel(%{
@@ -389,8 +179,8 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "revoke failure after a deletion restores exact originals and identity" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
     {:ok, first} = Permissions.grant(survivor, %{person_id: survivor.id, access_rights: ["read"]})
     {:ok, second} = Permissions.grant(loser, %{person_id: loser.id, access_rights: ["write"]})
     changeset = Ecto.Changeset.change(second) |> Ecto.Changeset.add_error(:base, "cannot revoke")
@@ -420,9 +210,9 @@ defmodule Zaq.Accounts.PersonMergeTest do
             reversed <- boolean(),
             max_runs: 12
           ) do
-      survivor = legacy(nil, "Explicit")
-      first = legacy(nil, "First") |> Ecto.Changeset.change(team_ids: teams) |> Repo.update!()
-      last = legacy(nil, "Last") |> Ecto.Changeset.change(team_ids: nil) |> Repo.update!()
+      survivor = person(nil, "Explicit")
+      {:ok, first} = People.create_person(%{full_name: "First", team_ids: teams})
+      last = person(nil, "Last")
       losers = if reversed, do: [last, first, first], else: [first, last, first]
       assert {:ok, merged} = People.merge_persons(survivor, losers)
       assert merged.full_name == "Explicit"
@@ -432,8 +222,8 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "admin gateway exposes merge history and old IDs return canonical identity" do
-    a = legacy("old@example.com", "Previous Name")
-    b = legacy("kept@example.com", "Selected Survivor")
+    a = person("old@example.com", "Previous Name")
+    b = person("kept@example.com", "Selected Survivor")
 
     assert {:ok, _} =
              PeopleGateway.dispatch(:merge, %{survivor_id: b.id, loser_id: a.id})
@@ -447,21 +237,24 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert {:ok, _, 0} = DateTime.from_iso8601(entry["merged_at"])
   end
 
-  test "group merge frees all three emails, retains identity history and resolves flat chains" do
-    a = legacy(" A@EXAMPLE.COM ", "First")
-    b = legacy("A@example.com", "Second")
-    c = legacy("a@example.com", "Third")
+  test "group merge retains distinct identities and history and resolves flat chains" do
+    a = person("first@example.com", "First")
+    b = person("second@example.com", "Second")
+    c = person("third@example.com", "Third")
 
     capture_writes()
     assert {:ok, survivor} = People.merge_persons(b, [c, a])
     assert_received {:merge_write, "UPDATE \"people\"" <> query, params}
     assert query =~ "merged_person_ids"
     assert query =~ "merge_history"
-    assert query =~ "email"
     assert List.last(params) == b.id
     refute_received {:merge_write, "UPDATE \"people\"" <> _, _}
     assert survivor.id == b.id
-    assert survivor.email == "a@example.com"
+    assert survivor.email == "second@example.com"
+
+    assert Enum.sort(Enum.map(survivor.channels, & &1.channel_identifier)) ==
+             ["first@example.com", "second@example.com", "third@example.com"]
+
     assert survivor.full_name == "Second"
     assert People.get_person(a.id).id == b.id
     assert People.get_person!(c.id).id == b.id
@@ -473,7 +266,7 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert People.search_people("First") == []
     assert Enum.map(People.list_incomplete(), & &1.id) == [b.id]
 
-    d = legacy("new@example.com", "Last")
+    d = person("new@example.com", "Last")
     assert {:ok, _} = People.merge_persons(d.id, b.id)
 
     for old <- [a, b, c] do
@@ -488,9 +281,9 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "hard deletion forgets new IDs but preserves inherited aliases and their history" do
-    a = legacy(nil, "A")
-    b = legacy(nil, "B")
-    c = legacy(nil, "C")
+    a = person(nil, "A")
+    b = person(nil, "B")
+    c = person(nil, "C")
     assert {:ok, _} = People.merge_persons(b, a)
     history = People.get_person!(b.id).merge_history
     assert {:ok, _} = People.merge_persons(c, [b], retain_redirect: false)
@@ -502,8 +295,8 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "invalid group and a nested failure roll back original profile and channels" do
-    a = legacy("a@example.com", "A")
-    b = legacy("b@example.com", "B")
+    a = person("a@example.com", "A")
+    b = person("b@example.com", "B")
     assert {:error, :not_found} = People.merge_persons(a, [b, -1])
     assert People.get_person(b.id).id == b.id
 
@@ -516,8 +309,8 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "bulk deletion accepts deduplicated current IDs from resolved people" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
     assert {:ok, _} = People.merge_persons(survivor, loser)
 
     assert {:ok, %{deleted_count: 1, failed_ids: []}} =
@@ -528,9 +321,9 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "ordinary channel updates preserve ownership and explicit activity after a merge" do
-    survivor = legacy(nil, "Current")
-    loser = legacy(nil, "Old")
-    other = legacy(nil, "Other")
+    survivor = person(nil, "Current")
+    loser = person(nil, "Old")
+    other = person(nil, "Other")
     assert {:ok, _} = People.merge_persons(survivor, loser)
     person = People.get_person(loser.id)
 
@@ -554,38 +347,9 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert updated.last_interaction_at == time
   end
 
-  test "final unique failure rolls back retired aliases, moved relationships and nested edits" do
-    survivor = legacy(" TAKEN@example.com ", "Survivor")
-    loser = legacy("loser@example.com", "Loser")
-    legacy("taken@example.com", "Outside group")
-
-    {:ok, channel} =
-      People.add_channel(%{
-        person_id: loser.id,
-        platform: "slack",
-        channel_identifier: "rollback"
-      })
-
-    capture_writes()
-
-    assert {:error, changeset} =
-             People.update_person_resource(survivor, %{phone: "new"}, [], %{
-               merge_with_person_id: loser.id
-             })
-
-    assert errors_on(changeset).email == ["has already been taken"]
-    assert_received {:merge_write, "UPDATE \"channels\"" <> _, _}
-    assert_received {:merge_write, "DELETE FROM \"people\"" <> _, [loser_id]}
-    assert loser_id == loser.id
-    assert Repo.get!(Person, loser.id).merged_person_ids == []
-    assert Repo.get!(Person, survivor.id).email == " TAKEN@example.com "
-    assert Repo.get!(Person, survivor.id).phone == nil
-    assert People.get_channel(channel.id).person_id == loser.id
-  end
-
   test "People resolves old IDs before permissions and ownership consume current identity" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
     resource = %Zaq.Engine.Workflows.Workflow{id: Ecto.UUID.generate()}
     {:ok, _} = Zaq.Permissions.grant(resource, %{person_id: loser.id, access_rights: ["run"]})
     assert {:ok, _} = People.merge_persons(survivor, loser)
@@ -608,9 +372,9 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "grants targeting person resources are retained and unioned, including team principals" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
-    viewer = legacy(nil, "Viewer")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
+    viewer = person(nil, "Viewer")
     {:ok, team} = People.create_team(%{name: "Viewers"})
     {:ok, _} = Zaq.Permissions.grant(survivor, %{person_id: viewer.id, access_rights: ["read"]})
 
@@ -656,9 +420,9 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "actor constructed from a retrieved Person uses current teams and survivor grants" do
-    old = legacy(nil, "Old actor")
-    current = legacy(nil, "Current actor")
-    target = legacy(nil, "Private target")
+    old = person(nil, "Old actor")
+    current = person(nil, "Current actor")
+    target = person(nil, "Private target")
     {:ok, team} = People.create_team(%{name: "Stale snapshot team"})
     {:ok, _} = Zaq.Permissions.grant(target, %{team_id: team.id, access_rights: ["read"]})
     assert {:ok, _} = People.merge_persons(current, old)
@@ -672,38 +436,17 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert result.resource == %{id: target.id}
   end
 
-  test "history uses name, then priority channel, then ID fallback; ordinary attrs cannot forge aliases" do
-    survivor = legacy(nil, "Kept")
-    nameless = legacy(nil, " ")
-    fallback = legacy(nil, "")
-
-    {:ok, lower_priority} =
-      People.add_channel(%{
-        person_id: nameless.id,
-        platform: "slack",
-        channel_identifier: "lower-priority-label"
-      })
-
-    {:ok, _} =
-      People.add_channel(%{
-        person_id: nameless.id,
-        platform: "slack",
-        channel_identifier: "primary-label"
-      })
-
-    {:ok, _} = People.update_channel(lower_priority, %{weight: 9})
-    assert {:ok, merged} = People.merge_persons(survivor, [nameless, fallback])
-
-    assert Enum.map(merged.merge_history, & &1["label"]) == [
-             "primary-label",
-             "Person ##{fallback.id}"
-           ]
-
-    next = legacy(nil, "Next")
+  test "ordinary attrs cannot forge aliases or rewrite inherited merge history" do
+    survivor = person(nil, "Kept")
+    first = person(nil, "First")
+    second = person(nil, "Second")
+    assert {:ok, merged} = People.merge_persons(survivor, [first, second])
+    assert Enum.map(merged.merge_history, & &1["label"]) == ["First", "Second"]
+    next = person(nil, "Next")
     history = merged.merge_history
     assert {:ok, merged_again} = People.merge_persons(next, survivor)
 
-    assert Enum.filter(merged_again.merge_history, &(&1["id"] in [nameless.id, fallback.id])) ==
+    assert Enum.filter(merged_again.merge_history, &(&1["id"] in [first.id, second.id])) ==
              history
 
     assert {:ok, updated} =
@@ -863,65 +606,31 @@ defmodule Zaq.Accounts.PersonMergeTest do
     end
   end
 
-  @tag :legacy_channels
-  test "duplicate channels retain survivor values, fill nested metadata and keep latest interaction" do
-    survivor =
-      Repo.insert!(%Person{
-        email: "CHANNEL@example.com",
-        full_name: " ",
-        metadata: %{"nested" => %{"keep" => false, "fill" => " "}}
-      })
-
-    loser =
-      Repo.insert!(%Person{
-        email: "channel@example.com",
-        full_name: "Filled name",
-        metadata: %{"nested" => %{"keep" => true, "fill" => "value"}}
-      })
-
-    first = channel(survivor.id, "shared", "Kept")
-    second = channel(loser.id, "shared", "Discarded")
-    sql("UPDATE channels SET last_interaction_at = '2026-01-01' WHERE id = $1", [first])
-
-    sql("UPDATE channels SET last_interaction_at = '2026-02-01', phone = '456' WHERE id = $1", [
-      second
-    ])
-
-    assert {:ok, merged} = People.merge_persons(survivor, loser)
-
-    assert sql("SELECT display_name, phone, last_interaction_at FROM channels WHERE id = $1", [
-             first
-           ]).rows ==
-             [["Kept", "456", ~N[2026-02-01 00:00:00]]]
-
-    assert merged.full_name == "Filled name"
-    assert merged.metadata == %{"nested" => %{"keep" => false, "fill" => "value"}}
-  end
-
-  @tag :legacy_channels
   test "multiway merge fills profile and preserves linked data with person-only notification correction" do
-    survivor =
-      Repo.insert!(%Person{
-        email: " ÄLİCE@EXAMPLE.COM ",
+    {:ok, survivor} =
+      People.create_person(%{
+        email: "survivor@example.com",
         full_name: "Survivor",
         status: "inactive",
         team_ids: [11],
-        metadata: %{"keep" => "yes"}
+        metadata: %{"keep" => "yes", "nested" => %{"keep" => false, "fill" => " "}}
       })
 
-    loser =
-      Repo.insert!(%Person{
-        email: "äli̇ce@example.com",
+    {:ok, loser} =
+      People.create_person(%{
+        email: "loser@example.com",
         full_name: "Loser",
         phone: "123",
         role: "Engineer",
         team_ids: [11, 22],
-        metadata: %{"extra" => "yes"}
+        metadata: %{"extra" => "yes", "nested" => %{"keep" => true, "fill" => "value"}}
       })
 
-    third = Repo.insert!(%Person{email: "ÄLİCE@EXAMPLE.COM", full_name: "Third", team_ids: [33]})
-    channel = channel(survivor.id, "shared", nil)
-    channel(loser.id, "shared", "Alice")
+    {:ok, third} =
+      People.create_person(%{email: "third@example.com", full_name: "Third", team_ids: [33]})
+
+    channel = channel(survivor.id, "survivor", "Survivor")
+    loser_channel = channel(loser.id, "loser", "Alice")
     unique_channel = channel(third.id, "unique", "Third")
 
     {:ok, conversation} =
@@ -936,21 +645,31 @@ defmodule Zaq.Accounts.PersonMergeTest do
     )
 
     assert {:ok, person} = People.merge_persons(survivor, [loser, third])
-    assert person.email == "äli̇ce@example.com"
+    assert person.email == "survivor@example.com"
     assert person.full_name == "Survivor"
     assert person.phone == "123"
     assert person.role == "Engineer"
     assert person.status == "inactive"
     refute person.incomplete
     assert person.team_ids == [11, 22, 33]
-    assert person.metadata == %{"keep" => "yes", "extra" => "yes"}
+
+    assert person.metadata == %{
+             "keep" => "yes",
+             "extra" => "yes",
+             "nested" => %{"keep" => false, "fill" => "value"}
+           }
+
     assert People.get_person(loser.id).id == survivor.id
     assert People.get_person(third.id).id == survivor.id
 
     assert sql(
              "SELECT id, person_id, display_name FROM channels WHERE platform = 'slack' ORDER BY id"
            ).rows ==
-             [[channel, survivor.id, "Alice"], [unique_channel, survivor.id, "Third"]]
+             [
+               [channel, survivor.id, "Survivor"],
+               [loser_channel, survivor.id, "Alice"],
+               [unique_channel, survivor.id, "Third"]
+             ]
 
     assert Repo.get!(conversation.__struct__, conversation.id).person_id == survivor.id
 
@@ -961,8 +680,8 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "unions routing scopes and keeps survivor policy on every partial unique index" do
-    survivor = legacy("ROUTING@example.com", "Survivor")
-    loser = legacy("routing@example.com", "Loser")
+    survivor = person("survivor@example.com", "Survivor")
+    loser = person("loser@example.com", "Loser")
 
     [[config]] =
       sql("""
@@ -1002,8 +721,8 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "workflow definitions, execution snapshots, cached results, jobs and approval audit stay immutable" do
-    survivor = legacy("USER@example.com", "Survivor").id
-    loser = legacy("user@example.com", "Loser").id
+    survivor = person("survivor@example.com", "Survivor").id
+    loser = person("loser@example.com", "Loser").id
     workflow_id = Ecto.UUID.bingenerate()
 
     nodes = [
@@ -1109,42 +828,9 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert updated_results == results
   end
 
-  for edit_target <- [:retained, :discarded] do
-    @tag :legacy_channels
-    test "resource merge #{edit_target} channel ID is never retargeted" do
-      survivor = legacy(nil, "Survivor")
-      loser = legacy(nil, "Loser")
-      kept = channel(survivor.id, "shared", "Kept")
-      discarded = channel(loser.id, "shared", "Discarded")
-      target = if unquote(edit_target) == :retained, do: kept, else: discarded
-
-      result =
-        People.update_person_resource(
-          loser,
-          %{full_name: "Explicit"},
-          [%{id: target, display_name: "Edited"}],
-          %{merge_with_person_id: survivor.id, merge_precedence: "other"}
-        )
-
-      if unquote(edit_target) == :retained do
-        assert {:ok, merged} = result
-        assert merged.id == survivor.id
-        assert merged.full_name == "Explicit"
-        assert People.get_channel(kept).display_name == "Edited"
-        assert People.get_channel(discarded) == nil
-      else
-        assert {:error, :channel_not_found} = result
-        assert People.get_person!(survivor.id) == survivor
-        assert People.get_person!(loser.id) == loser
-        assert People.get_channel(kept).display_name == "Kept"
-        assert People.get_channel(discarded).display_name == "Discarded"
-      end
-    end
-  end
-
   test "successful nested merge remains subject to caller rollback" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
 
     assert {:error, :caller_failure} =
              Repo.transaction(fn ->
@@ -1157,9 +843,118 @@ defmodule Zaq.Accounts.PersonMergeTest do
     assert People.get_person!(loser.id) == loser
   end
 
+  test "merge transfers a replicated transcript and private execution to the survivor" do
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
+    config = history_config()
+    captured = replicated_capture(config, loser, "owned-before-merge")
+    transcript = Repo.get!(Transcript, captured.transcript_id)
+    message = Repo.get!(Message, captured.message_id)
+
+    execution =
+      %ExecutionRecord{}
+      |> ExecutionRecord.changeset(%{
+        person_id: loser.id,
+        user_message_id: message.id,
+        status: "pending",
+        finalization_token_hash: capability("owned-before-merge")
+      })
+      |> Repo.insert!()
+
+    assert {:ok, merged} = People.merge_persons(survivor, loser)
+    transferred = Repo.get!(Transcript, transcript.id)
+    assert transferred.owner_person_id == merged.id
+    assert transferred.scope_key == transcript.scope_key
+    assert transferred.permission_resource_id == transcript.permission_resource_id
+    assert Repo.get!(ExecutionRecord, execution.id).person_id == merged.id
+    assert Repo.get!(TranscriptMessage, captured.position_id).message_id == message.id
+    assert {:ok, [_]} = Conversations.list_canonical_messages(merged, transcript.id)
+
+    assert {:ok, detail} = ChannelHistoryAdmin.dispatch(%{op: :detail, id: transcript.id})
+    assert detail.transcript.owner_person_id == merged.id
+    assert detail.transcript.owner.person_id == merged.id
+
+    next = replicated_capture(config, merged, "owned-after-merge")
+    assert next.transcript_id == transcript.id
+  end
+
+  test "merge retains overlapping replicas as separate permission resources" do
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
+    outsider = person(nil, "Outsider")
+    config = history_config()
+    shared_copy = replicated_capture(config, survivor, "shared-before-merge", [loser.id])
+    survivor_copy = replicated_capture(config, survivor, "survivor-only")
+    loser_copy = replicated_capture(config, loser, "loser-only")
+    loser_transcript = Repo.get!(Transcript, loser_copy.transcript_id)
+
+    assert {:ok, _} =
+             Permissions.grant(
+               {loser_transcript.permission_resource_type,
+                loser_transcript.permission_resource_id},
+               %{person_id: outsider.id, access_rights: ["read"]}
+             )
+
+    assert {:ok, merged} = People.merge_persons(survivor, loser)
+    assert Repo.get!(Transcript, survivor_copy.transcript_id).owner_person_id == merged.id
+    assert Repo.get!(Transcript, loser_copy.transcript_id).owner_person_id == merged.id
+
+    assert Repo.aggregate(
+             from(p in TranscriptMessage, where: p.message_id == ^shared_copy.message_id),
+             :count,
+             :id
+           ) == 2
+
+    assert {:ok, loser_history} =
+             Conversations.list_canonical_messages(outsider, loser_copy.transcript_id)
+
+    assert Enum.map(loser_history, & &1.message_id) == [
+             shared_copy.message_id,
+             loser_copy.message_id
+           ]
+
+    assert {:error, :unauthorized} =
+             Conversations.list_canonical_messages(outsider, survivor_copy.transcript_id)
+
+    next = replicated_capture(config, merged, "survivor-after-overlap")
+    assert next.transcript_id == survivor_copy.transcript_id
+
+    replay = replicated_capture(config, merged, "loser-only")
+    assert replay.message_id == loser_copy.message_id
+    assert Repo.aggregate(TranscriptMessage, :count, :id) == 5
+  end
+
+  test "caller rollback restores transcript and execution ownership" do
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
+    config = history_config()
+    captured = replicated_capture(config, loser, "rollback-owner")
+    message = Repo.get!(Message, captured.message_id)
+
+    execution =
+      %ExecutionRecord{}
+      |> ExecutionRecord.changeset(%{
+        person_id: loser.id,
+        user_message_id: message.id,
+        status: "pending",
+        finalization_token_hash: capability("rollback-owner")
+      })
+      |> Repo.insert!()
+
+    assert {:error, :caller_failure} =
+             Repo.transaction(fn ->
+               assert {:ok, _} = People.merge_persons(survivor, loser)
+               Repo.rollback(:caller_failure)
+             end)
+
+    assert Repo.get!(Transcript, captured.transcript_id).owner_person_id == loser.id
+    assert Repo.get!(ExecutionRecord, execution.id).person_id == loser.id
+    assert People.get_person!(loser.id).id == loser.id
+  end
+
   test "invalid final channel prevents relationship and person writes" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
 
     Repo.insert!(%PersonChannel{
       person_id: loser.id,
@@ -1175,8 +970,8 @@ defmodule Zaq.Accounts.PersonMergeTest do
   end
 
   test "invalid conversation prevents channel transfers and loser deletion" do
-    survivor = legacy(nil, "Survivor")
-    loser = legacy(nil, "Loser")
+    survivor = person(nil, "Survivor")
+    loser = person(nil, "Loser")
     channel(loser.id, "would-move", "Original")
 
     Repo.insert!(%Zaq.Engine.Conversations.Conversation{
@@ -1193,7 +988,7 @@ defmodule Zaq.Accounts.PersonMergeTest do
 
   test "invalid final profile prevents every satellite write" do
     survivor = Repo.insert!(%Person{full_name: "Survivor", status: "invalid"})
-    loser = legacy(nil, "Loser")
+    loser = person(nil, "Loser")
     channel(loser.id, "would-move", "Original")
     capture_writes()
     assert {:error, error} = People.merge_persons(survivor, loser)
@@ -1254,7 +1049,62 @@ defmodule Zaq.Accounts.PersonMergeTest do
 
   defp sql(statement, params \\ []), do: Repo.query!(statement, params, log: false)
 
-  defp legacy(email, name) do
-    %Person{email: email, full_name: name} |> Repo.insert!()
+  defp history_config do
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(%{
+      name: "Merge history #{System.unique_integer([:positive])}",
+      provider: "mattermost",
+      kind: "retrieval",
+      url: "https://example.invalid",
+      token: "fixture-token"
+    })
+    |> Repo.insert!()
+  end
+
+  defp replicated_capture(config, person, external_id, recipient_ids \\ []) do
+    {:ok, facts} =
+      Facts.for_capture(%{
+        provider: config.provider,
+        channel_config_id: config.id,
+        channel_id: "merge-room",
+        conversation_id: "merge-conversation",
+        kind: :replicated,
+        actor_person_id: person.id,
+        recipient_person_ids: recipient_ids,
+        thread_id: nil
+      })
+
+    {:ok, captured} =
+      Conversations.capture_canonical_message(
+        facts,
+        %{
+          role: "external",
+          content: "message #{external_id}",
+          external_message_id: external_id,
+          author_id: "external-author",
+          author_name: person.full_name
+        },
+        %{
+          provider: config.provider,
+          channel_config_id: config.id,
+          provenance: "channel_adapter",
+          source_scope: "merge-mailbox"
+        }
+      )
+
+    position =
+      Repo.get_by!(TranscriptMessage,
+        transcript_id: captured.transcript_id,
+        message_id: captured.message_id
+      )
+
+    Map.put(captured, :position_id, position.id)
+  end
+
+  defp capability(seed), do: seed |> then(&:crypto.hash(:sha256, &1)) |> Base.encode64()
+
+  defp person(email, name) do
+    {:ok, person} = People.create_person(%{email: email, full_name: name})
+    person
   end
 end

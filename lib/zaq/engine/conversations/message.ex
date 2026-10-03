@@ -29,6 +29,7 @@ defmodule Zaq.Engine.Conversations.Message do
     field :sources, {:array, :map}, default: []
     field :latency_ms, :integer
     field :metadata, :map, default: %{}
+    field :history_context, :map, default: %{}
     field :trace, {:array, :map}, default: []
     field :source_provider, :string
     field :source_account_key, :string
@@ -48,6 +49,10 @@ defmodule Zaq.Engine.Conversations.Message do
 
   @valid_roles ~w[user assistant]
 
+  @doc "Updates private confirmation/recovery metadata without changing canonical content."
+  def confirmation_changeset(message, metadata),
+    do: cast(message, %{metadata: metadata}, [:metadata])
+
   @doc "Changeset for inserting a new message."
   def changeset(message, attrs) do
     message
@@ -55,6 +60,7 @@ defmodule Zaq.Engine.Conversations.Message do
       :conversation_id,
       :role,
       :content,
+      :author_id,
       :model,
       :prompt_tokens,
       :completion_tokens,
@@ -83,6 +89,7 @@ defmodule Zaq.Engine.Conversations.Message do
       :author_id,
       :author_name,
       :provider_sent_at,
+      :history_context,
       :attachments
     ])
     |> validate_required([:role])

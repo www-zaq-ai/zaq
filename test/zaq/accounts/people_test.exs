@@ -7,19 +7,6 @@ defmodule Zaq.Accounts.PeopleTest do
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Repo
 
-  setup context do
-    if context[:legacy_channels] do
-      # Legacy merge fixtures run under transactional DDL, never shared schema changes.
-      Repo.query!("DROP INDEX IF EXISTS channels_platform_channel_identifier_index")
-
-      Repo.query!(
-        "CREATE UNIQUE INDEX IF NOT EXISTS channels_person_id_platform_channel_identifier_index ON channels (person_id, platform, channel_identifier)"
-      )
-    end
-
-    :ok
-  end
-
   describe "canonical channel identity" do
     test "both changesets normalize email with the effective platform, including platform-only updates" do
       person = create_person(%{email: nil})
@@ -1033,55 +1020,6 @@ defmodule Zaq.Accounts.PeopleTest do
 
       assert {:ok, updated} = People.merge_persons(survivor, loser)
       assert updated.email == "hazemail@example.com"
-    end
-
-    @tag :legacy_channels
-    test "keeps survivor channel when both people have the same platform identifier" do
-      survivor = create_person(%{full_name: "Channel Surv", email: "channel-surv@example.com"})
-      loser = create_person(%{full_name: "Channel Loser", email: "channel-loser@example.com"})
-
-      survivor_channel =
-        add_channel(survivor.id, %{"platform" => "telegram", "channel_identifier" => "@same"})
-
-      loser_channel =
-        add_channel(loser.id, %{"platform" => "telegram", "channel_identifier" => "@same"})
-
-      survivor = People.get_person_with_channels!(survivor.id)
-      loser = People.get_person_with_channels!(loser.id)
-
-      assert {:ok, updated} = People.merge_persons(survivor, loser)
-
-      duplicate_channels =
-        Enum.filter(
-          updated.channels,
-          &(&1.platform == "telegram" and &1.channel_identifier == "@same")
-        )
-
-      assert Enum.map(duplicate_channels, & &1.id) == [survivor_channel.id]
-      refute Enum.any?(updated.channels, &(&1.id == loser_channel.id))
-    end
-
-    @tag :legacy_channels
-    test "deletes loser duplicate channel rows when survivor already has same identifier" do
-      survivor =
-        create_person(%{full_name: "Delete Channel Surv", email: "delete-surv@example.com"})
-
-      loser =
-        create_person(%{full_name: "Delete Channel Loser", email: "delete-loser@example.com"})
-
-      survivor_channel =
-        add_channel(survivor.id, %{"platform" => "telegram", "channel_identifier" => "@same"})
-
-      loser_channel =
-        add_channel(loser.id, %{"platform" => "telegram", "channel_identifier" => "@same"})
-
-      survivor = People.get_person_with_channels!(survivor.id)
-      loser = People.get_person_with_channels!(loser.id)
-
-      assert {:ok, _updated} = People.merge_persons(survivor, loser)
-
-      assert Repo.get(PersonChannel, survivor_channel.id)
-      assert Repo.get(PersonChannel, loser_channel.id) == nil
     end
   end
 

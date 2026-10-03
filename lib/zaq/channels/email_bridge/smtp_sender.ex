@@ -12,7 +12,9 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
   import Zaq.Helpers, only: [blank?: 1]
 
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.EmailBridge.SelfAddresses
   alias Zaq.Channels.EmailBridge.TlsHelpers
+  alias Zaq.Engine.Messages.ReplyTargets
   alias Zaq.Mailer
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.HtmlUtils
@@ -20,7 +22,18 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
   alias Zaq.Channels.SmtpHelpers
   alias Zaq.Utils.ParseUtils
 
+  @doc "Sends a notification without exposing its delivery receipt to legacy callers."
   def send_notification(identifier, payload, metadata) do
+    case send_notification_with_receipt(identifier, payload, metadata) do
+      {:ok, _receipt} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc "Returns actual sender and SMTP envelope recipients only after the mailer accepts delivery."
+  @spec send_notification_with_receipt(String.t(), map(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def send_notification_with_receipt(identifier, payload, metadata) do
     case ChannelConfig.resolve_notification_smtp() do
       {:error, :ambiguous_connector} ->
         {:error, :ambiguous_connector}
@@ -38,6 +51,16 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
 
   @doc "Delivers through the exact enabled SMTP connector selected for an IMAP inbox."
   def send_notification(identifier, payload, metadata, config_id) do
+    case send_notification_with_receipt(identifier, payload, metadata, config_id) do
+      {:ok, _receipt} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc "Returns a receipt from the exact enabled SMTP connector selected for an IMAP inbox."
+  @spec send_notification_with_receipt(String.t(), map(), map(), pos_integer()) ::
+          {:ok, map()} | {:error, term()}
+  def send_notification_with_receipt(identifier, payload, metadata, config_id) do
     case ChannelConfig.resolve_by_provider("email:smtp", config_id) do
       {:ok, %ChannelConfig{settings: settings}} ->
         deliver_notification(identifier, payload, metadata, settings || %{})
@@ -58,16 +81,48 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
 
     email =
       new()
-      |> to(identifier)
+      |> apply_recipients(identifier, payload, [from_email, map_get(settings, "from_email")])
       |> from({from_name, from_email})
       |> subject(subject)
       |> text_body(text)
       |> html_body(html)
       |> apply_custom_headers(payload, metadata)
 
-    case Mailer.deliver(email, delivery_opts) do
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+    result =
+      if email.to == [] and email.cc == [],
+        do: {:error, :no_reply_recipients},
+        else: Mailer.deliver(email, delivery_opts)
+
+    case result do
+      {:ok, _} ->
+        {:ok,
+         %{
+           sender_address: elem(email.from, 1),
+           recipient_addresses:
+             Enum.map(email.to ++ email.cc ++ email.bcc, fn {_, address} -> address end)
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp apply_recipients(email, identifier, payload, own_addresses) do
+    case Map.get(payload, "reply_targets") do
+      nil ->
+        to(email, identifier)
+
+      targets ->
+        case ReplyTargets.normalize(targets) do
+          %ReplyTargets{to: primary, cc: copied} ->
+            primary = SelfAddresses.exclude(primary, own_addresses)
+            copied = SelfAddresses.exclude(copied, own_addresses ++ primary)
+
+            email |> to(primary) |> cc(copied)
+
+          _ ->
+            email
+        end
     end
   end
 

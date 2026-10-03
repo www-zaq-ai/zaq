@@ -21,8 +21,10 @@ defmodule Zaq.Channels.EmailBridge do
 
   alias Zaq.Channels.{Bridge, ChannelConfig}
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
+  alias Zaq.Channels.EmailBridge.SelfAddresses
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Utils.EmailUtils
 
@@ -31,8 +33,9 @@ defmodule Zaq.Channels.EmailBridge do
   @impl true
   def to_internal(params, connection_details)
       when is_map(params) and is_map(connection_details) do
-    with {:ok, adapter} <- resolve_adapter(connection_details) do
-      adapter.to_internal(params, connection_details)
+    with {:ok, adapter} <- resolve_adapter(connection_details),
+         %Incoming{} = incoming <- adapter.to_internal(params, connection_details) do
+      SelfAddresses.filter_incoming(incoming, smtp_self_addresses(incoming))
     end
   end
 
@@ -223,7 +226,7 @@ defmodule Zaq.Channels.EmailBridge do
     format = get_meta(outgoing.metadata, "format", :format)
 
     threading = resolve_threading(outgoing, smtp_config_id)
-    headers = threading_headers(threading)
+    headers = automatic_reply_headers(threading_headers(threading), inbound_reply?)
 
     payload =
       %{
@@ -231,25 +234,79 @@ defmodule Zaq.Channels.EmailBridge do
         "body" => outgoing.body,
         "html_body" => html_body,
         "format" => format,
+        "reply_targets" => Map.get(outgoing.routing_context || %{}, :reply_targets),
         "headers" => headers
       }
       |> maybe_put("from_email", from_email)
       |> maybe_put("from_name", from_name)
 
     case deliver_email_reply(outgoing, payload, smtp_config_id) do
-      :ok -> {:ok, delivery_receipt(threading)}
-      error -> error
+      :ok ->
+        {:ok, delivery_receipt(threading)}
+
+      {:ok, %{sender_address: sender, recipient_addresses: recipients}}
+      when is_binary(sender) and is_list(recipients) ->
+        receipt =
+          delivery_receipt(threading)
+          |> Map.put(:confirmation, :confirmed)
+          |> Map.put(:history_source_scope, "smtp:confirmed")
+          |> Map.put(
+            :history_conversation_id,
+            history_conversation_id(outgoing, threading)
+          )
+          |> Map.put(:history_audience, %Zaq.Engine.Messages.Incoming.Audience{
+            platform: "email",
+            sender: sender,
+            recipients: recipients
+          })
+
+        {:ok, receipt}
+
+      error ->
+        error
     end
   end
 
   defp deliver_email_reply(%Outgoing{} = outgoing, payload, smtp_config_id) do
-    case smtp_config_id do
-      nil -> smtp_sender_module().send_notification(outgoing.channel_id, payload, %{})
-      id -> smtp_sender_module().send_notification(outgoing.channel_id, payload, %{}, id)
+    sender = smtp_sender_module()
+    Code.ensure_loaded!(sender)
+    arity = if is_nil(smtp_config_id), do: 3, else: 4
+
+    cond do
+      function_exported?(sender, :send_notification_with_receipt, arity) and
+          is_nil(smtp_config_id) ->
+        sender.send_notification_with_receipt(outgoing.channel_id, payload, %{})
+
+      function_exported?(sender, :send_notification_with_receipt, arity) ->
+        sender.send_notification_with_receipt(outgoing.channel_id, payload, %{}, smtp_config_id)
+
+      is_nil(smtp_config_id) ->
+        sender.send_notification(outgoing.channel_id, payload, %{})
+
+      true ->
+        sender.send_notification(outgoing.channel_id, payload, %{}, smtp_config_id)
     end
   end
 
-  defp reply_smtp_config_id(%Outgoing{routing_context: %{channel_config_id: id}})
+  defp history_conversation_id(outgoing, threading) do
+    Map.get(outgoing.routing_context || %{}, :conversation_id) ||
+      List.first(threading.references) || threading.in_reply_to || threading.message_id
+  end
+
+  defp smtp_self_addresses(%Incoming{routing_context: %{channel_config_id: id}} = incoming)
+       when is_integer(id) and id > 0 do
+    with {:ok, id} <- reply_smtp_config_id(incoming),
+         {:ok, %ChannelConfig{settings: settings}} <-
+           ChannelConfig.resolve_by_provider("email:smtp", id) do
+      [Map.get(settings || %{}, "from_email")]
+    else
+      _ -> []
+    end
+  end
+
+  defp smtp_self_addresses(_incoming), do: []
+
+  defp reply_smtp_config_id(%{routing_context: %{channel_config_id: id}})
        when is_integer(id) and id > 0 do
     case ChannelConfig.get(id) do
       %ChannelConfig{provider: "email:imap", enabled: true, archived_at: nil, settings: settings} ->
@@ -263,7 +320,7 @@ defmodule Zaq.Channels.EmailBridge do
     end
   end
 
-  defp reply_smtp_config_id(%Outgoing{routing_context: %{channel_config_id: id}})
+  defp reply_smtp_config_id(%{routing_context: %{channel_config_id: id}})
        when not is_nil(id), do: {:error, :connector_mismatch}
 
   defp reply_smtp_config_id(_outgoing), do: {:ok, nil}
@@ -298,11 +355,50 @@ defmodule Zaq.Channels.EmailBridge do
   # ---------------------------------------------------------------------------
 
   defp route_and_maybe_deliver_incoming(%Incoming{} = incoming, config, connection) do
+    with {:ok, echo?} <- confirmed_echo?(incoming, config) do
+      cond do
+        echo? ->
+          :ok
+
+        get_in(incoming.metadata, ["email", "automatic_reply"]) == true ->
+          capture_passive_history(incoming,
+            channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
+            history_kind: email_history_kind(config, incoming),
+            node_router: node_router_module()
+          )
+
+        true ->
+          route_email(incoming, config, connection)
+      end
+    end
+  end
+
+  defp confirmed_echo?(%Incoming{message_id: id} = incoming, config)
+       when is_binary(id) and id != "" do
+    reference = %{
+      provider: to_string(incoming.provider),
+      channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
+      source_scope: "smtp:confirmed",
+      message_id: EmailUtils.normalize_message_id(id)
+    }
+
+    event = Event.new(reference, :engine, opts: [action: :confirmed_history_delivery])
+
+    case node_router_module().dispatch(event) do
+      %Event{response: {:ok, confirmed?}} when is_boolean(confirmed?) -> {:ok, confirmed?}
+      _ -> {:error, :history_confirmation_unavailable}
+    end
+  end
+
+  defp confirmed_echo?(_, _), do: {:ok, false}
+
+  defp route_email(incoming, config, connection) do
     case route_incoming_message(
            incoming,
            [],
            actor_from_incoming(incoming),
            channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
+           history_kind: email_history_kind(config, incoming),
            topic_id: connection[:mailbox],
            pipeline_module: pipeline_module(),
            node_router: node_router_module()
@@ -313,6 +409,18 @@ defmodule Zaq.Channels.EmailBridge do
       other -> {:error, other}
     end
   end
+
+  defp automatic_reply_headers(headers, true),
+    do: Map.put(headers, "Auto-Submitted", "auto-replied")
+
+  defp automatic_reply_headers(headers, false), do: headers
+
+  defp email_history_kind(config, %Incoming{provider: provider})
+       when provider in [:"email:imap", "email:imap"] do
+    if config_provider(config) in [:"email:imap", "email:imap"], do: :replicated
+  end
+
+  defp email_history_kind(_config, _incoming), do: nil
 
   # The inbound-reply runtime path has no use for the delivery receipt — collapse
   # it so `handle_from_listener` keeps matching on `:ok`.

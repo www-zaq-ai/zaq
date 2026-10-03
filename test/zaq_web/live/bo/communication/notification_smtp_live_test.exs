@@ -45,6 +45,43 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assert has_element?(view, "button[phx-click='activate']", "Activate")
   end
 
+  test "Add Config creates and selects a distinct named SMTP connector", %{conn: conn} do
+    original =
+      insert_smtp_channel(%{
+        name: "Original",
+        enabled: true,
+        settings: %{"relay" => "original.example.com"}
+      })
+
+    original = Repo.get!(ChannelConfig, original.id)
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+    view |> element("#new-smtp-config") |> render_click()
+    refute has_element?(view, "input[name='email_config[relay]'][value='original.example.com']")
+
+    view
+    |> element("#smtp-config-form")
+    |> render_submit(%{
+      "email_config" => %{
+        "connector_name" => "Second SMTP",
+        "relay" => "second.example.com",
+        "from_email" => "second@example.com",
+        "port" => "587"
+      }
+    })
+
+    assert has_element?(view, "#save-status-ok")
+    second = Repo.get_by!(ChannelConfig, name: "Second SMTP")
+    assert second.id != original.id
+    assert Repo.get!(ChannelConfig, original.id) == original
+
+    view
+    |> element("#smtp-config-form")
+    |> render_submit(%{"email_config" => %{"relay" => "edited.example.com"}})
+
+    assert Repo.get!(ChannelConfig, second.id).settings["relay"] == "edited.example.com"
+    assert length(ChannelConfig.list_by_provider("email:smtp")) == 2
+  end
+
   test "loads existing smtp config values", %{conn: conn} do
     insert_smtp_channel(%{
       enabled: true,

@@ -62,6 +62,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
     end
   end
 
+  def handle_event("new_connector", _params, socket) do
+    socket = assign(socket, :selected_config_id, :new)
+    changeset = EmailConfig.changeset(current_email_config(socket), %{})
+
+    {:noreply,
+     socket
+     |> assign(:form, to_form(changeset))
+     |> assign(:email_enabled, false)
+     |> assign(:smtp_warnings, smtp_warnings(changeset))
+     |> assign(:save_status, :idle)
+     |> assign(:test_status, :idle)}
+  end
+
   @impl true
   def handle_event("set_default_connector", %{"id" => id}, socket) do
     with {config_id, ""} <- Integer.parse(id),
@@ -102,8 +115,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
            selected_channel(socket),
            socket.assigns.selected_config_id
          ) do
-      {:ok, _} ->
-        socket = ConnectorSelection.refresh(socket, @smtp_provider)
+      {:ok, saved} ->
+        socket =
+          socket
+          |> assign(:selected_config_id, saved.id)
+          |> ConnectorSelection.refresh(@smtp_provider)
+
         fresh_config = current_email_config(socket)
         fresh_changeset = EmailConfig.changeset(fresh_config, %{})
 
@@ -155,8 +172,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
            selected_channel(socket),
            socket.assigns.selected_config_id
          ) do
-      {:ok, _} ->
-        socket = ConnectorSelection.refresh(socket, @smtp_provider)
+      {:ok, saved} ->
+        socket =
+          socket
+          |> assign(:selected_config_id, saved.id)
+          |> ConnectorSelection.refresh(@smtp_provider)
+
         fresh_config = current_email_config(socket)
         fresh_changeset = EmailConfig.changeset(fresh_config, %{})
 
@@ -383,7 +404,12 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
     with {:ok, encrypted_password} <- encrypt_password_value(config.password) do
       attrs = %{
-        name: if(channel, do: channel.name, else: "Email SMTP"),
+        name:
+          Map.get(
+            changeset.params || %{},
+            "connector_name",
+            (channel && channel.name) || "Email SMTP"
+          ),
         kind: "retrieval",
         url: "smtp://configured-in-settings",
         token: "__smtp_unused__",
@@ -404,10 +430,10 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLive do
 
       case channel do
         %ChannelConfig{} = selected ->
-          selected |> ChannelConfig.changeset(attrs) |> Repo.update()
+          selected |> ChannelConfig.changeset(attrs) |> Repo.insert_or_update()
 
         nil ->
-          ChannelConfig.upsert_by_provider(@smtp_provider, attrs)
+          {:error, :connector_mismatch}
       end
     end
   end

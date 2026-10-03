@@ -72,7 +72,7 @@ defmodule ZaqWeb.PeopleBrowserTest do
         }
 
         {:ok, _} =
-          Conversations.persist_from_incoming(incoming, %{
+          Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, %{
             answer: "Browser history answer",
             trace: [
               %{

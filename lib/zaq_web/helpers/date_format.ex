@@ -72,7 +72,7 @@ defmodule ZaqWeb.Helpers.DateFormat do
   def inject_date_separators(messages, key \\ :timestamp) do
     {result, _} =
       Enum.reduce(messages, {[], nil}, fn msg, {acc, last_date} ->
-        date = msg |> Map.get(key) |> to_date()
+        date = msg |> Map.get(key) |> to_local_date()
 
         if date && date != last_date do
           {[msg, %{type: :date_separator, date: date} | acc], date}
@@ -122,4 +122,11 @@ defmodule ZaqWeb.Helpers.DateFormat do
   defp to_date(%DateTime{} = dt), do: DateTime.to_date(dt)
   defp to_date(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_date(ndt)
   defp to_date(_), do: nil
+
+  defp to_local_date(%DateTime{} = timestamp) do
+    shifted = Timezone.shift(timestamp)
+    Date.new!(shifted.year, shifted.month, shifted.day)
+  end
+
+  defp to_local_date(timestamp), do: to_date(timestamp)
 end

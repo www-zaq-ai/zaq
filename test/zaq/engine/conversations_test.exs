@@ -17,10 +17,10 @@ defmodule Zaq.Engine.ConversationsTest do
   # Production stamps conversation identity on the channels node before the
   # envelope reaches the engine — mirror that here so grouping assertions
   # exercise the real combined path.
-  defp persist_from_incoming(incoming, result) do
+  defp complete_exchange(incoming, result) do
     incoming
     |> CommunicationBridge.put_conversation_identity()
-    |> Conversations.persist_from_incoming(result)
+    |> Zaq.ConversationLifecycleFixtures.complete_exchange(result)
   end
 
   defp persist_message_history(incoming, attrs) do
@@ -361,7 +361,7 @@ defmodule Zaq.Engine.ConversationsTest do
     end
   end
 
-  describe "finalize_incoming/2" do
+  describe "finalize_incoming/3" do
     test "completes the admitted input and persists one assistant response idempotently" do
       incoming =
         Incoming.new(%{
@@ -392,6 +392,12 @@ defmodule Zaq.Engine.ConversationsTest do
 
       assert finalized == duplicate
 
+      assert {:ok, replay} = admit_incoming(incoming)
+      refute replay.admitted?
+      assert replay.finalization_token == nil
+      assert replay.user_message_id == binding.user_message_id
+      assert replay.conversation_id == binding.conversation_id
+
       input = Repo.get!(Message, binding.user_message_id)
       assert input.metadata["execution_status"] == "completed"
 
@@ -399,6 +405,7 @@ defmodule Zaq.Engine.ConversationsTest do
       assert [persisted_input, assistant] = Conversations.list_messages(conversation)
       assert persisted_input.id == input.id
       assert assistant.role == "assistant"
+      assert assistant.id == finalized.assistant_message_id
       assert assistant.content == "Answer"
       assert assistant.metadata["in_reply_to_message_id"] == input.id
     end
@@ -462,7 +469,7 @@ defmodule Zaq.Engine.ConversationsTest do
     end
   end
 
-  describe "persist_from_incoming/2" do
+  describe "admitted exchange finalization" do
     test "accepts nil trace artifacts and falls back from an invalid configured byte limit" do
       {:ok, conversation} =
         Conversations.create_conversation(%{
@@ -490,7 +497,7 @@ defmodule Zaq.Engine.ConversationsTest do
       end)
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_from_incoming(incoming, %{
+               Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, %{
                  answer: "All clear.",
                  trace_artifacts: nil
                })
@@ -500,7 +507,7 @@ defmodule Zaq.Engine.ConversationsTest do
       assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
     end
 
-    test "rejects a non-map trace artifact before persistence" do
+    test "rejects a non-map trace artifact while preserving the admitted prompt" do
       {:ok, conversation} = Conversations.create_conversation(conv_attrs())
 
       incoming = %Zaq.Engine.Messages.Incoming{
@@ -512,16 +519,18 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:error, :invalid_trace_artifact} =
-               Conversations.persist_from_incoming(incoming, %{
+               Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, %{
                  answer: "Nope",
                  trace_artifacts: [nil]
                })
 
-      assert Conversations.list_messages(conversation) == []
+      assert [%{role: "user", metadata: %{"execution_status" => "pending"}}] =
+               Conversations.list_messages(conversation)
+
       assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
     end
 
-    test "rejects non-list trace artifacts without persistence" do
+    test "rejects non-list trace artifacts while preserving the admitted prompt" do
       {:ok, conversation} = Conversations.create_conversation(conv_attrs())
 
       incoming = %Zaq.Engine.Messages.Incoming{
@@ -533,16 +542,18 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:error, :invalid_trace_artifact} =
-               Conversations.persist_from_incoming(incoming, %{
+               Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, %{
                  answer: "Nope",
                  trace_artifacts: %{}
                })
 
-      assert Conversations.list_messages(conversation) == []
+      assert [%{role: "user", metadata: %{"execution_status" => "pending"}}] =
+               Conversations.list_messages(conversation)
+
       assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
     end
 
-    test "returns the artifact changeset and rolls back the exchange when artifact insert fails" do
+    test "returns the artifact changeset and rolls back finalization when artifact insert fails" do
       {:ok, conversation} = Conversations.create_conversation(conv_attrs())
 
       incoming = %Zaq.Engine.Messages.Incoming{
@@ -563,13 +574,16 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:error, changeset} =
-               Conversations.persist_from_incoming(incoming, %{
+               Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, %{
                  answer: "Failed",
                  trace_artifacts: [artifact]
                })
 
       assert %{record: _} = errors_on(changeset)
-      assert Conversations.list_messages(conversation) == []
+
+      assert [%{role: "user", metadata: %{"execution_status" => "pending"}}] =
+               Conversations.list_messages(conversation)
+
       assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
     end
 
@@ -598,7 +612,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id, assistant_message_id: assistant_id}} =
-               persist_from_incoming(incoming, result)
+               complete_exchange(incoming, result)
 
       assistant = Zaq.Repo.get!(Zaq.Engine.Conversations.Message, assistant_id)
       artifact = Zaq.Repo.one!(Zaq.Engine.Conversations.MessageTraceArtifact)
@@ -615,7 +629,7 @@ defmodule Zaq.Engine.ConversationsTest do
       assert Conversations.get_conversation!(conversation_id)
     end
 
-    test "rolls back both messages when an accessed artifact exceeds the configured limit" do
+    test "preserves the admitted prompt when an accessed artifact exceeds the configured limit" do
       {:ok, conversation} =
         Conversations.create_conversation(%{
           channel_type: "mattermost",
@@ -646,9 +660,13 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:error, :trace_artifact_too_large} =
-               Conversations.persist_from_incoming(incoming, result, artifact_max_bytes: 3)
+               Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, result,
+                 artifact_max_bytes: 3
+               )
 
-      assert Conversations.list_messages(conversation) == []
+      assert [%{role: "user", metadata: %{"execution_status" => "pending"}}] =
+               Conversations.list_messages(conversation)
+
       assert Zaq.Repo.aggregate(Zaq.Engine.Conversations.MessageTraceArtifact, :count) == 0
     end
 
@@ -679,7 +697,7 @@ defmodule Zaq.Engine.ConversationsTest do
       existing_id = existing.id
 
       assert {:ok, %{conversation_id: ^existing_id}} =
-               Conversations.persist_from_incoming(incoming, result)
+               Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, result)
 
       messages = Conversations.list_messages(existing)
 
@@ -710,7 +728,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               persist_from_incoming(incoming, result)
+               complete_exchange(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_type == "api"
@@ -750,10 +768,10 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
-               persist_from_incoming(first, result)
+               complete_exchange(first, result)
 
       assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
-               persist_from_incoming(second, result)
+               complete_exchange(second, result)
 
       [conv] = Conversations.list_conversations(channel_type: "email:imap")
       assert conv.channel_user_id == thread_key
@@ -762,8 +780,11 @@ defmodule Zaq.Engine.ConversationsTest do
       assert Enum.count(messages, &(&1.role == "user")) == 2
       assert Enum.count(messages, &(&1.role == "assistant")) == 2
 
-      assistant_message = Enum.find(messages, &(&1.role == "assistant"))
-      assert assistant_message.metadata == %{}
+      assert MapSet.new(
+               for %{role: "assistant", metadata: metadata} <- messages,
+                   do: metadata["in_reply_to_message_id"]
+             ) ==
+               MapSet.new(for %{role: "user", id: id} <- messages, do: id)
     end
 
     test "uses normalized thread_id when email metadata is invalid" do
@@ -786,7 +807,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               persist_from_incoming(incoming, result)
+               complete_exchange(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_type == "email:imap"
@@ -813,7 +834,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               persist_from_incoming(incoming, result)
+               complete_exchange(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_user_id == "msg@example.com"
@@ -838,7 +859,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               persist_from_incoming(incoming, result)
+               complete_exchange(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_user_id == "author-fallback@example.com"
@@ -865,7 +886,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               persist_from_incoming(incoming, result)
+               complete_exchange(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_user_id == thread_key
@@ -890,7 +911,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               persist_from_incoming(incoming, result)
+               complete_exchange(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_user_id == "author-atom-fallback@example.com"
@@ -924,7 +945,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
-               persist_from_incoming(incoming, result)
+               complete_exchange(incoming, result)
 
       [conv] = Conversations.list_conversations(channel_user_id: "user-1")
       messages = Conversations.list_messages(conv)
@@ -971,7 +992,7 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: _, assistant_message_id: _}} =
-               persist_from_incoming(incoming, result)
+               complete_exchange(incoming, result)
 
       [conv] = Conversations.list_conversations(channel_user_id: "user-trace")
       messages = Conversations.list_messages(conv)
@@ -1027,7 +1048,7 @@ defmodule Zaq.Engine.ConversationsTest do
         total_tokens: 3
       }
 
-      assert {:ok, %{conversation_id: conversation_id}} = persist_from_incoming(incoming, result)
+      assert {:ok, %{conversation_id: conversation_id}} = complete_exchange(incoming, result)
 
       conversation = Conversations.get_conversation!(conversation_id)
       user_message = Enum.find(Conversations.list_messages(conversation), &(&1.role == "user"))
@@ -1079,9 +1100,9 @@ defmodule Zaq.Engine.ConversationsTest do
         metadata: nil
       }
 
-      assert {:ok, _} = persist_from_incoming(with_thread_id, result)
-      assert {:ok, _} = persist_from_incoming(with_message_id, result)
-      assert {:ok, _} = persist_from_incoming(with_author, result)
+      assert {:ok, _} = complete_exchange(with_thread_id, result)
+      assert {:ok, _} = complete_exchange(with_message_id, result)
+      assert {:ok, _} = complete_exchange(with_author, result)
 
       ids =
         Conversations.list_conversations(channel_type: "email:imap")
@@ -1117,8 +1138,8 @@ defmodule Zaq.Engine.ConversationsTest do
         provider: 123
       }
 
-      assert {:ok, _} = persist_from_incoming(email, result)
-      assert {:ok, _} = persist_from_incoming(api, result)
+      assert {:ok, _} = complete_exchange(email, result)
+      assert {:ok, _} = complete_exchange(api, result)
 
       [email_conv] = Conversations.list_conversations(channel_user_id: "atom-thread")
       [api_conv] = Conversations.list_conversations(channel_user_id: "api-user")
@@ -1156,7 +1177,9 @@ defmodule Zaq.Engine.ConversationsTest do
       }
 
       assert {:ok, %{conversation_id: conversation_id}} =
-               Conversations.persist_from_incoming(incoming, %{answer: "API reply"})
+               Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, %{
+                 answer: "API reply"
+               })
 
       conversation = Conversations.get_conversation!(conversation_id)
       assert conversation.channel_type == "api"
@@ -1177,7 +1200,8 @@ defmodule Zaq.Engine.ConversationsTest do
             "channel_config_id" => config_one.id,
             "channel_id" => "town-square",
             "thread_id" => "root-1",
-            "participant_id" => "user-1"
+            "participant_id" => "user-1",
+            "scoped" => true
           },
           overrides
         )
@@ -1255,7 +1279,8 @@ defmodule Zaq.Engine.ConversationsTest do
             "channel_config_id" => nil,
             "channel_id" => "room-1",
             "thread_id" => nil,
-            "participant_id" => "legacy-user"
+            "participant_id" => "legacy-user",
+            "scoped" => true
           }
         }
       }
@@ -1292,7 +1317,8 @@ defmodule Zaq.Engine.ConversationsTest do
             "channel_config_id" => config.id,
             "channel_id" => "room-2",
             "thread_id" => "root-1",
-            "participant_id" => "user-1"
+            "participant_id" => "user-1",
+            "scoped" => true
           }
         }
       }
@@ -1527,7 +1553,7 @@ defmodule Zaq.Engine.ConversationsTest do
     }
 
     assert {:ok, %{conversation_id: conv_id}} =
-             Conversations.persist_from_incoming(incoming, result)
+             Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, result)
 
     conv = Conversations.get_conversation!(conv_id)
     messages = Conversations.list_messages(conv)
@@ -1555,7 +1581,7 @@ defmodule Zaq.Engine.ConversationsTest do
     }
 
     assert {:ok, %{conversation_id: conv_id}} =
-             Conversations.persist_from_incoming(incoming, result)
+             Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, result)
 
     conv = Conversations.get_conversation!(conv_id)
     messages = Conversations.list_messages(conv)
@@ -1809,144 +1835,6 @@ defmodule Zaq.Engine.ConversationsTest do
 
       assert {:error, changeset} = Conversations.rate_message_by_id(msg.id, %{rating: 6})
       assert %{rating: _} = errors_on(changeset)
-    end
-  end
-
-  # ── get_message_by_external_id/1 ────────────────────────────────────────────
-
-  describe "rate_message_by_external_id/3" do
-    defp message_with_external_id(external_id) do
-      {:ok, conv} = Conversations.create_conversation(conv_attrs())
-
-      {:ok, msg} =
-        Conversations.add_message(conv, %{
-          role: "assistant",
-          content: "answer",
-          metadata: %{"external_message_id" => external_id}
-        })
-
-      msg
-    end
-
-    test "creates a rating for a message identified by its external id" do
-      msg = message_with_external_id("post-1")
-
-      assert {:ok, rating} =
-               Conversations.rate_message_by_external_id("post-1", %{
-                 channel_user_id: "user-123",
-                 rating: 5
-               })
-
-      assert rating.message_id == msg.id
-      assert rating.channel_user_id == "user-123"
-      assert rating.rating == 5
-    end
-
-    test "is origin-agnostic: accepts the back-office rater shape too" do
-      user = user_fixture()
-      msg = message_with_external_id("post-2")
-
-      assert {:ok, rating} =
-               Conversations.rate_message_by_external_id("post-2", %{
-                 user_id: user.id,
-                 rating: 4
-               })
-
-      assert rating.message_id == msg.id
-      assert rating.user_id == user.id
-    end
-
-    test "upserts on a second rating from the same channel user" do
-      message_with_external_id("post-3")
-
-      attrs = %{channel_user_id: "user-123", rating: 5}
-      {:ok, _} = Conversations.rate_message_by_external_id("post-3", attrs)
-
-      assert {:ok, updated} =
-               Conversations.rate_message_by_external_id("post-3", %{attrs | rating: 1})
-
-      assert updated.rating == 1
-    end
-
-    test "accepts a non-binary external id" do
-      msg = message_with_external_id("678")
-
-      assert {:ok, rating} =
-               Conversations.rate_message_by_external_id(678, %{
-                 channel_user_id: "user-1",
-                 rating: 5
-               })
-
-      assert rating.message_id == msg.id
-    end
-
-    test "returns not_found for an unknown external id" do
-      assert {:error, :not_found} =
-               Conversations.rate_message_by_external_id("no-such-post", %{
-                 channel_user_id: "user-123",
-                 rating: 5
-               })
-    end
-
-    test "rejects an out-of-range rating through the changeset" do
-      message_with_external_id("post-4")
-
-      assert {:error, changeset} =
-               Conversations.rate_message_by_external_id("post-4", %{
-                 channel_user_id: "user-123",
-                 rating: 9
-               })
-
-      assert %{rating: _} = errors_on(changeset)
-    end
-
-    # Pins the current authorization boundary rather than asserting it is
-    # correct: a channel user id is provider-supplied and unverified, so it can
-    # rate any message resolvable by external id. Pre-existing behaviour,
-    # tracked as a follow-up in
-    # docs/exec-plans/active/pr-627-reaction-unification.md.
-    test "an unknown channel user can rate, but only the referenced message" do
-      target = message_with_external_id("post-5")
-      other = message_with_external_id("post-6")
-
-      assert {:ok, rating} =
-               Conversations.rate_message_by_external_id("post-5", %{
-                 channel_user_id: "never-seen-before",
-                 rating: 1
-               })
-
-      assert rating.message_id == target.id
-      refute rating.message_id == other.id
-    end
-  end
-
-  describe "get_message_by_external_id/1" do
-    test "returns the message when external_message_id matches" do
-      {:ok, conv} = Conversations.create_conversation(conv_attrs())
-
-      {:ok, msg} =
-        Conversations.add_message(conv, %{
-          role: "assistant",
-          content: "answer",
-          metadata: %{"external_message_id" => "194"}
-        })
-
-      result = Conversations.get_message_by_external_id("194")
-
-      assert result.id == msg.id
-      assert result.metadata["external_message_id"] == "194"
-    end
-
-    test "returns nil when external_message_id does not match" do
-      {:ok, conv} = Conversations.create_conversation(conv_attrs())
-
-      Conversations.add_message(conv, %{
-        role: "assistant",
-        content: "answer",
-        metadata: %{"external_message_id" => "999"}
-      })
-
-      assert Conversations.get_message_by_external_id("000") == nil
     end
   end
 

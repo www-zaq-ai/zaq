@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.Communication.EmailConnectorSelection do
 
     selected_id =
       case configs do
+        [] -> :new
         [config] -> config.id
         _ -> nil
       end
@@ -17,8 +18,22 @@ defmodule ZaqWeb.Live.BO.Communication.EmailConnectorSelection do
     socket |> assign(:configs, configs) |> assign(:selected_config_id, selected_id)
   end
 
+  def name(configs, selected_id, default) do
+    case Enum.find(configs, &(&1.id == selected_id)) do
+      nil -> default
+      config -> config.name
+    end
+  end
+
   def selected_channel(socket, provider) do
-    case ChannelConfig.get(socket.assigns.selected_config_id) do
+    case socket.assigns.selected_config_id do
+      :new -> %ChannelConfig{provider: provider, enabled: false, settings: %{}}
+      id -> fetch_channel(id, provider)
+    end
+  end
+
+  defp fetch_channel(id, provider) do
+    case ChannelConfig.get(id) do
       %ChannelConfig{provider: ^provider, archived_at: nil} = channel -> channel
       _ -> nil
     end

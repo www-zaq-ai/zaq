@@ -201,7 +201,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
     assert Repo.get!(Transcript, room.id).next_position == 8
   end
 
-  test "reads require a direct Person grant and never expose private execution fields" do
+  test "reads honor standard grants and never expose private execution fields" do
     config = config()
     room = transcript(config, "room-1")
     authorized = person("Allowed")
@@ -215,7 +215,9 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
     assert {:error, :unauthorized} =
              Conversations.list_canonical_messages(%{excluded | id: 999_999_999}, room.id)
 
-    assert {:ok, _} = Permissions.grant_public(resource)
+    assert {:ok, public_grant} = Permissions.grant_public(resource)
+    assert {:ok, [_]} = Conversations.list_canonical_messages(excluded, room.id)
+    assert :ok = Permissions.revoke(resource, public_grant)
     assert {:error, :unauthorized} = Conversations.list_canonical_messages(excluded, room.id)
 
     assert {:ok, _} =
@@ -344,6 +346,14 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
              append(room, config, "p-1", %{}, %{recipient_person_id: other.id})
 
     assert {:ok, _} = append(room, config, "p-1", %{}, %{recipient_person_id: recipient.id})
+    assert {:error, :unauthorized} = Conversations.list_canonical_messages(recipient, room.id)
+
+    assert {:ok, _} =
+             Permissions.grant({room.permission_resource_type, room.permission_resource_id}, %{
+               person_id: recipient.id,
+               access_rights: ["read"]
+             })
+
     assert {:ok, [_]} = Conversations.list_canonical_messages(recipient, room.id)
     assert {:error, :unauthorized} = Conversations.list_canonical_messages(other, room.id)
     assert {:error, :unauthorized} = Conversations.list_canonical_messages(nil, room.id)

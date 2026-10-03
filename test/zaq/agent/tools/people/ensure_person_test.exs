@@ -7,9 +7,46 @@ defmodule Zaq.Agent.Tools.People.EnsurePersonTest do
   alias Zaq.Accounts.Person
   alias Zaq.Accounts.PersonChannel
   alias Zaq.Agent.Tools.People.EnsurePerson
+  alias Zaq.Channels.ChannelConfig
   alias Zaq.Repo
 
   @ctx %{}
+
+  test "connector-scoped Action inputs reuse one native Person across bots" do
+    configs =
+      for name <- ["Action bot one", "Action bot two"] do
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: name,
+          provider: "mattermost",
+          kind: "retrieval",
+          url: "https://actions.example.com",
+          token: "fixture-token"
+        })
+        |> Repo.insert!()
+      end
+
+    results =
+      for config <- configs do
+        assert {:ok, params} =
+                 Runtime.validate_params(
+                   %{
+                     platform: "mattermost",
+                     channel_config_id: config.id,
+                     channel_id: "same-user",
+                     display_name: "Native Person"
+                   },
+                   EnsurePerson
+                 )
+
+        assert {:ok, result} = EnsurePerson.run(params, @ctx)
+        assert result.row["channel_config_id"] == config.id
+        result.person.id
+      end
+
+    assert [person_id] = Enum.uniq(results)
+    assert length(People.list_person_channels(person_id)) == 2
+  end
 
   defmodule FailingPeople do
     def find_or_create_from_channel(_platform, _attrs), do: {:error, :people_down}

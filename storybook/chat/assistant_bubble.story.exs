@@ -30,11 +30,11 @@ defmodule Storybook.Chat.AssistantBubble do
   </:actions>
   """
 
-  defp actions_slot(feedback_positive, feedback_negative) do
+  defp actions_slot(feedback_positive, feedback_negative, counts \\ %{positive: nil, negative: nil}) do
     """
     #{@actions_slot_base}
-    <.feedback_positive_button message_id="story-msg-1" feedback={#{inspect(feedback_positive)}} />
-    <.feedback_negative_button message_id="story-msg-1" feedback={#{inspect(feedback_negative)}} />
+    <.feedback_positive_button message_id="story-msg-1" feedback={#{inspect(feedback_positive)}} count={#{inspect(counts.positive)}} />
+    <.feedback_negative_button message_id="story-msg-1" feedback={#{inspect(feedback_negative)}} count={#{inspect(counts.negative)}} />
     #{@actions_slot_close}
     """
     |> String.trim()
@@ -42,6 +42,28 @@ defmodule Storybook.Chat.AssistantBubble do
 
   def variations do
     [
+      %Variation{
+        id: :channel_history,
+        description: "Channel history — Agent on the right with ZAQ icon, name and aligned actions",
+        attributes: %{
+          content: "The rollout is complete. All teams can now use the new workspace.",
+          timestamp: ~N[2026-10-01 10:30:05],
+          align: :right,
+          author_name: "Support Agent"
+        },
+        slots: [actions_slot(nil, nil, %{positive: 3, negative: 1})]
+      },
+      %Variation{
+        id: :channel_history_own_vote,
+        description: "Aggregate counts beside thumbs; only the viewer's own vote is highlighted",
+        attributes: %{
+          content: "Three positive reactions, including yours, and one negative reaction.",
+          timestamp: ~N[2026-10-01 10:30:05],
+          align: :right,
+          author_name: "Support Agent"
+        },
+        slots: [actions_slot(:positive, nil, %{positive: 3, negative: 1})]
+      },
       %Variation{
         id: :simple,
         description: "Simple response",

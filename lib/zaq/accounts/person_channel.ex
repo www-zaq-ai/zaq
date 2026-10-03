@@ -18,6 +18,7 @@ defmodule Zaq.Accounts.PersonChannel do
     field :platform, :string
     field :channel_identifier, :string
     belongs_to :channel_config, Zaq.Channels.ChannelConfig
+    belongs_to :person_identity, Zaq.Accounts.PersonIdentity
     field :username, :string
     field :display_name, :string
     field :phone, :string
@@ -37,6 +38,7 @@ defmodule Zaq.Accounts.PersonChannel do
       :platform,
       :channel_identifier,
       :channel_config_id,
+      :person_identity_id,
       :username,
       :display_name,
       :phone,
@@ -52,6 +54,7 @@ defmodule Zaq.Accounts.PersonChannel do
     |> validate_weight()
     |> foreign_key_constraint(:person_id)
     |> foreign_key_constraint(:channel_config_id)
+    |> foreign_key_constraint(:person_identity_id)
     |> identifier_constraint()
   end
 

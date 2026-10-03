@@ -8,12 +8,15 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Accounts
   alias Zaq.Accounts.People
   alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelHistoryAdmin
+  alias Zaq.Engine.ChannelHistoryMembership
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Connect.OAuth.Registry, as: OAuthBehaviourRegistry
   alias Zaq.Engine.Connect.OAuthAttempts
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.DataSources
+  alias Zaq.Engine.HistoryIngress
   alias Zaq.Engine.IncomingMessageRouter
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
@@ -43,6 +46,61 @@ defmodule Zaq.Engine.Api do
         else: {:error, :confidential_event_required}
 
     %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :channel_history_admin, _context) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           {:ok, id} <- authenticated_user_id(event.actor),
+           %{role: %{name: "super_admin"}} <- Accounts.get_user(id) do
+        request =
+          case event.request do
+            %{op: op} = request when op in [:list, :detail, :refresh, :rate] ->
+              Map.put(request, :actor, event.actor)
+
+            other ->
+              other
+          end
+
+        ChannelHistoryAdmin.dispatch(request)
+      else
+        _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %Incoming{} = incoming} = event,
+        :capture_incoming_history,
+        _context
+      ) do
+    %{event | response: HistoryIngress.capture(incoming), next_hop: nil}
+  end
+
+  def handle_event(%Event{} = event, :capture_incoming_history, _context),
+    do: %{event | response: {:error, :invalid_request}, next_hop: nil}
+
+  def handle_event(%Event{request: delivered} = event, :capture_delivered_history, _context)
+      when is_map(delivered) do
+    %{event | response: HistoryIngress.capture_confirmed(delivered), next_hop: nil}
+  end
+
+  def handle_event(%Event{request: reference} = event, :confirmed_history_delivery, _context) do
+    %{event | response: HistoryIngress.confirmed_delivery?(reference), next_hop: nil}
+  end
+
+  def handle_event(
+        %Event{request: membership} = event,
+        :channel_history_membership_event,
+        _context
+      )
+      when is_map(membership) do
+    %{
+      event
+      | response: ChannelHistoryMembership.apply_event(membership),
+        next_hop: nil
+    }
   end
 
   def handle_event(%Event{} = event, :people_auth, _context) do
@@ -79,17 +137,6 @@ defmodule Zaq.Engine.Api do
       end
 
     %{event | response: response}
-  end
-
-  def handle_event(%Event{} = event, :persist_from_incoming, _context) do
-    case event.request do
-      %{incoming: %Incoming{} = incoming, metadata: metadata} when is_map(metadata) ->
-        conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
-        %{event | response: conversations_module.persist_from_incoming(incoming, metadata)}
-
-      other ->
-        %{event | response: {:error, {:invalid_request, other}}}
-    end
   end
 
   def handle_event(%Event{} = event, :finalize_incoming, _context) do
@@ -889,8 +936,8 @@ defmodule Zaq.Engine.Api do
     conversations_module.rate_message_by_id(message_id, rater_attrs)
   end
 
-  defp rate_by_message_ref(conversations_module, {:external_id, external_id}, rater_attrs) do
-    conversations_module.rate_message_by_external_id(external_id, rater_attrs)
+  defp rate_by_message_ref(conversations_module, {:source, reference}, rater_attrs) do
+    conversations_module.rate_message_by_source(reference, rater_attrs)
   end
 
   defp rate_by_message_ref(_conversations_module, other, _rater_attrs) do

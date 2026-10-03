@@ -47,7 +47,7 @@ defmodule Zaq.Channels.TelegramMarkdownDeliveryTest do
 
     def send_message(channel_id, text, opts) do
       send(self(), {:adapter_send_message, channel_id, text, opts})
-      {:ok, %{external_message_id: "post-123"}}
+      {:ok, %{external_message_id: 42}}
     end
 
     def edit_message(channel_id, message_id, text, opts) do
@@ -180,8 +180,9 @@ defmodule Zaq.Channels.TelegramMarkdownDeliveryTest do
   end
 
   describe "delivery through the bridge" do
-    test "a new reply reaches the adapter as markdown" do
-      assert {:ok, _receipt} = deliver(@table_reply, %{request_id: "req-1"})
+    test "a new reply reaches the adapter as markdown with a canonical delivery ID" do
+      assert {:ok, %{confirmation: :confirmed, message_id: "42"}} =
+               deliver(@table_reply, %{request_id: "req-1"})
 
       assert_received {:adapter_send_message, "chat-1", text, opts}
       assert opts[:format] == :markdown
@@ -197,6 +198,13 @@ defmodule Zaq.Channels.TelegramMarkdownDeliveryTest do
       assert_received {:adapter_edit_message, "chat-1", "msg-1", text, opts}
       assert opts[:format] == :markdown
       assert text =~ "| Champion | Spain | Won 1-0 |"
+    end
+
+    test "a numeric status-message ID is canonicalized in the final edit receipt" do
+      assert {:ok, %{confirmation: :confirmed, message_id: "41"}} =
+               deliver(@table_reply, %{request_id: "req-1", message_id: 41})
+
+      assert_received {:adapter_edit_message, "chat-1", 41, _text, _opts}
     end
 
     test "the body delivered is byte-identical to the agent's markdown" do

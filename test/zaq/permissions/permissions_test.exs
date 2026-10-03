@@ -108,19 +108,19 @@ defmodule Zaq.PermissionsTest do
       refute Permissions.can?(nil, :read, channel)
     end
 
-    test "shared channel history requires a direct Person grant, not Everyone or team" do
+    test "channel history uses the standard team and Everyone grant semantics" do
       person = create_person()
       team = create_team()
       {:ok, person} = People.assign_team(person, team.id)
       channel = ChannelHistoryResource.for("mattermost", 17, "room-1")
 
-      {:ok, _} = Permissions.grant_public(channel)
       {:ok, _} = Permissions.grant(channel, %{team_id: team.id, access_rights: ["read"]})
-      refute ChannelHistoryResource.can_read?(person, channel)
-      refute ChannelHistoryResource.can_read?(nil, channel)
+      assert Permissions.can?(person, :read, channel)
+      refute Permissions.can?(create_person(), :read, channel)
+      refute Permissions.can?(nil, :read, channel)
 
-      {:ok, _} = Permissions.grant(channel, %{person_id: person.id, access_rights: ["read"]})
-      assert ChannelHistoryResource.can_read?(person, channel)
+      {:ok, _} = Permissions.grant_public(channel)
+      assert Permissions.can?(create_person(), :read, channel)
     end
 
     test "resolved person coordinates and structs use the supplied resource and principal IDs" do

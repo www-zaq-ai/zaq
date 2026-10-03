@@ -37,7 +37,9 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
         metadata: %{"subject" => "Sign-in"}
       }
 
-      assert :ok = JidoChatBridge.send_reply(outgoing, connection)
+      assert {:ok, %{confirmation: :confirmed, action: :created, message_id: "sent-post"}} =
+               JidoChatBridge.send_reply(outgoing, connection)
+
       assert_received {:openai_request, "POST", "/api/v4/posts", "", body}
       expected = %{"channel_id" => "private-room", "message" => outgoing.body}
       expected = if @thread_id, do: Map.put(expected, "root_id", @thread_id), else: expected
@@ -55,7 +57,9 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       metadata: %{message_id: "status-post"}
     }
 
-    assert :ok = JidoChatBridge.send_reply(outgoing, connection)
+    assert {:ok, %{confirmation: :confirmed, action: :updated, message_id: "status-post"}} =
+             JidoChatBridge.send_reply(outgoing, connection)
+
     assert_received {:openai_request, "PUT", "/api/v4/posts/status-post", "", body}
     assert Jason.decode!(body) == %{"id" => "status-post", "message" => "Updated answer"}
     refute_received {:openai_request, "POST", _, _, _}

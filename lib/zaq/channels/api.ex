@@ -23,7 +23,9 @@ defmodule Zaq.Channels.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.HistoryDelivery
   alias Zaq.Channels.HttpClient
+  alias Zaq.Channels.MattermostAdmin
   alias Zaq.Channels.MessageFormatter
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -38,6 +40,60 @@ defmodule Zaq.Channels.Api do
   @supported_update_intents [:status, :reasoning, :tool_call, :stream_delta]
 
   @impl true
+  def handle_event(
+        %Event{
+          request: %{channel_config_id: config_id, channel_id: channel_id, message_id: message_id}
+        } = event,
+        :channel_history_root,
+        _context
+      ) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           %{user_id: user_id} when is_integer(user_id) <- event.actor,
+           %{role: %{name: "super_admin"}} <- Zaq.Accounts.get_user(user_id),
+           %ChannelConfig{provider: "mattermost", enabled: true, archived_at: nil} = config <-
+             ChannelConfig.get(config_id) do
+        MattermostAdmin.history_root(config, channel_id, message_id)
+      else
+        _ -> {:error, :unavailable}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %{channel_config_id: config_id, channel_id: channel_id}} = event,
+        :channel_history_capabilities,
+        _context
+      ) do
+    supported = history_membership_supported?(ChannelConfig.get(config_id), channel_id)
+
+    %{event | response: {:ok, %{membership_refresh: supported}}}
+  end
+
+  def handle_event(
+        %Event{request: %{channel_config_id: config_id, channel_id: channel_id}} = event,
+        :channel_history_membership_snapshot,
+        _context
+      ) do
+    result =
+      case ChannelConfig.get(config_id) do
+        %ChannelConfig{provider: "mattermost", enabled: true, archived_at: nil} = config ->
+          with true <- history_membership_supported?(config, channel_id),
+               {:ok, snapshot} <- MattermostAdmin.channel_membership_snapshot(config, channel_id) do
+            {:ok, Map.put(snapshot, :identity_platform, "mattermost")}
+          else
+            false -> {:error, :unsupported_membership_refresh}
+            {:error, _} = error -> error
+          end
+
+        _ ->
+          {:error, :unsupported_membership_refresh}
+      end
+
+    %{event | response: result}
+  end
+
   def handle_event(%Event{request: request} = event, :materialize_record, _context)
       when is_map(request) do
     communication_bridge = communication_bridge_module(event)
@@ -51,13 +107,14 @@ defmodule Zaq.Channels.Api do
     with {:ok, outgoing} <- outgoing_from_event(event),
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider),
          {:ok, connection_details} <- delivery_connection(bridge_module, outgoing) do
-      outgoing =
+      formatted_outgoing =
         outgoing |> maybe_attach_status_message_id() |> MessageFormatter.format_outgoing()
 
       response =
-        outgoing
+        formatted_outgoing
         |> bridge.send_reply(connection_details)
         |> normalize_delivery_response()
+        |> HistoryDelivery.capture(outgoing, event.opts)
 
       %{event | response: response}
     else
@@ -812,6 +869,14 @@ defmodule Zaq.Channels.Api do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
 
+  defp history_membership_supported?(
+         %ChannelConfig{provider: "mattermost", enabled: true, archived_at: nil},
+         channel_id
+       ),
+       do: is_binary(channel_id) and Regex.match?(~r/\A[a-z0-9]{26}\z/, channel_id)
+
+  defp history_membership_supported?(_config, _channel_id), do: false
+
   defp dispatch_webhook(module, provider, payload, nil),
     do: module.handle_webhook(provider, payload)
 
@@ -942,6 +1007,12 @@ defmodule Zaq.Channels.Api do
 
   defp ingress_status_config(_bridge_module, _provider, %{config: config}) when is_map(config),
     do: {:ok, config}
+
+  defp ingress_status_config(bridge_module, provider, %{channel_config_id: id}) do
+    with {:ok, config} <- bridge_module.fetch_channel_config(provider, id) do
+      {:ok, ChannelConfig.to_runtime_config(config)}
+    end
+  end
 
   defp ingress_status_config(bridge_module, provider, _request),
     do: bridge_module.fetch_channel_config(provider)

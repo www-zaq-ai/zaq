@@ -2,7 +2,10 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
   @moduledoc false
 
   alias Mail
+  alias Mail.Parsers.RFC2822
   alias Zaq.Channels.EmailBridge.ImapAdapter.Threading
+  alias Zaq.Channels.EmailBridge.SelfAddresses
+  alias Zaq.Channels.MessageTimestamp
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Utils.EmailUtils
@@ -16,22 +19,50 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
     bodies = extract_bodies(raw_email, parsed_email)
     headers = extract_headers(raw_email, parsed_email)
     subject = extract_subject(raw_email, parsed_email)
-    reply_from = extract_reply_from(raw_email, parsed_email)
+    configured_address = configured_address(config)
+    receiving_address = receiving_address(raw_email)
+    reply_from = receiving_address || configured_address
+    own_addresses = Enum.reject([configured_address, receiving_address], &is_nil/1)
 
     message_id = headers["message_id"]
     thread_id = Threading.resolve_thread_id(headers)
-    thread_key = Threading.resolve_thread_key(headers)
+    thread_key = Threading.resolve_thread_key(headers) || "unthreaded:#{Ecto.UUID.generate()}"
 
     from = sender(raw_email)
+    recipient_evidence = recipient_evidence(from.address, raw_email, parsed_email)
+
+    participants =
+      [%{identifier: valid_address(from.address), display_name: from.name, role: :sender}] ++
+        visible_participants(raw_email, parsed_email)
 
     %{
       content: content_with_subject(subject, bodies.text),
-      channel_id: from.address,
-      author_id: from.address,
+      channel_id: valid_address(from.address),
+      author_id: valid_address(from.address),
       author_name: from.name,
       thread_id: thread_key,
       message_id: message_id,
       provider: :"email:imap",
+      routing_context: %{
+        channel_config_id: channel_config_id(config),
+        identity_platform: "email",
+        conversation_id: thread_key,
+        display_subject: subject,
+        title_style: :person_subject,
+        reply_targets: reply_targets(from, raw_email, parsed_email, participants),
+        source_scope: mailbox,
+        provider_sent_at:
+          MessageTimestamp.normalize(
+            parsed_header(parsed_email, "date") || get(raw_email, "date", :date),
+            :rfc2822
+          ),
+        audience: %{
+          platform: "email",
+          sender: recipient_evidence["sender"],
+          recipients: recipient_evidence["visible_recipients"],
+          participants: participants
+        }
+      },
       attachments: attachments(raw_email),
       metadata:
         build_metadata(
@@ -43,9 +74,12 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
           reply_from,
           bodies.html
         )
+        |> put_in(["email", "receiving_address"], receiving_address)
+        |> put_in(["email", "automatic_reply"], automatic_reply?(parsed_email))
     }
     |> maybe_put_channel_config_id(config)
     |> Incoming.new()
+    |> SelfAddresses.filter_incoming(own_addresses)
   rescue
     error -> {:error, {:invalid_email_payload, Exception.message(error)}}
   end
@@ -113,6 +147,163 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
     %{address: address, name: name}
   end
 
+  # Only From (IMAP envelope) and the visible headers of this message may
+  # contribute to its audience. Delivered-To is used for reply routing, not
+  # evidence of a hidden recipient; the selected mailbox is just a folder.
+  defp recipient_evidence(sender_address, raw_email, parsed_email) do
+    %{
+      "sender" => valid_address(sender_address),
+      "visible_recipients" =>
+        [:to, :cc]
+        |> Enum.flat_map(fn header ->
+          header
+          |> visible_addresses(raw_email, parsed_email)
+          |> Enum.flat_map(&recipient_addresses/1)
+        end)
+        |> Enum.uniq()
+    }
+  end
+
+  defp visible_addresses(header, _raw_email, {:ok, message}) do
+    parsed =
+      case header do
+        :to -> Mail.get_to(message)
+        :cc -> Mail.get_cc(message)
+      end
+
+    List.wrap(parsed)
+  end
+
+  defp visible_addresses(header, raw_email, :error) do
+    List.wrap(get(raw_email, Atom.to_string(header), header))
+  end
+
+  defp visible_participants(raw_email, parsed_email) do
+    Enum.flat_map([:to, :cc], fn role ->
+      visible_addresses(role, raw_email, parsed_email)
+      |> Enum.flat_map(&named_addresses/1)
+      |> Enum.map(&Map.put(&1, :role, role))
+    end)
+  end
+
+  defp named_addresses({name, address}) do
+    case valid_address(address) do
+      nil -> []
+      id -> [%{identifier: id, display_name: name}]
+    end
+  end
+
+  defp named_addresses(%{email: address} = value),
+    do: named_addresses({Map.get(value, :name), address})
+
+  defp named_addresses(%{"email" => address} = value),
+    do: named_addresses({Map.get(value, "name"), address})
+
+  defp named_addresses(value) when is_binary(value) do
+    value
+    |> RFC2822.parse_recipient_value()
+    |> Enum.flat_map(fn
+      {_, _} = pair -> named_addresses(pair)
+      address -> named_addresses({nil, address})
+    end)
+  end
+
+  defp named_addresses(_), do: []
+
+  defp reply_targets(from, raw_email, parsed_email, participants) do
+    reply_to =
+      case parsed_email do
+        {:ok, message} -> Mail.Message.get_header(message, "reply-to")
+        :error -> get(raw_email, "reply_to", :reply_to)
+      end
+
+    primary = List.wrap(reply_to) |> Enum.flat_map(&recipient_addresses/1)
+    primary = if primary == [], do: List.wrap(valid_address(from.address)), else: primary
+
+    to =
+      (primary ++ for(p <- participants, p.role == :to, do: p.identifier))
+      |> Enum.uniq()
+
+    cc =
+      for(p <- participants, p.role == :cc, do: p.identifier)
+      |> Enum.uniq()
+      |> Kernel.--(to)
+
+    %{to: to, cc: cc}
+  end
+
+  defp configured_address(config) do
+    config = get(config, "config", :config) || config
+    settings = get(config, "settings", :settings) || %{}
+    imap = get(settings, "imap", :imap) || %{}
+    valid_address(get(imap, "username", :username) || get(config, "username", :username))
+  end
+
+  # Mail's header map collapses repeated headers. Keep only the first delivery
+  # hop, before that collapse; an older forwarding hop may name a real recipient.
+  defp receiving_address(raw_email) do
+    case first_delivery_header(parsed_email_source(raw_email)) do
+      nil ->
+        nil
+
+      value ->
+        case recipient_addresses(value) do
+          [address] -> address
+          _ -> nil
+        end
+    end
+  end
+
+  defp first_delivery_header(raw) when is_binary(raw) do
+    headers = raw |> String.split(~r/\r?\n\r?\n/, parts: 2) |> hd()
+
+    case Regex.run(~r/^delivered-to:[ \t]*([^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*)/im, headers) do
+      [_, value] -> String.replace(value, ~r/\r?\n[ \t]+/, " ")
+      _ -> nil
+    end
+  end
+
+  defp first_delivery_header(_), do: nil
+
+  defp automatic_reply?(parsed_email) do
+    value = parsed_header(parsed_email, "auto-submitted") || ""
+
+    value
+    |> String.split(";", parts: 2)
+    |> hd()
+    |> String.trim()
+    |> String.downcase()
+    |> Kernel.==("auto-replied")
+  end
+
+  defp recipient_addresses({_, address}) when is_binary(address),
+    do: List.wrap(valid_address(address))
+
+  defp recipient_addresses(%{email: address}), do: List.wrap(valid_address(address))
+  defp recipient_addresses(%{"email" => address}), do: List.wrap(valid_address(address))
+
+  defp recipient_addresses(addresses) when is_binary(addresses) do
+    addresses
+    |> RFC2822.parse_recipient_value()
+    |> Enum.map(fn
+      {_, address} -> valid_address(address)
+      address -> valid_address(address)
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp recipient_addresses(_), do: []
+
+  defp valid_address(address) when is_binary(address) do
+    address = address |> String.trim() |> String.downcase()
+
+    if Regex.match?(~r/\A[^\s@<>,]+@[^\s@<>,]+\.[^\s@<>,]+\z/u, address),
+      do: address,
+      else: nil
+  end
+
+  defp valid_address(_), do: nil
+
   defp extract_bodies(raw_email, parsed_email) do
     text = maybe_string(get(raw_email, "body_text", :body_text))
     html = maybe_string(get(raw_email, "body_html", :body_html))
@@ -156,44 +347,6 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
 
   defp join_subject_and_body(subject, ""), do: "Subject: #{subject}"
   defp join_subject_and_body(subject, body), do: "Subject: #{subject}\n\n#{body}"
-
-  defp extract_reply_from(raw_email, parsed_email) do
-    parsed_header(parsed_email, "delivered-to")
-    |> normalize_email()
-    |> case do
-      nil ->
-        parsed_to_address(parsed_email) || to_address(raw_email)
-
-      email ->
-        email
-    end
-  end
-
-  defp parsed_to_address({:ok, message}) do
-    message
-    |> Mail.get_to()
-    |> List.wrap()
-    |> Enum.find_value(&recipient_email/1)
-  end
-
-  defp parsed_to_address(:error), do: nil
-
-  defp to_address(raw_email) do
-    raw_email
-    |> get("to", :to)
-    |> recipient_email()
-  end
-
-  defp recipient_email({_, email}) when is_binary(email), do: normalize_email(email)
-  defp recipient_email(%{email: email}) when is_binary(email), do: normalize_email(email)
-  defp recipient_email(%{"email" => email}) when is_binary(email), do: normalize_email(email)
-
-  defp recipient_email(value) when is_list(value) do
-    Enum.find_value(value, &recipient_email/1)
-  end
-
-  defp recipient_email(value) when is_binary(value), do: normalize_email(value)
-  defp recipient_email(_), do: nil
 
   defp parsed_header({:ok, message}, key) when is_binary(key) do
     case Mail.Message.get_header(message, key) do
@@ -250,29 +403,6 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapter.Parser do
   end
 
   defp normalize_references(_), do: nil
-
-  defp normalize_email(nil), do: nil
-
-  defp normalize_email(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> case do
-      <<_::binary>> = text ->
-        case Regex.run(~r/<([^>]+)>/, text, capture: :all_but_first) do
-          [email] -> String.trim(email)
-          _ -> text
-        end
-
-      _ ->
-        nil
-    end
-    |> case do
-      "" -> nil
-      email -> email
-    end
-  end
-
-  defp normalize_email(_), do: nil
 
   defp attachments(raw_email) do
     raw_email

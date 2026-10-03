@@ -6,9 +6,12 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   slack, microsoft_teams, whatsapp, telegram, discord, etc.
 
   Matching priority (delegated to `People.find_or_create_from_channel/2`):
-    1. email field
-    2. phone field
-    3. platform + channel_id pair
+    1. native identity within the Channels-defined authority
+    2. existing connector link, then canonical email (legacy unscoped inputs also match phone)
+    3. create a partial Person and link the identity
+
+  Conflicting established owners fail atomically. Bot configuration identifies a
+  delivery link, not a distinct Person; supply it for server/tenant-scoped IDs.
 
   On match: back-fills canonical fields (full_name, email, phone) if missing.
   On miss: creates a partial Person entry with `incomplete: true` and links
@@ -25,6 +28,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
                      username, user_id). Defaults to the `email` field when
                      `platform` is `"email"`.
   - `display_name` — optional. Person display name for new entries.
+  - `channel_config_id` — optional. Connector supplying the native identity authority.
   - `email`        — optional. Email address; also used as `channel_id` for
                      `"email"` platform.
   - `phone`        — optional. Phone number for matching.
@@ -42,6 +46,9 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
       Zoi.object(
         %{
           platform: Zoi.string(description: "Channel platform: email, mattermost, slack, etc."),
+          channel_config_id:
+            Zoi.integer(description: "Connector supplying the native identity authority.")
+            |> Zoi.optional(),
           channel_id:
             Zoi.string(
               description:
@@ -87,6 +94,7 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
 
     attrs = %{
       "channel_id" => channel_id,
+      "channel_config_id" => connector_id(params),
       "display_name" => display_name,
       "email" => email,
       "phone" => params[:phone] || Map.get(params, "phone")
@@ -116,6 +124,9 @@ defmodule Zaq.Agent.Tools.People.EnsurePerson do
   defp people_module(%{people_module: module}), do: module
   defp people_module(%{"people_module" => module}), do: module
   defp people_module(_ctx), do: People
+
+  defp connector_id(params),
+    do: params[:channel_config_id] || Map.get(params, "channel_config_id")
 
   defp person_payload(%Person{} = person) do
     %{
