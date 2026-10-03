@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T14:03:12Z",
+  "description": "Add Engine-local ChannelHistoryProjection for page-bounded participant, title, thread-count, stored-root and identity projections using set-based queries. Preserve response semantics. Local-only read model; real SQL tests.",
+  "id": "zaq-emb.27.23",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 2,
+  "status": "open",
+  "title": "Build batched channel-history projection",
+  "type": "task",
+  "updated_at": "2026-10-03T14:03:12Z"
+}
