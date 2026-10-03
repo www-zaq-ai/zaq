@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T14:03:07Z",
+  "description": "Add HistoryEvidence contract plus Mattermost/Telegram/Discord wrappers for history kind, namespace, timestamp and title evidence. Property/fixture tests for malformed/contradictory payloads. Local-only transport normalization.",
+  "id": "zaq-emb.27.21",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "Add provider-local verified history evidence",
+  "type": "task",
+  "updated_at": "2026-10-03T14:03:07Z"
+}
