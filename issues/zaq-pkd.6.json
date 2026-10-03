@@ -11,9 +11,15 @@
   "id": "zaq-pkd.6",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Migrated BO conversation initialization/resume and history restoration to shared Web Commands through BridgeClient/Channels/WebBridge. ChatLive no longer issues Engine get/get!/create/messages actions directly. WebBridge reuses Engine get/create/list_messages, preserves missing-conversation fallback, and projects ordered history with persisted IDs, sources, ratings, metadata/trace, model, latency and token fields required by the existing UI. ChatLive remains the explicit owner of BO welcome presentation and persists the fixed welcome only when init reports a new conversation; Engine :conversation now supports add_message by conversation_id to avoid leaking Ecto structs through public Responses. Sidebar listing/deletion, title subscriptions, feedback/rating and previews remain unchanged. Action reuse: reused existing Engine conversation operations and persistence through NodeRouter; extended the existing :conversation action backward-compatibly for add_message-by-id rather than creating another operation/store/Action. No agent tool exposure is appropriate. Validation: focused suite 194 tests + 1 property passed; final Engine/ChatLive repeat 174 tests passed; mix q and diff/boundary audit passed. One characterization was renamed/reordered because shared history now performs the get before the later injected lookup failure; behavior assertions were preserved. Existing non-failing :license_manager warning and intermittent MCP Finch test noise remain. Beadwork remote sync remains blocked by SSH credentials.",
+      "timestamp": "2026-10-03T14:11:38Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] B2 — Migrate BO initialization/history and preserve adjacent capabilities",
   "type": "task",
-  "updated_at": "2026-10-03T13:55:21Z"
+  "updated_at": "2026-10-03T14:11:38Z"
 }
