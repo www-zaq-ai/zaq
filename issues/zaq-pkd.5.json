@@ -11,9 +11,15 @@
   "id": "zaq-pkd.5",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Migrated BO message send and response handling to shared Web Message/Context/Delivery/Response contracts through ZaqWeb.Chat.BridgeClient and Channels :web_ingress. ChatLive no longer builds Incoming or Engine routing Events, carries a LiveView PID across role boundaries, or owns dispatch-error normalization. WebBridge now preserves person identity, sync hop mode, explicit BO skip_permissions, selected agent/filter/history inputs, and normalizes tuple errors, malformed responses, and error Outgoing values to the trusted BO delivery. Streaming replacement, final/error rendering, stale-response rejection, citations, persisted references, and no-duplicate behavior remain covered. CommunicationBridge now returns structured unexpected-response errors and preserves request-carried error Outgoing values. Action reuse: reused BridgeClient, Channels :web_ingress, WebBridge translation/delivery, CommunicationBridge routing, Engine admission/finalization, and existing ChatLive rendering helpers; no new Action/tool because this is transport/UI orchestration, not an independent business operation. Validation: 181 focused tests pass; mix q passes; git diff --check passes. Existing non-failing environment noise: :license_manager warning and transient MCP Finch GenServer error. Beadwork remote sync remains blocked by environment SSH credentials.",
+      "timestamp": "2026-10-03T13:54:26Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] B1 — Migrate BO send and response handling",
   "type": "task",
-  "updated_at": "2026-10-03T13:40:34Z"
+  "updated_at": "2026-10-03T13:54:26Z"
 }
