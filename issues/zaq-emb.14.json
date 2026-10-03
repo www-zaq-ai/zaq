@@ -14,9 +14,15 @@
   "id": "zaq-emb.14",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Direct/Shared/Replicated strategy and trusted provider-fact integration are complete for the documented first-release matrix. Live Email, Mattermost and Telegram history/response retests passed; optional unsupported hidden-Bcc proof remains excluded.",
+      "timestamp": "2026-10-03T09:03:25Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.14] History strategy behaviour and code-defined provider policies",
   "type": "task",
-  "updated_at": "2026-09-26T09:48:08Z"
+  "updated_at": "2026-10-03T09:03:25Z"
 }
