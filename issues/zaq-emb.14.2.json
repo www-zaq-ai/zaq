@@ -17,11 +17,15 @@
     {
       "text": "2026-09-26 issue split updated by deploy risk: .14.2.2 inbound sender/To/Cc normalization (no hidden Bcc without independent evidence), .14.2.4 outbound SmtpSender confirmed sender/envelope receipt, .14.2.3 JidoChat provider-specific room-type enrichment, .14.2.5 independently established IMAP receiving-account identity for hidden Bcc. .14.2.2 blocks .14.2.4 and .14.2.5; .14.2.3 independent after .14.2.1. Do not close parent or claim full email Bcc support while .14.2.5 open; no retroactive audience and no new E2E before UX gate.",
       "timestamp": "2026-09-26T08:37:20Z"
+    },
+    {
+      "text": "All required first-release trusted provider facts are implemented and validated. Optional hidden-Bcc receiving-account proof remains separately tracked in .14.2.5 and is explicitly not a PR A blocker.",
+      "timestamp": "2026-10-03T09:03:24Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.14.2] Normalize trusted provider history facts",
   "type": "task",
-  "updated_at": "2026-09-26T18:36:30Z"
+  "updated_at": "2026-10-03T09:03:24Z"
 }
