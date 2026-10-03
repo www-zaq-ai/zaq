@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27.26"
+  ],
   "created": "2026-10-03T14:03:16Z",
   "description": "Add Channels ConnectorLifecycle leaf stages for scoped context, ingress teardown, archive persistence and runtime sync with idempotent/stale-aware results. No Engine calls. Add API/lifecycle tests.",
   "id": "zaq-emb.27.25",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.27.25] Implement Channels connector archive stages",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:18Z"
+  "updated_at": "2026-10-03T14:03:31Z"
 }
