@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-pkd.3"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-pkd",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[830] A3 — Implement normalized delivery and preserve transport context across the pipeline",
   "type": "task",
-  "updated_at": "2026-10-03T13:04:53Z"
+  "updated_at": "2026-10-03T13:31:10Z"
 }
