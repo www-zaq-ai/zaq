@@ -11,9 +11,15 @@
   "id": "zaq-pkd.4",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Implemented normalized semantic delivery with serializable trusted Delivery references in routing_context.attributes.web_delivery, preserving existing Outgoing routing context and Channels status-map conversion. WebBridge now maps final/status/stream events to versioned Responses and adapter event names, rejects malformed descriptors, ignores forged metadata destinations, isolates PubSub topics, and retains legacy tuples only when no descriptor exists. Config-scoped connection helpers remain unchanged. Public payloads are allowlisted; finalization/private execution context is not projected. Action reuse: local-only transport mapping/publication reuses existing :deliver_outgoing, :upsert_message, PubSub, Outgoing routing context and connector selection; no new persistence, Agent execution, Action or tool. Tests cover message→Incoming→Outgoing→final/status round trip, full-content stream replacement, trusted-destination precedence, session isolation, malformed descriptors, and legacy compatibility. Validation: 28 focused tests + 1 property, Channels API 98 tests, Engine routing/API 97 tests + 1 property all pass; mix q and diff check pass. Non-failing :license_manager warning remains. Beadwork remote sync is still blocked by the environment SSH key.",
+      "timestamp": "2026-10-03T13:39:45Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] A3 — Implement normalized delivery and preserve transport context across the pipeline",
   "type": "task",
-  "updated_at": "2026-10-03T13:31:10Z"
+  "updated_at": "2026-10-03T13:39:45Z"
 }
