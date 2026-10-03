@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T13:03:41Z",
+  "description": "## Approved plan task C1\n\n- **Functional scope/files:** decision/task records; no speculative public endpoint. Resolve the decisions in section 11 with the widget developer/user before C2.\n- **Required contract additions:** widget ID equals channel config ID; routing channel is a selector validated by Engine, not an authority to choose any agent; allowed origins/domains, display name, stylesheet policy; optional prompt context; public response projection; sync/async behavior; initialization-created notification and history shape/bounds.\n- **Package boundary:** ZAQ owns the shared structs. The external package must not gain a cyclic compile-time dependency on the host. Its ZAQ adapter/host integration constructs the same structs (or uses an injected host constructor); WebBridge must not accept two competing normalized payload families. Freeze how this is wired before handing off signatures.\n- **Tests before implementation:** specify executable conformance cases for every decision, including forged sender/conversation/topic/capability, unknown/disabled widget, cross-widget history access and malformed mode/version.\n- **Branches:** fresh/resumed conversation, absent/invalid authentication, origin denial, invalid config, optional prompt context, supported/unsupported synchronous modes.\n- **Mocking:** none for decisions; external widget conformance adapter will be used in C3/C4.\n- **Documentation:** approved contract delta and changed issue scope (inbound edit excluded); update GitHub only when separately authorized.\n- **Action reuse:** first assess `Conversations.list_canonical_messages/3` / TranscriptHistory and applicable History strategy/Facts/Ingress APIs; assess PeopleConversations for authentication compatibility. Record the conversation-to-transcript binding and public permission resource, then reuse/extend/new only for missing C2 composition.\n- **Done:** no unresolved identity, conversation ownership or prompt-context authority decision remains for public ingress implementation.\n\n## Execution requirements\nBranch: refactor/webbridge. Source: GitHub www-zaq-ai/zaq#830. Read AGENTS.md, docs/exec-plans/PLAN_STRATEGY.md, docs/agent-tools.md, docs/action-reuse.md, docs/testing-approach.md, and applicable service guides before implementation. Shared contracts, module responsibilities, reuse evidence, decisions and regression obligations are in parent zaq-pkd. Write the specified immediate tests first; use real internal boundaries and mock only external edges. Preserve canonical-history authorization, config-scoped delivery and Engine admission/finalization. New/substantially rewritten feature E2E must wait for B3 human approval. Inbound message.edit is excluded; outbound streaming edits remain included.\n",
+  "id": "zaq-pkd.9",
+  "labels": [],
+  "parent": "zaq-pkd",
+  "priority": 2,
+  "status": "open",
+  "title": "[830] C1 — Freeze widget identity, protocol and external-package integration decisions",
+  "type": "task",
+  "updated_at": "2026-10-03T13:03:41Z"
+}
