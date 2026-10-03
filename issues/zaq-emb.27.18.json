@@ -11,9 +11,15 @@
   "id": "zaq-emb.27.18",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implementation present in working tree: replicated replay compares provider/config/effective channel/thread/parent placement in addition to canonical owner audience; historical scope/resource IDs remain excluded for merge safety. Added conflicting-conversation regression; focused suite passes. Dependency ticket remains unstarted/unclosed pending landing policy.",
+      "timestamp": "2026-10-03T14:15:07Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27.18] Reject conflicting replicated replay scopes",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:34Z"
+  "updated_at": "2026-10-03T14:15:07Z"
 }
