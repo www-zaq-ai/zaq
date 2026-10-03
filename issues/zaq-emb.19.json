@@ -11,9 +11,15 @@
   "id": "zaq-emb.19",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Pre-coverage implementation review verdict: REQUEST CHANGES. High: current branch diff violates the approved two-outcome boundary by including live PR B runtime/finalization and unrelated data-source changes; coverage on this superset would not prove A independence. Medium: ChannelHistoryAdmin list summary performs bounded but multiplicative per-row queries (Repo.get, participant count/list, thread count, title/root lookups; up to 50 rows), so list projection should batch summaries or receive an explicitly accepted follow-up before approval. Security, trusted identity, grant provenance, migration preservation and E2E acceptance checks otherwise have direct regression evidence. Coverage has not started and no stale report will be reused.",
+      "timestamp": "2026-10-03T09:35:11Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-emb.19] PR A coverage handoff and review",
   "type": "task",
-  "updated_at": "2026-09-26T09:50:33Z"
+  "updated_at": "2026-10-03T09:35:11Z"
 }
