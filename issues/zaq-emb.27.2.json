@@ -15,11 +15,15 @@
     {
       "text": "History rows now reuse ChannelIcons for both thread/root rows; email/IMAP/SMTP aliases share existing email logo in ChannelIcons. Existing BO history tests pass with final regression set. E2E availability and outcome validation remain open.",
       "timestamp": "2026-10-01T21:13:24Z"
+    },
+    {
+      "text": "Fixed CI regressions: email bridge tests now preserve missing application env keys instead of restoring explicit nil; history ingress explicitly scopes/restores Zaq.Agent.Pipeline; integer upsert test expects canonical string output while preserving integer adapter input. Focused email/history/Jido suites pass; mix q passes; initial mix precommit had unrelated LLMPerformanceFailureTest failure which passed isolated, repeat mix precommit passes.",
+      "timestamp": "2026-10-03T12:12:29Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-emb.27] Fix generic ingress status, numeric identity and email config creation",
   "type": "bug",
-  "updated_at": "2026-10-01T21:13:24Z"
+  "updated_at": "2026-10-03T12:12:29Z"
 }
