@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T14:03:01Z",
+  "description": "Reject replicated source replays with changed effective conversation/placement scope before adopting persisted targets, while preserving post-Person-merge replicas, revoked grants, IDs and positions. Add replay/merge/concurrency regressions. Action reuse: extend canonical capture.",
+  "id": "zaq-emb.27.18",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "Reject conflicting replicated replay scopes",
+  "type": "task",
+  "updated_at": "2026-10-03T14:03:01Z"
+}
