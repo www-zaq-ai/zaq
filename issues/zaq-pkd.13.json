@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-pkd.12"
+  ],
   "blocks": [],
   "created": "2026-10-03T13:03:44Z",
   "description": "## Approved plan task D1\n\n- **Functional scope/files:** add `docs/services/web-bridge.md` as the detailed web protocol owner; link from `docs/services/channels.md`, `docs/README.md`, and Engine guide where needed. Update public module/function docs alongside code. Keep architecture responsibilities in the architecture owner rather than copying rules.\n- **Required contents:** exact module/signature/types; required/optional fields and examples; message→Incoming mapping; command inputs/results; trusted context/capability construction; error taxonomy; event map/topic descriptor; config/runtime/sink contract; sync/async sequences; streaming replacement, ordering and ID distinctions (transport/conversation/transcript/execution); links to canonical-history authorization/pagination and admission/finalization contracts; public payload projection; reconnection/retry guarantees; version compatibility; BO example; widget example; unsupported inbound edit.\n- **Tests/checks before completion:** examples run against conformance fixtures; local links/anchors and names checked against implementation. Do not publish proposed signatures as working APIs.\n- **Branches:** document successful and failed init/history/message flows, missing conversation/topic subscription, sync vs async and disabled config.\n- **Mocking:** reuse C3/C4 fixture, no new production surface.\n- **Action reuse:** not applicable; documentation only.\n- **Done:** an external developer can construct the exact shared inputs and decode every supported output without reading ChatLive or private Engine internals.\n\n## Execution requirements\nBranch: refactor/webbridge. Source: GitHub www-zaq-ai/zaq#830. Read AGENTS.md, docs/exec-plans/PLAN_STRATEGY.md, docs/agent-tools.md, docs/action-reuse.md, docs/testing-approach.md, and applicable service guides before implementation. Shared contracts, module responsibilities, reuse evidence, decisions and regression obligations are in parent zaq-pkd. Write the specified immediate tests first; use real internal boundaries and mock only external edges. Preserve canonical-history authorization, config-scoped delivery and Engine admission/finalization. New/substantially rewritten feature E2E must wait for B3 human approval. Inbound message.edit is excluded; outbound streaming edits remain included.\n",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[830] D1 — Publish one authoritative implemented contract",
   "type": "task",
-  "updated_at": "2026-10-03T13:03:44Z"
+  "updated_at": "2026-10-03T13:03:56Z"
 }
