@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.27.23"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27.6"
+  ],
   "created": "2026-10-03T14:03:14Z",
   "description": "Replace per-row ChannelHistoryAdmin queries with batch projection; enforce constant query budget and zero provider calls on list while retaining detail-only verified root fallback and pagination semantics.",
   "id": "zaq-emb.27.24",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-emb.27.24] Integrate bounded history list projection",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:30Z"
+  "updated_at": "2026-10-03T14:03:42Z"
 }

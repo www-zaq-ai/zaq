@@ -4,6 +4,7 @@
     "zaq-emb.27.18",
     "zaq-emb.27.20",
     "zaq-emb.27.22",
+    "zaq-emb.27.24",
     "zaq-emb.27.5",
     "zaq-emb.27.9",
     "zaq-emb.6"
@@ -32,5 +33,5 @@
   "status": "open",
   "title": "[zaq-emb.27] Verify cross-channel contracts and independent history outcome",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:37Z"
+  "updated_at": "2026-10-03T14:03:42Z"
 }
