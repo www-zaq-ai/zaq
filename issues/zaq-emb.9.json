@@ -27,11 +27,15 @@
     {
       "text": "Post-fix mix q passed with no Credo findings. Combined relevant permission/merge/status/BO test run: 108 tests, 6 properties, 0 failures. Browser inspection attempted at localhost:4010 but blocked by pending unconsumed migration; do not run dev migration until shared scope is finalized. No UI approval requested yet; People UI still pending.",
       "timestamp": "2026-09-23T14:40:05Z"
+    },
+    {
+      "text": "Completed and human-approved on 2026-10-03: connector/channel/thread grouped browsing, Person author/recipient context, inherited stored root, bounded provider fallback, transcript timeline, aggregate ratings/current BO feedback, attachments, trace details, access modal and explicit denied/unavailable/legacy states. Unit/LiveView gate passes 35 tests; approved browser journeys pass 4/4 and full history spec 8/8. Final clean-branch rerun remains under .29/.13.1, not missing UI behavior.",
+      "timestamp": "2026-10-03T09:35:29Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-emb.9] BO canonical history channel/thread and author context",
   "type": "task",
-  "updated_at": "2026-09-26T09:49:50Z"
+  "updated_at": "2026-10-03T09:35:29Z"
 }
