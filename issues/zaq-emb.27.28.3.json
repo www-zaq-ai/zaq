@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.27.28.2"
+  ],
   "blocks": [],
   "created": "2026-10-03T22:44:25Z",
   "description": "Depends .2; migrate regression fixtures to neutral fact input without weakening assertions; test real providers, passive capture/response absence, membership/root fallback, recipient isolation canonical namespace. Read affected module docs. Run mix q, isolated related tests, existing channels/history E2E, final precommit; record pending review/coverage/commit authorization accurately. Docs Channels/Engine; no new feature E2E or UI changes. Action reuse not applicable to validation/docs.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.27.28.3] Verify centralized history integration and update contracts",
   "type": "task",
-  "updated_at": "2026-10-03T22:44:25Z"
+  "updated_at": "2026-10-03T22:44:42Z"
 }
