@@ -9,7 +9,7 @@
   "parent": "zaq-emb.27",
   "priority": 1,
   "status": "open",
-  "title": "Migrate BO archive callers to lifecycle command",
+  "title": "[zaq-emb.27.27] Migrate BO archive callers to lifecycle command",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:23Z"
+  "updated_at": "2026-10-03T14:03:24Z"
 }
