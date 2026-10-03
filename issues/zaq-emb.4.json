@@ -8,6 +8,7 @@
     "zaq-emb.30",
     "zaq-emb.9"
   ],
+  "closed_at": "2026-10-03T09:35:08Z",
   "created": "2026-09-23T13:18:30Z",
   "description": "PR A only — durable capture and authorized access, not runtime consumption. Create/resolve Direct/Shared/Replicated transcripts and persist per-message associations from trusted facts before response-trigger decisions. Retain nonmentions without response; preserve existing explicit triggers; prevent echoes/duplicate public answers. Enforce transcript-path authorization for People/BO/history Action reads, shares, citations, attachments and exports; exclude private execution fields. Thread/root/local and bounded parent projections must not include siblings or bypass grants. Automatic agent hydration, steering, busy/finalizing lifecycle and execution-private writer wiring move to .30 (PR B), .5 and .16.\nFiles: Channels ingress/CommunicationBridge/JidoChatBridge, Engine IncomingMessageRouter/Conversations/authorized read APIs, People/BO/artifact consumers. Reuse existing accounts.fetch_history read operation; no parallel persistence/recall Action. Tests FIRST: passive persistence before gating, denied/nil access, isolation/idempotency, per-message email audience and safe projection; real internal DB/domain paths, external transport/model mocks only. Include Channels/Engine/API documentation in A. One outcome PR, no bead-specific PR; new E2E waits .12.\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.12. No commit/push authorization is implied.",
   "id": "zaq-emb.4",
@@ -76,8 +77,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-10-03T09:35:07Z"
+  "updated_at": "2026-10-03T09:35:08Z"
 }
