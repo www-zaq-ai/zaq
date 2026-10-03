@@ -11,9 +11,15 @@
   "id": "zaq-emb.27.17",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implementation present in working tree: TranscriptHistory now reuses SourceIdentity.valid_scope?/1; added byte-boundary/multibyte/real append tests and engine docs. Exact account_key encoding preserved. Focused combined identity suite: 47 tests/3 properties pass; mix q passes. Dependency ticket remains unstarted/unclosed pending landing policy.",
+      "timestamp": "2026-10-03T14:14:59Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.27.17] Unify source-scope validation and persistence boundaries",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:27Z"
+  "updated_at": "2026-10-03T14:14:59Z"
 }
