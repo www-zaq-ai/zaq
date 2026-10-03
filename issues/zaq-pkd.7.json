@@ -11,9 +11,15 @@
   "id": "zaq-pkd.7",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Automated pre-review: existing knowledge_ops_lead browser journeys passed 9/9 across Firefox, WebKit and Chromium. Journey 1 exercises BO chat send/final answer/source citation after ingestion; Journey 4 verifies unsupported source-chip presentation. Existing test-server logs report non-failing unsupported send_typing events. No new E2E was authored before human approval.",
+      "timestamp": "2026-10-03T14:20:49Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] B3 — Human BO parity review gate",
   "type": "task",
-  "updated_at": "2026-10-03T14:16:36Z"
+  "updated_at": "2026-10-03T14:20:49Z"
 }
