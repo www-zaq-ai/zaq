@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T14:03:09Z",
+  "description": "Resolve configured HistoryEvidence once per ingress and remove provider raw-payload parsing from JidoChatBridge. Preserve passive capture, routing, Telegram chat-local identity and reactions. Integration regressions.",
+  "id": "zaq-emb.27.22",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "Consume normalized history evidence in Jido bridge",
+  "type": "task",
+  "updated_at": "2026-10-03T14:03:09Z"
+}
