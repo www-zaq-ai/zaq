@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T14:03:05Z",
+  "description": "Add configured HistoryProvider contract; delegate membership capabilities/snapshots/root lookup through Bridge/CommunicationBridge and MattermostAdmin. Centralize identifiers and fail closed. Preserve existing events and refresh Action.",
+  "id": "zaq-emb.27.20",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "Delegate history admin through provider capabilities",
+  "type": "task",
+  "updated_at": "2026-10-03T14:03:05Z"
+}
