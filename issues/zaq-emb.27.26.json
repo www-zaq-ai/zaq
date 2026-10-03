@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.27.25"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27.27"
+  ],
   "created": "2026-10-03T14:03:19Z",
   "description": "Add Engine ConnectorLifecycle and ArchiveChannelConnector workflow Action coordinating watch stop, Channels archive leaf and archived cleanup. Trusted actor, ID-only results, retry/partial-failure tests. Reuse DataSources cleanup.",
   "id": "zaq-emb.27.26",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-emb.27.26] Add Engine connector archive coordinator",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:31Z"
+  "updated_at": "2026-10-03T14:03:33Z"
 }

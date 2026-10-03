@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.27.26"
+  ],
   "blocks": [],
   "created": "2026-10-03T14:03:23Z",
   "description": "Replace communication/data-source LiveView archive orchestration with one Engine domain event; preserve confirmation UI and truthful stage-aware flashes. Extend LiveView/integration tests.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.27.27] Migrate BO archive callers to lifecycle command",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:24Z"
+  "updated_at": "2026-10-03T14:03:33Z"
 }
