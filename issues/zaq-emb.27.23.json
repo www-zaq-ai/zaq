@@ -9,7 +9,7 @@
   "parent": "zaq-emb.27",
   "priority": 2,
   "status": "open",
-  "title": "Build batched channel-history projection",
+  "title": "[zaq-emb.27.23] Build batched channel-history projection",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:12Z"
+  "updated_at": "2026-10-03T14:03:13Z"
 }
