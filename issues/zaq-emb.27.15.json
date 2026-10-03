@@ -7,9 +7,15 @@
   "id": "zaq-emb.27.15",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implemented Person-owned canonical history reconciliation in the existing People.merge_persons transaction. Conversations now plans/locks and applies Replicated transcript plus ExecutionRecord ownership transfers before loser deletion; current migration replay remains safe when those later tables do not yet exist. Replica UUIDs, scope keys, source identities, placements, and permission resources remain unchanged and separate. Post-merge new capture prefers the survivor canonical replica or deterministically continues a transferred replica; source replay resolves exact persisted placements and canonicalizes duplicate merged owners without restoring revoked grants. Capture takes Person key-share locks to coordinate deletion/merge. Regression-first coverage reproduces the original FK failure and verifies execution transfer, BO owner projection, loser-only continuation, overlapping/shared copies, outsider permission isolation, replay idempotency, and outer transaction rollback. Action reuse: extended People.merge_persons + Conversations canonical storage; existing PeopleGateway/UpdatePerson Action already route through it, so no new Action/tool/workflow operation. Validation: 181 tests +13 properties across merge/concurrency/email migration/history/admin/permissions/rating suites, zero failures; mix q and git diff --check pass. No commit/push.",
+      "timestamp": "2026-10-03T08:52:07Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.27] Define Person merge handling for transcript owners",
   "type": "bug",
-  "updated_at": "2026-10-03T08:30:31Z"
+  "updated_at": "2026-10-03T08:52:07Z"
 }
