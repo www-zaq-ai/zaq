@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T14:02:57Z",
+  "description": "Forward migration messages.source_account_key varchar(255) to text; preserve bytes, unique partial index and checks. Add migration tests for long/escaped scopes, uniqueness, round-trip/down refusal. Action reuse: not applicable; schema extension.",
+  "id": "zaq-emb.27.16",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "Widen canonical source-account storage safely",
+  "type": "task",
+  "updated_at": "2026-10-03T14:02:57Z"
+}
