@@ -14,9 +14,15 @@
   "id": "zaq-emb.11",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Fresh migration assurance 2026-10-03: isolated empty DB applied the full chain and all five PR A target migrations. A separate populated pre-PR DB was migrated through the baseline (including the already-shipped 20260927150000 migration), seeded with Person/connector/channel, legacy conversation, unscoped and provider messages, rating, metadata, trace and attachments, then upgraded. Verified original conversation/message/rating UUIDs and evidence unchanged; one restricted legacy transcript with two ordered placements created; connector/Person link preserved; membership_state, person_identity_id and history_context additions valid. No repair migration or DB reset. Temporary DBs dropped. Current focused suite: 200 tests, 7 properties, 0 failures; mix q passes.",
+      "timestamp": "2026-10-03T09:35:09Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-emb.11] PR A integrated documentation and validation",
   "type": "task",
-  "updated_at": "2026-09-26T09:50:40Z"
+  "updated_at": "2026-10-03T09:35:09Z"
 }
