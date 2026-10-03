@@ -17,11 +17,15 @@
     {
       "text": "PR A cutover implementation: append-only 20260926000000 restricted legacy transcript migration plus forward-only 20260926000001 for provider-stamped admitted messages without canonical placement. No old applied migrations rewritten; messages retain UUIDs, conversation IDs, ratings, attachments, private traces. Idempotence and Person-read denial tested; BO super-admin can inspect restricted projection, grants and fresh Person reads denied. Branch-isolated development DB migrated through 00001; no populated database changed. Remaining scope: evaluate unusual legacy attachment/ref formats and staged migration safety before declaring completed.",
       "timestamp": "2026-09-26T22:21:39Z"
+    },
+    {
+      "text": "Completed append-only legacy restriction/fresh canonical cutover. UUIDs, conversations, ratings, attachments, traces and audit projection are preserved; fresh and historical migration regressions, empty-chain migration, and merge-time table-absence compatibility pass. No development-data repair or inferred legacy audience.",
+      "timestamp": "2026-10-03T09:03:28Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.15] Legacy canonical migration and fresh-history cutover",
   "type": "task",
-  "updated_at": "2026-09-26T22:21:39Z"
+  "updated_at": "2026-10-03T09:03:28Z"
 }
