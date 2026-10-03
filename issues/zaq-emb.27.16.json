@@ -9,9 +9,15 @@
   "id": "zaq-emb.27.16",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Implemented forward source_account_key varchar(255)-\u003etext migration with lossless down guard and migration regression. Existing key bytes/index/check semantics preserved. Focused combined identity suite: 47 tests/3 properties pass; mix q passes. Not committed/closed because commit authorization has not been given.",
+      "timestamp": "2026-10-03T14:14:54Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.27.16] Widen canonical source-account storage safely",
   "type": "task",
-  "updated_at": "2026-10-03T14:03:54Z"
+  "updated_at": "2026-10-03T14:14:54Z"
 }
