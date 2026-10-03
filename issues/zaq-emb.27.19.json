@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-03T14:03:02Z",
+  "description": "Create Channels-owned email settings snapshot/save domain operation and confidential SaveEmailConnector Action; authoritative ID/provider validation, encryption errors, SMTP binding and runtime outcome. Add domain/Action/API tests. Reuse ChannelConfig and existing routing Action; no tool exposure.",
+  "id": "zaq-emb.27.19",
+  "labels": [],
+  "parent": "zaq-emb.27",
+  "priority": 1,
+  "status": "open",
+  "title": "Add Channels email connector settings operation",
+  "type": "task",
+  "updated_at": "2026-10-03T14:03:02Z"
+}
