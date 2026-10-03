@@ -7,9 +7,15 @@
   "id": "zaq-emb.27.28",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Neutral-boundary implementation is now in the uncommitted working tree. Replaces the former HistoryEvidence/HistoryProvider plan rather than completing it: existing Bridge.to_internal emits conversation_type, provider-local integrations normalize once on listener ingress and own Discord enrichment; no history-specific config. Engine CommunicationPolicy owns kind/title derivation, receives nonmentions through receive_incoming_message and interprets delivery confirmations through History.Delivery. Bridge room_capabilities/room_members/fetch_room_message are consumer-neutral. Receipts use audience/source_scope/conversation_id; Channels preserves send success with confirmation_recording unavailable if Engine transport fails. Canonical IDs, account encoding, cursor and prior remediation preserved. mix q passed; affected regression run passed 1536 tests and 26 properties. Issue-scoped commit/landing remains blocked by no commit authorization; do not close dependent issues or treat this as final approval. Existing E2E and final precommit remain to rerun.",
+      "timestamp": "2026-10-03T23:16:04Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Centralize history decisions in Engine and normalize communication facts in Channels",
   "type": "task",
-  "updated_at": "2026-10-03T22:43:53Z"
+  "updated_at": "2026-10-03T23:16:04Z"
 }
