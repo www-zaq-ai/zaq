@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-pkd.5"
   ],
+  "closed_at": "2026-10-03T13:40:22Z",
   "created": "2026-10-03T13:03:36Z",
   "description": "## Approved plan task A3\n\n- **Functional scope/files:** `web/delivery.ex`, `web/response.ex`, `web_bridge.ex` and Channels status-map conversion. Reuse existing Outgoing.routing_context propagation and config-scoped connection helpers unchanged unless a concrete gap is demonstrated. Provide the BO descriptor, response mapping and temporary legacy descriptor for unmigrated callers.\n- **Behavior:** preserve status intent, full-content streaming, final metadata and error fallback. Retain stable correlation through routing/Agent/persistence/Channels hops. Keep opaque web transport context out of generic domain decisions and out of public payloads.\n- **Tests before implementation:** round-trip message → Incoming → Outgoing → status/final delivery through real Channels API; a test must catch the current status-map metadata loss. Verify result metadata cannot override the trusted destination, unknown descriptors fail safely, other providers keep their existing shapes, and BO consumers receive only their session's events.\n- **Branches:** status-only, stream replacement, completion with/without persistence ID, pipeline rejection, dispatch failure, missing context, malformed descriptor, duplicate fallback source, two simultaneous sessions, two config-scoped outgoing destinations, invalid scoped config ID and BO without config. Verify the status-upsert map preserves the new opaque context after existing connector selection.\n- **Mocking:** actual PubSub with unique topics; external model only where pipeline execution is necessary.\n- **Documentation:** semantic response table, wire descriptor, correlation and delivery guarantees; mark legacy compatibility removal task B4.\n- **Action reuse:** local-only transport transformation and publication, reusing existing `:upsert_message`/`:deliver_outgoing`. No new message persistence or duplicate agent execution.\n- **Done:** the shared contract works end-to-end while the old BO path still works during migration.\n\n## Execution requirements\nBranch: refactor/webbridge. Source: GitHub www-zaq-ai/zaq#830. Read AGENTS.md, docs/exec-plans/PLAN_STRATEGY.md, docs/agent-tools.md, docs/action-reuse.md, docs/testing-approach.md, and applicable service guides before implementation. Shared contracts, module responsibilities, reuse evidence, decisions and regression obligations are in parent zaq-pkd. Write specified immediate tests first; use real internal boundaries and mock only external edges. Preserve canonical-history authorization, config-scoped delivery and Engine admission/finalization. New/substantially rewritten feature E2E must wait for B3 human approval. Inbound message.edit is excluded; outbound streaming edits remain included.\n\n\n## Sequencing\nBlocked by zaq-pkd.3 (A2).\nBlocks zaq-pkd.5 (B1).\nHuman BO approval: zaq-pkd.7. Persistent consolidated E2E/regression issue: zaq-pkd.8. Widget decision gate: zaq-pkd.9.\n",
   "id": "zaq-pkd.4",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[830] A3 — Implement normalized delivery and preserve transport context across the pipeline",
   "type": "task",
-  "updated_at": "2026-10-03T13:39:45Z"
+  "updated_at": "2026-10-03T13:40:22Z"
 }
