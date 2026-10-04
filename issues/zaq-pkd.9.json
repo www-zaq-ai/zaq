@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-pkd.10"
   ],
+  "closed_at": "2026-10-04T08:54:33Z",
   "created": "2026-10-03T13:03:41Z",
   "description": "## Approved plan task C1\n\n\n\n## Execution requirements\nBranch: refactor/webbridge. Source: GitHub www-zaq-ai/zaq#830. Read AGENTS.md, docs/exec-plans/PLAN_STRATEGY.md, docs/agent-tools.md, docs/action-reuse.md, docs/testing-approach.md, and applicable service guides before implementation. Shared contracts, module responsibilities, reuse evidence, decisions and regression obligations are in parent zaq-pkd. Write specified immediate tests first; use real internal boundaries and mock only external edges. Preserve canonical-history authorization, config-scoped delivery and Engine admission/finalization. New/substantially rewritten feature E2E must wait for B3 human approval. Inbound message.edit is excluded; outbound streaming edits remain included.\n\n\n## Sequencing\nBlocked by zaq-pkd.8 (B4).\nBlocks zaq-pkd.10 (C2).\nHuman BO approval: zaq-pkd.7. Persistent consolidated E2E/regression issue: zaq-pkd.8. Widget decision gate: zaq-pkd.9.\n",
   "id": "zaq-pkd.9",
@@ -30,8 +31,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[830] C1 — Freeze widget identity, protocol and external-package integration decisions",
   "type": "task",
-  "updated_at": "2026-10-04T08:53:58Z"
+  "updated_at": "2026-10-04T08:54:33Z"
 }
