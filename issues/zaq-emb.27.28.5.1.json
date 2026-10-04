@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.27.28.5.2"
+  ],
   "created": "2026-10-04T07:25:39Z",
   "description": "Extend/rehome existing EmailConnectorSettings and SaveEmailConnector, no duplicated operation or tool exposure. Move snapshot/save/default Engine API handling, current BO actor authorization and BO event destinations. Preserve Zoi schemas, exact connector scope, forms and result/error semantics. Tests first Engine confidential/current actor/valid selection/persistence; migrate existing settings/API/schema tests and retain BO integration assertions. Runtime depends on supplied-config seam step; approved change integrated before landing. Validate focused tests and mix q; preserve all user staging.",
   "id": "zaq-emb.27.28.5.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[email settings] Move persistence Action and BO boundary to Engine",
   "type": "task",
-  "updated_at": "2026-10-04T07:25:39Z"
+  "updated_at": "2026-10-04T07:26:01Z"
 }
