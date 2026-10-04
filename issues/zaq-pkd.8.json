@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-pkd.9"
   ],
+  "closed_at": "2026-10-04T07:53:45Z",
   "created": "2026-10-03T13:03:40Z",
   "description": "## Approved plan task B4\n\n- **Functional scope/files:** affected tests, any approved E2E suite, and removal of the old BO tuple/direct-Incoming paths after repository reference checks. Delete temporary compatibility code only once every caller is migrated and equivalent regression coverage is established.\n- **Tests before removal:** assert all supported BO flows use the shared ingress and response contracts. Implement consolidated E2E after B3; preserve existing scenario assertions. Include two sessions and a stale-response/new-chat journey.\n- **Branches:** full A0 parity matrix, unavailable services, failure fallback, empty and restored histories, session isolation.\n- **Mocking:** same isolated external fixtures; no production test branches.\n- **Documentation:** mark BO contract implemented and retire legacy examples; record passing validation and the exact compatibility removals.\n- **Action reuse:** not applicable to coverage/cleanup; no new business operations.\n- **Done:** BO migration reviewed, its isolated suites and `mix q` pass, and no production ChatLive dependency on legacy tuples remains. Widget implementation is now unblocked. Follow full workflow gates if landing this phase as its own PR.\n\n## Execution requirements\nBranch: refactor/webbridge. Source: GitHub www-zaq-ai/zaq#830. Read AGENTS.md, docs/exec-plans/PLAN_STRATEGY.md, docs/agent-tools.md, docs/action-reuse.md, docs/testing-approach.md, and applicable service guides before implementation. Shared contracts, module responsibilities, reuse evidence, decisions and regression obligations are in parent zaq-pkd. Write specified immediate tests first; use real internal boundaries and mock only external edges. Preserve canonical-history authorization, config-scoped delivery and Engine admission/finalization. New/substantially rewritten feature E2E must wait for B3 human approval. Inbound message.edit is excluded; outbound streaming edits remain included.\n\n\n## Sequencing\nBlocked by zaq-pkd.7 (B3).\nBlocks zaq-pkd.9 (C1).\nHuman BO approval: zaq-pkd.7. Persistent consolidated E2E/regression issue: zaq-pkd.8. Widget decision gate: zaq-pkd.9.\nTrack E2E scenarios here during A/B implementation; defer new/substantially rewritten journey authoring until B3 human approval. Never depend on parent closure.\n",
   "id": "zaq-pkd.8",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[830] B4 — Consolidated regression coverage, compatibility removal and phase gate",
   "type": "task",
-  "updated_at": "2026-10-04T07:53:36Z"
+  "updated_at": "2026-10-04T07:53:45Z"
 }
