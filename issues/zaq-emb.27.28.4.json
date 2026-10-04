@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-04T06:52:17Z",
+  "description": "User requested Zoi migration for SaveEmailConnector, ArchiveChannelConnector and RefreshChannelHistoryMembership. Extend existing Actions only; no business operation, ownership, tool exposure or authorization changes. Replace input/output NimbleOptions schemas with Zoi objects, preserving required fields, optional refresh fields, nil/new/exact connector selection and tuple/map result shapes. Tests first: schema identity, required/malformed rejection, optional fields, nullable selection, output validation, workflow contract and Jido.Exec authorization/domain behavior. Run focused existing connector/membership/BO tests and mix q. Preserve staged/uncommitted user work including the user's CommunicationPolicy typing fix. No commit/push authorization.",
+  "id": "zaq-emb.27.28.4",
+  "labels": [],
+  "parent": "zaq-emb.27.28",
+  "priority": 2,
+  "status": "open",
+  "title": "[PR #835] Migrate affected Action schemas to Zoi",
+  "type": "task",
+  "updated_at": "2026-10-04T06:52:17Z"
+}
