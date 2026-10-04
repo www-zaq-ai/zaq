@@ -27,11 +27,15 @@
     {
       "text": "Validation-tool timeout resolved without disabling checks: ERL_FLAGS='+S 2:2' mix q PASS (18494 mods/funs). Focused new-domain/WebBridge suite PASS: 27 tests and 1 property, including private widget final projection. Wider combined suite had an MCP readiness failure (client_not_ready in pre-existing BO tool-call test); targeted retry interrupted by server restart and is being recovered from logs/restarted only where incomplete. Scratch plan reconciled to lazy readiness and first-message receipts. No commits/pushes. Remaining gate is successful relevant regression validation, then C3 lifecycle/conformance and C4 runtime.",
       "timestamp": "2026-10-04T11:09:49Z"
+    },
+    {
+      "text": "C2 validation complete: current mix q PASS; focused shared ingress/widget identity/history regression set PASS (56 tests, 3 properties), including real sync/async NodeRouter/Agent/Repo/external-HTTP conformance and full assistant canonical-history recovery. Prior Engine/config/canonical regression group PASS 242 tests plus 2 properties. BO MCP timeout case that failed under resource contention now PASS in final targeted default-scheduler retry (1 test, 95 excluded); no assertions or MCP production code changed. Scratch plan and C2/C3 descriptions reconciled with lazy init while preserving execution/sequencing sections. Action reuse: People connector-scoped identity, existing conversation/add_message/admission/finalization, Facts/Direct capture, canonical authorized reader and HistoryDelivery; new Engine facade only composes trusted private binding. Source remains uncommitted, final broader review/coverage/precommit still pending.",
+      "timestamp": "2026-10-04T11:33:54Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] C2 — Integrate widget identity/init with existing authorized canonical history",
   "type": "task",
-  "updated_at": "2026-10-04T11:28:27Z"
+  "updated_at": "2026-10-04T11:33:54Z"
 }
