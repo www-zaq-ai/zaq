@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-pkd.11"
   ],
@@ -18,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[830] C4 — Specify and implement ZAQ runtime/configuration integration seams",
   "type": "task",
-  "updated_at": "2026-10-04T11:30:01Z"
+  "updated_at": "2026-10-04T11:36:19Z"
 }
