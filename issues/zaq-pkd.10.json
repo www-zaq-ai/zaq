@@ -1,6 +1,7 @@
 {
   "assignee": "Julien",
   "blocked_by": [
+    "zaq-pkd.10.1",
     "zaq-pkd.9"
   ],
   "blocks": [
@@ -15,5 +16,5 @@
   "status": "in_progress",
   "title": "[830] C2 — Integrate widget identity/init with existing authorized canonical history",
   "type": "task",
-  "updated_at": "2026-10-04T09:01:31Z"
+  "updated_at": "2026-10-04T09:05:45Z"
 }
