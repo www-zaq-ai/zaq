@@ -29,11 +29,15 @@
     {
       "text": "Post-rebase test gate blocked before test execution: PostgreSQL localhost:5432 refuses connections; pg_isready -h localhost -p 5432 confirms no response. No tests counted or attributed to source failures. git diff --check PASS and branch divergence is 7/0 (updated parent entirely included). Test compile passed after schema alias port. Fixed previously reported cyclomatic issue via small acknowledgement-normalization extraction without changing error/permission assertions. DB-independent mix q is running. Recovery stash and backup branch remain; working source is uncommitted and no push occurred.",
       "timestamp": "2026-10-04T18:19:56Z"
+    },
+    {
+      "text": "Post-rebase mix q PASS on final alias-order cleanup: hooks verification, strict Credo, docs and warnings-as-errors compilation all passed. Cyclomatic regression resolved by local acknowledgement helper extraction without weakening explicit-error or unexpected-response assertions. Test execution still blocked before any test starts because localhost:5432 is unavailable (confirmed pg_isready no response). Updated parent commits and their Jido assertion fix are incorporated; no duplicate Jido fix, no new implementation commit or push. Backup ref and recovery stash remain intact. Final application validation/coverage approval remains unclaimed.",
+      "timestamp": "2026-10-04T18:23:19Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-04T18:19:56Z"
+  "updated_at": "2026-10-04T18:23:19Z"
 }
