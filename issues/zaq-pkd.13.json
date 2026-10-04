@@ -11,9 +11,15 @@
   "id": "zaq-pkd.13",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "D1 complete in working tree: docs/services/web-bridge.md owns implemented v1 constructors, fields, canonical mapping, trust, command/response tables, public projection, ID/order, error taxonomy, timeout/recovery and runtime configuration. Channels overview, Engine responsibility boundary and docs index link to this owner. docs/guides/web-widget-integration.md provides shared constructors/config-bound sink walkthrough and verified executable fixture paths; external endpoint/session/origin/subscription verification remains explicitly adapter-owned. Corrected default events/payload maps against constructors. Local targets/anchors checked; feature regressions passed 443 tests and 5 properties. No Git mutations. Final precommit failed wider tests and remains a separately tracked gate, not a documentation or endpoint-security pass claim.",
+      "timestamp": "2026-10-04T13:22:08Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] D1 — Publish one authoritative implemented contract",
   "type": "task",
-  "updated_at": "2026-10-04T12:30:55Z"
+  "updated_at": "2026-10-04T13:22:08Z"
 }
