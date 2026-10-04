@@ -33,11 +33,15 @@
     {
       "text": "Post-rebase mix q PASS on final alias-order cleanup: hooks verification, strict Credo, docs and warnings-as-errors compilation all passed. Cyclomatic regression resolved by local acknowledgement helper extraction without weakening explicit-error or unexpected-response assertions. Test execution still blocked before any test starts because localhost:5432 is unavailable (confirmed pg_isready no response). Updated parent commits and their Jido assertion fix are incorporated; no duplicate Jido fix, no new implementation commit or push. Backup ref and recovery stash remain intact. Final application validation/coverage approval remains unclaimed.",
       "timestamp": "2026-10-04T18:23:19Z"
+    },
+    {
+      "text": "Database restored by user and available. Rebased test compilation exposed stale history_kind in widget-specific helper/fixture: upstream RoutingContext now carries neutral conversation_type and Engine CommunicationPolicy selects history. Updated WebBridge to stamp :one_to_one, removed obsolete caller strategy opts, and made Engine private-chat validation reuse CommunicationPolicy.kind/1 rather than reading a removed field. Preserved literal sender/config/private ownership checks and seeded canonical history. Canonical protocol mapping updated. Focused rebased regression run is underway. Further review identified widget settings validation should be shared pure value validation rather than Engine.ChannelConfig depending on Channels.Web.Runtime after schema relocation; planned local-only extraction preserves its contract and avoids an Engine-to-Channels dependency. No new Action/tool or permission behavior.",
+      "timestamp": "2026-10-04T18:29:25Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-04T18:23:19Z"
+  "updated_at": "2026-10-04T18:29:25Z"
 }
