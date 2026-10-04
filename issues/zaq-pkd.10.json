@@ -11,9 +11,15 @@
   "id": "zaq-pkd.10",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Latest user correction supersedes eager-init scope: widget.init validates configuration/sender/readiness and optionally authorizes resume, creating no conversation or transcript. First message triggers lazy creation via existing Engine admission. Optional prompt_context is an ordinary first user history message persisted immediately before the real question using existing add_message semantics; no separate Agent run, no new context type or title-generation distinction. Context can generate the title, explicitly approved. Empty-transcript prerequisite zaq-pkd.10.1 withdrawn and dependency removed. Documentation must describe implemented behavior only; decisions remain in Beadwork until implementation passes. Continue with existing uncommitted changes and no Git mutations until authorized. Source audit: web is globally BO-special-cased in identity/routing; native web_widget provider/Person channel is the clean channel-scoped identity path and preserves BO without generic modules inspecting opaque widget keys. Verify and test existing channel resolution/canonical capture before exposing widget contract.",
+      "timestamp": "2026-10-04T09:24:32Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] C2 — Integrate widget identity/init with existing authorized canonical history",
   "type": "task",
-  "updated_at": "2026-10-04T09:18:01Z"
+  "updated_at": "2026-10-04T09:24:32Z"
 }
