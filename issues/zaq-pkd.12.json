@@ -20,11 +20,15 @@
     {
       "text": "C4 uncommitted implementation now provides server-only runtime_builder construction through existing Bridge lifecycle and real BridgeSupervisor, config-derived widget_id, shared constructors and fixed config-bound NodeRouter sink. Added display/domain/local-style validation, unchanged-runtime idempotence, changed restart, disable/removal snapshot teardown, missing-builder/startup failure and connector isolation tests. Bootstrap discovers host builders without widget-specific branching. Runtime/shared-supervisor focused set previously passed 48 tests; latest expanded scoped set passed 140 tests and 3 properties before final structural cleanup. Current refreshed mix q PASS (18567 mods/funs); broad BO/Engine/Channels regression rerun is underway. Added canonical runtime documentation and docs/guides/web-widget-integration.md; 78 local link targets verified. Shared restart prerequisite .12.1 remains open only until current regression run completes; no commits/pushes. External endpoint mounting/auth/session/origin/subscription acceptance remains adapter-owned and is not claimed from fixtures.",
       "timestamp": "2026-10-04T12:28:14Z"
+    },
+    {
+      "text": "C4 implementation and handoff now in uncommitted tree. WebBridge reuses Bridge start/stop/sync; trusted runtime_builder supplies specs and shared constructor/config-bound sink hooks. Generic bootstrap recognizes host builders as runtime providers. Widget ID derives from connector ID; presentation/origin/local-style settings validated via shared runtime contract. Existing runtime-free BO behavior preserved. Configured sink delegates only normalized Message/Command plus matching trusted Context through Channels :web_ingress/NodeRouter. Added actual construction/lifecycle/config/sink fixtures and moved conformance ingress to the published sink. Handoff: docs/guides/web-widget-integration.md, linked from canonical service guide and docs index; 78 local link targets verified. Current quality gate PASS (18567 mods/funs, all checks enabled). Focused suite PASS (140 tests, 3 properties); broader BO/Engine regression rerun is running after final helper cleanup. No package endpoint/origin/session acceptance claim and no Git mutations. Startup/restart prerequisite remains open until refreshed relevant tests complete.",
+      "timestamp": "2026-10-04T12:29:13Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] C4 — Specify and implement ZAQ runtime/configuration integration seams",
   "type": "task",
-  "updated_at": "2026-10-04T12:28:14Z"
+  "updated_at": "2026-10-04T12:29:13Z"
 }
