@@ -4,7 +4,8 @@
     "zaq-pkd.8"
   ],
   "blocks": [
-    "zaq-pkd.10"
+    "zaq-pkd.10",
+    "zaq-pkd.10.1"
   ],
   "closed_at": "2026-10-04T08:54:33Z",
   "created": "2026-10-03T13:03:41Z",
@@ -34,5 +35,5 @@
   "status": "closed",
   "title": "[830] C1 — Freeze widget identity, protocol and external-package integration decisions",
   "type": "task",
-  "updated_at": "2026-10-04T09:01:13Z"
+  "updated_at": "2026-10-04T09:05:12Z"
 }
