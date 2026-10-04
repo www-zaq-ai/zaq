@@ -13,11 +13,15 @@
     {
       "text": "Final precommit normal-scheduler result: 48 doctests, 213 properties, 10258 tests, 17 failures, one skipped (101 excluded). Quality passed. One confirmed C4 regression is malformed listener-spec error/log taxonomy vs existing EmailBridge assertion; fixed to preserve {:invalid_child_spec, spec} before any state startup. Remaining failures span Workflow batch dispatch, Telegram replay, EmailBridge acknowledgement, Jido updates, async SQL sandbox contention and integration timeouts; isolation reruns in progress, no assumption yet that they are unrelated. No assertions weakened, no commits/pushes, no final approval requested. D1 protocol owner/handoff authored and linked; numerical coverage remains after implementation review approval per workflow.",
       "timestamp": "2026-10-04T13:21:27Z"
+    },
+    {
+      "text": "Additional routing regression traced to 0786bbc1 (B1): strict result normalization incorrectly treats canonical {:ok, :duplicate_incoming} admission as an error. Extended existing CommunicationBridge normalizer to acknowledge that explicit no-op receipt, with a focused single-dispatch assertion; unexpected-response assertion remains unchanged. Reuse assessment: extend existing role-dispatch normalization, local-only transport coordination, no new Action/tool/domain permission or execution path. The earlier malformed-spec compatibility fix passed 43 targeted tests (75 excluded). Isolated full failing suites are running serially; remaining unknown-response behavior is not silently relaxed, and no assertion has been weakened.",
+      "timestamp": "2026-10-04T13:25:21Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-04T13:21:27Z"
+  "updated_at": "2026-10-04T13:25:21Z"
 }
