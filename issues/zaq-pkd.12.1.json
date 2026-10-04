@@ -13,5 +13,5 @@
   "status": "in_progress",
   "title": "[830] Preserve runtime lookup and teardown after supervised child restart",
   "type": "bug",
-  "updated_at": "2026-10-04T11:47:08Z"
+  "updated_at": "2026-10-04T11:47:10Z"
 }
