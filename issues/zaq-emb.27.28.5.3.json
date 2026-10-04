@@ -7,9 +7,15 @@
   "id": "zaq-emb.27.28.5.3",
   "labels": [],
   "parent": "zaq-emb.27.28.5",
+  "comments": [
+    {
+      "text": "Implemented approved scoped ownership move, uncommitted. Engine.ChannelConfig now owns unchanged Ecto table/query/encryption/default contracts; all code/schema references updated, no data migration. Engine.ConnectorLifecycle now owns context/3, scope/revision checks, watch ordering and locked archive persistence. Confidential Channels connector_teardown_ingress(config) and connector_sync_runtime(before/after maps) delegate only provider stages to new ConnectorRuntime, with no Repo/current BO lookup. Added supplied-config overload for ingress deletion (exact selected connector), retained legacy provider-only path outside scope. Archive stop retries intentionally remain effective for already-disabled persisted rows. Pure SMTP/IMAP lookup and settings projections moved/extracted to Zaq.ConnectorConfig; Channels mailbox/listener normalization remains local, Engine no longer imports it. Existing archive/save Actions and Zoi preserved; no new Action/tool exposure. Migrated archive tests and added revision-race, sibling/secret-free outcomes, Repo-free real email runtime retry and lookup property tests. Final affected PASS2025 tests/24properties. mix q PASS +S1:1 after alias/nesting fixes, no exclusion/config weakening. Existing browser runs:61/64 then3/3 failed-case rerun; repeat63/64 then1/1 rerun. Readiness/dialog timeouts intermittent, stable combined browser gate not established; no assertions changed. First broad regression exposed provider mismatch error contract; restored connector_not_found instead of weakening test. Authoritative service docs/handoff updated; old source/event reference audit and whitespace clean. Review/coverage/final precommit remain pending. No staging/index/commit/push actions; user work retained.",
+      "timestamp": "2026-10-04T09:16:50Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Move connector persistence and archive ownership to Engine; split pure email helpers",
   "type": "task",
-  "updated_at": "2026-10-04T09:15:40Z"
+  "updated_at": "2026-10-04T09:16:50Z"
 }
