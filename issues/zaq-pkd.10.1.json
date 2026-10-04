@@ -9,9 +9,15 @@
   "id": "zaq-pkd.10.1",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Withdrawn by user decision: widget.init must not create a conversation or transcript. First message performs lazy conversation creation through existing Engine admission; optional prompt_context becomes an ordinary user seed immediately before the first real question. Existing title-generation behavior is explicitly retained, including a seed-generated title. No empty-transcript initializer is needed or will be implemented. No code changes were made for this prerequisite.",
+      "timestamp": "2026-10-04T09:18:14Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] Initialize empty authorized canonical history for widget binding",
   "type": "task",
-  "updated_at": "2026-10-04T09:18:01Z"
+  "updated_at": "2026-10-04T09:18:14Z"
 }
