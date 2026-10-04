@@ -41,11 +41,15 @@
     {
       "text": "Rebased core regressions PASS: 440 tests, 4 properties, no failures across widget contracts/runtime/conformance, WebBridge ingress/BO, shared supervisor, Email/Jido/Telegram and private Engine conversations. Post-rebase one-to-one fact migration confirmed through real pipeline/history conformance. Shared WidgetSettings extraction follows red-first tests (2 examples/2 properties missing module as expected), then one implementation reused by Engine schema and Runtime delegation; preserves existing limits/errors and endpoint-owned enforcement. Exact-authority and connector-derived-ID properties plus persistence/runtime integration are validating now. Decision: local-only pure connector value contract, not an Action or tool; eliminates Engine schema dependency on Channels runtime introduced by the ownership move. No commits/pushes or test weakening.",
       "timestamp": "2026-10-04T18:34:53Z"
+    },
+    {
+      "text": "Current issue checks complete and green after DB recovery, neutral one-to-one fact migration and shared settings extraction: mix q PASS, changed shared/domain/validator suite PASS 48 tests/5 properties, broader core suite PASS 440 tests/4 properties, BO/role/history suite PASS 360 tests/2 properties, Engine config/runtime validator suite PASS 62 tests/2 properties, approved existing BO E2E PASS 9/9 across Firefox/WebKit/Chromium. Added exhaustive nil/room/recipient-addressed rejection test proving no private conversation or seed persistence. Docs source mapping includes Engine CommunicationPolicy and shared WidgetSettings; 91 local links checked, git diff --check PASS. Implementation ready for review/handoff acceptance. Per workflow, dedicated numerical coverage awaits implementation review approval, followed by final mix precommit against any coverage/review fixes. Previous pre-rebase precommit failure report is historical, not a current final-gate pass/failure. No new implementation commits or pushes; recovery refs remain.",
+      "timestamp": "2026-10-04T18:44:31Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-04T18:34:53Z"
+  "updated_at": "2026-10-04T18:44:31Z"
 }
