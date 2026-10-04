@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-04T08:19:59Z",
+  "description": "Approved next scoped refactor. Reuse ChannelConfig schema/table/query contracts in Engine; merge scope/revision/archive persistence into existing Engine.ConnectorLifecycle and reuse ArchiveChannelConnector Action/Zoi. Channels keeps confidential supplied-config teardown and runtime stages only, no Repo or BO actor reload in archive path. Move pure SMTP settings helper to neutral namespace; extract pure IMAP settings access shared with Engine while bridge/listener normalization stays Channels. Update schema references and regressions without claiming remaining legacy Channels DB consumers isolated. Tests first archive ordering, stale revisions, retries, no Repo in runtime leaf; affected suites+mix q. Preserve user staging, no commit/push. Action reuse: extend existing archive command, local-only pure parsing/schema CRUD internals, no new tool exposure.",
+  "id": "zaq-emb.27.28.5.3",
+  "labels": [],
+  "parent": "zaq-emb.27.28.5",
+  "priority": 2,
+  "status": "open",
+  "title": "Move connector persistence and archive ownership to Engine; split pure email helpers",
+  "type": "task",
+  "updated_at": "2026-10-04T08:19:59Z"
+}
