@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-04T10:41:02Z",
+  "description": "User requested finalization, not Git publishing. Re-review current uncommitted seven-finding remediation plus neutral communication/Engine email/schema/archive ownership and runtime-only archive stop; inspect issue768 and current PR835 context. Run existing browser regressions without weakening assertions, track human UX approval/new-feature E2E gates separately. After technical review pass use configured coverage-upper process: fresh coveralls.json600s then coverup; stop on failure, no stale report, approved scope test-only fixes delegated per instructions. Final precommit900s after implementation/review/coverage/E2E completed. Preserve all staging/user changes, no commit/push/merge. Record evidence and handoff actual fix SHAs only after Git authorization.",
+  "id": "zaq-emb.27.28.6",
+  "labels": [],
+  "parent": "zaq-emb.27.28",
+  "priority": 2,
+  "status": "open",
+  "title": "Finalize PR 835 remediation review, browser regressions and coverage gates",
+  "type": "task",
+  "updated_at": "2026-10-04T10:41:02Z"
+}
