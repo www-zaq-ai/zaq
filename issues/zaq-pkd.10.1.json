@@ -4,6 +4,7 @@
     "zaq-pkd.9"
   ],
   "blocks": [],
+  "closed_at": "2026-10-04T09:18:23Z",
   "created": "2026-10-04T09:04:55Z",
   "description": "C2 audit prerequisite: TranscriptHistory.capture/3 and prepare_capture/3 require message content; there is no public empty-transcript initializer. Widget init without prompt_context still requires an explicit authorized binding. Extend the existing TranscriptHistory owner and Conversations facade to ensure strategy targets/grants atomically without inserting a message, reusing Facts/Strategy, connector validation, transcript resolution and grant seeding. Define a focused internal initialization Action delegating to this owner only if required by the Action reuse gate; never expose it as an agent tool or accept arbitrary browser Facts. No new seeding subsystem: optional prompt_context continues through existing add_message persistence. Contract: verified Facts + provider/config/source provenance in; transcript IDs per actor/owner out, idempotent retry; reject missing/inactive Person, disabled/archived/mismatched config and invalid scope. Preserve revoked grants on reuse. Tests first: empty Direct initialized/readable, no Message or placement, repeated initialization same IDs, no regrant after revocation, denied foreign Person, malformed input, disabled connector rollback. Action assessment: reuse existing private ensure_transcript/seed_history_grants and canonical reader; extend storage API because capture would require a fabricated message. No new storage or public endpoint. Widget-specific ownership stays outside generic storage.",
   "id": "zaq-pkd.10.1",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[830] Initialize empty authorized canonical history for widget binding",
   "type": "task",
-  "updated_at": "2026-10-04T09:18:14Z"
+  "updated_at": "2026-10-04T09:18:23Z"
 }
