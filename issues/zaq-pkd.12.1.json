@@ -9,9 +9,15 @@
   "id": "zaq-pkd.12.1",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Implemented shared current-child tracking in a separate parent-owned private ETS index, preserving the existing public runtime table shape. Start MFA records replacement PIDs after automatic state/listener restarts; lookup/teardown and rollback resolve replacements, including a terminate/not-found race. Added malformed listener-spec validation before any state startup. Focused current code tests passed: 140 tests and 3 properties across widget contracts/runtime/request owner/conformance/domain/config and shared supervisor suites. mix q caught two local issues (unused Map return and nested rollback loop); fixed by explicit required-start binding and shared stop_listener_children helper. Final refreshed quality run is pending. No unrelated assertions or dependencies changed; no commits/pushes.",
+      "timestamp": "2026-10-04T12:25:47Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] Preserve runtime lookup and teardown after supervised child restart",
   "type": "bug",
-  "updated_at": "2026-10-04T11:47:10Z"
+  "updated_at": "2026-10-04T12:25:47Z"
 }
