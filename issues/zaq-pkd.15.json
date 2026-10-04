@@ -25,11 +25,15 @@
     {
       "text": "User authorized rebasing onto updated feature/issue-768-history-a-integration instead of duplicating its pre-existing fixes. Rebase complete: base 73df6235 contains f634e990 CI isolation/receipt fix and 73df6235 boundary updates; seven WebBridge commits replayed, HEAD now 99b306e2. Resolved committed conflicts preserving Engine-owned ChannelConfig, DeliveryConfirmation/ConnectorRuntime/Settings, shared web ingress and agent-hop option without reintroducing the removed capture_history caller flag. Preserved uncommitted tracked/untracked source in stash 9170531076d53062f57afa0cbd06de93c03bb5cb and recovery branch backup/webbridge-pre-history-rebase-20261004; restored all 10 untracked files byte-for-byte before adapting schema aliases. Resolved two stash conflicts preserving upstream confidential connector archival alongside widget conversation action. Working changes remain uncommitted/unstaged; no push, no new implementation commit. Test compilation with warnings-as-errors PASS after migrating new helper/fixtures to Engine.ChannelConfig. Focused post-rebase tests including upstream integer receipt fix are running. All prior validation is historical and must be rerun on rebased code; recovery refs intentionally retained.",
       "timestamp": "2026-10-04T18:18:14Z"
+    },
+    {
+      "text": "Post-rebase test gate blocked before test execution: PostgreSQL localhost:5432 refuses connections; pg_isready -h localhost -p 5432 confirms no response. No tests counted or attributed to source failures. git diff --check PASS and branch divergence is 7/0 (updated parent entirely included). Test compile passed after schema alias port. Fixed previously reported cyclomatic issue via small acknowledgement-normalization extraction without changing error/permission assertions. DB-independent mix q is running. Recovery stash and backup branch remain; working source is uncommitted and no push occurred.",
+      "timestamp": "2026-10-04T18:19:56Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-04T18:18:14Z"
+  "updated_at": "2026-10-04T18:19:56Z"
 }
