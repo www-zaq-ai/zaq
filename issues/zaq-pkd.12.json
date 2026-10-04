@@ -24,11 +24,15 @@
     {
       "text": "C4 implementation and handoff now in uncommitted tree. WebBridge reuses Bridge start/stop/sync; trusted runtime_builder supplies specs and shared constructor/config-bound sink hooks. Generic bootstrap recognizes host builders as runtime providers. Widget ID derives from connector ID; presentation/origin/local-style settings validated via shared runtime contract. Existing runtime-free BO behavior preserved. Configured sink delegates only normalized Message/Command plus matching trusted Context through Channels :web_ingress/NodeRouter. Added actual construction/lifecycle/config/sink fixtures and moved conformance ingress to the published sink. Handoff: docs/guides/web-widget-integration.md, linked from canonical service guide and docs index; 78 local link targets verified. Current quality gate PASS (18567 mods/funs, all checks enabled). Focused suite PASS (140 tests, 3 properties); broader BO/Engine regression rerun is running after final helper cleanup. No package endpoint/origin/session acceptance claim and no Git mutations. Startup/restart prerequisite remains open until refreshed relevant tests complete.",
       "timestamp": "2026-10-04T12:29:13Z"
+    },
+    {
+      "text": "C4 complete on the uncommitted branch. Current mix q PASS (18567 mods/funs); completed broader BO/Engine/Channels regressions PASS (443 tests, 5 properties, 0 failures). Runtime/config/shared sink fixtures and actual sync/async conformance included. Restart prerequisite .12.1 completed; existing lifecycle infrastructure extended rather than replaced. Documentation/source responsibility review complete, 78 local links checked, git diff --check passed. No installed endpoint or external-package security acceptance claim. Final mix precommit is running separately; numerical coverage/final human approval remain later workflow gates. No commits or pushes.",
+      "timestamp": "2026-10-04T12:30:41Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] C4 — Specify and implement ZAQ runtime/configuration integration seams",
   "type": "task",
-  "updated_at": "2026-10-04T12:29:13Z"
+  "updated_at": "2026-10-04T12:30:41Z"
 }
