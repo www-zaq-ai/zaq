@@ -7,9 +7,15 @@
   "id": "zaq-emb.27.28.4",
   "labels": [],
   "parent": "zaq-emb.27.28",
+  "comments": [
+    {
+      "text": "Implemented Zoi object input/output schemas in all three affected Actions, using @schema/@output_schema and preserving the original field types/requiredness, nil/new/exact selection, wrapped tuple results and authorization. Added connector_action_schema_test.exs: red-before-green schema representation test, required-field property, optional/malformed input and output tests, workflow contract and Jido.Exec rejection/authorization coverage. Final focused suite PASS 294 tests +1 property; mix q PASS with ERL_FLAGS='+S 4:4' (default-scheduler ExDNA timed out twice; no check exclusions/config changes). git diff --check PASS. Updated existing handoff to mark prior full precommit as predating this follow-up and the user's type fix. No edits to CommunicationPolicy or Git staging; no commit/push authorization. Issue remains open for authorized landing; final review/coverage/precommit still separate.",
+      "timestamp": "2026-10-04T07:07:49Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[PR #835] Migrate affected Action schemas to Zoi",
   "type": "task",
-  "updated_at": "2026-10-04T06:52:23Z"
+  "updated_at": "2026-10-04T07:07:49Z"
 }
