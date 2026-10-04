@@ -7,9 +7,15 @@
   "id": "zaq-emb.27.28.5",
   "labels": [],
   "parent": "zaq-emb.27.28",
+  "comments": [
+    {
+      "text": "Approved email ownership migration implemented in the working tree. Engine.EmailConnectorSettings and Engine.Actions.SaveEmailConnector now own snapshots/save/SMTP binding/default selection/current BO authorization; BO settings events target Engine. Engine emits confidential supplied-config sync_provider_runtime after persistence, with exact ID and resolved bounded runtime fields. Channels accepts supplied config without ChannelConfig/Repo/BOActor reload and reuses existing provider callback; enabled IMAP edits restart only that runtime, disabled applies idempotent stop. Legacy provider-only sync/bootstrap/delivery/attachment/archive DB paths deliberately unchanged. Tests first failed on old boundary; new standalone Channels runtime tests use no SQL ownership or stored connector, real EmailBridge callback and transport-only adapter fixture. Final affected suite PASS405 tests+2properties; mix q PASS with ERL_FLAGS='+S 1:1' after ExDNA's internal5s timeout at4/8schedulers; no quality checks bypassed/changed. git whitespace check and obsolete source-reference scan clean. Authoritative docs and existing handoff updated; prior full precommit/browser gates explicitly historical. No new UI/E2E authoring, commit/push/staging or user typing edits. Child landing remains open pending authorized commits; no claim of full node isolation or final approval.",
+      "timestamp": "2026-10-04T07:58:13Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Move email settings persistence to Engine for isolated Channels",
   "type": "task",
-  "updated_at": "2026-10-04T07:25:30Z"
+  "updated_at": "2026-10-04T07:58:13Z"
 }
