@@ -11,9 +11,15 @@
   "id": "zaq-pkd.8",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "B4 implemented and validated 2026-10-04. Removed flat WebBridge.to_internal BO compatibility, metadata-selected legacy send/upsert delivery, and standalone status_update/pipeline_result ChatLive handlers. Characterization scenarios now deliver normalized Response envelopes. Fixed late-result leakage by clearing current_request_id on new chat, successful restoration and active-conversation deletion. Added consolidated E2E for send/resume/message info, two-session isolation and delayed completion after new chat; delay confined to test-only LLM fixture, completion observed through persisted history. Updated channels service contracts. Migrated default bridge fixture to trusted delivery and replaced flaky VM-wide atom-count property with generated-input interning assertions. Validation: mix q passed; 368 tests + 1 property passed; existing/new E2E 18/18 passed on Firefox/WebKit/Chromium; git diff --check passed; production legacy handler/caller audit clear. Action reuse: local-only UI correlation reset; no new business operations/Actions, existing shared ingress and Engine operations retained. Changes uncommitted pending Git authorization. Final PR coverage/precommit gate remains for V1; no final approval requested at this issue boundary.",
+      "timestamp": "2026-10-04T07:53:36Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] B4 — Consolidated regression coverage, compatibility removal and phase gate",
   "type": "task",
-  "updated_at": "2026-10-04T07:14:14Z"
+  "updated_at": "2026-10-04T07:53:36Z"
 }
