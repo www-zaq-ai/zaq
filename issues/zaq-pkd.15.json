@@ -17,11 +17,15 @@
     {
       "text": "Additional routing regression traced to 0786bbc1 (B1): strict result normalization incorrectly treats canonical {:ok, :duplicate_incoming} admission as an error. Extended existing CommunicationBridge normalizer to acknowledge that explicit no-op receipt, with a focused single-dispatch assertion; unexpected-response assertion remains unchanged. Reuse assessment: extend existing role-dispatch normalization, local-only transport coordination, no new Action/tool/domain permission or execution path. The earlier malformed-spec compatibility fix passed 43 targeted tests (75 excluded). Isolated full failing suites are running serially; remaining unknown-response behavior is not silently relaxed, and no assertion has been weakened.",
       "timestamp": "2026-10-04T13:25:21Z"
+    },
+    {
+      "text": "Isolation complete: 7/12 previously failing files passed; remaining Telegram/ingestion/canonical failures are SQL sandbox checkout errors. EmailBridge acknowledgement regression is deterministic and comes from our B1 shared normalizer change (0786bbc1). Added a generic explicit acknowledgement-only option and enabled it only at the existing EmailBridge caller; default strict response assertion remains intact and acknowledgement mode still propagates {:error, :unauthorized}. Canonical duplicate admission is separately acknowledged without a second routing dispatch. Serial quality/relevant regression/remaining failure verification is running. Jido integer receipt assertion also fails deterministically; its source and test last changed in baseline 2fde2a58 before this refactor, not our commits. That existing contract conflict is not silently fixed or attributed to current source changes. No altered assertions or Git mutations.",
+      "timestamp": "2026-10-04T13:31:13Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-04T13:25:21Z"
+  "updated_at": "2026-10-04T13:31:13Z"
 }
