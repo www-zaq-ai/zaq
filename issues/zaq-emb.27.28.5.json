@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-04T07:25:30Z",
+  "description": "User approved incremental Repo-free Channels boundary for the email settings slice, not full node isolation. Engine owns email connector snapshots, writes, SMTP binding/default validation, encrypted persistence and current BO authorization; existing ChannelConfig schema remains in place. Move SaveEmailConnector preserving Zoi contracts. Engine sends exact saved connector runtime config through confidential NodeRouter event; Channels applies supplied configuration without Repo or BO actor DB resolution. Extend existing sync_provider_runtime operation's supplied-config form, retaining legacy provider-only paths outside scope. Use existing EmailBridge.sync_provider_runtime callback so enabled IMAP edits restart listener. Post-save dispatch/runtime failure remains saved/pending. Preserve prior staged/user work and typing fix. Planned child steps Engine operation/BO move, Repo-free runtime seam/integration/tests/docs. No commit/push authorization.",
+  "id": "zaq-emb.27.28.5",
+  "labels": [],
+  "parent": "zaq-emb.27.28",
+  "priority": 2,
+  "status": "open",
+  "title": "Move email settings persistence to Engine for isolated Channels",
+  "type": "task",
+  "updated_at": "2026-10-04T07:25:30Z"
+}
