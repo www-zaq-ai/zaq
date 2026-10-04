@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-pkd.12"
+  ],
   "created": "2026-10-04T11:46:19Z",
   "description": "C4 prerequisite discovered by real supervisor tests: runtime lookup reports not_running after permanent state child restart; stop leaves replacement alive. Extend existing BridgeSupervisor child-start/tracking boundary to retain current state/listener PIDs across restarts, preserving public runtime map and adapter callbacks. Local-only OTP lifecycle implementation, not an Action/tool; no domain permission or transport payload change. Add state/listener restart/teardown and startup rollback tests, preserve supervisor regressions, mix q plus isolated tests before completion. Two red state tests already verified. No commits/pushes.",
   "id": "zaq-pkd.12.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[830] Preserve runtime lookup and teardown after supervised child restart",
   "type": "bug",
-  "updated_at": "2026-10-04T11:46:56Z"
+  "updated_at": "2026-10-04T11:47:01Z"
 }
