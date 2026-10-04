@@ -9,9 +9,15 @@
   "id": "zaq-pkd.15",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Final precommit normal-scheduler result: 48 doctests, 213 properties, 10258 tests, 17 failures, one skipped (101 excluded). Quality passed. One confirmed C4 regression is malformed listener-spec error/log taxonomy vs existing EmailBridge assertion; fixed to preserve {:invalid_child_spec, spec} before any state startup. Remaining failures span Workflow batch dispatch, Telegram replay, EmailBridge acknowledgement, Jido updates, async SQL sandbox contention and integration timeouts; isolation reruns in progress, no assumption yet that they are unrelated. No assertions weakened, no commits/pushes, no final approval requested. D1 protocol owner/handoff authored and linked; numerical coverage remains after implementation review approval per workflow.",
+      "timestamp": "2026-10-04T13:21:27Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-03T13:05:02Z"
+  "updated_at": "2026-10-04T13:21:27Z"
 }
