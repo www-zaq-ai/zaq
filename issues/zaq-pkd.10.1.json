@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-pkd.9"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-pkd",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[830] Initialize empty authorized canonical history for widget binding",
   "type": "task",
-  "updated_at": "2026-10-04T09:05:45Z"
+  "updated_at": "2026-10-04T09:05:51Z"
 }
