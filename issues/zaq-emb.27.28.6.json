@@ -15,11 +15,15 @@
     {
       "text": "User authorized fresh retry after Context Mode restoration; doctor passes. No old coveralls VM at start. Ran gates sequentially. Fresh coverage+S2:2 failed application startup BridgeSupervisor database checkout5665ms; DB TCP5432 reachable, no-start config inspection succeeds, pool4 because schedulers2. One bounded recovery to original+S4:4(pool8) fresh coveralls.json timed out600000ms, partial failure ChunkVerbatimIngestionTest section4 retrieval sandbox checkout199ms and MCP Registry Finch transport CaseClauseError; no final totals/verified successful report. No coverup/stale-report use. Chromium72-case channels/system_config/history retry completed71passes/1People access cold-defaults readiness timeout at support/bo.js:19 (waitForFunction15000ms); prior history failures passed. Isolated People access rerun timed out240s before test totals, own launched process group terminated. No checks/assertions/retry settings modified. Coverage/browser gates still blocked by current execution failures; final precommit remains pending per lifecycle, no final approval/Git mutation. Completed re-review and533test/2property/mixq results remain unchanged-tree evidence, not a current full gate.",
       "timestamp": "2026-10-04T12:01:52Z"
+    },
+    {
+      "text": "User explicitly authorized committing and pushing incomplete local gates for GitHub CI. Published remediation commit73df6235b71ce02b159c477a389d7c77ed1d3005 to origin feature/issue-768-history-a-integration/PR835. 178files; no source changes beyond reviewed remediation/user-preserved fixes, plus validation/publication notes. Initial default-scheduler commit hook ExDNA5000ms timeout; retry ERL_FLAGS='+S1:1' passed qf (18470mods/funs, no issues) and commit-message hook; push format hook passed. Working tree clean after commit. CI confirmed started for exact SHA: E2E run37205952354 and Elixir CI37205952376 in_progress; gitleaks/Protect opencode workflow/Semantic PR Title success. Final coverage/browser/current-tree full precommit still unresolved locally, no merge or final approval, ticket remains in_progress pending CI/follow-up. Fix SHA now exists but dependent PRB integration still waits verified landed contracts.",
+      "timestamp": "2026-10-04T13:32:29Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Finalize PR 835 remediation review, browser regressions and coverage gates",
   "type": "task",
-  "updated_at": "2026-10-04T12:01:52Z"
+  "updated_at": "2026-10-04T13:32:29Z"
 }
