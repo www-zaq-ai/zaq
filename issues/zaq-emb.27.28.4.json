@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-04T06:52:17Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-emb.27.28",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[PR #835] Migrate affected Action schemas to Zoi",
   "type": "task",
-  "updated_at": "2026-10-04T06:52:17Z"
+  "updated_at": "2026-10-04T06:52:23Z"
 }
