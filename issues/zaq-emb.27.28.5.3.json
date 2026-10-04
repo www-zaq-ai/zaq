@@ -15,11 +15,15 @@
     {
       "text": "Approved follow-up fixes archive runtime reconciliation: reuse existing Bridge stop_runtime/1 callback via configured bridge resolution, not generic sync_config_runtime or fabricated enabled=true state. Preserve confidential supplied-config event and exact connector validation; internal stage of existing Archive Action, no new Action/behaviour. Tests first real JidoChatBridge webhook path with transport/runtime collaborators only, initial delete once, retry zero deletes, stop failures truthful pending, missing runtime idempotent and sibling isolation/Repo-free application. Correct stale handoff. Focused lifecycle/bridge/email/data-source suites and mix q; final review/coverage/precommit and Git authorization remain pending.",
       "timestamp": "2026-10-04T10:02:46Z"
+    },
+    {
+      "text": "Quality gate exposed duplicate positive-ID parsing already introduced by the ownership move. Bounded fix reuses existing ParseUtils.parse_int_strict/1 plus positive-value check in Engine.ConnectorLifecycle (local-only scope parsing, not a new operation/Action); exact integer/string/no-trailing-data contracts unchanged. Also correcting prior alias-order findings; no unrelated logic refactor.",
+      "timestamp": "2026-10-04T10:15:17Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Move connector persistence and archive ownership to Engine; split pure email helpers",
   "type": "task",
-  "updated_at": "2026-10-04T10:02:46Z"
+  "updated_at": "2026-10-04T10:15:17Z"
 }
