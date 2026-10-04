@@ -19,11 +19,15 @@
     {
       "text": "Quality gate exposed duplicate positive-ID parsing already introduced by the ownership move. Bounded fix reuses existing ParseUtils.parse_int_strict/1 plus positive-value check in Engine.ConnectorLifecycle (local-only scope parsing, not a new operation/Action); exact integer/string/no-trailing-data contracts unchanged. Also correcting prior alias-order findings; no unrelated logic refactor.",
       "timestamp": "2026-10-04T10:15:17Z"
+    },
+    {
+      "text": "Archive reconciliation finding FIXED in working tree. ConnectorRuntime resolves configured bridge and calls existing stop_runtime/1 directly; synthetic enabled=true and generic update callback removed. Runtime event shape/exact identity validation unchanged; collaborator runtime overrides now implement stop_runtime/1. Regression first red: real Jido initial archive and retry returned ingress_teardown_failed/already_deleted. Final green: 533tests+2properties, mix q (+S1:1) clean, whitespace clean. Real Engine/Jido tests use adapter transport and supervisor collaborators, prove delete once, sibling runtime preserved, persisted archive with truthful pending stop failure, retry no deletion, ordinary disable still tears down ingress. Separate Channels ExUnit (not DataCase, no Sandbox owner/persisted connector) runs real Jido stop/retry with adapter methods that raise on any provider webhook IO. Removed misleading Task-in-shared-DataCase no-ownership test in favor of actual standalone fixture. Prior positive-ID parser duplication corrected via ParseUtils.parse_int_strict preserving exact-positive ID contract and adding malformed-ID regression; prior alias ordering corrected, no check exclusions. Updated authoritative Channels docs and stale handoff paragraph/latest results. No new feature UI/E2E tests, no staging/index/commit/push. Existing browser flakiness, review/coverage/final precommit and authorized landing remain pending; HEAD f634e990cc91f2974c7fda54ace5bb3958a56d63.",
+      "timestamp": "2026-10-04T10:30:42Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Move connector persistence and archive ownership to Engine; split pure email helpers",
   "type": "task",
-  "updated_at": "2026-10-04T10:15:17Z"
+  "updated_at": "2026-10-04T10:30:42Z"
 }
