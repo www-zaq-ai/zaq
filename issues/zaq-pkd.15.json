@@ -21,11 +21,15 @@
     {
       "text": "Isolation complete: 7/12 previously failing files passed; remaining Telegram/ingestion/canonical failures are SQL sandbox checkout errors. EmailBridge acknowledgement regression is deterministic and comes from our B1 shared normalizer change (0786bbc1). Added a generic explicit acknowledgement-only option and enabled it only at the existing EmailBridge caller; default strict response assertion remains intact and acknowledgement mode still propagates {:error, :unauthorized}. Canonical duplicate admission is separately acknowledged without a second routing dispatch. Serial quality/relevant regression/remaining failure verification is running. Jido integer receipt assertion also fails deterministically; its source and test last changed in baseline 2fde2a58 before this refactor, not our commits. That existing contract conflict is not silently fixed or attributed to current source changes. No altered assertions or Git mutations.",
       "timestamp": "2026-10-04T13:31:13Z"
+    },
+    {
+      "text": "User authorized rebasing onto updated feature/issue-768-history-a-integration instead of duplicating its pre-existing fixes. Rebase complete: base 73df6235 contains f634e990 CI isolation/receipt fix and 73df6235 boundary updates; seven WebBridge commits replayed, HEAD now 99b306e2. Resolved committed conflicts preserving Engine-owned ChannelConfig, DeliveryConfirmation/ConnectorRuntime/Settings, shared web ingress and agent-hop option without reintroducing the removed capture_history caller flag. Preserved uncommitted tracked/untracked source in stash 9170531076d53062f57afa0cbd06de93c03bb5cb and recovery branch backup/webbridge-pre-history-rebase-20261004; restored all 10 untracked files byte-for-byte before adapting schema aliases. Resolved two stash conflicts preserving upstream confidential connector archival alongside widget conversation action. Working changes remain uncommitted/unstaged; no push, no new implementation commit. Test compilation with warnings-as-errors PASS after migrating new helper/fixtures to Engine.ChannelConfig. Focused post-rebase tests including upstream integer receipt fix are running. All prior validation is historical and must be rerun on rebased code; recovery refs intentionally retained.",
+      "timestamp": "2026-10-04T18:18:14Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-04T13:31:13Z"
+  "updated_at": "2026-10-04T18:18:14Z"
 }
