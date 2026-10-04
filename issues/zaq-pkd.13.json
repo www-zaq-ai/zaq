@@ -15,11 +15,15 @@
     {
       "text": "D1 complete in working tree: docs/services/web-bridge.md owns implemented v1 constructors, fields, canonical mapping, trust, command/response tables, public projection, ID/order, error taxonomy, timeout/recovery and runtime configuration. Channels overview, Engine responsibility boundary and docs index link to this owner. docs/guides/web-widget-integration.md provides shared constructors/config-bound sink walkthrough and verified executable fixture paths; external endpoint/session/origin/subscription verification remains explicitly adapter-owned. Corrected default events/payload maps against constructors. Local targets/anchors checked; feature regressions passed 443 tests and 5 properties. No Git mutations. Final precommit failed wider tests and remains a separately tracked gate, not a documentation or endpoint-security pass claim.",
       "timestamp": "2026-10-04T13:22:08Z"
+    },
+    {
+      "text": "D1 detailed owner is docs/services/web-bridge.md, linked from Channels, Engine and docs index. Includes verified constructors/defaults, Message-to-Incoming mapping, closed commands, scoped sender/author identity, exact public and BO projection/event fields, ordering/IDs, lazy creation/seeding/resume, bounded history, timeout/recovery, runtime-builder/sink and unsupported inbound edit/legacy inputs. Channels detailed duplication removed. Examples are schematic with named trusted inputs and correspond to actual shared-constructor/config-bound sink conformance (443 tests/5 properties previously passed). Checked 90 local link targets and new runtime anchors; no missing targets. Adjusted omitted Delivery events and Response payload defaults to match constructors. Documentation-only Action reuse not applicable. Full final gate has failures being isolated; no overall approval or external endpoint/security claim. No commits/pushes.",
+      "timestamp": "2026-10-04T13:22:16Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] D1 — Publish one authoritative implemented contract",
   "type": "task",
-  "updated_at": "2026-10-04T13:22:08Z"
+  "updated_at": "2026-10-04T13:22:16Z"
 }
