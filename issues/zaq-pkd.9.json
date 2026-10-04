@@ -19,11 +19,15 @@
     {
       "text": "Identity audit: Channels IdentityScope defaults non-attested platforms to connector:\u003cconfig_id\u003e; People.IdentityResolver validates provider/config and resolves external author through People.match_by_channel/3 and find_or_create_from_channel. Current IdentityResolver.resolve/2 treats every :web provider as BO (:bo_user), so widget identity must be distinguished explicitly rather than inheriting trusted BO identity. Canonical history requires persisted Person + trusted config/transcript scope and grants; directory lookup alone does not authenticate the asserted user_id. Proposed mapping: platform web_widget, authority connector:\u003cwidget config id\u003e, identifier parent-app user_id. Pending human decision: signed parent-app assertion vs authenticated server relay (or specified verified alternative); absent/invalid assertion must not authenticate as the claimed Person.",
       "timestamp": "2026-10-04T08:07:10Z"
+    },
+    {
+      "text": "Approved identity/endpoint decision synchronized into epic sections 1/3/4/11 and C1-C4/D1-D2 task descriptions, retaining execution requirements and dependency chain. External adapter verifies parent user_id and supplies trusted sender_id; host maps it to shared author_id, resolves connector-scoped web_widget People identity, and separately authorizes Engine operations. ZAQ imposes no bearer/proof format and owns no widget endpoint. Endpoint security acceptance belongs to actual external adapter, not fixture conformance. Current reader bounds verified: after_position \u003e= 0, optional up_to_position \u003e= cursor, default limit 50, max 100. Direct history uses explicit participant grants via ChannelHistoryResource and no membership synchronization. Remaining C1 choices to confirm before C2: private Person/widget/chat binding with fail-closed resume; prompt-context input/lifetime/projection; synchronous wait/timeout semantics. Proposed history wire preserves existing bounds. Proposed created notification stays in synchronous initialization response, not pre-subscription PubSub. No widget implementation started.",
+      "timestamp": "2026-10-04T08:38:53Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] C1 — Freeze widget identity, protocol and external-package integration decisions",
   "type": "task",
-  "updated_at": "2026-10-04T08:36:47Z"
+  "updated_at": "2026-10-04T08:38:53Z"
 }
