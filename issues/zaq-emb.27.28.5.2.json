@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-04T07:25:55Z",
+  "description": "Extend existing CommunicationBridge.sync_provider_runtime/1 with supplied-config form and confidential Channels API event. Engine prepares bounded exact saved config with runtime secrets after persistence and dispatches via NodeRouter, no direct bridge call or provider reload. Channels uses static bridge resolution and provider callback, no BOActor/ChannelConfig/Repo lookup in new path. Real EmailBridge callback restarts enabled IMAP edits; disabled stops exact runtime. Tests first standalone Channels no sandbox/canonical row, two configs/updated payload/decrypted credentials/confidentiality/idempotent failure and post-save timeout pending. Keep bootstrap/delivery/attachment/archival legacy DB dependencies out of scope. Update authoritative docs/handoff; affected q/tests and existing E2E regression as applicable. No new feature E2E authoring or commit/push.",
+  "id": "zaq-emb.27.28.5.2",
+  "labels": [],
+  "parent": "zaq-emb.27.28.5",
+  "priority": 2,
+  "status": "open",
+  "title": "[email runtime] Apply exact supplied settings without Channels Repo access",
+  "type": "task",
+  "updated_at": "2026-10-04T07:25:55Z"
+}
