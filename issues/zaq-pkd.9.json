@@ -15,11 +15,15 @@
     {
       "text": "User identity decision 2026-10-04: widget relays a user_id from the parent application where deployed; resolve this external identity through the People directory, treating web_widget as a Person channel, analogous to JidoChat adapter identification. This is not a choice of People bearer authentication. Before implementation, audit existing adapter identity resolution and config scoping; explicitly resolve how parent-app asserted user_id is authenticated/trusted so browser-forged identities cannot impersonate another Person. Remaining C1 decisions are still open.",
       "timestamp": "2026-10-04T08:06:09Z"
+    },
+    {
+      "text": "Identity audit: Channels IdentityScope defaults non-attested platforms to connector:\u003cconfig_id\u003e; People.IdentityResolver validates provider/config and resolves external author through People.match_by_channel/3 and find_or_create_from_channel. Current IdentityResolver.resolve/2 treats every :web provider as BO (:bo_user), so widget identity must be distinguished explicitly rather than inheriting trusted BO identity. Canonical history requires persisted Person + trusted config/transcript scope and grants; directory lookup alone does not authenticate the asserted user_id. Proposed mapping: platform web_widget, authority connector:\u003cwidget config id\u003e, identifier parent-app user_id. Pending human decision: signed parent-app assertion vs authenticated server relay (or specified verified alternative); absent/invalid assertion must not authenticate as the claimed Person.",
+      "timestamp": "2026-10-04T08:07:10Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] C1 — Freeze widget identity, protocol and external-package integration decisions",
   "type": "task",
-  "updated_at": "2026-10-04T08:06:09Z"
+  "updated_at": "2026-10-04T08:07:10Z"
 }
