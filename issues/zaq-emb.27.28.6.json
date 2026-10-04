@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-04T10:41:02Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "zaq-emb.27.28",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Finalize PR 835 remediation review, browser regressions and coverage gates",
   "type": "task",
-  "updated_at": "2026-10-04T10:41:02Z"
+  "updated_at": "2026-10-04T10:41:16Z"
 }
