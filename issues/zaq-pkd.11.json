@@ -11,9 +11,15 @@
   "id": "zaq-pkd.11",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "C3 execution design before implementation: one bounded temporary Channels request owner per widget message, under existing BridgeSupervisor (no new supervision hierarchy). It subscribes to an unpredictable internal PubSub topic before dispatch; only a serializable Delivery snapshot/topic crosses role hops. Cluster PubSub routes updates from any Agent/Channels node back to the owner on the ingress Channels node, with no PID/function/credential in metadata. The owner maps safe semantic updates, emits stable assistant create-before-edit/step and one terminal, and cleans up on completion/failure/TTL. Sync awaits one terminal with server-configured 30s default; timeout returns unknown outcome without cancelling accepted work and later history remains recovery. Async returns first-message conversation-created or existing-chat accepted receipt before pipeline execution completes. Raw traces/tool calls are already excluded from widget final projection; BO unchanged. Event serialization/request bookkeeping is local-only; reuse existing NodeRouter admission/finalization and PubSub delivery, no Action/tool exposure.",
+      "timestamp": "2026-10-04T11:13:45Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[830] C3 — Extend shared contracts and delivery mapping for widget conformance",
   "type": "task",
-  "updated_at": "2026-10-04T09:01:45Z"
+  "updated_at": "2026-10-04T11:13:45Z"
 }
