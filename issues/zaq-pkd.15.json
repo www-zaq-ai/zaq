@@ -37,11 +37,15 @@
     {
       "text": "Database restored by user and available. Rebased test compilation exposed stale history_kind in widget-specific helper/fixture: upstream RoutingContext now carries neutral conversation_type and Engine CommunicationPolicy selects history. Updated WebBridge to stamp :one_to_one, removed obsolete caller strategy opts, and made Engine private-chat validation reuse CommunicationPolicy.kind/1 rather than reading a removed field. Preserved literal sender/config/private ownership checks and seeded canonical history. Canonical protocol mapping updated. Focused rebased regression run is underway. Further review identified widget settings validation should be shared pure value validation rather than Engine.ChannelConfig depending on Channels.Web.Runtime after schema relocation; planned local-only extraction preserves its contract and avoids an Engine-to-Channels dependency. No new Action/tool or permission behavior.",
       "timestamp": "2026-10-04T18:29:25Z"
+    },
+    {
+      "text": "Rebased core regressions PASS: 440 tests, 4 properties, no failures across widget contracts/runtime/conformance, WebBridge ingress/BO, shared supervisor, Email/Jido/Telegram and private Engine conversations. Post-rebase one-to-one fact migration confirmed through real pipeline/history conformance. Shared WidgetSettings extraction follows red-first tests (2 examples/2 properties missing module as expected), then one implementation reused by Engine schema and Runtime delegation; preserves existing limits/errors and endpoint-owned enforcement. Exact-authority and connector-derived-ID properties plus persistence/runtime integration are validating now. Decision: local-only pure connector value contract, not an Action or tool; eliminates Engine schema dependency on Channels runtime introduced by the ownership move. No commits/pushes or test weakening.",
+      "timestamp": "2026-10-04T18:34:53Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[830] V1 — Final review, coverage handoff and validation",
   "type": "task",
-  "updated_at": "2026-10-04T18:29:25Z"
+  "updated_at": "2026-10-04T18:34:53Z"
 }
