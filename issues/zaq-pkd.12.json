@@ -11,9 +11,15 @@
   "id": "zaq-pkd.12",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "C4 reuse discovery: Zaq.Channels.Bridge.__using__/1 already owns start/stop/sync callbacks, build_runtime_specs/1, runtime_supervisor_module/0 and runtime_bridge_id/1; BridgeSupervisor.start_runtime/3 already owns child-spec startup, listener tracking and cleanup. Extend these existing lifecycle operations, do not create another supervisor or duplicate process bookkeeping. Proposed host construction seam: configured web_widget runtime_builder supplies adapter-owned state/listener child specs plus shared Message/Command/Context builders and a fixed trusted sink; no package dependency cycle, payload-selected modules or ZAQ-owned widget endpoint. Preserve BO's runtime-free fallback. Configuration identity derives from channel config ID, never user widget_id. This is discovery only; C4 implementation/tests wait for C2/C3 gates.",
+      "timestamp": "2026-10-04T11:30:01Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[830] C4 — Specify and implement ZAQ runtime/configuration integration seams",
   "type": "task",
-  "updated_at": "2026-10-04T09:01:59Z"
+  "updated_at": "2026-10-04T11:30:01Z"
 }
