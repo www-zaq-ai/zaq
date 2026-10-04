@@ -11,9 +11,15 @@
   "id": "zaq-pkd.9",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "User identity decision 2026-10-04: widget relays a user_id from the parent application where deployed; resolve this external identity through the People directory, treating web_widget as a Person channel, analogous to JidoChat adapter identification. This is not a choice of People bearer authentication. Before implementation, audit existing adapter identity resolution and config scoping; explicitly resolve how parent-app asserted user_id is authenticated/trusted so browser-forged identities cannot impersonate another Person. Remaining C1 decisions are still open.",
+      "timestamp": "2026-10-04T08:06:09Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] C1 — Freeze widget identity, protocol and external-package integration decisions",
   "type": "task",
-  "updated_at": "2026-10-04T07:53:51Z"
+  "updated_at": "2026-10-04T08:06:09Z"
 }
