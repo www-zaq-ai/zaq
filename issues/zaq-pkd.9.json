@@ -23,11 +23,15 @@
     {
       "text": "Approved identity/endpoint decision synchronized into epic sections 1/3/4/11 and C1-C4/D1-D2 task descriptions, retaining execution requirements and dependency chain. External adapter verifies parent user_id and supplies trusted sender_id; host maps it to shared author_id, resolves connector-scoped web_widget People identity, and separately authorizes Engine operations. ZAQ imposes no bearer/proof format and owns no widget endpoint. Endpoint security acceptance belongs to actual external adapter, not fixture conformance. Current reader bounds verified: after_position \u003e= 0, optional up_to_position \u003e= cursor, default limit 50, max 100. Direct history uses explicit participant grants via ChannelHistoryResource and no membership synchronization. Remaining C1 choices to confirm before C2: private Person/widget/chat binding with fail-closed resume; prompt-context input/lifetime/projection; synchronous wait/timeout semantics. Proposed history wire preserves existing bounds. Proposed created notification stays in synchronous initialization response, not pre-subscription PubSub. No widget implementation started.",
       "timestamp": "2026-10-04T08:38:53Z"
+    },
+    {
+      "text": "C1 domain decisions approved by user 2026-10-04: private chat per resolved Person/widget config with explicit conversation/transcript binding, Direct participant grants and fail-closed resume; server-configurable sync wait default 30s, one terminal response, timeout unknown outcome without cancellation/retry, history recovery. Prompt context is creation-only first ordinary user history message, no Agent execution/reply, visible authorized history, no reseeding on resume. User explicitly requires reusing existing seeding/persistence mechanism, not building a new subsystem. Existing reuse evidence: Engine :conversation/:add_message dispatch, Conversations.add_message/2; BO persist_welcome_message demonstrates command-free initialization persistence, canonical capture must be composed rather than duplicated. Reader bounds remain default 50/max 100 and existing position cursors. Initialization creation indication remains synchronous before subscription. Host construction hook creates ZAQ-owned structs from adapter-normalized facts/trusted sender without cyclic dependency; exact signatures follow implementation conformance. Updated approved plan, epic and dependent task descriptions; documented approved-but-unimplemented widget contract in docs/services/channels.md and removed a stale legacy-delivery paragraph. Docs-only validation: git diff --check passed, current/proposed labelling checked, no new links. No application tests required for this decision/documentation gate. Repository docs remain uncommitted; only B4 Git commit was authorized. All product/security decisions needed for C2 are now settled; audit actual shared binding/capture feasibility before implementation and escalate any missing prerequisite.",
+      "timestamp": "2026-10-04T08:53:58Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] C1 — Freeze widget identity, protocol and external-package integration decisions",
   "type": "task",
-  "updated_at": "2026-10-04T08:53:25Z"
+  "updated_at": "2026-10-04T08:53:58Z"
 }
