@@ -23,11 +23,15 @@
     {
       "text": "Additional lifecycle coverage now passes: deleted transcript/conversation fail closed without replacement, failed canonical seed capture rolls back conversation/seed/transcript, resume restores stored native coordinates and ignores reseeding (19 tests plus 1 property). Approved scratch plan reconciled to lazy init and first-message creation receipt/title semantics. Validation blocker: mix q now repeatedly exits in ExDNA 1.5.4 Task.Supervised.stream(5000), including normal and scheduler-limited runs; no checks disabled or dependency edits made. C2 remains open until gate succeeds. Continue reviewing response projection on the same integration boundary; no Git mutations authorized.",
       "timestamp": "2026-10-04T10:38:10Z"
+    },
+    {
+      "text": "Validation-tool timeout resolved without disabling checks: ERL_FLAGS='+S 2:2' mix q PASS (18494 mods/funs). Focused new-domain/WebBridge suite PASS: 27 tests and 1 property, including private widget final projection. Wider combined suite had an MCP readiness failure (client_not_ready in pre-existing BO tool-call test); targeted retry interrupted by server restart and is being recovered from logs/restarted only where incomplete. Scratch plan reconciled to lazy readiness and first-message receipts. No commits/pushes. Remaining gate is successful relevant regression validation, then C3 lifecycle/conformance and C4 runtime.",
+      "timestamp": "2026-10-04T11:09:49Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] C2 — Integrate widget identity/init with existing authorized canonical history",
   "type": "task",
-  "updated_at": "2026-10-04T10:38:10Z"
+  "updated_at": "2026-10-04T11:09:49Z"
 }
