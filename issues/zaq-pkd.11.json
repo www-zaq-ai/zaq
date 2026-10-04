@@ -15,11 +15,15 @@
     {
       "text": "C3 execution design before implementation: one bounded temporary Channels request owner per widget message, under existing BridgeSupervisor (no new supervision hierarchy). It subscribes to an unpredictable internal PubSub topic before dispatch; only a serializable Delivery snapshot/topic crosses role hops. Cluster PubSub routes updates from any Agent/Channels node back to the owner on the ingress Channels node, with no PID/function/credential in metadata. The owner maps safe semantic updates, emits stable assistant create-before-edit/step and one terminal, and cleans up on completion/failure/TTL. Sync awaits one terminal with server-configured 30s default; timeout returns unknown outcome without cancelling accepted work and later history remains recovery. Async returns first-message conversation-created or existing-chat accepted receipt before pipeline execution completes. Raw traces/tool calls are already excluded from widget final projection; BO unchanged. Event serialization/request bookkeeping is local-only; reuse existing NodeRouter admission/finalization and PubSub delivery, no Action/tool exposure.",
       "timestamp": "2026-10-04T11:13:45Z"
+    },
+    {
+      "text": "C3 now implemented in uncommitted tree: temporary RequestOwner under existing BridgeSupervisor, cluster PubSub private Delivery snapshot, stable assistant create-before-updates, fixed public activity labels, one live terminal, async creation/acceptance receipts, sync terminal-only return and configurable bounded timeout with unknown outcome/no cancellation. RequestOwner unit suite passed 6 tests; focused WebBridge/identity suite passed 44 tests and 2 properties. Real public NodeRouter fixture with deterministic external OpenAI HTTP passed initial sync case; strengthened full canonical-history assertion exposed missing confirmed web delivery receipt. Added widget-only confirmation/message ID receipt to reuse existing Channels.HistoryDelivery/Engine capture; BO receipt unchanged. Sync+async actual conformance now passed 2 tests in both completed rechecks. Added terminal-variant property afterward, pending next run. Last mix q reported only nesting in route_widget_message; extracted dispatch_widget_message to fix it, pending rerun. C2 BO MCP 50ms startup readiness remains an environment-sensitive regression gate; other-worktree coverage identified, untouched. C4 runtime wiring not started. No Git mutation, no final approval/precommit claim.",
+      "timestamp": "2026-10-04T11:28:46Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[830] C3 — Extend shared contracts and delivery mapping for widget conformance",
   "type": "task",
-  "updated_at": "2026-10-04T11:28:28Z"
+  "updated_at": "2026-10-04T11:28:46Z"
 }
