@@ -11,9 +11,15 @@
   "id": "zaq-pkd.14",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Handoff package authored at docs/guides/web-widget-integration.md and linked by the dedicated v1 protocol owner. Includes exact server runtime_builder and fixed sink setup, shared constructors, trusted-input assumptions, lazy init/first-question lifecycle, snapshot streaming/terminal/history behavior, timeout recovery, real BO reference, runnable fixture paths and external mount/identity/session/origin/subscription checklist. Current host conformance previously passed in 443-test regression run via the published sink; it does not test actual widget endpoint security. D2 acceptance by the widget developer is not yet claimed. Final gate isolation is still running; real-package installation and endpoint rejection evidence remain external implementation responsibilities.",
+      "timestamp": "2026-10-04T13:23:01Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] D2 — Developer handoff and acceptance review",
   "type": "task",
-  "updated_at": "2026-10-04T13:22:46Z"
+  "updated_at": "2026-10-04T13:23:01Z"
 }
