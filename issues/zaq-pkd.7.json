@@ -15,11 +15,15 @@
     {
       "text": "Automated pre-review: existing knowledge_ops_lead browser journeys passed 9/9 across Firefox, WebKit and Chromium. Journey 1 exercises BO chat send/final answer/source citation after ingestion; Journey 4 verifies unsupported source-chip presentation. Existing test-server logs report non-failing unsupported send_typing events. No new E2E was authored before human approval.",
       "timestamp": "2026-10-03T14:20:49Z"
+    },
+    {
+      "text": "Human BO parity approval received explicitly on 2026-10-04: user selected 'Approve BO parity' in response to the staged BO appearance/behavior approval question. Existing browser journeys passed 9/9; manual observations and screenshot tmp/bo-parity-chat-final.png were presented. Approval gate is satisfied; consolidated regression/E2E work may proceed.",
+      "timestamp": "2026-10-04T07:08:22Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[830] B3 — Human BO parity review gate",
   "type": "task",
-  "updated_at": "2026-10-03T14:20:49Z"
+  "updated_at": "2026-10-04T07:08:22Z"
 }
