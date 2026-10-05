@@ -11,9 +11,15 @@
   "id": "zaq-pkd.16.3",
   "labels": [],
   "parent": "zaq-pkd.16",
+  "comments": [
+    {
+      "text": "User explicitly declined staged prototype: apply design directly to actual pages and reuse existing design components. Production WebWidgetLive route/form now being built; no fixture prototype. Final human UX/UI gate .5 and E2E dependency remain unchanged. Existing DSM Input, Checkbox, Select, SecretInput, Button, ChannelConnectorCard and CopyToClipboard hook reused. Runtime status and authentication key reveal handled through confidential management events; no BO persistence/context calls.",
+      "timestamp": "2026-10-05T10:27:43Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] BO widget configuration form and provider entry",
   "type": "task",
-  "updated_at": "2026-10-05T09:35:13Z"
+  "updated_at": "2026-10-05T10:27:43Z"
 }
