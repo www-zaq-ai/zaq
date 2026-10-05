@@ -9,9 +9,15 @@
   "id": "zaq-pkd.16.6",
   "labels": [],
   "parent": "zaq-pkd.16",
+  "comments": [
+    {
+      "text": "Iteration validation: mix q clean; 102 tests + seven properties green, existing webbridge_chat browser regression 9/9 across Firefox/WebKit/Chromium. No new widget E2E authored; pending gate .5. Dedicated coverage/final mix precommit remain pending review; no final sign-off. Separate webbridge_chat.spec.js edit was observed but not authored by this session; preserved. No new commit/push.",
+      "timestamp": "2026-10-05T10:40:52Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] Approved widget configuration E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-05T09:35:14Z"
+  "updated_at": "2026-10-05T10:40:52Z"
 }
