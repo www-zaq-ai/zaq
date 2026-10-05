@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-05T09:34:52Z",
+  "description": "Explicit human review of final multi-config BO form, status/errors, key generation/rotation reveal and warnings, copyable escaped snippet, origin and IncomingMessageRouting controls. Keep open pending approval. No new feature E2E authoring before this gate. Action reuse not applicable: approval only.",
+  "id": "zaq-pkd.16.5",
+  "labels": [],
+  "parent": "zaq-pkd.16",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-pkd.16] Human widget configuration UX approval gate",
+  "type": "task",
+  "updated_at": "2026-10-05T09:34:52Z"
+}
