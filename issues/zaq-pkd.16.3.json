@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-05T09:34:37Z",
+  "description": "Reuse ChannelsIndexLive provider card, BOLayout and DSM form/card/modal components, AgentRoutingOptions, EngineDispatch/BOActor, IngressStatusUI. Dedicated WebWidgetLive keeps widget security away from generic ChannelsLive direct-Repo paths. All reads/mutations through confidential NodeRouter Event and management Action; archive through existing ConnectorLifecycle action. Multi-config CRUD, configured/running status, global base_url blocker, exact connector ID, origin input, default agent via IncomingMessageRouting, once-only copyable auth key with confirmed rotation, escaped adapter-generated embed snippet and errors. Test LiveView without new feature E2E: form errors, isolation, secret lifetime, snippets not executing, stale changes and missing service.",
+  "id": "zaq-pkd.16.3",
+  "labels": [],
+  "parent": "zaq-pkd.16",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-pkd.16] BO widget configuration form and provider entry",
+  "type": "task",
+  "updated_at": "2026-10-05T09:34:37Z"
+}
