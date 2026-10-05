@@ -15,11 +15,15 @@
     {
       "text": "Awaiting human UX/UI review of actual page per user request (no fixture preview). Existing DSM components reused. Feature E2E authoring still blocked on explicit final UX/UI approval.",
       "timestamp": "2026-10-05T10:40:51Z"
+    },
+    {
+      "text": "Latest requested UI revisions are implemented on /bo/channels/retrieval/web_widget and ready for human review: modal create/edit with key controls and one name, card-level installation disclosure, globe icon, responsive wrapping. Manual isolated desktop/390px checks performed; key cleared on close, modal scroll/footer verified, no mobile overflow after normal sidebar collapse. Approval remains pending; do not close based on test results.",
+      "timestamp": "2026-10-05T12:25:17Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] Human widget configuration UX approval gate",
   "type": "task",
-  "updated_at": "2026-10-05T10:40:51Z"
+  "updated_at": "2026-10-05T12:25:17Z"
 }
