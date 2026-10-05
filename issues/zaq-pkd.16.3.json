@@ -23,11 +23,15 @@
     {
       "text": "Approved UI revision: standard BOModal.form_dialog for create/edit including key controls and once-only reveal; single Configuration name field (server adapter default remains config.name); per-card installation-script expansion/copy controls outside modal; globe icon in provider card/header/connector bar. Action reuse: existing management/routing/key/lifecycle events unchanged, modal and disclosure state local-only presentation, reuse DSM controls/Card actions slots/BOModal and ChannelIcons. Tests planned before edits: form absent until add/edit, no redundant field, cancel clears generated key, per-card scoped expand/collapse with escaped script, disabled saved connector snippet availability, globe rendering; preserve all existing security/runtime assertions. No issue closures or commit/push.",
       "timestamp": "2026-10-05T12:09:38Z"
+    },
+    {
+      "text": "UI feedback implemented on production route: existing BOModal create/edit dialog; single Configuration name field; key status/generate/rotate/once-only reveal within dialog with save-first state and close clearing; per-saved-card scoped installation disclosure/copy (including disabled configurations when prerequisites exist); shared globe icon and wrapping connector actions; Storybook example added. Existing IncomingMessageRouting writes unchanged. Regression assertions added for modal lifecycle, removed redundant field, key clearing, scoped script switching/collapse/escaping, saved disabled snippet availability and prerequisite disablement. Validation: 66 tests + 6 properties passed; focused final UI/backend run 17 tests + 1 property passed; existing BO chat E2E 9/9 passed across Chromium/WebKit/Firefox. mix q passed; final repeat initially hit transient Phoenix parallel component-verifier module unavailable, subsequent repeat passed with no code/assertion weakening. Manual authenticated Chromium on isolated port 4002 confirmed desktop key reveal/close, 390px scrolling modal/footer and zero card/body overflow after standard sidebar collapse. External endpoint acceptance, UX approval, consolidated widget E2E/coverage/final precommit remain open; no commit/push.",
+      "timestamp": "2026-10-05T12:24:46Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] BO widget configuration form and provider entry",
   "type": "task",
-  "updated_at": "2026-10-05T12:09:38Z"
+  "updated_at": "2026-10-05T12:24:46Z"
 }
