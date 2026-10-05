@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-pkd.16.5"
+  ],
   "blocks": [],
   "created": "2026-10-05T09:35:02Z",
   "description": "Author consolidated browser journey only after .5 explicit human approval: create disabled widget, configure base_url/adapter prerequisites, origin edits and agent routing, generate key reveal/copy-dismiss, confirmed rotation, escaped snippet copy, enable/disable/archive and config isolation. Reuse existing e2e bootstrap/fake external adapter behind production behaviour; no production test affordances. Then review/coverage/final precommit lifecycle; keep prior acceptance gates open. Action reuse not applicable: validation only.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-pkd.16] Approved widget configuration E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-05T09:35:02Z"
+  "updated_at": "2026-10-05T09:35:14Z"
 }
