@@ -3,12 +3,12 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-05T09:43:13Z",
-  "description": "CI run 37277904155: all three WebBridge chat journeys receive context_window_exceeded instead of cited answers. Add suite-level reset and llm.max_context_window=128000, matching knowledge_ops_lead journeys, preserving all assertions. Action reuse assessment: reuse existing test/e2e/support/bo.js resetE2EState and setE2ESystemConfig test-only APIs; no production operation or Action changes. Validate focused existing E2E, mix q, and final precommit. No new feature journeys or coverage changes.",
+  "description": "Implemented suite-level reset and llm.max_context_window=128000 using existing test/e2e/support/bo.js APIs; all assertions retained. Action reuse: existing test-only helpers, no production Actions affected. Validation: webbridge_chat passed 9/9 across Chromium, Firefox, WebKit. mix q and mix precommit blocked by unrelated Credo alias finding at test/zaq/engine/widget_connector_settings_test.exs:116:16. Numerical coverage not applicable to fixture-only JS repair. Final validation remains blocked; no commit/push.",
   "id": "zaq-ccz",
   "labels": [],
   "priority": 2,
   "status": "in_progress",
   "title": "Repair WebBridge chat E2E context-window setup (#836)",
   "type": "task",
-  "updated_at": "2026-10-05T09:43:18Z"
+  "updated_at": "2026-10-05T09:45:53Z"
 }
