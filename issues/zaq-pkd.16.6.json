@@ -17,11 +17,15 @@
     {
       "text": "Update pending consolidated browser scope after latest UI revision: Add/Edit modal opens from actual configuration page/cards; only Configuration name; Save-first disabled Generate control; encrypted stored-key presence and Generate/Rotate once-only reveal/copy/dismiss; closing/reopening clears reveal; per-card installation expansion/collapse/copy selects correct configuration and escapes scripts, including saved disabled configurations with prerequisites; disabled installation/enablement when adapter/base URL missing; globe provider/header/card; desktop/mobile scrolling modal footer and wrapping card actions. New feature E2E authoring still blocked by explicit human UX/UI approval zaq-pkd.16.5. Existing BO browser regression remained 9/9; no new widget specs authored.",
       "timestamp": "2026-10-05T12:24:57Z"
+    },
+    {
+      "text": "Consolidated widget E2E pending scope now includes shared breadcrumb navigation; no permanent Refresh/runtime/prerequisite prose; Add/Edit prerequisite errors only for unmet conditions (base URL link, adapter setup instructions), no notices when ready, disabled saving still permitted; contextual Reload configuration for stale revisions/runtime-sync errors. Unit/LiveView tests cover both missing, each missing individually, both ready, modal dismissal and stale reload. Explicit UX approval remains pending in zaq-pkd.16.5; no new feature E2E authored.",
+      "timestamp": "2026-10-05T12:59:52Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] Approved widget configuration E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-05T12:24:57Z"
+  "updated_at": "2026-10-05T12:59:52Z"
 }
