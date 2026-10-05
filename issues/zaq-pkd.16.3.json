@@ -19,11 +19,15 @@
     {
       "text": "Actual WebWidgetLive installed at /bo/channels/retrieval/web_widget and provider card added. No staged prototype by explicit user direction. Uses DSM controls/cards/buttons, standard CopyToClipboard; all operations NodeRouter domain events. Tests prove multi-config selection, key reveal dismissal, forged fields/origins rejected, escaped adapter snippet, actual server-key refresh on runtime replacement, disable/reenable/archive. No new feature E2E authored. UX review gate remains open.",
       "timestamp": "2026-10-05T10:40:50Z"
+    },
+    {
+      "text": "Approved UI revision: standard BOModal.form_dialog for create/edit including key controls and once-only reveal; single Configuration name field (server adapter default remains config.name); per-card installation-script expansion/copy controls outside modal; globe icon in provider card/header/connector bar. Action reuse: existing management/routing/key/lifecycle events unchanged, modal and disclosure state local-only presentation, reuse DSM controls/Card actions slots/BOModal and ChannelIcons. Tests planned before edits: form absent until add/edit, no redundant field, cancel clears generated key, per-card scoped expand/collapse with escaped script, disabled saved connector snippet availability, globe rendering; preserve all existing security/runtime assertions. No issue closures or commit/push.",
+      "timestamp": "2026-10-05T12:09:38Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] BO widget configuration form and provider entry",
   "type": "task",
-  "updated_at": "2026-10-05T10:40:50Z"
+  "updated_at": "2026-10-05T12:09:38Z"
 }
