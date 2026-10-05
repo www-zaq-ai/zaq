@@ -11,9 +11,15 @@
   "id": "zaq-pkd.16.5",
   "labels": [],
   "parent": "zaq-pkd.16",
+  "comments": [
+    {
+      "text": "Awaiting human UX/UI review of actual page per user request (no fixture preview). Existing DSM components reused. Feature E2E authoring still blocked on explicit final UX/UI approval.",
+      "timestamp": "2026-10-05T10:40:51Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] Human widget configuration UX approval gate",
   "type": "task",
-  "updated_at": "2026-10-05T09:35:14Z"
+  "updated_at": "2026-10-05T10:40:51Z"
 }
