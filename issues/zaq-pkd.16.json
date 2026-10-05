@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-05T09:34:03Z",
+  "description": "Approved 2026-10-05: configuration-derived widget ID; IncomingMessageRouting agent selection; disabled saves; global base_url and adapter prerequisites; encrypted admin-generated/rotated key shown once for host-backend provisioning; trusted server-only adapter key access; escaped adapter embed_script/2 snippet; init-only absolute HTTP(S) stylesheet URL, no local files/proxy. Keep acceptance/review issues open. Work on existing refactor/webbridge; no new commit/push authorization.",
+  "id": "zaq-pkd.16",
+  "labels": [],
+  "parent": "zaq-pkd",
+  "priority": 2,
+  "status": "open",
+  "title": "[830] Web Widget BO configuration and adapter setup",
+  "type": "epic",
+  "updated_at": "2026-10-05T09:34:03Z"
+}
