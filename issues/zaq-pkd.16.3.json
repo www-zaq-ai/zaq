@@ -15,11 +15,15 @@
     {
       "text": "User explicitly declined staged prototype: apply design directly to actual pages and reuse existing design components. Production WebWidgetLive route/form now being built; no fixture prototype. Final human UX/UI gate .5 and E2E dependency remain unchanged. Existing DSM Input, Checkbox, Select, SecretInput, Button, ChannelConnectorCard and CopyToClipboard hook reused. Runtime status and authentication key reveal handled through confidential management events; no BO persistence/context calls.",
       "timestamp": "2026-10-05T10:27:43Z"
+    },
+    {
+      "text": "Actual WebWidgetLive installed at /bo/channels/retrieval/web_widget and provider card added. No staged prototype by explicit user direction. Uses DSM controls/cards/buttons, standard CopyToClipboard; all operations NodeRouter domain events. Tests prove multi-config selection, key reveal dismissal, forged fields/origins rejected, escaped adapter snippet, actual server-key refresh on runtime replacement, disable/reenable/archive. No new feature E2E authored. UX review gate remains open.",
+      "timestamp": "2026-10-05T10:40:50Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] BO widget configuration form and provider entry",
   "type": "task",
-  "updated_at": "2026-10-05T10:27:43Z"
+  "updated_at": "2026-10-05T10:40:50Z"
 }
