@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-pkd.16.3"
+  ],
   "blocks": [],
   "created": "2026-10-05T09:34:46Z",
   "description": "Update owners docs/services/web-bridge.md and docs/guides/web-widget-integration.md only after implementation reflects contracts. Document adapter behaviour/snippet; config-derived ID; base_url enablement; admin once-only key provisioning to host backend, trusted server adapter key, signed short-lived widget/sender assertion verification with expiry/replay checks, rotation/revocation responsibility; init-only HTTP(S) CSS and mixed-content limits, no local support. Action reuse not applicable: documentation only. Verify links and keep external adapter acceptance separate.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-pkd.16] Protocol and adapter security documentation",
   "type": "task",
-  "updated_at": "2026-10-05T09:34:46Z"
+  "updated_at": "2026-10-05T09:35:13Z"
 }
