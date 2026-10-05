@@ -27,11 +27,15 @@
     {
       "text": "UI feedback implemented on production route: existing BOModal create/edit dialog; single Configuration name field; key status/generate/rotate/once-only reveal within dialog with save-first state and close clearing; per-saved-card scoped installation disclosure/copy (including disabled configurations when prerequisites exist); shared globe icon and wrapping connector actions; Storybook example added. Existing IncomingMessageRouting writes unchanged. Regression assertions added for modal lifecycle, removed redundant field, key clearing, scoped script switching/collapse/escaping, saved disabled snippet availability and prerequisite disablement. Validation: 66 tests + 6 properties passed; focused final UI/backend run 17 tests + 1 property passed; existing BO chat E2E 9/9 passed across Chromium/WebKit/Firefox. mix q passed; final repeat initially hit transient Phoenix parallel component-verifier module unavailable, subsequent repeat passed with no code/assertion weakening. Manual authenticated Chromium on isolated port 4002 confirmed desktop key reveal/close, 390px scrolling modal/footer and zero card/body overflow after standard sidebar collapse. External endpoint acceptance, UX approval, consolidated widget E2E/coverage/final precommit remain open; no commit/push.",
       "timestamp": "2026-10-05T12:24:46Z"
+    },
+    {
+      "text": "Approved follow-up UI scope: reuse DesignSystem.Breadcrumb.page_breadcrumb for Channels \u003e Communication \u003e Web Widget; remove permanent Refresh and runtime/prerequisite prose; prerequisite-specific FeedbackBanner errors appear only inside Add/Edit when base URL/adapter missing, disabled saves remain allowed. Contextual Reload configuration for stale edit or runtime-sync failure reuses confidential snapshot path (local-only presentation state; no new Action or backend writes). Tests before implementation: breadcrumb destination, no generic page notices/refresh/status, missing-prerequisite modal errors and link, ready modal silent, stale contextual reload. Approval gates remain open.",
+      "timestamp": "2026-10-05T12:54:23Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] BO widget configuration form and provider entry",
   "type": "task",
-  "updated_at": "2026-10-05T12:24:46Z"
+  "updated_at": "2026-10-05T12:54:23Z"
 }
