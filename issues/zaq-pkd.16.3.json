@@ -31,11 +31,15 @@
     {
       "text": "Approved follow-up UI scope: reuse DesignSystem.Breadcrumb.page_breadcrumb for Channels \u003e Communication \u003e Web Widget; remove permanent Refresh and runtime/prerequisite prose; prerequisite-specific FeedbackBanner errors appear only inside Add/Edit when base URL/adapter missing, disabled saves remain allowed. Contextual Reload configuration for stale edit or runtime-sync failure reuses confidential snapshot path (local-only presentation state; no new Action or backend writes). Tests before implementation: breadcrumb destination, no generic page notices/refresh/status, missing-prerequisite modal errors and link, ready modal silent, stale contextual reload. Approval gates remain open.",
       "timestamp": "2026-10-05T12:54:23Z"
+    },
+    {
+      "text": "Follow-up implemented: shared page_breadcrumb Channels / Communication / Web Widget; no permanent Refresh, runtime prose or prerequisite warnings on list. Add/Edit displays persistent specific base-URL and adapter errors only when missing, base-URL error links to System Configuration, disabled saves still work. Ready modal has no prerequisite notices. Stale edit and runtime-sync failure offer contextual Reload configuration using existing confidential snapshot dispatch. Shared FeedbackBanner extended backwards-compatibly with dismissible option (default true) to avoid nonfunctional flash-dismiss buttons for persistent prerequisites; default consumers preserved and component regression test added. Validation: mix q passed, 23 tests + 1 property passed, existing BO chat E2E 9/9 across three browsers passed, diff check clean. Manual Chromium confirmed breadcrumb, absent permanent controls/prose, modal-specific errors and link, errors absent after closing, zero page errors and no 390px overflow after sidebar collapse. No commit/push or gate closures.",
+      "timestamp": "2026-10-05T12:59:44Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] BO widget configuration form and provider entry",
   "type": "task",
-  "updated_at": "2026-10-05T12:54:23Z"
+  "updated_at": "2026-10-05T12:59:44Z"
 }
