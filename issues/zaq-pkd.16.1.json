@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-pkd.16.2"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-pkd.16",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-pkd.16] Adapter contract and init-only remote stylesheet",
   "type": "task",
-  "updated_at": "2026-10-05T09:35:11Z"
+  "updated_at": "2026-10-05T09:35:15Z"
 }
