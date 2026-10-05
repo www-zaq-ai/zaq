@@ -11,9 +11,15 @@
   "id": "zaq-pkd.16.4",
   "labels": [],
   "parent": "zaq-pkd.16",
+  "comments": [
+    {
+      "text": "Protocol and handoff updated for WidgetAdapter build/2 + embed_script/2, server-only config.token, admin once-only key provisioning/signing flow, expiry/widget binding/replay protection and adapter-owned session revocation, init-only HTTP(S) URL, no local CSS/proxy, base_url and BO setup. 20 local documentation targets verified. No issue closed.",
+      "timestamp": "2026-10-05T10:40:50Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] Protocol and adapter security documentation",
   "type": "task",
-  "updated_at": "2026-10-05T09:35:13Z"
+  "updated_at": "2026-10-05T10:40:50Z"
 }
