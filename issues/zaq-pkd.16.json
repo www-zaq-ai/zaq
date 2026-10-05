@@ -7,9 +7,15 @@
   "id": "zaq-pkd.16",
   "labels": [],
   "parent": "zaq-pkd",
+  "comments": [
+    {
+      "text": "Iteration ready for UX review, not final approval: actual /bo/channels/retrieval/web_widget page and card implemented using existing DSM, no staged prototype per user steering. IncomingMessageRouting connector rule selection (agent/inherit/NONE) verified. Authoritative ChannelConfig persistence base_url guard, confidential key management, runtime refresh, snippets and remote init CSS implemented. Latest checks: mix q clean; 102 tests + seven properties pass; existing BO chat browsers 9/9. Authenticated manual Chromium inspection on isolated test port 4002 verified form labels, prerequisite warnings, no page JS errors, desktop layout and 390px mobile layout without overflow after using existing sidebar collapse. User dev data not changed. Test inspection server remains on 4002. 20 documentation targets and diff check clean. External endpoint acceptance, UX approval, new feature E2E, coverage/final precommit remain pending; no issues closed and no new commit/push. Independent webbridge_chat.spec.js edit preserved, not authored by this session.",
+      "timestamp": "2026-10-05T10:44:25Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[830] Web Widget BO configuration and adapter setup",
   "type": "epic",
-  "updated_at": "2026-10-05T09:34:03Z"
+  "updated_at": "2026-10-05T10:44:25Z"
 }
