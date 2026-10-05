@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-pkd.16.1"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-pkd.16.3"
+  ],
   "created": "2026-10-05T09:34:27Z",
   "description": "Action reuse assessment: SaveEmailConnector/EmailConnectorSettings are email-specific (SMTP dependencies, credential form schemas) so do not expand them with widget knowledge. New focused ManageWidgetConnector Action delegates to Engine-owned widget settings context; no agent-tool exposure. Confidential authenticated BO event invokes validated Jido.Exec path. Inputs op snapshot/save/key rotation/snippet, exact config ID and expected revision; fixed web_widget/retrieval scope, allowlisted params. Outputs secret-free snapshots/bounded errors, except generated key once to admin in confidential response. Reuse ChannelConfig changesets/token EncryptedString, ConnectorLifecycle archive and ConnectorRuntime sync; extend authoritative provider enablement validation with global base_url/adapter readiness. Preserve settings, transaction/stale edit protection, rotation forces fresh encrypted token and metadata revision, refresh server adapter runtime. Use IncomingMessageRouting connector-scoped writes/reads through supported events, not widget settings. Tests authorization, wrong/archived scope, stale mutation, encryption failure/no plaintext, atomic routing, prerequisites and post-save runtime warning. Consumer BO integration depends on this essential Action.",
   "id": "zaq-pkd.16.2",
