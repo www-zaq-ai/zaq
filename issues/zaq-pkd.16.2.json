@@ -11,9 +11,15 @@
   "id": "zaq-pkd.16.2",
   "labels": [],
   "parent": "zaq-pkd.16",
+  "comments": [
+    {
+      "text": "Implemented Engine WidgetConnectorSettings and validated ManageWidgetConnector Action, confidential authenticated Engine event, allowlisted snapshots, locked exact config/revision, encrypted random key generation/rotation with once-only admin result, global base_url and adapter readiness enablement, connector-scoped IncomingMessageRouting writes. Reuse refined: existing :sync_channel_runtime/CommunicationBridge.sync_config_runtime before/after snapshots handles refresh/rotation; ConnectorRuntime archive-only stop contract unchanged. ChannelConfig prepare_changes adds authoritative base_url persistence guard. Numeric/string boolean casts cannot bypass guard. Runtime failure returns saved/pending warning; generated keys absent from ordinary snapshots. Reuse shared token encryption/lifecycle revision rather than parallel secrets or revisions. All issues remain open for review.",
+      "timestamp": "2026-10-05T10:40:49Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] Engine widget configuration management Action",
   "type": "task",
-  "updated_at": "2026-10-05T09:35:11Z"
+  "updated_at": "2026-10-05T10:40:49Z"
 }
