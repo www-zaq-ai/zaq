@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-pkd.16.2"
+  ],
   "created": "2026-10-05T09:34:14Z",
   "description": "Extend existing Channels.Web.Runtime build(config,hooks) without changing global Bridge callbacks; introduce widget-specific behaviour build/2 and embed_script/2. Contract: trusted server module only; snippet returns bounded text/error, never execute in BO, no secrets. Move stylesheet from persisted WidgetSettings/runtime hooks into Command conversation_init params; absolute HTTP(S) only, optional, no credentials or other schemes, no fetching/proxy/persistence. Local-only pure transport validation and lifecycle callback: no standalone executable Action needed. Tests first: command validation/property coverage, ingress manual-struct revalidation, runtime builder compatibility and snippet failure contracts. Preserve existing BO contracts and lazy widget init.",
   "id": "zaq-pkd.16.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-pkd.16] Adapter contract and init-only remote stylesheet",
   "type": "task",
-  "updated_at": "2026-10-05T09:34:14Z"
+  "updated_at": "2026-10-05T09:35:11Z"
 }
