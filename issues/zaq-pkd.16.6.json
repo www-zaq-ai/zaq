@@ -13,11 +13,15 @@
     {
       "text": "Iteration validation: mix q clean; 102 tests + seven properties green, existing webbridge_chat browser regression 9/9 across Firefox/WebKit/Chromium. No new widget E2E authored; pending gate .5. Dedicated coverage/final mix precommit remain pending review; no final sign-off. Separate webbridge_chat.spec.js edit was observed but not authored by this session; preserved. No new commit/push.",
       "timestamp": "2026-10-05T10:40:52Z"
+    },
+    {
+      "text": "Update pending consolidated browser scope after latest UI revision: Add/Edit modal opens from actual configuration page/cards; only Configuration name; Save-first disabled Generate control; encrypted stored-key presence and Generate/Rotate once-only reveal/copy/dismiss; closing/reopening clears reveal; per-card installation expansion/collapse/copy selects correct configuration and escapes scripts, including saved disabled configurations with prerequisites; disabled installation/enablement when adapter/base URL missing; globe provider/header/card; desktop/mobile scrolling modal footer and wrapping card actions. New feature E2E authoring still blocked by explicit human UX/UI approval zaq-pkd.16.5. Existing BO browser regression remained 9/9; no new widget specs authored.",
+      "timestamp": "2026-10-05T12:24:57Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] Approved widget configuration E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-05T10:40:52Z"
+  "updated_at": "2026-10-05T12:24:57Z"
 }
