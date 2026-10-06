@@ -49,71 +49,85 @@ defmodule Zaq.Engine.Conversations do
   def list_canonical_messages(person, transcript_id, opts \\ []),
     do: TranscriptHistory.list(person, transcript_id, opts)
 
-  @doc "Builds and locks canonical-history ownership changes for an atomic Person merge."
-  @spec plan_person_merge(pos_integer(), [pos_integer()]) :: %{
-          transcripts: [Ecto.Changeset.t()],
-          executions: [Ecto.Changeset.t()]
-        }
-  def plan_person_merge(survivor_id, loser_ids)
-      when is_integer(survivor_id) and is_list(loser_ids) do
-    require_merge_transaction!()
+  @doc """
+  Lists transcripts by literal Person ownership, in ID order, without alias inference.
 
-    %{
-      transcripts:
-        merge_changesets(
-          "transcripts",
-          from(t in Transcript,
-            where: t.owner_person_id in ^loser_ids,
-            order_by: t.id,
-            lock: "FOR UPDATE"
-          ),
-          &Transcript.changeset(&1, %{owner_person_id: survivor_id})
-        ),
-      executions:
-        merge_changesets(
-          "execution_records",
-          from(e in ExecutionRecord,
-            where: e.person_id in ^loser_ids,
-            order_by: e.id,
-            lock: "FOR UPDATE"
-          ),
-          &ExecutionRecord.changeset(&1, %{person_id: survivor_id})
-        )
-    }
+  `lock: true` requires an existing transaction and locks rows for update.
+  `allow_missing_table: true` is reserved for historical migration compatibility;
+  only an absent table yields an empty list, not other database errors.
+  """
+  @spec list_owned_transcripts([pos_integer()], keyword()) :: [Transcript.t()]
+  def list_owned_transcripts(person_ids, opts \\ []) do
+    query =
+      from t in Transcript,
+        where: t.owner_person_id in ^person_ids,
+        order_by: t.id
+
+    list_ownership_rows(query, "transcripts", person_ids, opts)
   end
 
-  @doc "Applies a validated canonical-history Person merge plan in its existing transaction."
-  @spec apply_person_merge(%{
-          transcripts: [Ecto.Changeset.t()],
-          executions: [Ecto.Changeset.t()]
-        }) :: :ok
-  def apply_person_merge(%{transcripts: transcripts, executions: executions}) do
-    require_merge_transaction!()
+  @doc """
+  Lists private executions by literal Person ownership, in ID order.
 
-    Enum.each(transcripts ++ executions, fn changeset ->
-      case Repo.update(changeset) do
-        {:ok, _} -> :ok
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+  Supports the same transaction-required `lock` and historical-migration
+  `allow_missing_table` options as `list_owned_transcripts/2`.
+  """
+  @spec list_person_executions([pos_integer()], keyword()) :: [ExecutionRecord.t()]
+  def list_person_executions(person_ids, opts \\ []) do
+    query =
+      from e in ExecutionRecord,
+        where: e.person_id in ^person_ids,
+        order_by: e.id
 
-    :ok
+    list_ownership_rows(query, "execution_records", person_ids, opts)
   end
 
-  defp merge_changesets(table, query, changeset) do
-    if relation_exists?(table), do: query |> Repo.all() |> Enum.map(changeset), else: []
+  defp list_ownership_rows(query, table, person_ids, opts) do
+    lock? = Keyword.get(opts, :lock, false)
+
+    if lock? and not Repo.in_transaction?() do
+      raise ArgumentError, "ownership row locking requires a transaction"
+    end
+
+    cond do
+      person_ids == [] -> []
+      Keyword.get(opts, :allow_missing_table, false) and not ownership_table_exists?(table) -> []
+      lock? -> query |> lock("FOR UPDATE") |> Repo.all()
+      true -> Repo.all(query)
+    end
   end
 
-  # The historical email-normalization migration invokes the current Person
-  # merger before canonical-history tables exist on a fresh database.
-  defp relation_exists?(table) do
+  defp ownership_table_exists?(table) do
     %{rows: [[relation]]} = Repo.query!("SELECT to_regclass($1)", [table], log: false)
     not is_nil(relation)
   end
 
-  defp require_merge_transaction! do
-    unless Repo.in_transaction?(),
-      do: raise(ArgumentError, "person history reconciliation requires a transaction")
+  @doc "Validates transcript ownership without changing its scope or permission resource."
+  @spec change_transcript_owner(Transcript.t(), pos_integer()) :: Ecto.Changeset.t()
+  def change_transcript_owner(%Transcript{} = transcript, person_id),
+    do: Transcript.changeset(transcript, %{owner_person_id: person_id})
+
+  @doc "Updates transcript ownership without changing its scope or permission resource."
+  @spec update_transcript_owner(Transcript.t(), pos_integer()) ::
+          {:ok, Transcript.t()} | {:error, Ecto.Changeset.t()}
+  def update_transcript_owner(%Transcript{} = transcript, person_id) do
+    transcript
+    |> change_transcript_owner(person_id)
+    |> Repo.update()
+  end
+
+  @doc "Validates private execution ownership without changing its messages or capability."
+  @spec change_execution_owner(ExecutionRecord.t(), pos_integer()) :: Ecto.Changeset.t()
+  def change_execution_owner(%ExecutionRecord{} = execution, person_id),
+    do: ExecutionRecord.changeset(execution, %{person_id: person_id})
+
+  @doc "Updates private execution ownership without changing its messages or capability."
+  @spec update_execution_owner(ExecutionRecord.t(), pos_integer()) ::
+          {:ok, ExecutionRecord.t()} | {:error, Ecto.Changeset.t()}
+  def update_execution_owner(%ExecutionRecord{} = execution, person_id) do
+    execution
+    |> change_execution_owner(person_id)
+    |> Repo.update()
   end
 
   # ── Conversations ──────────────────────────────────────────────────
