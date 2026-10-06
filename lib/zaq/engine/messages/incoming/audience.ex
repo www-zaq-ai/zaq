@@ -21,7 +21,7 @@ defmodule Zaq.Engine.Messages.Incoming.Audience do
   def normalize(%__MODULE__{} = audience), do: normalize(Map.from_struct(audience))
 
   def normalize(%{platform: platform, sender: sender, recipients: recipients} = attrs)
-      when is_list(recipients) and length(recipients) <= 100 do
+      when is_list(recipients) do
     if identifier?(platform) and identifier?(sender) and Enum.all?(recipients, &identifier?/1) do
       %__MODULE__{
         platform: platform,
@@ -37,7 +37,6 @@ defmodule Zaq.Engine.Messages.Incoming.Audience do
 
   defp normalize_participants(participants, identifiers) when is_list(participants) do
     participants
-    |> Enum.take(101)
     |> Enum.flat_map(fn
       %{identifier: id, role: role} = participant when role in [:sender, :to, :cc] ->
         if id in identifiers do

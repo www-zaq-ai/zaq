@@ -36,6 +36,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 | Agent execution, retrieval and tools | [Agent](services/agent.md) |
 | Routing, conversations and coordination | [Engine](services/engine.md), including [personal grant sequences](services/personal-grant-sequences.md) |
 | Provider bridges and integrations | [Channels](services/channels.md) |
+| Message identity, routing, history and delivery sequences | [Message lifecycle](services/message-lifecycle.md) |
 | Documents, chunking and search | [Ingestion](services/ingestion.md) |
 | Mounted filesystem ownership | [Storage architecture](architecture.md#storage-and-materialization) |
 | Record materialization handles | [Materialization](services/materialization.md) |

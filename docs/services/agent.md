@@ -95,6 +95,10 @@ IDs never resolve to an identity.
 
 ## Pipeline Flow
 
+The [incoming routing sequence](message-lifecycle.md#incoming-routing-overview)
+shows how Engine admits execution and selects the Agent hop through `NodeRouter`;
+Channels does not initiate a separate Agent dispatch after capture.
+
 ```
 User question (BO Chat / Channel)
   → Engine incoming routing (:route_incoming_message)
