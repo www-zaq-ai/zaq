@@ -7,8 +7,8 @@
   "id": "zaq-bi5",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[coverage] Cover ConversationIdentity non-map channel config fallback (line 38)",
   "type": "task",
-  "updated_at": "2026-10-07T18:03:06Z"
+  "updated_at": "2026-10-07T18:15:55Z"
 }
