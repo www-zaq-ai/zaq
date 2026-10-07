@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-07T18:03:19Z",
+  "description": "",
+  "id": "zaq-8ez",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[coverage] Cover PersonIdentities current_scope? legacy and deleted-identity branches",
+  "type": "task",
+  "updated_at": "2026-10-07T18:03:19Z"
+}
