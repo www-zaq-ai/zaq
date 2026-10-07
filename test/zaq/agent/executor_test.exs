@@ -69,6 +69,56 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
+  defmodule CredentialDependencyExitServerManager do
+    alias Zaq.Agent.ExecutorTest
+
+    def ensure_server(_agent, server_id, _context, _opts) do
+      send(self(), {:credential_dependency_exit_server, server_id})
+      {:ok, ExecutorTest.start_runtime()}
+    end
+
+    def credential_dependency(server_id) do
+      send(self(), {:credential_dependency_exit_lookup, server_id})
+      exit(:credential_dependency_unavailable)
+    end
+  end
+
+  defmodule StopExitServerManager do
+    alias Zaq.Agent.ExecutorTest
+
+    def ensure_server(_agent, server_id, _context, _opts) do
+      send(self(), {:stop_exit_server, server_id})
+      {:ok, ExecutorTest.start_runtime()}
+    end
+
+    def stop_server_if_current(_agent, server_id, runtime_pid) do
+      send(self(), {:stop_exit_attempt, server_id, runtime_pid})
+      exit(:stop_unavailable)
+    end
+  end
+
+  defmodule MalformedViaServerManager do
+    alias Zaq.Agent.ExecutorTest
+
+    def ensure_server(_agent, server_id, _context, _opts) do
+      ExecutorTest.start_runtime()
+      {:ok, {:via, __MODULE__, server_id}}
+    end
+
+    def whereis_name(_server_id), do: raise("invalid via server reference")
+  end
+
+  defmodule ExitingViaServerManager do
+    alias Zaq.Agent.ExecutorTest
+
+    def ensure_server(_agent, server_id, _context, _opts) do
+      ExecutorTest.start_runtime()
+      {:ok, {:via, __MODULE__, server_id}}
+    end
+
+    def whereis_name(_server_id), do: exit(:via_lookup_failed)
+  end
+
   defmodule ViaTupleServerManager do
     alias Zaq.Agent.ExecutorTest
 
@@ -226,6 +276,21 @@ defmodule Zaq.Agent.ExecutorTest do
     refute outgoing.metadata.error
     expected_server_id = "Stub Agent:conversation:#{conversation_id}"
     assert_received {:ensure_server, _, ^expected_server_id, nil}
+    assert_received {:history_binding, %{conversation_id: ^conversation_id}}
+  end
+
+  test "uses a string-key conversation binding for runtime identity and history" do
+    conversation_id = Ecto.UUID.generate()
+
+    outgoing =
+      Executor.run(
+        @incoming,
+        Keyword.put(@base_opts, :conversation_binding, %{"conversation_id" => conversation_id})
+      )
+
+    refute outgoing.metadata.error
+    assert_received {:ensure_server, _, server_id, nil}
+    assert server_id == "Stub Agent:conversation:#{conversation_id}"
     assert_received {:history_binding, %{conversation_id: ^conversation_id}}
   end
 
@@ -580,6 +645,126 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   describe "coverage gaps" do
+    test "a via name lookup exception returns a graceful runtime error" do
+      outgoing =
+        Executor.run(
+          @incoming,
+          Keyword.merge(@base_opts,
+            server_manager_module: MalformedViaServerManager,
+            factory_module: CoverageStubFactory,
+            status_module: CoverageStubStatus
+          )
+        )
+
+      assert outgoing.metadata.error
+      assert outgoing.metadata.reason =~ "runtime_unavailable"
+      refute_received {:coverage_ask, _, _, _}
+    end
+
+    test "a via name lookup exit returns a graceful runtime error" do
+      outgoing =
+        Executor.run(
+          @incoming,
+          Keyword.merge(@base_opts,
+            server_manager_module: ExitingViaServerManager,
+            factory_module: CoverageStubFactory,
+            status_module: CoverageStubStatus
+          )
+        )
+
+      assert outgoing.metadata.error
+      assert outgoing.metadata.reason =~ "runtime_unavailable"
+      refute_received {:coverage_ask, _, _, _}
+    end
+
+    test "credential dependency exits do not escape stream error handling" do
+      Process.put(:coverage_await_result, {
+        :error,
+        %ReqLLM.Error.API.Request{reason: "invalid", status: 401}
+      })
+
+      outgoing =
+        Executor.run(@incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: CredentialDependencyExitServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          event: Keyword.fetch!(@base_opts, :event)
+        )
+
+      assert outgoing.metadata.error
+      assert outgoing.metadata.reason == ":provider_authentication_failed"
+      assert_received {:credential_dependency_exit_server, server_id}
+      assert_received {:credential_dependency_exit_lookup, ^server_id}
+    end
+
+    test "a stop_server_if_current exit does not replace the handled stream error" do
+      Process.put(:coverage_await_result, {:error, :stream_broke})
+
+      outgoing =
+        Executor.run(@incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: StopExitServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          event: Keyword.fetch!(@base_opts, :event)
+        )
+
+      assert outgoing.metadata.error
+      assert outgoing.metadata.reason == ":stream_broke"
+      assert_received {:stop_exit_server, server_id}
+      assert_received {:stop_exit_attempt, ^server_id, runtime_pid}
+      assert is_pid(runtime_pid)
+    end
+
+    test "a reusable busy failure leaves the supervised runtime untouched" do
+      Process.put(:coverage_await_result, {:error, {:rejected, :busy}})
+
+      outgoing =
+        Executor.run(@incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: StubServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          event: Keyword.fetch!(@base_opts, :event)
+        )
+
+      assert outgoing.metadata.error
+      refute_received {:stopped_failed_runtime, _, _, _}
+    end
+
+    test "unknown measurement keys are ignored without creating atoms" do
+      unknown_key = "executor_measurement_unknown_#{System.unique_integer([:positive])}"
+      assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_key) end
+
+      Process.put(:coverage_await_result, {
+        :ok,
+        %{result: "measurement answer", measurements: %{unknown_key => 1}}
+      })
+
+      outgoing =
+        Executor.run(@incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: CoverageStubServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          scope: "measurement-coverage",
+          event: Keyword.fetch!(@base_opts, :event)
+        )
+
+      assert outgoing.body == "measurement answer"
+      assert outgoing.metadata.error == false
+      assert_raise ArgumentError, fn -> String.to_existing_atom(unknown_key) end
+    end
+
     test "derive_scope supports binary provider normalization" do
       incoming = %Incoming{
         content: "hello",

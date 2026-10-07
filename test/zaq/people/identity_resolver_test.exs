@@ -73,6 +73,9 @@ defmodule Zaq.People.IdentityResolverTest do
       hidden = person_email_channel("hidden@example.com", imap.id)
       different = person_email_channel("different@example.com", smtp.id)
       legacy = person_email_channel("legacy@example.com", nil)
+      inactive = person_email_channel("inactive@example.com", imap.id)
+
+      {:ok, inactive} = People.update_person(inactive, %{status: "inactive"})
 
       {:ok, canonical} =
         People.create_person(%{full_name: "CC Person", email: "canonical@example.com"})
@@ -93,6 +96,7 @@ defmodule Zaq.People.IdentityResolverTest do
               "different@example.com",
               "legacy@example.com",
               "canonical@example.com",
+              "inactive@example.com",
               "unknown@example.com"
             ]
           }
@@ -108,12 +112,22 @@ defmodule Zaq.People.IdentityResolverTest do
       assert recipient_ids ==
                Enum.sort([visible.id, different.id, legacy.id, canonical.id, unknown.id])
 
+      assert People.get_person_with_channels!(inactive.id).status == "inactive"
+
+      assert Enum.any?(People.list_person_channels(inactive.id), fn channel ->
+               channel.person_id == inactive.id and channel.channel_config_id == imap.id
+             end)
+
       refute hidden.id in recipient_ids
+      refute inactive.id in recipient_ids
       assert {:ok, %{id: id}} = People.match_by_channel("email", "canonical@example.com", imap.id)
       assert id == canonical.id
 
       assert {:error, :connector_mismatch} =
                IdentityResolver.resolve_audience(email, smtp.id)
+
+      assert {:error, :invalid_recipient_evidence} =
+               IdentityResolver.resolve_audience(%{}, imap.id)
 
       assert {:error, :invalid_recipient_evidence} =
                IdentityResolver.resolve_audience(
@@ -152,6 +166,42 @@ defmodule Zaq.People.IdentityResolverTest do
       assert {:error, :connector_mismatch} =
                IdentityResolver.resolve_audience(email, imap.id)
     end
+
+    test "halts recipient discovery and propagates a channel changeset error" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Slack audience",
+          provider: "slack",
+          kind: "retrieval",
+          url: "https://example.invalid",
+          token: "fixture-token",
+          enabled: true
+        })
+        |> Repo.insert!()
+
+      message =
+        incoming(%{
+          routing_context: %RoutingContext{
+            channel_config_id: config.id,
+            audience: %Zaq.Engine.Messages.Incoming.Audience{
+              platform: "unsupported_platform",
+              sender: "U123",
+              recipients: ["R_BAD"]
+            }
+          }
+        })
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               IdentityResolver.resolve_audience(message, config.id)
+
+      assert Keyword.has_key?(changeset.errors, :platform)
+
+      assert {:error, :not_found} =
+               People.match_by_channel("unsupported_platform", "R_BAD", config.id)
+
+      refute Enum.any?(Repo.all(PersonChannel), &(&1.channel_identifier == "R_BAD"))
+    end
   end
 
   defp person_email_channel(identifier, config_id) do
@@ -169,6 +219,62 @@ defmodule Zaq.People.IdentityResolverTest do
   end
 
   describe "resolve/2" do
+    test "rejects an invalid connector id before author lookup" do
+      person_count = Repo.aggregate(Zaq.Accounts.Person, :count)
+
+      assert {:error, :connector_mismatch} =
+               IdentityResolver.resolve(
+                 incoming(%{routing_context: %RoutingContext{channel_config_id: 0}}),
+                 channels_router: RaiseRouter
+               )
+
+      assert Repo.aggregate(Zaq.Accounts.Person, :count) == person_count
+    end
+
+    test "stops when a matched identity's connector scope changes" do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Mattermost identity fixture",
+          provider: "mattermost",
+          kind: "retrieval",
+          url: "https://original.example.test",
+          token: "fixture-token",
+          enabled: true
+        })
+        |> Repo.insert!()
+
+      {:ok, person} =
+        People.find_or_create_from_channel("mattermost", %{
+          channel_id: "native",
+          channel_config_id: config.id
+        })
+
+      [original_channel] = People.list_person_channels(person.id)
+
+      {:ok, changed_config} =
+        config
+        |> ChannelConfig.changeset(%{url: "https://changed.example.test"})
+        |> Repo.update()
+
+      assert {:error, :identity_scope_changed} =
+               People.match_by_channel("mattermost", "native", changed_config.id)
+
+      assert {:error, :identity_scope_changed} =
+               IdentityResolver.resolve(
+                 incoming(%{
+                   provider: :mattermost,
+                   author_id: "native",
+                   routing_context: %RoutingContext{channel_config_id: changed_config.id}
+                 }),
+                 channels_router: RaiseRouter
+               )
+
+      assert People.get_channel(original_channel.id).person_id == person.id
+      assert People.get_channel(original_channel.id).channel_config_id == config.id
+      assert Repo.aggregate(Zaq.Accounts.Person, :count) == 1
+    end
+
     test "rejects a claimed connector whose provider differs from the message" do
       {person, _channel} = complete_person_with_channel("U123", %{})
 

@@ -6,12 +6,16 @@ defmodule Zaq.Engine.ChannelHistoryAdminTest do
   alias Zaq.Accounts.People
   alias Zaq.Engine.Api
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.ChannelHistoryAdmin
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{Message, MessageRating}
   alias Zaq.Engine.History.Facts
   alias Zaq.Engine.HistoryIngress
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
+  alias Zaq.TestSupport.OpenAIStub
+
+  @supported_room "abcde12345abcde12345abcde1"
 
   setup do
     admin = super_admin_fixture()
@@ -473,5 +477,187 @@ defmodule Zaq.Engine.ChannelHistoryAdminTest do
 
     assert {:error, :invalid_person} =
              request(admin, %{op: :grant, id: captured.transcript_id, person_id: 99_999_999})
+  end
+
+  test "inactive People cannot receive a transcript grant", %{
+    admin: admin,
+    person: person,
+    captured: captured
+  } do
+    Repo.update!(Ecto.Changeset.change(person, status: "inactive"))
+
+    assert {:error, :invalid_person} =
+             request(admin, %{op: :grant, id: captured.transcript_id, person_id: person.id})
+
+    assert {:ok, %{grants: []}} = request(admin, %{op: :detail, id: captured.transcript_id})
+  end
+
+  test "malformed dispatch requests are rejected and API authorization remains first", %{
+    regular: regular
+  } do
+    assert {:error, :invalid_request} = ChannelHistoryAdmin.dispatch(nil)
+    assert {:error, :invalid_request} = ChannelHistoryAdmin.dispatch(%{op: :unknown})
+
+    event =
+      Event.new(nil, :engine,
+        actor: %{user_id: regular.id},
+        opts: [action: :channel_history_admin, confidential: true]
+      )
+
+    assert %{response: {:error, :unauthorized}} =
+             Api.handle_event(event, :channel_history_admin, %{})
+  end
+
+  test "thread detail preserves replies when the external root message is unavailable", ctx do
+    {:ok, facts} =
+      Facts.for_capture(%{
+        provider: "mattermost",
+        channel_config_id: ctx.config.id,
+        channel_id: "room",
+        kind: :channel,
+        actor_person_id: ctx.person.id,
+        thread_id: "missing-external-root"
+      })
+
+    {:ok, thread} =
+      Conversations.capture_canonical_message(
+        facts,
+        %{
+          role: "external",
+          content: "reply survives",
+          external_message_id: "reply-survives",
+          author_id: "alex"
+        },
+        %{provider: "mattermost", channel_config_id: ctx.config.id, provenance: "provider_event"}
+      )
+
+    assert {:ok, %{root_message: nil, messages: [reply]}} =
+             request(ctx.admin, %{op: :detail, id: thread.transcript_id})
+
+    assert reply.content == "reply survives"
+  end
+
+  test "history titles fall back to persisted author labels when the Person is unavailable",
+       ctx do
+    message = Repo.get!(Message, ctx.captured.message_id)
+
+    Repo.update!(
+      Ecto.Changeset.change(message,
+        author_name: "Historical author",
+        history_context: %{
+          "title_style" => "person_subject",
+          "author_person_id" => ctx.person.id + 9_999_999,
+          "subject" => nil
+        }
+      )
+    )
+
+    assert {:ok, [row]} = request(ctx.admin, %{op: :list})
+    assert row.channel_name == "Historical author: (No subject)"
+
+    message = Repo.get!(Message, ctx.captured.message_id)
+
+    Repo.update!(
+      Ecto.Changeset.change(message,
+        author_name: nil,
+        history_context: %{"title_style" => "person", "author_person_id" => nil}
+      )
+    )
+
+    assert {:ok, [row]} = request(ctx.admin, %{op: :list})
+    assert row.channel_name == "alex"
+  end
+
+  test "history titles prefer a persisted Person name", ctx do
+    message = Repo.get!(Message, ctx.captured.message_id)
+
+    Repo.update!(
+      Ecto.Changeset.change(message,
+        author_name: "Stale provider name",
+        history_context: %{
+          "title_style" => "person",
+          "author_person_id" => ctx.person.id
+        }
+      )
+    )
+
+    assert {:ok, [row]} = request(ctx.admin, %{op: :list})
+    assert row.channel_name == "Alex"
+  end
+
+  test "detail and list hide a transcript whose provider no longer matches its connector", ctx do
+    transcript = Repo.get!(Zaq.Engine.Conversations.Transcript, ctx.captured.transcript_id)
+    Repo.update!(Ecto.Changeset.change(transcript, provider: "discord"))
+
+    assert {:error, :not_found} = request(ctx.admin, %{op: :detail, id: transcript.id})
+    assert {:ok, []} = request(ctx.admin, %{op: :list})
+  end
+
+  test "manual revocation is idempotent and preserves provider membership access", ctx do
+    {:ok, reader} = People.create_person(%{"full_name" => "Revocation reader"})
+
+    {child_spec, url} =
+      OpenAIStub.server(
+        fn conn, _body ->
+          assert conn.method == "GET"
+          assert conn.request_path == "/v1/api/v4/channels/#{@supported_room}/members"
+          assert conn.query_string == "page=0&per_page=200"
+          assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer test-token"]
+          {200, [%{"user_id" => "reader-mm"}]}
+        end,
+        self()
+      )
+
+    start_supervised!(child_spec)
+    config = Repo.update!(Ecto.Changeset.change(ctx.config, url: url))
+    ctx = %{ctx | config: config}
+
+    {:ok, _} =
+      People.add_channel(%{
+        "person_id" => reader.id,
+        "platform" => "mattermost",
+        "channel_identifier" => "reader-mm",
+        "channel_config_id" => config.id
+      })
+
+    {:ok, captured} =
+      HistoryIngress.capture(
+        Incoming.new(%{
+          content: "supported-room-post",
+          channel_id: @supported_room,
+          provider: :mattermost,
+          author_id: "reader-mm",
+          message_id: "supported-room-post",
+          routing_context: %{channel_config_id: config.id, conversation_type: :room}
+        })
+      )
+
+    assert {:error, :unauthorized} =
+             Conversations.list_canonical_messages(reader, captured.transcript_id)
+
+    assert {:ok, :granted} =
+             request(ctx.admin, %{op: :grant, id: captured.transcript_id, person_id: reader.id})
+
+    assert {:ok, %{members: 1}} = request(ctx.admin, %{op: :refresh, id: captured.transcript_id})
+
+    assert_receive(
+      {:openai_request, "GET", "/v1/api/v4/channels/#{@supported_room}/members",
+       "page=0&per_page=200", _}
+    )
+
+    assert {:ok, [%{content: "supported-room-post"}]} =
+             Conversations.list_canonical_messages(reader, captured.transcript_id)
+
+    revoke_request = %{op: :revoke, id: captured.transcript_id, person_id: reader.id}
+    assert {:ok, :revoked} = request(ctx.admin, revoke_request)
+    assert {:ok, :revoked} = request(ctx.admin, revoke_request)
+
+    assert {:ok, %{grants: [%{person_id: id, source: "channel_history:provider:mattermost"}]}} =
+             request(ctx.admin, %{op: :detail, id: captured.transcript_id})
+
+    assert id == reader.id
+
+    assert {:ok, [%{content: "supported-room-post"}]} =
+             Conversations.list_canonical_messages(reader, captured.transcript_id)
   end
 end

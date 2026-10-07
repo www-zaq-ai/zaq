@@ -24,6 +24,82 @@ defmodule Zaq.Engine.History.StrategyTest do
     end
   end
 
+  test "capture validation rejects invalid thread and root coordinates and non-map input" do
+    attrs = %{
+      provider: "mattermost",
+      channel_config_id: 12,
+      channel_id: "room-1",
+      kind: :channel,
+      actor_person_id: 5
+    }
+
+    assert {:error, :invalid_history_facts} = Facts.for_capture(Map.put(attrs, :thread_id, "   "))
+
+    assert {:error, :invalid_history_facts} =
+             Facts.for_capture(Map.merge(attrs, %{thread_id: "reply-1", channel_config_id: 0}))
+
+    assert {:error, :invalid_history_facts} = Facts.for_capture(nil)
+  end
+
+  test "new rejects non-map input independently of invalid map fields" do
+    assert {:error, :invalid_history_facts} = Facts.new(nil)
+  end
+
+  test "replicated unresolved threads are valid without a parent" do
+    assert {:ok, %Facts{kind: :replicated, thread_id: "reply-1", parent: nil}} =
+             facts(%{
+               provider: "email:imap",
+               kind: :replicated,
+               channel_id: "mail-thread",
+               channel_config_id: 12,
+               recipient_person_ids: [7],
+               thread_id: "reply-1"
+             })
+  end
+
+  test "non-Transcript thread parent fails closed" do
+    assert {:error, :parent_scope_mismatch} =
+             facts(%{thread_id: "reply-1", parent: %{id: Ecto.UUID.generate()}})
+  end
+
+  test "replicated parent requires an owner and person-history resource" do
+    replicated_parent =
+      parent("replicated", %{
+        provider: "email:imap",
+        channel_config_id: 12,
+        external_channel_id: "mail-thread",
+        permission_resource_type: "person_history",
+        permission_resource_id: "person:7"
+      })
+
+    attrs = %{
+      provider: "email:imap",
+      kind: :replicated,
+      channel_config_id: 12,
+      channel_id: "mail-thread",
+      actor_person_id: 5,
+      recipient_person_ids: [7],
+      thread_id: "reply-1",
+      parent: replicated_parent
+    }
+
+    assert {:error, :parent_scope_mismatch} =
+             facts(%{attrs | parent: %{replicated_parent | owner_person_id: nil}})
+
+    assert {:error, :parent_scope_mismatch} =
+             facts(%{
+               attrs
+               | parent: %{
+                   replicated_parent
+                   | owner_person_id: 7,
+                     permission_resource_type: "channel_history"
+                 }
+             })
+
+    assert {:ok, %Facts{kind: :replicated, thread_id: "reply-1"}} =
+             facts(%{attrs | parent: %{replicated_parent | owner_person_id: 7}})
+  end
+
   defp facts(overrides \\ %{}) do
     attrs = %{
       provider: "mattermost",

@@ -4,6 +4,14 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusAggregateTest do
 
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
 
+  test "empty connector list reports no enabled connectors" do
+    assert IngressStatusUI.aggregate([]) == %{
+             status: :unsupported,
+             summary: "No enabled connectors",
+             connectors: []
+           }
+  end
+
   property "provider health is order-independent and includes every connector" do
     check all(statuses <- list_of(member_of([:ok, :pending, :error]), min_length: 1)) do
       connectors =

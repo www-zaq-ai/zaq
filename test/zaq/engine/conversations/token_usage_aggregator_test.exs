@@ -7,11 +7,13 @@ defmodule Zaq.Engine.Conversations.TokenUsageAggregatorTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.Conversation
   alias Zaq.Engine.Conversations.Message
   alias Zaq.Engine.Conversations.TokenUsageAggregator
   alias Zaq.Repo
 
   import Ecto.Query
+  import ExUnit.CaptureLog
 
   defp create_conv_with_assistant_msg(model, prompt_tokens, completion_tokens) do
     {:ok, conv} =
@@ -152,6 +154,53 @@ defmodule Zaq.Engine.Conversations.TokenUsageAggregatorTest do
   end
 
   describe "perform/1" do
+    test "returns and logs an error for an unparseable date without changing metadata" do
+      conv = create_conv_with_assistant_msg("gpt-4", 100, 50)
+      metadata_before = Conversations.get_conversation!(conv.id).metadata
+
+      log =
+        capture_log(fn ->
+          send(
+            self(),
+            {:job_result,
+             perform_job(TokenUsageAggregator, %{
+               "conversation_id" => conv.id,
+               "model" => "gpt-4",
+               "date" => "not-a-date"
+             })}
+          )
+        end)
+
+      assert_receive {:job_result, {:error, reason}}
+      assert reason != ""
+      assert reason =~ "cannot parse \"not-a-date\" as date"
+      assert log =~ "[TokenUsageAggregator] Failed for conversation #{conv.id}: #{reason}"
+      assert Conversations.get_conversation!(conv.id).metadata == metadata_before
+    end
+
+    test "returns and logs an error when the conversation does not exist" do
+      missing_id = Ecto.UUID.generate()
+
+      assert Repo.get(Conversation, missing_id) == nil
+
+      log =
+        capture_log(fn ->
+          send(
+            self(),
+            {:job_result,
+             perform_job(TokenUsageAggregator, %{
+               "conversation_id" => missing_id,
+               "model" => "gpt-4",
+               "date" => Date.to_iso8601(Date.utc_today())
+             })}
+          )
+        end)
+
+      assert_receive {:job_result, {:error, reason}}
+      assert reason =~ "expected at least one result but got none"
+      assert log =~ "[TokenUsageAggregator] Failed for conversation #{missing_id}: #{reason}"
+    end
+
     test "pending accounting is coalesced but executing work never suppresses a new pass" do
       conv = create_conv_with_assistant_msg("gpt-4", 100, 50)
 

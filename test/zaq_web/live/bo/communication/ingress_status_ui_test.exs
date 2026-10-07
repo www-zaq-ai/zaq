@@ -39,6 +39,11 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUITest do
   end
 
   describe "any_pending?/1" do
+    test "returns false for non-map status collections" do
+      refute IngressStatusUI.any_pending?(nil)
+      refute IngressStatusUI.any_pending?([])
+    end
+
     test "detects pending statuses in a status map" do
       assert IngressStatusUI.any_pending?(%{mattermost: %{status: :pending}})
 

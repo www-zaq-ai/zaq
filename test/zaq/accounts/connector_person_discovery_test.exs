@@ -2,7 +2,7 @@ defmodule Zaq.Accounts.ConnectorPersonDiscoveryTest do
   use Zaq.DataCase, async: true
   use ExUnitProperties
 
-  alias Zaq.Accounts.{People, Person, PersonChannel}
+  alias Zaq.Accounts.{People, Person, PersonChannel, PersonIdentities, PersonIdentity}
   alias Zaq.Engine.ChannelConfig
 
   setup do
@@ -121,6 +121,56 @@ defmodule Zaq.Accounts.ConnectorPersonDiscoveryTest do
     assert {:error, :identity_scope_changed} =
              People.find_or_create_from_channel("mattermost", attrs)
 
+    assert People.get_person!(person.id)
+  end
+
+  test "legacy connector channels without a native identity remain current" do
+    config = config("legacy-#{System.unique_integer([:positive])}")
+    {:ok, owner} = People.create_person(%{full_name: "Legacy owner"})
+
+    channel =
+      %PersonChannel{}
+      |> PersonChannel.changeset(%{
+        platform: "mattermost",
+        channel_identifier: "legacy-native",
+        person_id: owner.id,
+        channel_config_id: config.id,
+        person_identity_id: nil
+      })
+      |> Repo.insert!()
+
+    assert Repo.get!(PersonChannel, channel.id).person_identity_id == nil
+    assert PersonIdentities.current_scope?(channel)
+    assert {:ok, matched} = People.match_by_channel("mattermost", "legacy-native", config.id)
+    assert matched.id == owner.id
+    assert Repo.get!(PersonChannel, channel.id).person_identity_id == nil
+  end
+
+  test "a deleted native identity makes its old channel snapshot out of scope" do
+    config = config("retired-#{System.unique_integer([:positive])}")
+
+    assert {:ok, person} =
+             People.find_or_create_from_channel("mattermost", %{
+               channel_id: "retired-native",
+               channel_config_id: config.id
+             })
+
+    channel =
+      Repo.get_by!(PersonChannel,
+        person_id: person.id,
+        platform: "mattermost",
+        channel_config_id: config.id,
+        channel_identifier: "retired-native"
+      )
+
+    identity_id = channel.person_identity_id
+    assert identity_id != nil
+    assert PersonIdentities.current_scope?(channel)
+
+    assert {:ok, deleted} = People.delete_channel(channel)
+    assert deleted.id == channel.id
+    assert Repo.get(PersonIdentity, identity_id) == nil
+    assert PersonIdentities.current_scope?(channel) == false
     assert People.get_person!(person.id)
   end
 

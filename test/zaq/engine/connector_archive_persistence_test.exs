@@ -1,5 +1,6 @@
 defmodule Zaq.Engine.ConnectorArchivePersistenceTest do
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   alias Zaq.Channels.Api
   alias Zaq.Engine.{ChannelConfig, ConnectorLifecycle}
@@ -101,6 +102,21 @@ defmodule Zaq.Engine.ConnectorArchivePersistenceTest do
     refute_received {:archive_runtime_event, _}
   end
 
+  property "malformed connector ID strings fail closed without effects" do
+    check all(
+            invalid <- StreamData.string(:alphanumeric, min_length: 1, max_length: 12),
+            not Regex.match?(~r/^[1-9][0-9]*$/, invalid),
+            max_runs: 30
+          ) do
+      config = insert_config("mattermost", "retrieval")
+
+      assert {:error, :connector_not_found} =
+               ConnectorLifecycle.context(invalid, config.provider, config.kind)
+
+      refute_received {:archive_runtime_event, _}
+    end
+  end
+
   test "stale descriptors and connector mismatches fail before side effects" do
     config = insert_config("mattermost", "retrieval")
     {:ok, descriptor} = ConnectorLifecycle.context(config.id, config.provider, config.kind)
@@ -145,6 +161,24 @@ defmodule Zaq.Engine.ConnectorArchivePersistenceTest do
              )
 
     refute_received {:ingress_teardown, _, _}
+    assert_received {:runtime_sync, id, id}
+    assert id == config.id
+    assert Repo.get!(ChannelConfig, config.id).archived_at
+  end
+
+  test "runtime unexpected response is pending after the archive commits" do
+    config = insert_config("mattermost", "retrieval")
+    {:ok, descriptor} = ConnectorLifecycle.context(config.id, config.provider, config.kind)
+    Process.put(:runtime_result, :unexpected)
+
+    assert {:ok, %{status: :archived, runtime: {:pending, {:unexpected_response, :unexpected}}}} =
+             archive(descriptor_request(descriptor),
+               communication_bridge_module: IngressStub,
+               communication_runtime_module: RuntimeStub
+             )
+
+    assert Repo.get!(ChannelConfig, config.id).archived_at
+    assert_received {:ingress_teardown, _, _}
   end
 
   test "data-source leaf skips communication ingress and uses its runtime owner" do
@@ -195,10 +229,15 @@ defmodule Zaq.Engine.ConnectorArchivePersistenceTest do
     id = config.id
 
     assert_received {:archive_runtime_event,
-                     %Event{request: %{config: %{id: ^id, token: token}}, opts: opts}}
+                     %Event{
+                       request: %{config: %{id: ^id, token: token}},
+                       actor: %{user_id: 1},
+                       opts: opts
+                     }}
 
     assert {:ok, ^token} = EncryptedString.decrypt(config.token)
     assert opts[:confidential]
+    assert opts[:action] == :connector_teardown_ingress
     refute Map.has_key?(result, :token)
     refute Map.has_key?(result, :config)
     refute Repo.get!(ChannelConfig, sibling.id).archived_at

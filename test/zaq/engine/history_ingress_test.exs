@@ -8,6 +8,7 @@ defmodule Zaq.Engine.HistoryIngressTest do
   alias Zaq.Channels.{CommunicationBridge, JidoChatBridge}
   alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.EmailBridge.ImapAdapter.Parser
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Api
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryAdmin
@@ -1022,5 +1023,259 @@ defmodule Zaq.Engine.HistoryIngressTest do
              Conversations.list_canonical_messages(previous, input.transcript_ids[previous.id])
 
     assert Repo.aggregate(Message, :count) == 2
+  end
+
+  test "capture rejects invalid requests without persisting history" do
+    config = connector("mattermost")
+
+    incoming =
+      Incoming.new(%{
+        content: "request",
+        channel_id: "room",
+        provider: :mattermost,
+        author_id: "person",
+        routing_context: %{channel_config_id: config.id, conversation_type: :room}
+      })
+
+    assert {:error, :invalid_request} = HistoryIngress.capture(:not_incoming)
+    assert {:error, :invalid_request} = HistoryIngress.capture(%{}, :not_options)
+
+    assert {:error, :invalid_request} =
+             HistoryIngress.capture_resolved(:not_incoming, 1, :channel)
+
+    assert {:error, :invalid_request} = HistoryIngress.capture_resolved(incoming, 0, :channel)
+    assert Repo.aggregate(Message, :count) == 0
+    assert Repo.aggregate(Transcript, :count) == 0
+    assert Repo.aggregate(TranscriptMessage, :count) == 0
+  end
+
+  test "resolved capture excludes unknown audience identities from persisted history context" do
+    config = connector("mattermost")
+    person = author("Known participant", "mattermost", "known", config.id)
+
+    incoming =
+      Incoming.new(%{
+        content: "shared history",
+        channel_id: "room",
+        provider: :mattermost,
+        author_id: "known",
+        message_id: "context-message",
+        routing_context: %{
+          channel_config_id: config.id,
+          conversation_type: :room,
+          audience: %{
+            platform: "mattermost",
+            sender: "known",
+            recipients: ["unknown"],
+            participants: [
+              %{identifier: "known", role: :sender},
+              %{identifier: "unknown", role: :to}
+            ]
+          }
+        }
+      })
+
+    assert Enum.any?(incoming.routing_context.audience.participants, fn participant ->
+             participant.identifier == "unknown" and participant.role == :to
+           end)
+
+    channels_before = Repo.aggregate(Zaq.Accounts.PersonChannel, :count)
+    people_before = Repo.aggregate(Zaq.Accounts.Person, :count)
+
+    assert {:ok, captured} = HistoryIngress.capture_resolved(incoming, person.id, :channel)
+    stored = Repo.get!(Message, captured.message_id)
+
+    assert stored.history_context["participants"] == [
+             %{"person_id" => person.id, "role" => "sender"}
+           ]
+
+    refute Repo.exists?(
+             from c in Zaq.Accounts.PersonChannel,
+               where:
+                 c.platform == "mattermost" and c.channel_identifier == "unknown" and
+                   c.channel_config_id == ^config.id
+           )
+
+    assert Repo.aggregate(Zaq.Accounts.PersonChannel, :count) == channels_before
+    assert Repo.aggregate(Zaq.Accounts.Person, :count) == people_before
+  end
+
+  test "confirmation guards distinguish invalid scope, missing receipts and malformed UUIDs" do
+    config = connector("mattermost")
+
+    delivery = %{
+      confirmation: :confirmed,
+      provider: "mattermost",
+      kind: :replicated,
+      channel_config_id: config.id,
+      channel_id: "recipient",
+      source_scope: "confirmed",
+      message_id: "confirmed-guard",
+      content: "confirmed",
+      audience: %{platform: "mattermost", sender: "bot", recipients: ["recipient"]}
+    }
+
+    assert {:error, :invalid_delivery_scope} =
+             HistoryIngress.record_confirmation(%{delivery | provider: nil})
+
+    assert {:error, :invalid_delivery_scope} =
+             HistoryIngress.record_confirmation(%{delivery | kind: :other})
+
+    assert {:error, :unconfirmed_delivery} = HistoryIngress.record_confirmation(%{})
+    assert {:error, _} = HistoryIngress.associate_confirmation("not-a-uuid")
+
+    assert {:error, :missing_confirmation} =
+             HistoryIngress.associate_confirmation("00000000-0000-0000-0000-000000000000")
+
+    assert Repo.aggregate(Message, :count) == 0
+    assert Repo.aggregate(Transcript, :count) == 0
+    refute_enqueued(worker: HistoryDeliveryWorker)
+  end
+
+  test "attachments are persisted as canonical descriptors without nil fields" do
+    config = connector("mattermost")
+    person = author("Attachment author", "mattermost", "attachment-author", config.id)
+
+    incoming =
+      Incoming.new(%{
+        content: "with attachments",
+        channel_id: "room",
+        provider: :mattermost,
+        author_id: "attachment-author",
+        message_id: "attachment-message",
+        attachments: [
+          %Record{
+            id: "file-1",
+            kind: :file,
+            name: "report.pdf",
+            mime_type: "application/pdf",
+            size: 12
+          },
+          %Record{id: nil, kind: :file, name: "sparse"}
+        ],
+        routing_context: %{channel_config_id: config.id, conversation_type: :room}
+      })
+
+    assert {:ok, captured} = HistoryIngress.capture_resolved(incoming, person.id, :channel)
+
+    assert Repo.get!(Message, captured.message_id).attachments == [
+             %{
+               "id" => "file-1",
+               "name" => "report.pdf",
+               "mime_type" => "application/pdf",
+               "size" => 12
+             },
+             %{"name" => "sparse"}
+           ]
+  end
+
+  test "confirmation rejects malformed assistant UUIDs and missing replicated message coordinates" do
+    config = connector("mattermost")
+
+    base = %{
+      confirmation: :confirmed,
+      provider: "mattermost",
+      kind: :replicated,
+      channel_config_id: config.id,
+      channel_id: "recipient",
+      source_scope: "confirmed",
+      message_id: "external-confirmation",
+      content: "confirmed answer",
+      audience: %{platform: "mattermost", sender: "bot", recipients: ["recipient"]}
+    }
+
+    assert {:error, :source_conflict} =
+             HistoryIngress.record_confirmation(
+               Map.put(base, :assistant_message_id, "not-a-uuid")
+             )
+
+    assert {:error, :invalid_delivery_scope} =
+             HistoryIngress.record_confirmation(Map.delete(base, :message_id))
+
+    assert Repo.aggregate(Message, :count) == 0
+    assert Repo.aggregate(Transcript, :count) == 0
+    refute_enqueued(worker: HistoryDeliveryWorker)
+  end
+
+  test "replicated confirmation reports invalid Facts coordinates and invalid recipient evidence" do
+    config = connector("mattermost")
+    author("Recipient", "mattermost", "facts-recipient", config.id)
+
+    base = %{
+      confirmation: :confirmed,
+      provider: "mattermost",
+      kind: :replicated,
+      channel_config_id: config.id,
+      channel_id: "facts-recipient",
+      source_scope: "confirmed",
+      message_id: "facts-message",
+      content: "confirmed answer",
+      audience: %{platform: "mattermost", sender: "bot", recipients: ["facts-recipient"]}
+    }
+
+    assert {:error, :invalid_history_facts} =
+             HistoryIngress.record_confirmation(
+               Map.put(base, :conversation_id, String.duplicate("x", 256))
+             )
+
+    assert {:error, :invalid_recipient_evidence} =
+             HistoryIngress.record_confirmation(%{
+               base
+               | channel_id: "not-in-audience",
+                 message_id: "bad-audience"
+             })
+
+    assert Repo.aggregate(Message, :count) == 0
+    assert Repo.aggregate(Transcript, :count) == 0
+    assert Repo.aggregate(TranscriptMessage, :count) == 0
+    refute_enqueued(worker: HistoryDeliveryWorker)
+  end
+
+  test "direct confirmation without a persisted execution response is rejected" do
+    config = connector("mattermost")
+
+    delivery = %{
+      confirmation: :confirmed,
+      provider: "mattermost",
+      kind: :direct,
+      channel_config_id: config.id,
+      channel_id: "direct-channel",
+      source_scope: "direct",
+      message_id: "direct-response",
+      user_message_id: "00000000-0000-0000-0000-000000000001",
+      assistant_message_id: "00000000-0000-0000-0000-000000000002",
+      content: "answer"
+    }
+
+    assert {:error, :invalid_delivery_scope} = HistoryIngress.record_confirmation(delivery)
+    assert Repo.aggregate(Message, :count) == 0
+    refute_enqueued(worker: HistoryDeliveryWorker)
+  end
+
+  test "inactive discovered recipients do not own confirmed history" do
+    config = connector("mattermost")
+    inactive = author("Inactive", "mattermost", "inactive-recipient", config.id)
+    active = author("Active", "mattermost", "active-recipient", config.id)
+    assert {:ok, _} = People.update_person(inactive, %{status: "inactive"})
+
+    delivery = %{
+      confirmation: :confirmed,
+      provider: "mattermost",
+      kind: :replicated,
+      channel_config_id: config.id,
+      channel_id: "active-recipient",
+      source_scope: "confirmed",
+      message_id: "inactive-test-message",
+      content: "to active only",
+      audience: %{
+        platform: "mattermost",
+        sender: "bot",
+        recipients: ["inactive-recipient", "active-recipient"]
+      }
+    }
+
+    assert {:ok, %{transcript_ids: targets}} = capture_delivered(delivery)
+    refute Map.has_key?(targets, inactive.id)
+    assert targets[active.id]
   end
 end

@@ -31,4 +31,24 @@ defmodule Zaq.Engine.HistoryDeliveryWorkerTest do
 
     refute_enqueued(worker: HistoryDeliveryWorker)
   end
+
+  test "missing durable confirmation is terminal and malformed jobs are cancelled" do
+    missing_id = Ecto.UUID.generate()
+
+    assert {:cancel, :missing_confirmation} =
+             perform_job(HistoryDeliveryWorker, %{"message_id" => missing_id})
+
+    refute_enqueued(worker: HistoryDeliveryWorker)
+
+    for {job, result} <- [
+          {%Oban.Job{args: %{}}, {:cancel, :unconfirmed_delivery}},
+          {%Oban.Job{args: %{"message_id" => missing_id, "extra" => "legacy"}},
+           {:cancel, :unconfirmed_delivery}},
+          {%Oban.Job{args: %{"message_id" => nil}}, {:cancel, :missing_confirmation}}
+        ] do
+      assert ^result = HistoryDeliveryWorker.perform(job)
+    end
+
+    refute_enqueued(worker: HistoryDeliveryWorker)
+  end
 end

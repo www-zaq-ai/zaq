@@ -14,6 +14,19 @@ defmodule Zaq.Engine.Workflows.Actions.RefreshChannelHistoryMembershipTest do
     end
   end
 
+  test "rejects non-map params and context even for a persisted super-admin" do
+    admin = super_admin_fixture()
+
+    assert {:error, :unauthorized} =
+             RefreshChannelHistoryMembership.run(nil, %{actor: %{user_id: admin.id}})
+
+    assert {:error, :unauthorized} =
+             RefreshChannelHistoryMembership.run(
+               %{transcript_id: Ecto.UUID.generate()},
+               nil
+             )
+  end
+
   test "rejects invalid transcript IDs before attempting a provider snapshot" do
     admin = super_admin_fixture()
     staff = user_fixture()
@@ -48,5 +61,12 @@ defmodule Zaq.Engine.Workflows.Actions.RefreshChannelHistoryMembershipTest do
 
     assert {:error, :invalid_person} =
              RefreshChannelHistoryMembership.run(scope, %{actor: %{user_id: admin.id}})
+  end
+
+  test "rejects missing person scope selectors for an authorized super-admin" do
+    admin = super_admin_fixture()
+
+    assert {:error, :invalid_scope} =
+             RefreshChannelHistoryMembership.run(%{}, %{actor: %{user_id: admin.id}})
   end
 end

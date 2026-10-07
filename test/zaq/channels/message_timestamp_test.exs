@@ -25,5 +25,8 @@ defmodule Zaq.Channels.MessageTimestampTest do
     for value <- [nil, %{}, "invalid", -999_999_999_999_999] do
       assert MessageTimestamp.normalize(value, :second) == nil
     end
+
+    assert MessageTimestamp.normalize("not-an-iso-date", :iso8601) == nil
+    assert MessageTimestamp.normalize("not a date", :rfc2822) == nil
   end
 end

@@ -143,6 +143,34 @@ defmodule Zaq.Agent.ApiTest do
     end
   end
 
+  defmodule ConfigurablePersistFailNodeRouter do
+    def dispatch(event) do
+      action = Keyword.get(event.opts, :action)
+      send(self(), {:configurable_persist_dispatch, action, event})
+
+      response =
+        case {event.trace_id, action} do
+          {"changeset", :finalize_incoming} ->
+            changeset =
+              Ecto.Changeset.change({%{}, %{field: :string}}, %{})
+              |> Ecto.Changeset.add_error(:field, "sensitive validation text")
+
+            {:error, changeset}
+
+          {"exception", :finalize_incoming} ->
+            {:error, %RuntimeError{message: "secret exception"}}
+
+          {"map", :finalize_incoming} ->
+            {:error, %{secret: "secret map value"}}
+
+          _ ->
+            :ok
+        end
+
+      %{event | response: response}
+    end
+  end
+
   defmodule PersistInvalidResponseNodeRouter do
     def dispatch(event) do
       response =
@@ -541,6 +569,120 @@ defmodule Zaq.Agent.ApiTest do
     result = Api.handle_event(event, :inject_request, nil)
 
     assert result.response == {:error, :not_found}
+  end
+
+  test "steer and delete agent skill reject malformed requests without dispatch" do
+    invalid_requests = [
+      {:agent_skill_updated, %{id: 17, attrs: :bad}},
+      {:agent_skill_updated, %{id: "17", attrs: %{name: "x"}}},
+      {:agent_skill_deleted, %{"id" => "17"}},
+      {:agent_skill_deleted, :bad}
+    ]
+
+    Enum.each(invalid_requests, fn {action, request} ->
+      event = Event.new(request, :agent, opts: [runtime_sync_module: StubRuntimeSync])
+
+      result = Api.handle_event(event, action, nil)
+
+      assert result.response == {:error, {:invalid_request, request}}
+      assert result.next_hop == event.next_hop
+    end)
+
+    refute_received {:configured_agent_updated_called, _, _}
+    refute_received {:configured_agent_deleted_called, _}
+  end
+
+  test "internal nil-provider run with malformed assigns falls back to pipeline safely" do
+    incoming = %Incoming{content: "hi", channel_id: "internal", provider: nil}
+
+    event =
+      pipeline_event(incoming,
+        opts: [
+          pipeline_module: StubPipeline,
+          executor_module: StubExecutor,
+          pipeline_opts: [],
+          status_module: NoopStatus,
+          node_router: SpyNodeRouter
+        ]
+      )
+
+    result = Api.handle_event(%{event | assigns: :malformed}, :run_pipeline, nil)
+
+    assert %Outgoing{body: "ok", provider: nil} = result.response
+    assert result.next_hop == event.next_hop
+    assert_received {:pipeline_called, ^incoming, opts}
+    assert Keyword.get(opts, :person_id) == nil
+    assert Keyword.get(opts, :team_ids) == []
+    refute Keyword.get(opts, :skip_permissions) == true
+    refute_received {:executor_called, _, _}
+    refute_received {:node_router_dispatch, :finalize_incoming, _}
+  end
+
+  test "finalization failure logs changesets safely and blocks outgoing delivery" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    event =
+      pipeline_event(incoming,
+        trace_id: "changeset",
+        opts: [
+          pipeline_module: StubPipeline,
+          status_module: SpyStatus,
+          node_router: ConfigurablePersistFailNodeRouter,
+          server_manager: PassthroughServerManager
+        ]
+      )
+
+    log =
+      capture_log(fn ->
+        result = Api.handle_event(event, :run_pipeline, nil)
+
+        assert {:error, {:persist_failed, %Ecto.Changeset{} = changeset}} = result.response
+        assert result.next_hop == nil
+        assert result.opts[:action] != :deliver_outgoing
+        assert changeset.errors[:field] != nil
+      end)
+
+    assert log =~ "{:changeset, [:field]}"
+    refute log =~ "sensitive validation text"
+    assert_received {:configurable_persist_dispatch, :finalize_incoming, _}
+    assert_received {:status_broadcast, ^incoming, :failed, _}
+    refute_received {:configurable_persist_dispatch, :deliver_outgoing, _}
+  end
+
+  test "finalization failure logs exception and map reasons without leaking details" do
+    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
+
+    for {trace_id, expected_log_reason, secret} <- [
+          {"exception", "RuntimeError", "secret exception"},
+          {"map", ":non_atom_reason", "secret map value"}
+        ] do
+      event =
+        pipeline_event(incoming,
+          trace_id: trace_id,
+          opts: [
+            pipeline_module: StubPipeline,
+            status_module: NoopStatus,
+            node_router: ConfigurablePersistFailNodeRouter,
+            server_manager: PassthroughServerManager
+          ]
+        )
+
+      log =
+        capture_log(fn ->
+          result = Api.handle_event(event, :run_pipeline, nil)
+
+          assert {:error, {:persist_failed, reason}} = result.response
+          assert result.next_hop == nil
+          assert result.opts[:action] != :deliver_outgoing
+          if trace_id == "exception", do: assert(reason == %RuntimeError{message: secret})
+          if trace_id == "map", do: assert(reason == %{secret: secret})
+        end)
+
+      assert log =~ expected_log_reason
+      refute log =~ secret
+      assert_received {:configurable_persist_dispatch, :finalize_incoming, _}
+      refute_received {:configurable_persist_dispatch, :deliver_outgoing, _}
+    end
   end
 
   test "steer_request returns missing_content when request content is empty" do

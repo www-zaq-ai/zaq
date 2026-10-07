@@ -94,4 +94,14 @@ defmodule Zaq.Engine.Workflows.Actions.ConnectorActionSchemaTest do
       assert {:error, _} = Jido.Exec.run(action, %{provider: 42, transcript_id: 42}, %{})
     end
   end
+
+  test "non-map params or context return unauthorized from the callback fallback" do
+    for params <- [nil, [], "invalid"] do
+      assert {:error, :unauthorized} = SaveEmailConnector.run(params, %{})
+    end
+
+    for context <- [nil, [], "invalid"] do
+      assert {:error, :unauthorized} = SaveEmailConnector.run(@save_params, context)
+    end
+  end
 end

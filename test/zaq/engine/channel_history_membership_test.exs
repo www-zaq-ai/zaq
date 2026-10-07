@@ -90,7 +90,10 @@ defmodule Zaq.Engine.ChannelHistoryMembershipTest do
              Conversations.list_canonical_messages(alice, placement.transcript_id)
 
     assert {:ok, [_]} = Conversations.list_canonical_messages(bob, placement.transcript_id)
-    assert Enum.map(Permissions.list_direct(resource), & &1.source_key) == ["manual"]
+
+    assert Permissions.list_direct(resource) |> Enum.map(& &1.source_key) |> Enum.sort() == [
+             "manual"
+           ]
   end
 
   test "Person refresh affects only that Person on the selected connector", ctx do
@@ -255,5 +258,177 @@ defmodule Zaq.Engine.ChannelHistoryMembershipTest do
              ChannelHistoryMembership.refresh(id, router: SnapshotRouter)
 
     assert {:ok, [_]} = Conversations.list_canonical_messages(ctx.alice, id)
+  end
+
+  test "malformed membership events fail closed without dispatch or changing access", ctx do
+    resource = ChannelHistoryResource.for("mattermost", ctx.config.id, @room)
+
+    before_state =
+      Repo.get!(Zaq.Engine.Conversations.Transcript, ctx.placement.transcript_id).membership_state
+
+    before_grants =
+      Permissions.list_direct(resource) |> Enum.map(&{&1.person_id, &1.source_key}) |> Enum.sort()
+
+    for event <- [
+          %{},
+          %{
+            provider: "mattermost",
+            channel_config_id: nil,
+            channel_id: @room,
+            identity_platform: "mattermost",
+            member_id: "alice",
+            operation: :add,
+            revision: 1
+          },
+          %{
+            provider: "mattermost",
+            channel_config_id: ctx.config.id,
+            channel_id: @room,
+            identity_platform: "mattermost",
+            member_id: "",
+            operation: :add,
+            revision: 1
+          },
+          %{
+            provider: "mattermost",
+            channel_config_id: ctx.config.id,
+            channel_id: @room,
+            identity_platform: "",
+            member_id: "alice",
+            operation: :add,
+            revision: 1
+          },
+          %{
+            provider: "mattermost",
+            channel_config_id: ctx.config.id,
+            channel_id: @room,
+            identity_platform: "mattermost",
+            member_id: String.duplicate("a", 256),
+            operation: :add,
+            revision: 1
+          }
+        ] do
+      assert {:error, :invalid_membership_event} = ChannelHistoryMembership.apply_event(event)
+    end
+
+    refute_received {:membership_request, _}
+
+    assert Repo.get!(Zaq.Engine.Conversations.Transcript, ctx.placement.transcript_id).membership_state ==
+             before_state
+
+    assert Permissions.list_direct(resource)
+           |> Enum.map(&{&1.person_id, &1.source_key})
+           |> Enum.sort() == before_grants
+  end
+
+  test "invalid ordered events roll back membership state and grants", ctx do
+    event = %{
+      provider: "mattermost",
+      channel_config_id: ctx.config.id,
+      channel_id: @room,
+      identity_platform: "mattermost",
+      member_id: "alice",
+      operation: :invalid,
+      revision: 1
+    }
+
+    before_state =
+      Repo.get!(Zaq.Engine.Conversations.Transcript, ctx.placement.transcript_id).membership_state
+
+    resource = ChannelHistoryResource.for("mattermost", ctx.config.id, @room)
+
+    before_grants =
+      Permissions.list_direct(resource) |> Enum.map(&{&1.person_id, &1.source_key}) |> Enum.sort()
+
+    assert {:error, :invalid_membership_event} = ChannelHistoryMembership.apply_event(event)
+
+    assert Repo.get!(Zaq.Engine.Conversations.Transcript, ctx.placement.transcript_id).membership_state ==
+             before_state
+
+    assert Permissions.list_direct(resource)
+           |> Enum.map(&{&1.person_id, &1.source_key})
+           |> Enum.sort() == before_grants
+  end
+
+  test "disabled connector rejects membership refresh without dispatch", ctx do
+    config = ctx.config |> Ecto.Changeset.change(enabled: false) |> Repo.update!()
+    resource = ChannelHistoryResource.for("mattermost", config.id, @room)
+
+    assert {:ok, _} =
+             Permissions.grant(resource, %{person_id: ctx.bob.id, access_rights: ["read"]})
+
+    before_grants =
+      Permissions.list_direct(resource) |> Enum.map(&{&1.person_id, &1.source_key}) |> Enum.sort()
+
+    assert {:error, :unsupported_membership_refresh} =
+             ChannelHistoryMembership.refresh(ctx.placement.transcript_id, router: SnapshotRouter)
+
+    refute_received {:membership_request, _}
+
+    assert Enum.map(Permissions.list_direct(resource), &{&1.person_id, &1.source_key}) ==
+             before_grants
+  end
+
+  test "invalid and oversized member snapshots preserve existing access", ctx do
+    id = ctx.placement.transcript_id
+    resource = ChannelHistoryResource.for("mattermost", ctx.config.id, @room)
+
+    Process.put(
+      :membership_response,
+      {:ok, %{complete: true, identity_platform: "mattermost", member_ids: ["alice"]}}
+    )
+
+    assert {:ok, _} = ChannelHistoryMembership.refresh(id, router: SnapshotRouter)
+    before_state = Repo.get!(Zaq.Engine.Conversations.Transcript, id).membership_state
+    before_grants = Enum.map(Permissions.list_direct(resource), &{&1.person_id, &1.source_key})
+
+    for member_ids <- [nil, %{}, Enum.map(1..10_001, &"unknown-#{&1}")] do
+      Process.put(
+        :membership_response,
+        {:ok, %{complete: true, identity_platform: "mattermost", member_ids: member_ids}}
+      )
+
+      assert {:error, :invalid_snapshot} =
+               ChannelHistoryMembership.refresh(id, router: SnapshotRouter)
+
+      assert {:ok, [_]} = Conversations.list_canonical_messages(ctx.alice, id)
+      assert Repo.get!(Zaq.Engine.Conversations.Transcript, id).membership_state == before_state
+
+      assert Permissions.list_direct(resource)
+             |> Enum.map(&{&1.person_id, &1.source_key})
+             |> Enum.sort() == before_grants
+    end
+  end
+
+  test "unknown well-formed event records evidence without creating a Person or grant", ctx do
+    resource = ChannelHistoryResource.for("mattermost", ctx.config.id, @room)
+    before_people = Repo.aggregate(Zaq.Accounts.Person, :count)
+
+    before_grants =
+      Permissions.list_direct(resource) |> Enum.map(&{&1.person_id, &1.source_key}) |> Enum.sort()
+
+    assert {:ok, %{status: :applied}} =
+             ChannelHistoryMembership.apply_event(%{
+               provider: "mattermost",
+               channel_config_id: ctx.config.id,
+               channel_id: @room,
+               identity_platform: "mattermost",
+               member_id: "unknown-member",
+               operation: :add,
+               revision: 1
+             })
+
+    assert Repo.get!(Zaq.Engine.Conversations.Transcript, ctx.placement.transcript_id).membership_state ==
+             %{
+               "events" => %{"unknown-member" => %{"present" => true, "revision" => 1}},
+               "members" => ["unknown-member"],
+               "platform" => "mattermost"
+             }
+
+    assert Repo.aggregate(Zaq.Accounts.Person, :count) == before_people
+
+    assert Permissions.list_direct(resource)
+           |> Enum.map(&{&1.person_id, &1.source_key})
+           |> Enum.sort() == before_grants
   end
 end
