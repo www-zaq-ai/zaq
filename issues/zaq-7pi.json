@@ -14,11 +14,15 @@
     {
       "text": "Completed seven-file alias/Credo repair: added OpenAIStub and Buffer aliases and shortened references; sorted Record and Engine aliases; corrected alias grouping/order in history delivery, incoming normalization, and connector discovery tests. Targeted locked run: all 7 requested paths passed (4 properties, 85 tests, 0 failures). No production changes.",
       "timestamp": "2026-10-07T18:52:21Z"
+    },
+    {
+      "text": "Final validation: mix q PASS after delegated alias-only repairs. Final targeted run used exactly all 39 added/edited test files with --cover: 6 doctests, 21 properties, 606 tests, 1 failure, exit2. Known failure: TranscriptHistory.matches_admitted_source?/4 line849 calls Repo.get(Conversation,nil) for unattached canonical message, instead of returning source_conflict; regression retained, no production fix authorized. Another blocker documented in zaq-ilh/zaq-xhd: nil stored thread root crashes ChannelHistoryProjection.project/1 line35 after author_person_id(nil) fallback. Targeted-only coverage retained by grep: person_identities91.6 api94.9 executor96.6 identity_scope100 mattermost_admin92.7 message_timestamp100 channel_adapter_loader100 channel_history_admin92.7 connector_lifecycle97.3 conversations60.9 data_sources96.3 history/delivery81.4 history/facts100 history_ingress95.8 identity_resolver91.2. Total21.5 reflects targeted subset, not whole-suite regression. Output filter did not retain other24 targeted rows because console shortens long paths; no stale JSON or rerun substituted. Test-only changes remain uncommitted. Coverage task blocked by real production regression; no full suite/precommit/commit/push performed.",
+      "timestamp": "2026-10-07T18:57:59Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[coverage] Cover supplied 39-file missed-line list",
   "type": "task",
-  "updated_at": "2026-10-07T18:52:21Z"
+  "updated_at": "2026-10-07T18:57:59Z"
 }
