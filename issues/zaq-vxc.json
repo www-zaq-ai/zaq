@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-y8p"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-7uz"
+  ],
   "created": "2026-10-07T10:28:19Z",
   "description": "Action reuse: local-only TranscriptHistory capture internals; reuse canonical validation/storage and attach, never duplicate permission/resource checks. Resolve canonical content once per capture, reuse transaction connector facts while preserving per-target scope checks, locks, placements and replay conflict semantics. Integration and ordering/idempotency property tests.",
   "id": "zaq-vxc",
