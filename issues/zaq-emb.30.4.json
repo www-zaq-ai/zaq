@@ -11,9 +11,15 @@
   "id": "zaq-emb.30.4",
   "labels": [],
   "parent": "zaq-emb.30",
+  "comments": [
+    {
+      "text": "B0 technical contract decision for B3 tests/implementation: extend existing ExecutionRecord rather than add an execution queue or independent receipt store. Root execution keeps pending/completed/failed and uniquely owns public_answer_message_id. A steered input gets a private child ExecutionRecord linked by root_execution_id, same literal Person, canonical user_message_id and fresh hash; child statuses queued/consumed/unconsumed cannot hold a public answer. Consumption means correlated Jido input_injected, NOT successful answer; terminal root outcome is recorded separately and queued children become unconsumed. Enforce immutable owner/root/input linkage, same-Person/root-active admission, per-root/input replay uniqueness, distinct root/input and answer checks, exact runtime incarnation control. Forward DDL only; preserve existing rows and test fresh/populated upgrade/guarded rollback. This is a bounded per-input state contract, no durable replay/execution queue. Tests precede production changes. Accounting decision: completed root ExecutionRecord usage counters are authoritative for new executions, selected once by its unique public-answer reference and answer UTC day; steered child rows never add usage. Existing assistant Message counters provide compatibility fallback only where linked completed execution has no usable counters (including legacy records). One existing TokenUsageAggregator performs the joined projection, replacing totals under existing conversation lock and coalesced job/date contract; no second worker, no summing both sources. Private per-tool/trace usage remains solely in ExecutionRecord. Before cutover verify actual usage key normalization and tests for legacy/mixed, zero usage, retry, concurrent models, executing-job follow-up and delayed message date.",
+      "timestamp": "2026-10-07T20:32:14Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-07T20:26:35Z"
+  "updated_at": "2026-10-07T20:32:14Z"
 }
