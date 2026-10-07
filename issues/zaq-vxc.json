@@ -10,9 +10,15 @@
   "description": "Action reuse: local-only TranscriptHistory capture internals; reuse canonical validation/storage and attach, never duplicate permission/resource checks. Resolve canonical content once per capture, reuse transaction connector facts while preserving per-target scope checks, locks, placements and replay conflict semantics. Integration and ordering/idempotency property tests.",
   "id": "zaq-vxc",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented transaction-local canonical message reuse across targets; connector read once per capture; existing shared/direct transcripts now avoid conflict INSERT attempts. Every target retains scope/source validation, placement-scope checks and transcript locks. Existing admitted responses reuse the locked struct but retain per-target conversation checks. Regression proves five recipients use one message INSERT and one connector read, plus replay/recipient-order properties. mix q and 3 properties/29 tests passed. No commit.",
+      "timestamp": "2026-10-07T10:44:24Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[query-amplification] Reduce canonical transcript fan-out work",
   "type": "task",
-  "updated_at": "2026-10-07T10:39:51Z"
+  "updated_at": "2026-10-07T10:44:24Z"
 }
