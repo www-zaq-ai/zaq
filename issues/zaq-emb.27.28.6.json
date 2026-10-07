@@ -19,11 +19,15 @@
     {
       "text": "User explicitly authorized committing and pushing incomplete local gates for GitHub CI. Published remediation commit73df6235b71ce02b159c477a389d7c77ed1d3005 to origin feature/issue-768-history-a-integration/PR835. 178files; no source changes beyond reviewed remediation/user-preserved fixes, plus validation/publication notes. Initial default-scheduler commit hook ExDNA5000ms timeout; retry ERL_FLAGS='+S1:1' passed qf (18470mods/funs, no issues) and commit-message hook; push format hook passed. Working tree clean after commit. CI confirmed started for exact SHA: E2E run37205952354 and Elixir CI37205952376 in_progress; gitleaks/Protect opencode workflow/Semantic PR Title success. Final coverage/browser/current-tree full precommit still unresolved locally, no merge or final approval, ticket remains in_progress pending CI/follow-up. Fix SHA now exists but dependent PRB integration still waits verified landed contracts.",
       "timestamp": "2026-10-04T13:32:29Z"
+    },
+    {
+      "text": "Planning reconciliation 2026-10-07: published a0c8796e includes 73df6235 remediation, ownership/performance/timeout updates, 941c8536 coverage and conversation-less reuse/missing-root fixes. Former test-handoff wait resolved. B tasks now preserve these contracts. Plan-time CI snapshot: 10/12 checks successful, Firefox/WebKit running, aggregate QA not yet reported. Recheck current results; this is not final review/coverage/local precommit or human acceptance. Reconcile zaq-mcw/zaq-e8q evidence without silently closing them. No implementation status changed.",
+      "timestamp": "2026-10-07T20:23:56Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Finalize PR 835 remediation review, browser regressions and coverage gates",
   "type": "task",
-  "updated_at": "2026-10-04T13:32:29Z"
+  "updated_at": "2026-10-07T20:23:56Z"
 }
