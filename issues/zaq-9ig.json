@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-07T18:02:44Z",
+  "description": "Planning only; detailed exclusive-path test plan to follow in issue update.",
+  "id": "zaq-9ig",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[coverage] Cover MattermostAdmin missed lines 67,72,76,113,159,204",
+  "type": "task",
+  "updated_at": "2026-10-07T18:02:44Z"
+}
