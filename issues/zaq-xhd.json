@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-07T18:01:32Z",
+  "description": "Planning task; details to follow in issue update.",
+  "id": "zaq-xhd",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[coverage] Plan ChannelHistoryLive missed-line tests",
+  "type": "task",
+  "updated_at": "2026-10-07T18:01:32Z"
+}
