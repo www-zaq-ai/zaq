@@ -8,9 +8,15 @@
   "description": "Test-only correction in factory_test.exs and factory_tool_timeout_test.exs. Preserve maximum-of-declarations behavior, use existing non-declaring MCPProbeTool for nil coverage, keep default floor and explicitly compare reversed/deduplicated registrations without calling production timeout resolver as the oracle. Add fixed Search 120000 declaration assertion and live removal steps 120000 -\u003e 90000 -\u003e 15000. Action reuse: not applicable — no executable operations change; tests exercise existing Factory/Jido registration boundaries. No new Actions, production edits, or E2E needed. Validate red baseline, targeted tests, mix q and final mix precommit; retain known telemetry sandbox blocker if reproduced. Leave uncommitted unless separately authorized.",
   "id": "zaq-cnt",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented only factory_test.exs and factory_tool_timeout_test.exs. Reproduced all three original failures at seed 649460; updated fixtures/oracles without changing goals. Max checks both orders, nil coverage uses existing non-declaring MCPProbeTool, fixed Search 120000 declaration assertion, registration property compares original and reversed/deduplicated sequences using independent max/default oracle, new removal test steps Search 120000 -\u003e Browsing budget -\u003e default 15000. Targeted rerun same seed: 50 tests/2 properties passed. mix q and diff check passed. Full precommit: 9127 tests/161 properties with three unrelated PostgreSQL deadlocks tracked in zaq-e8q; final validation remains blocked. No production changes, commits, or push.",
+      "timestamp": "2026-10-07T15:15:31Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[tool-timeout] Preserve timeout contract coverage after Search budget declaration",
   "type": "task",
-  "updated_at": "2026-10-07T15:15:30Z"
+  "updated_at": "2026-10-07T15:15:31Z"
 }
