@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-cnt"
+  ],
   "created": "2026-10-07T15:15:21Z",
   "description": "While validating test-only timeout fixes, mix precommit at seed 387832 ran 9127 tests/161 properties/17 doctests with three Postgrex ERROR 40P01 deadlock_detected failures in unchanged suites: OAuthAttemptsTest corrupt encrypted verifier and setup candidate fail closed (oauth_attempts_test.exs:738); PeopleProfileGatewayTest access removal denies edit-only sessions, revocation and merging never follow old credentials (people_profile_gateway_test.exs:130); PeopleProfileGatewayTest read projection contains only profile fields, own channels/teams and permissions (people_profile_gateway_test.exs:26, setup at :7). Timeout-specific tests passed and only two Factory test files were changed. Investigate full-suite SQL Sandbox concurrency/locking; do not weaken assertions or treat the global gate as passed. Action reuse: not applicable — tracking investigation only.",
   "id": "zaq-e8q",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[tool-timeout] Investigate full-suite OAuth/profile validation deadlocks",
   "type": "bug",
-  "updated_at": "2026-10-07T15:15:21Z"
+  "updated_at": "2026-10-07T15:15:30Z"
 }
