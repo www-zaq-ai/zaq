@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-07T18:06:00Z",
+  "description": "",
+  "id": "zaq-h9a",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[coverage] Plan IMAP LiveView missed-line scenarios",
+  "type": "task",
+  "updated_at": "2026-10-07T18:06:00Z"
+}
