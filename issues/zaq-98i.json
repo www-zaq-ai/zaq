@@ -18,11 +18,15 @@
     {
       "text": "Implemented focused tests in test/zaq/engine/history/delivery_test.exs for unsupported conversation types, replicated recipient fan-out/channel scope, and successful receipt preservation with no side effects. Targeted mix test passes (1 property, 3 tests, 0 failures). Lines 69 and 74 are unreachable through public contracts without forcing production seams; no production changes made. mix q/format/precommit/coverage intentionally not run per task instructions.",
       "timestamp": "2026-10-07T18:28:29Z"
+    },
+    {
+      "text": "Review follow-up: unsupported-kind example/property now supply both binary metadata message IDs, so they enter the CommunicationPolicy kind branch. Replaced misleading no-op test with a valid confirmed room delivery having both metadata IDs and a PID source_scope; this provokes the rescue fallback and asserts history_capture: :unavailable, history_capture_error: :history_capture_unavailable, zero Message/Transcript writes, and no HistoryDeliveryWorker enqueue. Focused test passes: 1 property, 3 tests, 0 failures.",
+      "timestamp": "2026-10-07T18:34:15Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-98i] [coverage] Delivery.capture missed lines 25, 61, 69, 72, 74",
   "type": "task",
-  "updated_at": "2026-10-07T18:28:29Z"
+  "updated_at": "2026-10-07T18:34:15Z"
 }
