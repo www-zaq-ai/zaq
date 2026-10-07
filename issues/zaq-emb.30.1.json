@@ -17,11 +17,15 @@
     {
       "text": "B0 started on user-requested branch in CURRENT checkout: feature/issue-768-history-b-execution at a0c8796e. Context Mode doctor passed; Serena Elixir semantic overview works; bw prime sees existing tracker. Effective test database is zaq_test_feature_issue_768_history_b_execution on localhost (default PostgreSQL port), build path agile-pangolin/_build/test. Initial real Mattermost/capture/tool-timeout baseline: 38 tests + 3 properties passed. Expanded ownership/audience/BO projection/ingress/Channels API/accounting/Factory baseline: 241 tests + 6 properties passed. New authorized_execution full-path test uses real Mattermost ingress, permissions, Jido and arithmetic.add; only provider/LLM HTTP fake. RED confirmed: actual first LLM request contains only system and current question, missing Authorized project root/thread history. Not a fixture/compiler failure (initial nil-query fixture mistake corrected). mix q passes after test edits. No production changes yet; first-leg remains in progress.",
       "timestamp": "2026-10-07T20:31:07Z"
+    },
+    {
+      "text": "B0 acceptance evidence: requested current-worktree branch established from a0c8796e; tool readiness and branch-specific test database verified. Baselines passed: 38 tests/3 properties then 241 tests/6 properties. Primary real-provider/real-Jido acceptance scenario authored BEFORE production changes and failed specifically because actual LLM input lacks authorized root/thread history. B3 receipt/usage technical choices recorded on .30.4. No repair migrations, new runtime path or private-data projection added. B1 regressions also reproduced missing actual handle, stale owner overwrites, concurrent lost registry fields, terminal status reopening and unsafe server-name control. Existing baseline tests retain assertions. B0 closes as setup/test-first proof, not feature completion.",
+      "timestamp": "2026-10-07T20:47:16Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.1] B0 — workspace, baseline and tracking",
   "type": "task",
-  "updated_at": "2026-10-07T20:31:07Z"
+  "updated_at": "2026-10-07T20:47:16Z"
 }
