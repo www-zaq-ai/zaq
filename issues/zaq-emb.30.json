@@ -14,9 +14,15 @@
   "id": "zaq-emb.30",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "PR B execution started on feature/issue-768-history-b-execution inside CURRENT agile-pangolin checkout per latest user direction. No new worktree/session move. B0 baseline and primary failing real-path test established; B1 actual request correlation/atomic registry/runtime control changes underway. Files: Agent Executor/StreamEvents/RequestRegistry/Api, corresponding tests, Mattermost fixture/full-path acceptance and Agent service docs. No commit, push, publication or merge. Full-path test still exposes missing authorized history; B2/B3/B4 and later outcome tasks remain open.",
+      "timestamp": "2026-10-07T20:47:18Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.30] Person-bound canonical execution and busy-request admission (PR B)",
   "type": "task",
-  "updated_at": "2026-10-07T20:26:31Z"
+  "updated_at": "2026-10-07T20:47:18Z"
 }
