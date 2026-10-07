@@ -14,11 +14,15 @@
     {
       "text": "Resolved scenario 2 discriminator from History.Replicated.association_targets/1: with conversation_id nil, each recipient transcript.external_channel_id equals facts.channel_id, which Delivery sets to first receipt audience recipient. Assert both recipient transcripts external_channel_id == \"first@example.com\" (not \"old-thread\"), their ownership and confirmed message content/external ID, and no transcript for unrelated person. This directly proves L61 without fingerprint speculation.",
       "timestamp": "2026-10-07T18:03:01Z"
+    },
+    {
+      "text": "Implemented focused tests in test/zaq/engine/history/delivery_test.exs for unsupported conversation types, replicated recipient fan-out/channel scope, and successful receipt preservation with no side effects. Targeted mix test passes (1 property, 3 tests, 0 failures). Lines 69 and 74 are unreachable through public contracts without forcing production seams; no production changes made. mix q/format/precommit/coverage intentionally not run per task instructions.",
+      "timestamp": "2026-10-07T18:28:29Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-98i] [coverage] Delivery.capture missed lines 25, 61, 69, 72, 74",
   "type": "task",
-  "updated_at": "2026-10-07T18:03:01Z"
+  "updated_at": "2026-10-07T18:28:29Z"
 }
