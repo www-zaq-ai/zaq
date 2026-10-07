@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.15"
+  ],
   "blocks": [
     "zaq-emb.30.2"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[zaq-emb.30.1] B0 — workspace, baseline and tracking",
   "type": "task",
-  "updated_at": "2026-10-07T20:17:34Z"
+  "updated_at": "2026-10-07T20:17:36Z"
 }
