@@ -10,11 +10,15 @@
     {
       "text": "Implemented tests in test/zaq/engine/email_connector_settings_test.exs for default snapshot behavior, invalid requests/missing selection, runtime sync success and failure branches, and malformed connector IDs. Targeted validation: mix test test/zaq/engine/email_connector_settings_test.exs — 10 tests, 0 failures (serialized with the coverage-test flock). Plan note: snapshot(\"email:smtp\") with no rows returns a transient %ChannelConfig{id: nil} as selected (not selected: nil), so the assertion follows observed public behavior. Property test not added: bounded generated ID cases not included yet; concrete malformed ID examples are covered.",
       "timestamp": "2026-10-07T18:39:28Z"
+    },
+    {
+      "text": "Follow-up review completed: added the line-258 non-Event router response case with pending :channels_unavailable result and persisted encrypted SMTP credential assertions; added a bounded StreamData property covering non-positive integers, digit strings with non-digit suffixes, and non-ID atoms (nil/:new excluded), retaining concrete malformed-ID examples; removed the ineffective on_exit Process.delete cleanup. Targeted validation: mix test test/zaq/engine/email_connector_settings_test.exs passed.",
+      "timestamp": "2026-10-07T18:40:50Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-gbb] [coverage] EmailConnectorSettings missed branches",
   "type": "task",
-  "updated_at": "2026-10-07T18:39:28Z"
+  "updated_at": "2026-10-07T18:40:50Z"
 }
