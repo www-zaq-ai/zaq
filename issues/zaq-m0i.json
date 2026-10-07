@@ -14,11 +14,15 @@
     {
       "text": "Coverage detail: line 483 verifies two successive revoke requests and no surviving manual grant/read access. It does not synthesize a provider-sourced grant because the required controlled provider membership snapshot at line 149 is unavailable; preserving a real provider grant for that same Person remains blocked by that same transport prerequisite, not omitted as an assumed pass.",
       "timestamp": "2026-10-07T18:22:03Z"
+    },
+    {
+      "text": "Correction and completion after reviewing the existing local transport fixture: line 149 is now covered through real ChannelHistoryAdmin -\u003e Jido Exec -\u003e NodeRouter/Channels dispatch against a supervised OpenAIStub HTTP endpoint, using a supported 26-character Mattermost room and an actually linked member. The revoke scenario now first creates an admin manual grant, obtains a real provider-source grant via that refresh, revokes twice, asserts only the provider grant remains, and confirms the Person retains read access. The prior \"transport unavailable\" blocker for 149/provider preservation is withdrawn. Targeted `mix test test/zaq/engine/channel_history_admin_test.exs` passes: 21 tests, 0 failures (serialized with the requested fcntl lock). Remaining plan exceptions: 131 still requires an invalid persisted permission coordinate/no supported grant failure seam; 151 requires an actually produced action error without `details`, not the already-tested structured unsupported-room response; 489 requires deterministic PermissionRevoker failure, but the production path invokes the default Repo revoker without an injectable per-call failure seam. No support/production file changed; no global mock/config mutation. Identity scope validation requires persisting the stub URL before adding the linked test PersonChannel.",
+      "timestamp": "2026-10-07T18:44:18Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-m0i] [coverage] Plan ChannelHistoryAdmin missed-line tests",
   "type": "task",
-  "updated_at": "2026-10-07T18:22:03Z"
+  "updated_at": "2026-10-07T18:44:18Z"
 }
