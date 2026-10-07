@@ -18,11 +18,15 @@
     {
       "text": "Follow-up implementation findings (2026-10-07): added passing public tests for record_confirmation assistant_message_id non-UUID (actual {:error, :source_conflict}, line 283 cast fallback); replicated conversation_id \u003e255 =\u003e :invalid_history_facts (390); channel absent from normalized audience =\u003e :invalid_recipient_evidence (391); direct confirmation with missing response =\u003e :invalid_delivery_scope (395); inactive recipient excluded while active recipient gets the confirmed target (429); missing both assistant_message_id/message_id returns controlled :invalid_delivery_scope through public record_confirmation (302). Targeted suite: 1 property, 23 tests, 0 failures, serialized under required lock.\n\nReachability evidence/blockers: line 430 contradictory owner setup cannot be arranged through People.add_channel: the API rejects second ownership immediately with unique constraint person_identities_platform_authority_identifier_index; HistoryIngress recipient discovery supplies only normalized channel identity (not contradictory canonical email fields), so its discovery error cannot be driven by that fixture via the public path. Lines 325/326 legacy-receipt fixture attempt used a real admitted/finalized response and receipt metadata, but record_confirmation returned :source_conflict inside TranscriptHistory.matches_admitted_source?/4 before the receipt comparison; no safe fixture reached receipt clauses. Line 244 remains unsupported as previously planned. Do not force those internal states or add seams.",
       "timestamp": "2026-10-07T18:41:46Z"
+    },
+    {
+      "text": "Review correction: unknown participant test now uses supported :to audience role, explicitly proves Incoming.new retains the unknown participant, asserts exact known sender context remains, and verifies no PersonChannel for the connector/identity plus unchanged Person and PersonChannel counts. Isolated target rerun passed (1 property, 23 tests, 0 failures) under the required fcntl lock.",
+      "timestamp": "2026-10-07T18:45:09Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-q5j] [coverage] HistoryIngress missed-line tests and reachability review",
   "type": "task",
-  "updated_at": "2026-10-07T18:41:46Z"
+  "updated_at": "2026-10-07T18:45:09Z"
 }
