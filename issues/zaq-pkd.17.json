@@ -3,7 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-07T18:21:42Z",
-  "description": "Merge target feature/issue-768-history-a-integration at 955bf4e0 into refactor/webbridge without rewriting published history. Preserve connector-query optimizations and WebBridge contracts; fix duplicate dev database keyword; validate existing channel/widget/history/token usage tests, quality checks and existing E2E. No new feature E2E authoring, operation design or Action exposure: reuse existing behavior and tests. PR https://github.com/www-zaq-ai/zaq/pull/836",
+  "description": "PR https://github.com/www-zaq-ai/zaq/pull/836. Integrated live target 955bf4e0 via git merge --no-commit --no-ff; clean automatic merge, no WebBridge adaptation required. Removed duplicate dev database keyword; Config.Reader verified DB_NAME/DB_PORT overrides and branch-derived defaults. mix q PASS; focused suite PASS 16 properties/420 tests/0 failures (10 excluded). Existing WebBridge/chat, Channels, History, Ingestion E2E PASS 51 across Firefox/WebKit/Chromium,3 existing skips,no retries. Final mix precommit PASS 48 doctests/223 properties/10361 tests/0 failures,1 existing skipped,101 excluded. git diff --check HEAD PASS. Action reuse N/A: target integration and config correction only, no new operations/tool exposure. Numerical coverage remains in existing PR final-review issue zaq-pkd.15; no new production functions introduced. Changes staged in pending merge; no commit or push. Awaiting human review/landing authorization.",
   "id": "zaq-pkd.17",
   "labels": [],
   "parent": "zaq-pkd",
@@ -11,5 +11,5 @@
   "status": "in_progress",
   "title": "[zaq-pkd.17] Integrate target branch updates and validate WebBridge compatibility",
   "type": "task",
-  "updated_at": "2026-10-07T18:21:47Z"
+  "updated_at": "2026-10-07T18:38:04Z"
 }
