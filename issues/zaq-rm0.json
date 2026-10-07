@@ -10,11 +10,15 @@
     {
       "text": "Implemented reachable public-API regression scenarios in test/zaq/people/identity_resolver_test.exs: inactive audience recipient filtering with preserved channel, invalid recipient changeset propagation/reducer halt, non-Incoming evidence fallback, invalid connector rejection, and stale connector-scope identity rejection with ownership preserved. Serialized targeted command: mix test test/zaq/people/identity_resolver_test.exs — 20 tests, 0 failures (one transient initial failure corrected; retry passed). Per the plan feasibility gate, lines 234 (nil touch), 245 (nil backfill), and 305 (find_channel nil fallback) are structurally unreachable together for valid public inputs absent concurrent deletion/corrupt preload; no hooks/races/mocks added. Test run emits pre-existing unavailable :license_manager configuration warning.",
       "timestamp": "2026-10-07T18:17:44Z"
+    },
+    {
+      "text": "Review correction completed: original visible recipient remains active and remains in the exact sorted expected recipient set; a separate inactive Person/channel was added to audience recipients and asserted persisted but excluded. Serialized targeted test rerun passed: 20 tests, 0 failures. (Pre-existing :license_manager configuration warning.)",
+      "timestamp": "2026-10-07T18:25:50Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-rm0] [coverage] IdentityResolver missed-line scenarios (81,82,86,104,127,152,234,245,305)",
   "type": "task",
-  "updated_at": "2026-10-07T18:17:44Z"
+  "updated_at": "2026-10-07T18:25:50Z"
 }
