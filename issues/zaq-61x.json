@@ -10,11 +10,15 @@
     {
       "text": "Implemented four reachable lifecycle scenarios in test/zaq/agent/executor_test.exs: string-key conversation binding; credential dependency exit handled with safe auth failure; cleanup exit preserves stream failure; busy rejection avoids runtime stop; plus unknown measurement key fallback proves no atom creation. Existing integration test already covers status_message_id with no content at line 1386. Validation: locked targeted command on both approved files passed (6 doctests, 1 property, 77 tests, 0 failures); git diff --check clean. Unreachable clauses deliberately not forced: partial_execution_data Map.fetch :error (598) and non-map partial (749) cannot arise from StreamEvents result/consume, which returns a complete optional-key map; selection/actor-error partial telemetry (743/753) is short-circuited before stream consumption; invalid actor identity is rejected before call metrics (798). Runtime rescue/catch (636/638) requires malformed/raising :via name callbacks and was not exercised; avoid changing server-reference semantics merely for coverage. Integration model/provider and blank-dimension cases remain pending.",
       "timestamp": "2026-10-07T18:35:15Z"
+    },
+    {
+      "text": "Follow-up verified GenServer.whereis rescue and catch through manager-provided :via callbacks; both exception and exit now have graceful runtime_unavailable tests and no factory ask. Final serialized targeted two-file suite passes: 6 doctests, 1 property, 79 tests, 0 failures; diff check clean. Integration model/provider malformed-model and blank-dimension scenarios were not added; their table does not yet exist and no integration file was touched. Remaining branch blockers remain as documented above.",
+      "timestamp": "2026-10-07T18:39:23Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-61x] [coverage] Cover Executor remaining lifecycle and telemetry branches",
   "type": "task",
-  "updated_at": "2026-10-07T18:35:15Z"
+  "updated_at": "2026-10-07T18:39:23Z"
 }
