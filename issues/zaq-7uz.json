@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-07T10:28:27Z",
+  "description": "Action reuse: extend existing Conversations enqueue and TokenUsageAggregator worker, preserve public metadata shape and retry-safe full aggregation; no new Action. Coalesce available jobs without losing messages arriving during execution, lock conversation against concurrent accounting metadata updates, use explicit message day if needed. Test repeated enqueue, daily totals, retries and concurrent models. Final mix precommit and regression review.",
+  "id": "zaq-7uz",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[query-amplification] Coalesce token usage accounting safely",
+  "type": "task",
+  "updated_at": "2026-10-07T10:28:27Z"
+}
