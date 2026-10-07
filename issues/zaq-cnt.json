@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-07T15:03:26Z",
@@ -7,8 +7,8 @@
   "id": "zaq-cnt",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[tool-timeout] Preserve timeout contract coverage after Search budget declaration",
   "type": "task",
-  "updated_at": "2026-10-07T15:03:26Z"
+  "updated_at": "2026-10-07T15:03:29Z"
 }
