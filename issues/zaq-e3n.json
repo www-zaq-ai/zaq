@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-y8p"
+  ],
   "created": "2026-10-07T10:28:04Z",
   "description": "Action reuse: local-only optimization of DocumentProcessor.limit_chunks and Channels.Api delivery/upsert_connection; reuse Bridge.fetch_connection_details_for_config, preserve connector selection/errors, no new Actions or agent exposure. Test query budgets and context-prefix invariant. Hoist context budget; reuse provider-selected config. No long-lived credential cache. Existing ingestion E2E required.",
   "id": "zaq-e3n",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[query-amplification] Reduce retrieval and channel config reads",
   "type": "task",
-  "updated_at": "2026-10-07T10:28:04Z"
+  "updated_at": "2026-10-07T10:28:33Z"
 }

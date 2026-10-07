@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-e3n"
+  ],
   "blocks": [],
   "created": "2026-10-07T10:28:12Z",
   "description": "Action reuse: extend existing Engine Conversations and HistoryIngress internals, no new Action. Reuse validated source and locked response within their transaction; preserve finalization/replay tokens, source conflicts and freshness boundaries. Test admission, confirmation retries/conflicts and query counts. Reduce duplicate admission source reads and confirmation message rereads; merge source and receipt update if safe.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[query-amplification] Reduce admission and delivery confirmation reads",
   "type": "task",
-  "updated_at": "2026-10-07T10:28:12Z"
+  "updated_at": "2026-10-07T10:28:33Z"
 }
