@@ -55,67 +55,113 @@ defmodule Zaq.Engine.ChannelHistoryProjection do
         Enum.map(rows, &%{id: &1.id, parent_id: &1.parent_id, thread_id: &1.thread_id})
       )
 
-    Repo.query!(
-      """
-      WITH requested AS (
-        SELECT id::uuid, parent_id::uuid, thread_id
-        FROM jsonb_to_recordset($1::text::jsonb)
-          AS row(id text, parent_id text, thread_id text)
-      ), resolved AS (
-        SELECT requested.id AS requested_id,
-               person.id AS person_id,
-               person.full_name AS display_name,
-               max(COALESCE(message.provider_sent_at, message.inserted_at)) AS last_seen
-        FROM requested
-        JOIN transcripts transcript
-          ON transcript.id = requested.id
-          OR transcript.parent_id = requested.id
-          OR transcript.id = requested.parent_id
-        JOIN transcript_messages placement ON placement.transcript_id = transcript.id
-        JOIN messages message ON message.id = placement.message_id
-        LEFT JOIN channels identity
-          ON identity.channel_config_id = transcript.channel_config_id
-         AND message.history_context->>'author_person_id' IS NULL
-         AND identity.platform = COALESCE(message.history_context->>'identity_platform', transcript.provider)
-         AND identity.channel_identifier = message.author_id
-        JOIN people person
-          ON person.id = identity.person_id
-          OR EXISTS (
-            SELECT 1
-            FROM jsonb_array_elements(COALESCE(message.history_context->'participants', '[]'::jsonb)) participant
-            WHERE (participant->>'person_id')::bigint = ANY(array_prepend(person.id, person.merged_person_ids))
-          )
-        WHERE message.role != 'assistant'
-          AND (
-            (requested.parent_id IS NULL AND
-              (transcript.id = requested.id OR transcript.parent_id = requested.id))
-            OR
-            (requested.parent_id IS NOT NULL AND
-              (transcript.id = requested.id OR
-                (transcript.id = requested.parent_id AND
-                 message.external_message_id = requested.thread_id)))
-          )
-        GROUP BY requested.id, person.id, person.full_name
-      ), ranked AS (
-        SELECT resolved.*,
-               count(*) OVER (PARTITION BY requested_id) AS participant_count,
-               row_number() OVER (
-                 PARTITION BY requested_id ORDER BY last_seen DESC, person_id ASC
-               ) AS recent_rank
-        FROM resolved
-      )
-      SELECT requested_id::text, person_id, display_name, participant_count
-      FROM ranked
-      WHERE recent_rank <= 3
-      ORDER BY requested_id, recent_rank
-      """,
-      [request]
-    ).rows
-    |> Enum.reduce(%{}, fn [id, person_id, display_name, count], acc ->
-      entry = Map.get(acc, id, %{recent: [], count: count})
-      recent = entry.recent ++ [%{person_id: person_id, display_name: display_name}]
-      Map.put(acc, id, %{entry | recent: recent})
+    requested =
+      from row in fragment(
+             "SELECT * FROM jsonb_to_recordset(?::text::jsonb) AS row(id uuid, parent_id uuid, thread_id text)",
+             ^request
+           ),
+           select: %{id: row.id, parent_id: row.parent_id, thread_id: row.thread_id}
+
+    scope = participant_message_scope()
+
+    resolved =
+      from requested in "requested",
+        as: :requested,
+        join: transcript in Transcript,
+        as: :transcript,
+        on:
+          transcript.id == requested.id or transcript.parent_id == requested.id or
+            transcript.id == requested.parent_id,
+        join: placement in TranscriptMessage,
+        on: placement.transcript_id == transcript.id,
+        join: message in Message,
+        as: :message,
+        on: message.id == placement.message_id,
+        left_join: identity in PersonChannel,
+        on:
+          identity.channel_config_id == transcript.channel_config_id and
+            is_nil(fragment("?->>'author_person_id'", message.history_context)) and
+            identity.platform ==
+              coalesce(
+                fragment("?->>'identity_platform'", message.history_context),
+                transcript.provider
+              ) and
+            identity.channel_identifier == message.author_id,
+        join: person in Person,
+        on:
+          person.id == identity.person_id or
+            fragment(
+              """
+              EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(COALESCE(?->'participants', '[]'::jsonb)) participant
+                WHERE (participant->>'person_id')::bigint = ANY(array_prepend(?, ?))
+              )
+              """,
+              message.history_context,
+              person.id,
+              person.merged_person_ids
+            ),
+        where: message.role != "assistant",
+        where: ^scope,
+        group_by: [requested.id, person.id, person.full_name],
+        select: %{
+          requested_id: requested.id,
+          person_id: person.id,
+          display_name: person.full_name,
+          last_seen: max(coalesce(message.provider_sent_at, message.inserted_at))
+        }
+
+    ranked =
+      from resolved in "resolved",
+        windows: [
+          participants: [partition_by: resolved.requested_id],
+          recent: [
+            partition_by: resolved.requested_id,
+            order_by: [desc: resolved.last_seen, asc: resolved.person_id]
+          ]
+        ],
+        select: %{
+          requested_id: resolved.requested_id,
+          person_id: resolved.person_id,
+          display_name: resolved.display_name,
+          participant_count: over(count(), :participants),
+          recent_rank: over(row_number(), :recent)
+        }
+
+    from(ranked in "ranked",
+      where: ranked.recent_rank <= 3,
+      order_by: [ranked.requested_id, ranked.recent_rank],
+      select: %{
+        requested_id: type(ranked.requested_id, Ecto.UUID),
+        person_id: ranked.person_id,
+        display_name: ranked.display_name,
+        participant_count: ranked.participant_count
+      }
+    )
+    |> with_cte("requested", as: ^requested)
+    |> with_cte("resolved", as: ^resolved)
+    |> with_cte("ranked", as: ^ranked)
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn row, acc ->
+      entry = Map.get(acc, row.requested_id, %{recent: [], count: row.participant_count})
+      recent = entry.recent ++ [%{person_id: row.person_id, display_name: row.display_name}]
+      Map.put(acc, row.requested_id, %{entry | recent: recent})
     end)
+  end
+
+  # Channel rows include their threads; thread rows include only their own messages
+  # and the matching root message from the parent transcript.
+  defp participant_message_scope do
+    dynamic(
+      [requested: requested, transcript: transcript, message: message],
+      (is_nil(requested.parent_id) and
+         (transcript.id == requested.id or transcript.parent_id == requested.id)) or
+        (not is_nil(requested.parent_id) and
+           (transcript.id == requested.id or
+              (transcript.id == requested.parent_id and
+                 message.external_message_id == requested.thread_id)))
+    )
   end
 
   defp thread_counts(ids) do

@@ -53,6 +53,85 @@ defmodule Zaq.Engine.HistoryIngressTest do
     end
   end
 
+  test "admission reuses source validation and confirmation reuses its locked response" do
+    config = connector("mattermost")
+    person = author("Query author", "mattermost", "query-author", config.id)
+
+    incoming =
+      Incoming.new(%{
+        content: "question",
+        channel_id: "query-room",
+        author_id: "query-author",
+        message_id: "query-input",
+        provider: :mattermost,
+        person: person,
+        routing_context: %{channel_config_id: config.id, conversation_type: :room}
+      })
+
+    assert {:ok, captured} = HistoryIngress.capture(incoming)
+
+    {{:ok, binding}, queries} =
+      Zaq.QueryRecorder.capture(fn -> Conversations.admit_incoming(incoming) end)
+
+    assert binding.user_message_id == captured.message_id
+    assert Enum.count(queries, &(&1.source == "channel_configs")) == 1
+
+    assert {:ok, %{assistant_message_id: assistant_id}} =
+             Conversations.finalize_incoming(
+               binding.user_message_id,
+               binding.finalization_token,
+               %{
+                 answer: "answer",
+                 error: false
+               }
+             )
+
+    delivery = %{
+      confirmation: :confirmed,
+      provider: "mattermost",
+      kind: :channel,
+      channel_config_id: config.id,
+      channel_id: "query-room",
+      message_id: "query-response",
+      content: "answer",
+      user_message_id: binding.user_message_id,
+      assistant_message_id: assistant_id
+    }
+
+    {{:ok, ^assistant_id}, queries} =
+      Zaq.QueryRecorder.capture(fn -> HistoryIngress.record_confirmation(delivery) end)
+
+    message_reads =
+      Enum.filter(queries, &(&1.source == "messages" and String.starts_with?(&1.query, "SELECT")))
+
+    assert length(message_reads) == 2
+    assert {:ok, ^assistant_id} = HistoryIngress.record_confirmation(delivery)
+    assert {:ok, :ok} = HistoryIngress.associate_confirmation(assistant_id)
+    assert Repo.get!(Message, assistant_id).external_message_id == "query-response"
+  end
+
+  test "unscoped admission retains its existing post-insert side-effect boundary" do
+    incoming =
+      Incoming.new(%{
+        content: "question",
+        channel_id: "bo",
+        provider: :web,
+        author_id: "unscoped",
+        message_id: "unscoped-input"
+      })
+
+    {{:ok, _binding}, queries} =
+      Zaq.QueryRecorder.capture(fn -> Conversations.admit_incoming(incoming) end)
+
+    assert [insert] =
+             Enum.filter(
+               queries,
+               &(&1.source == "messages" and String.starts_with?(&1.query, "INSERT"))
+             )
+
+    refute insert.in_transaction
+  end
+
   test "email recipient copies follow header threads across senders and separate identical subjects" do
     config = connector("email:imap")
     {:ok, sender} = People.create_person(%{full_name: "Sender", email: "sender@example.com"})

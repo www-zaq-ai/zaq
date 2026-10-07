@@ -2,6 +2,9 @@
 
 ## Overview
 
+For normalization, identity resolution and confirmed delivery call chains across
+roles, see the [message lifecycle sequences](message-lifecycle.md).
+
 The Channels service provides transport and runtime infrastructure for communication adapters.
 
 - **Data Sources** (ingestion channels in routes/API) ingest external documents (Google Drive, SharePoint, etc.).

@@ -70,6 +70,7 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
 
     def bridge_for(_provider), do: __MODULE__
     def fetch_connection_details(_provider), do: %{}
+    def fetch_connection_details_for_config(_config), do: %{}
     def fetch_channel_config(provider), do: Bridge.fetch_channel_config(provider)
 
     def send_reply(%Outgoing{} = outgoing, _connection_details) do

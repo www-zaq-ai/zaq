@@ -2,6 +2,7 @@ defmodule Zaq.Accounts.PersonMergeTest do
   use Zaq.DataCase, async: false
   use ExUnitProperties
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Accounts.{People, Person, PersonChannel}
   alias Zaq.Agent.Tools.Resources.QueryResources
   alias Zaq.Engine.ChannelConfig
@@ -876,6 +877,126 @@ defmodule Zaq.Accounts.PersonMergeTest do
 
     next = replicated_capture(config, merged, "owned-after-merge")
     assert next.transcript_id == transcript.id
+  end
+
+  test "history owner updates preserve resource state and return validation errors" do
+    owner = person(nil, "Owner")
+    new_owner = person(nil, "New owner")
+    captured = replicated_capture(history_config(), owner, "context-owner-update")
+    transcript = Repo.get!(Transcript, captured.transcript_id)
+
+    execution =
+      %ExecutionRecord{}
+      |> ExecutionRecord.changeset(%{
+        person_id: owner.id,
+        user_message_id: captured.message_id,
+        status: "pending",
+        finalization_token_hash: capability("context-owner-update")
+      })
+      |> Repo.insert!()
+
+    assert Conversations.change_transcript_owner(transcript, new_owner.id).valid?
+    assert Conversations.change_execution_owner(execution, new_owner.id).valid?
+    assert Repo.get!(Transcript, transcript.id).owner_person_id == owner.id
+    assert Repo.get!(ExecutionRecord, execution.id).person_id == owner.id
+
+    assert {:ok, updated_transcript} =
+             Conversations.update_transcript_owner(transcript, new_owner.id)
+
+    assert Map.drop(updated_transcript, [:owner_person_id, :updated_at]) ==
+             Map.drop(transcript, [:owner_person_id, :updated_at])
+
+    assert {:ok, updated_execution} =
+             Conversations.update_execution_owner(execution, new_owner.id)
+
+    assert Map.drop(updated_execution, [:person_id, :updated_at]) ==
+             Map.drop(execution, [:person_id, :updated_at])
+
+    assert {:error, invalid_transcript} =
+             Conversations.update_transcript_owner(updated_transcript, nil)
+
+    assert errors_on(invalid_transcript).owner_person_id == ["is required for this strategy"]
+
+    assert {:error, invalid_execution} =
+             Conversations.update_execution_owner(updated_execution, 0)
+
+    assert errors_on(invalid_execution).person_id == ["must be greater than 0"]
+    assert Repo.get!(Transcript, transcript.id).owner_person_id == new_owner.id
+    assert Repo.get!(ExecutionRecord, execution.id).person_id == new_owner.id
+  end
+
+  test "history ownership reads filter literal owners and support ordered transaction locks" do
+    owner = person(nil, "Owner")
+    other = person(nil, "Other")
+    config = history_config()
+    first = replicated_capture(config, owner, "ownership-read-first")
+    second = replicated_capture(config, other, "ownership-read-second")
+
+    executions =
+      for {person, capture} <- [{owner, first}, {other, second}] do
+        %ExecutionRecord{}
+        |> ExecutionRecord.changeset(%{
+          person_id: person.id,
+          user_message_id: capture.message_id,
+          status: "pending",
+          finalization_token_hash: capability("ownership-read-#{person.id}")
+        })
+        |> Repo.insert!()
+      end
+
+    assert Enum.map(Conversations.list_owned_transcripts([owner.id]), & &1.id) ==
+             [first.transcript_id]
+
+    assert Enum.map(Conversations.list_person_executions([other.id]), & &1.id) ==
+             [List.last(executions).id]
+
+    assert Conversations.list_owned_transcripts([]) == []
+    assert Conversations.list_person_executions([]) == []
+
+    assert {:ok, :checked} =
+             Repo.transaction(fn ->
+               assert Enum.map(
+                        Conversations.list_owned_transcripts([other.id, owner.id], lock: true),
+                        & &1.id
+                      ) == Enum.sort([first.transcript_id, second.transcript_id])
+
+               assert Enum.map(
+                        Conversations.list_person_executions([other.id, owner.id], lock: true),
+                        & &1.id
+                      ) == Enum.sort(Enum.map(executions, & &1.id))
+
+               :checked
+             end)
+
+    Sandbox.unboxed_run(Repo, fn ->
+      assert_raise ArgumentError, "ownership row locking requires a transaction", fn ->
+        Conversations.list_owned_transcripts([owner.id], lock: true)
+      end
+
+      assert_raise ArgumentError, "ownership row locking requires a transaction", fn ->
+        Conversations.list_person_executions([], lock: true)
+      end
+    end)
+  end
+
+  test "missing history storage is skipped only with explicit migration compatibility" do
+    for read <- [&Conversations.list_owned_transcripts/2, &Conversations.list_person_executions/2] do
+      assert {:error, :compatibility_checked} =
+               Repo.transaction(fn ->
+                 # Transaction-local visibility simulates the migration stage before
+                 # history tables exist without dropping or renaming shared tables.
+                 Repo.query!("SET LOCAL search_path TO pg_catalog")
+                 assert read.([1], allow_missing_table: true, lock: true) == []
+                 Repo.rollback(:compatibility_checked)
+               end)
+
+      assert {:error, :strict_read_checked} =
+               Repo.transaction(fn ->
+                 Repo.query!("SET LOCAL search_path TO pg_catalog")
+                 assert_raise Postgrex.Error, fn -> read.([1], []) end
+                 Repo.rollback(:strict_read_checked)
+               end)
+    end
   end
 
   test "merge retains overlapping replicas as separate permission resources" do

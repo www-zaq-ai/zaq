@@ -57,7 +57,13 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
          {:ok, root_targets} <-
            consistent_replicated_audience?(root_facts, root_targets, attrs, source),
          {:ok, targets} <- capture_targets(facts, root_facts, root_targets) do
-      placements = Enum.map(targets, &capture_target!(&1, root_facts, attrs, source, mode))
+      config = Repo.get(ChannelConfig, root_facts.channel_config_id)
+
+      {placements, _message} =
+        Enum.map_reduce(targets, nil, fn target, message ->
+          capture_target!(target, root_facts, attrs, source, {mode, config, message})
+        end)
+
       actor = Enum.find(placements, fn {owner, _} -> owner == root_facts.actor_person_id end)
       {_, first} = actor || hd(placements)
 
@@ -325,31 +331,37 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
 
   defp target_for_actor(target, actor_id), do: {target.owner_person_id || actor_id, target}
 
-  defp capture_target!({owner, target}, facts, attrs, source, mode) do
+  defp capture_target!({owner, target}, facts, attrs, source, {mode, config, message}) do
     with {:ok, transcript, created?} <- ensure_transcript(target),
          :ok <- seed_history_grants(facts, transcript, created?),
-         {:ok, placement} <-
-           prepare_or_append(
-             transcript,
-             attrs,
-             Map.put(source, :recipient_person_id, owner),
-             mode
-           ) do
-      {owner, placement}
+         {:ok, transcript} <- capture_transcript(transcript, mode),
+         source <- Map.put(source, :recipient_person_id, owner),
+         :ok <- valid_scope?(transcript, source, :write, config),
+         {:ok, message} <- canonical_message(transcript, attrs, source, message),
+         {:ok, placement} <- prepare_or_append(transcript, message, source, mode) do
+      {{owner, placement}, message}
     else
       {:error, reason} -> Repo.rollback(reason)
     end
   end
 
-  defp prepare_or_append(transcript, attrs, source, :append),
-    do: append(transcript.id, attrs, source)
+  defp capture_transcript(transcript, :prepare), do: {:ok, transcript}
 
-  defp prepare_or_append(transcript, attrs, source, :prepare) do
-    with :ok <- valid_scope?(transcript, source, :write),
-         {:ok, message} <- canonical_message(transcript, attrs, source) do
-      {:ok, %{message_id: message.id, transcript_id: transcript.id, position: nil}}
+  defp capture_transcript(transcript, :append) do
+    case Repo.one(from t in Transcript, where: t.id == ^transcript.id, lock: "FOR UPDATE") do
+      %Transcript{} = locked -> {:ok, locked}
+      nil -> {:error, :not_found}
     end
   end
+
+  defp prepare_or_append(transcript, message, source, :append) do
+    with {:ok, placement} <- attach(transcript, message, source) do
+      {:ok, %{message_id: message.id, transcript_id: transcript.id, position: placement.position}}
+    end
+  end
+
+  defp prepare_or_append(transcript, message, _source, :prepare),
+    do: {:ok, %{message_id: message.id, transcript_id: transcript.id, position: nil}}
 
   @doc "Prepares the fixed Direct/Shared targets of a verified execution response."
   def prepare_execution_response(input_id, %Message{} = response, delivery) do
@@ -371,8 +383,8 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
         )
 
       with false <- ids == [],
-           :ok <- bind_response_source(response, delivery) do
-        {:ok, %{message_id: response.id, transcript_ids: ids}}
+           {:ok, response} <- bind_response_source(response, delivery) do
+        {:ok, %{message_id: response.id, transcript_ids: ids, message: response}}
       else
         true -> {:error, :unavailable_history_input}
         {:error, _} = error -> error
@@ -397,7 +409,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
       }
 
       case response |> Message.canonical_changeset(attrs) |> Repo.update() do
-        {:ok, _} -> :ok
+        {:ok, response} -> {:ok, response}
         {:error, _} -> {:error, :source_conflict}
       end
     else
@@ -436,7 +448,21 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     end
   end
 
-  defp ensure_transcript(target), do: insert_transcript(target)
+  defp ensure_transcript(target) do
+    case Repo.get_by(Transcript,
+           provider: target.provider,
+           channel_config_id: target.channel_config_id,
+           scope_key: target.scope_key
+         ) do
+      nil ->
+        insert_transcript(target)
+
+      transcript ->
+        if matching_transcript_target?(transcript, target),
+          do: {:ok, transcript, false},
+          else: {:error, :source_scope_mismatch}
+    end
+  end
 
   defp insert_transcript(target) do
     with {:ok, candidate} <-
@@ -665,7 +691,13 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
   end
 
   defp valid_scope?(%Transcript{} = transcript, context, mode) do
-    with :ok <- valid_connector_scope(transcript, mode),
+    id = transcript.channel_config_id
+    config = if is_integer(id) and id > 0, do: Repo.get(ChannelConfig, id)
+    valid_scope?(transcript, context, mode, config)
+  end
+
+  defp valid_scope?(%Transcript{} = transcript, context, mode, config) do
+    with :ok <- valid_connector_scope(transcript, mode, config),
          true <- mode != :write or matching_source?(transcript, context),
          true <- matching_resource?(transcript),
          true <- matching_parent?(transcript) do
@@ -675,13 +707,10 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     end
   end
 
-  defp valid_connector_scope(%Transcript{} = transcript, mode) do
-    config_id = transcript.channel_config_id
-    config = if is_integer(config_id) and config_id > 0, do: Repo.get(ChannelConfig, config_id)
-
+  defp valid_connector_scope(%Transcript{} = transcript, mode, config) do
     case config do
       %ChannelConfig{kind: "retrieval", provider: provider, archived_at: archived_at} = config
-      when provider == transcript.provider ->
+      when provider == transcript.provider and config.id == transcript.channel_config_id ->
         if mode == :write and (not is_nil(archived_at) or not config.enabled),
           do: {:error, :source_scope_mismatch},
           else: :ok
@@ -740,7 +769,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     end
   end
 
-  defp canonical_message(transcript, attrs, context) do
+  defp canonical_message(transcript, attrs, context, cached_message \\ nil) do
     attrs =
       attrs
       |> Map.take(@message_fields)
@@ -766,18 +795,38 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
 
     if changeset.valid? do
       case context[:existing_message_id] do
-        nil -> insert_or_reuse_message(changeset, transcript, account_key, external_id)
-        existing_id -> reuse_admitted_message(existing_id, changeset, transcript, context)
+        nil ->
+          resolve_canonical_message(
+            changeset,
+            transcript,
+            account_key,
+            external_id,
+            cached_message
+          )
+
+        existing_id ->
+          reuse_admitted_message(existing_id, changeset, transcript, context, cached_message)
       end
     else
       {:error, changeset}
     end
   end
 
-  defp reuse_admitted_message(id, changeset, transcript, context) do
+  defp resolve_canonical_message(changeset, transcript, account_key, external_id, nil),
+    do: insert_or_reuse_message(changeset, transcript, account_key, external_id)
+
+  defp resolve_canonical_message(changeset, transcript, _account_key, _external_id, message) do
+    if same_message?(message, Ecto.Changeset.apply_changes(changeset)) and
+         same_placement_scope?(message, transcript),
+       do: {:ok, message},
+       else: {:error, :source_conflict}
+  end
+
+  defp reuse_admitted_message(id, changeset, transcript, context, cached_message) do
     with {:ok, uuid} <- Ecto.UUID.cast(id),
          %Message{} = existing <-
-           Repo.one(from m in Message, where: m.id == ^uuid, lock: "FOR UPDATE"),
+           cached_message || Repo.one(from m in Message, where: m.id == ^uuid, lock: "FOR UPDATE"),
+         true <- existing.id == uuid,
          true <-
            matches_admitted_source?(existing, changeset, transcript, context) or
              matches_confirmed_response?(existing, changeset, transcript, context),

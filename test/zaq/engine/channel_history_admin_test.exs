@@ -331,6 +331,86 @@ defmodule Zaq.Engine.ChannelHistoryAdminTest do
              people |> Enum.reverse() |> Enum.take(3) |> Enum.map(& &1.id)
   end
 
+  test "participant timestamp ties are ordered by Person ID and assistant messages are excluded",
+       ctx do
+    timestamp = ~U[2026-01-01 12:00:00.000000Z]
+
+    Repo.get!(Message, ctx.captured.message_id)
+    |> Ecto.Changeset.change(provider_sent_at: timestamp)
+    |> Repo.update!()
+
+    people =
+      for index <- 1..4 do
+        {:ok, person} = People.create_person(%{full_name: "Tied participant #{index}"})
+
+        {:ok, facts} =
+          Facts.for_capture(%{
+            provider: "mattermost",
+            channel_config_id: ctx.config.id,
+            channel_id: "room",
+            kind: :channel,
+            actor_person_id: person.id
+          })
+
+        {:ok, _} =
+          Conversations.capture_canonical_message(
+            facts,
+            %{
+              role: if(index == 4, do: "assistant", else: "external"),
+              content: "tied contribution",
+              external_message_id: "tie-#{index}",
+              provider_sent_at: timestamp,
+              history_context: %{
+                "author_person_id" => person.id,
+                "participants" => [%{"person_id" => person.id, "role" => "sender"}]
+              }
+            },
+            %{
+              provider: "mattermost",
+              channel_config_id: ctx.config.id,
+              provenance: "provider_event"
+            }
+          )
+
+        person
+      end
+
+    assert {:ok, [row]} = request(ctx.admin, %{op: :list})
+    assert row.participant_count == 4
+
+    assert Enum.map(row.participants, & &1.person_id) ==
+             [ctx.person | Enum.take(people, 3)]
+             |> Enum.map(& &1.id)
+             |> Enum.sort()
+             |> Enum.take(3)
+  end
+
+  test "participant evidence resolves merged identities without counting the survivor twice",
+       ctx do
+    old_id = ctx.person.id + 1_000_000
+
+    ctx.person
+    |> Ecto.Changeset.change(merged_person_ids: [old_id])
+    |> Repo.update!()
+
+    Repo.get!(Message, ctx.captured.message_id)
+    |> Ecto.Changeset.change(
+      history_context: %{
+        "author_person_id" => old_id,
+        "participants" => [
+          %{"person_id" => old_id, "role" => "sender"},
+          %{"person_id" => ctx.person.id, "role" => "to"}
+        ]
+      }
+    )
+    |> Repo.update!()
+
+    assert {:ok, [row]} = request(ctx.admin, %{op: :list})
+    assert row.participant_count == 1
+    assert [%{person_id: person_id, display_name: "Alex"}] = row.participants
+    assert person_id == ctx.person.id
+  end
+
   test "staff and missing actor cannot enumerate or read histories", %{
     regular: staff,
     captured: captured

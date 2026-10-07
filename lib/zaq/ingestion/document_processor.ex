@@ -926,12 +926,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp score_of(%{rrf_score: s}), do: s
 
+  defp limit_to_context_window([]), do: []
+
   defp limit_to_context_window(data) do
+    budget = max_context_window()
+
     {answer, _} =
       Enum.reduce_while(data, {[], 0}, fn chunk, {acc, acc_tokens} ->
         output_tokens = chunk |> Jason.encode!() |> TokenEstimator.estimate()
 
-        if acc_tokens + output_tokens < max_context_window() do
+        if acc_tokens + output_tokens < budget do
           {:cont, {[chunk | acc], acc_tokens + output_tokens}}
         else
           {:halt, {acc, acc_tokens}}

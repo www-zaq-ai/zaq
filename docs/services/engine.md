@@ -5,6 +5,9 @@ Foundation hardening evidence, acceptance map and measured coverage exceptions:
 
 ## Overview
 
+For incoming routing, participant persistence and delivery recovery call chains,
+see the [message lifecycle sequences](message-lifecycle.md).
+
 The Engine service is the operational backbone of ZAQ. Its responsibilities include:
 
 1. **Conversations** — persisting and querying the full conversation/message/rating lifecycle.

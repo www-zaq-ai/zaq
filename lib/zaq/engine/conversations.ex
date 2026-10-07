@@ -49,71 +49,85 @@ defmodule Zaq.Engine.Conversations do
   def list_canonical_messages(person, transcript_id, opts \\ []),
     do: TranscriptHistory.list(person, transcript_id, opts)
 
-  @doc "Builds and locks canonical-history ownership changes for an atomic Person merge."
-  @spec plan_person_merge(pos_integer(), [pos_integer()]) :: %{
-          transcripts: [Ecto.Changeset.t()],
-          executions: [Ecto.Changeset.t()]
-        }
-  def plan_person_merge(survivor_id, loser_ids)
-      when is_integer(survivor_id) and is_list(loser_ids) do
-    require_merge_transaction!()
+  @doc """
+  Lists transcripts by literal Person ownership, in ID order, without alias inference.
 
-    %{
-      transcripts:
-        merge_changesets(
-          "transcripts",
-          from(t in Transcript,
-            where: t.owner_person_id in ^loser_ids,
-            order_by: t.id,
-            lock: "FOR UPDATE"
-          ),
-          &Transcript.changeset(&1, %{owner_person_id: survivor_id})
-        ),
-      executions:
-        merge_changesets(
-          "execution_records",
-          from(e in ExecutionRecord,
-            where: e.person_id in ^loser_ids,
-            order_by: e.id,
-            lock: "FOR UPDATE"
-          ),
-          &ExecutionRecord.changeset(&1, %{person_id: survivor_id})
-        )
-    }
+  `lock: true` requires an existing transaction and locks rows for update.
+  `allow_missing_table: true` is reserved for historical migration compatibility;
+  only an absent table yields an empty list, not other database errors.
+  """
+  @spec list_owned_transcripts([pos_integer()], keyword()) :: [Transcript.t()]
+  def list_owned_transcripts(person_ids, opts \\ []) do
+    query =
+      from t in Transcript,
+        where: t.owner_person_id in ^person_ids,
+        order_by: t.id
+
+    list_ownership_rows(query, "transcripts", person_ids, opts)
   end
 
-  @doc "Applies a validated canonical-history Person merge plan in its existing transaction."
-  @spec apply_person_merge(%{
-          transcripts: [Ecto.Changeset.t()],
-          executions: [Ecto.Changeset.t()]
-        }) :: :ok
-  def apply_person_merge(%{transcripts: transcripts, executions: executions}) do
-    require_merge_transaction!()
+  @doc """
+  Lists private executions by literal Person ownership, in ID order.
 
-    Enum.each(transcripts ++ executions, fn changeset ->
-      case Repo.update(changeset) do
-        {:ok, _} -> :ok
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+  Supports the same transaction-required `lock` and historical-migration
+  `allow_missing_table` options as `list_owned_transcripts/2`.
+  """
+  @spec list_person_executions([pos_integer()], keyword()) :: [ExecutionRecord.t()]
+  def list_person_executions(person_ids, opts \\ []) do
+    query =
+      from e in ExecutionRecord,
+        where: e.person_id in ^person_ids,
+        order_by: e.id
 
-    :ok
+    list_ownership_rows(query, "execution_records", person_ids, opts)
   end
 
-  defp merge_changesets(table, query, changeset) do
-    if relation_exists?(table), do: query |> Repo.all() |> Enum.map(changeset), else: []
+  defp list_ownership_rows(query, table, person_ids, opts) do
+    lock? = Keyword.get(opts, :lock, false)
+
+    if lock? and not Repo.in_transaction?() do
+      raise ArgumentError, "ownership row locking requires a transaction"
+    end
+
+    cond do
+      person_ids == [] -> []
+      Keyword.get(opts, :allow_missing_table, false) and not ownership_table_exists?(table) -> []
+      lock? -> query |> lock("FOR UPDATE") |> Repo.all()
+      true -> Repo.all(query)
+    end
   end
 
-  # The historical email-normalization migration invokes the current Person
-  # merger before canonical-history tables exist on a fresh database.
-  defp relation_exists?(table) do
+  defp ownership_table_exists?(table) do
     %{rows: [[relation]]} = Repo.query!("SELECT to_regclass($1)", [table], log: false)
     not is_nil(relation)
   end
 
-  defp require_merge_transaction! do
-    unless Repo.in_transaction?(),
-      do: raise(ArgumentError, "person history reconciliation requires a transaction")
+  @doc "Validates transcript ownership without changing its scope or permission resource."
+  @spec change_transcript_owner(Transcript.t(), pos_integer()) :: Ecto.Changeset.t()
+  def change_transcript_owner(%Transcript{} = transcript, person_id),
+    do: Transcript.changeset(transcript, %{owner_person_id: person_id})
+
+  @doc "Updates transcript ownership without changing its scope or permission resource."
+  @spec update_transcript_owner(Transcript.t(), pos_integer()) ::
+          {:ok, Transcript.t()} | {:error, Ecto.Changeset.t()}
+  def update_transcript_owner(%Transcript{} = transcript, person_id) do
+    transcript
+    |> change_transcript_owner(person_id)
+    |> Repo.update()
+  end
+
+  @doc "Validates private execution ownership without changing its messages or capability."
+  @spec change_execution_owner(ExecutionRecord.t(), pos_integer()) :: Ecto.Changeset.t()
+  def change_execution_owner(%ExecutionRecord{} = execution, person_id),
+    do: ExecutionRecord.changeset(execution, %{person_id: person_id})
+
+  @doc "Updates private execution ownership without changing its messages or capability."
+  @spec update_execution_owner(ExecutionRecord.t(), pos_integer()) ::
+          {:ok, ExecutionRecord.t()} | {:error, Ecto.Changeset.t()}
+  def update_execution_owner(%ExecutionRecord{} = execution, person_id) do
+    execution
+    |> change_execution_owner(person_id)
+    |> Repo.update()
   end
 
   # ── Conversations ──────────────────────────────────────────────────
@@ -346,38 +360,47 @@ defmodule Zaq.Engine.Conversations do
              finalization_token: String.t() | nil
            }}
           | {:error, term()}
-  def admit_incoming(%Incoming{} = msg) do
-    case canonical_admission_source(msg) do
-      {:ok, provider, _account_key} ->
-        admit_with_source_lock(msg, provider)
+  def admit_incoming(%Incoming{routing_context: %{source_scope: :invalid}}),
+    do: {:error, :invalid_history_source}
 
-      :none ->
-        admit_unlocked(msg)
+  def admit_incoming(%Incoming{routing_context: %{conversation_type: nil}} = msg),
+    do: admit_unlocked(msg, :none)
 
-      {:error, _} = error ->
-        error
-    end
-  end
-
-  defp admit_with_source_lock(msg, provider) do
-    source_scope = msg.routing_context.source_scope
-
+  def admit_incoming(%Incoming{message_id: id} = msg) when is_binary(id) and id != "" do
     Repo.transaction(fn ->
-      TranscriptHistory.lock_source_identity(
-        provider,
-        msg.routing_context.channel_config_id,
-        %{source_scope: source_scope},
-        %{external_message_id: msg.message_id}
-      )
+      lock_admission_source(msg)
+      source = canonical_admission_source(msg)
 
-      case admit_unlocked(msg) do
-        {:ok, result} -> result
+      result =
+        case source do
+          {:ok, _provider, _account_key} -> admit_unlocked(msg, source)
+          :none -> admit_unlocked(msg, source)
+          {:error, _} = error -> error
+        end
+
+      case result do
+        {:ok, admitted} -> admitted
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
   end
 
-  defp admit_unlocked(msg) do
+  def admit_incoming(%Incoming{} = msg), do: admit_unlocked(msg, :none)
+
+  defp lock_admission_source(%Incoming{message_id: id, routing_context: context} = msg) do
+    if is_binary(id) and id != "" and not is_nil(context.conversation_type) and
+         is_integer(context.channel_config_id) and context.channel_config_id > 0 and
+         SourceIdentity.valid_scope?(context.source_scope) do
+      TranscriptHistory.lock_source_identity(
+        to_string(msg.provider),
+        context.channel_config_id,
+        %{source_scope: context.source_scope},
+        %{external_message_id: id}
+      )
+    end
+  end
+
+  defp admit_unlocked(msg, source) do
     identity = conversation_identity(msg)
     channel_user_id = identity.conversation_key || identity.participant_id || msg.author_id
 
@@ -385,7 +408,7 @@ defmodule Zaq.Engine.Conversations do
          {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
          {:ok, conv} <- maybe_assign_person(conv, Incoming.person_id(msg)),
          {:ok, {user_message, admitted?, finalization_token}} <-
-           get_or_insert_admitted_message(conv, msg) do
+           get_or_insert_admitted_message(conv, msg, source) do
       {:ok,
        %{
          conversation_id: conv.id,
@@ -396,7 +419,7 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  defp get_or_insert_admitted_message(%Conversation{} = conv, %Incoming{} = msg) do
+  defp get_or_insert_admitted_message(%Conversation{} = conv, %Incoming{} = msg, source) do
     case admitted_message(conv.id, msg.message_id) do
       %Message{} = message ->
         if matching_admitted_replay?(message, msg),
@@ -404,7 +427,7 @@ defmodule Zaq.Engine.Conversations do
           else: {:error, :source_conflict}
 
       nil ->
-        case adopt_canonical_message(conv, msg) do
+        case adopt_canonical_message(conv, msg, source) do
           :none -> insert_admitted_message(conv, msg)
           result -> result
         end
@@ -423,8 +446,8 @@ defmodule Zaq.Engine.Conversations do
       Map.get(message.metadata || %{}, "history_source") == expected_source
   end
 
-  defp adopt_canonical_message(conv, msg) do
-    case canonical_admission_source(msg) do
+  defp adopt_canonical_message(conv, msg, source) do
+    case source do
       {:ok, provider, account_key} ->
         maybe_attach_canonical_admission(conv, msg, provider, account_key)
 
@@ -455,12 +478,6 @@ defmodule Zaq.Engine.Conversations do
     end)
   end
 
-  defp canonical_admission_source(%Incoming{routing_context: %{source_scope: :invalid}}),
-    do: {:error, :invalid_history_source}
-
-  defp canonical_admission_source(%Incoming{routing_context: %{conversation_type: nil}}),
-    do: :none
-
   defp canonical_admission_source(%Incoming{message_id: id, routing_context: context} = msg)
        when is_binary(id) and id != "" do
     provider = to_string(msg.provider)
@@ -473,9 +490,10 @@ defmodule Zaq.Engine.Conversations do
          true <- is_integer(config_id) and config_id > 0,
          true <- SourceIdentity.valid_scope?(source_scope),
          true <- kind != :replicated or (is_binary(source_scope) and source_scope != ""),
-         true <- kind != :replicated or match?({:ok, _}, normalized_history_source(msg)),
-         %ChannelConfig{provider: ^provider, kind: "retrieval", enabled: true, archived_at: nil} <-
-           Repo.get(ChannelConfig, config_id) do
+         %ChannelConfig{provider: ^provider, kind: "retrieval", enabled: true, archived_at: nil} =
+           config <-
+           Repo.get(ChannelConfig, config_id),
+         true <- kind != :replicated or match?({:ok, _}, normalized_history_source(msg, config)) do
       {:ok, provider, SourceIdentity.account_key(provider, config_id, source_scope)}
     else
       _ -> {:error, :invalid_history_source}
@@ -665,18 +683,23 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  defp normalized_history_source(%Incoming{
-         provider: provider,
-         channel_id: channel_id,
-         author_id: author_id,
-         routing_context:
-           %{
-             channel_config_id: config_id,
-             conversation_type: :recipient_addressed,
-             source_scope: scope,
-             audience: %Audience{sender: sender} = audience
-           } = context
-       }) do
+  defp normalized_history_source(incoming, config \\ nil)
+
+  defp normalized_history_source(
+         %Incoming{
+           provider: provider,
+           channel_id: channel_id,
+           author_id: author_id,
+           routing_context:
+             %{
+               channel_config_id: config_id,
+               conversation_type: :recipient_addressed,
+               source_scope: scope,
+               audience: %Audience{sender: sender} = audience
+             } = context
+         },
+         config
+       ) do
     provider = to_string(provider)
 
     with true <- is_binary(scope) and scope != "" and byte_size(scope) <= 255,
@@ -688,7 +711,7 @@ defmodule Zaq.Engine.Conversations do
            enabled: true,
            archived_at: nil
          } <-
-           Repo.get(ChannelConfig, config_id) do
+           config || Repo.get(ChannelConfig, config_id) do
       {:ok,
        %{
          "provider" => provider,
@@ -701,7 +724,7 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  defp normalized_history_source(_incoming), do: :error
+  defp normalized_history_source(_incoming, _config), do: :error
 
   @doc """
   Finalizes a handled Agent outcome against its previously admitted user message.
@@ -1828,9 +1851,11 @@ defmodule Zaq.Engine.Conversations do
     |> Repo.all()
   end
 
-  defp enqueue_token_aggregator(conversation_id, %Message{model: model})
+  defp enqueue_token_aggregator(conversation_id, %Message{model: model, inserted_at: inserted_at})
        when is_binary(model) do
-    %{conversation_id: conversation_id, model: model}
+    date = inserted_at |> DateTime.to_date() |> Date.to_iso8601()
+
+    %{conversation_id: conversation_id, model: model, date: date}
     |> TokenUsageAggregator.new()
     |> Oban.insert()
   end

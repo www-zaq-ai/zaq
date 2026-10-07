@@ -236,7 +236,7 @@ defmodule Zaq.Engine.HistoryIngress do
             Repo.rollback(:conflicting_delivery_confirmation)
 
           _ ->
-            prepare_confirmation(delivery, fingerprint)
+            prepare_confirmation(delivery, fingerprint, message)
         end
 
       case HistoryDeliveryWorker.enqueue(id) do
@@ -301,12 +301,13 @@ defmodule Zaq.Engine.HistoryIngress do
 
   defp confirmed_message(_), do: nil
 
-  defp prepare_confirmation(delivery, fingerprint) do
+  defp prepare_confirmation(delivery, fingerprint, locked_message) do
     with %ChannelConfig{enabled: true, archived_at: nil, provider: provider, kind: "retrieval"} <-
            Repo.get(ChannelConfig, delivery[:channel_config_id]),
          true <- provider == delivery[:provider],
-         {:ok, prepared} <- prepare_delivery(delivery) do
-      message = Repo.get!(Message, prepared.message_id)
+         {:ok, prepared} <- prepare_delivery(delivery, locked_message) do
+      message =
+        Map.get_lazy(prepared, :message, fn -> Repo.get!(Message, prepared.message_id) end)
 
       ids =
         if is_map(prepared.transcript_ids),
@@ -342,11 +343,12 @@ defmodule Zaq.Engine.HistoryIngress do
   end
 
   defp prepare_delivery(
-         %{kind: kind, user_message_id: input_id, assistant_message_id: response_id} = delivery
+         %{kind: kind, user_message_id: input_id, assistant_message_id: response_id} = delivery,
+         %Message{} = response
        )
        when kind in [:direct, :channel] and is_binary(input_id) do
     with {:ok, uuid} <- Ecto.UUID.cast(response_id),
-         %Message{} = response <- Repo.get(Message, uuid) do
+         true <- response.id == uuid do
       TranscriptHistory.prepare_execution_response(input_id, response, delivery)
     else
       _ -> {:error, :invalid_delivery_scope}
@@ -361,7 +363,8 @@ defmodule Zaq.Engine.HistoryIngress do
            message_id: message_id,
            content: content,
            source_scope: scope
-         } = delivery
+         } = delivery,
+         _locked_message
        ) do
     with %Audience{} = audience <- Audience.normalize(audience),
          true <- channel_id in audience.recipients,
@@ -389,7 +392,7 @@ defmodule Zaq.Engine.HistoryIngress do
     end
   end
 
-  defp prepare_delivery(_), do: {:error, :invalid_delivery_scope}
+  defp prepare_delivery(_, _), do: {:error, :invalid_delivery_scope}
 
   defp delivery_facts(delivery, audience) do
     recipients =
