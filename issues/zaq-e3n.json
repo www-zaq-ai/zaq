@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-y8p"
@@ -9,8 +9,8 @@
   "id": "zaq-e3n",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[query-amplification] Reduce retrieval and channel config reads",
   "type": "task",
-  "updated_at": "2026-10-07T10:28:33Z"
+  "updated_at": "2026-10-07T10:28:37Z"
 }
