@@ -8,7 +8,7 @@
   "labels": [],
   "priority": 2,
   "status": "open",
-  "title": "[coverage] Cover IdentityScope invalid Mattermost endpoint fallback (line 28)",
+  "title": "[zaq-9qn] [coverage] Cover IdentityScope invalid Mattermost endpoint fallback (line 28)",
   "type": "task",
-  "updated_at": "2026-10-07T18:02:37Z"
+  "updated_at": "2026-10-07T18:02:42Z"
 }
