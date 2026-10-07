@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-7uz"
   ],
+  "closed_at": "2026-10-07T10:44:25Z",
   "created": "2026-10-07T10:28:19Z",
   "description": "Action reuse: local-only TranscriptHistory capture internals; reuse canonical validation/storage and attach, never duplicate permission/resource checks. Resolve canonical content once per capture, reuse transaction connector facts while preserving per-target scope checks, locks, placements and replay conflict semantics. Integration and ordering/idempotency property tests.",
   "id": "zaq-vxc",
@@ -17,8 +18,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[query-amplification] Reduce canonical transcript fan-out work",
   "type": "task",
-  "updated_at": "2026-10-07T10:44:24Z"
+  "updated_at": "2026-10-07T10:44:25Z"
 }
