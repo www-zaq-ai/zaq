@@ -10,11 +10,15 @@
     {
       "text": "Implemented scoped missed-line checks in test/zaq_web/live/bo/communication/channel_history_live_test.exs: forged non-binary filter, info/feedback fallbacks and refresh no-op on list; clipboard event payload. Targeted test passed (3 tests, 0 failures) under serialized lock. Unreachable branches (empty next_cursor/button condition and non-binary cursor params not accepted via route) remain without artificial seams; refresh network/error, grants validation, trace projection and missing-root preview scenarios were not implemented in this pass.",
       "timestamp": "2026-10-07T18:12:05Z"
+    },
+    {
+      "text": "Expanded assigned LiveView tests: case-insensitive/empty/100-char filter and forged nonbinary query; info/feedback foreign/nonexistent message failures and retained prior info; persisted trace expand/collapse/reset; invalid + nonexistent grants and list-state grant/revoke/refresh no-ops; unsupported refresh; local Mattermost snapshot refresh preserving independent manual grant plus subsequent provider failure preserving both grants; invalid list/detail cursors including Plug-decoded arrays; 51-message cursor navigation; attachment root preview. Targeted suite passes (5 tests, 0 failures) under flock lock. Specific blocker at ChannelHistoryLive.root_preview(nil), plan line 249: reproducing a missing stored root makes ChannelHistoryProjection.project/1 raise BadMapError at line 35 in rating_summaries(Enum.map(Map.values(roots), \u0026 \u00261.id)) before LiveView renders. Attempt used local HTTP 500 only, no public network; no production edits authorized. Line 243 empty next_cursor([]) remains structurally unreachable: HEEx emits Next 50 only when length(messages)==50. Nonbinary offset/after HTTP query parameters are covered via [] decoding; no private calls. No mix q/format/precommit/coverage per task restriction.",
+      "timestamp": "2026-10-07T18:41:35Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-xhd] [coverage] ChannelHistoryLive missed-line tests",
   "type": "task",
-  "updated_at": "2026-10-07T18:12:05Z"
+  "updated_at": "2026-10-07T18:41:35Z"
 }
