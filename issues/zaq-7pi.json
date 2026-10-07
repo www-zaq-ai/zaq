@@ -6,9 +6,15 @@
   "description": "Coordinate full per-file plans, merge overlapping test ownership, delegate test-only implementation, review, run mix q, then targeted coverage for added/edited test paths. No full suite, coveralls, production edits, commits or pushes. Record unreachable public-contract branches without test-only seams.",
   "id": "zaq-7pi",
   "labels": [],
+  "comments": [
+    {
+      "text": "All 39 per-file plans reviewed. Merged zaq-ch5 + zaq-uby + zaq-kh4 + zaq-bdw unabridged into one mini-worker owning incoming_normalization_test.exs. Other plans have disjoint test ownership. All 36 implementation assignments launched using test-gap-fixer with complete Beadwork plans; no production edits or full-suite coverage. Serialized targeted tests via shared fcntl lock. Parent reviewing completed changes immediately and sending incomplete assertions/scenarios back to owners. Parent owns final mix q and added/edited-test-only --cover; no final approval request/precommit in this task.",
+      "timestamp": "2026-10-07T18:23:23Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[coverage] Cover supplied 39-file missed-line list",
   "type": "task",
-  "updated_at": "2026-10-07T18:07:52Z"
+  "updated_at": "2026-10-07T18:23:23Z"
 }
