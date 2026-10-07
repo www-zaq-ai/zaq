@@ -21,11 +21,15 @@
     {
       "text": "Consolidated widget E2E pending scope now includes shared breadcrumb navigation; no permanent Refresh/runtime/prerequisite prose; Add/Edit prerequisite errors only for unmet conditions (base URL link, adapter setup instructions), no notices when ready, disabled saving still permitted; contextual Reload configuration for stale revisions/runtime-sync errors. Unit/LiveView tests cover both missing, each missing individually, both ready, modal dismissal and stale reload. Explicit UX approval remains pending in zaq-pkd.16.5; no new feature E2E authored.",
       "timestamp": "2026-10-05T12:59:52Z"
+    },
+    {
+      "text": "Additional approved iteration zaq-pkd.16.7: shared banner Edit/Enable controls in Channels and Widget. Consolidated widget journeys must cover banner enable after base URL/adapter setup, disabled enable when prerequisites missing, disable while prerequisites missing, per-connector targeting, preserved routing/settings, stale recovery and installation-script control retained. Immediate protection: 91 focused tests, existing Channels Chromium 3/3 and final precommit pass. This iteration does not constitute final UX approval or author new feature E2E; zaq-pkd.16.5 remains the gate. Standalone widget/Storybook rendered smoke remains unverified due local endpoint readiness blocker.",
+      "timestamp": "2026-10-07T20:10:42Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-pkd.16] Approved widget configuration E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-05T12:59:52Z"
+  "updated_at": "2026-10-07T20:10:42Z"
 }
