@@ -10,11 +10,15 @@
     {
       "text": "Implemented test/zaq/engine/conversations_missed_branches_test.exs: 15 focused integration tests pass, including invalid admission source/content, legacy replay and empty IDs, finalization guards/rollback, unknown conversation, nil-provider grouping, attachment metadata, whitespace title, invalid rating selectors/source reference, and user telemetry. Targeted command: mix test test/zaq/engine/conversations_missed_branches_test.exs (run under the prescribed fcntl lock); 15 tests, 0 failures. Reachability exceptions documented from source: lines 377 and 503 cannot be entered through public admit_incoming because its binary-ID routing branch calls canonical_admission_source whose fallback :none clause at 503 is guarded to non-binary IDs, while non-binary IDs dispatch earlier at 388 (or routing_context conversation_type nil at 366); supported-ID invalid connector/source yields {:error, :invalid_history_source}, not :none. Lines 521 require canonical row deletion after lookup and before FOR UPDATE; 548 is the unreachable fallback for Facts.strategy after CommunicationPolicy/Facts supported kinds are already normalized exhaustively. Lines 600 require Repo.update failure for an otherwise valid canonical external message; normal Message.changeset-valid adoption exposes no stable legal invalid input. Lines 636-654 and 1129/1159-1165 require actual concurrent uniqueness races and competing state changes; no event barrier is exposed by the public APIs, and no private hooks, sleeps, or fabricated DB corruption were used. Lines 1783 upsert changeset error is likewise not reproducible with sanitized rating 1..5 attrs (requires nondeterministic DB failure/race). These are evidence-based reachability exceptions; remaining reproducible planned behaviors are covered.",
       "timestamp": "2026-10-07T18:33:57Z"
+    },
+    {
+      "text": "Review follow-up: strengthened the rating selector test with real Person A/B-backed ratings and exact person-specific positive controls; invalid nil/0/string selectors still return no ratings. Telemetry now flushes the globally named buffer before establishing a baseline and asserts unchanged qa.answer.count rows only for the unique persisted Mattermost connector dimension after the user insertion and flush. Focused locked test rerun: 15 tests, 0 failures.",
+      "timestamp": "2026-10-07T18:37:44Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[coverage] Plan Conversations missed-line regression tests",
   "type": "task",
-  "updated_at": "2026-10-07T18:33:57Z"
+  "updated_at": "2026-10-07T18:37:44Z"
 }
