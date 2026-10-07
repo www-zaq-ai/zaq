@@ -4,7 +4,8 @@
     "zaq-emb.3.2"
   ],
   "blocks": [
-    "zaq-emb.30"
+    "zaq-emb.30",
+    "zaq-emb.30.1"
   ],
   "closed_at": "2026-09-26T08:08:29Z",
   "created": "2026-09-26T07:58:31Z",
@@ -30,5 +31,5 @@
   "status": "closed",
   "title": "[zaq-emb.3.3] Add private Person-bound execution records",
   "type": "task",
-  "updated_at": "2026-09-26T09:51:44Z"
+  "updated_at": "2026-10-07T20:17:37Z"
 }
