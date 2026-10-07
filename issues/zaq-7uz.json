@@ -17,11 +17,15 @@
     {
       "text": "Implementation complete, final validation BLOCKED by zaq-mcw. mix q and git diff --check clean; targeted performance suite 1864 tests/36 properties passed; notification/search/accounting focused rerun 207 tests/8 properties passed; final unscoped admission regression 15 tests/1 property passed. Relevant Playwright journeys: 276 passed, 3 skipped across Firefox/WebKit/Chromium. Initial full-browser run timed out. Final precommit ran 9125 tests/161 properties with one unchanged telemetry sandbox failure, reproduced in two full-suite runs; isolated same-seed telemetry test passes. No assertions weakened and no unrelated production code modified. Fresh connector validation still happens per streaming update; coalesced accounting still performs full daily aggregation per pass. Changes are uncommitted; no push/PR.",
       "timestamp": "2026-10-07T11:39:04Z"
+    },
+    {
+      "text": "User authorized commit and push. Committed and pushed b7fc95a3 to origin/feature/issue-768-history-a-integration, including user-approved staged config/dev.exs and SearchKnowledgeBase tool timeout. Normal pre_commit qf and commit_msg hooks passed; pre_push formatting hook passed, none bypassed. Full mix precommit blocker zaq-mcw remains unresolved; do not close validation or claim final approval.",
+      "timestamp": "2026-10-07T14:35:29Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[query-amplification] Coalesce token usage accounting safely",
   "type": "task",
-  "updated_at": "2026-10-07T11:39:04Z"
+  "updated_at": "2026-10-07T14:35:29Z"
 }
