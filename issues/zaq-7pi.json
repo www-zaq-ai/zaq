@@ -10,11 +10,15 @@
     {
       "text": "All 39 per-file plans reviewed. Merged zaq-ch5 + zaq-uby + zaq-kh4 + zaq-bdw unabridged into one mini-worker owning incoming_normalization_test.exs. Other plans have disjoint test ownership. All 36 implementation assignments launched using test-gap-fixer with complete Beadwork plans; no production edits or full-suite coverage. Serialized targeted tests via shared fcntl lock. Parent reviewing completed changes immediately and sending incomplete assertions/scenarios back to owners. Parent owns final mix q and added/edited-test-only --cover; no final approval request/precommit in this task.",
       "timestamp": "2026-10-07T18:23:23Z"
+    },
+    {
+      "text": "Completed seven-file alias/Credo repair: added OpenAIStub and Buffer aliases and shortened references; sorted Record and Engine aliases; corrected alias grouping/order in history delivery, incoming normalization, and connector discovery tests. Targeted locked run: all 7 requested paths passed (4 properties, 85 tests, 0 failures). No production changes.",
+      "timestamp": "2026-10-07T18:52:21Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[coverage] Cover supplied 39-file missed-line list",
   "type": "task",
-  "updated_at": "2026-10-07T18:23:23Z"
+  "updated_at": "2026-10-07T18:52:21Z"
 }
