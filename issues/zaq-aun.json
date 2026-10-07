@@ -8,7 +8,7 @@
   "labels": [],
   "priority": 2,
   "status": "open",
-  "title": "[coverage] Cover MessageTimestamp malformed date branches (lines 22, 29)",
+  "title": "[zaq-aun] [coverage] Cover MessageTimestamp malformed date branches (lines 22, 29)",
   "type": "task",
-  "updated_at": "2026-10-07T18:01:18Z"
+  "updated_at": "2026-10-07T18:01:19Z"
 }
