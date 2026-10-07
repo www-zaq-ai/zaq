@@ -10,11 +10,15 @@
     {
       "text": "Correction to scenario 5 (authoritative): confirmed_delivery?/1 executes Map.take(reference, [:provider, :channel_config_id, :source_scope, :message_id]) BEFORE confirmed_message/1, so a supplied assistant_message_id is stripped; it cannot hit line 283. To reach line 283 use public record_confirmation/1 with a valid top-level confirmed direct/channel/replicated delivery and a non-UUID binary assistant_message_id. Confirm that the path arrives at confirmed_message/1, then flows into prepare_delivery and returns a controlled error (typically invalid_delivery_scope for direct/channel) with no durable artifacts. Do not use confirmed_delivery?/1 to claim coverage of line 283. Scenario 302 can use a valid-guard replicated delivery with neither binary assistant_message_id nor binary message_id; confirm the actual downstream return/rollback instead of presupposing it. Scenario 390: invalid conversation_id (\u003e255 bytes) with otherwise valid replicated delivery is the preferred Facts.new error input; top-level kind invalid cannot enter the guarded record_confirmation/1 clause.",
       "timestamp": "2026-10-07T18:03:25Z"
+    },
+    {
+      "text": "Implemented public-contract tests in test/zaq/engine/history_ingress_test.exs: invalid capture requests/no writes; history_context participant filtering/no unknown Person creation; confirmation guard and UUID/missing-receipt errors; canonical Record attachment descriptor output including nil omission. Isolated target suite passed under required fcntl lock. Blocked/not covered here: further planned edge cases (especially enqueue non-ok line 244, malformed internal line 302, and legacy receipt branches 325-326); require reachability work/coverage handoff, no production seam or forced internal contracts used.",
+      "timestamp": "2026-10-07T18:22:01Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-q5j] [coverage] HistoryIngress missed-line tests and reachability review",
   "type": "task",
-  "updated_at": "2026-10-07T18:03:25Z"
+  "updated_at": "2026-10-07T18:22:01Z"
 }
