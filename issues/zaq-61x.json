@@ -14,11 +14,15 @@
     {
       "text": "Follow-up verified GenServer.whereis rescue and catch through manager-provided :via callbacks; both exception and exit now have graceful runtime_unavailable tests and no factory ask. Final serialized targeted two-file suite passes: 6 doctests, 1 property, 79 tests, 0 failures; diff check clean. Integration model/provider malformed-model and blank-dimension scenarios were not added; their table does not yet exist and no integration file was touched. Remaining branch blockers remain as documented above.",
       "timestamp": "2026-10-07T18:39:23Z"
+    },
+    {
+      "text": "Completed reachable telemetry boundary scenarios in executor_integration_test.exs using persisted OpenAI configured-agent fixture, StubFactoryUsage and Buffer/Point sandbox: unqualified model; empty provider/model (openai:, :x); missing model; blank conversation dimension with nonblank sibling session; normal nonempty conversation/session dimensions. Each asserts stored qa.llm.call.count provider/model and dimension presence/absence; existing factory supports deterministic model overrides only in-process. Tests-only blocker for requested nil/non-map incoming metadata on success: incoming_telemetry_dimensions/1 at executor.ex:835-838 pipelines metadata directly to Map.get/2; metadata nil raises BadMapError before the factory, telemetry call, or success Outgoing. The proposed successful-path behavior cannot be asserted without production change, forbidden here. For line 798, evidence: run/2 `with {:ok, actor} \u003c- actor_result` at executor.ex:179 gates all ensure/factory/StreamEvents work; StreamEvents.consume begins at 224, and actor dimensions call ExecutionActor.identity only afterward in put_actor_dimensions (784-799). Invalid/missing actors therefore cannot reach the dimensions fallback during call metrics (existing invalid actor test also asserts no server ensure). Other unreachable 598/743/749/753 guards remain documented in earlier comments. Final serialized authorized test command passes: 6 doctests, 1 property, 80 tests, 0 failures; diff check clean.",
+      "timestamp": "2026-10-07T18:45:39Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-61x] [coverage] Cover Executor remaining lifecycle and telemetry branches",
   "type": "task",
-  "updated_at": "2026-10-07T18:39:23Z"
+  "updated_at": "2026-10-07T18:45:39Z"
 }
