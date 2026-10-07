@@ -10,11 +10,15 @@
     {
       "text": "Clarification to scenario 1: assert an exact map containing status: :unsupported, summary: \"No enabled connectors\", and connectors: [] (the shell-rendered map literal in the issue description lost its opening key). No test has been executed.",
       "timestamp": "2026-10-07T18:04:30Z"
+    },
+    {
+      "text": "Implemented the planned direct regression tests in the two authorized paths: aggregate([]) asserts the exact unsupported/no-enabled-connectors map; any_pending?/1 asserts false for nil and []. Targeted validation passed under the required exclusive fcntl lock: mix test test/zaq_web/live/bo/communication/ingress_status_aggregate_test.exs test/zaq_web/live/bo/communication/ingress_status_ui_test.exs — 1 property, 16 tests, 0 failures. No blockers; no production/support files changed.",
+      "timestamp": "2026-10-07T18:17:13Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[coverage] IngressStatusUI empty aggregate and non-map pending fallback",
   "type": "task",
-  "updated_at": "2026-10-07T18:04:30Z"
+  "updated_at": "2026-10-07T18:17:13Z"
 }
