@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-07T19:16:23Z",
+  "description": "Approved implementation: local-only extension of TranscriptHistory execution-message reuse predicates and ChannelHistoryProjection root-rating aggregation. Existing APIs remain authoritative; no Actions/tool exposure, permission changes, schema migration or new provider I/O. Step1 tests first: preserve/rename canonical user nil-conversation regression, add replicated provider-confirmed assistant counterpart, assert unchanged row/no placement/no position advance. Add leading nil-conversation false clauses to both matching predicates; source_conflict remains public result. Step2 tests first: persisted missing-root child projection and mixed parent/present-rated-root/missing-root page; LiveView unavailable-root preview plus accessible reply via controlled local provider boundary. Filter nil roots, map IDs, deduplicate before ratings query, preserve roots map/display_root(nil). Test paths transcript_history_test.exs, channel_history_projection_test.exs, channel_history_live_test.exs; production two Engine modules. Existing successful reuse/canonical capture/rating tests remain controls. Finite nil-presence regressions; existing ordering/idempotence properties retained, no new property needed. No docs contract change or new feature E2E. Validation isolated four history suites including admin, mix q, targeted coverage, final mix precommit before approval. No commit/push authorized for these new changes.",
+  "id": "zaq-jvw",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[history] Fix nullable conversation reuse and missing-root projection",
+  "type": "task",
+  "updated_at": "2026-10-07T19:16:23Z"
+}
