@@ -7,9 +7,15 @@
   "id": "zaq-pkd.16.7",
   "labels": [],
   "parent": "zaq-pkd.16",
+  "comments": [
+    {
+      "text": "Implemented adapter key rename in Runtime, BridgeSupervisor, current guides and test configurations, no legacy fallback. Added readiness/running lifecycle regression. mix q passed; 18 focused Runtime/BridgeSupervisor/WebWidgetLive tests passed; diff whitespace check clean. UI catalog checked: existing ChannelConnectorCard and cards/channel_connector_card story; common controls currently inline in ChannelsLive and WebWidgetLive. Awaiting explicit extract skill row approval before component extension; source call sites untouched. Existing channels E2E covers index/data sources but not this control slice; consolidated widget coverage remains zaq-pkd.16.6 behind final UX gate.",
+      "timestamp": "2026-10-07T19:28:40Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Align widget adapter key and standardize connector controls",
   "type": "task",
-  "updated_at": "2026-10-07T19:25:44Z"
+  "updated_at": "2026-10-07T19:28:40Z"
 }
