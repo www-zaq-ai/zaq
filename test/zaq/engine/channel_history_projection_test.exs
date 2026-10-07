@@ -148,6 +148,61 @@ defmodule Zaq.Engine.ChannelHistoryProjectionTest do
              ])
   end
 
+  test "missing stored root preserves the child transcript projection", %{config: config} do
+    {:ok, reply} =
+      capture(config, "missing-root-room", "orphan-reply", "external", %{}, "Reply author",
+        thread_id: "unavailable-root"
+      )
+
+    child = Repo.get!(Transcript, reply.transcript_id)
+    assert child.parent_id
+
+    assert [%{id: id, root_message: nil, channel_name: "Missing root room"}] =
+             ChannelHistoryProjection.project([
+               project_row(child.id, config, "Missing root room")
+             ])
+
+    assert id == child.id
+    assert Repo.get!(Message, reply.message_id).content == "orphan-reply"
+  end
+
+  test "mixed pages preserve rated roots alongside parents and missing roots", %{config: config} do
+    {:ok, root} = capture(config, "mixed-room", "rated-root", "external", %{}, "Rated author")
+
+    {:ok, rated_reply} =
+      capture(config, "mixed-room", "rated-reply", "external", %{}, "Reply author",
+        thread_id: "rated-root"
+      )
+
+    {:ok, missing_reply} =
+      capture(config, "mixed-room", "missing-reply", "external", %{}, "Reply author",
+        thread_id: "missing-root"
+      )
+
+    rater =
+      People.create_person(%{full_name: "Root rater"}) |> then(fn {:ok, person} -> person end)
+
+    assert {:ok, _} =
+             Conversations.upsert_rating(Repo.get!(Message, root.message_id), %{
+               person_id: rater.id,
+               rating: 5
+             })
+
+    rows =
+      Enum.map([root, rated_reply, missing_reply], fn captured ->
+        project_row(captured.transcript_id, config, "Mixed room")
+      end)
+
+    projected = ChannelHistoryProjection.project(rows)
+    assert Enum.map(projected, & &1.id) == Enum.map(rows, & &1.id)
+    [parent, rated, missing] = projected
+    assert parent.root_message == nil
+    assert missing.root_message == nil
+    assert rated.root_message.message_id == root.message_id
+    assert rated.root_message.display_name == "Rated author"
+    assert rated.root_message.rating_summary == %{positive: 1, negative: 0}
+  end
+
   defp capture(
          config,
          channel,

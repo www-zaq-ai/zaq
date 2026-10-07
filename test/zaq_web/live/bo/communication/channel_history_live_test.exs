@@ -772,6 +772,79 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLiveTest do
     assert grants_after_failure == grants_before_failure
   end
 
+  test "threads with unavailable roots remain listed and their replies are readable", %{
+    conn: conn
+  } do
+    room_id = "abcdefghijklmnopqrstuvwx12"
+    root_id = "missing-provider-root"
+
+    {child, endpoint} =
+      OpenAIStub.server(
+        fn request, _body ->
+          assert request.method == "GET"
+          assert request.request_path == "/v1/api/v4/posts/#{root_id}"
+          {404, %{}}
+        end,
+        self()
+      )
+
+    start_supervised!(child)
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Missing root connector",
+        provider: "mattermost",
+        kind: "retrieval",
+        url: endpoint,
+        token: "test-token",
+        settings: %{"jido_chat" => %{"bot_user_id" => "bot-1"}}
+      })
+      |> Zaq.Repo.insert!()
+
+    {:ok, person} = People.create_person(%{full_name: "Thread participant"})
+
+    {:ok, facts} =
+      Facts.for_capture(%{
+        provider: "mattermost",
+        channel_config_id: config.id,
+        channel_id: room_id,
+        kind: :channel,
+        actor_person_id: person.id,
+        thread_id: root_id
+      })
+
+    {:ok, reply} =
+      Conversations.capture_canonical_message(
+        facts,
+        %{
+          role: "external",
+          content: "Reply without local root",
+          external_message_id: "rootless-reply"
+        },
+        %{provider: "mattermost", channel_config_id: config.id, provenance: "provider_event"}
+      )
+
+    transcript = Zaq.Repo.get!(Zaq.Engine.Conversations.Transcript, reply.transcript_id)
+    assert transcript.parent_id
+    {:ok, view, _} = live(conn, ~p"/bo/channels/history?channel=#{transcript.parent_id}")
+    assert has_element?(view, "#transcript-#{transcript.id}", "Root message unavailable")
+
+    {:ok, detail_view, _} =
+      view
+      |> element("#transcript-#{transcript.id} a[href='/bo/channels/history/#{transcript.id}']")
+      |> render_click()
+      |> follow_redirect(conn, ~p"/bo/channels/history/#{transcript.id}")
+
+    assert has_element?(
+             detail_view,
+             "#history-message-#{reply.message_id}",
+             "Reply without local root"
+           )
+
+    assert_receive {:openai_request, "GET", "/v1/api/v4/posts/" <> ^root_id, "", _}
+  end
+
   defp shared_history_fixture(url, room_id) do
     config =
       %ChannelConfig{}

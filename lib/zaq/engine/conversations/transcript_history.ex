@@ -844,6 +844,14 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     end
   end
 
+  defp matches_admitted_source?(
+         %Message{conversation_id: nil},
+         _changeset,
+         _transcript,
+         _context
+       ),
+       do: false
+
   defp matches_admitted_source?(message, changeset, transcript, context) do
     candidate = Ecto.Changeset.apply_changes(changeset)
     conversation = Repo.get(Conversation, message.conversation_id)
@@ -852,6 +860,14 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
       admitted_source_fields_match?(message, candidate) and
       conversation_matches_transcript?(conversation, transcript, message, context)
   end
+
+  defp matches_confirmed_response?(
+         %Message{conversation_id: nil},
+         _changeset,
+         _transcript,
+         _context
+       ),
+       do: false
 
   defp matches_confirmed_response?(message, changeset, transcript, context) do
     candidate = Ecto.Changeset.apply_changes(changeset)

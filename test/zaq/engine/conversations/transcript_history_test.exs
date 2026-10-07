@@ -738,10 +738,10 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
     assert Repo.aggregate(Message, :count) == 0
   end
 
-  test "existing unattached legacy messages cannot be adopted as canonical history" do
-    legacy =
+  test "conversation-less canonical user messages cannot be reused as execution messages" do
+    canonical =
       %Message{}
-      |> Message.canonical_changeset(%{role: "user", content: "unattached legacy"})
+      |> Message.canonical_changeset(%{role: "user", content: "canonical input"})
       |> Repo.insert!()
 
     config = config()
@@ -752,12 +752,49 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
                room,
                config,
                "new-provider-id",
-               %{role: "user", content: "unattached legacy"},
+               %{role: "user", content: "canonical input"},
                %{
-                 existing_message_id: legacy.id
+                 existing_message_id: canonical.id
                }
              )
 
+    assert Repo.get!(Message, canonical.id) == canonical
+    assert Repo.get!(Transcript, room.id).next_position == 0
+    assert Repo.aggregate(TranscriptMessage, :count) == 0
+    assert Repo.aggregate(Message, :count) == 1
+  end
+
+  test "conversation-less canonical assistants cannot be reused as confirmed execution responses" do
+    canonical =
+      %Message{}
+      |> Message.canonical_changeset(%{role: "assistant", content: "canonical answer"})
+      |> Repo.insert!()
+
+    config = config()
+    owner = person("Confirmed response owner")
+
+    room =
+      transcript(config, "replicated:#{owner.id}", %{
+        strategy: "replicated",
+        owner_person_id: owner.id,
+        permission_resource_type: "person_history",
+        permission_resource_id: "recipient:#{owner.id}"
+      })
+
+    assert {:error, :source_conflict} =
+             append(
+               room,
+               config,
+               "confirmed-canonical-response",
+               %{role: "assistant", content: "canonical answer"},
+               %{
+                 existing_message_id: canonical.id,
+                 provenance: "provider_confirmed",
+                 recipient_person_id: owner.id
+               }
+             )
+
+    assert Repo.get!(Message, canonical.id) == canonical
     assert Repo.get!(Transcript, room.id).next_position == 0
     assert Repo.aggregate(TranscriptMessage, :count) == 0
     assert Repo.aggregate(Message, :count) == 1

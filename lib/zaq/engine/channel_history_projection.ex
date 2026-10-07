@@ -32,7 +32,15 @@ defmodule Zaq.Engine.ChannelHistoryProjection do
     participants = participant_projection(rows)
     thread_counts = thread_counts(ids)
     identities = root_identities(rows, roots)
-    ratings = rating_summaries(Enum.map(Map.values(roots), & &1.id))
+
+    root_ids =
+      roots
+      |> Map.values()
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(& &1.id)
+      |> Enum.uniq()
+
+    ratings = rating_summaries(root_ids)
 
     Enum.map(rows, fn row ->
       participant = Map.get(participants, row.id, %{recent: [], count: 0})
