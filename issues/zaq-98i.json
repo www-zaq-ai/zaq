@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-07T18:01:41Z",
+  "description": "",
+  "id": "zaq-98i",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[coverage] Plan Delivery.capture missed branches (lines 25, 61, 69, 72, 74)",
+  "type": "task",
+  "updated_at": "2026-10-07T18:01:41Z"
+}
