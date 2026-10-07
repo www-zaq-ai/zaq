@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-07T18:21:42Z",
+  "description": "Merge target feature/issue-768-history-a-integration at 955bf4e0 into refactor/webbridge without rewriting published history. Preserve connector-query optimizations and WebBridge contracts; fix duplicate dev database keyword; validate existing channel/widget/history/token usage tests, quality checks and existing E2E. No new feature E2E authoring, operation design or Action exposure: reuse existing behavior and tests. PR https://github.com/www-zaq-ai/zaq/pull/836",
+  "id": "zaq-pkd.17",
+  "labels": [],
+  "parent": "zaq-pkd",
+  "priority": 2,
+  "status": "open",
+  "title": "[836] Integrate target branch updates and validate WebBridge compatibility",
+  "type": "task",
+  "updated_at": "2026-10-07T18:21:42Z"
+}
