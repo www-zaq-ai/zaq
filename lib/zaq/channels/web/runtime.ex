@@ -17,7 +17,7 @@ defmodule Zaq.Channels.Web.Runtime do
   def build(%{provider: provider, id: id} = config)
       when provider in [:web_widget, "web_widget"] do
     definition = Application.get_env(:zaq, :channels, %{}) |> Map.get(:web_widget, %{})
-    builder = Map.get(definition, :runtime_builder)
+    adapter = Map.get(definition, :adapter)
     settings = Map.get(config, :settings, %{}) || %{}
 
     hooks = %{
@@ -33,9 +33,9 @@ defmodule Zaq.Channels.Web.Runtime do
     }
 
     if validate_settings(settings) == :ok and is_integer(id) and id > 0 and
-         is_atom(builder) and not is_nil(builder) and Code.ensure_loaded?(builder) and
-         function_exported?(builder, :build, 2) do
-      normalize_specs(builder.build(config, hooks))
+         is_atom(adapter) and not is_nil(adapter) and Code.ensure_loaded?(adapter) and
+         function_exported?(adapter, :build, 2) do
+      normalize_specs(adapter.build(config, hooks))
     else
       {:error, :widget_runtime_not_configured}
     end
@@ -52,10 +52,10 @@ defmodule Zaq.Channels.Web.Runtime do
   def embed_script(id, base_url, opts)
       when is_integer(id) and id > 0 and is_binary(base_url) and byte_size(base_url) > 0 do
     definition = Zaq.Config.get(:zaq, :channels, %{}, opts) |> Map.get(:web_widget, %{})
-    builder = Map.get(definition, :runtime_builder)
+    adapter = Map.get(definition, :adapter)
 
-    if supports_callback?(builder, :embed_script) do
-      normalize_snippet(builder.embed_script(id, base_url))
+    if supports_callback?(adapter, :embed_script) do
+      normalize_snippet(adapter.embed_script(id, base_url))
     else
       {:error, :widget_embed_not_configured}
     end
@@ -70,12 +70,12 @@ defmodule Zaq.Channels.Web.Runtime do
   @doc "Returns adapter readiness and a secret-free live runtime status."
   def status(id, opts \\ []) do
     definition = Zaq.Config.get(:zaq, :channels, %{}, opts) |> Map.get(:web_widget, %{})
-    builder = Map.get(definition, :runtime_builder)
+    adapter = Map.get(definition, :adapter)
 
     {:ok,
      %{
        available?:
-         supports_callback?(builder, :build) and supports_callback?(builder, :embed_script),
+         supports_callback?(adapter, :build) and supports_callback?(adapter, :embed_script),
        runtime: runtime_status(id)
      }}
   end
@@ -89,9 +89,9 @@ defmodule Zaq.Channels.Web.Runtime do
 
   defp runtime_status(_id), do: :not_running
 
-  defp supports_callback?(builder, callback) do
-    is_atom(builder) and not is_nil(builder) and Code.ensure_loaded?(builder) and
-      function_exported?(builder, callback, 2)
+  defp supports_callback?(adapter, callback) do
+    is_atom(adapter) and not is_nil(adapter) and Code.ensure_loaded?(adapter) and
+      function_exported?(adapter, callback, 2)
   end
 
   defp normalize_snippet({:ok, snippet})

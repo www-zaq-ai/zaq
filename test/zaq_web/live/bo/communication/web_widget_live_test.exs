@@ -79,6 +79,10 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
     view |> element("#close-widget-modal") |> render_click()
     refute has_element?(view, "#widget-base-url-error")
     refute has_element?(view, "#widget-adapter-error")
+    assert has_element?(view, "#toggle-widget-#{config.id}[disabled]", "Enable")
+    render_click(view, "toggle_enabled", %{"id" => to_string(config.id)})
+    assert render(view) =~ "Configure the global base URL"
+    refute Repo.get!(ChannelConfig, config.id).enabled
   end
 
   test "key is revealed once, dismissal and connector switching remove it", %{conn: conn} do
@@ -108,6 +112,73 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
     view |> element("#new-widget-config") |> render_click()
     refute has_element?(view, "#widget-base-url-error")
     assert has_element?(view, "#widget-adapter-error")
+    create(view, "Missing adapter")
+    config = Repo.get_by!(ChannelConfig, name: "Missing adapter")
+    view |> element("#close-widget-modal") |> render_click()
+    assert has_element?(view, "#toggle-widget-#{config.id}[disabled]", "Enable")
+    render_click(view, "toggle_enabled", %{"id" => to_string(config.id)})
+    assert render(view) =~ "Install and configure the widget adapter"
+    refute Repo.get!(ChannelConfig, config.id).enabled
+  end
+
+  test "banner toggles only the target connector and allows disabling without prerequisites", %{
+    conn: conn
+  } do
+    configure_adapter()
+    assert :ok = Zaq.System.set_global_base_url("https://zaq.example.test")
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    create(view, "First toggle widget")
+    first = Repo.get_by!(ChannelConfig, name: "First toggle widget")
+    view |> element("#new-widget-config") |> render_click()
+    create(view, "Second toggle widget", "__none__")
+    view |> element("#generate-widget-key") |> render_click()
+    second = Repo.get_by!(ChannelConfig, name: "Second toggle widget")
+    on_exit(fn -> WebBridge.stop_runtime(%{id: second.id, provider: "web_widget"}) end)
+    view |> element("#close-widget-modal") |> render_click()
+    view |> element("#toggle-widget-#{second.id}") |> render_click()
+
+    assert has_element?(view, "#toggle-widget-#{second.id}", "Disable")
+    refute has_element?(view, "#widget-config-modal")
+    refute has_element?(view, "#new-widget-key")
+    enabled = Repo.get!(ChannelConfig, second.id)
+    assert enabled.enabled
+    assert enabled.name == second.name
+    assert enabled.settings == second.settings
+    assert enabled.token == second.token
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: second.id}).routing_mode == :none
+    refute Repo.get!(ChannelConfig, first.id).enabled
+    assert {:ok, %{state_pid: pid}} = ChannelsSupervisor.lookup_runtime("web_widget_#{second.id}")
+
+    assert :ok = Zaq.System.set_global_base_url(nil)
+    channels = Application.get_env(:zaq, :channels)
+    Application.put_env(:zaq, :channels, Map.put(channels, :web_widget, %{bridge: WebBridge}))
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    refute has_element?(view, "#toggle-widget-#{second.id}[disabled]")
+    assert has_element?(view, "#toggle-widget-#{first.id}[disabled]")
+    view |> element("#toggle-widget-#{second.id}") |> render_click()
+    refute Repo.get!(ChannelConfig, second.id).enabled
+    refute Process.alive?(pid)
+  end
+
+  test "banner rejects stale and unknown connector toggles without changing configuration", %{
+    conn: conn
+  } do
+    configure_adapter()
+    assert :ok = Zaq.System.set_global_base_url("https://zaq.example.test")
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    create(view, "Toggle revision")
+    config = Repo.get_by!(ChannelConfig, name: "Toggle revision")
+    view |> element("#close-widget-modal") |> render_click()
+    config |> Ecto.Changeset.change(name: "Changed elsewhere") |> Repo.update!()
+    view |> element("#toggle-widget-#{config.id}") |> render_click()
+    assert has_element?(view, "#widget-recovery-error", "changed elsewhere")
+    refute Repo.get!(ChannelConfig, config.id).enabled
+    view |> element("#reload-widget-config") |> render_click()
+    assert has_element?(view, "#widget-connector-#{config.id}", "Changed elsewhere")
+    refute has_element?(view, "#widget-recovery-error")
+    render_click(view, "toggle_enabled", %{"id" => "unknown"})
+    assert render(view) =~ "Configuration not found or archived"
+    refute Repo.get!(ChannelConfig, config.id).enabled
   end
 
   test "multiple configs and IncomingMessageRouting choices remain isolated", %{conn: conn} do
@@ -172,7 +243,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
     Application.put_env(
       :zaq,
       :channels,
-      Map.put(previous, :web_widget, %{bridge: WebBridge, runtime_builder: Adapter})
+      Map.put(previous, :web_widget, %{bridge: WebBridge, adapter: Adapter})
     )
 
     on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -265,5 +336,17 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
         "agent_id" => agent_id
       }
     })
+  end
+
+  defp configure_adapter do
+    previous = Application.get_env(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.put(previous, :web_widget, %{bridge: WebBridge, adapter: Adapter})
+    )
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
   end
 end

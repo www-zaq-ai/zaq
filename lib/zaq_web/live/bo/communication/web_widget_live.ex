@@ -63,15 +63,30 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
       params: params
     }
 
-    case settings(socket, request) do
-      {:ok, result} ->
-        {:noreply, saved(socket, result, "Configuration saved.")}
+    {:noreply, save_configuration(socket, request, "Configuration saved.")}
+  end
 
-      {:error, {:validation, errors}} ->
-        {:noreply, socket |> clear_key() |> assign(:errors, errors)}
+  def handle_event("toggle_enabled", %{"id" => id}, socket) do
+    case Enum.find(socket.assigns.configs, &(to_string(&1.id) == id)) do
+      nil ->
+        {:noreply, failure(socket, :connector_not_found)}
 
-      {:error, reason} ->
-        {:noreply, failure(socket, reason)}
+      config ->
+        request = %{
+          op: :save,
+          id: config.id,
+          revision: config.revision,
+          params: %{"enabled" => !config.enabled}
+        }
+
+        socket =
+          socket
+          |> clear_key()
+          |> assign(:selected, config)
+          |> assign(:form, to_form(form_params(config), as: :widget))
+
+        message = if config.enabled, do: "Configuration disabled.", else: "Configuration enabled."
+        {:noreply, save_configuration(socket, request, message)}
     end
   end
 
@@ -136,6 +151,14 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
           "Configuration saved, but runtime synchronization failed. Reload the configuration, then save again to retry."
         )
         |> put_flash(:error, message <> " Runtime synchronization failed.")
+  end
+
+  defp save_configuration(socket, request, message) do
+    case settings(socket, request) do
+      {:ok, result} -> saved(socket, result, message)
+      {:error, {:validation, errors}} -> socket |> clear_key() |> assign(:errors, errors)
+      {:error, reason} -> failure(socket, reason)
+    end
   end
 
   defp apply_snapshot(socket, snapshot) do

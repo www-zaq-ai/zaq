@@ -204,7 +204,7 @@ Do not expose raw internal error tuples, credentials or execution traces on the 
 ## Widget runtime construction
 
 Configure `:zaq, :channels, :web_widget` with `bridge: Zaq.Channels.WebBridge` and a
-trusted `runtime_builder` implementing the widget-specific
+trusted `adapter` implementing the widget-specific
 [`WidgetAdapter`](../../lib/zaq/channels/web/widget_adapter.ex) behaviour:
 `build(config, hooks)` and `embed_script(widget_id, base_url)`. Return from `build/2`
 `{:ok, {state_child_spec_or_nil, listener_specs}}` or `{:error, reason}`. Existing

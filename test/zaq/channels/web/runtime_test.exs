@@ -37,7 +37,7 @@ defmodule Zaq.Channels.Web.RuntimeTest do
     Application.put_env(
       :zaq,
       :channels,
-      Map.put(previous, :web_widget, %{bridge: WebBridge, runtime_builder: Builder})
+      Map.put(previous, :web_widget, %{bridge: WebBridge, adapter: Builder})
     )
 
     on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -74,6 +74,14 @@ defmodule Zaq.Channels.Web.RuntimeTest do
     assert {:ok, %{state_pid: ^pid}} = Supervisor.lookup_runtime("web_widget_#{config.id}")
     assert :ok = WebBridge.stop_runtime(config)
     refute Process.alive?(pid)
+  end
+
+  test "adapter configuration reports readiness and running runtime", %{config: config} do
+    assert {:ok, %{available?: true, runtime: :not_running}} = Runtime.status(config.id)
+    assert :ok = WebBridge.start_runtime(config)
+    assert {:ok, %{available?: true, runtime: :running}} = Runtime.status(config.id)
+    assert :ok = WebBridge.stop_runtime(config)
+    assert {:ok, %{available?: true, runtime: :not_running}} = Runtime.status(config.id)
   end
 
   test "changed configuration restarts, unchanged preserves, disable stops", %{config: config} do
@@ -144,7 +152,7 @@ defmodule Zaq.Channels.Web.RuntimeTest do
       Application.put_env(
         :zaq,
         :channels,
-        Map.put(channels, :web_widget, %{runtime_builder: builder})
+        Map.put(channels, :web_widget, %{adapter: builder})
       )
 
       assert {:error, ^error} = Runtime.embed_script(config.id, "https://zaq.example.test")
@@ -163,7 +171,7 @@ defmodule Zaq.Channels.Web.RuntimeTest do
     assert Process.alive?(second)
   end
 
-  test "missing builder fails explicitly, while disabled runtime needs no builder", %{
+  test "missing adapter fails explicitly, while disabled runtime needs no adapter", %{
     config: config
   } do
     channels = Application.get_env(:zaq, :channels)

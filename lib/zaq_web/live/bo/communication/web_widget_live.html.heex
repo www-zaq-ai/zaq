@@ -37,6 +37,15 @@
           icon="hero-globe-alt"
           select_event="select_connector"
           selected={not is_nil(@selected) and @selected.id == config.id}
+          toggle_event="toggle_enabled"
+          toggle_button_id={"toggle-widget-#{config.id}"}
+          toggle_disabled={!config.enabled && (!@base_url || !adapter_available?(@adapter))}
+          toggle_disabled_reason={
+            if !config.enabled && (!@base_url || !adapter_available?(@adapter)),
+              do: "Configure the global base URL and widget adapter before enabling."
+          }
+          edit_event="select_connector"
+          edit_button_id={"edit-widget-#{config.id}"}
         >
           <:actions>
             <ZaqWeb.Components.DesignSystem.Button.button
@@ -48,13 +57,6 @@
               aria-expanded={to_string(@expanded_script_id == config.id)}
               aria-controls={"widget-installation-#{config.id}"}
             >Installation script</ZaqWeb.Components.DesignSystem.Button.button>
-            <ZaqWeb.Components.DesignSystem.Button.button
-              id={"edit-widget-#{config.id}"}
-              variant={:tertiary}
-              phx-click="select_connector"
-              phx-value-id={config.id}
-              icon="hero-pencil-square"
-            >Edit</ZaqWeb.Components.DesignSystem.Button.button>
           </:actions>
         </ZaqWeb.Components.DesignSystem.ChannelConnectorCard.channel_connector_card>
         <section

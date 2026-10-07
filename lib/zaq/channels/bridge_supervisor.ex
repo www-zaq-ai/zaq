@@ -370,13 +370,13 @@ defmodule Zaq.Channels.BridgeSupervisor do
 
   defp bridge_id(config), do: "#{config.provider}_#{config.id}"
 
-  # Runtime construction may be adapter-driven or supplied by a host builder.
+  # Runtime construction is supplied by the configured provider adapter.
   # ChannelConfig handles sub-provider matching (`email` matches `email:imap`).
   defp configured_providers do
     :zaq
     |> Application.get_env(:channels, %{})
     |> Enum.flat_map(fn {provider, cfg} ->
-      if is_map(cfg) and (Map.has_key?(cfg, :adapter) or Map.has_key?(cfg, :runtime_builder)),
+      if is_map(cfg) and Map.has_key?(cfg, :adapter),
         do: [to_string(provider)],
         else: []
     end)

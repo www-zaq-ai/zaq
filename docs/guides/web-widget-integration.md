@@ -13,11 +13,11 @@ runtime, trust and delivery contract. BO's working consumer is
 Configure the widget provider in the host application's existing Channels map:
 
 ```elixir
-web_widget: %{bridge: Zaq.Channels.WebBridge, runtime_builder: MyWidget.RuntimeBuilder}
+web_widget: %{bridge: Zaq.Channels.WebBridge, adapter: MyWidget.Adapter}
 ```
 
 Implement the [`WidgetAdapter`](../../lib/zaq/channels/web/widget_adapter.ex)
-behaviour. `MyWidget.RuntimeBuilder.build(config, hooks)` returns
+behaviour. `MyWidget.Adapter.build(config, hooks)` returns
 `{:ok, {state_spec_or_nil, listener_specs}}` or `{:error, reason}`. ZAQ starts and
 stops these children through its existing supervisor. The builder can use its
 own endpoint/listener modules; it does not need a compile-time dependency back

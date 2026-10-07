@@ -2,13 +2,16 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
   @moduledoc """
   Connector settings bar shared by channel configuration pages.
 
-  The parent LiveView owns selection and action events. Pass its existing buttons
-  through `:actions` so their IDs and event contracts remain unchanged.
+  The parent LiveView owns selection and action events. Configure the common edit
+  and enable/disable controls with their existing IDs and events. Provider-specific
+  controls belong in `:actions`.
   """
 
   use Phoenix.Component
 
   import ZaqWeb.CoreComponents, only: [icon: 1]
+
+  alias ZaqWeb.Components.DesignSystem.Button
 
   attr :id, :string, required: true
   attr :name, :string, required: true
@@ -19,6 +22,13 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
   attr :select_event, :string, default: nil
   attr :connector_id, :integer, default: nil
   attr :icon, :string, default: nil
+  attr :toggle_event, :string, default: nil
+  attr :toggle_button_id, :string, default: nil
+  attr :toggle_disabled, :boolean, default: false
+  attr :toggle_disabled_reason, :string, default: nil
+  attr :edit_event, :string, default: nil
+  attr :edit_button_id, :string, default: nil
+  attr :edit_action, :string, default: nil
 
   slot :status
   slot :detail
@@ -85,7 +95,30 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
           {render_slot(@detail)}
         </div>
       </div>
-      <div class="flex flex-wrap items-center gap-2">{render_slot(@actions)}</div>
+      <div class="flex flex-wrap items-center gap-2">
+        <Button.button
+          :if={@toggle_event}
+          id={@toggle_button_id || "toggle-#{@id}"}
+          variant={:secondary}
+          phx-click={@toggle_event}
+          phx-value-id={@connector_id}
+          disabled={@toggle_disabled}
+          title={@toggle_disabled_reason}
+        >{if @enabled, do: "Disable", else: "Enable"}</Button.button>
+        <Button.button
+          :if={@edit_event}
+          id={@edit_button_id || "edit-#{@id}"}
+          variant={:tertiary}
+          icon="hero-pencil-square"
+          icon_only
+          aria-label="Edit"
+          title="Edit"
+          phx-click={@edit_event}
+          phx-value-id={@connector_id}
+          phx-value-action={@edit_action}
+        />
+        {render_slot(@actions)}
+      </div>
     </div>
     """
   end
