@@ -8,7 +8,7 @@
   "labels": [],
   "priority": 2,
   "status": "open",
-  "title": "[coverage] Verify IncomingMessageRoutingRule missed lines 81, 89, 133 and add reachable regression tests",
+  "title": "[zaq-q95] [coverage] Verify IncomingMessageRoutingRule missed lines 81, 89, 133 and add reachable regression tests",
   "type": "task",
-  "updated_at": "2026-10-07T18:05:45Z"
+  "updated_at": "2026-10-07T18:05:52Z"
 }
