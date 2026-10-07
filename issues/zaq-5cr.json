@@ -10,11 +10,15 @@
     {
       "text": "Implemented tests in test/zaq/engine/channel_history_membership_test.exs for malformed membership input, invalid ordered operations/rollback, disabled connector fallback, malformed and oversized snapshots with rollback preservation, and unknown member events without identity/grant creation. Targeted test passed: mix test test/zaq/engine/channel_history_membership_test.exs (9 tests, 0 failures). Reachability exceptions: grant/revoke error branches (lines 199/210) have no public injection seam and normal valid DB operations succeed; did not add artificial DB failures. Lock-recheck race (line 228) not attempted because no deterministic existing telemetry/barrier coordination harness was identified; disabled-before-call path is covered separately. No production, support, or other test files changed.",
       "timestamp": "2026-10-07T18:16:53Z"
+    },
+    {
+      "text": "Follow-up review: added exact persisted membership_state assertion for unknown-member add evidence, and sorted grant comparisons to make ordering deterministic. Revalidated targeted test: 11 tests, 0 failures.",
+      "timestamp": "2026-10-07T18:26:48Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-5cr] [coverage] Plan ChannelHistoryMembership missed-line tests",
   "type": "task",
-  "updated_at": "2026-10-07T18:16:53Z"
+  "updated_at": "2026-10-07T18:26:48Z"
 }
