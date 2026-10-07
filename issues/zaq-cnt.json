@@ -12,11 +12,15 @@
     {
       "text": "Implemented only factory_test.exs and factory_tool_timeout_test.exs. Reproduced all three original failures at seed 649460; updated fixtures/oracles without changing goals. Max checks both orders, nil coverage uses existing non-declaring MCPProbeTool, fixed Search 120000 declaration assertion, registration property compares original and reversed/deduplicated sequences using independent max/default oracle, new removal test steps Search 120000 -\u003e Browsing budget -\u003e default 15000. Targeted rerun same seed: 50 tests/2 properties passed. mix q and diff check passed. Full precommit: 9127 tests/161 properties with three unrelated PostgreSQL deadlocks tracked in zaq-e8q; final validation remains blocked. No production changes, commits, or push.",
       "timestamp": "2026-10-07T15:15:31Z"
+    },
+    {
+      "text": "User authorized commit and push. Test-only changes committed as 955bf4e0 and pushed to origin/feature/issue-768-history-a-integration. Normal pre_commit qf, commit message, and pre_push formatting hooks passed without bypass. Full-suite validation blocker zaq-e8q remains open; implementation is delivered but do not mark final validation approved.",
+      "timestamp": "2026-10-07T15:17:33Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[tool-timeout] Preserve timeout contract coverage after Search budget declaration",
   "type": "task",
-  "updated_at": "2026-10-07T15:15:31Z"
+  "updated_at": "2026-10-07T15:17:33Z"
 }
