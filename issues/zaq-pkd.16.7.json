@@ -15,11 +15,15 @@
     {
       "text": "Implementation complete, uncommitted. User approved extend row and both replacement rows through interactive skill gates. Runtime uses adapter only; existing ChannelConnectorCard now owns optional shared Edit/Enable controls using DSM Button, ChannelsLive and WebWidgetLive wired preserving IDs/events; provider controls remain slotted. Widget toggle reuses confidential Engine ManageWidgetConnector save path with revision locking, target snapshot, enabled-only params, key clearing, prerequisite enforcement and existing runtime sync/recovery. IMAP/SMTP selection flows unchanged. Existing Storybook card story updated, no duplicate/custom CSS/public styling URLs. mix q and 91 focused tests passed. Existing Channels Chromium suite 3/3 passed on isolated E2E database. Final mix precommit passed: 17 doctests, 163 properties, 9212 tests, zero failures, one skipped/93 excluded. Self diff whitespace check passed and no runtime_builder references in lib/test/docs/config. Extra standalone rendered-widget inspection could not get a ready endpoint; owned inspection processes stopped. Storybook rendered smoke remains unverified. No commit/push authorized; overall widget final UX/E2E/coverage gates remain open.",
       "timestamp": "2026-10-07T20:10:29Z"
+    },
+    {
+      "text": "User authorized commit/push. Committed 0dd5a413 refactor(channels): align widget adapter and connector controls (zaq-pkd.16.7), 12 task files, and pushed origin/refactor/webbridge (PR #836). Initial commit formatting hook blocked on unrelated ignored local config/dev.secret.exs; user corrected it, agent did not change/stage it. Retried commit quality/message hooks and push formatting hook passed. Remaining overall widget UX/E2E/coverage gates stay open; no merge performed.",
+      "timestamp": "2026-10-07T20:26:39Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Align widget adapter key and standardize connector controls",
   "type": "task",
-  "updated_at": "2026-10-07T20:10:29Z"
+  "updated_at": "2026-10-07T20:26:39Z"
 }
