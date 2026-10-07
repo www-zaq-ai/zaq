@@ -10,11 +10,15 @@
     {
       "text": "Implemented four persisted projection scenarios in test/zaq/engine/channel_history_projection_test.exs (assistant-only fallback + discriminating person title; archived author subject title; connector-scoped mapped thread root; unmapped root author fallback). Targeted mix test test/zaq/engine/channel_history_projection_test.exs passed (4 tests; run under required fcntl lock). Scenario 5 / projection line 341 is blocked by current production behavior: a real captured rootless child with an existing parent creates roots map entry =\u003e nil; ChannelHistoryProjection.project/1 then raises at line 35 in Enum.map(Map.values(roots), \u0026 \u00261.id) before reaching display_root/author_person_id(nil). No test was kept that asserts a crash, and no production edit made per scope. Once that production defect is fixed, add/assert root_message nil plus retained child title/participants/reply context.",
       "timestamp": "2026-10-07T18:35:55Z"
+    },
+    {
+      "text": "Correction to blocker evidence: the persisted fixture is created through Conversations.capture_canonical_message/3 for an external reply in a new Mattermost channel, with Facts.for_capture thread_id: \"missing-root-id\" (no message/placement with that external ID), then project/1 receives a bounded row from the resulting child Transcript: id, parent_id, external_thread_id as thread_id, owner_person_id, provider, channel_config_id, channel_name. The child has a non-nil parent_id and no matching parent root placement, so stored_roots/1 yields %{child_id =\u003e nil}. Crucially, project/1 line 29 evaluates author_person_id(nil), so the nil clause at source line 341 IS executed before the exception; it is not unreachable. The exception happens afterward at line 35 when rating_summaries(Enum.map(Map.values(roots), \u0026 \u00261.id)) dereferences nil: ** (BadMapError) expected a map, got nil. Consequently projection cannot return root_message nil/title/participants assertions for that fixture without a production fix. No assert_raise test was added; the four accepted tests remain passing.",
+      "timestamp": "2026-10-07T18:36:36Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-ilh] [coverage] Cover ChannelHistoryProjection fallback and missing-root branches",
   "type": "task",
-  "updated_at": "2026-10-07T18:35:55Z"
+  "updated_at": "2026-10-07T18:36:36Z"
 }
