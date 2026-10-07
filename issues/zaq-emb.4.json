@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-emb.10",
     "zaq-emb.30",
+    "zaq-emb.30.1",
     "zaq-emb.9"
   ],
   "closed_at": "2026-10-03T09:35:08Z",
@@ -80,5 +81,5 @@
   "status": "closed",
   "title": "[zaq-emb.4] PR A strategy-driven persistence, passive capture and authorized reads",
   "type": "task",
-  "updated_at": "2026-10-03T09:35:08Z"
+  "updated_at": "2026-10-07T20:17:38Z"
 }
