@@ -11,9 +11,15 @@
   "id": "zaq-emb.30.2",
   "labels": [],
   "parent": "zaq-emb.30",
+  "comments": [
+    {
+      "text": "B1 implementation IN PROGRESS. RED→GREEN: Executor retains actual Jido Request.Handle and passes it to StreamEvents; registry keyed by actual id with separate incoming correlation, exact runtime PID, owning node, actor and scope. GenServer serializes merges and freezes established ownership; terminal status cannot reopen after flush. Api steer/inject targets recorded live PID, rejects dead incarnation and terminal state before Factory; unbound legacy direct consumers retain compatibility, not Person authority. Real Jido busy test blocks only external LLM HTTP and proves second rejection leaves original runtime alive and first answer completes. Added terminal-state property and concurrent 32-writer field preservation. Latest affected suites: 192 tests + 6 properties + 6 doctests pass. mix q passes. Original Mattermost+API+ServerManager+Factory preservation run: 180 tests + 3 properties pass (new authorized_execution acceptance deliberately excluded from that baseline only). Full-path authorized_execution remains RED at missing root/history hydration; not skipped or weakened. Remaining first-leg guarantees: trusted control authorization, initial canonical hydration, private outcomes/steering receipts, finalizing admission and integrated matrix. No full-suite/precommit/feature acceptance claimed.",
+      "timestamp": "2026-10-07T20:47:17Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.30.2] B1 — actual request identity and runtime lifecycle",
   "type": "task",
-  "updated_at": "2026-10-07T20:26:33Z"
+  "updated_at": "2026-10-07T20:47:17Z"
 }
