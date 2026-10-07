@@ -1,6 +1,7 @@
 {
   "assignee": "Julien",
   "blocked_by": [
+    "zaq-mcw",
     "zaq-vxc"
   ],
   "blocks": [],
@@ -18,5 +19,5 @@
   "status": "in_progress",
   "title": "[query-amplification] Coalesce token usage accounting safely",
   "type": "task",
-  "updated_at": "2026-10-07T11:03:23Z"
+  "updated_at": "2026-10-07T11:39:03Z"
 }
