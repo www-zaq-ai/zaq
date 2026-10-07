@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-07T19:25:44Z",
+  "description": "User authorized runtime_builder -\u003e adapter and reusable connector Edit/Enable controls. Rename runtime lookup, bootstrap filter, tests and current guides with no legacy fallback. Extend existing ChannelConnectorCard and existing Storybook story; preserve parent event/DOM contracts and provider-specific actions. Action reuse: reuse WidgetConnectorSettings save operation through confidential NodeRouter Engine events for widget toggles; UI components remain presentation-only, no new Action or tool. UX extraction/replacement confirmation gates remain required; zaq-pkd.16.5/.6 retain final UX and E2E scope.",
+  "id": "zaq-pkd.16.7",
+  "labels": [],
+  "parent": "zaq-pkd.16",
+  "priority": 2,
+  "status": "open",
+  "title": "Align widget adapter key and standardize connector controls",
+  "type": "task",
+  "updated_at": "2026-10-07T19:25:44Z"
+}
