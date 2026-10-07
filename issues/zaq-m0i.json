@@ -10,11 +10,15 @@
     {
       "text": "Implemented focused integration scenarios in test/zaq/engine/channel_history_admin_test.exs: inactive-person grant rejection/no grant (136), malformed dispatcher and authorization-first behavior (189), missing external thread root with reply preservation (281), history-title persisted-name/fallback variants (348), mismatched connector/provider detail+list exclusion (458), and idempotent revoke (483). Targeted test command passed: mix test test/zaq/engine/channel_history_admin_test.exs (serialized with requested fcntl lock); diff --check clean. Concrete unreachable/blockers: 131 cannot be induced via supported transcript because permission coordinate corruption would require invalid persisted state and no test-supported grant failure seam; 149 no controlled real Channels membership transport seam is available in this entrypoint, and 151 cannot be reached without an actually produced Jido validation/Action error lacking details (unsupported room only yields the already-tested structured error); 489 Permissions.revoke/2 uses the default Repo revoker and valid manual grant has no deterministic failure trigger without a test-only seam/global mutation. No synthetic provider/mocking hooks added. Full scenario coverage exceptions left for parent review.",
       "timestamp": "2026-10-07T18:21:55Z"
+    },
+    {
+      "text": "Coverage detail: line 483 verifies two successive revoke requests and no surviving manual grant/read access. It does not synthesize a provider-sourced grant because the required controlled provider membership snapshot at line 149 is unavailable; preserving a real provider grant for that same Person remains blocked by that same transport prerequisite, not omitted as an assumed pass.",
+      "timestamp": "2026-10-07T18:22:03Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-m0i] [coverage] Plan ChannelHistoryAdmin missed-line tests",
   "type": "task",
-  "updated_at": "2026-10-07T18:21:55Z"
+  "updated_at": "2026-10-07T18:22:03Z"
 }
