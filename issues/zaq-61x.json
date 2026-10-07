@@ -18,11 +18,15 @@
     {
       "text": "Completed reachable telemetry boundary scenarios in executor_integration_test.exs using persisted OpenAI configured-agent fixture, StubFactoryUsage and Buffer/Point sandbox: unqualified model; empty provider/model (openai:, :x); missing model; blank conversation dimension with nonblank sibling session; normal nonempty conversation/session dimensions. Each asserts stored qa.llm.call.count provider/model and dimension presence/absence; existing factory supports deterministic model overrides only in-process. Tests-only blocker for requested nil/non-map incoming metadata on success: incoming_telemetry_dimensions/1 at executor.ex:835-838 pipelines metadata directly to Map.get/2; metadata nil raises BadMapError before the factory, telemetry call, or success Outgoing. The proposed successful-path behavior cannot be asserted without production change, forbidden here. For line 798, evidence: run/2 `with {:ok, actor} \u003c- actor_result` at executor.ex:179 gates all ensure/factory/StreamEvents work; StreamEvents.consume begins at 224, and actor dimensions call ExecutionActor.identity only afterward in put_actor_dimensions (784-799). Invalid/missing actors therefore cannot reach the dimensions fallback during call metrics (existing invalid actor test also asserts no server ensure). Other unreachable 598/743/749/753 guards remain documented in earlier comments. Final serialized authorized test command passes: 6 doctests, 1 property, 80 tests, 0 failures; diff check clean.",
       "timestamp": "2026-10-07T18:45:39Z"
+    },
+    {
+      "text": "Correction per code review: measurement_value/2 is called only with fixed keys latency_ms/input_tokens/output_tokens/total_tokens (executor.ex:526-529), all existing atoms; an arbitrary runtime measurement key cannot reach safe_existing_atom/1 at 658 through supported callers. The renamed test “unknown measurement keys are ignored without creating atoms” remains a meaningful behavior assertion, but line 658 is NOT claimed covered and is unreachable via supported caller inputs. Removed test-local on_exit cleanup for :executor_usage_model; process dictionary state ends with the test process. Final locked targeted suite passes: 6 doctests, 1 property, 80 tests, 0 failures; diff check clean.",
+      "timestamp": "2026-10-07T18:47:06Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-61x] [coverage] Cover Executor remaining lifecycle and telemetry branches",
   "type": "task",
-  "updated_at": "2026-10-07T18:45:39Z"
+  "updated_at": "2026-10-07T18:47:06Z"
 }
