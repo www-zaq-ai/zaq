@@ -12,11 +12,15 @@
     {
       "text": "Regression reproduced: 20 candidates caused 20 system_configs reads. Hoisted budget and reused selected connector for provider-only delivery/upsert; no cache added. mix q passed. Tests being rerun after correcting fixture envelope and encrypted token expectation. Changes remain uncommitted pending user authorization.",
       "timestamp": "2026-10-07T10:34:15Z"
+    },
+    {
+      "text": "Unit validation: mix q passed; 6 properties and 223 tests passed. Remaining E2E/final gates tracked for overall change. Not closed/committed: user has not authorized commits.",
+      "timestamp": "2026-10-07T10:34:58Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[query-amplification] Reduce retrieval and channel config reads",
   "type": "task",
-  "updated_at": "2026-10-07T10:34:15Z"
+  "updated_at": "2026-10-07T10:34:58Z"
 }
