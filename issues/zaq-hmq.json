@@ -8,7 +8,7 @@
   "labels": [],
   "priority": 2,
   "status": "open",
-  "title": "[coverage] Assert empty ChannelAdapterLoader config log (line 61)",
+  "title": "[zaq-hmq] [coverage] Assert empty ChannelAdapterLoader config log (line 61)",
   "type": "task",
-  "updated_at": "2026-10-07T18:04:52Z"
+  "updated_at": "2026-10-07T18:04:58Z"
 }
