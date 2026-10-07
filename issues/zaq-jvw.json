@@ -7,8 +7,8 @@
   "id": "zaq-jvw",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[history] Fix nullable conversation reuse and missing-root projection",
   "type": "task",
-  "updated_at": "2026-10-07T19:16:23Z"
+  "updated_at": "2026-10-07T19:16:28Z"
 }
