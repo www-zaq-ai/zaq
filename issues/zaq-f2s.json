@@ -8,7 +8,7 @@
   "labels": [],
   "priority": 2,
   "status": "open",
-  "title": "[coverage] Cover DeliveryResult.normalize_edit/2 unexpected result (line 34)",
+  "title": "[zaq-f2s] [coverage] Cover DeliveryResult.normalize_edit/2 unexpected result (line 34)",
   "type": "task",
-  "updated_at": "2026-10-07T18:02:26Z"
+  "updated_at": "2026-10-07T18:02:32Z"
 }
