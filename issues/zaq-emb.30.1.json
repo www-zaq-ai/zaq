@@ -13,9 +13,15 @@
   "id": "zaq-emb.30.1",
   "labels": [],
   "parent": "zaq-emb.30",
+  "comments": [
+    {
+      "text": "B0 started on user-requested branch in CURRENT checkout: feature/issue-768-history-b-execution at a0c8796e. Context Mode doctor passed; Serena Elixir semantic overview works; bw prime sees existing tracker. Effective test database is zaq_test_feature_issue_768_history_b_execution on localhost (default PostgreSQL port), build path agile-pangolin/_build/test. Initial real Mattermost/capture/tool-timeout baseline: 38 tests + 3 properties passed. Expanded ownership/audience/BO projection/ingress/Channels API/accounting/Factory baseline: 241 tests + 6 properties passed. New authorized_execution full-path test uses real Mattermost ingress, permissions, Jido and arithmetic.add; only provider/LLM HTTP fake. RED confirmed: actual first LLM request contains only system and current question, missing Authorized project root/thread history. Not a fixture/compiler failure (initial nil-query fixture mistake corrected). mix q passes after test edits. No production changes yet; first-leg remains in progress.",
+      "timestamp": "2026-10-07T20:31:07Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.1] B0 — workspace, baseline and tracking",
   "type": "task",
-  "updated_at": "2026-10-07T20:26:38Z"
+  "updated_at": "2026-10-07T20:31:07Z"
 }
