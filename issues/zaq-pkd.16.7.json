@@ -11,11 +11,15 @@
     {
       "text": "Implemented adapter key rename in Runtime, BridgeSupervisor, current guides and test configurations, no legacy fallback. Added readiness/running lifecycle regression. mix q passed; 18 focused Runtime/BridgeSupervisor/WebWidgetLive tests passed; diff whitespace check clean. UI catalog checked: existing ChannelConnectorCard and cards/channel_connector_card story; common controls currently inline in ChannelsLive and WebWidgetLive. Awaiting explicit extract skill row approval before component extension; source call sites untouched. Existing channels E2E covers index/data sources but not this control slice; consolidated widget coverage remains zaq-pkd.16.6 behind final UX gate.",
       "timestamp": "2026-10-07T19:28:40Z"
+    },
+    {
+      "text": "Implementation complete, uncommitted. User approved extend row and both replacement rows through interactive skill gates. Runtime uses adapter only; existing ChannelConnectorCard now owns optional shared Edit/Enable controls using DSM Button, ChannelsLive and WebWidgetLive wired preserving IDs/events; provider controls remain slotted. Widget toggle reuses confidential Engine ManageWidgetConnector save path with revision locking, target snapshot, enabled-only params, key clearing, prerequisite enforcement and existing runtime sync/recovery. IMAP/SMTP selection flows unchanged. Existing Storybook card story updated, no duplicate/custom CSS/public styling URLs. mix q and 91 focused tests passed. Existing Channels Chromium suite 3/3 passed on isolated E2E database. Final mix precommit passed: 17 doctests, 163 properties, 9212 tests, zero failures, one skipped/93 excluded. Self diff whitespace check passed and no runtime_builder references in lib/test/docs/config. Extra standalone rendered-widget inspection could not get a ready endpoint; owned inspection processes stopped. Storybook rendered smoke remains unverified. No commit/push authorized; overall widget final UX/E2E/coverage gates remain open.",
+      "timestamp": "2026-10-07T20:10:29Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Align widget adapter key and standardize connector controls",
   "type": "task",
-  "updated_at": "2026-10-07T20:10:12Z"
+  "updated_at": "2026-10-07T20:10:29Z"
 }
