@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "zaq-emb.16",
     "zaq-emb.29",
     "zaq-emb.7",
     "zaq-emb.8"
@@ -17,5 +18,5 @@
   "status": "open",
   "title": "[zaq-emb.31] PR B integrated validation and documentation",
   "type": "task",
-  "updated_at": "2026-10-07T20:17:30Z"
+  "updated_at": "2026-10-07T20:23:52Z"
 }

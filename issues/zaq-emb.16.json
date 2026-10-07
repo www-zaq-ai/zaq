@@ -4,6 +4,7 @@
     "zaq-emb.5"
   ],
   "blocks": [
+    "zaq-emb.31",
     "zaq-emb.7"
   ],
   "created": "2026-09-25T09:36:42Z",
@@ -15,5 +16,5 @@
   "status": "open",
   "title": "[zaq-emb.16] Request-boundary context and cursor synchronization",
   "type": "task",
-  "updated_at": "2026-10-07T20:17:28Z"
+  "updated_at": "2026-10-07T20:23:52Z"
 }
