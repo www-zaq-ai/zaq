@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-07T18:01:09Z",
@@ -7,8 +7,8 @@
   "id": "zaq-3xg",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-3xg] [coverage] Test PersonRouting nil and invalid-rule paths",
   "type": "task",
-  "updated_at": "2026-10-07T18:01:33Z"
+  "updated_at": "2026-10-07T18:16:10Z"
 }
