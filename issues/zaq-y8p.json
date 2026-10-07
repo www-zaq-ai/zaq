@@ -10,9 +10,15 @@
   "description": "Action reuse: extend existing Engine Conversations and HistoryIngress internals, no new Action. Reuse validated source and locked response within their transaction; preserve finalization/replay tokens, source conflicts and freshness boundaries. Test admission, confirmation retries/conflicts and query counts. Reduce duplicate admission source reads and confirmation message rereads; merge source and receipt update if safe.",
   "id": "zaq-y8p",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implemented transaction-local source validation after source lock; canonical source facts reused for adoption. Replicated source validation reuses loaded config. Direct/shared confirmation reuses locked response and source-bound struct, reducing response/input SELECTs to two. Retained separate binding/metadata changesets and async recovery freshness checks. mix q and 2 properties/156 tests passed. No commit or push.",
+      "timestamp": "2026-10-07T10:39:50Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[query-amplification] Reduce admission and delivery confirmation reads",
   "type": "task",
-  "updated_at": "2026-10-07T10:35:06Z"
+  "updated_at": "2026-10-07T10:39:50Z"
 }
