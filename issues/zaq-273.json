@@ -7,8 +7,8 @@
   "id": "zaq-273",
   "labels": [],
   "priority": 2,
-  "status": "in_progress",
+  "status": "done",
   "title": "[coverage] Test ChannelMessageTimeline rendering and fallbacks",
   "type": "task",
-  "updated_at": "2026-10-07T18:10:22Z"
+  "updated_at": "2026-10-07T18:11:11Z"
 }
