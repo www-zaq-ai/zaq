@@ -42,6 +42,10 @@ defmodule Zaq.Channels.ApiTest do
     def fetch_channel_config(provider, id),
       do: Bridge.fetch_channel_config(provider, id)
 
+    def fetch_connection_details_for_config(%{id: 1, provider: "mattermost"} = config)
+        when map_size(config) == 2,
+        do: %{url: "https://example.test", token: "token"}
+
     def fetch_connection_details_for_config(config),
       do: Bridge.fetch_connection_details_for_config(config)
 
@@ -134,6 +138,33 @@ defmodule Zaq.Channels.ApiTest do
     def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
     def fetch_channel_config(_provider), do: {:error, :channel_not_configured}
+  end
+
+  defmodule DatabaseCommunicationBridge do
+    def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
+    defdelegate fetch_channel_config(provider), to: Bridge
+    defdelegate fetch_connection_details(provider), to: Bridge
+    defdelegate fetch_connection_details_for_config(config), to: Bridge
+  end
+
+  test "provider-only status updates reuse the selected connector" do
+    config = insert_config("discord")
+
+    event =
+      Event.new(
+        %{provider: "discord", channel_id: "room", request_id: "request", body: "Thinking"},
+        :channels,
+        opts: [action: :upsert_message, bridge_module: DatabaseCommunicationBridge]
+      )
+
+    {result, queries} =
+      Zaq.QueryRecorder.capture(fn -> Api.handle_event(event, :upsert_message, nil) end)
+
+    assert {:ok, _} = result.response
+    assert_received {:bridge_upsert_message, selected, _, details}
+    assert selected.id == config.id
+    assert details == Bridge.fetch_connection_details_for_config(config)
+    assert Enum.count(queries, &(&1.source == "channel_configs")) == 1
   end
 
   defmodule StubIngressRuntimeModule do
@@ -325,6 +356,7 @@ defmodule Zaq.Channels.ApiTest do
     def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
     def fetch_connection_details(_provider), do: %{}
+    def fetch_connection_details_for_config(_config), do: %{}
   end
 
   defmodule StubBridgeNoCallbacks do

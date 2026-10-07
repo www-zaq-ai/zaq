@@ -6,6 +6,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{Message, Transcript, TranscriptMessage}
+  alias Zaq.Engine.History.Facts
   alias Zaq.Permissions
   alias Zaq.Permissions.ChannelHistoryResource
 
@@ -69,6 +70,83 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
       )
 
     Conversations.append_canonical_message(transcript.id, attrs, source(config, source_overrides))
+  end
+
+  test "recipient fan-out resolves one canonical message and connector per capture" do
+    config = config()
+    sender = person("Sender")
+    recipients = Enum.map(1..4, &person("Recipient #{&1}"))
+
+    {:ok, facts} =
+      Facts.new(%{
+        provider: "mattermost",
+        channel_config_id: config.id,
+        channel_id: "room-1",
+        kind: :replicated,
+        actor_person_id: sender.id,
+        recipient_person_ids: Enum.map(recipients, & &1.id)
+      })
+
+    attrs = %{
+      role: "external",
+      content: "shared content",
+      external_message_id: "fan-out",
+      author_id: "sender"
+    }
+
+    source = source(config, %{source_scope: "mailbox"})
+
+    {{:ok, captured}, queries} =
+      Zaq.QueryRecorder.capture(fn ->
+        Conversations.capture_canonical_message(facts, attrs, source)
+      end)
+
+    assert map_size(captured.transcript_ids) == 5
+    assert Repo.aggregate(Message, :count) == 1
+    assert Repo.aggregate(TranscriptMessage, :count) == 5
+    assert Enum.count(queries, &(&1.source == "channel_configs")) == 1
+
+    assert Enum.count(
+             queries,
+             &(&1.source == "messages" and String.starts_with?(&1.query, "INSERT"))
+           ) == 1
+
+    assert {:ok, ^captured} = Conversations.capture_canonical_message(facts, attrs, source)
+    assert Repo.aggregate(TranscriptMessage, :count) == 5
+
+    assert {:error, :source_conflict} =
+             Conversations.capture_canonical_message(
+               facts,
+               %{attrs | content: "conflicting"},
+               source
+             )
+  end
+
+  property "recipient order and duplicates do not change canonical identity or positions" do
+    config = config()
+    sender = person("Sender")
+    recipients = Enum.map(1..3, &person("Recipient #{&1}")) |> Enum.map(& &1.id)
+
+    {:ok, facts} =
+      Facts.new(%{
+        provider: "mattermost",
+        channel_config_id: config.id,
+        channel_id: "room-1",
+        kind: :replicated,
+        actor_person_id: sender.id,
+        recipient_person_ids: recipients
+      })
+
+    attrs = %{role: "external", content: "invariant", external_message_id: "ordered-fan-out"}
+    source = source(config, %{source_scope: "mailbox"})
+    assert {:ok, original} = Conversations.capture_canonical_message(facts, attrs, source)
+
+    check all(extra <- list_of(member_of(recipients), max_length: 6), max_runs: 10) do
+      reordered = %{facts | recipient_person_ids: extra ++ Enum.reverse(recipients)}
+      assert {:ok, ^original} = Conversations.capture_canonical_message(reordered, attrs, source)
+      assert Repo.aggregate(TranscriptMessage, :count) == 4
+      assert Repo.all(from t in Transcript, select: t.next_position) == [1, 1, 1, 1]
+    end
   end
 
   test "replays reuse a canonical message and position; attaching it to another transcript advances there" do

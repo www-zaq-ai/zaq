@@ -1010,8 +1010,8 @@ defmodule Zaq.Channels.Api do
        do: {:ok, bridge_module.fetch_connection_details(provider)}
 
   defp delivery_connection(bridge_module, %Outgoing{provider: provider}) do
-    with {:ok, _config} <- bridge_module.fetch_channel_config(provider) do
-      {:ok, bridge_module.fetch_connection_details(provider)}
+    with {:ok, config} <- bridge_module.fetch_channel_config(provider) do
+      {:ok, bridge_module.fetch_connection_details_for_config(config)}
     end
   end
 
@@ -1031,7 +1031,7 @@ defmodule Zaq.Channels.Api do
   defp upsert_connection(bridge_module, %Outgoing{provider: provider}) do
     with {:ok, config} <-
            normalize_upsert_config(provider, bridge_module.fetch_channel_config(provider)) do
-      {:ok, config, bridge_module.fetch_connection_details(provider)}
+      {:ok, config, bridge_module.fetch_connection_details_for_config(config)}
     end
   end
 

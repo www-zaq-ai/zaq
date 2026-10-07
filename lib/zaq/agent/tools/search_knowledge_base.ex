@@ -50,6 +50,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
 
   require Logger
 
+  def tool_timeout_ms, do: 120_000
+
   @impl Jido.Action
 
   def run(%{query: query, lexical_terms: terms}, context) do
