@@ -11,9 +11,15 @@
   "id": "zaq-emb.28.2",
   "labels": [],
   "parent": "zaq-emb.28",
+  "comments": [
+    {
+      "text": "Implemented at17ef98ad9. Extended existing Engine ChannelHistoryAdmin message-info projection after exact placement and completed-root input/conversation/Person validation. Private traces, authoritative usage and persisted measurements are returned in existing MessageHelpers/Measurements presentation shape; no BO changes/bypass, no public Message writes, ordinary projections unchanged, legacy fallback retained, inconsistent ownership fails closed. Actual four strategy modal cases now assert exact persisted timing/token/counter values, real tool args/results and fresh reloads. Corrected unreachable selector to existing humanized Tool Call · Add label; strengthened details rather than dropping assertions. Validation56 tests/0failures including full 27-case real-flow suite, Engine inspector denial/legacy fallback and existing LiveViews seed104729; mix q and hooks pass. Hook caught formatter second-pass shape; targeted formatting correction applied and hook rerun passed.",
+      "timestamp": "2026-10-08T19:50:13Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.28] Project authorized private execution telemetry into persisted message information",
   "type": "bug",
-  "updated_at": "2026-10-08T19:38:54Z"
+  "updated_at": "2026-10-08T19:50:13Z"
 }
