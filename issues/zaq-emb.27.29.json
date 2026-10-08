@@ -17,11 +17,15 @@
     {
       "text": "Implemented in owning A branch at local commit 628be8397. Added sender evidence only for raw/adapter-matching verified Mattermost/Telegram rooms; HistoryIngress reconciles resolved scoped sender through existing membership resource lock/provenance once, refuses absent authoritative members and repeat restoration. Snapshot retains sender replay markers. Capture remains separate from access. Validation: targeted A suites seed104729 254 tests/5 properties/0 failures; seed625 earlier 236 tests/2 properties/0 failures; mix q, diff checks and hooks pass. Propagating A base into B before B-specific remaining failures; no push or final human approval.",
       "timestamp": "2026-10-08T19:13:11Z"
+    },
+    {
+      "text": "Pre-preservation self-review found overbroad ingress fence: MembershipOrder.members can represent targeted events/refresh, not only a complete room snapshot, so its absence check fenced unrelated never-observed senders after another member removal. Fix in owning A with tests first: retain removed member denial while allowing unrelated trusted first contact; distinguish full snapshot authority from targeted evidence. Preserve legacy conservative fallback where old partial/full state cannot be distinguished. Do not propagate fix to B until A validation passes.",
+      "timestamp": "2026-10-08T20:16:09Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.27] Restore trusted Shared sender admission without manual grant shortcuts",
   "type": "bug",
-  "updated_at": "2026-10-08T19:13:11Z"
+  "updated_at": "2026-10-08T20:16:09Z"
 }
