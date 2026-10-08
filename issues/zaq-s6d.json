@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-08T10:41:59Z",
+  "description": "Await explicit human UX approval of implemented Telemetry tab Studio switch, disabled-on semantics, restart notice and adjacent new-tab Open Studio link after implementation. Blocks feature E2E authoring; current request is implementation approval, not completed UX approval.",
+  "id": "zaq-s6d",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[Studio] Human approval of completed Telemetry Studio control",
+  "type": "task",
+  "updated_at": "2026-10-08T10:41:59Z"
+}
