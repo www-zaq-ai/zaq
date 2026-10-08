@@ -14,11 +14,15 @@
     {
       "text": "Implemented start-only Studio switch and adjacent new-tab link. mix q passes; all 19 new focused tests pass; existing System Config tab navigation E2E: 11/11 pass after seeding the required chunks-table fixture. Manual Chromium inspection confirmed off state, admin start, checked/disabled-on state and clicking Open Studio opened a second tab with the real Studio Home page. Screenshots: /private/var/folders/9p/mdzhcqxx7hs8bw_10vwjvfp00000gn/T/opencode/jido-studio-{off,on}.png (local inspection artifacts). No backend business APIs or Jido Studio dependency source edited; Button extended to accept target/rel. Validation blocker: broader SystemConfig suite 1 property/244 tests with 14 Disk provider uniqueness failures; representative test line 601 reproduces when loading HEAD baseline LiveView/TelemetryTab source into an isolated VM. Full mix precommit ran format/Credo/compile successfully then 48 doctests, 189 properties, 9969 tests: 89 failures, 1 skipped, 101 excluded; do not claim all failures are baseline-proven, only the representative Disk collision. No unrelated tests/migrations changed and no final approval requested. Feature E2E remains deferred under zaq-s6d → zaq-1ue.",
       "timestamp": "2026-10-08T11:28:00Z"
+    },
+    {
+      "text": "User explicitly authorized commit and push. Committed as 33804bcf (feat(bo): enable Jido Studio manually from telemetry settings) and pushed origin/feat/jido-studio-manual-start. Commit hooks qf and commit-message validation passed; push format hook passed. Working tree clean. Prior full precommit failures remain unresolved; no PR created or merge approval inferred.",
+      "timestamp": "2026-10-08T13:06:00Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-fhf] Telemetry tab Studio start-only switch and new-tab link",
   "type": "task",
-  "updated_at": "2026-10-08T11:28:00Z"
+  "updated_at": "2026-10-08T13:06:00Z"
 }
