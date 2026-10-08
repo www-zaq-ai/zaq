@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-08T10:42:06Z",
+  "description": "Deferred new feature E2E until implementation complete and human UX approval. Journey /bo/system-config?tab=telemetry: off at boot and direct studio access blocked, admin enables, switch checked/disabled, Open Studio opens new tab to /bo/studio; reload remains running, restart resets off. Reuse existing system config harness. Do not author before approval gate; isolated unit/LiveView tests and browser inspection run immediately.",
+  "id": "zaq-1ue",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[Studio] Finalize approved Studio enablement journey E2E",
+  "type": "task",
+  "updated_at": "2026-10-08T10:42:06Z"
+}
