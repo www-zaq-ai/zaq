@@ -55,11 +55,15 @@
     {
       "text": "Receipt identity/terminal-state audit committed 030f4f15. Regressions first showed ordinary loaded changesets could rebind Person/input/capability/root or reopen consumed receipts. Loaded execution identities/root/public answer now immutable and terminal statuses monotone. Explicit existing Conversations owner-change boundary remains available only for People merge and changes solely owner, preserving accepted merge behavior. Bounded caller search found PersonMerger uses that boundary; Serena returned no Elixir symbols, used bounded native source reads/search. 379 tests + 11 properties including real Jido acceptance and PersonMerger passed, mix q/diff/hooks green. Remaining B3 audit failed persistence/sealing/overflow and root finalization/replay races before closing; no push/merge.",
       "timestamp": "2026-10-08T09:17:36Z"
+    },
+    {
+      "text": "Root-only finalization guard committed ffa8fc1f. Regression first returned a raw child schema changeset after attempting answer/failure writes. Engine now authorizes the owner and rejects child capability finalization as input_not_root before any writes; both root and receipt/messages remain unchanged. 155 tests passed across canonical/private and legacy finalization plus real-provider/Jido steering/replay; mix q/diff/hooks passed. B3 stays in_progress: resume with failed receipt persistence and actual sealing/overflow/concurrency checks, reconcile acceptance matrix before closing. Last expanded sweep before this guard: 601 tests + 17 properties + 6 doctests; latest identity sweep: 379 + 11 properties. All local commits, nothing pushed/merged.",
+      "timestamp": "2026-10-08T09:24:49Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T09:17:36Z"
+  "updated_at": "2026-10-08T09:24:49Z"
 }
