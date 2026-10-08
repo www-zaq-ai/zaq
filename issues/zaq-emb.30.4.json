@@ -59,11 +59,15 @@
     {
       "text": "Root-only finalization guard committed ffa8fc1f. Regression first returned a raw child schema changeset after attempting answer/failure writes. Engine now authorizes the owner and rejects child capability finalization as input_not_root before any writes; both root and receipt/messages remain unchanged. 155 tests passed across canonical/private and legacy finalization plus real-provider/Jido steering/replay; mix q/diff/hooks passed. B3 stays in_progress: resume with failed receipt persistence and actual sealing/overflow/concurrency checks, reconcile acceptance matrix before closing. Last expanded sweep before this guard: 601 tests + 17 properties + 6 doctests; latest identity sweep: 379 + 11 properties. All local commits, nothing pushed/merged.",
       "timestamp": "2026-10-08T09:24:49Z"
+    },
+    {
+      "text": "Real overflow/failure-sealing coverage committed ac41a62f. Existing provider/Jido/DB acceptance now fills the actual default 64-item queue, verifies 65th rejection persisted unconsumed, and confirms consumed receipts + one public root answer. Separate external 400 LLM failure proves accepted queued corrections seal unconsumed with failed private root and zero canonical answers. Real behavior corrected test assumption: successful Jido drains pending input before terminal completion, so accepted corrections are consumed, not falsely unconsumed. Only overflow fixture uses existing receive_timeout advanced option for its longer HTTP barrier; unchanged tests retain prior timeout. Commit notifications reuse actual Repo query/commit and process monitors, no sleeps/mock internal services/test-only production switches. Latest 104 tests + 1 property and mix q/diff/hooks pass. Remaining B3 failed receipt persistence and finalization concurrency audit before closing.",
+      "timestamp": "2026-10-08T09:50:15Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T09:24:49Z"
+  "updated_at": "2026-10-08T09:50:15Z"
 }
