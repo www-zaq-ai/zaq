@@ -16,7 +16,8 @@ defmodule Zaq.Engine.Conversations do
     MessageRating,
     MessageTraceArtifact,
     TitleGenerator,
-    TokenUsageAggregator
+    TokenUsageAggregator,
+    TranscriptHistory
   }
 
   alias Zaq.Accounts.{Person, PersonChannel, User}
@@ -25,6 +26,18 @@ defmodule Zaq.Engine.Conversations do
   alias Zaq.Engine.Messages.{ConversationIdentity, Incoming, Measurements}
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
+
+  @doc "Appends canonical content to a transcript from an internally trusted channel source."
+  @spec append_canonical_message(term(), map(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def append_canonical_message(transcript_id, message_attrs, source_context),
+    do: TranscriptHistory.append(transcript_id, message_attrs, source_context)
+
+  @doc "Reads a bounded, sanitized transcript projection for an authorized Person only."
+  @spec list_canonical_messages(Person.t() | nil, term(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def list_canonical_messages(person, transcript_id, opts \\ []),
+    do: TranscriptHistory.list(person, transcript_id, opts)
 
   # ── Conversations ──────────────────────────────────────────────────
 
@@ -1354,6 +1367,11 @@ defmodule Zaq.Engine.Conversations do
   def rate_message_by_id(message_id, rater_attrs) do
     case Repo.get(Message, message_id) do
       nil ->
+        {:error, :not_found}
+
+      %Message{conversation_id: nil} ->
+        # Canonical messages require an authorized transcript path; this legacy
+        # UUID-only rating endpoint cannot establish one.
         {:error, :not_found}
 
       message ->
