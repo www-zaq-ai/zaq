@@ -211,6 +211,66 @@ defmodule Zaq.Engine.ChannelHistoryMembershipTest do
     })
   end
 
+  test "a first-contact removal fence never applies to unrelated room senders", ctx do
+    event = %{
+      provider: "mattermost",
+      channel_config_id: ctx.config.id,
+      channel_id: @room,
+      identity_platform: "mattermost",
+      member_id: "alice",
+      operation: :remove,
+      revision: 5
+    }
+
+    assert {:ok, _} = ChannelHistoryMembership.apply_event(event)
+    assert {:ok, _} = HistoryIngress.capture(sender_message(ctx, "removed-first-contact"))
+
+    assert {:error, :unauthorized} =
+             Conversations.list_canonical_messages(ctx.alice, ctx.placement.transcript_id)
+
+    assert {:ok, _} = HistoryIngress.capture(bob_sender_message(ctx))
+    assert {:ok, _} = Conversations.list_canonical_messages(ctx.bob, ctx.placement.transcript_id)
+
+    assert {:error, :unauthorized} =
+             Conversations.list_canonical_messages(ctx.alice, ctx.placement.transcript_id)
+  end
+
+  test "targeted unversioned refresh fences its removed member, not unrelated first contacts",
+       ctx do
+    Process.put(
+      :membership_response,
+      {:ok, %{complete: true, identity_platform: "mattermost", member_ids: []}}
+    )
+
+    assert {:ok, _} =
+             ChannelHistoryMembership.refresh_person(ctx.alice.id, ctx.config.id,
+               router: SnapshotRouter
+             )
+
+    assert {:ok, _} = HistoryIngress.capture(sender_message(ctx, "targeted-removed-first"))
+
+    assert {:error, :unauthorized} =
+             Conversations.list_canonical_messages(ctx.alice, ctx.placement.transcript_id)
+
+    assert {:ok, _} = HistoryIngress.capture(bob_sender_message(ctx))
+    assert {:ok, _} = Conversations.list_canonical_messages(ctx.bob, ctx.placement.transcript_id)
+  end
+
+  defp bob_sender_message(ctx) do
+    Incoming.new(%{
+      content: "New verified room sender",
+      channel_id: @room,
+      author_id: "bob",
+      message_id: "bob-first-contact",
+      provider: :mattermost,
+      routing_context: %{
+        channel_config_id: ctx.config.id,
+        conversation_type: :room,
+        sender_membership: %{identity_platform: "mattermost", member_id: "bob"}
+      }
+    })
+  end
+
   test "real Telegram normalization bootstraps a connector-local group author", ctx do
     config =
       %ChannelConfig{}

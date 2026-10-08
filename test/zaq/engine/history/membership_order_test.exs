@@ -51,6 +51,49 @@ defmodule Zaq.Engine.History.MembershipOrderTest do
     assert next["members"] == ["alice", "bob"]
   end
 
+  property "targeted snapshots retain exact scope without becoming complete-room authority" do
+    check all(
+            targets <- list_of(member_of(["alice", "bob", "carol"]), min_length: 1, max_length: 5),
+            revision <- member_of([nil, 10]),
+            max_runs: 30
+          ) do
+      targets = Enum.uniq(targets)
+      snapshot = %{identity_platform: "platform", revision: revision, member_ids: []}
+      assert {:ok, _, state} = MembershipOrder.snapshot(%{}, snapshot, targets)
+      assert state["complete_snapshot"] == false
+      assert Enum.sort(state["snapshot_targets"]) == Enum.sort(targets)
+      assert {:ok, _, full} = MembershipOrder.snapshot(state, %{snapshot | revision: 11}, :all)
+      assert full["complete_snapshot"] == true
+      assert full["snapshot_targets"] == []
+
+      assert {:ok, _, targeted_again} =
+               MembershipOrder.snapshot(full, %{snapshot | revision: 12}, targets)
+
+      assert targeted_again["complete_snapshot"] == true
+    end
+  end
+
+  test "a targeted refresh cannot weaken legacy complete snapshot authority" do
+    for legacy <- [
+          %{"platform" => "platform", "members" => []},
+          %{
+            "platform" => "platform",
+            "snapshot" => 2,
+            "members" => [],
+            "events" => %{"bob" => %{"revision" => 3, "present" => false}}
+          }
+        ] do
+      assert {:ok, _, state} =
+               MembershipOrder.snapshot(
+                 legacy,
+                 %{identity_platform: "platform", revision: 4, member_ids: []},
+                 ["alice"]
+               )
+
+      assert state["complete_snapshot"] == true
+    end
+  end
+
   test "unversioned history needs a versioned snapshot before accepting ordered events" do
     snapshot = %{identity_platform: "platform", member_ids: []}
     assert {:ok, [], state} = MembershipOrder.snapshot(%{}, snapshot, :all)

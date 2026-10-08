@@ -75,6 +75,10 @@ presence, not a complete snapshot: replay or later posts cannot override removal
 evidence, and re-entry requires a provider refresh or ordered membership event.
 The grant uses the existing provider source so reconciliation/removal can revoke
 it independently of manual access. Denied presence does not erase factual capture.
+Engine retains snapshot scope: complete-room evidence fences absent senders,
+whereas a targeted refresh/removal fences only its subjects. Unrelated first
+contacts remain eligible for bootstrap. Legacy unversioned states whose scope
+was not retained keep their conservative authority until verified reconciliation.
 
 The unconsumed provider-multiplicity migration permits more than one connector
 with the same provider. `ChannelConfig.resolve_by_provider/2` accepts an explicit

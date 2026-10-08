@@ -134,7 +134,19 @@ defmodule Zaq.Engine.ChannelHistoryMembership do
 
   defp sender_fenced?(state, member, seen) do
     length(seen) >= @max_members or
-      (Map.has_key?(state, "members") and member not in state["members"])
+      (member not in (state["members"] || []) and authoritative_sender_scope?(state, member))
+  end
+
+  defp authoritative_sender_scope?(state, member) do
+    complete_snapshot?(state) or member in (state["snapshot_targets"] || []) or
+      Map.has_key?(state["events"] || %{}, member)
+  end
+
+  defp complete_snapshot?(%{"complete_snapshot" => complete}), do: complete
+
+  defp complete_snapshot?(state) do
+    not is_nil(state["snapshot"]) or
+      (Map.has_key?(state, "members") and map_size(state["events"] || %{}) == 0)
   end
 
   defp apply_event_locked(%{

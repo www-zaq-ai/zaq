@@ -53,7 +53,7 @@ defmodule Zaq.Engine.History.MembershipOrder do
   defp snapshot_at(state, platform, ids, nil, targets),
     do:
       {:ok, ids,
-       Map.merge(state, %{
+       Map.merge(snapshot_scope(state, targets), %{
          "platform" => platform,
          "members" => merged_members(state, ids, targets)
        })}
@@ -81,6 +81,8 @@ defmodule Zaq.Engine.History.MembershipOrder do
           Map.merge(state, %{
             "platform" => platform,
             "snapshot" => revision,
+            "complete_snapshot" => true,
+            "snapshot_targets" => [],
             "events" => remaining,
             "members" => Enum.sort(effective)
           })
@@ -89,7 +91,7 @@ defmodule Zaq.Engine.History.MembershipOrder do
           entries =
             Enum.reduce(members, events, &put_member_fence(&2, &1, revision, effective))
 
-          Map.merge(state, %{
+          Map.merge(snapshot_scope(state, targets), %{
             "platform" => platform,
             "events" => entries,
             "members" => merged_members(state, effective, targets)
@@ -97,6 +99,21 @@ defmodule Zaq.Engine.History.MembershipOrder do
       end
 
     {:ok, Enum.sort(effective), state}
+  end
+
+  defp snapshot_scope(state, :all),
+    do: Map.merge(state, %{"complete_snapshot" => true, "snapshot_targets" => []})
+
+  defp snapshot_scope(state, targets) do
+    # Old unversioned states cannot distinguish full and targeted snapshots.
+    # Retain their conservative authority; new states record the exact scope.
+    legacy_complete =
+      not is_nil(state["snapshot"]) or
+        (Map.has_key?(state, "members") and map_size(state["events"] || %{}) == 0)
+
+    state
+    |> Map.put_new("complete_snapshot", legacy_complete)
+    |> Map.put("snapshot_targets", Enum.uniq((state["snapshot_targets"] || []) ++ targets))
   end
 
   defp same_platform(state, platform) do
