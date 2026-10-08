@@ -15,11 +15,15 @@
     {
       "text": "Implementation seam audit: StreamEvents marks RequestRegistry terminal before Agent.Api.persist_response_context writes the Engine outcome; Jido can already be idle then. Therefore synchronization cannot be an unfenced post-stream replacement: ServerManager must serialize next-request admission through completed-outcome handling and confirmed context apply. Reuse existing exact-incarnation stop/binding checks and Jido ai.react.context.modify plus applied_context_ops acknowledgement; Factory owns native runtime mechanics, Engine execution_history/3 owns authorized deltas, HistoryLoader owns projection merge, ServerManager owns cursor/context/admission lifecycle. No Agent DB reads or exposed Action/tool. First regression package will verify actual idle apply/idempotent op evidence, stale PID exclusion and active-run refusal (no pending_context_op), followed by manager serialization and warm next-request acceptance. Existing per-turn .5 tests remain preservation baseline; no new product decision.",
       "timestamp": "2026-10-08T11:43:19Z"
+    },
+    {
+      "text": "Native idle apply package committed 29843b2b (regressions first). Factory.apply_history_context/3 requires exact PID + nonempty operation ID, checks idle, dispatches existing ai.react.context.modify, and accepts only matching applied_context_ops evidence + exact resulting context + no queued operation. Real configured/Jido tests cover same-op idempotency, rebinding same op to a different snapshot returns unconfirmed, malformed/name targets rejected, stale PID never reaches new same-scope incarnation, active actual HTTP-blocked run refuses without pending_context_op and completes its original exchange. No internal Jido mocks; only external LLM HTTP. Public docs explicitly require caller-held exclusive admission and state manager lease integration is pending; helper is not a standalone synchronization guarantee. 127 tests +3 properties, mix q/diff/hooks pass; formatter-only hook layout corrected without behavioral change. Next: regression-first ServerManager per-scope admission lease held through handled Engine outcome + confirmed idle apply/cursor commit, warm next-request delta and replacement/race failures. .16 remains in_progress, no push/publication.",
+      "timestamp": "2026-10-08T11:49:28Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.16] Request-boundary context and cursor synchronization",
   "type": "task",
-  "updated_at": "2026-10-08T11:43:19Z"
+  "updated_at": "2026-10-08T11:49:28Z"
 }
