@@ -10,9 +10,15 @@
   "description": "Await explicit human UX approval of implemented Telemetry tab Studio switch, disabled-on semantics, restart notice and adjacent new-tab Open Studio link after implementation. Blocks feature E2E authoring; current request is implementation approval, not completed UX approval.",
   "id": "zaq-s6d",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implementation available on feat/jido-studio-manual-start; enabled-state screenshot opened in user file panel. Real browser checks pass for toggle and new-tab link. Await explicit UX approval, not yet granted. Broader precommit gate remains red (89 failures); do not treat UX approval as final merge approval.",
+      "timestamp": "2026-10-08T11:28:02Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-s6d] Human approval of completed Telemetry Studio control",
   "type": "task",
-  "updated_at": "2026-10-08T10:42:48Z"
+  "updated_at": "2026-10-08T11:28:02Z"
 }
