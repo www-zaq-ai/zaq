@@ -11,11 +11,15 @@
     {
       "text": "Diagnosed using temporary exact native return/exception tracing (no router/model internals mocked): both roots completed, SMTP receipt confirmed for both, but HistoryIngress.capture_confirmed raised DBConnection.ConnectionError reason queue_timeout on the shared SQL Sandbox owner after136ms. Delivery correctly retained transport confirmation and reported history_capture unavailable; only other answer had placements. Thus not an observer bug or missingSMTPsend: test-only single-connection queue starvation. Default Ownership.Proxy queue_target50ms doubles to100ms while genuine concurrent pipeline transactions contend for the shared owner. Plan: increase only test Repo queue_target to1000ms, retaining physical/query budgets and all5second completion assertions; normal production config unchanged, no swallowed errors or fabricated receipt. Remove all diagnostic tracing/printing before validation. Action assessment: test-infrastructure configuration, no executable domain operation/newAction. Need repeated isolated concurrent/Direct follow-up and full preserved validation; readiness remains blocked until green.",
       "timestamp": "2026-10-08T21:03:42Z"
+    },
+    {
+      "text": "Current blocker: after test-only queue_target1000ms,16 consecutive isolated runs of both concurrent cases passed (32 executions), but final10file seed625 matrix still180tests8properties1failure at refreshed-Shared Bob initial model assertion5s. A focused diagnostic reproduced it: no extra/misclassified concurrent_initial request was present, and both private roots remained pending. Thus absent Bob model request, not proven wrong prompt/label. Initial-race root cause remains undetermined after repeated attempts; escalate rather than self-approve or waive. Ten subsequent isolated retries passed but do not erase the recorded failure. All temporary native tracing, telemetry tracing, stdout diagnostics and helper changes removed; original strategy test file has zero uncommitted diff. mix q and diffcheck pass. Leave config/test.exs queue adjustment, stronger Shared revocation fixtures and updated handoff uncommitted pending successful acceptance validation. zaq-emb.31 in_progress, .32 open/blocked; no E2E/newpublication/finalprecommit approval.",
+      "timestamp": "2026-10-08T21:25:33Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] Diagnose intermittent committed-delivery wait in real concurrency",
   "type": "bug",
-  "updated_at": "2026-10-08T21:03:42Z"
+  "updated_at": "2026-10-08T21:25:33Z"
 }
