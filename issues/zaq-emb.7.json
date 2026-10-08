@@ -24,11 +24,15 @@
     {
       "text": "Removal package actual-provider regression now passes: normalized Engine removal cancels real Jido worker, private root finalizes failed without terminal reply; manual grant survives and permits a new real LLM run; stale provider revision leaves replacement alive. Native shutdown alone originally left the stream sink waiting indefinitely: reuse native ai.react.cancel plus public Request.Stream cancellation wake for fenced local consumers (never input-consumption evidence). Registry tombstones cover exact PID and admitted input before first stream registration; waiter cancellation stays a removed disposition, no fallback reply. Transactional Oban notification staging plus synchronous post-top-level-commit fanout preserves rollback and retry; no new schema/ACL/membership lease. Review uncovered delayed first-delivery/restart edge beyond same-Manager event-id receipts: add a monotonically increasing Engine-owned removal generation in existing root membership_state and initial authorized projection. New runtime binds the observed source generation once; a removal only stops lower-generation incarnations. Marker is lifecycle ordering, not a grant and never reaches LLM messages. Preserve it in membership owner when pure provider snapshot composer replaces state; leave provider-native revision normalization isolated. Regression first added and red (missing stop_history_runtimes/4): previously unseen generation1/2 notifications must not stop a runtime admitted at generation2, but later generation3 must stop it. This avoids relying on wall clocks or prior local receipt memory and protects post-removal manual restart from outbox replay. Broader .7 tests/docs/final validation still pending; no new commits yet.",
       "timestamp": "2026-10-08T13:56:29Z"
+    },
+    {
+      "text": "Removal generation implementation and acceptance complete locally. Engine retains a monotonic lifecycle generation in existing root membership_state, publishes it transactionally in Oban and authorized source projection; Executor forwards it into initial exact-PID ledger binding. Actual provider integration exercises inherited thread removal, failed private root/no further outgoing, manual restart with parent generation1, and committed job replay leaving replacement alive. Tests cover source/principal selection, stale events, rollback, delayed first delivery, pending admissions, native active worker shutdown and registry terminal fencing; bounded payload properties reject malformed scopes. Agent/Engine owner guides updated. mix q and diff checks pass. Preservation rerun: 2024 tests, 56 properties, 17 doctests, zero failures (21 excluded). Earlier broad run hit unrelated existing stub :eaddrinuse; unchanged isolated nested integration rerun passed. Earlier warm parity assertion passed unchanged subsequent focused and broad runs. Local commit next; no push/merge. .8 delayed/async acceptance and .29/.31 remain before human gate.",
+      "timestamp": "2026-10-08T14:22:21Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.7] Stop person-bound channel and thread runtimes on removal",
   "type": "task",
-  "updated_at": "2026-10-08T13:56:29Z"
+  "updated_at": "2026-10-08T14:22:21Z"
 }
