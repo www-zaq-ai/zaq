@@ -27,11 +27,15 @@
     {
       "text": "Association/grant audit committed 5c206664. prepare_capture creates canonical content before request with 2020 provider timestamp; later ordinary capture attaches same UUID after fixed C and delta includes it without altering old row. Independent actual DB reader pauses after its transcript/association snapshot; writer admits/commits a fresh association on another connection; first bounded read excludes it and returns original upper/C, next read sees it. UUID-scoped extra execution cleanup registered before assertions; no sleeps/internal mocks. Real provider/Jido tool run revoked during first external LLM barrier produces no second LLM request and failed private root/no canonical answer while retaining factual input. Latest 87 tests +4 properties, mix q/diff/hooks green. Remaining .5: explicit refreshed budget/page-consumer audit and comprehensive preservation; .16 still owns warm boundary synchronization/incarnation and admission races. No publication.",
       "timestamp": "2026-10-08T11:30:07Z"
+    },
+    {
+      "text": "Per-turn implementation/audit complete through 4f0b7727. Late thread root absent at initial turn and captured after C with older provider timestamp now appears once in actual second/third requests without cursor reset, alongside A then A+B and exact tool exchanges. Separate huge refreshed-background pressure test preserves original system/current question and both real tool call/results while dropping only background; factual storage/one-root-answer remain intact. QueryRecorder proves one bounded content SELECT per local source and unchanged query counts from A to A+B; parent/local isolation, invalid cursors, revoked grants, safe real failed reads, capped paging, old preexisting canonical attachment and independently committed upper-bound races covered. Expanded preservation sweep 712 tests +23 properties +6 doctests passed; mix q/diff/hooks green. Reuse/local-only evidence in prior notes; no background fanout, private recall bypass, provider logic or new exposed Action. Scope alignment: .5 owns per-turn request-local projection; as already specified in Action reuse assessment, .16 owns dedicated completed-context synchronization. Its sync-failure/replacement-incarnation/next-request race and projection-versus-completed-context checks remain mandatory there and in .31 integration, not claimed here. Closing per-turn prerequisite unblocks .16; PR B not complete, no human acceptance/final coverage/publication claimed.",
+      "timestamp": "2026-10-08T11:39:56Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.5] Fixed-cursor per-turn history refresh and explicit steering",
   "type": "task",
-  "updated_at": "2026-10-08T11:30:07Z"
+  "updated_at": "2026-10-08T11:39:56Z"
 }
