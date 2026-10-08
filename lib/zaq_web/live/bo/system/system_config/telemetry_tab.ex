@@ -7,9 +7,50 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.TelemetryTab do
   # ── Telemetry Panel ────────────────────────────────────────────────────
 
   attr :form, :any, required: true
+  attr :studio_running, :boolean, default: false
+  attr :studio_can_start, :boolean, default: false
 
   def panel(assigns) do
     ~H"""
+    <div id="jido-studio-settings" class="zaq-card mb-6" style="padding: var(--zaq-scale-24);">
+      <div class="flex flex-wrap items-center gap-4">
+        <ZaqWeb.Components.DesignSystem.Switch.switch
+          id="jido-studio-toggle"
+          label="Jido Studio"
+          description="Enable Studio on this BO node for monitoring and debugging. Off after every restart."
+          layout={:setting_row}
+          checked={@studio_running}
+          disabled={@studio_running || !@studio_can_start}
+          phx-click="start_jido_studio"
+          class="min-w-0 flex-1"
+        />
+        <ZaqWeb.Components.DesignSystem.Button.button
+          :if={@studio_running && @studio_can_start}
+          id="open-jido-studio"
+          href={~p"/bo/studio"}
+          target="_blank"
+          rel="noopener noreferrer"
+          variant={:secondary}
+          icon="hero-arrow-top-right-on-square"
+        >
+          Open Studio
+        </ZaqWeb.Components.DesignSystem.Button.button>
+      </div>
+      <p
+        :if={@studio_running}
+        class="zaq-text-caption mt-3"
+        style="color: var(--zaq-text-color-body-secondary);"
+      >
+        Restart ZAQ to turn off. Runtime shutdown is not supported yet.
+      </p>
+      <p
+        :if={!@studio_can_start}
+        class="zaq-text-caption mt-3"
+        style="color: var(--zaq-text-color-body-secondary);"
+      >
+        Only administrators can enable and access Jido Studio.
+      </p>
+    </div>
     <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
       <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
         <h2 class="font-mono text-[0.95rem] font-bold text-black">Telemetry Collection</h2>

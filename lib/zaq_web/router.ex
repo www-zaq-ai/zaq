@@ -23,6 +23,10 @@ defmodule ZaqWeb.Router do
     plug ZaqWeb.Plugs.Auth
   end
 
+  pipeline :studio_enabled do
+    plug ZaqWeb.Plugs.StudioGuard
+  end
+
   pipeline :person_auth do
     plug ZaqWeb.Plugs.PersonAuth
   end
@@ -167,8 +171,17 @@ defmodule ZaqWeb.Router do
       live "/workflows/:id", Live.BO.AI.WorkflowDetailLive, :show
       live "/workflows/:id/runs/:run_id", Live.BO.AI.WorkflowRunLive, :show
     end
+  end
 
-    jido_studio("/studio")
+  scope "/bo", ZaqWeb do
+    pipe_through [:browser, :bo_node_only, :bo_auth, :studio_enabled]
+
+    jido_studio("/studio",
+      on_mount: [
+        {ZaqWeb.Live.BO.AuthHook, :default},
+        {ZaqWeb.Live.BO.StudioGuard, :require_running}
+      ]
+    )
   end
 
   scope "/channels", ZaqWeb do
