@@ -19,11 +19,15 @@
     {
       "text": "Unusual validation blocker: mix q twice exited inside ExDNA Task.Supervised.stream(5000), at detector.ex:62 and :70, not a code assertion. Intermediate successful analyses exposed only local Credo alias/complexity findings, which were corrected without suppressing checks. The final unchanged quality gate again timed out, so per user instruction pausing B2 before commit/completion; changes remain preserved and B2 stays in_progress. Latest expanded preservation run was 220 tests + 3 properties + 6 doctests green (authorized_execution explicitly excluded and remains red at missing B3 ExecutionRecord). Newly added projection privacy property and final lint-only refactors still require the next focused rerun. No B2 commit, push, merge or destructive revert. Resume: rerun quality gate once environment/tool contention is resolved, rerun affected tests/diff check, finish B2 preservation cases and commit, then proceed B3.",
       "timestamp": "2026-10-08T07:28:54Z"
+    },
+    {
+      "text": "Quality blocker cleared by user successful mix q and successful unchanged commit hooks. Committed 71d411d9 after affected preservation suite 220 tests + 4 properties + 6 doctests passed (only known B3 authorized_execution target excluded) and git diff --check passed. Direct/Shared/Replicated initial hydration, literal owner/capability/grant authorization, missing root preservation and pre-status denial covered. No push/merge. Follow-on warm-context cursor synchronization remains .16, not claimed complete here.",
+      "timestamp": "2026-10-08T07:38:43Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.3] B2 — trusted admission and authorized initial history",
   "type": "task",
-  "updated_at": "2026-10-08T07:28:54Z"
+  "updated_at": "2026-10-08T07:38:43Z"
 }
