@@ -23,11 +23,15 @@
     {
       "text": "Lease package underway (tests first, not yet committed): ServerManager remains lifecycle owner; extracted internal HistoryLifecycle ledger keeps scope/PID/cursors/owner monitor/waiters cohesive rather than adding storage/provider semantics to manager. Local-only mechanism, not an independently exposed Action: inputs exact actor-bound runtime plus incorporated context/cursor source vector; process-owned lease token cannot transfer, reopen or rebind sources, and only Factory confirmed context apply releases/advances. Owner failure/native apply failure invalidates; replacement cleanup releases stale waiters. Begin waits on owner-monitored lease instead of a 60s timeout which could silently abandon an admission during the existing 300s run budget; Jido still bounds execution. Trace+sys barriers test genuine deferred GenServer calls (no production test hooks/sleeps). Existing empty-state assertions extended with the new empty ledger, preserving exact cleanup checks; old optional lifecycle metadata cleanup follows existing credential-dependency compatibility pattern. Production Executor/API persistence wiring remains next; no standalone synchronization claim.",
       "timestamp": "2026-10-08T12:13:23Z"
+    },
+    {
+      "text": "Lease ledger committed 8bc49ad2. Actual configured/Jido tests prove queued next caller cannot acquire before applied-op confirmation/cursor commit; lease owner/token/source vector cannot transfer/regress/reopen; stale completion never affects a new incarnation; owner exit or failed busy application invalidates instead of advancing; actor mismatch denied. Manager keeps scope lifecycle authority; internal HistoryLifecycle delegates only native mutation to Factory and owns no Engine/provider/storage access. Fresh incarnation ledger initializes from explicit history_cursors, never overwrite on warm ensure. Owner-monitor admission wait avoids independent 60s expiry during longer bounded native runs; same-owner reentry is rejected; draining/current-incarnation checks precede grant/apply. Existing exact empty cleanup assertions extended, optional old ledger cleanup follows preexisting credential-state compatibility. Monotonic/stale-token property passes. 130 tests +3 properties with mix q/diff/hooks pass. Executor/API handled-outcome integration remains next and is explicitly documented as pending; .16 in_progress, not a standalone synchronization guarantee and not published.",
+      "timestamp": "2026-10-08T12:20:19Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.16] Request-boundary context and cursor synchronization",
   "type": "task",
-  "updated_at": "2026-10-08T12:13:23Z"
+  "updated_at": "2026-10-08T12:20:19Z"
 }
