@@ -12,9 +12,15 @@
   "id": "zaq-emb.7",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Started seam audit after .16 completion (6ffd8c31), no .7 source edits/tests yet. Actual owners: Engine.ChannelHistoryMembership.refresh/2, refresh_person/3 and apply_event/1 reconcile provider-source grants inside transactions; reconcile/4 currently returns :ok and public results remain members/rooms or applied/stale. Manual grants independent. RefreshChannelHistoryMembership Action already validates current super_admin and should remain shared refresh boundary; do not duplicate it or change provider normalization. Need extend post-commit removal notification through NodeRouter.dispatch_all/1 to Agent owner nodes; never terminate on rollback, unsupported snapshot, stale event or surviving membership. Existing event wiring .18 stays deferred. ServerManager currently retains per-incarnation canonical cursor vector but no durable Person binding after lease completion; add an explicit trusted identity/transcript binding rather than parsing scope names or treating observed participants as authorization. Reuse exact-PID stop_server_if_current semantics. Killing Jido alone is insufficient: Api finalization currently permits delivery of handled outcomes after stream terminalization; buffered StreamEvents/local delivery and consumer workers must also be fenced, and cancelled root persistence must remain failed/private rather than produce a fallback public answer. Preserve post-removal restart through ordinary Permissions (manual grants survive), unrelated people/scopes, exact-incarnation replacement safety and completed external effects. Tests first at real configured/Jido + actual refresh/event transaction paths; mock only provider/LLM. Read Channels/Agent policy; Engine guide required before changing membership/API domain. No product decision outstanding; detailed notification/control contract and regression package next. .7 in_progress, .8/.31 pending; no push/merge.",
+      "timestamp": "2026-10-08T13:02:07Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.7] Stop person-bound channel and thread runtimes on removal",
   "type": "task",
-  "updated_at": "2026-10-08T12:59:00Z"
+  "updated_at": "2026-10-08T13:02:07Z"
 }
