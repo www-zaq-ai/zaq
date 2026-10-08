@@ -9,9 +9,15 @@
   "id": "zaq-emb.27.29",
   "labels": [],
   "parent": "zaq-emb.27",
+  "comments": [
+    {
+      "text": "Reuse assessment: extend Channels existing incoming normalizers with verified sender-presence facts; Engine HistoryIngress consumes those facts after validated canonical capture through ChannelHistoryMembership, reusing its resource lock and provider grant provenance. No new Action: ingress-local evidence operation is internal, not BO/admin refresh; existing administrator-only refresh Action unchanged. Conservative fence: sender observation bootstraps once per identity only before contradictory authoritative membership; replay/fresh posts cannot restore removed access, explicit provider rejoin/refresh can. Keep capture durable on denied observation. A worktree created at existing published tip; B handoff edit preserved. Serena Elixir symbol queries unavailable; bounded fallback active.",
+      "timestamp": "2026-10-08T18:59:02Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.27] Restore trusted Shared sender admission without manual grant shortcuts",
   "type": "bug",
-  "updated_at": "2026-10-08T18:58:52Z"
+  "updated_at": "2026-10-08T18:59:02Z"
 }
