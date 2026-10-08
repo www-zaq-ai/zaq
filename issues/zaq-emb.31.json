@@ -14,9 +14,15 @@
   "id": "zaq-emb.31",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Integrated expansion found a real B regression before approval: actual Person-credential ingress provider rejection produces generic organization guidance instead of Person reconnect URL. Failing existing test person_credential_ingress_integration_test.exs:194 reproduces isolated. Executor with-else sees pre-projection execution_opts rather than the canonical Person scope; credential_dependency lookup and failed-runtime stop use the wrong opaque server ID. Reuse immutable StreamEvents runtime binding for error handling; expose execution_scope only in internal reducer result, never outgoing metadata. Fix on owning B branch, retain exact-PID stop and existing assertions. Broad Agent+Channels/Engine/People combined run also timed out after 600s; narrowed Channels/related suites produced 1162 tests/37 properties with two failures before deadline shutdown, one credential guidance and one rotation lifecycle to rerun isolated. No complete feature validation or human approval asserted.",
+      "timestamp": "2026-10-08T15:02:21Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] PR B integrated validation and documentation",
   "type": "task",
-  "updated_at": "2026-10-08T14:37:57Z"
+  "updated_at": "2026-10-08T15:02:21Z"
 }
