@@ -22,11 +22,15 @@
     {
       "text": "Owning-B follow-up regression: broader Channels sweep exposed two existing real MCP/tool trace journeys crashing on Ecto t.provider == nil. A legacy admitted message can have a connector-scoped conversation stamp while source_provider remains nil (untyped incoming facts). ExecutionHistory incorrectly required nil channel_config_id before taking its guarded legacy path. Added smaller public Conversations admission/history regression; verified red with exact Ecto ArgumentError. Extend existing nil-source classifier to all verified legacy conversations, retaining canonical-placement denial and owner/token checks; delta remains unauthorized for legacy. No provider-specific normalization or authorization bypass added. Person credential regression fix now passes 74 tests/2 properties, and default-answering sandbox failure passed isolated unchanged. Added execution-owner completion synchronization to Person credential test so it does not race association bookkeeping on the shared connection; all original assertions retained and failure runtime disposal/private internal scope assertions strengthened. Latest Channels + related Engine/People sweep completed 2111 tests/43 properties with only the two nil-source regressions; validate fixes next. Do not equate this with unrelated zaq-mcw/e8q global gate closures.",
       "timestamp": "2026-10-08T15:25:26Z"
+    },
+    {
+      "text": "Current verification blocker: 221 focused Engine execution-history/JidoChat/MCP/Person-credential tests plus 1 property pass after both B fixes. Earlier 74 tests/2 properties and native timeout acceptance pass. Latest mix q repeatedly fails inside ExDNA Task.Supervised.stream(5000), not a reported lint violation. Unchanged retry and a bounded four-scheduler retry both hit the same fixed five-second tool deadline. Host vm.loadavg ~16.91/18.28/19.56; multiple unrelated Chrome/agent-browser renderers each consume ~87-100% CPU. No processes killed, no timeout/check/assertion weakened, no final gate or approval claimed. Modified source/regressions and message-lifecycle docs remain uncommitted pending current q and successful broad rerun. New B .7/.8 commits remain local; .29 ancestry mapping closed, .31 remains in_progress, .32 remains blocked. Separate PR A CI rerun still inaccessible to token. Fresh B database applied full migration chain after explicit standard db.extensions bootstrap; 2055 tests/57 properties/17 doctests passed before latest compatibility fixes, including empty/populated receipts rollback/reapply fixture; temporary database removed, working database untouched. Expanded Channels/Engine/People run most recently completed 2111 tests/43 properties with only the two now-fixed MCP legacy nil-source failures. Global 600s timeout and isolated transient sandbox checkout must remain recorded rather than called green. Need rerun those preservation suites and q under available resources; unrelated zaq-mcw/e8q remain open.",
+      "timestamp": "2026-10-08T15:31:20Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] PR B integrated validation and documentation",
   "type": "task",
-  "updated_at": "2026-10-08T15:25:26Z"
+  "updated_at": "2026-10-08T15:31:20Z"
 }
