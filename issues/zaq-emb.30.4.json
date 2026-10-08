@@ -23,11 +23,15 @@
     {
       "text": "Committed validated root persistence/accounting b2089c95 and receipt schema fae9bb5d. Receipt regression failed before schema changes; 27 tests + 2 properties passed; dedicated empty/populated-root migration down/up preserves complete root structs, and populated-child rollback refuses audit loss (8 tests + 1 property). mix q and commit hooks green. No data repair/backfill or child public-answer sharing. Next: trusted request control authorization and real Jido input_injected consumption/terminal-unconsumed wiring; keep B3 in_progress.",
       "timestamp": "2026-10-08T07:57:13Z"
+    },
+    {
+      "text": "Control authorization committed 6fd8a868: missing/foreign principal request keys no longer expose private registry state or authorize Factory calls; supplied scope mismatch denies; Person controls revalidate active literal identity and current canonical grants through confidential Engine dispatch. Immutable registry input UUID replaces raw-token retention. Regression-first denial test and real Engine grant-revocation/inspection test pass; 164 tests + 5 properties including full authorized_execution acceptance passed. mix q and commit hooks pass (corrected final formatter-only layout after index hook). Next durable receipt state transitions plus Jido consumption and busy routing; B3 remains open.",
+      "timestamp": "2026-10-08T08:05:39Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T07:57:13Z"
+  "updated_at": "2026-10-08T08:05:39Z"
 }
