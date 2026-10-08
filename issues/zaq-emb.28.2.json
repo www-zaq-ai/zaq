@@ -6,6 +6,7 @@
   "blocks": [
     "zaq-emb.31"
   ],
+  "closed_at": "2026-10-08T19:50:19Z",
   "created": "2026-10-08T18:01:29Z",
   "description": "Owner PR B: private-execution migration left the BO reader on public Message fields. Three actual persisted/reloaded strategy modals expose no trace rows and not-provided token values despite real completed private ExecutionRecords. Extend existing Engine ChannelHistoryAdmin.message_info projection and BO MessageHelpers/Measurements reader; no direct BO Repo/Engine calls, keep NodeRouter authorization authoritative. Read the unique completed root bound to the selected canonical answer, never arbitrary child receipts or another Persons data. Preserve legacy message telemetry fallback and staff/forged-message denial. Surface complete private tokens/timings/turns/real tool traces, keep them out of shareable history. Depends on private measurement persistence; verify exact displayed values after fresh mounts and all existing modal authorization regressions. Action reuse: extend existing authorized message-info operation, not a parallel reader. No production implementation in tests-first pass.",
   "id": "zaq-emb.28.2",
@@ -18,8 +19,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.28] Project authorized private execution telemetry into persisted message information",
   "type": "bug",
-  "updated_at": "2026-10-08T19:50:13Z"
+  "updated_at": "2026-10-08T19:50:19Z"
 }
