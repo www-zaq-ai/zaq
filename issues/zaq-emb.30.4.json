@@ -19,11 +19,15 @@
     {
       "text": "Root persistence substep: regressions first demonstrated missing admission record, foreign-actor finalization acceptance and accounting double-counting; extended existing Conversations admission/finalization and existing TokenUsageAggregator rather than creating parallel jobs/response builders. ExecutionLifecycle is local-only transaction-owned private storage: it does not create messages, placements or delivery. New canonical Person records persist capability hashes and private trace/tool/usage/outcome with one public answer; legacy admissions/artifact references remain intact. Engine finalization forwards trusted actor; replay rechecks literal active owner. Latest real-provider/Jido/tool/delivery/replay acceptance passes; expanded 399 tests + 9 properties passed. Child receipt statuses/root linkage and inspect/steer/inject actor controls still outstanding; B3 not complete.",
       "timestamp": "2026-10-08T07:47:06Z"
+    },
+    {
+      "text": "Committed validated root persistence/accounting b2089c95 and receipt schema fae9bb5d. Receipt regression failed before schema changes; 27 tests + 2 properties passed; dedicated empty/populated-root migration down/up preserves complete root structs, and populated-child rollback refuses audit loss (8 tests + 1 property). mix q and commit hooks green. No data repair/backfill or child public-answer sharing. Next: trusted request control authorization and real Jido input_injected consumption/terminal-unconsumed wiring; keep B3 in_progress.",
+      "timestamp": "2026-10-08T07:57:13Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T07:47:06Z"
+  "updated_at": "2026-10-08T07:57:13Z"
 }
