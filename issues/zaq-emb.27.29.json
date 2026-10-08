@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.31"
+  ],
   "created": "2026-10-08T18:01:08Z",
   "description": "Owner PR A #835; propagate its validated updated base into B. Evidence: unseeded real Mattermost channel/thread ingress persists factual messages but Agent run_pipeline fails unauthorized (7 red assertions/journeys), while the same path after actual BO provider-membership refresh succeeds. Reuse/extend Channels provider evidence normalization, scoped People IdentityResolver and Engine ChannelHistoryMembership/Permissions; no Engine provider knowledge, implicit nil identity permission or manual test grants. Before implementation resolve how legitimate sender evidence establishes source-keyed access without resurrecting revoked access via old message replay. Preserve manual-grant survival, connector scope, removals/generations and replay protections. Verify current red full-flow cases plus unchanged removal/authorization regressions. Production fix deferred until test-first inventory review; no publication inferred.",
   "id": "zaq-emb.27.29",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-emb.27] Restore trusted Shared sender admission without manual grant shortcuts",
   "type": "bug",
-  "updated_at": "2026-10-08T18:01:08Z"
+  "updated_at": "2026-10-08T18:01:56Z"
 }
