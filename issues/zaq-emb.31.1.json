@@ -9,9 +9,15 @@
   "id": "zaq-emb.31.1",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Added 27 real-flow cases in history_strategy_full_flow_test.exs (four authorization scenarios x five independent surfaces, five active-update scenarios, two concurrent-Person scenarios), plus real Mattermost DM frame support. Provider-refreshed Shared uses actual BO membership refresh/HTTP, no manual grants. Baseline and warm followups assert actual model/tool exchange, canonical UUIDs/order, provider-confirmed delivery, private-accounting ownership, recipient authorization/isolation and replay. Three completed strategies independently test persisted modal traces, exact measurements after two fresh mounts, and denied staff inspection. mix q passed; deliberate regressions remain red. Expanded 6-file matrix seed625: 102 tests / 2 properties / 17 failures; no production fixes or assertion weakening.",
+      "timestamp": "2026-10-08T17:58:57Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] Add unseeded strategy full-flow regression matrix",
   "type": "task",
-  "updated_at": "2026-10-08T17:17:45Z"
+  "updated_at": "2026-10-08T17:58:57Z"
 }
