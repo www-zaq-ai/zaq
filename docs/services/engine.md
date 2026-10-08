@@ -87,6 +87,15 @@ and legacy backfill/cutover remain in `zaq-emb.14`, `.4` and `.15`. Existing
 conversation reads still follow the legacy path; a canonical message UUID is not
 an authorization token.
 
+`ExecutionRecord` stores Person ownership, a **hash** of the finalization
+capability, private trace/tool-result entries, usage and outcome apart from
+canonical content. It references the input message and at most one public
+answer UUID; only a completed execution may link a public answer, and an answer
+cannot be claimed by two executions. No transcript projection joins this table.
+The legacy execution metadata and raw trace artifacts remain attached to legacy
+messages until the guarded `zaq-emb.15` migration/cutover; this storage slice
+does not copy them or change the existing finalization path.
+
 ```
 Channel adapter or BO chat
   → IncomingMessageRouter resolves routing + execution actor
