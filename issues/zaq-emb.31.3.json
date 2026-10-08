@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "zaq-emb.31.1"
+    "zaq-emb.31.1",
+    "zaq-emb.31.2"
   ],
   "blocks": [],
   "created": "2026-10-08T17:17:32Z",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "[zaq-emb.31] Record complete strategy failure inventory and owning fixes",
   "type": "task",
-  "updated_at": "2026-10-08T17:17:36Z"
+  "updated_at": "2026-10-08T17:17:41Z"
 }
