@@ -19,11 +19,15 @@
     {
       "text": "Action reuse assessment: EXTEND existing Executor→Factory.ask_with_config→StreamEvents and RequestRegistry APIs; inspected module docs, actual Jido Request.Handle/ask_stream contract, Agent control boundary and existing tests. Registry merge/ownership/status fencing is LOCAL-ONLY runtime infrastructure: inputs actual request ID and validated runtime attributes; outputs :ok or ownership_conflict/terminal_request, no database/provider effects, serialized idempotent updates. Api control reuses Factory steer/inject with expected_request_id against exact PID; no new Action/tool exposure. Trusted actor/scope authorization remains explicit B2/B3 work, these consistency fences do not substitute for it. Preserve configured-agent credential/tool-budget pipeline, legacy direct-stream compatibility, malformed-state errors and existing cleanup/busy tests. Verification includes real-Jido handle lookup/busy barrier, stale PID/terminal rejection, concurrent updates and generated terminal transitions.",
       "timestamp": "2026-10-07T20:47:20Z"
+    },
+    {
+      "text": "Committed lifecycle slice 2a330cdd after 192 tests + 7 properties + 6 doctests passed and commit quality hooks passed. B0 regression-first commit f1a1eff8 retains deliberately red full-path hydration target. Actor/scope collision property now preserves literal request ownership; real busy rejection and stale-PID/terminal control tests pass. User now authorizes local commits per step (no push/merge). Moving into B2 authorized admission/history; finalizing disposition is completed with B3 private outcome seam, not falsely claimed by stream terminal status.",
+      "timestamp": "2026-10-08T06:48:14Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.2] B1 — actual request identity and runtime lifecycle",
   "type": "task",
-  "updated_at": "2026-10-07T20:47:20Z"
+  "updated_at": "2026-10-08T06:48:14Z"
 }
