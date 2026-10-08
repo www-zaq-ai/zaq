@@ -716,7 +716,7 @@ defmodule Zaq.Ingestion do
     {conflict_fragment, attrs} =
       case type do
         :person ->
-          {"(resource_type, resource_id, person_id) WHERE person_id IS NOT NULL",
+          {"(resource_type, resource_id, person_id, source_key) WHERE person_id IS NOT NULL",
            %{
              resource_id: resource_id,
              person_id: target_id,
@@ -724,7 +724,7 @@ defmodule Zaq.Ingestion do
            }}
 
         :team ->
-          {"(resource_type, resource_id, team_id) WHERE team_id IS NOT NULL",
+          {"(resource_type, resource_id, team_id, source_key) WHERE team_id IS NOT NULL",
            %{
              resource_id: resource_id,
              team_id: target_id,

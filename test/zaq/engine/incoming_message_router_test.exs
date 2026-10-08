@@ -10,6 +10,18 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
   alias Zaq.Identity.ExecutionActor
   alias Zaq.SystemConfigFixtures
 
+  defmodule StubConversations do
+    def admit_incoming(_incoming) do
+      {:ok,
+       %{
+         conversation_id: "00000000-0000-0000-0000-000000000001",
+         user_message_id: "00000000-0000-0000-0000-000000000002",
+         finalization_token: "00000000-0000-0000-0000-000000000003",
+         admitted?: true
+       }}
+    end
+  end
+
   defmodule RejectingIdentityResolver do
     def resolve(_incoming, _opts), do: {:error, :not_found}
     def person_payload(person), do: person
@@ -45,7 +57,10 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
       event =
         Event.new(incoming(%{provider: :web}), :engine,
           actor: actor,
-          opts: [identity_resolver: ResolvingIdentityResolver]
+          opts: [
+            identity_resolver: ResolvingIdentityResolver,
+            conversations_module: StubConversations
+          ]
         )
 
       routed = IncomingMessageRouter.route(event)
@@ -74,7 +89,10 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
       event =
         Event.new(incoming(%{provider: :web, person: person}), :engine,
           actor: %{person: person, user_id: 7},
-          opts: [identity_resolver: RejectingIdentityResolver]
+          opts: [
+            identity_resolver: RejectingIdentityResolver,
+            conversations_module: StubConversations
+          ]
         )
 
       routed = IncomingMessageRouter.route(event)
@@ -147,7 +165,10 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
       event =
         Event.new(incoming(%{person: forged}), :engine,
           actor: %{person: forged},
-          opts: [identity_resolver: ResolvingIdentityResolver]
+          opts: [
+            identity_resolver: ResolvingIdentityResolver,
+            conversations_module: StubConversations
+          ]
         )
 
       routed = IncomingMessageRouter.route(event)
@@ -203,13 +224,28 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
           configured_agent_id: agent.id
         })
 
-      routed = route(incoming(), pipeline_opts: [role_ids: [1]])
+      routed =
+        route(incoming(),
+          pipeline_opts: [role_ids: [1]],
+          conversations_module: Zaq.Engine.Conversations
+        )
 
       assert routed.next_hop.destination == :agent
       assert routed.next_hop.type == :async
       assert routed.name == EventNames.message_received(routed.request, :agent_requested)
       assert routed.opts == [action: :run_pipeline, pipeline_opts: [role_ids: [1]]]
       assert routed.assigns["agent_selection"] == %{"agent_id" => agent.id, "source" => "global"}
+
+      assert %{
+               "conversation_id" => conversation_id,
+               "user_message_id" => user_message_id,
+               "finalization_token" => finalization_token
+             } = routed.assigns["conversation_binding"]
+
+      assert is_binary(finalization_token)
+
+      assert %{conversation_id: ^conversation_id, content: "hello", role: "user"} =
+               Repo.get(Zaq.Engine.Conversations.Message, user_message_id)
 
       assert routed.assigns["incoming_message_routing"] == %{
                "mode" => "agent",
@@ -238,6 +274,17 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
       assert routed.next_hop.destination == :agent
       assert routed.next_hop.type == :sync
       assert routed.opts[:action] == :run_pipeline
+    end
+
+    test "suppresses provider redelivery after the input has already been admitted" do
+      incoming = incoming(%{message_id: "provider-redelivery-1"})
+
+      first = route(incoming, conversations_module: Zaq.Engine.Conversations)
+      second = route(incoming, conversations_module: Zaq.Engine.Conversations)
+
+      assert first.next_hop.destination == :agent
+      assert second.next_hop == nil
+      assert second.response == {:ok, :duplicate_incoming}
     end
 
     test "translates none rule into workflow-only event for trigger broadcast" do
@@ -275,9 +322,10 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
   defp route(%Incoming{} = incoming, opts \\ []) do
     event_opts =
       opts
-      |> Keyword.take([:pipeline_opts, :agent_hop_type, :node_router])
+      |> Keyword.take([:pipeline_opts, :agent_hop_type, :node_router, :conversations_module])
       |> Keyword.put(:action, :route_incoming_message)
       |> Keyword.put(:identity_resolver, RejectingIdentityResolver)
+      |> Keyword.put_new(:conversations_module, StubConversations)
 
     incoming
     |> Event.new(:engine, opts: event_opts, actor: %{id: incoming.author_id})

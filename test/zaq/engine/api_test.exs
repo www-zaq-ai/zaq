@@ -25,6 +25,11 @@ defmodule Zaq.Engine.ApiTest do
       :ok
     end
 
+    def finalize_incoming(user_message_id, finalization_token, result) do
+      send(self(), {:finalize_called, user_message_id, finalization_token, result})
+      {:ok, %{conversation_id: "conversation-1", assistant_message_id: "assistant-1"}}
+    end
+
     def persist_message_history(incoming, message) do
       send(self(), {:persist_message_history_called, incoming, message})
       {:ok, %{conversation_id: "conversation-1", message_id: "message-1"}}
@@ -115,6 +120,39 @@ defmodule Zaq.Engine.ApiTest do
     result = Api.handle_event(event, :persist_from_incoming, nil)
 
     assert result.response == {:error, {:invalid_request, %{incoming: :bad, metadata: %{}}}}
+  end
+
+  test "finalizes an Agent outcome by its admitted user message" do
+    outcome = %{answer: "ok", error: false}
+
+    event =
+      Event.new(
+        %{
+          user_message_id: "user-message-1",
+          finalization_token: "finalization-token-1",
+          outcome: outcome
+        },
+        :engine,
+        actor: %{kind: :system, subject: "agent-runtime"},
+        opts: [action: :finalize_incoming, conversations_module: StubConversations]
+      )
+
+    result = Api.handle_event(event, :finalize_incoming, nil)
+
+    assert result.response ==
+             {:ok, %{conversation_id: "conversation-1", assistant_message_id: "assistant-1"}}
+
+    assert_received {:finalize_called, "user-message-1", "finalization-token-1", ^outcome}
+  end
+
+  test "rejects finalization without a valid execution actor" do
+    event =
+      Event.new(%{user_message_id: "user-message-1", outcome: %{}}, :engine,
+        opts: [action: :finalize_incoming, conversations_module: StubConversations]
+      )
+
+    assert Api.handle_event(event, :finalize_incoming, nil).response ==
+             {:error, :missing_execution_actor}
   end
 
   describe "conversation action" do

@@ -236,6 +236,13 @@ defmodule Zaq.Agent.ApiTest do
           server_manager: PassthroughServerManager
         ]
       )
+      |> Map.put(:assigns, %{
+        "conversation_binding" => %{
+          "conversation_id" => "conversation-1",
+          "user_message_id" => "user-message-1",
+          "finalization_token" => "finalization-token-1"
+        }
+      })
 
     result = Api.handle_event(event, :run_pipeline, nil)
 
@@ -887,6 +894,13 @@ defmodule Zaq.Agent.ApiTest do
           server_manager: PassthroughServerManager
         ]
       )
+      |> Map.put(:assigns, %{
+        "conversation_binding" => %{
+          "conversation_id" => "conversation-1",
+          "user_message_id" => "user-message-1",
+          "finalization_token" => "finalization-token-1"
+        }
+      })
 
     result = Api.handle_event(event, :run_pipeline, nil)
     assert %Outgoing{} = result.response
@@ -895,12 +909,17 @@ defmodule Zaq.Agent.ApiTest do
     assert_receive {:node_router_dispatch, first_action, first_event}
     refute_receive {:node_router_dispatch, :deliver_outgoing, _}, 50
 
-    assert first_action == :persist_from_incoming
+    assert first_action == :finalize_incoming
 
     persist_event = first_event
 
     assert persist_event.next_hop.destination == :engine
-    assert persist_event.request.metadata.trace_artifacts == [%{content: <<0, 1, 2, 3>>}]
+    assert persist_event.request.user_message_id == "user-message-1"
+    assert persist_event.request.finalization_token == "finalization-token-1"
+    assert persist_event.request.outcome.trace_artifacts == [%{content: <<0, 1, 2, 3>>}]
+    assert persist_event.actor.kind == event.actor.kind
+    assert persist_event.actor.subject == event.actor.subject
+    assert persist_event.actor.provider == :mattermost
     refute Map.has_key?(result.response.metadata, :trace_artifacts)
     assert result.next_hop.destination == :channels
     assert result.next_hop.type == :sync

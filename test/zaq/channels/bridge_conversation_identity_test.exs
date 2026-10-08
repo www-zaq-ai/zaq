@@ -108,6 +108,65 @@ defmodule Zaq.Channels.BridgeConversationIdentityTest do
     end
   end
 
+  describe "put_conversation_identity/2" do
+    test "stamps transport-neutral channel, thread, configuration, and participant identity" do
+      msg =
+        incoming(%{
+          provider: :mattermost,
+          channel_id: " town-square ",
+          thread_id: " root-post-1 ",
+          author_id: " user-1 ",
+          routing_context: %{channel_config_id: "42"}
+        })
+
+      stamped = CommunicationBridge.put_conversation_identity(msg)
+
+      assert stamped.metadata["conversation"] == %{
+               "channel_type" => "mattermost",
+               "key" => nil,
+               "channel_config_id" => 42,
+               "channel_id" => "town-square",
+               "thread_id" => "root-post-1",
+               "participant_id" => "user-1"
+             }
+    end
+
+    test "keeps channel-level messages distinct by omitting blank thread identity" do
+      msg =
+        incoming(%{
+          provider: :discord,
+          channel_id: "room-1",
+          thread_id: "  ",
+          author_id: "user-1"
+        })
+
+      assert CommunicationBridge.put_conversation_identity(msg).metadata["conversation"] == %{
+               "channel_type" => "discord",
+               "key" => nil,
+               "channel_config_id" => nil,
+               "channel_id" => "room-1",
+               "thread_id" => nil,
+               "participant_id" => "user-1"
+             }
+    end
+
+    test "preserves bridge-owned email grouping alongside source identity" do
+      msg =
+        incoming(%{
+          channel_id: "person@example.com",
+          author_id: "person@example.com",
+          thread_id: "<reply@mail.example>",
+          metadata: %{"email" => %{"thread_key" => "<root@mail.example>"}}
+        })
+
+      identity = CommunicationBridge.put_conversation_identity(msg).metadata["conversation"]
+
+      assert identity["key"] == "<root@mail.example>"
+      assert identity["channel_id"] == "person@example.com"
+      assert identity["thread_id"] == "<reply@mail.example>"
+    end
+  end
+
   describe "outbound_conversation_key/4" do
     test "email platforms group by topic, then subject" do
       assert CommunicationBridge.outbound_conversation_key("email", "campaign", "Hello") ==

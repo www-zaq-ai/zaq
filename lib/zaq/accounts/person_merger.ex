@@ -348,9 +348,11 @@ defmodule Zaq.Accounts.PersonMerger do
     |> Enum.flat_map(&split_team_grant/1)
     |> Enum.group_by(&permission_key(&1, survivor_id, ids, resource_ids))
     |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.map(fn {{type, resource_id, kind, principal_id}, group} ->
+    |> Enum.map(fn {{type, resource_id, kind, principal_id, source_key}, group} ->
       rights = group |> Enum.flat_map(& &1.access_rights) |> Enum.uniq() |> Enum.sort()
-      {{type, resource_id}, %{kind => principal_id, :access_rights => rights}}
+
+      {{type, resource_id},
+       %{kind => principal_id, :access_rights => rights, :source_key => source_key}}
     end)
   end
 
@@ -388,7 +390,7 @@ defmodule Zaq.Accounts.PersonMerger do
     {kind, principal_id} =
       if person_id, do: {:person_id, person_id}, else: {:team_id, permission.team_id}
 
-    {permission.resource_type, resource_id, kind, principal_id}
+    {permission.resource_type, resource_id, kind, principal_id, permission.source_key}
   end
 
   defp routing_results(survivor_id, rules) do

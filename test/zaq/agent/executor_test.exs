@@ -15,10 +15,14 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule StubServerManager do
-    def ensure_server(configured_agent, server_id, context, actor: actor) do
+    alias Zaq.Agent.ExecutorTest
+
+    def ensure_server(configured_agent, server_id, context, opts) do
+      actor = Keyword.fetch!(opts, :actor)
       send(self(), {:ensured_actor, actor})
       send(self(), {:ensure_server, configured_agent, server_id, context})
-      {:ok, :stub_server_scoped}
+      send(self(), {:history_binding, Keyword.get(opts, :history_binding)})
+      {:ok, ExecutorTest.start_runtime()}
     end
   end
 
@@ -39,17 +43,24 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule CoverageStubServerManager do
-    def ensure_server(configured_agent, server_id, context, actor: actor) do
+    alias Zaq.Agent.ExecutorTest
+
+    def ensure_server(configured_agent, server_id, context, opts) do
+      actor = Keyword.fetch!(opts, :actor)
       send(self(), {:ensured_actor, actor})
       send(self(), {:coverage_ensure_server, configured_agent, server_id, context})
-      {:ok, :coverage_stub_server}
+      send(self(), {:history_binding, Keyword.get(opts, :history_binding)})
+      {:ok, ExecutorTest.start_runtime()}
     end
   end
 
   defmodule CredentialOwnerServerManager do
-    def ensure_server(configured_agent, server_id, context, actor: actor) do
+    alias Zaq.Agent.ExecutorTest
+
+    def ensure_server(configured_agent, server_id, context, opts) do
+      actor = Keyword.fetch!(opts, :actor)
       send(self(), {:credential_owner_server, configured_agent, server_id, context, actor})
-      {:ok, :credential_owner_server}
+      {:ok, ExecutorTest.start_runtime()}
     end
 
     def credential_dependency(server_id) do
@@ -59,10 +70,15 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   defmodule ViaTupleServerManager do
-    def ensure_server(configured_agent, server_id, context, actor: actor) do
+    alias Zaq.Agent.ExecutorTest
+
+    def ensure_server(configured_agent, server_id, context, opts) do
+      actor = Keyword.fetch!(opts, :actor)
       send(self(), {:ensured_actor, actor})
       send(self(), {:coverage_ensure_server, configured_agent, server_id, context})
-      {:ok, {:via, Registry, {Zaq.Agent.Jido.Registry, server_id}}}
+      ref = {:via, Registry, {Zaq.Agent.Jido.Registry, server_id}}
+      ExecutorTest.start_runtime(name: ref)
+      {:ok, ref}
     end
   end
 
@@ -127,6 +143,18 @@ defmodule Zaq.Agent.ExecutorTest do
     def dispatch(%Zaq.Event{} = event), do: %{event | response: :ok}
   end
 
+  def start_runtime(opts \\ []) do
+    ExUnit.Callbacks.start_supervised!(%{
+      id: make_ref(),
+      start: {Agent, :start_link, [fn -> %{} end, opts]}
+    })
+  end
+
+  defmodule MissingRuntimeServerManager do
+    def ensure_server(_agent, _server_id, _context, _opts),
+      do: {:ok, :executor_test_missing_runtime}
+  end
+
   @incoming %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
 
   @base_opts [
@@ -143,6 +171,23 @@ defmodule Zaq.Agent.ExecutorTest do
   ]
 
   @base_incoming %Incoming{content: "q", channel_id: "c", provider: :web}
+
+  test "a missing runtime returns an execution error before asking the factory" do
+    outgoing =
+      Executor.run(
+        @incoming,
+        Keyword.merge(@base_opts,
+          server_manager_module: MissingRuntimeServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus
+        )
+      )
+
+    assert outgoing.metadata.error == true
+    assert outgoing.metadata.reason =~ "runtime_unavailable"
+    refute_received {:coverage_ask, _, _, _}
+    refute_received {:coverage_status, _, _, _, _}
+  end
 
   test "invalid raw event and incoming declarations fail before lifecycle or ask" do
     for actor <- [
@@ -163,6 +208,25 @@ defmodule Zaq.Agent.ExecutorTest do
     outgoing = Executor.run(incoming, Keyword.delete(@base_opts, :event))
     assert outgoing.metadata.error
     refute_received {:ensure_server, _, _, _}
+  end
+
+  test "uses the explicit conversation binding for runtime identity and history" do
+    conversation_id = Ecto.UUID.generate()
+    user_message_id = Ecto.UUID.generate()
+
+    outgoing =
+      Executor.run(
+        @incoming,
+        Keyword.put(@base_opts, :conversation_binding, %{
+          conversation_id: conversation_id,
+          user_message_id: user_message_id
+        })
+      )
+
+    refute outgoing.metadata.error
+    expected_server_id = "Stub Agent:conversation:#{conversation_id}"
+    assert_received {:ensure_server, _, ^expected_server_id, nil}
+    assert_received {:history_binding, %{conversation_id: ^conversation_id}}
   end
 
   property "event actor identity wins over incoming and is shared by scope and tool context" do
@@ -255,27 +319,6 @@ defmodule Zaq.Agent.ExecutorTest do
                "scope:email_imap:person:5"
     end
 
-    property "provider scopes round-trip through Factory parsing" do
-      check all(
-              provider <-
-                string(:printable, min_length: 1, max_length: 24)
-                |> filter(&valid_provider_scope_input?/1),
-              person_id <- positive_integer()
-            ) do
-        scope =
-          Executor.derive_scope(%{@base_incoming | person: %{id: person_id}, provider: provider})
-
-        assert ["scope", encoded_provider, "person", encoded_person_id] = String.split(scope, ":")
-        refute encoded_provider =~ ":"
-
-        assert Factory.spawn_opts_from_server_id("Agent:#{scope}") == %{
-                 conversation_id: nil,
-                 person_id: encoded_person_id,
-                 channel_type: provider
-               }
-      end
-    end
-
     test "falls back to bo:<session_id> when person is nil" do
       incoming = %{@base_incoming | person: nil, metadata: %{session_id: "sess-abc"}}
       assert Executor.derive_scope(incoming) == "bo:session:sess-abc"
@@ -351,9 +394,12 @@ defmodule Zaq.Agent.ExecutorTest do
 
   describe "run/2 — answering agent (no agent_id)" do
     defmodule StubSMAnswering do
-      def ensure_server(_agent, server_id, _context, actor: _actor) do
+      alias Zaq.Agent.ExecutorTest
+
+      def ensure_server(_agent, server_id, _context, opts) do
+        _actor = Keyword.fetch!(opts, :actor)
         send(self(), {:ensure_server, server_id})
-        {:ok, {:via, Registry, {Zaq.Agent.Jido, server_id}}}
+        {:ok, ExecutorTest.start_runtime()}
       end
     end
 
@@ -889,9 +935,5 @@ defmodule Zaq.Agent.ExecutorTest do
                  opaque_alias_scope: logical_server_id
                })
     end
-  end
-
-  defp valid_provider_scope_input?(provider) do
-    String.valid?(provider) and String.trim(provider) != ""
   end
 end

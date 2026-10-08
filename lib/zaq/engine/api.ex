@@ -92,6 +92,26 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :finalize_incoming, _context) do
+    response =
+      with {:ok, _actor} <- ExecutionActor.validate(event.actor),
+           %{
+             user_message_id: user_message_id,
+             finalization_token: finalization_token,
+             outcome: outcome
+           }
+           when is_binary(user_message_id) and is_binary(finalization_token) and is_map(outcome) <-
+             event.request do
+        conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
+        conversations_module.finalize_incoming(user_message_id, finalization_token, outcome)
+      else
+        {:error, reason} -> {:error, reason}
+        other -> {:error, {:invalid_request, other}}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, :persist_message_history, _context) do
     case event.request do
       %{incoming: %Incoming{} = incoming, message: message} when is_map(message) ->
