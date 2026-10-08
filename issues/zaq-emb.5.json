@@ -23,11 +23,15 @@
     {
       "text": "Three-turn wire companion committed 60e81f0e. Real provider/Engine/Jido/registered arithmetic tools execute two successive tool calls with external HTTP barriers: initial request no delta; second A once/no B; third A+B once each, exact original system/current input, chronological attributed additions and exact two correlated call/result pairs. One completed private execution, actual 15/3 usage and one public answer; passive notes do not create receipts or transfer authority. Latest 84 tests +4 properties and mix q/diff/hooks green; prior expanded integration 211 +5 properties +6 doctests green. Outstanding .5 audit remains late association of old canonical content, concurrently committed associations/captured uppers, page-consumer and pressure/denial during a real multi-turn run. .16 context/incorporated cursor synchronization remains separately pending. Local commits only, no new product decision or publication.",
       "timestamp": "2026-10-08T11:21:26Z"
+    },
+    {
+      "text": "Association/grant audit committed 5c206664. prepare_capture creates canonical content before request with 2020 provider timestamp; later ordinary capture attaches same UUID after fixed C and delta includes it without altering old row. Independent actual DB reader pauses after its transcript/association snapshot; writer admits/commits a fresh association on another connection; first bounded read excludes it and returns original upper/C, next read sees it. UUID-scoped extra execution cleanup registered before assertions; no sleeps/internal mocks. Real provider/Jido tool run revoked during first external LLM barrier produces no second LLM request and failed private root/no canonical answer while retaining factual input. Latest 87 tests +4 properties, mix q/diff/hooks green. Remaining .5: explicit refreshed budget/page-consumer audit and comprehensive preservation; .16 still owns warm boundary synchronization/incarnation and admission races. No publication.",
+      "timestamp": "2026-10-08T11:30:07Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.5] Fixed-cursor per-turn history refresh and explicit steering",
   "type": "task",
-  "updated_at": "2026-10-08T11:21:26Z"
+  "updated_at": "2026-10-08T11:30:07Z"
 }
