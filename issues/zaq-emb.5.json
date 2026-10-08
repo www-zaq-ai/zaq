@@ -11,9 +11,15 @@
   "id": "zaq-emb.5",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Refresh groundwork: extend existing Conversations.execution_history/2 as /3 with after_cursors; reuse TranscriptHistory.list/3 exact-source authorization/sanitization/association ordering. Existing accounts.fetch_history remains private topic/date recall and cannot authorize transcript deltas. Local-only extension of the confidential Engine admission read; no new exposed Action/tool or provider fetch and no background fanout. Inputs: original admission capability + literal actor + exact source cursor map; output bounded cumulative messages, page-safe incorporated cursors and separately captured upper bounds. Repeated reads are idempotent and never update runtime state. Consumers: existing NodeRouter :execution_history dispatch, then RequestTransformer/HistoryLoader integration; boundary sync remains .16. Regression-first failures confirmed for cumulative A/A+B, capped 103-row paging and source/grant checks before implementation. Additional suffix/order/cursor property and confidential API actor/capability assertions pass with existing projection/API/transcript tests: 127 tests +3 properties. Serena overview still empty for Elixir so targeted bounded reads/searches used. Per-turn wire integration, old-message association/concurrent bounds, failed reads/budget and lifecycle synchronization remain pending; this is not completion of .5.",
+      "timestamp": "2026-10-08T10:43:55Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.5] Fixed-cursor per-turn history refresh and explicit steering",
   "type": "task",
-  "updated_at": "2026-10-08T10:31:34Z"
+  "updated_at": "2026-10-08T10:43:55Z"
 }
