@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-emb.28.1"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-emb.28",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-emb.28] Project authorized private execution telemetry into persisted message information",
   "type": "bug",
-  "updated_at": "2026-10-08T18:02:02Z"
+  "updated_at": "2026-10-08T19:38:54Z"
 }
