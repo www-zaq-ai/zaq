@@ -13,8 +13,8 @@
   "labels": [],
   "parent": "zaq-emb",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-emb.7] Stop person-bound channel and thread runtimes on removal",
   "type": "task",
-  "updated_at": "2026-10-07T20:23:53Z"
+  "updated_at": "2026-10-08T12:59:00Z"
 }
