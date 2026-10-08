@@ -43,11 +43,15 @@
     {
       "text": "Terminal-input race regression fixed and committed 229189f1: previously queue refusal rolled back or never wrote a late input disposition, leaving pending private state. Existing Engine queue/lifecycle now commit authenticated same-transcript late inputs as child unconsumed with terminal_request reason before returning rejection; replay preserves bytes and foreign actor/forged capability cannot mutate them. Reuse existing transaction/lifecycle, local-only not a new Action/tool. 106 tests + 2 properties, mix q/diff and commit hooks pass. B3 remains in_progress for control rejection evidence and remaining race/accounting coverage.",
       "timestamp": "2026-10-08T08:57:21Z"
+    },
+    {
+      "text": "Runtime-rejection disposition substep committed 9655b1ac. Tests first failed on missing confidential reject dispatch. Existing receipt lifecycle now seals queued inputs rejected by actual Jido and preserves consumed/unconsumed evidence on replay; bounded reason categories exclude arbitrary private diagnostics. RequestControl records Engine evidence before returning runtime rejection and catches PID exits after queueing. Real-Jido provider/explicit acceptance deliberately uses a stale request handle to prove actual refusal + durable unconsumed record, then validates normal correction consumption and single root answer; no internal service mocks. 107 tests + 3 properties including monotonicity/idempotency property passed; mix q/diff/hooks green. B3 still open pending remaining accounting, sealing/replay/ownership/race review; no push/merge.",
+      "timestamp": "2026-10-08T09:05:30Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T08:57:21Z"
+  "updated_at": "2026-10-08T09:05:30Z"
 }
