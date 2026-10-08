@@ -31,11 +31,15 @@
     {
       "text": "Consumption substep committed ad2b2475. Regression-first durable queued/consumed/terminal-unconsumed transitions fence finalization with stable ordered input locks; canonical controls require a separate admitted binding and exact content, current literal Person and same authorized transcript. StreamEvents consumes the real input_injected event. Strengthened real-provider/Jido/tool acceptance uses an external LLM barrier, queues canonical steering through Agent API, inspects unchanged request prefix + exact tool call/output + correction, and asserts consumed private child with one root public answer and replay. This exposed Jido control accepting extra_refs rather than refs; corrected actual contract, no synthetic consumed acknowledgement. Strict external continuation fixture preserves protocol/content assertions; shared ToolCallingLLMStub defaults unchanged. Latest 546 tests + 14 properties, mix q, diff check and commit hooks pass. Remaining B3 automatic same-Person busy routing, explicit rejection/finalizing dispositions and race/failure/accounting completion remain open; do not close B3 on this substep.",
       "timestamp": "2026-10-08T08:25:44Z"
+    },
+    {
+      "text": "Shared control extraction committed 3340f3e8 after 96 tests + 1 property and mix q/hooks/diff checks passed. RequestControl owns the same existing authorization/PID/queue/Jido control flow formerly private in Agent.Api; obsolete API copies removed. Local-only lifecycle boundary, not a new Action/tool: prepares automatic busy-input consumer reuse without an Executor -\u003e Agent.Api cycle or duplicated policy. Next regression: provider-ingressed own-Person input while a canonical root is blocked must queue/consume under that root with no second reply; keep unscoped legacy busy behavior intact.",
+      "timestamp": "2026-10-08T08:32:52Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T08:25:44Z"
+  "updated_at": "2026-10-08T08:32:52Z"
 }
