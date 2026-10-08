@@ -9,9 +9,15 @@
   "id": "zaq-emb.30.5",
   "labels": [],
   "parent": "zaq-emb.30",
+  "comments": [
+    {
+      "text": "B4 full-path acceptance completed in 2fcb5860 on top of validated B1-B3. Three actual provider-ingress/Jido/registered-tool flows cover explicit controls, provider mentions and missing-root thread with retained parent/reply content; actual LLM wire prefix/attribution/root+current-input dedup/private exclusion and correctly paired tool output/correction checked. Missing root remains absent, no provider/admin thread fetch. Exact trusted Person/scope/agent/live PID checked. Actual 2-turn usage (10 prompt/2 completion/12 total) persists privately, public counters/trace absent, existing worker accounts it once with retry-safe totals. One root answer, consumed/no-answer children, exact connector/channel/thread delivery, confirmed placement and replay checked. Root/receipt stale-handle, real DB failed queue persistence, overflow/failure-sealing and independent-PG-lock race companions remain green. Focused 46 tests + 2 properties; preservation matrix additional 220 tests + 6 properties (Person merge, audience/admin/projection/missing-root BO/provider404, Channels query budgets, Factory timeout/live removal); previously 608 tests + 17 properties + 6 doctests and delivery/rating 54 + 3 properties passed. Existing transcript/admission query assertions unchanged. mix q/diff/commit hooks green; no internal mocks in acceptance and no obsolete unique legacy coverage removed. This is first-leg acceptance only: .5 fixed-cursor refresh, .16 warm boundary synchronization, .7 runtime removal, .8 terminal delivery and separate PR B human/E2E/coverage/final gates remain open. No publication.",
+      "timestamp": "2026-10-08T10:30:53Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.5] B4 — complete full-path acceptance and regression preservation",
   "type": "task",
-  "updated_at": "2026-10-08T10:20:45Z"
+  "updated_at": "2026-10-08T10:30:53Z"
 }
