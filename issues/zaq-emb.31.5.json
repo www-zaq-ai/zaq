@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-08T20:44:52Z",
+  "description": "Renewed final10file matrix seed625180tests8properties1failure: Replicated concurrent People await_committed_delivery5s timeout. Earlier Direct followup625 and Replicated concurrency104729 showed same surface; three9file matrices,2355test preservation and fresh328test database then passed. Recurrence invalidates ready-for-human handoff. Keep assertions/deadlines unchanged; inspect exact persisted root/finalization/confirmed-placement and actual task outcome at failure to distinguish production delivery loss from commit observer race. Real NodeRouter/Jido/provider model edge fixtures only. Do not treat completed generation as delivery, waive intermittent failures, broaden scope, push or request .32 approval while unresolved. Reuse existing lifecycle/delivery ownership; fix owning A/B according to diagnosis.",
+  "id": "zaq-emb.31.5",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.31] Diagnose intermittent committed-delivery wait in real concurrency",
+  "type": "bug",
+  "updated_at": "2026-10-08T20:44:52Z"
+}
