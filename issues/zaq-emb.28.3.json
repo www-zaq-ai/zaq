@@ -2,6 +2,7 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-10-08T20:14:42Z",
   "created": "2026-10-08T19:54:38Z",
   "description": "Newly reachable strong persisted modal details assertion exposed a completed add trace with nil arguments during expanded seed625 run. Keep exact modal argument/result assertions. Investigate duplicate/late tool_started/native completion reduction in owning Agent.StreamEvents; preserve first known arguments and terminal result/status, correlate by call ID, avoid duplicate completed trace rows. Add deterministic/property regressions, exercise unchanged real ingress/model/tool/modal group with multiple seeds. Reuse existing reducer; no extra emitter/execution path/new Action. PR B owner. No weakening assertions or public telemetry persistence.",
   "id": "zaq-emb.28.3",
@@ -14,8 +15,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.28] Preserve correlated tool arguments across reordered native events",
   "type": "bug",
-  "updated_at": "2026-10-08T20:14:38Z"
+  "updated_at": "2026-10-08T20:14:42Z"
 }
