@@ -27,11 +27,15 @@
     {
       "text": "Control authorization committed 6fd8a868: missing/foreign principal request keys no longer expose private registry state or authorize Factory calls; supplied scope mismatch denies; Person controls revalidate active literal identity and current canonical grants through confidential Engine dispatch. Immutable registry input UUID replaces raw-token retention. Regression-first denial test and real Engine grant-revocation/inspection test pass; 164 tests + 5 properties including full authorized_execution acceptance passed. mix q and commit hooks pass (corrected final formatter-only layout after index hook). Next durable receipt state transitions plus Jido consumption and busy routing; B3 remains open.",
       "timestamp": "2026-10-08T08:05:39Z"
+    },
+    {
+      "text": "Consumption substep committed ad2b2475. Regression-first durable queued/consumed/terminal-unconsumed transitions fence finalization with stable ordered input locks; canonical controls require a separate admitted binding and exact content, current literal Person and same authorized transcript. StreamEvents consumes the real input_injected event. Strengthened real-provider/Jido/tool acceptance uses an external LLM barrier, queues canonical steering through Agent API, inspects unchanged request prefix + exact tool call/output + correction, and asserts consumed private child with one root public answer and replay. This exposed Jido control accepting extra_refs rather than refs; corrected actual contract, no synthetic consumed acknowledgement. Strict external continuation fixture preserves protocol/content assertions; shared ToolCallingLLMStub defaults unchanged. Latest 546 tests + 14 properties, mix q, diff check and commit hooks pass. Remaining B3 automatic same-Person busy routing, explicit rejection/finalizing dispositions and race/failure/accounting completion remain open; do not close B3 on this substep.",
+      "timestamp": "2026-10-08T08:25:44Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T08:05:39Z"
+  "updated_at": "2026-10-08T08:25:44Z"
 }
