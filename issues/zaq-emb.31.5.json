@@ -7,9 +7,15 @@
   "id": "zaq-emb.31.5",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Diagnosed using temporary exact native return/exception tracing (no router/model internals mocked): both roots completed, SMTP receipt confirmed for both, but HistoryIngress.capture_confirmed raised DBConnection.ConnectionError reason queue_timeout on the shared SQL Sandbox owner after136ms. Delivery correctly retained transport confirmation and reported history_capture unavailable; only other answer had placements. Thus not an observer bug or missingSMTPsend: test-only single-connection queue starvation. Default Ownership.Proxy queue_target50ms doubles to100ms while genuine concurrent pipeline transactions contend for the shared owner. Plan: increase only test Repo queue_target to1000ms, retaining physical/query budgets and all5second completion assertions; normal production config unchanged, no swallowed errors or fabricated receipt. Remove all diagnostic tracing/printing before validation. Action assessment: test-infrastructure configuration, no executable domain operation/newAction. Need repeated isolated concurrent/Direct follow-up and full preserved validation; readiness remains blocked until green.",
+      "timestamp": "2026-10-08T21:03:42Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] Diagnose intermittent committed-delivery wait in real concurrency",
   "type": "bug",
-  "updated_at": "2026-10-08T20:44:58Z"
+  "updated_at": "2026-10-08T21:03:42Z"
 }
