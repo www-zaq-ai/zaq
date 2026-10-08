@@ -23,6 +23,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
+  alias Zaq.Repo
 
   @markdown """
   # Deployment status
@@ -180,6 +181,56 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
       assert email.subject == "Metadata"
       assert email.html_body =~ "<strong>hi</strong>"
     end
+
+    test "unscoped email selects the designated SMTP default rather than another account" do
+      upsert_smtp_channel(%{settings: smtp_settings(%{"from_email" => "first@example.com"})})
+      second = insert_smtp_channel("second@example.com")
+      assert {:ok, %{id: id}} = ChannelConfig.set_default_smtp_connector(second.id)
+      assert id == second.id
+
+      assert {:ok, _} = deliver("hello", %{"subject" => "Selected account"})
+      assert_receive {:email, email}
+      assert email.from == {"ZAQ", "second@example.com"}
+      refute email.from == {"ZAQ", "first@example.com"}
+    end
+
+    test "unscoped email with multiple SMTP accounts and no default fails closed" do
+      upsert_smtp_channel()
+      insert_smtp_channel("second@example.com")
+
+      assert {:error, :ambiguous_connector} = deliver("hello", %{"subject" => "Ambiguous"})
+      refute_received {:email, _}
+    end
+
+    test "archived SMTP default cannot be replaced by another account during delivery" do
+      first = upsert_smtp_channel()
+      assert {:ok, _} = ChannelConfig.set_default_smtp_connector(first.id)
+      assert {:ok, _} = ChannelConfig.archive(first)
+      insert_smtp_channel("second@example.com")
+
+      assert {:error, :missing_default_smtp_connector} =
+               deliver("hello", %{"subject" => "Archived default"})
+
+      refute_received {:email, _}
+    end
+
+    test "explicit SMTP connector ID cannot masquerade as an IMAP reply" do
+      smtp = insert_smtp_channel("second@example.com")
+
+      outgoing = %Outgoing{
+        body: "hello",
+        channel_id: "ops@example.com",
+        provider: :"email:imap",
+        routing_context: %Zaq.Engine.Messages.Incoming.RoutingContext{channel_config_id: smtp.id}
+      }
+
+      event = Event.new(outgoing, :channels, opts: [action: :deliver_outgoing])
+
+      assert {:error, :connector_mismatch} =
+               Api.handle_event(event, :deliver_outgoing, nil).response
+
+      refute_received {:email, _}
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -228,9 +279,23 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
       settings: smtp_settings()
     }
 
-    assert {:ok, _channel} =
+    assert {:ok, channel} =
              ChannelConfig.upsert_by_provider("email:smtp", Map.merge(defaults, attrs))
 
-    :ok
+    channel
+  end
+
+  defp insert_smtp_channel(from_email) do
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(%{
+      name: "SMTP #{from_email}",
+      provider: "email:smtp",
+      kind: "retrieval",
+      url: "smtp://localhost",
+      token: "test-token",
+      enabled: true,
+      settings: smtp_settings(%{"from_email" => from_email})
+    })
+    |> Repo.insert!()
   end
 end

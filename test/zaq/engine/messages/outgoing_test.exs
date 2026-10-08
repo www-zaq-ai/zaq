@@ -2,6 +2,23 @@ defmodule Zaq.Engine.Messages.OutgoingTest do
   use ExUnit.Case, async: true
 
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
+
+  test "from_pipeline_result preserves stamped routing independently of metadata" do
+    context = %RoutingContext{channel_config_id: 42}
+
+    incoming = %Incoming{
+      content: "hello",
+      channel_id: "c1",
+      provider: :mattermost,
+      routing_context: context,
+      metadata: %{channel_config_id: 99}
+    }
+
+    outgoing = Outgoing.from_pipeline_result(incoming, %{answer: "ok"})
+    assert outgoing.routing_context == context
+    assert outgoing.metadata.channel_config_id == 99
+  end
 
   test "from_pipeline_result carries canonical person in metadata" do
     incoming = %Incoming{

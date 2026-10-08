@@ -49,11 +49,10 @@ defmodule Zaq.Channels.Api do
     bridge_module = bridge_module(event)
 
     with {:ok, outgoing} <- outgoing_from_event(event),
-         {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider) do
+         {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider),
+         {:ok, connection_details} <- delivery_connection(bridge_module, outgoing) do
       outgoing =
         outgoing |> maybe_attach_status_message_id() |> MessageFormatter.format_outgoing()
-
-      connection_details = bridge_module.fetch_connection_details(outgoing.provider)
 
       response =
         outgoing
@@ -98,40 +97,33 @@ defmodule Zaq.Channels.Api do
          :ok <- validate_upsert_outgoing(outgoing),
          :ok <- validate_update_intent(upsert_update_intent(outgoing)),
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider),
-         true <- supports_callback?(bridge, :upsert_message, 3) || {:error, :unsupported} do
-      config = bridge_module.fetch_channel_config(outgoing.provider)
-      details = bridge_module.fetch_connection_details(outgoing.provider)
-
+         true <- supports_callback?(bridge, :upsert_message, 3) || {:error, :unsupported},
+         {:ok, config, details} <- upsert_connection(bridge_module, outgoing) do
       formatted_outgoing =
         outgoing
         |> maybe_attach_status_message_id()
         |> MessageFormatter.format_outgoing()
 
-      case normalize_upsert_config(outgoing.provider, config) do
-        {:ok, cfg} ->
-          response =
-            bridge.upsert_message(cfg, outgoing_to_upsert_request(formatted_outgoing), details)
+      response =
+        bridge.upsert_message(config, outgoing_to_upsert_request(formatted_outgoing), details)
 
-          %{event | response: response}
-
-        {:error, reason} ->
-          %{event | response: {:error, reason}}
-      end
+      %{event | response: response}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
     end
   end
 
   def handle_event(
-        %Event{request: %{provider: provider, author_id: author_id}} = event,
+        %Event{request: %{provider: provider, author_id: author_id} = request} = event,
         :fetch_profile,
         _context
       ) do
     bridge_module = bridge_module(event)
 
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
-         true <- supports_callback?(bridge, :fetch_profile, 2) || {:error, :unsupported} do
-      details = Map.put(bridge_module.fetch_connection_details(provider), :provider, provider)
+         true <- supports_callback?(bridge, :fetch_profile, 2) || {:error, :unsupported},
+         {:ok, _config, details} <- identity_connection(bridge_module, provider, request) do
+      details = Map.put(details, :provider, provider)
       %{event | response: bridge.fetch_profile(author_id, details)}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
@@ -139,7 +131,7 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
-        %Event{request: %{provider: provider, author_id: author_id}} = event,
+        %Event{request: %{provider: provider, author_id: author_id} = request} = event,
         :open_dm_channel,
         _context
       ) do
@@ -147,11 +139,11 @@ defmodule Zaq.Channels.Api do
 
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
          true <- supports_callback?(bridge, :open_dm_channel, 2) || {:error, :unsupported},
-         {:ok, config} <- bridge_module.fetch_channel_config(provider) do
+         {:ok, config, details} <- identity_connection(bridge_module, provider, request) do
       bot_user_id = ChannelConfig.jido_chat_bot_user_id(config)
 
       details =
-        bridge_module.fetch_connection_details(provider)
+        details
         |> Map.put(:provider, provider)
         |> Map.put(:bot_user_id, bot_user_id)
 
@@ -202,6 +194,20 @@ defmodule Zaq.Channels.Api do
       ) do
     runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
     %{event | response: runtime_module.sync_provider_runtime(provider)}
+  end
+
+  def handle_event(
+        %Event{request: %{channel_config_id: id}} = event,
+        :archive_channel_config,
+        _context
+      ) do
+    response =
+      case ChannelConfig.get(id) do
+        %ChannelConfig{} = config -> ChannelConfig.archive(config)
+        _ -> {:error, :channel_config_not_found}
+      end
+
+    %{event | response: response}
   end
 
   def handle_event(
@@ -641,7 +647,8 @@ defmodule Zaq.Channels.Api do
       end
 
     handler_module = Keyword.get(event.opts, module_key, default_module)
-    %{event | response: handler_module.handle_webhook(provider, payload)}
+    config_id = Map.get(event.request, :config_id)
+    %{event | response: dispatch_webhook(handler_module, provider, payload, config_id)}
   end
 
   def handle_event(%Event{request: %{platform: platform}} = event, :bridge_available, _context)
@@ -795,6 +802,18 @@ defmodule Zaq.Channels.Api do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
 
+  defp dispatch_webhook(module, provider, payload, nil),
+    do: module.handle_webhook(provider, payload)
+
+  defp dispatch_webhook(module, provider, payload, id) when is_integer(id) and id > 0 do
+    if function_exported?(module, :handle_webhook, 3),
+      do: module.handle_webhook(provider, payload, id),
+      else: {:error, :unsupported_scoped_webhook}
+  end
+
+  defp dispatch_webhook(_module, _provider, _payload, _id),
+    do: {:error, :invalid_connector_id}
+
   defp outgoing_from_event(%Event{request: %Outgoing{} = outgoing}), do: {:ok, outgoing}
   defp outgoing_from_event(%Event{response: %Outgoing{} = outgoing}), do: {:ok, outgoing}
   defp outgoing_from_event(_event), do: {:error, {:invalid_request, :missing_outgoing_payload}}
@@ -812,6 +831,83 @@ defmodule Zaq.Channels.Api do
     case bridge_module.bridge_for(provider) do
       nil -> {:error, {:no_bridge, provider}}
       bridge -> {:ok, bridge}
+    end
+  end
+
+  defp identity_connection(bridge_module, provider, %{channel_config_id: id})
+       when is_integer(id) and id > 0 do
+    with {:ok, config} <- bridge_module.fetch_channel_config(provider, id) do
+      {:ok, config, bridge_module.fetch_connection_details_for_config(config)}
+    end
+  end
+
+  defp identity_connection(bridge_module, provider, %{channel_config_id: nil}),
+    do: identity_connection(bridge_module, provider, %{})
+
+  defp identity_connection(_bridge_module, _provider, %{channel_config_id: _}),
+    do: {:error, :invalid_connector_id}
+
+  defp identity_connection(bridge_module, provider, _request) do
+    with {:ok, config} <- bridge_module.fetch_channel_config(provider) do
+      {:ok, config, bridge_module.fetch_connection_details(provider)}
+    end
+  end
+
+  defp delivery_connection(bridge_module, %Outgoing{
+         provider: provider,
+         routing_context: %{channel_config_id: id}
+       })
+       when is_integer(id) and id > 0 do
+    with {:ok, config} <- bridge_module.fetch_channel_config(provider, id) do
+      {:ok, bridge_module.fetch_connection_details_for_config(config)}
+    end
+  end
+
+  defp delivery_connection(_bridge_module, %Outgoing{routing_context: %{channel_config_id: id}})
+       when not is_nil(id), do: {:error, :invalid_connector_id}
+
+  # EmailBridge chooses the SMTP notification default (or the sole SMTP account)
+  # for unscoped sends and resolves IMAP-bound replies itself. There is no
+  # connector stored under the generic :email provider; requiring one here
+  # would prevent the bridge from applying its account-selection policy.
+  defp delivery_connection(bridge_module, %Outgoing{provider: provider})
+       when provider in [
+              :email,
+              "email",
+              :"email:smtp",
+              "email:smtp",
+              :"email:imap",
+              "email:imap"
+            ],
+       do: {:ok, bridge_module.fetch_connection_details(provider)}
+
+  defp delivery_connection(bridge_module, %Outgoing{provider: provider})
+       when provider in [:web, "web"],
+       do: {:ok, bridge_module.fetch_connection_details(provider)}
+
+  defp delivery_connection(bridge_module, %Outgoing{provider: provider}) do
+    with {:ok, _config} <- bridge_module.fetch_channel_config(provider) do
+      {:ok, bridge_module.fetch_connection_details(provider)}
+    end
+  end
+
+  defp upsert_connection(bridge_module, %Outgoing{
+         provider: provider,
+         routing_context: %{channel_config_id: id}
+       })
+       when is_integer(id) and id > 0 do
+    with {:ok, config} <- bridge_module.fetch_channel_config(provider, id) do
+      {:ok, config, bridge_module.fetch_connection_details_for_config(config)}
+    end
+  end
+
+  defp upsert_connection(_bridge_module, %Outgoing{routing_context: %{channel_config_id: id}})
+       when not is_nil(id), do: {:error, :invalid_connector_id}
+
+  defp upsert_connection(bridge_module, %Outgoing{provider: provider}) do
+    with {:ok, config} <-
+           normalize_upsert_config(provider, bridge_module.fetch_channel_config(provider)) do
+      {:ok, config, bridge_module.fetch_connection_details(provider)}
     end
   end
 

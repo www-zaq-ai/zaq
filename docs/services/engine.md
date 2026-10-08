@@ -48,6 +48,13 @@ ROLES=engine iex --sname engine@localhost --cookie zaq_dev -S mix
 
 ### Conversations
 
+On channel ingress, `IncomingMessageRouter` resolves the author through the
+connector-scoped `IdentityResolver`; a valid prefilled channel Person in either
+`Incoming` or the event actor cannot substitute for that result. A malformed or
+conflicting identity still fails execution validation. BO web chat may supply
+its internally trusted session-derived Person. See the ingress trust scope in
+[Channels](channels.md); the Event envelope itself is not caller attestation.
+
 ```
 Channel adapter or BO chat
   → Zaq.Engine.Conversations.persist_from_incoming/2

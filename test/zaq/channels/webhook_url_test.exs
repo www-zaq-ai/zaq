@@ -41,4 +41,14 @@ defmodule Zaq.Channels.WebhookUrlTest do
     assert WebhookUrl.build(:conversation, "mattermost") ==
              "https://zaq.example/base/channels/webhook/conversation/mattermost"
   end
+
+  test "build scopes provider webhook URL to an explicit connector" do
+    :ok = System.set_global_base_url("https://zaq.example")
+
+    assert WebhookUrl.build(:conversation, :mattermost, 42) ==
+             "https://zaq.example/channels/webhook/conversation/mattermost/42"
+
+    assert WebhookUrl.build(:conversation, :mattermost, 0) == nil
+    assert WebhookUrl.build(:conversation, :mattermost, "other/connector") == nil
+  end
 end

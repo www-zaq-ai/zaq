@@ -2,23 +2,48 @@ defmodule Zaq.Channels.ApiTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Channels.Api
+  alias Zaq.Channels.Bridge
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
   alias Zaq.HttpRequest
+  alias Zaq.Repo
   alias Zaq.Types.EncryptedString
+
+  defp insert_config(provider) do
+    value = System.unique_integer([:positive])
+
+    %ChannelConfig{}
+    |> ChannelConfig.changeset(%{
+      name: "#{provider}-#{value}",
+      provider: to_string(provider),
+      kind: "retrieval",
+      url: "https://#{value}.example.invalid",
+      token: "token-#{value}",
+      enabled: true
+    })
+    |> Repo.insert!()
+  end
 
   defmodule MaliciousHttpModule do
     def request(_request, _opts), do: {:ok, :bypassed}
   end
 
   defmodule StubCommunicationBridge do
+    alias Zaq.Channels.Bridge
+
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
     def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
     def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
+
+    def fetch_channel_config(provider, id),
+      do: Bridge.fetch_channel_config(provider, id)
+
+    def fetch_connection_details_for_config(config),
+      do: Bridge.fetch_connection_details_for_config(config)
 
     def materialize_record(request, opts) do
       send(self(), {:materialize_record, request, opts})
@@ -130,6 +155,20 @@ defmodule Zaq.Channels.ApiTest do
       send(self(), {:bridge_channel_ingress_status, config})
       {:ok, %{status: :ok, mode: "websocket", summary: "running"}}
     end
+  end
+
+  defmodule StubReplyTimeoutBridge do
+    def send_reply(%Outgoing{} = outgoing, _details) do
+      send(self(), {:attempted_final_delivery, outgoing})
+      {:error, :timeout}
+    end
+  end
+
+  defmodule StubCommunicationReplyTimeout do
+    def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubReplyTimeoutBridge
+    def bridge_for(provider, _opts), do: bridge_for(provider)
+    def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
+    def fetch_connection_details(_provider), do: %{}
   end
 
   defmodule StubBridgeNoCallbacks do
@@ -332,6 +371,11 @@ defmodule Zaq.Channels.ApiTest do
       send(self(), {:comm_handle_webhook, provider, payload})
       {:ok, %{provider: provider, handled: true}}
     end
+
+    def handle_webhook(provider, payload, config_id) do
+      send(self(), {:comm_handle_scoped_webhook, provider, payload, config_id})
+      {:ok, %{connector: config_id, handled: true}}
+    end
   end
 
   defmodule StubCommunicationWebhookPassthroughBridge do
@@ -366,6 +410,56 @@ defmodule Zaq.Channels.ApiTest do
 
     assert %Outgoing{metadata: %{format: :markdown}} = delivered_outgoing
     assert %{delivered_outgoing | metadata: %{}} == outgoing
+  end
+
+  test "final channel delivery reports transport timeout even when the outgoing answer exists" do
+    outgoing = %Outgoing{
+      body: "5 in Arabic is ٥ — pronounced khamsa (خمسة).",
+      channel_id: "c1",
+      provider: :mattermost
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationReplyTimeout]
+      )
+
+    delivered = Api.handle_event(event, :deliver_outgoing, nil)
+
+    assert delivered.response == {:error, :timeout}
+
+    assert_received {:attempted_final_delivery,
+                     %Outgoing{body: "5 in Arabic is ٥ — pronounced khamsa (خمسة)."}}
+  end
+
+  test "reply to one of two provider connectors uses its ingress routing context" do
+    first = insert_config(:mattermost)
+    second = insert_config(:mattermost)
+
+    outgoing = %Outgoing{
+      body: "ok",
+      channel_id: "c1",
+      provider: :mattermost,
+      routing_context: %Zaq.Engine.Messages.Incoming.RoutingContext{channel_config_id: second.id}
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+      )
+
+    assert {:ok, %{}} = Api.handle_event(event, :deliver_outgoing, nil).response
+    assert_received {:bridge_send_reply, _, details}
+    assert details.url == second.url
+    refute details.url == first.url
+
+    unscoped = %{outgoing | routing_context: %Zaq.Engine.Messages.Incoming.RoutingContext{}}
+
+    legacy =
+      Event.new(unscoped, :channels, opts: [action: :deliver_outgoing, bridge_module: Bridge])
+
+    assert {:error, :ambiguous_connector} =
+             Api.handle_event(legacy, :deliver_outgoing, nil).response
   end
 
   test "deliver_outgoing injects status_message_id into message_id" do
@@ -451,6 +545,30 @@ defmodule Zaq.Channels.ApiTest do
                      %{url: "https://example.test", token: "token"}}
 
     assert Map.take(bridged_request, Map.keys(request)) == request
+  end
+
+  test "status upsert selects the same provider connector as its request" do
+    first = insert_config(:mattermost)
+    second = insert_config(:mattermost)
+
+    outgoing = %Outgoing{
+      provider: :mattermost,
+      channel_id: "c1",
+      body: "partial",
+      metadata: %{request_id: "r1"},
+      routing_context: %Zaq.Engine.Messages.Incoming.RoutingContext{channel_config_id: second.id}
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [action: :upsert_message, bridge_module: StubCommunicationBridge]
+      )
+
+    assert {:ok, _} = Api.handle_event(event, :upsert_message, nil).response
+    assert_received {:bridge_upsert_message, config, _, details}
+    assert config.id == second.id
+    assert details.url == second.url
+    refute details.url == first.url
   end
 
   test "upsert_message maps status_message_id into message_id" do
@@ -1316,6 +1434,26 @@ defmodule Zaq.Channels.ApiTest do
     assert_received {:comm_handle_webhook, "slack", ^payload}
   end
 
+  test "forwards connector-scoped conversation webhook without using provider-only handler" do
+    payload = %{"path" => "/channels/webhook/conversation/slack/42"}
+
+    event =
+      Event.new(
+        %{type: "conversation", provider: "slack", config_id: 42, payload: payload},
+        :channels,
+        opts: [
+          action: :webhook_delivered,
+          communication_bridge_module: StubCommunicationWebhookBridge
+        ]
+      )
+
+    assert %{response: {:ok, %{connector: 42}}} =
+             Api.handle_event(event, :webhook_delivered, nil)
+
+    assert_received {:comm_handle_scoped_webhook, "slack", ^payload, 42}
+    refute_received {:comm_handle_webhook, _, _}
+  end
+
   test "passes through conversation webhook response payload" do
     payload = %{"headers" => %{"x-test" => "1"}, "params" => %{"event" => "message"}}
 
@@ -1507,6 +1645,48 @@ defmodule Zaq.Channels.ApiTest do
     assert result.response == {:ok, %{id: "user-1"}}
     assert_received {:bridge_fetch_profile, "user-1", details}
     assert details.provider == :mattermost
+  end
+
+  test "profile and DM lookup use the selected connector's credentials" do
+    first = insert_config(:mattermost)
+    second = insert_config(:mattermost)
+
+    for action <- [:fetch_profile, :open_dm_channel] do
+      event =
+        Event.new(
+          %{provider: :mattermost, author_id: "user-1", channel_config_id: second.id},
+          :channels,
+          opts: [action: action, bridge_module: StubCommunicationBridge]
+        )
+
+      assert {:ok, _} = Api.handle_event(event, action, nil).response
+
+      details =
+        case action do
+          :fetch_profile ->
+            assert_received {:bridge_fetch_profile, "user-1", details}
+            details
+
+          :open_dm_channel ->
+            assert_received {:bridge_open_dm_channel, "user-1", details}
+            details
+        end
+
+      assert details.token ==
+               Bridge.fetch_connection_details_for_config(second).token
+
+      assert details.url == second.url
+      refute details.url == first.url
+    end
+
+    wrong =
+      Event.new(
+        %{provider: :slack, author_id: "user-1", channel_config_id: second.id},
+        :channels,
+        opts: [action: :fetch_profile, bridge_module: StubCommunicationBridge]
+      )
+
+    assert {:error, :connector_mismatch} = Api.handle_event(wrong, :fetch_profile, nil).response
   end
 
   test "fetch_profile returns unsupported when callback is missing" do

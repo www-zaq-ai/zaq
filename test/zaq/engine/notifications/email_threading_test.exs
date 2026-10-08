@@ -66,8 +66,11 @@ defmodule Zaq.Engine.Notifications.EmailThreadingTest do
 
   # Chat-channel stub: a bridge without receipts, returning bare `:ok`.
   defmodule CapturingChatBridge do
+    alias Zaq.Channels.Bridge
+
     def bridge_for(_provider), do: __MODULE__
     def fetch_connection_details(_provider), do: %{}
+    def fetch_channel_config(provider), do: Bridge.fetch_channel_config(provider)
 
     def send_reply(%Outgoing{} = outgoing, _connection_details) do
       send(self(), {:delivered, outgoing})

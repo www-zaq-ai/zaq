@@ -121,6 +121,77 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
     assert has_element?(view, "button[phx-click='activate']")
   end
 
+  test "multiple IMAP accounts require explicit connector selection", %{conn: conn} do
+    insert_smtp_enabled()
+    first = insert_imap_channel(%{name: "First inbox", url: "first.example.com"})
+
+    second =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Second inbox",
+        provider: "email:imap",
+        kind: "retrieval",
+        url: "second.example.com",
+        token: "imap-secret",
+        enabled: false,
+        settings: %{
+          "imap" => %{"username" => "second@example.com", "selected_mailboxes" => ["INBOX"]}
+        }
+      })
+      |> Repo.insert!()
+
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+    refute has_element?(view, "#imap-config-form")
+    assert has_element?(view, "#imap-connector-#{first.id}")
+
+    view
+    |> element("#imap-connector-#{second.id} [phx-click='select_connector']")
+    |> render_click()
+
+    assert has_element?(
+             view,
+             "#imap-config-form input[name='imap_config[url]'][value='second.example.com']"
+           )
+  end
+
+  test "selected IMAP inbox persists an explicit SMTP reply connector", %{conn: conn} do
+    insert_smtp_enabled()
+    smtp = ChannelConfig.get_by_provider("email:smtp")
+    imap = insert_imap_channel(%{name: "Shared inbox", enabled: true})
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    assert has_element?(view, "#imap-reply-smtp-select option[value='#{smtp.id}']")
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{
+      "imap_config" => %{
+        "url" => "imap.example.com",
+        "username" => "zaq@example.com",
+        "password" => "imap-secret",
+        "selected_mailboxes" => ["INBOX"],
+        "smtp_config_id" => to_string(smtp.id)
+      }
+    })
+
+    assert Repo.get!(ChannelConfig, imap.id).settings["imap"]["smtp_config_id"] == smtp.id
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{
+      "imap_config" => %{
+        "url" => "imap.example.com",
+        "username" => "zaq@example.com",
+        "password" => "imap-secret",
+        "selected_mailboxes" => ["INBOX"],
+        "smtp_config_id" => to_string(imap.id)
+      }
+    })
+
+    assert Repo.get!(ChannelConfig, imap.id).settings["imap"]["smtp_config_id"] == smtp.id
+    assert render(view) =~ "invalid_smtp_connector"
+  end
+
   test "renders mailbox and provider agent routing controls", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/imap")
 
