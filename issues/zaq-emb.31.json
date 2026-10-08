@@ -18,11 +18,15 @@
     {
       "text": "Integrated expansion found a real B regression before approval: actual Person-credential ingress provider rejection produces generic organization guidance instead of Person reconnect URL. Failing existing test person_credential_ingress_integration_test.exs:194 reproduces isolated. Executor with-else sees pre-projection execution_opts rather than the canonical Person scope; credential_dependency lookup and failed-runtime stop use the wrong opaque server ID. Reuse immutable StreamEvents runtime binding for error handling; expose execution_scope only in internal reducer result, never outgoing metadata. Fix on owning B branch, retain exact-PID stop and existing assertions. Broad Agent+Channels/Engine/People combined run also timed out after 600s; narrowed Channels/related suites produced 1162 tests/37 properties with two failures before deadline shutdown, one credential guidance and one rotation lifecycle to rerun isolated. No complete feature validation or human approval asserted.",
       "timestamp": "2026-10-08T15:02:21Z"
+    },
+    {
+      "text": "Owning-B follow-up regression: broader Channels sweep exposed two existing real MCP/tool trace journeys crashing on Ecto t.provider == nil. A legacy admitted message can have a connector-scoped conversation stamp while source_provider remains nil (untyped incoming facts). ExecutionHistory incorrectly required nil channel_config_id before taking its guarded legacy path. Added smaller public Conversations admission/history regression; verified red with exact Ecto ArgumentError. Extend existing nil-source classifier to all verified legacy conversations, retaining canonical-placement denial and owner/token checks; delta remains unauthorized for legacy. No provider-specific normalization or authorization bypass added. Person credential regression fix now passes 74 tests/2 properties, and default-answering sandbox failure passed isolated unchanged. Added execution-owner completion synchronization to Person credential test so it does not race association bookkeeping on the shared connection; all original assertions retained and failure runtime disposal/private internal scope assertions strengthened. Latest Channels + related Engine/People sweep completed 2111 tests/43 properties with only the two nil-source regressions; validate fixes next. Do not equate this with unrelated zaq-mcw/e8q global gate closures.",
+      "timestamp": "2026-10-08T15:25:26Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] PR B integrated validation and documentation",
   "type": "task",
-  "updated_at": "2026-10-08T15:02:21Z"
+  "updated_at": "2026-10-08T15:25:26Z"
 }
