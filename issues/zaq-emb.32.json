@@ -15,11 +15,15 @@
     {
       "text": "Reached explicit human behavior/UX gate after .31 at implementation 4fe3d6312. Await user approval or requested changes to Person-bound shared execution, own-author busy steering/private receipts, cumulative refresh/warm context/tool preservation, removal/output cancellation/manual-authorized restart, and persisted-generation versus confirmed terminal delivery including real receive timeout. Approval handoff docs/exec-plans/active/2026-10-08-handoff-history-b.md records scope and tests. No approver/date/acceptance asserted; .13.2 remains blocked. This gate is separate from prior PR A approval and final implementation approval/publication. A cancelled Firefox CI still needs authorized rerun.",
       "timestamp": "2026-10-08T15:56:28Z"
+    },
+    {
+      "text": "Approval-readiness handoff withdrawn after user-reported Shared authorization and private telemetry/modal regressions. Gate reopened to open/blocked behind zaq-emb.31; no human approval. Test-first matrix now records 17 red cases in 102 tests / 2 properties (seed625), with independently observed private measurements, modal traces/token values and multi-recipient reply authorization failures. Historical handoff has an explicit superseded notice. Do not start new B browser E2E or publication from earlier readiness claims.",
+      "timestamp": "2026-10-08T18:00:44Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.32] PR B explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-10-08T17:16:16Z"
+  "updated_at": "2026-10-08T18:00:44Z"
 }
