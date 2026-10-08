@@ -27,11 +27,15 @@
     {
       "text": "Lease ledger committed 8bc49ad2. Actual configured/Jido tests prove queued next caller cannot acquire before applied-op confirmation/cursor commit; lease owner/token/source vector cannot transfer/regress/reopen; stale completion never affects a new incarnation; owner exit or failed busy application invalidates instead of advancing; actor mismatch denied. Manager keeps scope lifecycle authority; internal HistoryLifecycle delegates only native mutation to Factory and owns no Engine/provider/storage access. Fresh incarnation ledger initializes from explicit history_cursors, never overwrite on warm ensure. Owner-monitor admission wait avoids independent 60s expiry during longer bounded native runs; same-owner reentry is rejected; draining/current-incarnation checks precede grant/apply. Existing exact empty cleanup assertions extended, optional old ledger cleanup follows preexisting credential-state compatibility. Monotonic/stale-token property passes. 130 tests +3 properties with mix q/diff/hooks pass. Executor/API handled-outcome integration remains next and is explicitly documented as pending; .16 in_progress, not a standalone synchronization guarantee and not published.",
       "timestamp": "2026-10-08T12:20:19Z"
+    },
+    {
+      "text": "Boundary wiring regression-first underway: extended existing actual provider/Jido three-turn acceptance to require released incorporated ledger and one retained canonical UUID per root/background/answer, then same-PID next request after D retaining both tool pairs. Preimplementation test failed missing ledger. Reuse assessment: Engine execution_history via confidential NodeRouter remains only grant/cursor/content authority; Factory remains only native mutation; HistoryLoader extends conversion with persisted answer UUID binding and completed-exchange classification. HistorySync is local-only lifecycle orchestration, not independently composable/exposed Action (process-owned exact-incarnation lease and API-held persistence continuation cannot safely become tools/workflow Actions). API session is an opaque local reference passed explicitly to Executor/Pipeline, never persisted or attached to outgoing metadata; ServerManager owns descriptors/leases and only returns the caller-owned session. API confirms successful persisted outcome before delta read/apply/release; unfinished scopes disposed in try/after, including direct canonical Executor calls with no persistence owner. Synchronization failure retains persisted delivery but disposes runtime. Pending tests for true persistence/admission races and failure branches; not complete.",
+      "timestamp": "2026-10-08T12:32:46Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.16] Request-boundary context and cursor synchronization",
   "type": "task",
-  "updated_at": "2026-10-08T12:20:19Z"
+  "updated_at": "2026-10-08T12:32:46Z"
 }
