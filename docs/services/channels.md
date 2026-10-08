@@ -30,6 +30,18 @@ BO web chat retains its internally trusted session-derived Person. This policy
 trusts internal event callers; it does not authenticate an arbitrary caller at
 `NodeRouter` or attest the event's stated provider/connector.
 
+The communication bridge also stamps a typed `routing_context.history_kind`
+from its configured adapter path, rather than copying an Incoming metadata or
+routing-context claim. Jido Chat's channel metadata distinguishes a DM from a
+room; missing kind stays unknown and does **not** default to Shared.
+`Jido.Chat.ChannelMeta.is_dm` defaults to false, so a typed metadata struct
+without an explicit room type is not room evidence. Claimed provider/room
+coordinates must match the configured bridge and received room. This is only a
+transport fact, not an access grant or a resolved Person: Engine resolves the
+actor after routing, and strategy consumers must use authorized transcript
+reads. Providers lacking trustworthy room metadata need adapter normalization
+before group history can be activated (`zaq-emb.14.2`).
+
 The unconsumed provider-multiplicity migration permits more than one connector
 with the same provider. `ChannelConfig.resolve_by_provider/2` accepts an explicit
 configuration ID and checks its provider and enabled status; provider-only
