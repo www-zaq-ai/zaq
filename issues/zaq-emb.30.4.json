@@ -39,11 +39,15 @@
     {
       "text": "Automatic busy steering committed 74838787 after 597 tests + 15 properties + 6 doctests, mix q, diff check and commit hooks passed. Provider-mention regression first failed to queue; real Jido busy refusal arrives through stream as well as ask admission, both handled by the shared control path. Correct mention fixture includes @zaq rather than relying on raw event mentions alone. Stronger acceptance also exposed unwanted second status posts: Agent admission now checks guard and queues verified same-Person input before new status side effects; queued result stops return hop without public finalization. Exact configured-agent/PID filters and frozen agent identity prevent same-scope cross-runtime steering; legacy busy rejection remains green. Explicit-control and actual provider-mention variants preserve exact actual LLM prefix/tool/result/correction and one public answer. Next B3 terminal/rejection private dispositions and remaining accounting/race checks before completion; no claim that all PR B is done.",
       "timestamp": "2026-10-08T08:50:00Z"
+    },
+    {
+      "text": "Terminal-input race regression fixed and committed 229189f1: previously queue refusal rolled back or never wrote a late input disposition, leaving pending private state. Existing Engine queue/lifecycle now commit authenticated same-transcript late inputs as child unconsumed with terminal_request reason before returning rejection; replay preserves bytes and foreign actor/forged capability cannot mutate them. Reuse existing transaction/lifecycle, local-only not a new Action/tool. 106 tests + 2 properties, mix q/diff and commit hooks pass. B3 remains in_progress for control rejection evidence and remaining race/accounting coverage.",
+      "timestamp": "2026-10-08T08:57:21Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T08:50:00Z"
+  "updated_at": "2026-10-08T08:57:21Z"
 }
