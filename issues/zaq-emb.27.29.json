@@ -21,11 +21,15 @@
     {
       "text": "Pre-preservation self-review found overbroad ingress fence: MembershipOrder.members can represent targeted events/refresh, not only a complete room snapshot, so its absence check fenced unrelated never-observed senders after another member removal. Fix in owning A with tests first: retain removed member denial while allowing unrelated trusted first contact; distinguish full snapshot authority from targeted evidence. Preserve legacy conservative fallback where old partial/full state cannot be distinguished. Do not propagate fix to B until A validation passes.",
       "timestamp": "2026-10-08T20:16:09Z"
+    },
+    {
+      "text": "Scope follow-up validated and committed in owning A at fad3b046f, propagated to B by explicit local merge. New regressions proved targeted events/refreshes must not fence unrelated new senders; snapshot ordering state now retains full-vs-targeted evidence. Full/legacy-unknown snapshot authority stays conservative; known removed members remain fenced even on first observation; unrelated sender bootstrap succeeds. Added property for targeted/full transitions and legacy conservative upgrade. A six-file run seed104729257tests6properties0failures; mix q/hooks pass. No publication or base history rewrite.",
+      "timestamp": "2026-10-08T20:26:22Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.27] Restore trusted Shared sender admission without manual grant shortcuts",
   "type": "bug",
-  "updated_at": "2026-10-08T20:16:09Z"
+  "updated_at": "2026-10-08T20:26:22Z"
 }
