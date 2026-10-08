@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-08T17:17:32Z",
+  "description": "Run all new and preserved full-flow/regression tests without weakening assertions. Inventory each failure by ingress/auth/history/model/context/execution/delivery/private measurement/modal/replay stage; distinguish blocked assertions from observed failures. Define fixes in owning PR A/B only after tests established, no implementation of fixes in this pass. Reconcile approval/handoff readiness. Action reuse N/A: validation/planning only. Preserve separate human approval, browser E2E, coverage and final validation gates.",
+  "id": "zaq-emb.31.3",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.31] Record complete strategy failure inventory and owning fixes",
+  "type": "task",
+  "updated_at": "2026-10-08T17:17:32Z"
+}
