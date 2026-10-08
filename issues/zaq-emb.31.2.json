@@ -9,9 +9,15 @@
   "id": "zaq-emb.31.2",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Production provider_mention variant no longer inserts manual read grant; explicit-control/manual-access scenarios remain intact as a distinct supported contract. New active Shared/Direct/Replicated owner-followup cases pause the actual remote LLM, observe exact consumer/request native Jido input_injected via process-local receive tracing (confidential consume events are intentionally absent from PubSub), assert receipt ownership/consumption and one answer. Refreshed Shared other-author background and simultaneous Alice/Bob execution pass. Warm sequential requests preserve prior actual tool results/context. Existing cumulative three-turn, boundary persistence/revocation, overflow/sealing, removal, delayed delivery/504/native timeout tests were rerun unchanged. Expanded six-file seed625 matrix: 102 tests, 2 properties, 17 expected regression failures; no new steering or removal/delivery failures. Replicated second participant fails authorization before its first model request; downstream concurrent assertions remain blocked, not green.",
+      "timestamp": "2026-10-08T18:00:17Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] Strengthen live steering and cumulative context regressions",
   "type": "task",
-  "updated_at": "2026-10-08T17:59:12Z"
+  "updated_at": "2026-10-08T18:00:17Z"
 }
