@@ -7,9 +7,15 @@
   "id": "zaq-emb.28.3",
   "labels": [],
   "parent": "zaq-emb.28",
+  "comments": [
+    {
+      "text": "Implemented at09845927e. Minimal/property regressions proved repeated blank starts overwrite real args with json_safe(nil) string and late starts downgrade completed evidence. Existing StreamEvents reducer now preserves known arguments/result/status and upserts completed trace by call ID, maintaining timestamp nil behavior and existing public contracts. Action assessment: extend owning runtime reducer, local helper only; no independent operation/Action or emitter. Actual expanded9-file matrix seed0/625/104729 each173tests6properties0failures; new concrete case subsequently32tests4properties0failures; mix q/diffcheck/hooks pass. Two earlier delivery wait timeouts after telemetry changes failed once each (Direct followup625, Replicated concurrency104729), neither recurred in final3 matrix runs; noted under acceptance, not classified as proven production defect or silently waived.",
+      "timestamp": "2026-10-08T20:14:38Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.28] Preserve correlated tool arguments across reordered native events",
   "type": "bug",
-  "updated_at": "2026-10-08T19:54:42Z"
+  "updated_at": "2026-10-08T20:14:38Z"
 }
