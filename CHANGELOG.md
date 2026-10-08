@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/www-zaq-ai/zaq/compare/v0.18.0...v0.19.0) (2026-10-08)
+
+
+### Features
+
+* **bo:** enable Jido Studio manually from telemetry settings ([1363859](https://github.com/www-zaq-ai/zaq/commit/13638594c8b913078a673af86fac173a1f6306d3))
+
 ## [0.18.0](https://github.com/www-zaq-ai/zaq/compare/v0.17.0...v0.18.0) (2026-09-30)
 
 
