@@ -7,6 +7,7 @@
   "blocks": [
     "zaq-emb.31"
   ],
+  "closed_at": "2026-10-08T14:23:41Z",
   "created": "2026-09-23T13:18:33Z",
   "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR B. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.32; no self-approval.\n\n## Functional specifications\nOn provider removal stop that Person's channel and thread executions, including workers/stream processing; other people remain unaffected. Retain ordinary grant checks for all entry points. Manual history grants survive. Test active execution termination, idle runtime cleanup, exact-incarnation protection and no continued local stream output; already completed external effects are outside rollback guarantees.\n\n## Files and ownership\nlib/zaq/agent/server_manager.ex; executor.ex; request_registry.ex; runtime/stream worker lifecycle tests\n\n## Action reuse assessment\nExtend existing incarnation-fenced runtime termination through NodeRouter and owner nodes. No membership leases or separate ACL. Ordinary grants still authorize non-channel entry points.\n\n## Tests to add before implementation / branches\nUse the explicit scenarios in Functional specifications as acceptance tests; include denial, failure, concurrency and idempotency branches where applicable. Preserve existing passing assertions.\n\n## Mocking plan\nExternal transport/model/clock boundaries only; no blanket NodeRouter stubs.\n\n## Documentation\ndocs/services/{agent,channels}.md\n\nExecution requirements: planning only until assigned for implementation. Preserve existing uncommitted work and progress comments; do not infer completion from historical tests. Read AGENTS.md, docs/agent-tools.md, docs/WORKFLOW_AGENT.md, docs/action-reuse.md, docs/testing-approach.md and applicable service guides before affected work. Write immediate unit/integration/property regression tests BEFORE implementation. Mock only genuine external boundaries; keep internal domain paths real. Run isolated tests and mix q per issue; final precommit belongs to the dedicated final gate. New feature E2E authoring waits for zaq-emb.32. No commit/push authorization is implied.\n\n## Alignment update — 2026-10-07 / a0c8796e\nUse Permissions and exact actor/scope/incarnation, not observed participants or literal-owner lists, as the authorization boundary. Merge ownership changes do not transfer runtime credentials implicitly; keep manual grants and unrelated runtimes intact.\n\nPreserve baseline contracts and committed test suites in zaq-emb.30; extend coverage rather than duplicating it. Tests precede production changes; no status change or completion is asserted. Dependencies: .30 and existing .6 membership machinery; .16 is no longer a prerequisite to start .7. Independent .7 and .16 join at .31 to verify both lifecycle and context guarantees.",
   "id": "zaq-emb.7",
@@ -31,8 +32,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.7] Stop person-bound channel and thread runtimes on removal",
   "type": "task",
-  "updated_at": "2026-10-08T14:22:21Z"
+  "updated_at": "2026-10-08T14:23:41Z"
 }
