@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-08T18:01:46Z",
+  "description": "Real multi-recipient IMAP flow: Alice request reaches model, Bob replies with his own genuine sender identity and visible Alice/Carol audience on the same References root, but Bob run_pipeline fails unauthorized before his first model request. Stable in isolated and expanded seed0/625 runs. Do not weaken test, pregrant access, reuse Alice authority or broaden prior thread audience. Trace People resolution, canonical Bob placement/grant, private admission Conversation owner/token and ExecutionHistory exact input transcript selection to identify the owning seam. Put capture/grant/source fixes in PR A #835 and propagate base; put admission/execution-binding fixes in PR B. Ownership/root cause not yet proven; this is not authorization to patch both PRs. Reuse/extend existing owners only. Preserve recipient-local histories/canonical UUIDs, no hidden-recipient inference, immutable roots, actual provider delivery and non-destructive legacy behavior. Complete concurrent/private-recipient assertions after the admission blocker is resolved.",
+  "id": "zaq-emb.31.4",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.31] Isolate Replicated first-participant-reply authorization regression",
+  "type": "bug",
+  "updated_at": "2026-10-08T18:01:46Z"
+}
