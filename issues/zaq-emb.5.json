@@ -19,11 +19,15 @@
     {
       "text": "Committed ec33764f Engine delta groundwork and c11199cc first per-turn integration. Executor forwards original admission/fixed initial cursors with trusted actor/router/scope through existing Factory tool_context; RequestTransformer confidentially reads cumulative deltas every internal call and HistoryLoader merges request-local canonical UUID entries, preserving system/history/current input/tool exchange and excluding retained consumed steering. Real provider/Jido continuation regression first failed on missing passive A, now verifies exact old prefix, added factual rejected/failed-persistence inputs + attributed A, exact original current question and tool call/result/one correction. Acceptance uses explicit 20k model window to keep those exact retention assertions; existing pressure tests unchanged. Merge identity/purity property and real independent-connection blocked history read -\u003e safe history_unavailable -\u003e reusable old cursor covered. DB failure normalization stays in Engine, not Agent/provider logic. Latest 211 tests +5 properties +6 doctests, mix q/diff/hooks passed. ExDNA had one transient 5s detection timeout; unchanged rerun and commit hook passed. Still in_progress: true three-turn A then A+B wire acceptance, late old-message attachment/concurrent captured bounds, additional denial/budget/read and page-consumer audits; .16 owns warm cursor/context sync and race/replacement gates, not yet implemented. No publication.",
       "timestamp": "2026-10-08T11:14:09Z"
+    },
+    {
+      "text": "Three-turn wire companion committed 60e81f0e. Real provider/Engine/Jido/registered arithmetic tools execute two successive tool calls with external HTTP barriers: initial request no delta; second A once/no B; third A+B once each, exact original system/current input, chronological attributed additions and exact two correlated call/result pairs. One completed private execution, actual 15/3 usage and one public answer; passive notes do not create receipts or transfer authority. Latest 84 tests +4 properties and mix q/diff/hooks green; prior expanded integration 211 +5 properties +6 doctests green. Outstanding .5 audit remains late association of old canonical content, concurrently committed associations/captured uppers, page-consumer and pressure/denial during a real multi-turn run. .16 context/incorporated cursor synchronization remains separately pending. Local commits only, no new product decision or publication.",
+      "timestamp": "2026-10-08T11:21:26Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.5] Fixed-cursor per-turn history refresh and explicit steering",
   "type": "task",
-  "updated_at": "2026-10-08T11:14:09Z"
+  "updated_at": "2026-10-08T11:21:26Z"
 }
