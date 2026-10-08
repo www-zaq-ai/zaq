@@ -3,6 +3,7 @@
   "blocked_by": [
     "zaq-emb.16",
     "zaq-emb.27.29",
+    "zaq-emb.28.2",
     "zaq-emb.29",
     "zaq-emb.7",
     "zaq-emb.8"
@@ -42,5 +43,5 @@
   "status": "in_progress",
   "title": "[zaq-emb.31] PR B integrated validation and documentation",
   "type": "task",
-  "updated_at": "2026-10-08T18:01:56Z"
+  "updated_at": "2026-10-08T18:02:02Z"
 }
