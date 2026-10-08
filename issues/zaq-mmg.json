@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-fhf"
+  ],
   "created": "2026-10-08T10:41:48Z",
   "description": "Implement config/config.exs auto_start_runtime false; ZaqWeb.StudioRuntime adapter reusing JidoStudio.Supervisor and JidoStudio.Runtime with idempotent start/status, no stop and no persisted flag; admin/super_admin authorization; protected studio pipeline plus on_mount gate. Tests first: default disabled, admin startup, repeat/concurrent starts, unauthorized start, runtime absent, HTTP and websocket stopped/unauthenticated/password-change guards. Branch feat/jido-studio-manual-start. Action reuse assessment: inspected JidoStudio.Application/Runtime, dependency README host-supervised mode, persistence lazy startup, lib/zaq/agent/tools registry and local runtime candidates. Decision local-only BO infrastructure, not reusable agent/workflow business Action; delegate startup to existing upstream supervisor, no agent/engine calls or new tool exposure. Docs: module docs; user guidance with UI issue. Validate mix q and isolated tests. No upstream dependency edits.",
   "id": "zaq-mmg",
@@ -10,5 +12,5 @@
   "status": "in_progress",
   "title": "[zaq-mmg] Manual BO-local Studio runtime startup and access guard",
   "type": "task",
-  "updated_at": "2026-10-08T10:42:26Z"
+  "updated_at": "2026-10-08T10:42:43Z"
 }

@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-mmg"
+  ],
   "blocks": [],
   "created": "2026-10-08T10:41:53Z",
   "description": "Extend existing TelemetryTab panel with existing DesignSystem.Switch and Button, no CSS changes; read real runtime status on mount/tab and broadcast startup to other open settings views. Admin-only start event, checked disabled switch while running, explicit restart/off notice, Open Studio href /bo/studio target _blank rel noopener noreferrer next to control only while running. No DB setting. Tests first: stopped/running switch/link markup, admin event starts real supervised runtime, staff forbidden forged event, persisted telemetry save unaffected, multiple open tabs synchronize, startup errors. Action reuse: reuse ZaqWeb.StudioRuntime local infrastructure from prerequisite; reuse Switch/Button existing components, no new Action. Docs: system-config guide runtime-only semantics. Validate mix q, targeted LiveView/component tests and browser inspection. Feature E2E deferred until human approval.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-fhf] Telemetry tab Studio start-only switch and new-tab link",
   "type": "task",
-  "updated_at": "2026-10-08T10:42:31Z"
+  "updated_at": "2026-10-08T10:42:43Z"
 }
