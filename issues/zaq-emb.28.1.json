@@ -9,9 +9,15 @@
   "id": "zaq-emb.28.1",
   "labels": [],
   "parent": "zaq-emb.28",
+  "comments": [
+    {
+      "text": "Implemented at 854a8e6d9. Engine reuses Measurements.metadata_measurements to retain runtime measures privately without token duplication, including zero/failure and idempotent root finalization. Newly unlocked real-tool measurements exposed tool-only turns being omitted by Agent delta-based counters; extended existing StreamEvents call reducer to count deduplicated native lifecycle evidence, retaining legacy delta-only counts and unchanged public llm_calls shape. Added bounded property for tool-only repeated events. Validation: actual four strategy measurements + full Conversations + StreamEvents:235 tests/14 properties/0 failures (8 modal defects still excluded); mix q, diff/hook checks pass. Action reuse: extend owning reducers/finalization, no extra execution path, Action or telemetry emitter.",
+      "timestamp": "2026-10-08T19:38:23Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.28] Persist complete private execution measurements",
   "type": "bug",
-  "updated_at": "2026-10-08T19:30:20Z"
+  "updated_at": "2026-10-08T19:38:23Z"
 }
