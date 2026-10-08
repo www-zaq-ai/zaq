@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-08T17:17:17Z",
+  "description": "Tests first: real Shared Mattermost channel/thread, Direct DM and Replicated multi-recipient IMAP ingress through Jido, real tools and delivery, canonical/replay/authorization/isolation and persisted modal checks. Mock external provider/model boundaries only. No production fixes. Action reuse: N/A production operation changes; reuse existing bridge listener, NodeRouter, Conversations, Jido and Swoosh transport boundaries. Independent downstream regressions must expose telemetry failures without manual authorization shortcuts.",
+  "id": "zaq-emb.31.1",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.31] Add unseeded strategy full-flow regression matrix",
+  "type": "task",
+  "updated_at": "2026-10-08T17:17:17Z"
+}
