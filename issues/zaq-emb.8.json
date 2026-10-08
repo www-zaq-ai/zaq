@@ -25,11 +25,15 @@
     {
       "text": "PR A cleanup .27.9 establishes the shared recovery owner for B: HistoryIngress.record_confirmation/capture_confirmed/associate_confirmation; existing canonical message metadata holds minimal confirmation and fixed transcript refs, Oban args only message_id. HistoryDeliveryWorker is a thin association scheduler, never a sender. Reuse this owner and recovery state for delayed completion/terminal delivery; do not introduce a second association retry lifecycle. Generation persistence, transport acknowledgment and association remain distinct. See docs/services/engine.md. Runtime execution-record integration remains PR B work.",
       "timestamp": "2026-10-02T08:52:40Z"
+    },
+    {
+      "text": "Continuation reuse audit: Status already synchronously awaits intermediary upserts; Agent API persists canonical completed generation then routes terminal Channels hop; real Mattermost adapter sends/edits HTTP and DeliveryConfirmation alone records confirmation. Add actual webhook/Jido/LLM/HTTP delayed terminal success and delayed gateway timeout acceptance (external barrier, no transport/Engine stubs): generation remains completed while acknowledgement is pending, no assistant transcript association until confirmed transport; timeout must leave completed canonical generation unassociated and must never schedule association as a resend. Existing Arabic blocked-partial regression remains required; no new sender/recovery owner. Request/stream/tool deadlines remain distinct from delayed transport confirmation; review actual client timeout configuration separately before closing .8.",
+      "timestamp": "2026-10-08T14:25:17Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.8] Preserve terminal channel delivery ordering and errors",
   "type": "task",
-  "updated_at": "2026-10-07T20:17:30Z"
+  "updated_at": "2026-10-08T14:25:17Z"
 }
