@@ -18,11 +18,15 @@
     {
       "text": "PR B execution started on feature/issue-768-history-b-execution inside CURRENT agile-pangolin checkout per latest user direction. No new worktree/session move. B0 baseline and primary failing real-path test established; B1 actual request correlation/atomic registry/runtime control changes underway. Files: Agent Executor/StreamEvents/RequestRegistry/Api, corresponding tests, Mattermost fixture/full-path acceptance and Agent service docs. No commit, push, publication or merge. Full-path test still exposes missing authorized history; B2/B3/B4 and later outcome tasks remain open.",
       "timestamp": "2026-10-07T20:47:18Z"
+    },
+    {
+      "text": "All B0-B4 child packages are now closed with evidence. First-leg acceptance complete at 2fcb5860: initial authorized hydration, actual handle/PID ownership, private root/receipt/usage storage, trusted controls, busy steering, real consumption/overflow/failure rejection, safe DB persistence and independent-connection lock/replay fencing. Expanded 608 tests +17 properties +6 doctests; supplemental preservation 220 +6 properties and delivery/rating 54 +3; latest missing-root/accounting 46 +2. Quality/diff/hooks pass. This closes only first leg, NOT PR B: continue .5 per-turn fixed-cursor refresh then .16 boundary synchronization/.7 removal/.8 terminal delivery and .31 integration, with separate .32 UX/E2E/coverage/final approval. No push/merge. Current branch and worktree retained as user-directed.",
+      "timestamp": "2026-10-08T10:31:21Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.30] Person-bound canonical execution and busy-request admission (PR B)",
   "type": "task",
-  "updated_at": "2026-10-07T20:47:18Z"
+  "updated_at": "2026-10-08T10:31:21Z"
 }
