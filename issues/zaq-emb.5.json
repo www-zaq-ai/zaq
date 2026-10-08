@@ -15,11 +15,15 @@
     {
       "text": "Refresh groundwork: extend existing Conversations.execution_history/2 as /3 with after_cursors; reuse TranscriptHistory.list/3 exact-source authorization/sanitization/association ordering. Existing accounts.fetch_history remains private topic/date recall and cannot authorize transcript deltas. Local-only extension of the confidential Engine admission read; no new exposed Action/tool or provider fetch and no background fanout. Inputs: original admission capability + literal actor + exact source cursor map; output bounded cumulative messages, page-safe incorporated cursors and separately captured upper bounds. Repeated reads are idempotent and never update runtime state. Consumers: existing NodeRouter :execution_history dispatch, then RequestTransformer/HistoryLoader integration; boundary sync remains .16. Regression-first failures confirmed for cumulative A/A+B, capped 103-row paging and source/grant checks before implementation. Additional suffix/order/cursor property and confidential API actor/capability assertions pass with existing projection/API/transcript tests: 127 tests +3 properties. Serena overview still empty for Elixir so targeted bounded reads/searches used. Per-turn wire integration, old-message association/concurrent bounds, failed reads/budget and lifecycle synchronization remain pending; this is not completion of .5.",
       "timestamp": "2026-10-08T10:43:55Z"
+    },
+    {
+      "text": "Committed ec33764f Engine delta groundwork and c11199cc first per-turn integration. Executor forwards original admission/fixed initial cursors with trusted actor/router/scope through existing Factory tool_context; RequestTransformer confidentially reads cumulative deltas every internal call and HistoryLoader merges request-local canonical UUID entries, preserving system/history/current input/tool exchange and excluding retained consumed steering. Real provider/Jido continuation regression first failed on missing passive A, now verifies exact old prefix, added factual rejected/failed-persistence inputs + attributed A, exact original current question and tool call/result/one correction. Acceptance uses explicit 20k model window to keep those exact retention assertions; existing pressure tests unchanged. Merge identity/purity property and real independent-connection blocked history read -\u003e safe history_unavailable -\u003e reusable old cursor covered. DB failure normalization stays in Engine, not Agent/provider logic. Latest 211 tests +5 properties +6 doctests, mix q/diff/hooks passed. ExDNA had one transient 5s detection timeout; unchanged rerun and commit hook passed. Still in_progress: true three-turn A then A+B wire acceptance, late old-message attachment/concurrent captured bounds, additional denial/budget/read and page-consumer audits; .16 owns warm cursor/context sync and race/replacement gates, not yet implemented. No publication.",
+      "timestamp": "2026-10-08T11:14:09Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.5] Fixed-cursor per-turn history refresh and explicit steering",
   "type": "task",
-  "updated_at": "2026-10-08T10:43:55Z"
+  "updated_at": "2026-10-08T11:14:09Z"
 }
