@@ -7,9 +7,15 @@
   "id": "zaq-emb.31.4",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Focused admission regression confirms the owning seam is PR B: canonical recipient message capture/grants are correct, but Conversations.admit_unlocked chose legacy email thread container without connector/Person scope. Extending existing admission conversation resolution to selected recipient-owned canonical transcript + Person using existing communication uniqueness index and a conversation-scope lock; no provider branches, new Action or destructive migration. Existing canonical replay retains its immutable container. Full-flow Bob now reaches the actual model. Newly reachable recipient-only fixture used Auto-Submitted:auto-generated, not accepted automatic-reply evidence; corrected to auto-replied and added explicit parser assertion, keeping all isolation/concurrency/completion assertions. No change to accepted email automatic-reply production semantics.",
+      "timestamp": "2026-10-08T19:25:23Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] Isolate Replicated first-participant-reply authorization regression",
   "type": "bug",
-  "updated_at": "2026-10-08T19:17:45Z"
+  "updated_at": "2026-10-08T19:25:23Z"
 }
