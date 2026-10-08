@@ -31,11 +31,15 @@
     {
       "text": "Pre-UX B integration complete at local 4fe3d6312. Current compatibility fixes pass both preservation groups with normal schedulers and --max-cases 4: Channels plus 41 related Engine/People suites 2111 tests/43 properties; Agent/canonical Conversations/removal contract 1992 tests/56 properties/17 doctests, zero failures (21 excluded in Agent group). Counts overlap; no unique combined-count claim. Focused 221 tests/1 property and native HTTP timeout acceptance also pass. mix q and commit hooks pass with documented ERL_FLAGS=+S 1:1; checks/exclusions/assertions unchanged. An earlier S1 test attempt could not start app due scheduler-derived two-connection test pool; tests therefore retain normal scheduler count and bound ExUnit concurrency only. Initial 180s commit hook timed out; 600s retry completed without bypass. Message-lifecycle sequence and Agent/Engine/Channels owner contracts updated; local document links and diff checks pass. Fresh-chain/empty-populated receipts preservation evidence recorded above; no repair migration or populated DB reset. .29 verified unchanged inspected A base; A cancelled Firefox/aggregate CI and unauthorized rerun remain separate A gate, not a claimed pass. Approval handoff docs/exec-plans/active/2026-10-08-handoff-history-b.md prepared. Close .31 to reach explicit human B UX .32, not final approval. No new B browser E2E, review/coverage/final-precommit completion, push or merge claimed; zaq-mcw/e8q stay open.",
       "timestamp": "2026-10-08T15:56:06Z"
+    },
+    {
+      "text": "Acceptance reopened at user direction: production Shared sender authorization and persisted private-execution modal/accounting are not established by existing grant-seeded tests. Tests first; no production fixes until the full Shared/Direct/Replicated and active-request failure inventory is recorded. Action reuse: not applicable to production operations (test-only changes); exercise existing provider ingress, NodeRouter, Jido and delivery boundaries, no parallel operation implementations. Existing handoff readiness claims are superseded. Human B approval remains withheld; no new browser E2E, push or merge authorized.",
+      "timestamp": "2026-10-08T17:16:23Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] PR B integrated validation and documentation",
   "type": "task",
-  "updated_at": "2026-10-08T17:16:12Z"
+  "updated_at": "2026-10-08T17:16:23Z"
 }
