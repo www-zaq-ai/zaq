@@ -10,9 +10,15 @@
   "id": "zaq-emb.31.3",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Failure inventory established without production fixes. Expanded six-file suite seeds 0 and 625 has the same 17 failing cases (seed625 exact summary: 102 tests, 2 properties, 17 failures). Families: (1) Shared unseeded sender authorization: six new surfaces blocked before first model request plus strengthened existing provider_mention thread journey (7 cases), NodeRouter run_pipeline reason unauthorized, factual capture remains; (2) Replicated Bob first reply in existing visible-recipient thread rejected with reason unauthorized before Bob model request (1 case), downstream concurrent recipient-only sentinel/completion assertions blocked; (3) completed Shared-after-real-membership-refresh / Direct / Replicated private ExecutionRecord loses runtime measurements map (3 cases), tokens and private tool traces already persisted; (4) same three actual persisted BO modals have no trace rows (3 cases); (5) same three modals show not-provided token values rather than exact completion/prompt/total and missing timing/turn/tool counters (3 cases). Lifecycle/replay/warm context/delivery, actual native owner steering, other-author attributed Shared refresh, concurrent Shared Person runtimes and denied staff modal inspection pass. Existing removal/terminal-boundary/cumulative-refresh/delayed-success/504/native-timeout preservation tests pass. One intermediate grant-refreshed delivery timeout was not reproduced in either final expanded run; do not elevate fixture/environment noise to a confirmed production defect. mix q and git diff --check pass. No final acceptance, precommit, commit, push or merge claimed.",
+      "timestamp": "2026-10-08T18:00:34Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.31] Record complete strategy failure inventory and owning fixes",
   "type": "task",
-  "updated_at": "2026-10-08T17:17:41Z"
+  "updated_at": "2026-10-08T18:00:34Z"
 }
