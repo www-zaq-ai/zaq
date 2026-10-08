@@ -63,11 +63,15 @@
     {
       "text": "Real overflow/failure-sealing coverage committed ac41a62f. Existing provider/Jido/DB acceptance now fills the actual default 64-item queue, verifies 65th rejection persisted unconsumed, and confirms consumed receipts + one public root answer. Separate external 400 LLM failure proves accepted queued corrections seal unconsumed with failed private root and zero canonical answers. Real behavior corrected test assumption: successful Jido drains pending input before terminal completion, so accepted corrections are consumed, not falsely unconsumed. Only overflow fixture uses existing receive_timeout advanced option for its longer HTTP barrier; unchanged tests retain prior timeout. Commit notifications reuse actual Repo query/commit and process monitors, no sleeps/mock internal services/test-only production switches. Latest 104 tests + 1 property and mix q/diff/hooks pass. Remaining B3 failed receipt persistence and finalization concurrency audit before closing.",
       "timestamp": "2026-10-08T09:50:15Z"
+    },
+    {
+      "text": "Final B3 evidence: real failed-persistence regression and safe boundary 1b95340a; independent-connection finalization/queue/consume locks exposed top-level savepoint-mode bug and corrected normal BEGIN + explicit inner savepoint in 652c3261. Authentic provider/People/grants/admissions, real PG row locks/lock_timeout and telemetry barriers; cleanup UUID/config-scoped. Expanded suite 608 tests + 17 properties + 6 doctests passed; delivery/recovery/email/ratings preservation 54 tests + 3 properties passed after fixture actor/trusted Person updates (a5e4745b) with stronger private-trace/UUID assertions, no relaxed expectations. Supplemental Slack fixture explicitly declares its atom to remove seed/order-dependent existing-atom conversion; isolated seed178915 now passes, production provider mapping untouched. mix q/diff/hooks green. Root/receipt capability+identity, private usage/trace/outcome, actual consumption, overflow/failure sealing, rejection/persistence and lock/replay contracts now implemented. Only external API mocks; local-only extension of existing operations. B4 full acceptance matrix remains separate, along with .5 refresh/.16 warm sync/.7 removal/.8 delivery and PR B human/E2E/coverage/final gates.",
+      "timestamp": "2026-10-08T10:20:35Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T09:50:15Z"
+  "updated_at": "2026-10-08T10:20:35Z"
 }
