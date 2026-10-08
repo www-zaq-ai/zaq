@@ -9,6 +9,7 @@
   "blocks": [
     "zaq-emb.32"
   ],
+  "closed_at": "2026-10-08T15:56:11Z",
   "created": "2026-09-26T09:22:28Z",
   "description": "## Current delivery contract — user-approved two-outcome stack\nOwner: PR B. One PR per complete outcome, NOT one PR per bead. Keep detailed beads and cohesive internal commits for tracking; consolidate existing draft foundations into their owning feature PR where practical. PR B stacks on independently usable PR A. Include owning PR documentation and validation there. This supersedes earlier per-bead/prerequisite PR instructions and historical comments. Closed foundation status is not outcome acceptance.\nNew-feature E2E requires explicit human UX approval in zaq-emb.32; no self-approval.\n\nPR B pre-UX gate: verify Person-bound execution, fixed cursors, bounded cumulative refresh, canonical dedup, context acknowledgment/cursor advancement, revocation, busy/finalizing handling, ordered delivery and delayed timeout distinctions. Include Agent/Engine/Channels architecture and operational docs in B. Unit/integration/property regressions first, real internal paths, mock external transport/model/clock only; isolated suites and mix q. Validate B based on A without adding runtime prerequisites to A. No new-feature E2E until B human gate; no final approval claim here.\n\n## Alignment update — 2026-10-07 / a0c8796e\nUpdate `message-lifecycle.md` alongside Agent/Engine/Channels guides; run the new preservation matrix and first-leg full flow. Resolve/reconcile inherited PR A validation separately before authorized landing. PR B still needs its own `.32` human UX gate before new browser E2E.\n\nPreserve baseline contracts and committed test suites in zaq-emb.30; extend coverage rather than duplicating it. Tests precede production changes; no status change or completion is asserted. Required join: .29, .16, .7 and .8; .30 is transitive. Preserve .31 → .32 → .13.2 → .33 → .34 → .28 and independent PR A acceptance → .28. Necessary joins verify one cohesive outcome, not duplicated work.",
   "id": "zaq-emb.31",
@@ -33,8 +34,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.31] PR B integrated validation and documentation",
   "type": "task",
-  "updated_at": "2026-10-08T15:56:06Z"
+  "updated_at": "2026-10-08T15:56:11Z"
 }
