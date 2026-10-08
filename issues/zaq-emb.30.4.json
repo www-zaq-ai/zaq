@@ -47,11 +47,15 @@
     {
       "text": "Runtime-rejection disposition substep committed 9655b1ac. Tests first failed on missing confidential reject dispatch. Existing receipt lifecycle now seals queued inputs rejected by actual Jido and preserves consumed/unconsumed evidence on replay; bounded reason categories exclude arbitrary private diagnostics. RequestControl records Engine evidence before returning runtime rejection and catches PID exits after queueing. Real-Jido provider/explicit acceptance deliberately uses a stale request handle to prove actual refusal + durable unconsumed record, then validates normal correction consumption and single root answer; no internal service mocks. 107 tests + 3 properties including monotonicity/idempotency property passed; mix q/diff/hooks green. B3 still open pending remaining accounting, sealing/replay/ownership/race review; no push/merge.",
       "timestamp": "2026-10-08T09:05:30Z"
+    },
+    {
+      "text": "Committed failure/accounting coverage b0e80a80. Root failure preserves private tool diagnostics, seals only queued children as unconsumed and retains consumed evidence with no public answer. New accounting property covers per-counter private override/legacy fallback (including zero/missing counters), every receipt status ignored and retry-idempotent totals; unique generated capabilities preserve schema invariants across property iterations. Expanded affected suite 601 tests + 17 properties + 6 doctests passed; mix q/diff and commit hooks green. Remaining B3 acceptance audit: receipt identity immutability/replay, failed receipt persistence and sealing/overflow races before closing; B4 and follow-on refresh/sync/removal/delivery gates stay open.",
+      "timestamp": "2026-10-08T09:11:34Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T09:05:30Z"
+  "updated_at": "2026-10-08T09:11:34Z"
 }
