@@ -191,6 +191,7 @@ config :logger, :default_formatter,
 config :phoenix, :json_library, Jason
 
 config :jido_studio,
+  auto_start_runtime: false,
   jido_instance: Zaq.Agent.Jido
 
 # Import environment specific config. This must remain at the bottom

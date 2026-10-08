@@ -19,6 +19,25 @@ returns `{:error, :missing_global_base_url}` instead of creating a provider
 channel with an invalid callback URL. ZAQ does not enforce HTTPS here; provider
 connectors are responsible for returning provider-specific URL validation errors.
 
+## Jido Studio Runtime
+
+Jido Studio's monitoring runtime is off at boot (`auto_start_runtime: false` in
+[`config/config.exs`](../../config/config.exs)). Users with the `admin` or
+`super_admin` role can enable it from **System config → Telemetry** on the current
+BO node. The adjacent **Open Studio** link appears when running and opens
+`/bo/studio` in a new tab.
+
+Enablement is not stored in `system_configs`; it lasts until that node restarts.
+The switch is checked and disabled once running: restart ZAQ to turn it off.
+Runtime shutdown remains deferred until Jido Studio supports complete cleanup.
+This does not start or stop ZAQ's agent runtime. In multi-node deployments each
+BO node has its own Studio runtime; the control reports the serving node's status.
+
+[`ZaqWeb.StudioRuntime`](../../lib/zaq_web/studio_runtime.ex) delegates startup to
+Studio's supervisor. HTTP and connected LiveView guards require administrator
+access and a running local Studio runtime before mounting Studio pages, preventing
+direct page access from lazily starting persistence while Studio is disabled.
+
 ## AI Model Configuration (LLM, Embedding, Image-to-Text)
 
 AI model settings are configured in Back Office at `/bo/system-config` and

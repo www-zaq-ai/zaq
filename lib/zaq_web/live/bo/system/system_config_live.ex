@@ -5,6 +5,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   """
   use ZaqWeb, :live_view
 
+  require Logger
+
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.Tools.DataSource.CreateDocument
@@ -38,16 +40,21 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPRows
   alias ZaqWeb.Live.BO.System.SystemConfig.SkillsTab
   alias ZaqWeb.Live.BO.System.SystemConfig.TelemetryEvents
+  alias ZaqWeb.StudioRuntime
 
   def mount(_params, session, socket) do
     node_router_module = node_router_module_from_session(session)
     Process.put({__MODULE__, :node_router_module}, node_router_module)
+
+    if connected?(socket), do: Phoenix.PubSub.subscribe(Zaq.PubSub, "bo:studio_runtime")
 
     {:ok,
      socket
      |> assign(:current_path, "/bo/system-config")
      |> assign(:page_title, "System Configuration")
      |> assign(:active_tab, :ai_credentials)
+     |> assign(:studio_running, StudioRuntime.running?())
+     |> assign(:studio_can_start, StudioRuntime.authorized?(socket.assigns.current_user))
      |> assign(:people_access_config, nil)
      |> assign(:people_access_form, nil)
      |> assign(:people_access_load_error, nil)
@@ -126,6 +133,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     {:noreply, socket |> assign(:active_tab, :web_browsing) |> load_web_browsing_settings()}
   end
 
+  def handle_params(%{"tab" => "telemetry"}, _uri, socket) do
+    {:noreply,
+     socket
+     |> assign(:active_tab, :telemetry)
+     |> assign(:studio_running, StudioRuntime.running?())}
+  end
+
   def handle_params(%{"tab" => tab}, _uri, socket)
       when tab in ~w(ai_credentials auth_credentials outbound_http mcps global skills llm embedding image_to_text telemetry) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
@@ -136,6 +150,32 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   # ── Tab navigation ─────────────────────────────────────────────────────
+
+  def handle_event("start_jido_studio", _params, socket) do
+    case StudioRuntime.start(socket.assigns.current_user) do
+      :ok ->
+        Phoenix.PubSub.broadcast(Zaq.PubSub, "bo:studio_runtime", :studio_runtime_started)
+
+        {:noreply,
+         socket
+         |> assign(:studio_running, StudioRuntime.running?())
+         |> put_flash(:info, "Jido Studio started on this BO node. Restart ZAQ to turn off.")}
+
+      {:error, :forbidden} ->
+        {:noreply, put_flash(socket, :error, "Only administrators can enable Jido Studio.")}
+
+      {:error, reason} ->
+        Logger.warning("Jido Studio startup failed: #{inspect(reason)}")
+
+        {:noreply,
+         socket
+         |> assign(:studio_running, StudioRuntime.running?())
+         |> put_flash(
+           :error,
+           "Jido Studio could not be started. Check the server logs and retry."
+         )}
+    end
+  end
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     {:noreply, push_patch(socket, to: ~p"/bo/system-config?tab=#{tab}")}
@@ -1152,6 +1192,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       {:error, message} ->
         {:noreply, put_flash(socket, :error, message)}
     end
+  end
+
+  def handle_info(:studio_runtime_started, socket) do
+    {:noreply, assign(socket, :studio_running, StudioRuntime.running?())}
   end
 
   # ── Private ────────────────────────────────────────────────────────────

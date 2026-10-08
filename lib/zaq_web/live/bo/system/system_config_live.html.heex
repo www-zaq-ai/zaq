@@ -292,6 +292,8 @@
       <ZaqWeb.Live.BO.System.SystemConfig.TelemetryTab.panel
         :if={@active_tab == :telemetry}
         form={@telemetry_form}
+        studio_running={@studio_running}
+        studio_can_start={@studio_can_start}
       />
     </div>
   </div>
