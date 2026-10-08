@@ -15,11 +15,15 @@
     {
       "text": "B0 technical contract decision for B3 tests/implementation: extend existing ExecutionRecord rather than add an execution queue or independent receipt store. Root execution keeps pending/completed/failed and uniquely owns public_answer_message_id. A steered input gets a private child ExecutionRecord linked by root_execution_id, same literal Person, canonical user_message_id and fresh hash; child statuses queued/consumed/unconsumed cannot hold a public answer. Consumption means correlated Jido input_injected, NOT successful answer; terminal root outcome is recorded separately and queued children become unconsumed. Enforce immutable owner/root/input linkage, same-Person/root-active admission, per-root/input replay uniqueness, distinct root/input and answer checks, exact runtime incarnation control. Forward DDL only; preserve existing rows and test fresh/populated upgrade/guarded rollback. This is a bounded per-input state contract, no durable replay/execution queue. Tests precede production changes. Accounting decision: completed root ExecutionRecord usage counters are authoritative for new executions, selected once by its unique public-answer reference and answer UTC day; steered child rows never add usage. Existing assistant Message counters provide compatibility fallback only where linked completed execution has no usable counters (including legacy records). One existing TokenUsageAggregator performs the joined projection, replacing totals under existing conversation lock and coalesced job/date contract; no second worker, no summing both sources. Private per-tool/trace usage remains solely in ExecutionRecord. Before cutover verify actual usage key normalization and tests for legacy/mixed, zero usage, retry, concurrent models, executing-job follow-up and delayed message date.",
       "timestamp": "2026-10-07T20:32:14Z"
+    },
+    {
+      "text": "Root persistence substep: regressions first demonstrated missing admission record, foreign-actor finalization acceptance and accounting double-counting; extended existing Conversations admission/finalization and existing TokenUsageAggregator rather than creating parallel jobs/response builders. ExecutionLifecycle is local-only transaction-owned private storage: it does not create messages, placements or delivery. New canonical Person records persist capability hashes and private trace/tool/usage/outcome with one public answer; legacy admissions/artifact references remain intact. Engine finalization forwards trusted actor; replay rechecks literal active owner. Latest real-provider/Jido/tool/delivery/replay acceptance passes; expanded 399 tests + 9 properties passed. Child receipt statuses/root linkage and inspect/steer/inject actor controls still outstanding; B3 not complete.",
+      "timestamp": "2026-10-08T07:47:06Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.4] B3 — private outcomes and explicit busy/steering disposition",
   "type": "task",
-  "updated_at": "2026-10-08T07:38:45Z"
+  "updated_at": "2026-10-08T07:47:06Z"
 }
