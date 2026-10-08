@@ -11,9 +11,15 @@
   "id": "zaq-emb.16",
   "labels": [],
   "parent": "zaq-emb",
+  "comments": [
+    {
+      "text": "Implementation seam audit: StreamEvents marks RequestRegistry terminal before Agent.Api.persist_response_context writes the Engine outcome; Jido can already be idle then. Therefore synchronization cannot be an unfenced post-stream replacement: ServerManager must serialize next-request admission through completed-outcome handling and confirmed context apply. Reuse existing exact-incarnation stop/binding checks and Jido ai.react.context.modify plus applied_context_ops acknowledgement; Factory owns native runtime mechanics, Engine execution_history/3 owns authorized deltas, HistoryLoader owns projection merge, ServerManager owns cursor/context/admission lifecycle. No Agent DB reads or exposed Action/tool. First regression package will verify actual idle apply/idempotent op evidence, stale PID exclusion and active-run refusal (no pending_context_op), followed by manager serialization and warm next-request acceptance. Existing per-turn .5 tests remain preservation baseline; no new product decision.",
+      "timestamp": "2026-10-08T11:43:19Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.16] Request-boundary context and cursor synchronization",
   "type": "task",
-  "updated_at": "2026-10-08T11:40:07Z"
+  "updated_at": "2026-10-08T11:43:19Z"
 }
