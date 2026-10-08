@@ -696,6 +696,7 @@ defmodule Zaq.Channels.JidoChatBridge do
         channel_config_id: channel_config_id,
         conversation_type: facts[:conversation_type],
         source_scope: facts[:source_scope],
+        sender_membership: sender_membership(incoming, provider, facts),
         provider_sent_at: facts[:provider_sent_at]
       },
       attachments:
@@ -728,6 +729,16 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp message_source_scope(provider, room) do
     Zaq.Channels.JidoChatBridge.Incoming.source_scope(provider, room)
   end
+
+  defp sender_membership(%Chat.Incoming{author: %{user_id: id}}, provider, %{
+         conversation_type: :room,
+         sender_id: id
+       })
+       when is_binary(id) and id != "" do
+    %{identity_platform: to_string(provider), member_id: id}
+  end
+
+  defp sender_membership(_, _, _), do: nil
 
   defp matching_provider?(nil, _provider), do: false
 

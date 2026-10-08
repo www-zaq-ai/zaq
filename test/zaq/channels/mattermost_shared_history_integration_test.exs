@@ -130,6 +130,12 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
       assert transcript.external_thread_id ==
                if(@root_author, do: "root-#{@root_author}", else: nil)
 
+      assert Zaq.Permissions.can?(
+               ctx.person,
+               "read",
+               {transcript.permission_resource_type, transcript.permission_resource_id}
+             )
+
       if @root_author do
         parent = Repo.get!(Transcript, transcript.parent_id)
         assert parent.external_thread_id == nil

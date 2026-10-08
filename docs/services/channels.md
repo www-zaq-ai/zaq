@@ -67,6 +67,15 @@ room-member pagination result can drive a Shared provider-grant refresh; private
 rooms still require the bot's own provider access. Other provider membership
 refresh capabilities remain unsupported rather than inferred from a message.
 
+Trusted Mattermost/Telegram ingress additionally normalizes `sender_membership`
+only when the raw provider sender matches the adapter author in a verified room.
+After scoped Person resolution and canonical capture, Engine may bootstrap that
+sender's provider grant once on the parent resource. This is message-local
+presence, not a complete snapshot: replay or later posts cannot override removal
+evidence, and re-entry requires a provider refresh or ordered membership event.
+The grant uses the existing provider source so reconciliation/removal can revoke
+it independently of manual access. Denied presence does not erase factual capture.
+
 The unconsumed provider-multiplicity migration permits more than one connector
 with the same provider. `ChannelConfig.resolve_by_provider/2` accepts an explicit
 configuration ID and checks its provider and enabled status; provider-only

@@ -3523,6 +3523,20 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
         assert JidoChatBridge.to_internal(incoming, :mattermost).routing_context.conversation_type ==
                  expected
+
+        evidence =
+          JidoChatBridge.to_internal(incoming, :mattermost).routing_context.sender_membership
+
+        assert evidence ==
+                 if(expected == :room,
+                   do: %{identity_platform: "mattermost", member_id: "u1"},
+                   else: nil
+                 )
+
+        forged = %{incoming | author: %{incoming.author | user_id: "another-user"}}
+
+        assert JidoChatBridge.to_internal(forged, :mattermost).routing_context.sender_membership ==
+                 nil
       end
     end
 
@@ -3566,6 +3580,15 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
         assert JidoChatBridge.to_internal(incoming, :telegram).routing_context.conversation_type ==
                  expected
+
+        evidence =
+          JidoChatBridge.to_internal(incoming, :telegram).routing_context.sender_membership
+
+        assert evidence ==
+                 if(expected == :room,
+                   do: %{identity_platform: "telegram", member_id: "456"},
+                   else: nil
+                 )
       end
     end
 

@@ -1,7 +1,9 @@
 defmodule Zaq.Engine.ChannelHistoryMembershipTest do
   use Zaq.DataCase, async: false
 
+  alias Jido.Chat.Telegram.Adapter, as: TelegramAdapter
   alias Zaq.Accounts.People
+  alias Zaq.Channels.JidoChatBridge
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryMembership
   alias Zaq.Engine.{Conversations, HistoryIngress}
@@ -94,6 +96,164 @@ defmodule Zaq.Engine.ChannelHistoryMembershipTest do
     assert Permissions.list_direct(resource) |> Enum.map(& &1.source_key) |> Enum.sort() == [
              "manual"
            ]
+  end
+
+  test "verified sender bootstraps inherited provider access once, never overriding removal",
+       ctx do
+    incoming = sender_message(ctx, "first-contact")
+    assert {:ok, captured} = HistoryIngress.capture(incoming)
+    assert {:ok, _} = Conversations.list_canonical_messages(ctx.alice, captured.transcript_id)
+    resource = ChannelHistoryResource.for("mattermost", ctx.config.id, @room)
+
+    assert [%{source_key: "channel_history:provider:mattermost"}] =
+             Permissions.list_direct(resource)
+
+    assert {:ok, _} = HistoryIngress.capture(incoming)
+    assert length(Permissions.list_direct(resource)) == 1
+
+    Process.put(
+      :membership_response,
+      {:ok, %{complete: true, identity_platform: "mattermost", member_ids: []}}
+    )
+
+    assert {:ok, _} =
+             ChannelHistoryMembership.refresh(captured.transcript_id, router: SnapshotRouter)
+
+    for id <- ["first-contact", "later-post"] do
+      assert {:ok, _} = HistoryIngress.capture(sender_message(ctx, id))
+
+      assert {:error, :unauthorized} =
+               Conversations.list_canonical_messages(ctx.alice, captured.transcript_id)
+    end
+
+    Process.put(
+      :membership_response,
+      {:ok, %{complete: true, identity_platform: "mattermost", member_ids: ["alice"]}}
+    )
+
+    assert {:ok, _} =
+             ChannelHistoryMembership.refresh(captured.transcript_id, router: SnapshotRouter)
+
+    assert {:ok, _} = Conversations.list_canonical_messages(ctx.alice, captured.transcript_id)
+  end
+
+  test "sender observation cannot replace a missing, mismatched or inactive principal", ctx do
+    for evidence <- [
+          nil,
+          %{identity_platform: "mattermost", member_id: "bob"},
+          %{identity_platform: "other-server", member_id: "alice"}
+        ] do
+      incoming = sender_message(ctx, "invalid-#{inspect(evidence)}")
+
+      incoming = %{
+        incoming
+        | routing_context: %{incoming.routing_context | sender_membership: evidence}
+      }
+
+      assert {:ok, _} = HistoryIngress.capture(incoming)
+
+      assert {:error, :unauthorized} =
+               Conversations.list_canonical_messages(ctx.alice, ctx.placement.transcript_id)
+    end
+
+    ctx.alice |> Ecto.Changeset.change(status: "inactive") |> Repo.update!()
+
+    assert {:error, :invalid_sender_evidence} =
+             ChannelHistoryMembership.observe_sender(
+               ctx.placement.transcript_id,
+               ctx.alice.id,
+               %{identity_platform: "mattermost", member_id: "alice"}
+             )
+  end
+
+  test "versioned removal fences first-contact evidence and manual access survives", ctx do
+    assert {:ok, _} = HistoryIngress.capture(sender_message(ctx, "observed"))
+    resource = ChannelHistoryResource.for("mattermost", ctx.config.id, @room)
+
+    assert {:ok, _} =
+             Permissions.grant(resource, %{person_id: ctx.alice.id, access_rights: ["read"]})
+
+    event = %{
+      provider: "mattermost",
+      channel_config_id: ctx.config.id,
+      channel_id: @room,
+      identity_platform: "mattermost",
+      member_id: "alice",
+      operation: :remove,
+      revision: 5
+    }
+
+    assert {:ok, _} = ChannelHistoryMembership.apply_event(event)
+    assert {:ok, _} = HistoryIngress.capture(sender_message(ctx, "observed"))
+    assert Enum.map(Permissions.list_direct(resource), & &1.source_key) == ["manual"]
+
+    assert {:ok, _} =
+             Conversations.list_canonical_messages(ctx.alice, ctx.placement.transcript_id)
+
+    assert {:ok, _} =
+             ChannelHistoryMembership.apply_event(%{event | operation: :add, revision: 6})
+
+    assert length(Permissions.list_direct(resource)) == 2
+  end
+
+  defp sender_message(ctx, id) do
+    Incoming.new(%{
+      content: "Verified room sender",
+      channel_id: @room,
+      author_id: "alice",
+      message_id: id,
+      provider: :mattermost,
+      routing_context: %{
+        channel_config_id: ctx.config.id,
+        conversation_type: :room,
+        sender_membership: %{identity_platform: "mattermost", member_id: "alice"}
+      }
+    })
+  end
+
+  test "real Telegram normalization bootstraps a connector-local group author", ctx do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Telegram evidence",
+        provider: "telegram",
+        kind: "retrieval",
+        enabled: true,
+        url: "https://telegram.invalid",
+        token: "test-token"
+      })
+      |> Repo.insert!()
+
+    assert {:ok, _} =
+             People.add_channel(%{
+               person_id: ctx.alice.id,
+               platform: "telegram",
+               channel_identifier: "456",
+               channel_config_id: config.id
+             })
+
+    payload = %{
+      "message" => %{
+        "message_id" => 42,
+        "chat" => %{"id" => -123, "type" => "group"},
+        "from" => %{"id" => 456},
+        "text" => "@zaq legitimate question"
+      }
+    }
+
+    assert {:ok, incoming} = TelegramAdapter.transform_incoming(payload)
+
+    normalized =
+      JidoChatBridge.to_internal(incoming, %{provider: :telegram, id: config.id})
+
+    assert {:ok, captured} = HistoryIngress.capture(normalized)
+    assert {:ok, [_]} = Conversations.list_canonical_messages(ctx.alice, captured.transcript_id)
+
+    assert {:error, :unauthorized} =
+             Conversations.list_canonical_messages(ctx.bob, captured.transcript_id)
+
+    assert {:error, :unauthorized} =
+             Conversations.list_canonical_messages(ctx.alice, ctx.placement.transcript_id)
   end
 
   test "Person refresh affects only that Person on the selected connector", ctx do

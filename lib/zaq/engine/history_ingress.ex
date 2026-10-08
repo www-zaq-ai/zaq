@@ -13,6 +13,7 @@ defmodule Zaq.Engine.HistoryIngress do
 
   alias Zaq.Accounts.People
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.ChannelHistoryMembership
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{Message, TranscriptHistory}
   alias Zaq.Engine.History.{CommunicationPolicy, Facts}
@@ -96,29 +97,49 @@ defmodule Zaq.Engine.HistoryIngress do
              recipient_person_ids: recipients,
              thread_id: incoming.thread_id
            }) do
-      Conversations.capture_canonical_message(
-        facts,
-        %{
-          role: "external",
-          content: incoming.content,
-          external_message_id: incoming.message_id,
-          author_id: incoming.author_id,
-          author_name: incoming.author_name,
-          history_context: history_context(incoming, person_id),
-          provider_sent_at: incoming.routing_context.provider_sent_at,
-          attachments: Enum.map(incoming.attachments, &attachment_descriptor/1)
-        },
-        %{
-          provider: facts.provider,
-          channel_config_id: facts.channel_config_id,
-          provenance: "channel_adapter",
-          source_scope: incoming.routing_context.source_scope
-        }
-      )
+      capture =
+        Conversations.capture_canonical_message(
+          facts,
+          %{
+            role: "external",
+            content: incoming.content,
+            external_message_id: incoming.message_id,
+            author_id: incoming.author_id,
+            author_name: incoming.author_name,
+            history_context: history_context(incoming, person_id),
+            provider_sent_at: incoming.routing_context.provider_sent_at,
+            attachments: Enum.map(incoming.attachments, &attachment_descriptor/1)
+          },
+          %{
+            provider: facts.provider,
+            channel_config_id: facts.channel_config_id,
+            provenance: "channel_adapter",
+            source_scope: incoming.routing_context.source_scope
+          }
+        )
+
+      observe_sender(capture, incoming, person_id, kind)
+      capture
     end
   end
 
   def capture_resolved(_, _, _, _), do: {:error, :invalid_request}
+
+  defp observe_sender(
+         {:ok, %{transcript_id: id}},
+         %Incoming{
+           author_id: member,
+           routing_context: %{sender_membership: %{member_id: member} = evidence}
+         },
+         person_id,
+         :channel
+       ) do
+    # Access reconciliation is independent of factual capture. Denied or failed
+    # presence evidence must never erase a legitimate provider message.
+    ChannelHistoryMembership.observe_sender(id, person_id, evidence)
+  end
+
+  defp observe_sender(_, _, _, _), do: :ok
 
   defp history_context(incoming, person_id) do
     context = incoming.routing_context

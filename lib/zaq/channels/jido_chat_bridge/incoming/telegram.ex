@@ -17,6 +17,7 @@ defmodule Zaq.Channels.JidoChatBridge.Incoming.Telegram do
        %{
          conversation_type: kind,
          source_scope: scope,
+         sender_id: sender_id(raw),
          provider_sent_at: MessageTimestamp.normalize(value(raw, :date) || timestamp, :second)
        }}
     else
@@ -36,4 +37,11 @@ defmodule Zaq.Channels.JidoChatBridge.Incoming.Telegram do
   defp conversation_type(_, _, _), do: {:error, :unverified_communication_facts}
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp sender_id(raw) do
+    case value(raw, :from) do
+      sender when is_map(sender) -> ConversationIdentity.normalize(value(sender, :id))
+      _ -> nil
+    end
+  end
 end

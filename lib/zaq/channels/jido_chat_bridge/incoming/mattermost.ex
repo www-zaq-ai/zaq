@@ -26,6 +26,7 @@ defmodule Zaq.Channels.JidoChatBridge.Incoming.Mattermost do
        %{
          conversation_type: kind,
          source_scope: nil,
+         sender_id: Map.get(post, "user_id"),
          provider_sent_at:
            MessageTimestamp.normalize(timestamp || Map.get(post, "create_at"), :millisecond)
        }}

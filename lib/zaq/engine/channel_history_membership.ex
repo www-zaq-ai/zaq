@@ -77,6 +77,66 @@ defmodule Zaq.Engine.ChannelHistoryMembership do
 
   def apply_event(_), do: {:error, :invalid_membership_event}
 
+  @doc "Bootstraps once from trusted sender presence, without overriding provider removal evidence."
+  def observe_sender(transcript_id, person_id, %{identity_platform: platform, member_id: member})
+      when is_integer(person_id) and person_id > 0 and is_binary(platform) and
+             byte_size(platform) in 1..255 and is_binary(member) and byte_size(member) in 1..255 do
+    Repo.transaction(fn ->
+      with %Transcript{strategy: "shared"} = transcript <- Repo.get(Transcript, transcript_id),
+           {:ok, %Person{id: ^person_id, status: "active"}} <-
+             People.match_by_channel(platform, member, transcript.channel_config_id) do
+        {root, resource} = locked_root(transcript)
+        observe_sender_locked(root, resource, person_id, platform, member)
+      else
+        _ -> Repo.rollback(:invalid_sender_evidence)
+      end
+    end)
+  end
+
+  def observe_sender(_, _, _), do: {:error, :invalid_sender_evidence}
+
+  defp observe_sender_locked(root, resource, person_id, platform, member) do
+    state = root.membership_state
+    seen = state["sender_members"] || []
+
+    cond do
+      state["platform"] not in [nil, platform] ->
+        Repo.rollback(:invalid_sender_evidence)
+
+      member in seen ->
+        %{status: :observed}
+
+      sender_fenced?(state, member, seen) ->
+        %{status: :fenced}
+
+      true ->
+        case Permissions.grant(resource, %{
+               person_id: person_id,
+               source_key: "channel_history:provider:" <> root.provider,
+               access_rights: ["read"]
+             }) do
+          {:ok, _} ->
+            store_state(
+              root,
+              Map.merge(state, %{
+                "platform" => platform,
+                "sender_members" => Enum.sort([member | seen])
+              })
+            )
+
+            %{status: :observed}
+
+          {:error, reason} ->
+            Repo.rollback(reason)
+        end
+    end
+  end
+
+  defp sender_fenced?(state, member, seen) do
+    length(seen) >= @max_members or
+      (Map.has_key?(state, "members") and member not in state["members"])
+  end
+
   defp apply_event_locked(%{
          provider: provider,
          channel_config_id: config_id,

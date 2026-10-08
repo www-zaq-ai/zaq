@@ -11,6 +11,10 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
   audience is message-local evidence, never a complete room-membership snapshot.
   Missing or contradictory provider facts remain unknown (`nil`). Consumers own
   interpretation; history kind and title presentation are not transport fields.
+
+  `sender_membership` is message-local presence evidence normalized by Channels.
+  It is not a complete membership snapshot or an authentication credential;
+  Engine accepts it only after trusted ingress and scoped identity validation.
   """
 
   alias Zaq.Engine.Messages.Incoming.Audience
@@ -25,6 +29,7 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
     :source_scope,
     :audience,
     :identity_platform,
+    :sender_membership,
     :provider_sent_at,
     :conversation_id,
     :reply_targets,
@@ -40,6 +45,7 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
           source_scope: String.t() | nil | :invalid,
           audience: Audience.t() | nil,
           identity_platform: String.t() | nil,
+          sender_membership: map() | nil,
           provider_sent_at: DateTime.t() | nil,
           conversation_id: String.t() | nil,
           reply_targets: ReplyTargets.t() | nil,
@@ -58,6 +64,7 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
       source_scope: normalize_source_scope(context.source_scope),
       audience: Audience.normalize(context.audience),
       identity_platform: normalize_topic_id(context.identity_platform),
+      sender_membership: normalize_sender_membership(context.sender_membership),
       provider_sent_at: normalize_timestamp(context.provider_sent_at),
       conversation_id: normalize_topic_id(context.conversation_id),
       reply_targets: ReplyTargets.normalize(context.reply_targets),
@@ -75,6 +82,7 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
       source_scope: normalize_source_scope(fetch(context, :source_scope)),
       audience: Audience.normalize(fetch(context, :audience)),
       identity_platform: normalize_topic_id(fetch(context, :identity_platform)),
+      sender_membership: normalize_sender_membership(fetch(context, :sender_membership)),
       provider_sent_at: normalize_timestamp(fetch(context, :provider_sent_at)),
       conversation_id: normalize_topic_id(fetch(context, :conversation_id)),
       reply_targets: ReplyTargets.normalize(fetch(context, :reply_targets)),
@@ -117,6 +125,18 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
 
   defp normalize_attributes(attributes) when is_map(attributes), do: attributes
   defp normalize_attributes(_attributes), do: %{}
+
+  defp normalize_sender_membership(evidence) when is_map(evidence) do
+    with platform when is_binary(platform) <-
+           normalize_topic_id(fetch(evidence, :identity_platform)),
+         member when is_binary(member) <- normalize_topic_id(fetch(evidence, :member_id)) do
+      %{identity_platform: platform, member_id: member}
+    else
+      _ -> nil
+    end
+  end
+
+  defp normalize_sender_membership(_), do: nil
 
   defp normalize_timestamp(%DateTime{time_zone: "Etc/UTC"} = timestamp), do: timestamp
   defp normalize_timestamp(_), do: nil

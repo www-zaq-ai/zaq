@@ -78,12 +78,12 @@ defmodule Zaq.Engine.History.MembershipOrder do
         :all ->
           remaining = Map.filter(events, fn {_, entry} -> entry["revision"] > revision end)
 
-          %{
+          Map.merge(state, %{
             "platform" => platform,
             "snapshot" => revision,
             "events" => remaining,
             "members" => Enum.sort(effective)
-          }
+          })
 
         members ->
           entries =
