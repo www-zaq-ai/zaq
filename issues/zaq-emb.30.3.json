@@ -15,11 +15,15 @@
     {
       "text": "Action reuse assessment: extend Conversations admission-capability verification and TranscriptHistory.list/3 (authorized sanitized bounded reads); local-only ExecutionHistory composer and Agent conversion because these are runtime admission/lifecycle details, not independently caller-authorizable tools. Inspected lib/zaq/agent/tools/accounts/history.ex: accounts.fetch_history is topic/date private-conversation recall, not an admission-capability canonical hydration API; no broad-query shortcut or second history tool added. Existing Engine source/placement admission remains authoritative. Confidential :execution_history dispatch takes existing binding + trusted actor, validates token and literal active owner, returns bounded messages/cursors or fixed denial; no writes/provider fetches. Agent API validates before status/guard, Executor revalidates before runtime selection. Regression-first real Engine/Agent routing covers forged/missing/foreign/inactive Person, revocation, root absence, Direct parent and recipient-copy Replicated behavior; Shared real-LLM acceptance has advanced to the intended B3 ExecutionRecord failure. Existing mock-heavy API preservation fixtures only gained the new dispatch contract; new regressions use real internal boundaries. Runtime warm synchronization remains .16; per-request authorization is active now. Latest preservation suite: 220 tests, 3 properties, 6 doctests pass, excluding the explicitly red authorized_execution B3 target.",
       "timestamp": "2026-10-08T07:18:10Z"
+    },
+    {
+      "text": "Unusual validation blocker: mix q twice exited inside ExDNA Task.Supervised.stream(5000), at detector.ex:62 and :70, not a code assertion. Intermediate successful analyses exposed only local Credo alias/complexity findings, which were corrected without suppressing checks. The final unchanged quality gate again timed out, so per user instruction pausing B2 before commit/completion; changes remain preserved and B2 stays in_progress. Latest expanded preservation run was 220 tests + 3 properties + 6 doctests green (authorized_execution explicitly excluded and remains red at missing B3 ExecutionRecord). Newly added projection privacy property and final lint-only refactors still require the next focused rerun. No B2 commit, push, merge or destructive revert. Resume: rerun quality gate once environment/tool contention is resolved, rerun affected tests/diff check, finish B2 preservation cases and commit, then proceed B3.",
+      "timestamp": "2026-10-08T07:28:54Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.30.3] B2 — trusted admission and authorized initial history",
   "type": "task",
-  "updated_at": "2026-10-08T07:18:10Z"
+  "updated_at": "2026-10-08T07:28:54Z"
 }
