@@ -19,11 +19,15 @@
     {
       "text": "Approval-readiness handoff withdrawn after user-reported Shared authorization and private telemetry/modal regressions. Gate reopened to open/blocked behind zaq-emb.31; no human approval. Test-first matrix now records 17 red cases in 102 tests / 2 properties (seed625), with independently observed private measurements, modal traces/token values and multi-recipient reply authorization failures. Historical handoff has an explicit superseded notice. Do not start new B browser E2E or publication from earlier readiness claims.",
       "timestamp": "2026-10-08T18:00:44Z"
+    },
+    {
+      "text": "Still open/blocked: inventory fixes implemented but renewed acceptance remains incomplete after final10file matrix exposed refreshed-Shared concurrent Bob first-model timeout. zaq-emb.31.5 is in_progress; no approver/date/scope recorded, no browser E2E authoring authorization. Existing handoff updated with current blocked state rather than reusing historical green claims. A separate prior approval is not B approval; final approval/publication remain separate.",
+      "timestamp": "2026-10-08T21:25:57Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.32] PR B explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-10-08T18:00:44Z"
+  "updated_at": "2026-10-08T21:25:57Z"
 }
