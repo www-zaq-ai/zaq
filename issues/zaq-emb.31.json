@@ -37,11 +37,15 @@
     {
       "text": "Acceptance reopened at user direction: production Shared sender authorization and persisted private-execution modal/accounting are not established by existing grant-seeded tests. Tests first; no production fixes until the full Shared/Direct/Replicated and active-request failure inventory is recorded. Action reuse: not applicable to production operations (test-only changes); exercise existing provider ingress, NodeRouter, Jido and delivery boundaries, no parallel operation implementations. Existing handoff readiness claims are superseded. Human B approval remains withheld; no new browser E2E, push or merge authorized.",
       "timestamp": "2026-10-08T17:16:23Z"
+    },
+    {
+      "text": "Approved inventory production fixes are locally committed in owning A/B and propagated without publication. A sender authorization at628be8397/fad3b046f; B recipient admission bcd667bfd, private measurements854a8e6d9, authorized persisted inspection17ef98ad9, correlated native tool evidence09845927e; B implementation tip20ac23d7a. Preservation after all A scope fixes:1994tests58properties17doctests Agent/storage/removal and2355tests60properties Channels+78related/BO, zero failures separately; fresh isolated complete migration/canonical/modal group328tests17properties0failures, temporary partition dropped, working DB untouched. FINAL expanded10file180tests8properties still has1 refreshedShared concurrent Bob first-model timeout; .31.5 investigates. A separate intermittent confirmation error was natively proved SQLSandbox136ms queue timeout after trueSMTPacceptance; test-only queue budget WIP, unchanged deadlines. Green retries do not restore readiness; .31 and .32 remain blocked, no browser feature E2E or final gate claim. Updated existing handoff captures exact commits/evidence/WIP/next diagnosis. All39stashes preserved.",
+      "timestamp": "2026-10-08T21:25:48Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] PR B integrated validation and documentation",
   "type": "task",
-  "updated_at": "2026-10-08T18:02:02Z"
+  "updated_at": "2026-10-08T21:25:48Z"
 }
