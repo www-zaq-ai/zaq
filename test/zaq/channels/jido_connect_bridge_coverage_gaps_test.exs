@@ -447,6 +447,8 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
     end
 
     def dispatch(%{opts: [action: :resolve_data_source_watch_channel]} = event) do
+      send(self(), {:resolve_data_source_watch_channel, event.request})
+
       %{
         event
         | response:
@@ -1072,6 +1074,11 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
                  }
                }
              })
+
+    assert_received {:resolve_data_source_watch_channel,
+                     %{provider: "google_drive", config_id: selected_config_id}}
+
+    assert selected_config_id == config.id
 
     assert_received {:list_collection_changes,
                      %{checkpoint: "checkpoint-1", collection_id: "folder-1"}}

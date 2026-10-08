@@ -288,11 +288,43 @@ defmodule Zaq.Channels.DataSourceBridge do
     end
   end
 
+  @doc "Retries teardown of a watch retained on an archived connector by exact ID only."
+  @spec unwatch_archived_item(atom() | String.t(), map()) ::
+          :ok | {:ok, term()} | {:error, term()}
+  def unwatch_archived_item(provider, %{config_id: id} = params)
+      when is_integer(id) and id > 0 do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         %ChannelConfig{provider: config_provider, kind: "data_source", archived_at: %DateTime{}} =
+           config <- ChannelConfig.get(id),
+         true <- config_provider == to_string(provider) || {:error, :connector_mismatch},
+         true <- supports_callback?(bridge, :unwatch_item, 2) || {:error, :unsupported} do
+      bridge.unwatch_item(ChannelConfig.to_runtime_config(config), params)
+    else
+      nil -> {:error, :channel_config_not_found}
+      %ChannelConfig{} -> {:error, :connector_mismatch}
+      {:error, _} = error -> error
+    end
+  end
+
+  def unwatch_archived_item(_provider, _params), do: {:error, :invalid_connector_id}
+
   @doc "Handles a provider webhook delivery through the configured DataSource bridge."
   @spec handle_webhook(atom() | String.t(), map()) :: {:ok, term()} | {:error, term()}
   def handle_webhook(provider, payload) when is_map(payload) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- Bridge.fetch_channel_config(provider),
+         true <- supports_callback?(bridge, :handle_webhook, 2) || {:error, :unsupported} do
+      bridge.handle_webhook(config, payload)
+    end
+  end
+
+  @doc "Dispatches a data-source webhook only to its enabled, provider-matching connector."
+  @spec handle_webhook(atom() | String.t(), map(), pos_integer()) ::
+          {:ok, term()} | {:error, term()}
+  def handle_webhook(provider, payload, config_id)
+      when is_map(payload) and is_integer(config_id) and config_id > 0 do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         {:ok, config} <- Bridge.fetch_channel_config(provider, config_id),
          true <- supports_callback?(bridge, :handle_webhook, 2) || {:error, :unsupported} do
       bridge.handle_webhook(config, payload)
     end

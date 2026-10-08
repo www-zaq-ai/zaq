@@ -1,6 +1,7 @@
 defmodule Zaq.Engine.DataSourcesTest do
   use Zaq.DataCase, async: false
   use Oban.Testing, repo: Zaq.Repo
+  use ExUnitProperties
 
   import Ecto.Query
 
@@ -26,6 +27,11 @@ defmodule Zaq.Engine.DataSourcesTest do
       %{event | response: {:ok, %{status: "unwatched"}}}
     end
 
+    def dispatch(%{opts: [action: :data_source_unwatch_archived_item]} = event) do
+      send(self(), {:archived_unwatch_item, event.request})
+      %{event | response: {:ok, %{status: "unwatched"}}}
+    end
+
     def dispatch(event), do: %{event | response: {:error, :unexpected_event}}
   end
 
@@ -38,6 +44,11 @@ defmodule Zaq.Engine.DataSourcesTest do
 
     def dispatch(%{opts: [action: :data_source_unwatch_item]} = event) do
       send(self(), {:renewal_unwatch_item, event.request})
+      %{event | response: {:error, :unwatch_failed}}
+    end
+
+    def dispatch(%{opts: [action: :data_source_unwatch_archived_item]} = event) do
+      send(self(), {:archived_unwatch_item, event.request})
       %{event | response: {:error, :unwatch_failed}}
     end
 
@@ -214,6 +225,127 @@ defmodule Zaq.Engine.DataSourcesTest do
     assert updated.checkpoint == "checkpoint-2"
   end
 
+  test "equal external watch IDs stay isolated across connectors of one provider" do
+    first = insert_data_source_config()
+    second = insert_data_source_config()
+
+    assert {:ok, a} = DataSources.upsert_watch_channel(watch_attrs(first))
+    assert {:ok, b} = DataSources.upsert_watch_channel(watch_attrs(second))
+    assert a.id != b.id
+
+    assert {:ok, selected} =
+             DataSources.resolve_watch_channel(%{
+               provider: "google_drive",
+               channel_id: "channel-1",
+               config_id: second.id
+             })
+
+    assert selected.id == b.id
+
+    assert {:error, :ambiguous_watch_channel} =
+             DataSources.resolve_watch_channel(%{
+               provider: "google_drive",
+               channel_id: "channel-1"
+             })
+  end
+
+  test "numeric string connector IDs upsert the existing watch for that connector" do
+    config = insert_data_source_config()
+    assert {:ok, first} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+    assert {:ok, updated} =
+             DataSources.upsert_watch_channel(
+               watch_attrs(config, %{config_id: Integer.to_string(config.id), checkpoint: "next"})
+             )
+
+    assert updated.id == first.id
+    assert updated.checkpoint == "next"
+  end
+
+  test "archive teardown stops only this connector's watches and is retryable" do
+    first = insert_data_source_config()
+    other = insert_data_source_config()
+    {:ok, a} = DataSources.upsert_watch_channel(watch_attrs(first))
+    {:ok, b} = DataSources.upsert_watch_channel(watch_attrs(first, %{channel_id: "channel-2"}))
+    {:ok, untouched} = DataSources.upsert_watch_channel(watch_attrs(other))
+
+    with_engine_data_sources_env(StubRenewalNodeRouter, nil, fn ->
+      assert {:ok, 2} = DataSources.stop_config_watch_channels(first.id)
+      assert Repo.get(WatchChannel, a.id).status == "stopped"
+      assert Repo.get(WatchChannel, b.id).status == "stopped"
+      assert Repo.get(WatchChannel, untouched.id).status == "active"
+      assert {:ok, 0} = DataSources.stop_config_watch_channels(first.id)
+    end)
+  end
+
+  test "archive teardown reports failed watches and keeps them active for retry" do
+    config = insert_data_source_config()
+    {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+    with_engine_data_sources_env(StubRenewalUnwatchErrorNodeRouter, nil, fn ->
+      assert {:error, [{id, :unwatch_failed}]} = DataSources.stop_config_watch_channels(config.id)
+      assert id == watch.id
+      assert Repo.get(WatchChannel, watch.id).status == "active"
+    end)
+
+    with_engine_data_sources_env(StubRenewalNodeRouter, nil, fn ->
+      assert {:ok, 1} = DataSources.stop_config_watch_channels(config.id)
+      assert Repo.get(WatchChannel, watch.id).status == "stopped"
+    end)
+  end
+
+  test "a watch arriving after archive is queued for provider cleanup" do
+    config = insert_data_source_config()
+
+    config
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Repo.update!()
+
+    with_engine_data_sources_env(StubRenewalNodeRouter, nil, fn ->
+      assert {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+      assert_enqueued(worker: WatchChannelRenewalWorker, args: %{watch_channel_id: watch.id})
+      assert :ok = perform_job(WatchChannelRenewalWorker, %{watch_channel_id: watch.id})
+      assert Repo.get!(WatchChannel, watch.id).status == "stopped"
+      assert_received {:archived_unwatch_item, %{params: %{config_id: id}}}
+      assert id == config.id
+    end)
+  end
+
+  test "archive reconciliation queues already-persisted watches for cleanup" do
+    config = insert_data_source_config()
+    {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+    config
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Repo.update!()
+
+    assert {:ok, 1} = DataSources.reconcile_archived_config_watches(config.id)
+    assert_enqueued(worker: WatchChannelRenewalWorker, args: %{watch_channel_id: watch.id})
+    assert {:ok, 1} = DataSources.reconcile_archived_config_watches(config.id)
+
+    assert {:error, :connector_not_archived} =
+             DataSources.reconcile_archived_config_watches(insert_data_source_config().id)
+  end
+
+  test "failed archived-watch cleanup retains an inspectable error for retry" do
+    config = insert_data_source_config()
+
+    config
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Repo.update!()
+
+    with_engine_data_sources_env(StubRenewalUnwatchErrorNodeRouter, nil, fn ->
+      assert {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+      assert {:error, :unwatch_failed} =
+               perform_job(WatchChannelRenewalWorker, %{watch_channel_id: watch.id})
+
+      failed = Repo.get!(WatchChannel, watch.id)
+      assert failed.status == "error"
+      assert failed.last_error =~ "unwatch_failed"
+    end)
+  end
+
   test "upsert_watch_channel stores JSON-safe string values in watch metadata" do
     config = insert_data_source_config()
 
@@ -300,6 +432,31 @@ defmodule Zaq.Engine.DataSourcesTest do
     assert resolved.id == watch_channel.id
   end
 
+  test "unscoped target lookup uses the newest watch when all matches belong to one connector" do
+    config = insert_data_source_config()
+    target = "data_source/google_drive/#{config.id}/folder-1"
+
+    {:ok, older} =
+      DataSources.upsert_watch_channel(
+        watch_attrs(config, %{target_source: target, channel_id: "channel-older"})
+      )
+
+    {:ok, newer} =
+      DataSources.upsert_watch_channel(
+        watch_attrs(config, %{target_source: target, channel_id: "channel-newer"})
+      )
+
+    assert {:ok, resolved} =
+             DataSources.resolve_watch_channel(%{
+               provider: "google_drive",
+               target_source: target,
+               target_provider_id: "folder-1"
+             })
+
+    assert resolved.id == newer.id
+    refute resolved.id == older.id
+  end
+
   test "resolve_watch_channel does not reuse expired watch channels" do
     config = insert_data_source_config()
 
@@ -342,6 +499,9 @@ defmodule Zaq.Engine.DataSourcesTest do
     config = insert_data_source_config()
 
     Oban.Testing.with_testing_mode(:manual, fn ->
+      expected_url =
+        "https://renewed.example/base/channels/webhook/data_source/google_drive/#{config.id}"
+
       {:ok, old_watch_channel} =
         DataSources.upsert_watch_channel(
           watch_attrs(config, %{
@@ -368,8 +528,7 @@ defmodule Zaq.Engine.DataSourcesTest do
                          params: %{
                            config_id: config_id,
                            force_new_watch_channel: true,
-                           webhook_url:
-                             "https://renewed.example/base/channels/webhook/data_source/google_drive"
+                           webhook_url: ^expected_url
                          }
                        }}
 
@@ -471,7 +630,7 @@ defmodule Zaq.Engine.DataSourcesTest do
              })
   end
 
-  test "resolve_watch_channel filters numeric config_id strings and ignores invalid ids" do
+  test "resolve_watch_channel filters numeric config_id strings and rejects invalid ids" do
     config = insert_data_source_config()
 
     other_config =
@@ -536,24 +695,48 @@ defmodule Zaq.Engine.DataSourcesTest do
 
     assert resolved.id == older_watch_channel.id
 
-    assert {:ok, resolved} =
+    for config_id <- ["invalid", "", "-1", 0] do
+      assert {:error, :invalid_connector_id} =
+               DataSources.resolve_watch_channel(%{
+                 provider: "google_drive",
+                 config_id: config_id,
+                 target_source: "data_source/google_drive/shared-target",
+                 target_provider_id: "folder-1"
+               })
+
+      assert {:error, :invalid_connector_id} =
+               DataSources.resolve_watch_channel(%{
+                 provider: "google_drive",
+                 config_id: config_id,
+                 channel_id: older_watch_channel.channel_id
+               })
+    end
+
+    assert {:error, :ambiguous_watch_channel} =
              DataSources.resolve_watch_channel(%{
                provider: "google_drive",
-               config_id: "invalid",
                target_source: "data_source/google_drive/shared-target",
                target_provider_id: "folder-1"
              })
+  end
 
-    assert resolved.id == older_watch_channel.id
+  property "explicit malformed connector IDs never become provider-only watch lookups" do
+    config = insert_data_source_config()
+    {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
 
-    assert {:ok, resolved} =
-             DataSources.resolve_watch_channel(%{
-               provider: "google_drive",
-               target_source: "data_source/google_drive/shared-target",
-               target_provider_id: "folder-1"
-             })
+    check all(
+            suffix <- StreamData.string(:alphanumeric, min_length: 1, max_length: 8),
+            max_runs: 20
+          ) do
+      invalid = "#{config.id}x#{suffix}"
 
-    assert resolved.id == older_watch_channel.id
+      assert {:error, :invalid_connector_id} =
+               DataSources.resolve_watch_channel(%{
+                 provider: watch.provider,
+                 config_id: invalid,
+                 channel_id: watch.channel_id
+               })
+    end
   end
 
   test "resolve_watch_channel ignores blank resource filters" do

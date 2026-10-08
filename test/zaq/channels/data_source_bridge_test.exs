@@ -1869,6 +1869,46 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
     assert_received {:handle_webhook, ^config_id, ^payload}
   end
 
+  test "handle_webhook selects an exact data-source connector when providers repeat" do
+    first = insert_data_source_config(:google_drive)
+    second = insert_data_source_config(:google_drive)
+    payload = %{"event" => "file.created"}
+
+    assert {:error, :ambiguous_connector} =
+             DataSourceBridge.handle_webhook(:google_drive, payload)
+
+    assert {:ok, %{processed: true}} =
+             DataSourceBridge.handle_webhook(:google_drive, payload, second.id)
+
+    assert_received {:handle_webhook, id, ^payload}
+    assert id == second.id
+    refute id == first.id
+
+    assert {:error, :connector_mismatch} =
+             DataSourceBridge.handle_webhook(:sharepoint, payload, second.id)
+  end
+
+  test "archived watch cleanup uses only the exact archived connector" do
+    archived = insert_data_source_config(:google_drive)
+    other = insert_data_source_config(:google_drive)
+
+    archived
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Repo.update!()
+
+    params = %{config_id: archived.id, channel_id: "watch-1", resource_id: "resource-1"}
+    assert {:ok, _} = DataSourceBridge.unwatch_archived_item(:google_drive, params)
+    assert_received {:unwatch_item, id, ^params}
+    assert id == archived.id
+    refute id == other.id
+
+    assert {:error, :connector_mismatch} =
+             DataSourceBridge.unwatch_archived_item(:sharepoint, params)
+
+    assert {:error, :connector_mismatch} =
+             DataSourceBridge.unwatch_archived_item(:google_drive, %{params | config_id: other.id})
+  end
+
   test "handle_webhook returns unsupported when callback not implemented" do
     original_channels = Application.get_env(:zaq, :channels)
 
