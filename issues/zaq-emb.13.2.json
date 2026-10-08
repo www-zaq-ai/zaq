@@ -11,9 +11,15 @@
   "id": "zaq-emb.13.2",
   "labels": [],
   "parent": "zaq-emb.13",
+  "comments": [
+    {
+      "text": "Keep browser feature E2E blocked behind separate B .32 approval and renewed .31 integration. Scope must include persisted Message information after fresh reload for Shared/Direct/Replicated: actual expandable tool arguments/results, tokens, latency and turn/model/tool counts; unseeded provider-derived Shared first entry/removal/replay; concurrent Person-bound Replicated replies and recipient-only isolation. Existing27case real-ingress ExUnit coverage is immediate regression protection, not browser E2E approval. No new browser tests authored; currentShared concurrent first-model failure under .31.5 is unresolved.",
+      "timestamp": "2026-10-08T21:26:23Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.13.2] PR B live-execution and completion E2E",
   "type": "task",
-  "updated_at": "2026-09-26T09:50:37Z"
+  "updated_at": "2026-10-08T21:26:23Z"
 }
