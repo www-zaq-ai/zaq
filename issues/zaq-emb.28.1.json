@@ -4,6 +4,7 @@
   "blocks": [
     "zaq-emb.28.2"
   ],
+  "closed_at": "2026-10-08T19:38:46Z",
   "created": "2026-10-08T18:01:18Z",
   "description": "Owner PR B. Three real completed strategy journeys (Shared after genuine provider refresh, Direct DM, Replicated email) persist tokens/tool traces but ExecutionRecord.outcome has no measurements map. Reuse/extend Conversations.persist_private_execution, execution_metadata and ExecutionLifecycle.finish; persist StreamEvents runtime timing, turn_count, llm_call_count and tool_call_count privately, with original model/token accounting intact. Do not move measurements into shared Message metadata or duplicate accounting. Add boundary tests for failed execution/receipts and preservation; satisfy existing new red actual-LMM/tool/delivery tests. Action assessment: extend existing Engine finalization operation; Agent supplies neutral actual runtime measures; NodeRouter admission/finalization and private owner contracts remain. No production implementation in tests-first pass.",
   "id": "zaq-emb.28.1",
@@ -16,8 +17,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-emb.28] Persist complete private execution measurements",
   "type": "bug",
-  "updated_at": "2026-10-08T19:38:23Z"
+  "updated_at": "2026-10-08T19:38:46Z"
 }
