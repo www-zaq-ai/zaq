@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-08T17:17:23Z",
+  "description": "Remove grant seeding from production-path Shared steering regressions; verify real next-model context, correlated consumption, private answer ownership, attributed background and cumulative refresh. Preserve existing removal/terminal/delivery/race assertions. Extend Direct/Replicated active-request coverage where supported. Tests first, no production fixes. Action reuse N/A: test-only; real ingress and Jido control paths, external model/provider doubles only.",
+  "id": "zaq-emb.31.2",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.31] Strengthen live steering and cumulative context regressions",
+  "type": "task",
+  "updated_at": "2026-10-08T17:17:23Z"
+}
