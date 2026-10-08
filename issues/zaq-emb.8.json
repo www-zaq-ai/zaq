@@ -29,11 +29,15 @@
     {
       "text": "Continuation reuse audit: Status already synchronously awaits intermediary upserts; Agent API persists canonical completed generation then routes terminal Channels hop; real Mattermost adapter sends/edits HTTP and DeliveryConfirmation alone records confirmation. Add actual webhook/Jido/LLM/HTTP delayed terminal success and delayed gateway timeout acceptance (external barrier, no transport/Engine stubs): generation remains completed while acknowledgement is pending, no assistant transcript association until confirmed transport; timeout must leave completed canonical generation unassociated and must never schedule association as a resend. Existing Arabic blocked-partial regression remains required; no new sender/recovery owner. Request/stream/tool deadlines remain distinct from delayed transport confirmation; review actual client timeout configuration separately before closing .8.",
       "timestamp": "2026-10-08T14:25:17Z"
+    },
+    {
+      "text": "Actual asynchronous terminal acceptance completed: real webhook routes through Engine admission, Jido/LLM SSE and real Mattermost HTTP. Full Arabic intermediary completes first; terminal HTTP barrier proves ExecutionRecord and canonical UUID/body are already completed while provider association is absent and execution owner still awaits transport. Delayed confirmed receipt associates exactly once; delayed 504 gateway timeout leaves completed generation unassociated with missing_confirmation and no association job. Separate native Req receive-timeout test holds the external response until the execution owner naturally exits (~25s test), releases late HTTP handlers afterward, and proves no false confirmation, no association and no transport resend worker. Existing Arabic blocked-partial ordering/timeout/error tests retained. No production operation added: existing finalization/confirmation/recovery owners already implement these contracts. 243 affected tests/3 properties, mix q and diff check pass; Channels owner docs updated. Local acceptance-only commit next; no push/merge. .29 and .31 pending before separate human UX approvals.",
+      "timestamp": "2026-10-08T14:33:06Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.8] Preserve terminal channel delivery ordering and errors",
   "type": "task",
-  "updated_at": "2026-10-08T14:25:17Z"
+  "updated_at": "2026-10-08T14:33:06Z"
 }
