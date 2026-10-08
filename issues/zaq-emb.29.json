@@ -26,11 +26,15 @@
     {
       "text": "Required pre-coverage branch review found the current integration branch is not yet an independently reviewable PR A diff. Relative to origin/main it still contains live PR B runtime/finalization changes (including Agent Api/Executor/ServerManager/HistoryLoader and Engine finalization/execution-record paths) plus preserved unrelated data-source work. The working tree also contains the explicitly preserved executor edits. These must be separated without loss before .11/.13.1/.19 can close; current tests and migration checks ran against the superset, so they must be repeated on the clean A branch. Git commit/branch/push mutations remain unauthorized; do not discard or reset any of this work.",
       "timestamp": "2026-10-03T09:35:11Z"
+    },
+    {
+      "text": "Current two-outcome inventory verified 2026-10-08: PR A #835 remains draft/open at a0c8796e21412a4e4334d4bd5ee928d339638c78, based on preserved feature/issue-768-channel-history-facts (#813). Retain the already accepted broader A ancestry/scope; do not reopen wholesale splitting, rewrite applied migrations, or retarget/close eight preserved drafts. Local B feature/issue-768-history-b-execution merge-base equals exactly that A SHA; B adds 29 cohesive commits through a97daf568 and targets feature/issue-768-history-a-integration. B-specific schema is only additive 20261008000000 execution receipts; original 20260922000013/14 remain inherited/preserved. B diff owns runtime admission/context/controls/removal, private roots/receipts/accounting, delivery acceptance and related docs/tests; no orphan fixes found or duplicated cherry-picks. A corrections remain on A, none needed from this B continuation. Remote A tip unchanged; no rebase necessary. Current A independent CI native PG/ParadeDB/optional Elixir/docs/format/Credo and chromium/webkit pass. Firefox was cancelled after ~6h, making aggregate User Journeys QA fail solely with matrix cancelled; not an assertion regression. Requested failed-job rerun, but GitHub token returns Resource not accessible by personal access token. Record separate A CI rerun/approval requirement without claiming it passes. PR body currently empty; publication-description enrichment remains pending authorization/landing, no remote PR mutations performed. No push/merge/new PR/draft closure. Local mapping complete; A validation/publication gates remain separate.",
+      "timestamp": "2026-10-08T14:37:44Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.29] Consolidate existing drafts into outcome PR A and PR B",
   "type": "task",
-  "updated_at": "2026-10-08T14:37:26Z"
+  "updated_at": "2026-10-08T14:37:44Z"
 }
