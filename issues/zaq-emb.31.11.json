@@ -13,11 +13,15 @@
     {
       "text": "Source trace now identifies FIFO loss: ReAct Worker.Strategy.run_stream enumerates/casts events to one worker; emit_parent_event returns PID Emit; Jido AgentServer DirectiveExec.Emit launches a separate task for every dispatch; PidAdapter async is only send/2, so event delivery no longer has a single-sender ordering guarantee. Native apply_runtime_event assigns active request for every event and llm_completed sets awaiting_llm even after terminal arrival. Real 2010 DISTINCT Unicode-delta test fails exact retained text; repeated identical deltas masked corruption. Current-tree mix q passes exit0/no error. 2357-test/58-property/17-doctest matrix has ordered-text failure plus existing HTTP native completion-wait failure; latter passes unchanged isolated, do not infer causation. Default 101-run eviction passes this run but previously stalled repeatedly; no retry clears blocker. Diagnostic docs/operations/native-event-ordering.md. Recommend native-owner fix to async PID Emit dispatch (single originating sender, no ZAQ reorder buffer/state reset); sync delivery inside per-event tasks is not an ordering fix. Requires dependency-scope/shipping-ref decision before implementation. No deps source/declaration/lock changes or publication.",
       "timestamp": "2026-10-09T15:51:07Z"
+    },
+    {
+      "text": "User authorizes updating jido_ai to current upstream main plus compatible latest jido and zoi; explicitly stop and report if other dependencies error. Upstream merged jido_ai PR370 already implements private ReAct EmitEvent/direct worker casts, terminal checkpoint ordering and regressions; abandon proposed new core dispatcher patch. Reuse upstream native implementation; no new local runtime logic, Action/tool or fork. Baseline clean mix.exs/mix.lock: jido2.3.3, zoi0.18.9, jido_ai fc5bc1434ddb69493fe8a68443f03bc6a198c5a2; upstream main currently970575a89631d9be0cc0fa22d380ff1d211fa286. Preserve all prior WIP; dependency-only manifest/lock change, compile then real failing preservation tests, broader checks if compatible. No commit/publication authorized.",
+      "timestamp": "2026-10-09T17:18:51Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Native late model/checkpoint events leave completed reusable runtime awaiting_llm",
   "type": "bug",
-  "updated_at": "2026-10-09T17:18:42Z"
+  "updated_at": "2026-10-09T17:18:51Z"
 }
