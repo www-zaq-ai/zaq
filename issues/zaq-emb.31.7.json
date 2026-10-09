@@ -11,11 +11,15 @@
     {
       "text": "Regression reproduced again within combined registry/StreamEvents/API/Executor/history-flow matrix seed625: 199 tests/9 properties/6 doctests, exactly one failure (sealing_race); mix q passes. Only actual native consumer is temporarily suspended; real Jido completes; immutable registry still tool_completed; real provider-ingressed correction queues Engine receipt then receives {:rejected,:idle}, becomes unconsumed, and no model followup arrives. Receipt/root uniqueness contract blocks an unchecked fallback: RequestControl has already linked the admitted input as immutable child, so starting another answer with same binding cannot legitimately turn that child into an owning root. No persistence semantics changed. Failure remains uncommitted and unskipped. Need recovery design decision; do not conflate with .31.5 concurrency or deployed sleep-error cause. Service guide and existing handoff updated; unrelated WIP preserved.",
       "timestamp": "2026-10-09T08:11:26Z"
+    },
+    {
+      "text": "User chose design-only exploration, then explicitly directed us to stop and write a clear observed-problem brief. No new retry plan steps or persistence implementation were created. Brief and existing handoff/index updated; docs-only Action reuse is not applicable (diagnostic reporting only). Source audit corrects earlier shorthand: user_message_id has a nonunique index; lifecycle get_by(input UUID) assumptions and immutable child/capability contracts are the actual obstacle. Preserve failing regression and validated status-fix commit. Brief: docs/operations/late-steering-sealing-race.md.",
+      "timestamp": "2026-10-09T08:20:28Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[#768] Retry native-sealed late corrections without changing receipt ownership",
   "type": "bug",
-  "updated_at": "2026-10-09T08:20:18Z"
+  "updated_at": "2026-10-09T08:20:28Z"
 }
