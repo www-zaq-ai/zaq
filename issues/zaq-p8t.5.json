@@ -10,9 +10,15 @@
   "id": "zaq-p8t.5",
   "labels": [],
   "parent": "zaq-p8t",
+  "comments": [
+    {
+      "text": "Committed E2E/support/guide as d5ccecede. UX approved by Julien (zaq-p8t.4). Browser journeys pass Chromium/Firefox/WebKit at 390px and 1280px for both surfaces: secure new-tab, pending, reload persistence, cancellation, expiry, worker death/restart and successful canonical grants. Provider IO mocked only at HTTP seam, no production test hooks or real provider requests. Focused suite: 6 properties/98 tests pass; mix q and commit hooks pass. Full precommit previously passed 9989 tests/191 properties/48 doctests, but latest final-state retries reproduce existing telemetry stale-sandbox-holder failure tracked by zaq-mcw, which is now a blocker. Both failed tests pass isolated. Feature finalization remains open; no final approval requested, no push/PR/merge performed. Coverage-focused numerical gate follows PR review per workflow; invariant, security and lifecycle scenarios covered now.",
+      "timestamp": "2026-10-09T18:38:14Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p8t.5] E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-09T18:35:59Z"
+  "updated_at": "2026-10-09T18:38:14Z"
 }
