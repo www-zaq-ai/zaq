@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T13:48:38Z",
+  "description": "Extend existing WidgetConnectorSettings/ManageWidgetConnector and pure WidgetSettings: identity_issuer, identity_audience, same_site; persist new defaults, preserve omitted legacy settings, expose desired/effective values without silent migration. Tests first: validation/property tests, Engine roundtrip/partial-save/runtime propagation. Reuse decision: extend existing management Action and settings APIs; no new Action. Docs: web-bridge contract. Isolated tests and mix q required.",
+  "id": "zaq-kgw",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Widget authentication and cookie settings persistence",
+  "type": "task",
+  "updated_at": "2026-10-09T13:48:38Z"
+}
