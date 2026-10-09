@@ -8,9 +8,15 @@
   "description": "Extend existing WidgetConnectorSettings/ManageWidgetConnector and pure WidgetSettings: identity_issuer, identity_audience, same_site; persist new defaults, preserve omitted legacy settings, expose desired/effective values without silent migration. Tests first: validation/property tests, Engine roundtrip/partial-save/runtime propagation. Reuse decision: extend existing management Action and settings APIs; no new Action. Docs: web-bridge contract. Isolated tests and mix q required.",
   "id": "zaq-kgw",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implementation present: canonical defaults/strict shared WidgetSettings validation, management allowlist and persistence/projection, omitted legacy fields preserved, runtime settings passed server-only. Focused Engine/shared/adapter tests pass as part of 205 tests and 6 property tests. mix q formatted/compiled and hooks verified, but gate remains blocked by intermittent ExDNA.Credo Task.Supervised.stream(5000) timeout; a completed lint run identified findings that were fixed. Do not mark final validation complete. No new Action: existing management Action/domain settings extended.",
+      "timestamp": "2026-10-09T15:13:52Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-kgw] Widget authentication and cookie settings persistence",
   "type": "task",
-  "updated_at": "2026-10-09T13:49:08Z"
+  "updated_at": "2026-10-09T15:13:52Z"
 }
