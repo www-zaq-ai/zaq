@@ -227,6 +227,18 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     assert has_element?(view, "#credential-edit-#{oauth_id}.zaq-btn-secondary", "Connect")
 
     html = view |> element("#credential-edit-#{oauth_id}") |> render_click()
+
+    provider = Repo.get!(Connect.Credential, oauth_id).provider
+
+    assert has_element?(
+             view,
+             "#credential-form-dialog p",
+             "Continue to #{provider} to sign in, then return to ZAQ."
+           )
+
+    assert html =~ "Your access tokens are never displayed."
+    refute html =~ "to authorize ZAQ"
+    refute html =~ "Authentication details are never displayed."
     assert html =~ "Add AI: Personal Codex"
     view |> element("#credential-oauth-#{oauth_id}") |> render_click()
     assert_push_event(view, "open_oauth_popup", %{url: url})

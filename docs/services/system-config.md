@@ -352,6 +352,26 @@ Trusted administrative status reads use the same secret-free projection with an
 explicit canonical owner. They are not Person APIs and must be authorized by any BO
 transport that adopts them.
 
+### Device sign-in (`zaq-p8t`)
+
+Device-capable OAuth profiles offer **Sign in with device code** in the BO AI
+credential modal (new or existing credentials) and the People Credentials adding/
+editing modal. Both use the shared `DesignSystem.DeviceSignIn` instructions: a
+verification URL with an adjacent **Open in new tab** button (`noopener noreferrer`),
+user code, deadline, pending status and explicit cancellation/restart guidance.
+Browser popup authorization remains available. Closing the modal does not cancel
+sign-in; reopening observes the existing worker rather than starting another.
+
+New BO AI device setup reuses the existing setup-pending required-policy definition
+path. The desired policy is encrypted in Connect's immutable admin candidate and
+applies with the completed global grant; setup-pending definitions remain excluded
+from Person availability until usable. Existing Connect grants are unchanged on
+failed reauthorization. Device/candidate material and user codes are encrypted at
+rest and erased on terminal transitions; only the verification code and URL are
+shown while pending. An app/worker restart requires a fresh user-initiated flow.
+See [Engine device sign-in](engine.md#device-sign-in-protocol-zaq-p8t) for ownership,
+transport and polling contracts.
+
 ### Runtime resolution secret lifetime (`zaq-jrg.4`)
 
 `Connect.resolve_credential/3` is a privileged runtime-only API, not a public/general
