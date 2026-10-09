@@ -18,11 +18,15 @@
     {
       "text": "Current preservation evidence: normal-scheduler mix q passes (exit0/no subprocess error), Credo 1544 files/19014 mods-funs no issues/docs generated. Manager/StreamEvents/observations pass 92 tests/6 properties seed625. Suspended native shutdown regression reproduced Manager crash via get_state timeout, then passes using existing bounded drain on exit; retained protected ETS survives. Action reuse: extend StreamEvents presentation register (status-free final flush), Factory exact native lifecycle reader (pending-only acceptance), ServerManager in_flight_requests? (local-only bounded shutdown, no composable business Action or tool). Existing owning APIs preserve actor/errors/lifecycle; no duplicated operation or new execution path. Direct init fixtures migrated to real supervised restart/protected ETS; minimal state fixture completed, assertions unchanged. Expanded Agent/Conversations/Channels/workflow/email/media/ratings matrix: 2357 tests/58 properties/17 doctests, 2 failures, 21 existing-tag exclusions; ordered native long-stream inspection and HTTP native completion wait. HTTP passes unchanged isolated. 101-run default eviction/archive authorization/teardown passed combined but intermittent native stall remains .31.11 blocker; native distinct Unicode text is reordered. Handoff and diagnostic updated. Remaining real busy-admission closure, repeat full acceptance, independent .31.5 diagnosis, human/E2E/review/coverage/precommit still open. No commit/push/merge, stashes and unrelated WIP preserved.",
       "timestamp": "2026-10-09T15:51:22Z"
+    },
+    {
+      "text": "Dependency blocker .31.11 now validated locally using existing merged jido_ai PR370 rather than a new Jido core patch: ai970575a89631(2.4.0), jido2.4.0, zoi0.18.11 and minimal approved OpaqueAliases adaptation. Expanded seed625 matrix passes2357tests/59properties/17doctests (21 existing-tag exclusions), current mix q/diff check pass. Native actual ordered2010delta/100request-eviction/teardown/authorized archived inspection now pass; repeat aliases/native/HTTP/nested seed2026 passes38tests/2properties. Keep D open: five-file75test/2property seed0 repeat failed Shared owner_followup at assert_receive strategy_delivery_committed after real continuation; same active-update10cases pass isolated unchanged. Existing assertions/timeouts kept. No causal relationship to .31.5 or native ordering established; no silent rerun-based clearance. Remaining real busy-admission closure, independent .31.5 diagnosis and integrated repeat acceptance remain; human/E2E/review/coverage/precommit/publication gates unchanged. Diagnostic docs/operations/native-event-ordering.md and handoff current. No commit/push/merge.",
+      "timestamp": "2026-10-09T18:00:36Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
   "type": "task",
-  "updated_at": "2026-10-09T15:51:22Z"
+  "updated_at": "2026-10-09T18:00:36Z"
 }
