@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-p8t.5"
   ],
+  "closed_at": "2026-10-09T18:05:35Z",
+  "close_reason": "Julien explicitly approved both finished modals in this session ('Looks good to me, what's next ?'), then authorized E2E finalization and remaining commits with 'Go'. Earlier comment preserves approved scope and provenance. No material UX changes after approval.",
   "created": "2026-10-09T12:18:42Z",
   "description": "Inspect completed BO AI and People credential modals. Human approves final URL/code, open-new-tab button, pending/error/restart/cancel/success UX before feature E2E authoring.",
   "id": "zaq-p8t.4",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "[zaq-p8t.4] Human UX approval",
   "type": "task",
-  "updated_at": "2026-10-09T17:26:10Z"
+  "updated_at": "2026-10-09T18:05:35Z"
 }
