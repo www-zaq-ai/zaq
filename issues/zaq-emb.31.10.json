@@ -22,11 +22,15 @@
     {
       "text": "Dependency blocker .31.11 now validated locally using existing merged jido_ai PR370 rather than a new Jido core patch: ai970575a89631(2.4.0), jido2.4.0, zoi0.18.11 and minimal approved OpaqueAliases adaptation. Expanded seed625 matrix passes2357tests/59properties/17doctests (21 existing-tag exclusions), current mix q/diff check pass. Native actual ordered2010delta/100request-eviction/teardown/authorized archived inspection now pass; repeat aliases/native/HTTP/nested seed2026 passes38tests/2properties. Keep D open: five-file75test/2property seed0 repeat failed Shared owner_followup at assert_receive strategy_delivery_committed after real continuation; same active-update10cases pass isolated unchanged. Existing assertions/timeouts kept. No causal relationship to .31.5 or native ordering established; no silent rerun-based clearance. Remaining real busy-admission closure, independent .31.5 diagnosis and integrated repeat acceptance remain; human/E2E/review/coverage/precommit/publication gates unchanged. Diagnostic docs/operations/native-event-ordering.md and handoff current. No commit/push/merge.",
       "timestamp": "2026-10-09T18:00:36Z"
+    },
+    {
+      "text": "Authorized diagnostic-only step: extend existing delivery assertion with bounded pre-teardown execution/confirmation/placement snapshots, native call tracking and HTTP/SQL wait telemetry; preserve assertions/deadlines. Test-support-only, Action reuse not applicable (no domain operation changes). Verify forced diagnostic failure and original five-file seed0 suite plus mix q. Acceptance remains open; no production fix/publication authorized.",
+      "timestamp": "2026-10-09T19:58:42Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
   "type": "task",
-  "updated_at": "2026-10-09T18:00:36Z"
+  "updated_at": "2026-10-09T19:58:42Z"
 }
