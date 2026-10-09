@@ -11,9 +11,15 @@
   "id": "zaq-p8t.4",
   "labels": [],
   "parent": "zaq-p8t",
+  "comments": [
+    {
+      "text": "Julien approved the finished UX in this session: 'Looks good to me, what's next ?' followed by 'Go'. Scope: both BO AI and People device-sign-in modals, dynamic provider-template copy, adjacent new-tab verification link, pending/terminal/restart states. Approval authorizes consolidated E2E finalization; no further UX redesign planned.",
+      "timestamp": "2026-10-09T17:26:10Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-p8t.4] Human UX approval",
   "type": "task",
-  "updated_at": "2026-10-09T12:18:48Z"
+  "updated_at": "2026-10-09T17:26:10Z"
 }
