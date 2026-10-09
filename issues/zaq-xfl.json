@@ -10,9 +10,15 @@
   "description": "Human must approve finished form/default/legacy semantics and both live status surfaces before new feature E2E authoring. Approval is not inferred from tests or prior contract approval.",
   "id": "zaq-xfl",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implementation is present but final validation is blocked by ExDNA.Credo internal Task.Supervised.stream(5000) timeout; browser bootstrap dependency compilation also timed out. Do not treat prior contract approval or passing unit/LiveView tests as UX approval. No completed UX approval recorded.",
+      "timestamp": "2026-10-09T15:13:56Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-xfl] Approve completed widget configuration and health UX",
   "type": "task",
-  "updated_at": "2026-10-09T13:49:12Z"
+  "updated_at": "2026-10-09T15:13:56Z"
 }
