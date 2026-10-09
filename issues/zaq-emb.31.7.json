@@ -23,11 +23,15 @@
     {
       "text": "Live RequestControl definitive idle/closed nonacceptance and Engine closed-before-queue dispositions now route through a FIFO reservation inside HistorySync sessions, fresh Engine binding and normal Pipeline/Executor/finalization. Real discovery→queue→native closure regression passes (both sealing cases 2/2). Expiry/caller-death/adoption/session/owner/input/removal/replacement/abort tests pass (24 tests/1 property). API/busy fallback propagates only an internal handoff result, not public outgoing metadata; low-level controls default to refusal. Reservation inputs fenced both while queued and immediately after grant; local reservation opts removed on API return. Wider failure/ordering/security suites and mix q still pending; no commit/publication.",
       "timestamp": "2026-10-09T12:50:11Z"
+    },
+    {
+      "text": "Current-tree live handoff: 10 real steering cases pass seed625 under normal schedulers, including actual PendingInputServer.seal/closed refusal, native idle closure after discovery/queue, native-complete presentation lag and removal while waiting. Combined 10-file Agent/Pipeline/Engine/storage/concurrency/migration matrix passes 230 tests/9 properties seed625; low-level steer/inject still return real idle refusal. Old consumed-terminal low-level queue result restored after unchanged regression caught compatibility drift. Docs updated; local-only quality helper extraction only, shared lease/control operations unchanged. mix q passed before last sealed-test addition; latest attempts blocked by ExDNA internal Task.Supervised.stream(5000) timeout under host load (8 CPUs/load ~26). A subsequent completed quality run identified only a nested alias in the new test, now fixed; final current-tree mix q still pending because of repeat internal timeout. No thresholds/assertions weakened. diff check passes. Keep .31.7 open and .31.10 dependent; native long-stream/eviction and remaining broad caller/security preservation not yet complete. No commit/push/merge.",
+      "timestamp": "2026-10-09T13:32:51Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Retry native-sealed late corrections without changing receipt ownership",
   "type": "bug",
-  "updated_at": "2026-10-09T12:50:11Z"
+  "updated_at": "2026-10-09T13:32:51Z"
 }
