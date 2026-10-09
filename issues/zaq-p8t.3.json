@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-p8t.2"
+  ],
   "blocks": [],
   "created": "2026-10-09T12:18:40Z",
   "description": "Tests first: Engine confidential routing, Person isolation and permissions, BO new/edit candidate finalization, LiveView states in BO AI and People adding modals, new-tab URL adjacent button and no secret material. Extend existing domain APIs, Events/People gateway and credential form components, preserving existing browser OAuth. New reusable device instructions component uses existing Button/tokens. Human UI approval gates E2E authoring. Update docs and Storybook.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-p8t.3] Both credential modals and dispatch",
   "type": "task",
-  "updated_at": "2026-10-09T12:18:41Z"
+  "updated_at": "2026-10-09T12:18:46Z"
 }
