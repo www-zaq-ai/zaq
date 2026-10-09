@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T13:48:40Z",
+  "description": "Extend WidgetAdapter with optional status/2 and Web.Runtime with bounded confidential-safe validation; implement WebBridge ingress health through existing channel_ingress_status event. Add closed response validator owned by Channels web boundary; no new tool/Action since adapter lifecycle health is local-only and existing domain dispatch is reused. Tests first: ready/start/unavailable/unknown, strict shape, no secrets, timeout/exits, absent callback, disabled and desired/effective mismatch. Docs: web-bridge. Isolated tests and mix q required.",
+  "id": "zaq-p6e",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Widget adapter readiness and ingress health",
+  "type": "task",
+  "updated_at": "2026-10-09T13:48:40Z"
+}
