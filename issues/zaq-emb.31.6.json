@@ -7,9 +7,15 @@
   "id": "zaq-emb.31.6",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Implemented local-only RequestRegistry active-status policy shared by API and busy Executor lookup: running, streaming, tool_running and tool_completed. Immutable actor/agent/PID/scope and terminal/removal fencing unchanged; no provider/domain logic or parallel controls. Reused RequestControl -\u003e Engine queue receipt -\u003e Factory/Jido steer path. Regressions first failed for both missing tool phases, including a real sleep. Six ingress/native/tool/model/delivery cases now pass (10s+5s reproduction, second sleep, reasoning/text streaming, silent next-model call, completed followup); exactly one answer/root and native input_injected consumption for active corrections, exact 2 tools/3 model calls. Preservation seed625: 198 tests/9 properties/6 doctests pass; mix q passes after fixture complexity cleanup. Separate narrow native-sealing/registry-lag race still to investigate; do not infer integrated B acceptance or publication approval. Pre-existing config/revocation/handoff WIP preserved.",
+      "timestamp": "2026-10-09T08:02:58Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Preserve steering through tool and model-wait phases",
   "type": "bug",
-  "updated_at": "2026-10-09T07:45:00Z"
+  "updated_at": "2026-10-09T08:02:58Z"
 }
