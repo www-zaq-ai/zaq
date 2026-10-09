@@ -8,9 +8,15 @@
   "description": "Blocked until implementation and explicit completed UX approval. Author consolidated scenarios for create/edit/reopen issuer/audience/SameSite, legacy preservation, enable/disable, real adapter readiness statuses across list/config cards; actual external endpoint/cookie acceptance depends on widget #10/#12/#16. Run existing E2E as required without weakening assertions.",
   "id": "zaq-vrq",
   "labels": [],
+  "comments": [
+    {
+      "text": "Keep blocked by zaq-xfl final completed UX approval. Host implementation now covers desired issuer/audience/SameSite, legacy preserve choices, enabled-vs-readiness chips, periodic health on both surfaces, dirty edits preserved. Add final journey scenarios only after approval. Real adapter websocket/session enforcement awaits widget #10/#12/#16. Browser bootstrap in isolated _widget_settings_20261009 partition timed out compiling dependencies; no E2E pass claimed.",
+      "timestamp": "2026-10-09T15:13:55Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-vrq] Finalize widget settings and health feature E2E",
   "type": "task",
-  "updated_at": "2026-10-09T13:49:12Z"
+  "updated_at": "2026-10-09T15:13:55Z"
 }
