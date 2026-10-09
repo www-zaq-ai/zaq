@@ -1,6 +1,7 @@
 {
   "assignee": "Julien",
   "blocked_by": [
+    "zaq-mcw",
     "zaq-p8t.4"
   ],
   "blocks": [],
@@ -13,5 +14,5 @@
   "status": "in_progress",
   "title": "[zaq-p8t.5] E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-09T18:05:38Z"
+  "updated_at": "2026-10-09T18:35:59Z"
 }
