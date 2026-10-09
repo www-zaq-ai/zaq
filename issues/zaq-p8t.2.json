@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-p8t.3"
   ],
+  "closed_at": "2026-10-09T18:03:55Z",
+  "close_reason": "Committed c66c031e4. Encrypted attempts, temporary provider-neutral poller, authenticated/confidential operations, atomic completion and lifecycle cleanup. Focused validation 6 properties/98 tests pass; supervisor contract regression passes; full precommit 48 doctests/191 properties/9989 tests passed. Existing primitives reused; no agent tool exposure.",
   "created": "2026-10-09T12:18:38Z",
   "description": "Tests first: encrypted secrets, session/config binding, expiration, one worker, cancellation racing completion, crash and interrupted restart, existing grant preservation and atomic success. Add separate device schema and temporary worker supervision on Engine; reuse shared binding and canonical Mutations. Worker consumes provider instructions; no Oban or recovery. Internal local-only polling is not independently exposed. Public start/status/cancel are domain operations at authenticated/confidential dispatch boundaries. Property-test terminal-state and timing invariants. No network inside Repo transactions.",
   "id": "zaq-p8t.2",
   "labels": [],
   "parent": "zaq-p8t",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[zaq-p8t.2] Device attempts and temporary worker",
   "type": "task",
-  "updated_at": "2026-10-09T12:56:47Z"
+  "updated_at": "2026-10-09T18:03:55Z"
 }
