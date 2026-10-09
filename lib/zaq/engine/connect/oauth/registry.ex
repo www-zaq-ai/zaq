@@ -27,7 +27,16 @@ defmodule Zaq.Engine.Connect.OAuth.Registry do
   def entries, do: @entries
 
   @spec public_entries() :: [map()]
-  def public_entries, do: Enum.map(@entries, &Map.delete(&1, :module))
+  def public_entries do
+    Enum.map(@entries, fn entry ->
+      entry
+      |> Map.delete(:module)
+      |> Map.put(
+        :device_code_supported,
+        match?({:ok, _}, Zaq.Engine.Connect.OAuth.Device.Registry.fetch(entry.id))
+      )
+    end)
+  end
 
   @spec fetch(String.t() | nil) :: {:ok, module()} | {:error, :unsupported_oauth_behaviour}
   def fetch(profile) when profile in [nil, ""], do: {:ok, Standard}

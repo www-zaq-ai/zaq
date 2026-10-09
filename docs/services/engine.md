@@ -570,6 +570,22 @@ admin/runtime Connect CRUD, token-cache and resolver functions remain privileged
 internal operations; none is exposed as a Person action. Person OAuth uses the
 one-use trusted attempts below, never the legacy context path.
 
+#### Device sign-in protocol (`zaq-p8t`)
+
+Device-capable OAuth profiles use the separate pure
+`Zaq.Engine.Connect.OAuth.Device.Behaviour` contract and static Device registry.
+Implementations construct initiation/poll/exchange requests and interpret provider
+responses, including timing. They do not execute HTTP or own state or grants.
+Codex's device poll returns an authorization code and verifier for a final exchange
+against its device callback; it is not the standard RFC 8628 token polling grant.
+Codex HTTP 403/404 mean pending. Its initial interval comes from the response
+(including string intervals), with a five-second default and 15-minute deadline.
+
+`OAuth.Binding` shares server-bound identity/configuration validation, token-material
+projection and canonical grant replacement between handshake lifecycles. Existing
+authorization-code attempts retain their irreversible pre-exchange claim and PKCE
+checks; device polling must not use that claim protocol.
+
 #### One-use OAuth and canonical admin setup (`zaq-jrg.6`)
 
 The trusted backend API is:
