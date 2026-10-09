@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T13:48:44Z",
+  "description": "Human must approve finished form/default/legacy semantics and both live status surfaces before new feature E2E authoring. Approval is not inferred from tests or prior contract approval.",
+  "id": "zaq-xfl",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Approve completed widget configuration and health UX",
+  "type": "task",
+  "updated_at": "2026-10-09T13:48:44Z"
+}
