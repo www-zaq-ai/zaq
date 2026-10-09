@@ -27,11 +27,15 @@
     {
       "text": "Current-tree live handoff: 10 real steering cases pass seed625 under normal schedulers, including actual PendingInputServer.seal/closed refusal, native idle closure after discovery/queue, native-complete presentation lag and removal while waiting. Combined 10-file Agent/Pipeline/Engine/storage/concurrency/migration matrix passes 230 tests/9 properties seed625; low-level steer/inject still return real idle refusal. Old consumed-terminal low-level queue result restored after unchanged regression caught compatibility drift. Docs updated; local-only quality helper extraction only, shared lease/control operations unchanged. mix q passed before last sealed-test addition; latest attempts blocked by ExDNA internal Task.Supervised.stream(5000) timeout under host load (8 CPUs/load ~26). A subsequent completed quality run identified only a nested alias in the new test, now fixed; final current-tree mix q still pending because of repeat internal timeout. No thresholds/assertions weakened. diff check passes. Keep .31.7 open and .31.10 dependent; native long-stream/eviction and remaining broad caller/security preservation not yet complete. No commit/push/merge.",
       "timestamp": "2026-10-09T13:32:51Z"
+    },
+    {
+      "text": "User supplied successful current-tree mix q: hooks.verify passed, Credo 1544 files/19006 mods-funs reports no issues and docs generated (130.5s). Quality blocker cleared. Isolated 10 real steering cases and 230 tests/9 properties already passed. Continue D preservation; no commit/publication.",
+      "timestamp": "2026-10-09T14:36:32Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Retry native-sealed late corrections without changing receipt ownership",
   "type": "bug",
-  "updated_at": "2026-10-09T13:32:51Z"
+  "updated_at": "2026-10-09T14:36:32Z"
 }
