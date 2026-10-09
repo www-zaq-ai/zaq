@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T07:44:54Z",
+  "description": "Tests first: exact owner/agent/scope steering across running, streaming, tool_running and tool_completed; real tool execution and silent next-model calls; terminal/removal and native sealing remain authoritative. Reuse/extend: RequestRegistry active lookup plus existing RequestControl, Factory and native Jido input queue. Local-only registry predicate (request lifecycle policy, not a composable business Action); no new Actions/tools or provider logic. Preserve existing unrelated WIP and integrated acceptance blocker .31.5.",
+  "id": "zaq-emb.31.6",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[#768] Preserve steering through tool and model-wait phases",
+  "type": "bug",
+  "updated_at": "2026-10-09T07:44:54Z"
+}
