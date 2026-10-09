@@ -192,6 +192,12 @@ defmodule ZaqWeb.Router do
     post "/webhook/:type/:provider", ChannelsController, :webhook
   end
 
+  # Bearer-authenticated by ZaqWeb.Plugs.ChatBearerAuth in the endpoint, before
+  # the body is parsed.
+  scope "/v1", ZaqWeb do
+    post "/chat/completions", ChatCompletionsController, :completions
+  end
+
   if Application.compile_env(:zaq, :e2e_routes, false) do
     scope "/e2e", ZaqWeb do
       pipe_through [:browser, :bo_node_only, :bo_auth]

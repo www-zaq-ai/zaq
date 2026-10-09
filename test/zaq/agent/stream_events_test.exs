@@ -66,6 +66,64 @@ defmodule Zaq.Agent.StreamEventsTest do
     refute_receive {:broadcast, _, _, _}
   end
 
+  property "streams text in sequence order however the runtime events arrive" do
+    check all(
+            parts <- list_of(string(:alphanumeric, length: 24), min_length: 2, max_length: 8),
+            keys <- list_of(integer(), length: length(parts))
+          ) do
+      text = Enum.join(parts)
+
+      deltas =
+        parts
+        |> Enum.with_index(2)
+        |> Enum.zip(keys)
+        |> Enum.sort_by(fn {_delta, key} -> key end)
+        |> Enum.with_index()
+        |> Enum.map(fn {{{part, seq}, _key}, arrival} ->
+          # Arrival times far apart, so every delta crosses the flush interval.
+          :llm_delta
+          |> event(1_000 * (arrival + 1), %{chunk_type: :content, delta: part})
+          |> Map.put(:seq, seq)
+        end)
+
+      events =
+        [Map.put(event(:request_started, 0, %{}), :seq, 1)] ++
+          deltas ++
+          [
+            :request_completed
+            |> event(1_000 * (length(parts) + 2), %{result: text})
+            |> Map.put(:seq, length(parts) + 2)
+          ]
+
+      assert {:ok, %{answer: ^text}} =
+               StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+      streamed = collect_stream_deltas()
+      assert List.last(streamed) == text
+      assert Enum.all?(streamed, &String.starts_with?(text, &1))
+    end
+  end
+
+  test "does not stream text past a delta that never arrived" do
+    first = "A first delta long enough to flush. "
+
+    events = [
+      Map.put(event(:request_started, 0, %{}), :seq, 1),
+      :llm_delta |> event(1_000, %{chunk_type: :content, delta: first}) |> Map.put(:seq, 2),
+      :llm_delta
+      |> event(2_000, %{chunk_type: :content, delta: "A delta after the gap."})
+      |> Map.put(:seq, 4),
+      :request_completed
+      |> event(3_000, %{result: "The authoritative answer."})
+      |> Map.put(:seq, 5)
+    ]
+
+    assert {:ok, %{answer: "The authoritative answer."}} =
+             StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert collect_stream_deltas() == [first]
+  end
+
   test "uses llm_completed usage when terminal usage is empty" do
     events = [
       event(:llm_completed, 20, %{
@@ -827,6 +885,15 @@ defmodule Zaq.Agent.StreamEventsTest do
 
   defp coverage_incoming do
     %{incoming() | metadata: %{request_id: nil, session_id: "coverage"}, message_id: nil}
+  end
+
+  defp collect_stream_deltas(acc \\ []) do
+    receive do
+      {:broadcast, _stage, message, :stream_delta} -> collect_stream_deltas([message | acc])
+      {:broadcast, _stage, _message, _intent} -> collect_stream_deltas(acc)
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   defp event(kind, at_ms, data, attrs \\ []) do

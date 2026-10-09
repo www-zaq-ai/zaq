@@ -44,7 +44,9 @@ defmodule Zaq.Agent.StreamEvents do
     state = initial_state(incoming, opts)
 
     final_state =
-      Enum.reduce_while(events, state, fn event, state ->
+      events
+      |> in_sequence()
+      |> Enum.reduce_while(state, fn event, state ->
         state = handle_event(event, state)
 
         if terminal_kind?(kind(event)) do
@@ -62,6 +64,59 @@ defmodule Zaq.Agent.StreamEvents do
       nil -> {:ok, result(final_state)}
       error -> {:error, error, result(final_state)}
     end
+  end
+
+  # The runtime sends a request's events from several processes, so they can
+  # reach the consumer out of order; `seq` is the order it produced them in.
+  # Once `request_started` anchors the sequence, sequenced events are released
+  # in `seq` order so streamed text is assembled as the model wrote it.
+  # Unsequenced events, events before the anchor and stale ones (synthetic
+  # terminal events carry a default `seq`) pass through unchanged.
+  #
+  # The event stream ends at the first terminal event, so a delta still missing
+  # then never arrives: events held behind that gap are released in order
+  # without their deltas, which would stream text with a hole in it.
+  defp in_sequence(events) do
+    Stream.transform(
+      events,
+      fn -> {nil, %{}} end,
+      &sequence_event/2,
+      &release_held_events/1,
+      fn _acc -> :ok end
+    )
+  end
+
+  defp sequence_event(event, {next, held} = acc) do
+    seq = field(event, :seq)
+
+    cond do
+      not is_integer(seq) -> {[event], acc}
+      is_nil(next) and kind(event) == :request_started -> drain(seq, Map.put(held, seq, event))
+      is_nil(next) -> {[event], acc}
+      seq >= next -> drain(next, Map.put(held, seq, event))
+      true -> {[event], acc}
+    end
+  end
+
+  defp drain(next, held) do
+    case Map.pop(held, next) do
+      {nil, held} ->
+        {[], {next, held}}
+
+      {event, held} ->
+        {events, acc} = drain(next + 1, held)
+        {[event | events], acc}
+    end
+  end
+
+  defp release_held_events({_next, held}) do
+    events =
+      held
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map(&elem(&1, 1))
+      |> Enum.reject(&(kind(&1) == :llm_delta))
+
+    {events, {nil, %{}}}
   end
 
   defp initial_state(%Incoming{} = incoming, opts) do

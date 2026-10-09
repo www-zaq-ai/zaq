@@ -907,12 +907,11 @@ defmodule Zaq.Accounts.People do
   end
 
   defp backfill_person(person, attrs) do
-    # If full_name looks like an email address it was seeded from a channel identifier.
-    # Treat it as absent so an incoming display_name can replace it.
-    effective_name =
-      if is_binary(person.full_name) and String.contains?(person.full_name, "@"),
-        do: nil,
-        else: person.full_name
+    # A partial person's full_name may have been seeded from the channel
+    # identifier — an email address, or an opaque id such as the chat channel's
+    # caller user id. Treat it as absent so a real display_name replaces it the
+    # first time the channel sends one.
+    effective_name = if seeded_name?(person.full_name, attrs), do: nil, else: person.full_name
 
     updates =
       %{}
@@ -926,6 +925,13 @@ defmodule Zaq.Accounts.People do
       {:ok, person}
     end
   end
+
+  defp seeded_name?(full_name, attrs) when is_binary(full_name) do
+    channel_id = Map.get(attrs, "channel_id") || Map.get(attrs, :channel_id)
+    String.contains?(full_name, "@") or full_name == channel_id
+  end
+
+  defp seeded_name?(_full_name, _attrs), do: false
 
   defp maybe_put_if_nil(acc, field, current_val, attrs, attr_key \\ nil) do
     key = if attr_key, do: attr_key, else: to_string(field)

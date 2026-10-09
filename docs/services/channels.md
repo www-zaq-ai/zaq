@@ -84,6 +84,7 @@ for cache refresh/expiry and eventual-consistency limitations.
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email IMAP ingress, SMTP delivery, and attachment materialization |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
+| `Zaq.Channels.ChatBridge`           | `lib/zaq/channels/chat_bridge.ex`            | Bridge for the OpenAI-compatible `/v1/chat/completions` endpoint ([contract](chat-completions.md)) |
 | `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | Static role parent and public runtime facade    |
 | `Zaq.Channels.BridgeSupervisor`     | `lib/zaq/channels/bridge_supervisor.ex`      | Dynamic bridge runtime lifecycle and bootstrap  |
 | `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs                 |
