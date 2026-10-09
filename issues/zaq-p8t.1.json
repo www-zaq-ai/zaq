@@ -9,9 +9,15 @@
   "id": "zaq-p8t.1",
   "labels": [],
   "parent": "zaq-p8t",
+  "comments": [
+    {
+      "text": "Committed af739e55f. Codex upstream protocol verified. 3 properties/42 callback+protocol tests pass. mix q passes with ERL_FLAGS=+S 2 (ExDNA times out intermittently at higher scheduler counts); hooks pass. Shared binding retains callback PKCE/one-use semantics.",
+      "timestamp": "2026-10-09T12:56:45Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p8t.1] Protocol and shared binding",
   "type": "task",
-  "updated_at": "2026-10-09T12:18:50Z"
+  "updated_at": "2026-10-09T12:56:45Z"
 }
