@@ -3,7 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-09T08:07:02Z",
-  "description": "Deterministic production-path regression: delay only actual stream consumer after second real sleep, let native Jido complete, then ingress Spanish correction while registry remains tool_completed. Engine queues durable child; native steer rejects {:rejected,:idle}; receipt becomes unconsumed; no followup model request. Preserve regression in history_strategy_full_flow_test.exs (steering_phase:sealing_race), no skip/weaken. Status lookup fix validated and locally committed 95b0e726a is independent. Need safe automatic followup admission/retry design retaining immutable child receipt, canonical input UUID, exactly one answer-owning root/accounting per execution, permissions and removal fences. Current ExecutionRecord unique user-message ownership/immutable receipt-root contract means naive :not_active fallback after rejection is unsafe. Reuse existing Engine admission/lifecycle and RequestControl paths; no parallel generation/provider logic. Await design decision before changing persistence semantics. Latest isolated race test seed625: 1 test/1 failure, root delivered, child unconsumed, async {:rejected,:idle}.",
+  "description": "Paused at user request; observed-problem brief: docs/operations/late-steering-sealing-race.md. Deterministic real-flow regression (steering_phase:sealing_race): suspend only actual stream consumer after real tools; await native Jido completion while registry remains tool_completed; ingress same-Person Spanish correction; durable receipt queues then native steer rejects {:rejected,:idle}; receipt becomes unconsumed, no followup model request. Preserve uncommitted unskipped regression. Latest combined matrix seed625: 199 tests/9 properties/6 doctests, exactly one failure; isolated race also fails; mix q/diff check pass. Independent status fix 95b0e726a is validated locally, not pushed. IMPORTANT schema clarification from audit: user_message_id index is NONUNIQUE; blocker is input-only lookup assumptions plus immutable child/capability/finalization semantics, not a DB unique input constraint. Adding another record alone introduces ambiguous lookups; fallback on existing child binding fails input_not_root. Safe retry must preserve old receipt IDs and terminal state, canonical UUID, Person/agent/scope/removal authorization and one answer/accounting owner. No recovery design completed/approved, no migration or retry implementation authorized by the design-only request; user then explicitly stopped investigation. .31.5 remains independent. Durable details and stopping point in brief; unrelated WIP preserved.",
   "id": "zaq-emb.31.7",
   "labels": [],
   "parent": "zaq-emb.31",
@@ -17,5 +17,5 @@
   "status": "open",
   "title": "[#768] Retry native-sealed late corrections without changing receipt ownership",
   "type": "bug",
-  "updated_at": "2026-10-09T08:11:26Z"
+  "updated_at": "2026-10-09T08:20:18Z"
 }
