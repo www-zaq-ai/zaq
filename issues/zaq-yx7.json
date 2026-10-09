@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T13:19:00Z",
+  "description": "Define canonical identity_issuer, identity_audience and same_site settings and optional adapter status/2 contract in docs/services/web-bridge.md, then align web_widget GitHub issues #10, #12 and #16. Scope: contract documentation only, no executable runtime/UI changes. Action reuse: not applicable to this documentation-only step; future implementation extends existing WidgetConnectorSettings, WidgetSettings and Web.Runtime/WidgetAdapter, retaining NodeRouter boundaries. Verify local references, contract consistency and diff; application tests/E2E are not applicable. Adapter implementation and full ZAQ UI wiring remain pending.",
+  "id": "zaq-yx7",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Define widget connector configuration and readiness contract",
+  "type": "task",
+  "updated_at": "2026-10-09T13:19:00Z"
+}
