@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-emb.31.10"
   ],
+  "closed_at": "2026-10-09T14:36:45Z",
+  "close_reason": "Live recovery/immutable receipt/normal execution handoff validated by real steering and Engine/Agent matrix; user current-tree mix q passed. Wider preservation remains .31.10.",
   "created": "2026-10-09T08:07:02Z",
   "description": "Paused at user request; observed-problem brief: docs/operations/late-steering-sealing-race.md. Deterministic real-flow regression (steering_phase:sealing_race): suspend only actual stream consumer after real tools; await native Jido completion while registry remains tool_completed; ingress same-Person Spanish correction; durable receipt queues then native steer rejects {:rejected,:idle}; receipt becomes unconsumed, no followup model request. Preserve uncommitted unskipped regression. Latest combined matrix seed625: 199 tests/9 properties/6 doctests, exactly one failure; isolated race also fails; mix q/diff check pass. Independent status fix 95b0e726a is validated locally, not pushed. IMPORTANT schema clarification from audit: user_message_id index is NONUNIQUE; blocker is input-only lookup assumptions plus immutable child/capability/finalization semantics, not a DB unique input constraint. Adding another record alone introduces ambiguous lookups; fallback on existing child binding fails input_not_root. Safe retry must preserve old receipt IDs and terminal state, canonical UUID, Person/agent/scope/removal authorization and one answer/accounting owner. No recovery design completed/approved, no migration or retry implementation authorized by the design-only request; user then explicitly stopped investigation. .31.5 remains independent. Durable details and stopping point in brief; unrelated WIP preserved.",
   "id": "zaq-emb.31.7",
@@ -34,8 +36,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#768] Retry native-sealed late corrections without changing receipt ownership",
   "type": "bug",
-  "updated_at": "2026-10-09T14:36:32Z"
+  "updated_at": "2026-10-09T14:36:45Z"
 }
