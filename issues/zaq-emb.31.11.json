@@ -17,11 +17,15 @@
     {
       "text": "User authorizes updating jido_ai to current upstream main plus compatible latest jido and zoi; explicitly stop and report if other dependencies error. Upstream merged jido_ai PR370 already implements private ReAct EmitEvent/direct worker casts, terminal checkpoint ordering and regressions; abandon proposed new core dispatcher patch. Reuse upstream native implementation; no new local runtime logic, Action/tool or fork. Baseline clean mix.exs/mix.lock: jido2.3.3, zoi0.18.9, jido_ai fc5bc1434ddb69493fe8a68443f03bc6a198c5a2; upstream main currently970575a89631d9be0cc0fa22d380ff1d211fa286. Preserve all prior WIP; dependency-only manifest/lock change, compile then real failing preservation tests, broader checks if compatible. No commit/publication authorized.",
       "timestamp": "2026-10-09T17:18:51Z"
+    },
+    {
+      "text": "Authorized update resolved successfully: jido_ai970575a89631d9be0cc0fa22d380ff1d211fa286 (2.4.0), jido2.4.0, zoi0.18.11; mix.exs floors now jido~\u003e2.4/zoi~\u003e0.18.11. Resolver also updated transitive crontab1.2.1, jido_signal2.3.2, phoenix_pubsub2.4.1, telemetry_metrics1.2.0, time_zone_info0.8.0. All dependencies compiled, including jido_mcp/connect/studio/runic/chat; ZAQ compile exits1 at lib/zaq/agent/opaque_aliases.ex:142: Zoi.Types.Default.__struct__/1 undefined. Zoi default wrapper is no longer available in new version; existing collect_paths matches the old internal struct. Per user stop-and-report constraint, no compatibility fix, further upgrade, fallback or test run attempted. Manifest/lock updates remain uncommitted; earlier WIP/stashes preserved. Issue stays open; requires decision on ZAQ Zoi compatibility adaptation before preservation can rerun. Diagnostic/handoff dependency-no-change statements describe preceding checkpoint and need updating after decision; upstream PR370 is linked.",
+      "timestamp": "2026-10-09T17:22:03Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Native late model/checkpoint events leave completed reusable runtime awaiting_llm",
   "type": "bug",
-  "updated_at": "2026-10-09T17:18:51Z"
+  "updated_at": "2026-10-09T17:22:03Z"
 }
