@@ -19,11 +19,15 @@
     {
       "text": "User chose design-only exploration, then explicitly directed us to stop and write a clear observed-problem brief. No new retry plan steps or persistence implementation were created. Brief and existing handoff/index updated; docs-only Action reuse is not applicable (diagnostic reporting only). Source audit corrects earlier shorthand: user_message_id has a nonunique index; lifecycle get_by(input UUID) assumptions and immutable child/capability contracts are the actual obstacle. Preserve failing regression and validated status-fix commit. Brief: docs/operations/late-steering-sealing-race.md.",
       "timestamp": "2026-10-09T08:20:28Z"
+    },
+    {
+      "text": "Live RequestControl definitive idle/closed nonacceptance and Engine closed-before-queue dispositions now route through a FIFO reservation inside HistorySync sessions, fresh Engine binding and normal Pipeline/Executor/finalization. Real discovery→queue→native closure regression passes (both sealing cases 2/2). Expiry/caller-death/adoption/session/owner/input/removal/replacement/abort tests pass (24 tests/1 property). API/busy fallback propagates only an internal handoff result, not public outgoing metadata; low-level controls default to refusal. Reservation inputs fenced both while queued and immediately after grant; local reservation opts removed on API return. Wider failure/ordering/security suites and mix q still pending; no commit/publication.",
+      "timestamp": "2026-10-09T12:50:11Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Retry native-sealed late corrections without changing receipt ownership",
   "type": "bug",
-  "updated_at": "2026-10-09T12:31:39Z"
+  "updated_at": "2026-10-09T12:50:11Z"
 }
