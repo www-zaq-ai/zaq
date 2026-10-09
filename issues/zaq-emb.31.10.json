@@ -1,6 +1,7 @@
 {
   "assignee": "Julien",
   "blocked_by": [
+    "zaq-emb.31.11",
     "zaq-emb.31.7"
   ],
   "blocks": [],
@@ -19,5 +20,5 @@
   "status": "in_progress",
   "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
   "type": "task",
-  "updated_at": "2026-10-09T15:02:16Z"
+  "updated_at": "2026-10-09T15:22:08Z"
 }
