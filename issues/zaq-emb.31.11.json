@@ -4,6 +4,8 @@
   "blocks": [
     "zaq-emb.31.10"
   ],
+  "closed_at": "2026-10-09T18:00:41Z",
+  "close_reason": "Adopted existing upstream jido_ai PR370 with approved compatible Jido/Zoi updates and minimal OpaqueAliases adaptation. Actual ordered long-stream/reuse/archive tests, native repeat, 2357-test preservation matrix and current-tree mix q pass. Separate intermittent Shared delivery acceptance remains .31.10; no full feature/publication claim.",
   "created": "2026-10-09T15:21:58Z",
   "description": "Observed during step D real repeated-run retention test: test/zaq/agent/request_inspection_test.exs, default 100-request eviction case. Actual Factory→remote OpenAI stub→Jido→StreamEvents paths; fresh consumer Task per ask; unique real-shaped response IDs. At 32/36 runs, native requests[id].status is completed but strategy status remains awaiting_llm with same active_request_id. Retained native tail includes request_completed followed by llm_completed/checkpoint; next ask can reject busy, and repeated state reads stay stuck through 60s. Distinct from .31.5 until causal evidence establishes any relation. Test remains unskipped; do not reset native state or reduce retention/loop assertions. Native strategy apply_runtime_event base_state reassigns active_request_id for all events and late model completion can reopen status; source hypothesis not fully resolved. Factory request_state incorrectly advertised accepting=true for completed native record; pinned by real regression and locally fixed to require status pending. Remaining native reuse/ordering needs a scoped diagnosis/design before dependency or native-semantic changes; no dependency edited. Action reuse not applicable to diagnostic evidence; future fix must reuse native lifecycle, not add a parallel scheduler/registry. Blocks D native default retention acceptance. No publication authorized.",
   "id": "zaq-emb.31.11",
@@ -32,8 +34,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#768] Native late model/checkpoint events leave completed reusable runtime awaiting_llm",
   "type": "bug",
-  "updated_at": "2026-10-09T18:00:24Z"
+  "updated_at": "2026-10-09T18:00:41Z"
 }
