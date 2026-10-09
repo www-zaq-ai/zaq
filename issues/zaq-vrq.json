@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-xfl"
+  ],
   "blocks": [],
   "created": "2026-10-09T13:48:45Z",
   "description": "Blocked until implementation and explicit completed UX approval. Author consolidated scenarios for create/edit/reopen issuer/audience/SameSite, legacy preservation, enable/disable, real adapter readiness statuses across list/config cards; actual external endpoint/cookie acceptance depends on widget #10/#12/#16. Run existing E2E as required without weakening assertions.",
@@ -10,5 +12,5 @@
   "status": "open",
   "title": "[zaq-vrq] Finalize widget settings and health feature E2E",
   "type": "task",
-  "updated_at": "2026-10-09T13:49:07Z"
+  "updated_at": "2026-10-09T13:49:12Z"
 }
