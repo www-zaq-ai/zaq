@@ -6,9 +6,15 @@
   "description": "Define canonical identity_issuer, identity_audience and same_site settings and optional adapter status/2 contract in docs/services/web-bridge.md, then align web_widget GitHub issues #10, #12 and #16. Scope: contract documentation only, no executable runtime/UI changes. Action reuse: not applicable to this documentation-only step; future implementation extends existing WidgetConnectorSettings, WidgetSettings and Web.Runtime/WidgetAdapter, retaining NodeRouter boundaries. Verify local references, contract consistency and diff; application tests/E2E are not applicable. Adapter implementation and full ZAQ UI wiring remain pending.",
   "id": "zaq-yx7",
   "labels": [],
+  "comments": [
+    {
+      "text": "Defined agreed implementation-target settings and optional status/2 contract in docs/services/web-bridge.md, linked from docs/guides/web-widget-integration.md. Updated external issues: #10 comment 6081733350, #12 comment 6081733327, #16 comment 6081743443; all linked to this OpenChamber session. Local Markdown path/anchor checks and git diff --check passed. Scope is documentation only; no executable adapter/ZAQ UI changes. Final mix precommit blocked: ExDNA.Credo Task.Supervised.stream(5000) internal timeout checking 1545 source files. No final approval requested; full implementation and validation remain outstanding.",
+      "timestamp": "2026-10-09T13:24:10Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-yx7] Define widget connector configuration and readiness contract",
   "type": "task",
-  "updated_at": "2026-10-09T13:19:06Z"
+  "updated_at": "2026-10-09T13:24:10Z"
 }
