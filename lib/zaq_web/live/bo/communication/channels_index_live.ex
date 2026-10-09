@@ -4,7 +4,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
@@ -350,7 +350,15 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     providers = ingress_status_providers(configured_providers)
 
     Enum.reduce(providers, %{}, fn provider, acc ->
-      Map.put(acc, provider, fetch_ingress_status(provider))
+      statuses =
+        provider
+        |> ChannelConfig.list_by_provider()
+        |> Enum.filter(& &1.enabled)
+        |> Enum.map(fn config ->
+          %{id: config.id, name: config.name, status: fetch_ingress_status(config)}
+        end)
+
+      Map.put(acc, provider, IngressStatusUI.aggregate(statuses))
     end)
   end
 
@@ -402,8 +410,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     |> MapSet.new()
   end
 
-  defp fetch_ingress_status(provider) do
-    event = Event.new(%{provider: provider}, :channels, opts: [action: :channel_ingress_status])
+  defp fetch_ingress_status(config) do
+    event =
+      Event.new(%{provider: config.provider, channel_config_id: config.id}, :channels,
+        opts: [action: :channel_ingress_status]
+      )
+
     event |> NodeRouter.dispatch() |> Map.get(:response) |> IngressStatusUI.normalize_response()
   end
 end

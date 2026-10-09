@@ -10,7 +10,7 @@ defmodule Zaq.Channels.CommunicationBridge do
     `sync_provider_runtime/1`) with fallback behavior when optional callbacks
     are not implemented by a bridge.
   - Build and dispatch events through `Zaq.NodeRouter` for channel-originated
-    activity: agent pipeline events for incoming messages, and message ratings
+    activity: Engine routing events for incoming messages, and message ratings
     once a channel has mapped its provider vocabulary to a ZAQ rating.
   - Enforce conversation-agent eligibility for selection helpers.
 
@@ -19,7 +19,6 @@ defmodule Zaq.Channels.CommunicationBridge do
   """
 
   alias Zaq.Channels.Bridge
-  alias Zaq.Channels.EventNames
   alias Zaq.Engine.Messages.{ConversationIdentity, Incoming}
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Engine.Messages.Outgoing
@@ -65,6 +64,9 @@ defmodule Zaq.Channels.CommunicationBridge do
   @callback list_ingress_subscriptions(map(), map()) :: {:ok, [map()]} | {:error, term()}
   @callback delete_ingress_subscription(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback materialize_record(map(), map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback room_capabilities(map(), String.t()) :: {:ok, map()} | {:error, term()}
+  @callback room_members(map(), String.t()) :: {:ok, map()} | {:error, term()}
+  @callback fetch_room_message(map(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
 
   @optional_callbacks send_typing: 3,
                       upsert_message: 3,
@@ -82,20 +84,17 @@ defmodule Zaq.Channels.CommunicationBridge do
                       list_mailboxes: 2,
                       conversation_key: 1,
                       outbound_conversation_key: 2,
-                      materialize_record: 3
+                      materialize_record: 3,
+                      room_capabilities: 2,
+                      room_members: 2,
+                      fetch_room_message: 3
 
   defmacro __using__(_opts) do
     quote do
-      defdelegate run_pipeline_with_node_router(
-                    msg,
-                    pipeline_opts,
-                    agent_selection,
-                    actor,
-                    node_router_module
-                  ),
-                  to: Zaq.Channels.CommunicationBridge
-
       defdelegate route_incoming_message(msg, pipeline_opts, actor, opts \\ []),
+        to: Zaq.Channels.CommunicationBridge
+
+      defdelegate receive_message(msg, opts \\ []),
         to: Zaq.Channels.CommunicationBridge
 
       defdelegate dispatch_message_rating(message_ref, rater_attrs, opts \\ []),
@@ -181,6 +180,32 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
+  @doc "Returns the configured bridge's room query capabilities."
+  def room_capabilities(config, channel_id, opts \\ []) do
+    room_query(config, :room_capabilities, [config, channel_id], opts)
+  end
+
+  @doc "Returns a complete provider-normalized room membership snapshot."
+  def room_members(config, channel_id, opts \\ []) do
+    room_query(config, :room_members, [config, channel_id], opts)
+  end
+
+  @doc "Reads one provider message after verifying its exact room and identifier."
+  def fetch_room_message(config, channel_id, message_id, opts \\ []) do
+    room_query(config, :fetch_room_message, [config, channel_id, message_id], opts)
+  end
+
+  defp room_query(config, callback, args, opts) do
+    provider = Map.get(config, :provider) || Map.get(config, "provider")
+
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
+         true <- bridge_supports?(bridge, callback, length(args)) do
+      apply(bridge, callback, args)
+    else
+      _ -> {:error, :unsupported}
+    end
+  end
+
   @doc "Adds a reaction through the provider bridge."
   @spec add_reaction(atom() | String.t(), String.t() | integer(), String.t(), String.t()) ::
           :ok | {:error, term()}
@@ -257,8 +282,17 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Synchronizes runtime processes from canonical DB config for provider."
-  @spec sync_provider_runtime(atom() | String.t()) :: :ok | {:error, term()}
+  @doc "Applies supplied runtime config without Repo access; legacy provider-only calls resolve DB config."
+  @spec sync_provider_runtime(map() | atom() | String.t()) :: :ok | {:error, term()}
+  def sync_provider_runtime(%{id: id, provider: provider, enabled: enabled} = config)
+      when is_integer(id) and id > 0 and is_binary(provider) and is_boolean(enabled) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider) do
+      Bridge.dispatch_provider_runtime_sync(bridge, config)
+    end
+  end
+
+  def sync_provider_runtime(config) when is_map(config), do: {:error, :invalid_runtime_config}
+
   def sync_provider_runtime(provider) do
     with {:ok, config} <- Bridge.fetch_any_channel_config(provider),
          {:ok, bridge} <- Bridge.resolve_bridge(provider) do
@@ -347,12 +381,23 @@ defmodule Zaq.Channels.CommunicationBridge do
   @doc """
   Deletes provider ingress subscription through the configured communication bridge.
 
-  This operation accepts any provider config, including disabled ones
-  (`fetch_any_channel_config/1`), so teardown can still run after a channel has
-  been disabled.
+  A supplied configuration map is used directly without Repo access. Legacy
+  provider-only calls resolve any provider config (`fetch_any_channel_config/1`),
+  including disabled ones, so teardown can still run after disablement.
   """
-  @spec delete_ingress_subscription(atom() | String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def delete_ingress_subscription(provider, params \\ %{}) when is_map(params) do
+  @spec delete_ingress_subscription(map() | atom() | String.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def delete_ingress_subscription(config_or_provider, params \\ %{})
+
+  def delete_ingress_subscription(%{provider: provider} = config, params) when is_map(params) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider),
+         true <-
+           bridge_supports?(bridge, :delete_ingress_subscription, 2) || {:error, :unsupported} do
+      bridge.delete_ingress_subscription(config, params)
+    end
+  end
+
+  def delete_ingress_subscription(provider, params) when is_map(params) do
     with {:ok, bridge} <- Bridge.resolve_bridge(provider),
          {:ok, config} <- Bridge.fetch_any_channel_config(provider),
          true <-
@@ -469,17 +514,19 @@ defmodule Zaq.Channels.CommunicationBridge do
   Stamps the channel-computed conversation identity onto the incoming envelope
   as `metadata["conversation"]` (`%{"channel_type" => ..., "key" => ...}`).
 
-  Called at the channel chokepoints (`route_incoming_message/5`,
-  `Bridge.persist_from_incoming/5`, the `:conversation_identity` event) so
+  Called at the channel chokepoints (`route_incoming_message/5` and
+  the `:conversation_identity` event) so
   every message reaching engine persistence already carries its identity.
   """
   @spec put_conversation_identity(Incoming.t(), keyword()) :: Incoming.t()
   def put_conversation_identity(%Incoming{} = msg, opts \\ []) do
     channel_type = conversation_channel_type(msg.provider, opts)
+    key = conversation_key(msg, channel_type, opts)
 
     identity = %{
       "channel_type" => channel_type,
-      "key" => conversation_key(msg, channel_type, opts),
+      "key" => key,
+      "scoped" => is_nil(key) and channel_type not in ["api", "bo", "email:imap"],
       "channel_config_id" => msg.routing_context.channel_config_id,
       "channel_id" => ConversationIdentity.normalize(msg.channel_id),
       "thread_id" => ConversationIdentity.normalize(msg.thread_id),
@@ -496,23 +543,7 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Runs pipeline through NodeRouter and normalizes response shape."
-  @spec run_pipeline_with_node_router(Incoming.t(), keyword(), map() | nil, map(), module()) ::
-          Outgoing.t() | {:error, term()}
-  def run_pipeline_with_node_router(
-        %Incoming{} = msg,
-        pipeline_opts,
-        agent_selection,
-        actor,
-        node_router_module
-      )
-      when is_list(pipeline_opts) and is_map(actor) and is_atom(node_router_module) do
-    msg
-    |> build_agent_pipeline_event(pipeline_opts, agent_selection, actor)
-    |> dispatch_agent_pipeline_event(node_router_module)
-  end
-
-  @doc "Builds and either dispatches or only fires the canonical agent pipeline event."
+  @doc "Builds and either dispatches or only fires the canonical Engine routing event."
   @spec route_incoming_message(Incoming.t(), keyword(), map(), keyword()) ::
           Outgoing.t() | :ok | {:error, term()}
   def route_incoming_message(%Incoming{} = msg, pipeline_opts, actor, opts \\ [])
@@ -533,6 +564,27 @@ defmodule Zaq.Channels.CommunicationBridge do
       node_router_module,
       pipeline_module
     )
+  end
+
+  @doc "Delivers a normalized message to Engine without requesting an automated response."
+  @spec receive_message(Incoming.t(), keyword()) :: :ok | {:error, term()}
+  def receive_message(%Incoming{} = msg, opts \\ []) when is_list(opts) do
+    node_router = Keyword.get(opts, :node_router, NodeRouter)
+
+    event =
+      msg
+      |> put_routing_context(opts)
+      |> Event.new(:engine,
+        type: :sync,
+        name: :incoming_message_received,
+        opts: [action: :receive_incoming_message]
+      )
+
+    case node_router.dispatch(event) do
+      %Event{response: {:ok, _}} -> :ok
+      %Event{response: {:error, reason}} -> {:error, reason}
+      _ -> {:error, :incoming_message_failed}
+    end
   end
 
   defp route_resolved_incoming_message(
@@ -586,26 +638,6 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Builds the canonical event used by channel-originated agent pipeline routing."
-  @spec build_agent_pipeline_event(Incoming.t(), keyword(), map() | :none | nil, map(), keyword()) ::
-          Event.t()
-  def build_agent_pipeline_event(
-        %Incoming{} = msg,
-        pipeline_opts,
-        agent_selection,
-        actor,
-        opts \\ []
-      )
-      when is_list(pipeline_opts) and is_map(actor) and is_list(opts) do
-    msg
-    |> Event.new(:agent,
-      type: :async,
-      name: EventNames.message_received(msg, routing_outcome(agent_selection), opts),
-      opts: [action: :run_pipeline, pipeline_opts: pipeline_opts]
-    )
-    |> put_agent_selection_assign(agent_selection)
-  end
-
   @doc """
   Dispatches a channel-originated message rating to the engine.
 
@@ -615,13 +647,13 @@ defmodule Zaq.Channels.CommunicationBridge do
   calling this; the engine never learns the rating came from a reaction.
 
   `message_ref` is `{:id, uuid}` when the caller already holds the message's
-  primary key, or `{:external_id, provider_message_id}` when it only has the
-  provider's identifier.
+  primary key, or `{:source, reference}` for a Channels-normalized provider,
+  connector, channel, source scope and external message identity.
 
   Returns the engine's response verbatim.
   """
   @spec dispatch_message_rating(
-          {:id, String.t()} | {:external_id, String.t()},
+          {:id, String.t()} | {:source, map()},
           map(),
           keyword()
         ) :: {:ok, term()} | {:error, term()}
@@ -635,33 +667,6 @@ defmodule Zaq.Channels.CommunicationBridge do
     |> Map.fetch!(:response)
   end
 
-  defp dispatch_agent_pipeline_event(%Event{} = event, node_router_module) do
-    case node_router_module.dispatch(event).response do
-      %Outgoing{} = outgoing -> outgoing
-      {:ok, %Outgoing{} = outgoing} -> outgoing
-      # Delivery receipt from a sync deliver_outgoing hop — delivered, nothing to return.
-      {:ok, receipt} when is_non_struct_map(receipt) -> :ok
-      {:error, _} = error -> error
-      nil -> :ok
-      :ok -> :ok
-      other -> {:error, {:invalid_pipeline_response, other}}
-    end
-  end
-
-  @spec put_agent_selection_assign(Event.t(), map() | nil) :: Event.t()
-  defp put_agent_selection_assign(%Event{} = event, nil), do: event
-
-  defp put_agent_selection_assign(%Event{} = event, :none), do: event
-
-  defp put_agent_selection_assign(%Event{} = event, %{"agent_id" => _} = selection) do
-    %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}
-  end
-
-  defp put_agent_selection_assign(%Event{} = event, _selection), do: event
-
-  defp routing_outcome(:none), do: :workflow_only
-  defp routing_outcome(_agent_selection), do: :agent_requested
-
   defp put_routing_context(%Incoming{} = msg, opts) do
     context =
       msg.routing_context
@@ -669,9 +674,6 @@ defmodule Zaq.Channels.CommunicationBridge do
       # Connector provenance must be stamped from the bridge's configured
       # instance, never inherited from untrusted incoming metadata.
       |> Map.put(:channel_config_id, Keyword.get(opts, :channel_config_id))
-      # A caller's Incoming metadata/routing context is not kind attestation.
-      # Only the configured bridge may stamp an adapter-derived history kind.
-      |> Map.put(:history_kind, Keyword.get(opts, :history_kind))
       |> maybe_put_routing_context(
         :retrieval_channel_id,
         Keyword.get(opts, :retrieval_channel_id)

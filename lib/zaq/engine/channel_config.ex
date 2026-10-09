@@ -1,6 +1,6 @@
-defmodule Zaq.Channels.ChannelConfig do
+defmodule Zaq.Engine.ChannelConfig do
   @moduledoc """
-  Schema for channel connector configurations stored in the database.
+  Engine-owned schema and persistence for channel connector configurations.
   Single-tenant: multiple named connector configs may share a provider.
 
   ## Kinds
@@ -14,6 +14,7 @@ defmodule Zaq.Channels.ChannelConfig do
   require Logger
 
   alias Zaq.Channels.AgentRouting
+  alias Zaq.ConnectorConfig.Settings
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -488,71 +489,22 @@ defmodule Zaq.Channels.ChannelConfig do
   end
 
   @doc "Returns jido_chat settings map for a channel config."
-  def jido_chat_settings(%__MODULE__{settings: settings}) when is_map(settings) do
-    settings
-    |> Map.get("jido_chat", %{})
-    |> case do
-      map when is_map(map) -> map
-      _ -> %{}
-    end
-  end
-
-  def jido_chat_settings(%{settings: settings}) when is_map(settings) do
-    settings
-    |> Map.get("jido_chat", %{})
-    |> case do
-      map when is_map(map) -> map
-      _ -> %{}
-    end
-  end
-
-  def jido_chat_settings(_), do: %{}
+  defdelegate jido_chat_settings(config), to: Settings
 
   @doc "Returns a single jido_chat setting by key."
-  def jido_chat_setting(config, key, default \\ nil) when is_binary(key) do
-    Map.get(jido_chat_settings(config), key, default)
-  end
+  defdelegate jido_chat_setting(config, key, default \\ nil), to: Settings
 
   @doc "Returns bot name from jido_chat settings."
-  def jido_chat_bot_name(config) do
-    jido_chat_setting(config, "bot_name")
-  end
+  defdelegate jido_chat_bot_name(config), to: Settings
 
   @doc "Returns bot user id from jido_chat settings."
-  def jido_chat_bot_user_id(config) do
-    jido_chat_setting(config, "bot_user_id")
-  end
+  defdelegate jido_chat_bot_user_id(config), to: Settings
 
   @doc "Returns imap settings map for an email:imap config."
-  def imap_settings(%__MODULE__{settings: settings}) when is_map(settings) do
-    settings
-    |> Map.get("imap", %{})
-    |> case do
-      map when is_map(map) -> map
-      _ -> %{}
-    end
-  end
-
-  def imap_settings(%{settings: settings}) when is_map(settings) do
-    settings
-    |> Map.get("imap", %{})
-    |> case do
-      map when is_map(map) -> map
-      _ -> %{}
-    end
-  end
-
-  def imap_settings(_), do: %{}
+  defdelegate imap_settings(config), to: Settings
 
   @doc "Returns selected mailboxes for email:imap config."
-  def imap_selected_mailboxes(config) do
-    config
-    |> imap_settings()
-    |> Map.get("selected_mailboxes", [])
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
+  defdelegate imap_selected_mailboxes(config), to: Settings
 
   @doc "Returns provider-level default configured agent id from the routing-rule table."
   def get_provider_default_agent_id(config) do

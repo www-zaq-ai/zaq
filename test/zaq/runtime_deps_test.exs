@@ -1,7 +1,7 @@
 defmodule Zaq.RuntimeDepsTest do
   use ExUnit.Case, async: false
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.RuntimeDeps
 
   defmodule ChannelConfigStub do

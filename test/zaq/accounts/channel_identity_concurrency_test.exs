@@ -4,7 +4,52 @@ defmodule Zaq.Accounts.ChannelIdentityConcurrencyTest do
   import Ecto.Query
   alias Ecto.Adapters.SQL.Sandbox
   alias Zaq.Accounts.{People, Person, PersonChannel}
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
+
+  test "independent bot connections converge on one Telegram native identity" do
+    marker = "bots-race-#{System.unique_integer([:positive])}"
+
+    configs =
+      Sandbox.unboxed_run(Repo, fn ->
+        for suffix <- ["first", "second"] do
+          %ChannelConfig{}
+          |> ChannelConfig.changeset(%{
+            name: marker <> suffix,
+            provider: "telegram",
+            kind: "retrieval",
+            url: "https://api.telegram.org",
+            token: "fixture-token"
+          })
+          |> Repo.insert!()
+        end
+      end)
+
+    on_exit(fn ->
+      Sandbox.unboxed_run(Repo, fn ->
+        Repo.delete_all(from p in Person, where: p.full_name == ^marker)
+        ids = Enum.map(configs, & &1.id)
+        Repo.delete_all(from c in ChannelConfig, where: c.id in ^ids)
+      end)
+    end)
+
+    results =
+      race(configs, fn config ->
+        People.find_or_create_from_channel("telegram", %{
+          channel_id: marker,
+          channel_config_id: config.id,
+          display_name: marker
+        })
+      end)
+
+    assert [{:ok, first}, {:ok, second}] = results
+    assert first.id == second.id
+
+    Sandbox.unboxed_run(Repo, fn ->
+      assert Repo.aggregate(from(p in Person, where: p.full_name == ^marker), :count) == 1
+      assert length(People.list_person_channels(first.id)) == 2
+    end)
+  end
 
   test "discovery propagates unrelated unique violations without retrying or leaving an orphan" do
     marker = "unrelated-unique-#{System.unique_integer([:positive])}"

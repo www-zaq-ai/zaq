@@ -1,7 +1,7 @@
 defmodule ZaqWeb.Live.BO.Communication.ChannelConfigPersistence do
   @moduledoc false
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
 
   @spec persist(:new | :edit, ChannelConfig.t() | nil, map(), String.t(), (Ecto.Changeset.t(),

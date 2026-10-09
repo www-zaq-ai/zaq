@@ -10,8 +10,8 @@ defmodule Zaq.Agent.Tools.Resources.QueryResourcesTest do
   alias Zaq.Agent.Skill
   alias Zaq.Agent.Tools.Resources.Query
   alias Zaq.Agent.Tools.Resources.QueryResources
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Permissions
   alias Zaq.Repo

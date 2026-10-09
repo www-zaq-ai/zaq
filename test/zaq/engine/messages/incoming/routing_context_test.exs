@@ -36,13 +36,13 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContextTest do
            }
   end
 
-  test "history kind accepts only typed adapter-sourced values" do
-    assert RoutingContext.normalize(%{history_kind: :direct}).history_kind == :direct
-    assert RoutingContext.normalize(%{history_kind: :channel}).history_kind == :channel
-    assert RoutingContext.normalize(%{history_kind: :email}).history_kind == :email
+  test "conversation type accepts only typed communication facts" do
+    for type <- [:one_to_one, :room, :recipient_addressed] do
+      assert RoutingContext.normalize(%{conversation_type: type}).conversation_type == type
+    end
 
-    for forged <- ["direct", "shared", :unexpected, true, %{"kind" => "direct"}] do
-      assert RoutingContext.normalize(%{history_kind: forged}).history_kind == nil
+    for forged <- ["room", "shared", :unexpected, true, %{"kind" => "direct"}] do
+      assert RoutingContext.normalize(%{conversation_type: forged}).conversation_type == nil
     end
   end
 end

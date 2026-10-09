@@ -302,6 +302,15 @@
           <p>
             {(@ingress_status_modal.status || %{})[:summary] || "No status details available"}
           </p>
+          <ul
+            :if={connectors = (@ingress_status_modal.status || %{})[:connectors]}
+            class="zaq-layout-stack"
+          >
+            <li :for={connector <- connectors}>
+              <strong>{connector.name}</strong>: {connector.status[:summary] ||
+                connector.status[:status]}
+            </li>
+          </ul>
           <p :if={reason = (@ingress_status_modal.status || %{})[:reason]}>
             Reason: {inspect(reason)}
           </p>

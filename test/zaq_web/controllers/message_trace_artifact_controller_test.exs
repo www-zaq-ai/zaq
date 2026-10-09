@@ -238,7 +238,9 @@ defmodule ZaqWeb.MessageTraceArtifactControllerTest do
       ]
     }
 
-    assert {:ok, _persisted} = Conversations.persist_from_incoming(incoming, result)
+    assert {:ok, _persisted} =
+             Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, result)
+
     Repo.one!(MessageTraceArtifact)
   end
 end

@@ -19,7 +19,7 @@ defmodule ZaqWeb.Live.People.HistoryLiveTest do
     }
 
     {:ok, saved} =
-      Conversations.persist_from_incoming(incoming, %{
+      Zaq.ConversationLifecycleFixtures.complete_exchange(incoming, %{
         answer: "Artifact response",
         trace: [%{"id" => "media", "type" => "tool_call"}],
         trace_artifacts: [

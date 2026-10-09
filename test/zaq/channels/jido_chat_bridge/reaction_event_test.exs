@@ -78,7 +78,14 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionEventTest do
     # The engine receives no reaction vocabulary — only a message reference and
     # the same `rater_attrs` shape the back-office builds.
     assert %{
-             message_ref: {:external_id, "msg-1"},
+             message_ref:
+               {:source,
+                %{
+                  provider: "mattermost",
+                  channel_id: "chan-1",
+                  source_scope: nil,
+                  message_id: "msg-1"
+                }},
              rater_attrs: %{channel_user_id: "user-1", rating: 5}
            } = event.request
 

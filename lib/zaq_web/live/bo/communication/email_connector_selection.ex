@@ -1,38 +1,29 @@
 defmodule ZaqWeb.Live.BO.Communication.EmailConnectorSelection do
-  @moduledoc "Selects a live email connector for the dedicated IMAP and SMTP settings pages."
+  @moduledoc "Pure presentation helper over an Engine-owned email connector snapshot."
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
 
-  def initialize(socket, provider) do
-    configs = ChannelConfig.list_by_provider(provider)
-
-    selected_id =
-      case configs do
-        [config] -> config.id
-        _ -> nil
-      end
-
-    socket |> assign(:configs, configs) |> assign(:selected_config_id, selected_id)
+  def initialize(socket, snapshot) do
+    socket
+    |> assign(:configs, snapshot.configs)
+    |> assign(:selected_config_id, snapshot.selected_config_id)
   end
 
-  def selected_channel(socket, provider) do
-    case ChannelConfig.get(socket.assigns.selected_config_id) do
-      %ChannelConfig{provider: ^provider, archived_at: nil} = channel -> channel
-      _ -> nil
+  def name(configs, selected_id, default) do
+    case Enum.find(configs, &(&1.id == selected_id)) do
+      nil -> default
+      config -> config.name
     end
   end
 
-  def refresh(socket, provider) do
-    configs = ChannelConfig.list_by_provider(provider)
-
-    selected_id =
-      case {socket.assigns.selected_config_id, configs} do
-        {nil, [config]} -> config.id
-        {id, _} -> id
-      end
-
-    socket |> assign(:configs, configs) |> assign(:selected_config_id, selected_id)
+  def selected_channel(socket, provider) do
+    case socket.assigns.selected_config_id do
+      :new -> %ChannelConfig{provider: provider, enabled: false, settings: %{}}
+      id -> Enum.find(socket.assigns.configs, &(&1.id == id and &1.provider == provider))
+    end
   end
+
+  def refresh(socket, snapshot), do: initialize(socket, snapshot)
 end

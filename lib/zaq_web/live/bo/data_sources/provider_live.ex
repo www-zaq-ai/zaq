@@ -4,8 +4,9 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   import Ecto.Query
 
-  alias Zaq.Channels.{Bridge, ChannelConfig, DataSourceBridge}
+  alias Zaq.Channels.{Bridge, DataSourceBridge}
   alias Zaq.Channels.ProviderCatalog
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -14,6 +15,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   alias Zaq.Utils.ParseUtils
   alias Zaq.Utils.Scopes
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
   alias ZaqWeb.Live.BO.Communication.OAuthClaimState
   alias ZaqWeb.Live.BO.Communication.OAuthPopupUI
@@ -490,42 +492,42 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
   def handle_event("delete", _params, socket) do
     id = socket.assigns.confirm_delete
+    request = %{channel_config_id: id, provider: socket.assigns.provider, kind: "data_source"}
 
-    config =
-      ChannelConfig
-      |> where(
-        [c],
-        c.id == ^id and c.provider == ^socket.assigns.provider and c.kind == "data_source" and
-          is_nil(c.archived_at)
+    event =
+      Event.new(request, :engine,
+        actor: BOActor.build(socket.assigns.current_user),
+        opts: [action: :archive_channel_connector, confidential: true]
       )
-      |> Repo.one()
 
-    case config do
-      nil ->
+    case NodeRouter.dispatch(event).response do
+      {:ok, result} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> refresh_provider_page("Data source config archived.")
+         |> maybe_report_archive_result(result)}
+
+      {:error, :connector_not_found} ->
         {:noreply,
          socket
          |> assign(:confirm_delete, nil)
          |> put_flash(:error, "Config not found.")}
 
-      config ->
-        event =
-          Event.new(%{channel_config_id: config.id}, :engine,
-            opts: [action: :stop_config_watches]
-          )
+      {:error, {:watch_teardown_failed, reason}} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(
+           :error,
+           "Cannot archive connector; watch teardown failed: #{inspect(reason)}"
+         )}
 
-        case NodeRouter.dispatch(event).response do
-          {:ok, _} ->
-            archive_data_source_config(socket, config)
-
-          {:error, reason} ->
-            {:noreply,
-             socket
-             |> assign(:confirm_delete, nil)
-             |> put_flash(
-               :error,
-               "Cannot archive connector; watch teardown failed: #{inspect(reason)}"
-             )}
-        end
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(:error, "Cannot archive connector: #{inspect(reason)}")}
     end
   end
 
@@ -538,54 +540,18 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     end
   end
 
-  defp archive_data_source_config(socket, config) do
-    event =
-      Event.new(%{channel_config_id: config.id}, :channels,
-        opts: [action: :archive_channel_config]
-      )
+  defp maybe_report_archive_result(socket, result) do
+    cond do
+      match?({:pending, _}, result.runtime) ->
+        put_flash(socket, :error, "Connector archived, but runtime sync is pending.")
 
-    case NodeRouter.dispatch(event).response do
-      {:ok, %ChannelConfig{} = archived} ->
-        sync_result = sync_channel_runtime(config, archived)
+      result.cleanup.status == :pending ->
+        put_flash(socket, :error, "Connector archived, but watch cleanup is pending.")
 
-        cleanup_result =
-          Event.new(%{channel_config_id: archived.id}, :engine,
-            opts: [action: :reconcile_archived_config_watches]
-          )
-          |> NodeRouter.dispatch()
-          |> Map.fetch!(:response)
-
-        {:noreply,
-         socket
-         |> assign(:confirm_delete, nil)
-         |> refresh_provider_page("Data source config archived.")
-         |> maybe_report_archive_sync(sync_result)
-         |> maybe_report_archive_cleanup(cleanup_result)}
-
-      other ->
-        {:noreply,
-         socket
-         |> assign(:confirm_delete, nil)
-         |> put_flash(:error, "Cannot archive connector: #{inspect(other)}")}
+      true ->
+        socket
     end
   end
-
-  defp maybe_report_archive_sync(socket, :ok), do: socket
-  defp maybe_report_archive_sync(socket, {:ok, _}), do: socket
-
-  defp maybe_report_archive_sync(socket, other),
-    do:
-      put_flash(socket, :error, "Connector archived, but runtime sync failed: #{inspect(other)}")
-
-  defp maybe_report_archive_cleanup(socket, {:ok, _count}), do: socket
-
-  defp maybe_report_archive_cleanup(socket, other),
-    do:
-      put_flash(
-        socket,
-        :error,
-        "Connector archived, but watch cleanup could not be queued: #{inspect(other)}"
-      )
 
   defp toggle_config_enabled(socket, previous_config) do
     config =

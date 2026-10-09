@@ -92,7 +92,7 @@ defmodule Zaq.Agent.Tools.Resources.Registry do
     },
     %{
       key: "channel_config",
-      module: Zaq.Channels.ChannelConfig,
+      module: Zaq.Engine.ChannelConfig,
       public?: false,
       fields: ~w(id name provider kind url enabled retrieval_channels inserted_at updated_at)a,
       search_fields: ~w(name provider kind url retrieval_channels)a,

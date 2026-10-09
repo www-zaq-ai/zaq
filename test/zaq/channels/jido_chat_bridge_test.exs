@@ -9,11 +9,12 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.Media
   alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
-  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
+  alias Zaq.Channels.RetrievalChannel
   alias Zaq.Channels.Supervisor
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.IncomingMessageRouter
   alias Zaq.Engine.IncomingMessageRouting
@@ -119,10 +120,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     def deliver(_outgoing), do: {:error, :timeout}
   end
 
-  defmodule StubConversations do
-    def persist_from_incoming(_msg, _result), do: :ok
-  end
-
   defmodule StubNodeRouter do
     alias Zaq.Engine.Messages.Outgoing
 
@@ -153,6 +150,13 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         end
 
       %{event | response: response}
+    end
+  end
+
+  defmodule PassiveCaptureRouter do
+    def dispatch(event) do
+      send(self(), {:passive_history_event, event})
+      %{event | response: {:ok, %{message_id: "stored"}}}
     end
   end
 
@@ -635,7 +639,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     Application.put_env(:zaq, :pipeline_hooks_module, StubHooks)
     Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
     Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
-    Application.put_env(:zaq, :chat_bridge_conversations_module, StubConversations)
     Application.put_env(:zaq, :chat_bridge_accounts_module, StubAccounts)
     Application.put_env(:zaq, :chat_bridge_permissions_module, StubPermissions)
     Application.put_env(:zaq, :communication_bridge_identity_resolver, UnresolvedIdentityResolver)
@@ -648,7 +651,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Application.delete_env(:zaq, :pipeline_hooks_module)
       Application.delete_env(:zaq, :chat_bridge_pipeline_module)
       Application.delete_env(:zaq, :chat_bridge_router_module)
-      Application.delete_env(:zaq, :chat_bridge_conversations_module)
       Application.delete_env(:zaq, :chat_bridge_accounts_module)
       Application.delete_env(:zaq, :chat_bridge_permissions_module)
       Application.delete_env(:zaq, :communication_bridge_identity_resolver)
@@ -724,7 +726,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert is_nil(msg.author_name)
     end
 
-    test "preserves integer external_message_id" do
+    test "canonicalizes integer external_message_id without changing the transport payload" do
       incoming = %ChatIncoming{
         text: "hi",
         external_room_id: "room-int",
@@ -736,7 +738,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       msg = JidoChatBridge.to_internal(incoming, :telegram)
 
-      assert msg.message_id == 123
+      assert incoming.external_message_id == 123
+      assert msg.message_id == "123"
     end
 
     test "normalizes nil metadata to empty map" do
@@ -1259,7 +1262,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
-      Application.put_env(:zaq, :chat_bridge_conversations_module, StubConversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, RealRunPipelineNodeRouter)
 
       {child_spec, endpoint} =
@@ -2488,7 +2490,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{}
       }
 
-      assert :ok =
+      assert {:ok, %{confirmation: :confirmed, action: :created, message_id: "post-123"}} =
                JidoChatBridge.send_reply(outgoing, %{url: "https://mm.example.com", token: "tok"})
     end
 
@@ -2530,7 +2532,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         }
       }
 
-      assert :ok =
+      assert {:ok, %{confirmation: :confirmed, action: :created, message_id: "post-123"}} =
                JidoChatBridge.do_send_reply(outgoing, %{
                  url: "https://mm.example.com",
                  token: "tok"
@@ -2572,7 +2574,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       log =
         capture_log(fn ->
-          assert :ok =
+          assert {:ok, %{confirmation: :confirmed, action: :created, message_id: "post-123"}} =
                    JidoChatBridge.do_send_reply(outgoing, %{
                      url: "https://mm.example.com",
                      token: "tok"
@@ -2606,7 +2608,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       log =
         capture_log(fn ->
-          assert :ok =
+          assert {:ok, %{confirmation: :confirmed, action: :created, message_id: "post-123"}} =
                    JidoChatBridge.do_send_reply(outgoing, %{
                      url: "https://mm.example.com",
                      token: "tok"
@@ -2660,7 +2662,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{message_id: "msg-1", request_id: "req-1"}
       }
 
-      assert :ok =
+      assert {:ok, %{confirmation: :confirmed, action: :updated, message_id: "msg-1"}} =
                JidoChatBridge.do_send_reply(outgoing, %{
                  url: "https://mm.example.com",
                  token: "tok"
@@ -2689,7 +2691,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{format: :html}
       }
 
-      assert :ok =
+      assert {:ok, %{confirmation: :confirmed, action: :created, message_id: "post-123"}} =
                JidoChatBridge.do_send_reply(outgoing, %{
                  url: "https://mm.example.com",
                  token: "tok"
@@ -2719,7 +2721,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{message_id: "msg-1", request_id: "req-1", format: :plain_text}
       }
 
-      assert :ok =
+      assert {:ok, %{confirmation: :confirmed, action: :updated, message_id: "msg-1"}} =
                JidoChatBridge.do_send_reply(outgoing, %{
                  url: "https://mm.example.com",
                  token: "tok"
@@ -2773,7 +2775,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: nil
       }
 
-      assert :ok =
+      assert {:ok, %{confirmation: :confirmed, action: :created, message_id: "post-123"}} =
                JidoChatBridge.do_send_reply(outgoing, %{
                  url: "https://mm.example.com",
                  token: "tok"
@@ -2975,7 +2977,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
 
-      assert {:ok, %{action: :updated, message_id: 52}} =
+      assert {:ok, %{action: :updated, message_id: "52"}} =
                JidoChatBridge.upsert_message(
                  %{provider: "mattermost", provider_atom: :mattermost},
                  %{
@@ -3498,6 +3500,184 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   describe "to_internal/2 is_dm flag" do
+    test "Mattermost conversation type follows explicit adapter event channel type" do
+      for {type, expected} <- [
+            {"O", :room},
+            {"P", :room},
+            {"D", :one_to_one},
+            {"G", nil},
+            {nil, nil}
+          ] do
+        payload = %{
+          "post" => %{
+            "id" => "post-1",
+            "channel_id" => "room-1",
+            "user_id" => "u1",
+            "message" => "not a mention"
+          },
+          "channel_type" => type
+        }
+
+        assert {:ok, attrs} = Jido.Chat.Mattermost.Adapter.transform_incoming(payload)
+        incoming = ChatIncoming.new(attrs)
+
+        assert JidoChatBridge.to_internal(incoming, :mattermost).routing_context.conversation_type ==
+                 expected
+
+        evidence =
+          JidoChatBridge.to_internal(incoming, :mattermost).routing_context.sender_membership
+
+        assert evidence ==
+                 if(expected == :room,
+                   do: %{identity_platform: "mattermost", member_id: "u1"},
+                   else: nil
+                 )
+
+        forged = %{incoming | author: %{incoming.author | user_id: "another-user"}}
+
+        assert JidoChatBridge.to_internal(forged, :mattermost).routing_context.sender_membership ==
+                 nil
+      end
+    end
+
+    test "Mattermost provider time is normalized from milliseconds at the channel boundary" do
+      payload = %{
+        "post" => %{
+          "id" => "post-time",
+          "channel_id" => "room-1",
+          "user_id" => "u1",
+          "message" => "hello",
+          "create_at" => 1_791_000_000_123
+        },
+        "channel_type" => "O"
+      }
+
+      assert {:ok, incoming} = Jido.Chat.Mattermost.Adapter.transform_incoming(payload)
+      normalized = JidoChatBridge.to_internal(ChatIncoming.new(incoming), :mattermost)
+
+      assert normalized.routing_context.provider_sent_at ==
+               DateTime.from_unix!(1_791_000_000_123, :millisecond)
+    end
+
+    test "Telegram private and group kinds follow explicit chat.type, not default is_dm" do
+      for {type, expected} <- [
+            {"private", :one_to_one},
+            {"group", :room},
+            {"supergroup", :room},
+            {"channel", :room},
+            {"mystery", nil}
+          ] do
+        payload = %{
+          "message" => %{
+            "message_id" => 42,
+            "chat" => %{"id" => 123, "type" => type},
+            "from" => %{"id" => 456},
+            "text" => "not a mention"
+          }
+        }
+
+        assert {:ok, incoming} = Jido.Chat.Telegram.Adapter.transform_incoming(payload)
+
+        assert JidoChatBridge.to_internal(incoming, :telegram).routing_context.conversation_type ==
+                 expected
+
+        evidence =
+          JidoChatBridge.to_internal(incoming, :telegram).routing_context.sender_membership
+
+        assert evidence ==
+                 if(expected == :room,
+                   do: %{identity_platform: "telegram", member_id: "456"},
+                   else: nil
+                 )
+      end
+    end
+
+    test "Discord requires explicit guild evidence; missing guild cannot establish a DM" do
+      for {guild_id, expected} <- [{"guild-1", :room}, {nil, nil}] do
+        payload = %{
+          "id" => "msg-1",
+          "channel_id" => "room-1",
+          "guild_id" => guild_id,
+          "content" => "not a mention",
+          "author" => %{"id" => "u1"}
+        }
+
+        assert {:ok, incoming} = Jido.Chat.Discord.Adapter.transform_incoming(payload)
+
+        assert JidoChatBridge.to_internal(incoming, :discord).routing_context.conversation_type ==
+                 expected
+
+        assert JidoChatBridge.to_internal(incoming, :mattermost).routing_context.conversation_type ==
+                 nil
+      end
+    end
+
+    test "Discord thread kind uses a verified guild and parent channel, not a naked thread id" do
+      for {parent, expected} <- [{"parent-room", :room}, {nil, nil}] do
+        payload = %{
+          "id" => "msg-1",
+          "channel_id" => "thread-room",
+          "guild_id" => "guild-1",
+          "parent_id" => parent,
+          "type" => 11,
+          "author" => %{"id" => "u1"}
+        }
+
+        assert {:ok, incoming} = Jido.Chat.Discord.Adapter.transform_incoming(payload)
+
+        assert JidoChatBridge.to_internal(incoming, :discord).routing_context.conversation_type ==
+                 expected
+      end
+    end
+
+    test "Discord Direct requires matching explicit channel evidence, not message type or absent guild" do
+      for {evidence, expected} <- [
+            {%{"id" => "room-1", "type" => 1}, :one_to_one},
+            {%{"id" => "other", "type" => 1}, nil},
+            {%{"id" => "room-1", "type" => 3}, nil},
+            {nil, nil}
+          ] do
+        payload = %{
+          "id" => "msg-1",
+          "channel_id" => "room-1",
+          "type" => 1,
+          "channel" => evidence,
+          "author" => %{"id" => "u1"}
+        }
+
+        assert {:ok, incoming} = Jido.Chat.Discord.Adapter.transform_incoming(payload)
+
+        assert JidoChatBridge.to_internal(incoming, :discord).routing_context.conversation_type ==
+                 expected
+      end
+    end
+
+    test "a normalized type conflicting with the provider event stays unknown" do
+      payload = %{
+        "post" => %{"id" => "post-1", "channel_id" => "room-1", "user_id" => "u1"},
+        "channel_type" => "D"
+      }
+
+      assert {:ok, attrs} = Jido.Chat.Mattermost.Adapter.transform_incoming(payload)
+      incoming = ChatIncoming.new(attrs)
+
+      conflicting = %{
+        incoming
+        | channel_meta: %{incoming.channel_meta | is_dm: false, chat_type: :public}
+      }
+
+      assert JidoChatBridge.to_internal(conflicting, :mattermost).routing_context.conversation_type ==
+               nil
+
+      mismatched_room = %{
+        incoming
+        | raw: Map.put(incoming.raw, "post", %{"channel_id" => "other-room"})
+      }
+
+      assert JidoChatBridge.to_internal(mismatched_room, :mattermost).routing_context.conversation_type ==
+               nil
+    end
+
     test "sets is_dm: true when channel_meta.is_dm is true" do
       incoming = %ChatIncoming{
         text: "dm message",
@@ -3506,12 +3686,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         external_message_id: "dm-msg-1",
         author: %Author{user_id: "u1", user_name: "alice"},
         metadata: %{},
-        channel_meta: %{is_dm: true}
+        raw: %{"channel_type" => "D", "post" => %{"channel_id" => "dm-room-1"}},
+        channel_meta: %{
+          is_dm: true,
+          chat_type: :dm,
+          adapter_name: :mattermost,
+          external_room_id: "dm-room-1"
+        }
       }
 
       msg = JidoChatBridge.to_internal(incoming, :mattermost)
       assert msg.is_dm == true
-      assert msg.routing_context.history_kind == :direct
+      assert msg.routing_context.conversation_type == :one_to_one
     end
 
     test "sets is_dm: false when channel_meta is nil" do
@@ -3526,7 +3712,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       msg = JidoChatBridge.to_internal(incoming, :mattermost)
       assert msg.is_dm == false
-      assert msg.routing_context.history_kind == nil
+      assert msg.routing_context.conversation_type == nil
     end
 
     test "sets is_dm: false when channel_meta.is_dm is false" do
@@ -3537,12 +3723,18 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         external_message_id: "msg-2",
         author: nil,
         metadata: %{},
-        channel_meta: %{is_dm: false}
+        raw: %{"channel_type" => "O", "post" => %{"channel_id" => "chan-1"}},
+        channel_meta: %{
+          is_dm: false,
+          chat_type: :public,
+          adapter_name: :mattermost,
+          external_room_id: "chan-1"
+        }
       }
 
       msg = JidoChatBridge.to_internal(incoming, :mattermost)
       assert msg.is_dm == false
-      assert msg.routing_context.history_kind == :channel
+      assert msg.routing_context.conversation_type == :room
     end
 
     test "typed ChannelMeta without an explicit room type cannot authorize shared history" do
@@ -3550,15 +3742,21 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         text: "default room metadata",
         external_room_id: "room-1",
         external_message_id: "post-1",
-        channel_meta: %ChannelMeta{is_dm: false}
+        raw: %{"channel_type" => "O", "post" => %{"channel_id" => "room-1"}},
+        channel_meta: %ChannelMeta{
+          is_dm: false,
+          adapter_name: :mattermost,
+          external_room_id: "room-1"
+        }
       }
 
-      assert JidoChatBridge.to_internal(incoming, :mattermost).routing_context.history_kind == nil
+      assert JidoChatBridge.to_internal(incoming, :mattermost).routing_context.conversation_type ==
+               nil
 
-      with_type = %{incoming | channel_meta: %ChannelMeta{is_dm: false, chat_type: :channel}}
+      with_type = %{incoming | channel_meta: %{incoming.channel_meta | chat_type: :public}}
 
-      assert JidoChatBridge.to_internal(with_type, :mattermost).routing_context.history_kind ==
-               :channel
+      assert JidoChatBridge.to_internal(with_type, :mattermost).routing_context.conversation_type ==
+               :room
     end
 
     test "claimed provider or room metadata never overrides the configured bridge scope" do
@@ -3578,7 +3776,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
         assert JidoChatBridge.to_internal(incoming, %{provider: :mattermost, id: 12})
                |> Map.get(:routing_context)
-               |> Map.get(:history_kind) == nil
+               |> Map.get(:conversation_type) == nil
       end
     end
   end
@@ -3590,6 +3788,40 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       token: "tok",
       settings: %{"jido_chat" => %{"message_patterns" => ["deploy"]}}
     }
+
+    test "verified unaddressed room post captures history but does not request an agent reply" do
+      config = Map.merge(@config, %{id: 42, settings: %{}})
+      Application.put_env(:zaq, :chat_bridge_node_router_module, PassiveCaptureRouter)
+
+      chat = Chat.new(user_name: "zaq", adapters: %{mattermost: StubThreadRootAdapter})
+      chat = JidoChatBridge.register_handlers(chat, config)
+
+      post = %ChatIncoming{
+        text: "routine channel update",
+        external_room_id: "chan-1",
+        external_message_id: "post-1",
+        author: %Author{user_id: "u1", user_name: "alice", is_me: false},
+        was_mentioned: false,
+        metadata: %{},
+        raw: %{"channel_type" => "O", "post" => %{"channel_id" => "chan-1"}},
+        channel_meta: %{
+          adapter_name: :mattermost,
+          external_room_id: "chan-1",
+          chat_type: :public,
+          is_dm: false
+        }
+      }
+
+      assert {:ok, _chat, _events} =
+               Chat.process_message(chat, :mattermost, "mattermost:chan-1", post, [])
+
+      assert_received {:passive_history_event, event}
+      assert event.opts[:action] == :receive_incoming_message
+      assert event.request.routing_context.conversation_type == :room
+      assert event.request.routing_context.channel_config_id == 42
+      refute_received {:pipeline_run, _, _}
+      refute_received {:passive_history_event, _}
+    end
 
     test "mention event in a thread rooted by another user reaches the pipeline" do
       config =

@@ -5,8 +5,8 @@ defmodule Zaq.Channels.EmailBridge.SmtpSenderTest do
 
   @moduletag capture_log: true
 
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.EmailBridge.SmtpSender
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
   alias Zaq.Types.EncryptedString
 

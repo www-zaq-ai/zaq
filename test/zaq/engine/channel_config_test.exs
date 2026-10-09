@@ -1,7 +1,8 @@
-defmodule Zaq.Channels.ChannelConfigTest do
+defmodule Zaq.Engine.ChannelConfigTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig, DiskBridge, RetrievalChannel}
+  alias Zaq.Channels.{AgentRouting, Bridge, DiskBridge, RetrievalChannel}
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias Zaq.System.SecretConfig

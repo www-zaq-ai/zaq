@@ -36,8 +36,8 @@ defmodule Zaq.Engine.Notifications do
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.Resources.Query, as: ResourcesQuery
   alias Zaq.Agent.Tools.Resources.Registry, as: ResourcesRegistry
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Events, as: ChannelEvents
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications.Notification

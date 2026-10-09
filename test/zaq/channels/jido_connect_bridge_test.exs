@@ -1,8 +1,9 @@
 defmodule Zaq.Channels.JidoConnectBridgeTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{ChannelConfig, DataSourceBridge, JidoConnectBridge}
+  alias Zaq.Channels.{DataSourceBridge, JidoConnectBridge}
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Materialization.Handle
   alias Zaq.Repo

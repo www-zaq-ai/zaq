@@ -5,7 +5,7 @@ defmodule ZaqWeb.Live.BO.Communication.ConversationDetailLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Telemetry.FeedbackReasons
   alias ZaqWeb.Helpers.DateFormat

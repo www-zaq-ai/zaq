@@ -8,7 +8,8 @@ defmodule ZaqWeb.Live.BO.System.PersonRouting do
   """
 
   alias Zaq.Accounts.{Person, PersonChannel}
-  alias Zaq.Channels.{AgentRouting, ChannelConfig, RetrievalChannel}
+  alias Zaq.Channels.{AgentRouting, RetrievalChannel}
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.NodeRouter

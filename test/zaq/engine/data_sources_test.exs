@@ -5,7 +5,7 @@ defmodule Zaq.Engine.DataSourcesTest do
 
   import Ecto.Query
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.DataSources
   alias Zaq.Engine.DataSources.WatchChannel
   alias Zaq.Engine.DataSources.WatchChannelRenewalWorker
@@ -112,6 +112,36 @@ defmodule Zaq.Engine.DataSourcesTest do
     def dispatch(event), do: %{event | response: {:error, :unexpected_event}}
   end
 
+  defmodule StubUnpersistedReplacementNodeRouter do
+    def dispatch(%{opts: [action: :data_source_watch_item]} = event) do
+      send(self(), {:renewal_watch_item, event.request})
+      %{event | response: {:ok, %{channel_id: "unpersisted-channel"}}}
+    end
+
+    def dispatch(event), do: %{event | response: {:error, :unexpected_event}}
+  end
+
+  defmodule StubBareOkUnwatchNodeRouter do
+    def dispatch(%{opts: [action: :data_source_unwatch_item]} = event) do
+      send(self(), {:renewal_unwatch_item, event})
+      %{event | response: :ok}
+    end
+
+    def dispatch(event), do: %{event | response: {:error, :unexpected_event}}
+  end
+
+  defmodule StubArchivedDeleteRaceNodeRouter do
+    alias Zaq.Engine.DataSourcesTest
+
+    def dispatch(%{opts: [action: :data_source_unwatch_archived_item]} = event) do
+      send(self(), {:archived_unwatch_item, event})
+      :ok = DataSourcesTest.delete_watch_for_unwatch_request(event.request)
+      %{event | response: :ok}
+    end
+
+    def dispatch(event), do: %{event | response: {:error, :unexpected_event}}
+  end
+
   defmodule StubIngestionOkNodeRouter do
     def dispatch(%{opts: [action: :process_data_source_changes]} = event) do
       send(self(), {:ingestion_process_data_source_changes, event.request})
@@ -183,6 +213,21 @@ defmodule Zaq.Engine.DataSourcesTest do
         expiration_at: DateTime.utc_now() |> DateTime.add(86_400, :second),
         metadata: %{"watch" => %{}}
       })
+
+    :ok
+  end
+
+  def delete_watch_for_unwatch_request(request) do
+    params = Map.get(request, :params) || Map.get(request, "params") || %{}
+    provider = Map.get(request, :provider) || Map.get(request, "provider")
+
+    {1, _} =
+      Repo.delete_all(
+        from w in WatchChannel,
+          where:
+            w.config_id == ^params.config_id and w.provider == ^provider and
+              w.channel_id == ^params.channel_id and w.resource_id == ^params.resource_id
+      )
 
     :ok
   end
@@ -262,6 +307,56 @@ defmodule Zaq.Engine.DataSourcesTest do
     assert updated.checkpoint == "next"
   end
 
+  test "upsert rejects malformed connector IDs without persisting a watch" do
+    config = insert_data_source_config()
+
+    assert {:error, %Ecto.Changeset{} = changeset} =
+             DataSources.upsert_watch_channel(watch_attrs(config, %{config_id: "12x"}))
+
+    assert Keyword.has_key?(changeset.errors, :config_id)
+
+    refute Repo.get_by(WatchChannel, provider: "google_drive", channel_id: "channel-1")
+  end
+
+  test "blank optional watch values are omitted and do not erase existing values" do
+    config = insert_data_source_config()
+
+    {:ok, original} =
+      DataSources.upsert_watch_channel(
+        watch_attrs(config, %{resource_uri: "https://provider.example/file", checkpoint: "saved"})
+      )
+
+    assert {:ok, updated} =
+             DataSources.upsert_watch_channel(
+               watch_attrs(config, %{
+                 resource_uri: "",
+                 checkpoint: "",
+                 target_provider_id: "updated-file"
+               })
+             )
+
+    assert updated.id == original.id
+    assert updated.resource_uri == "https://provider.example/file"
+    assert updated.checkpoint == "saved"
+    assert updated.target_provider_id == "updated-file"
+    refute Map.has_key?(updated.metadata["watch"], "resource_uri")
+    refute Map.has_key?(updated.metadata["watch"], "checkpoint")
+  end
+
+  test "blank optional watch values are omitted when creating a watch" do
+    config = insert_data_source_config()
+
+    assert {:ok, watch} =
+             DataSources.upsert_watch_channel(
+               watch_attrs(config, %{resource_uri: "", checkpoint: ""})
+             )
+
+    assert is_nil(watch.resource_uri)
+    assert is_nil(watch.checkpoint)
+    refute Map.has_key?(watch.metadata["watch"], "resource_uri")
+    refute Map.has_key?(watch.metadata["watch"], "checkpoint")
+  end
+
   test "archive teardown stops only this connector's watches and is retryable" do
     first = insert_data_source_config()
     other = insert_data_source_config()
@@ -276,6 +371,19 @@ defmodule Zaq.Engine.DataSourcesTest do
       assert Repo.get(WatchChannel, untouched.id).status == "active"
       assert {:ok, 0} = DataSources.stop_config_watch_channels(first.id)
     end)
+  end
+
+  test "stop and reconcile reject invalid connector IDs without touching the router" do
+    for config_id <- [nil, 0, -1, "12x", "invalid"] do
+      assert {:error, [{nil, :invalid_connector_id}]} =
+               DataSources.stop_config_watch_channels(config_id)
+
+      assert {:error, :invalid_connector_id} =
+               DataSources.reconcile_archived_config_watches(config_id)
+    end
+
+    refute_received {:renewal_unwatch_item, _}
+    refute_received {:archived_unwatch_item, _}
   end
 
   test "archive teardown reports failed watches and keeps them active for retry" do
@@ -481,6 +589,44 @@ defmodule Zaq.Engine.DataSourcesTest do
              })
   end
 
+  test "unscoped target lookup excludes stopped and other-connector watches" do
+    config = insert_data_source_config()
+    other = insert_data_source_config()
+    target = "data_source/google_drive/shared-inactive-target"
+
+    {:ok, _stopped} =
+      DataSources.upsert_watch_channel(
+        watch_attrs(config, %{target_source: target, status: "stopped"})
+      )
+
+    {:ok, _other_connector} =
+      DataSources.upsert_watch_channel(
+        watch_attrs(other, %{target_source: target, channel_id: "other-connector-channel"})
+      )
+
+    Repo.update_all(
+      from(w in WatchChannel, where: w.config_id == ^other.id),
+      set: [status: "stopped"]
+    )
+
+    assert {:error, :watch_channel_not_found} =
+             DataSources.resolve_watch_channel(%{
+               provider: "google_drive",
+               target_source: target,
+               target_provider_id: "folder-1"
+             })
+  end
+
+  test "resolve_watch_channel rejects missing or nonbinary target identifiers" do
+    assert {:error, :missing_channel_id} = DataSources.resolve_watch_channel(%{})
+
+    assert {:error, :missing_channel_id} =
+             DataSources.resolve_watch_channel(%{channel_id: 123})
+
+    assert {:error, :missing_channel_id} =
+             DataSources.resolve_watch_channel(%{provider: "google_drive", target_source: 123})
+  end
+
   test "renew_watch_channel creates replacement, stops provider watch, and deletes old row" do
     previous_router = Application.get_env(:zaq, :engine_data_sources_node_router_module)
     previous_base_url = System.get_global_base_url()
@@ -542,6 +688,77 @@ defmodule Zaq.Engine.DataSourcesTest do
                            resource_id: "old-resource-1"
                          }
                        }}
+    end)
+  end
+
+  test "renewal reports when provider replacement was not persisted" do
+    config = insert_data_source_config()
+
+    with_engine_data_sources_env(
+      StubUnpersistedReplacementNodeRouter,
+      "https://renewed.example/base/",
+      fn ->
+        Oban.Testing.with_testing_mode(:manual, fn ->
+          {:ok, old_watch} =
+            DataSources.upsert_watch_channel(
+              watch_attrs(config, %{
+                target_source: "data_source/google_drive/#{config.id}",
+                target_provider_id: "changes",
+                channel_id: "old-unpersisted-replacement",
+                resource_id: "old-unpersisted-resource",
+                expiration_at: DateTime.utc_now() |> DateTime.add(3_600, :second)
+              })
+            )
+
+          assert {:error, :replacement_watch_channel_not_persisted} =
+                   DataSources.renew_watch_channel(old_watch.id)
+
+          assert Repo.get(WatchChannel, old_watch.id)
+          assert_received {:renewal_watch_item, _}
+          refute_received {:renewal_unwatch_item, _}
+        end)
+      end
+    )
+  end
+
+  test "archived renewal reports a watch deleted after provider teardown" do
+    config = insert_data_source_config()
+    {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+    config
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Repo.update!()
+
+    with_engine_data_sources_env(StubArchivedDeleteRaceNodeRouter, nil, fn ->
+      assert {:error, :watch_channel_not_found} = DataSources.renew_watch_channel(watch.id)
+      assert Repo.get(WatchChannel, watch.id) == nil
+
+      assert_received {:archived_unwatch_item,
+                       %{opts: [action: :data_source_unwatch_archived_item], request: request}}
+
+      assert request.params.config_id == config.id
+      assert request.params.channel_id == watch.channel_id
+      assert request.params.resource_id == watch.resource_id
+      refute_received {:archived_unwatch_item, _}
+    end)
+  end
+
+  test "bare ok from provider unwatch stops and persists the watch" do
+    config = insert_data_source_config()
+    {:ok, watch} = DataSources.upsert_watch_channel(watch_attrs(config))
+
+    with_engine_data_sources_env(StubBareOkUnwatchNodeRouter, nil, fn ->
+      assert {:ok, 1} = DataSources.stop_config_watch_channels(config.id)
+      assert Repo.get!(WatchChannel, watch.id).status == "stopped"
+
+      assert_received {:renewal_unwatch_item,
+                       %{opts: [action: :data_source_unwatch_item], request: request}}
+
+      assert request.params == %{
+               config_id: config.id,
+               channel_id: watch.channel_id,
+               resource_id: watch.resource_id
+             }
     end)
   end
 
@@ -892,6 +1109,26 @@ defmodule Zaq.Engine.DataSourcesTest do
           assert Repo.get(WatchChannel, watch_channel.id)
         end)
       end)
+    end)
+  end
+
+  test "renewal of a stopped archived watch is a no-op" do
+    config = insert_data_source_config()
+
+    {:ok, watch} =
+      DataSources.upsert_watch_channel(
+        watch_attrs(config, %{status: "stopped", channel_id: "archived-stopped-channel"})
+      )
+
+    config
+    |> Ecto.Changeset.change(enabled: false, archived_at: DateTime.utc_now(:second))
+    |> Repo.update!()
+
+    with_engine_data_sources_env(StubRenewalNodeRouter, nil, fn ->
+      assert :ok = DataSources.renew_watch_channel(watch.id)
+      assert Repo.get!(WatchChannel, watch.id).status == "stopped"
+      refute_received {:archived_unwatch_item, _}
+      refute_received {:renewal_unwatch_item, _}
     end)
   end
 

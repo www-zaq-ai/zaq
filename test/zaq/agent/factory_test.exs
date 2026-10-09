@@ -351,12 +351,19 @@ defmodule Zaq.Agent.FactoryTest do
 
   describe "tool_timeout_ms/1" do
     test "takes the max timeout declared by the enabled tool modules" do
-      assert Factory.tool_timeout_ms([SearchKnowledgeBase, Browsing]) ==
-               Browsing.tool_timeout_ms()
+      expected = max(SearchKnowledgeBase.tool_timeout_ms(), Browsing.tool_timeout_ms())
+
+      assert Factory.tool_timeout_ms([SearchKnowledgeBase, Browsing]) == expected
+      assert Factory.tool_timeout_ms([Browsing, SearchKnowledgeBase]) == expected
+    end
+
+    test "knowledge base search declares a 120-second execution budget" do
+      assert SearchKnowledgeBase.tool_timeout_ms() == 120_000
+      assert Factory.tool_timeout_ms([SearchKnowledgeBase]) == 120_000
     end
 
     test "returns nil when no enabled tool declares a timeout" do
-      assert Factory.tool_timeout_ms([SearchKnowledgeBase]) == nil
+      assert Factory.tool_timeout_ms([MCPProbeTool]) == nil
     end
 
     test "returns nil for an empty tool list" do

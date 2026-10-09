@@ -2,8 +2,8 @@ defmodule Zaq.Engine.ApiTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Api
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
@@ -20,11 +20,6 @@ defmodule Zaq.Engine.ApiTest do
   end
 
   defmodule StubConversations do
-    def persist_from_incoming(incoming, metadata) do
-      send(self(), {:persist_called, incoming, metadata})
-      :ok
-    end
-
     def finalize_incoming(user_message_id, finalization_token, result) do
       send(self(), {:finalize_called, user_message_id, finalization_token, result})
       {:ok, %{conversation_id: "conversation-1", assistant_message_id: "assistant-1"}}
@@ -98,7 +93,7 @@ defmodule Zaq.Engine.ApiTest do
     }
   end
 
-  test "handles persist_from_incoming action" do
+  test "removed exchange action cannot bypass admission" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
     metadata = %{answer: "ok"}
 
@@ -109,17 +104,16 @@ defmodule Zaq.Engine.ApiTest do
 
     result = Api.handle_event(event, :persist_from_incoming, nil)
 
-    assert result.response == :ok
-    assert_received {:persist_called, ^incoming, ^metadata}
+    assert result.response == {:error, {:unsupported_action, :persist_from_incoming}}
   end
 
-  test "returns invalid request for malformed persist payload" do
+  test "removed exchange action rejects malformed payloads too" do
     event =
       Event.new(%{incoming: :bad, metadata: %{}}, :engine, opts: [action: :persist_from_incoming])
 
     result = Api.handle_event(event, :persist_from_incoming, nil)
 
-    assert result.response == {:error, {:invalid_request, %{incoming: :bad, metadata: %{}}}}
+    assert result.response == {:error, {:unsupported_action, :persist_from_incoming}}
   end
 
   test "finalizes an Agent outcome by its admitted user message" do
@@ -431,8 +425,8 @@ defmodule Zaq.Engine.ApiTest do
         {:ok, {:by_id, message_id, rater_attrs}}
       end
 
-      def rate_message_by_external_id(external_id, rater_attrs) do
-        {:ok, {:by_external_id, external_id, rater_attrs}}
+      def rate_message_by_source(reference, rater_attrs) do
+        {:ok, {:by_source, reference, rater_attrs}}
       end
     end
 
@@ -451,13 +445,22 @@ defmodule Zaq.Engine.ApiTest do
       assert result.response == {:ok, {:by_id, "uuid-1", attrs}}
     end
 
-    test "routes an {:external_id, id} reference to rate_message_by_external_id/2" do
+    test "routes a scoped source reference to the canonical rating owner" do
       attrs = %{channel_user_id: "user-123", rating: 1}
-      event = rate_event(%{message_ref: {:external_id, "post-1"}, rater_attrs: attrs})
+
+      reference = %{
+        provider: "telegram",
+        channel_config_id: 1,
+        channel_id: "chat",
+        source_scope: "chat",
+        message_id: "post-1"
+      }
+
+      event = rate_event(%{message_ref: {:source, reference}, rater_attrs: attrs})
 
       result = Api.handle_event(event, :rate_message, nil)
 
-      assert result.response == {:ok, {:by_external_id, "post-1", attrs}}
+      assert result.response == {:ok, {:by_source, reference, attrs}}
     end
 
     test "the action carries no reaction vocabulary" do

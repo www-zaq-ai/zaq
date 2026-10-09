@@ -17,6 +17,39 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
   setup :verify_on_exit!
 
+  test "context limiting loads the LLM budget once for all candidates" do
+    chunks = Enum.map(1..20, &%{content: "chunk #{&1}"})
+
+    {limited, queries} =
+      Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks(chunks) end)
+
+    assert limited == chunks
+    assert Enum.count(queries, &(&1.source == "system_configs")) == 1
+  end
+
+  test "an empty candidate list does not load LLM configuration" do
+    assert {[], []} = Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks([]) end)
+  end
+
+  property "context limiting preserves the longest prefix strictly below the budget" do
+    budget = Zaq.System.get_llm_config().max_context_window
+
+    check all(contents <- list_of(string(:alphanumeric, max_length: 500), max_length: 40)) do
+      chunks = Enum.map(contents, &%{content: &1})
+
+      {expected, _tokens} =
+        Enum.reduce_while(chunks, {[], 0}, fn chunk, {prefix, tokens} ->
+          next = tokens + TokenEstimator.estimate(Jason.encode!(chunk))
+
+          if next < budget,
+            do: {:cont, {[chunk | prefix], next}},
+            else: {:halt, {prefix, tokens}}
+        end)
+
+      assert DocumentProcessor.limit_chunks(chunks) == Enum.reverse(expected)
+    end
+  end
+
   setup do
     FTSBackend.reset_cache()
     :persistent_term.put({FTSBackend, :backend}, FTSBackend.Native)

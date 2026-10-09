@@ -286,6 +286,15 @@ defmodule Zaq.Channels.EmailBridge.ImapAdapterTest do
     assert payload["in_reply_to"] == "<thread-1@example.com>"
     assert payload["references"] == "<thread-1@example.com>"
     assert payload["raw_header"] =~ "References: <thread-1@example.com>"
+    incoming = ImapAdapter.to_internal(payload, %{})
+
+    assert incoming.routing_context.audience == %Zaq.Engine.Messages.Incoming.Audience{
+             platform: "email",
+             sender: "bob@example.com",
+             recipients: [],
+             participants: [%{identifier: "bob@example.com", role: :sender, display_name: "bob"}]
+           }
+
     assert payload["uid_validity"] == 1_193_810_872
     assert payload["body_text"] == "plain body"
     assert payload["body_html"] == "<p>html body</p>"

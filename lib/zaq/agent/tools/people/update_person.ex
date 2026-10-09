@@ -113,7 +113,7 @@ defmodule Zaq.Agent.Tools.People.UpdatePerson do
       })
 
   alias Jido.Action.Tool
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.MapUtils
 
   @impl Jido.Action

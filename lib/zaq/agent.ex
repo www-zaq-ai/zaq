@@ -6,7 +6,7 @@ defmodule Zaq.Agent do
   alias Ecto.Changeset
   alias Zaq.Agent.{ConfiguredAgent, MCP, ProviderSpec, QueryFilters, ServerManager}
   alias Zaq.Agent.Tools.Registry
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Repo
   alias Zaq.System

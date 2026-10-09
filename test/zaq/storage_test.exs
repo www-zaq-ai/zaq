@@ -3,7 +3,7 @@ defmodule Zaq.StorageTest do
   use ExUnitProperties
 
   alias Zaq.Accounts.People
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Materialization.Handle
   alias Zaq.Permissions
   alias Zaq.Repo

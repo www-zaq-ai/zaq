@@ -1206,6 +1206,19 @@ html[data-theme="dark"] .zaq-toggle-group-pill > button:nth-of-type(3) {
   background-color: var(--zaq-surface-color-elevated);
 }
 
+/* Aggregate counts remain adjacent to each reaction icon. */
+.zaq-chat-message__reaction-count {
+  margin-left: var(--zaq-scale-4);
+}
+
+.zaq-chat-message__icon-btn[data-read-only="true"] {
+  cursor: default;
+}
+
+.zaq-chat-message__icon-btn[data-read-only="true"]:hover {
+  background-color: transparent;
+}
+
 /* Saved negative feedback note under assistant message meta row */
 .zaq-chat-rating-feedback-note {
   flex-direction: column;

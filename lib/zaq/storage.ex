@@ -8,7 +8,7 @@ defmodule Zaq.Storage do
   """
 
   alias Zaq.Accounts.People
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.Materialization.Handle
   alias Zaq.Permissions

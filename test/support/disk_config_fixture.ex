@@ -1,7 +1,7 @@
 defmodule Zaq.TestSupport.DiskConfigFixture do
   @moduledoc "Test fixture for an enabled Disk data-source configuration."
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
 
   def get_or_create! do
     ChannelConfig.get_by_provider("disk") || create!()

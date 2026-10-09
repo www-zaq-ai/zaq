@@ -14,8 +14,8 @@ defmodule Zaq.Engine.DataSources do
   import Ecto.Query
 
   alias Ecto.Changeset
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.WebhookUrl
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.DataSources.WatchChannel
   alias Zaq.Engine.DataSources.WatchChannelRenewalWorker
   alias Zaq.{Event, Repo}

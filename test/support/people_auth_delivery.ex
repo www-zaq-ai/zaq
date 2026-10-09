@@ -3,7 +3,8 @@ defmodule Zaq.TestSupport.PeopleAuthDelivery do
   import ExUnit.Callbacks
   import Mox
 
-  alias Zaq.Channels.{ChannelConfig, PeopleAuthDeliveryMock}
+  alias Zaq.Channels.PeopleAuthDeliveryMock
+  alias Zaq.Engine.ChannelConfig
 
   def setup do
     previous = Application.get_env(:zaq, :channels)

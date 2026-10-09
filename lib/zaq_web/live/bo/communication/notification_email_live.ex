@@ -2,7 +2,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
 
   @connection_types [
     %{

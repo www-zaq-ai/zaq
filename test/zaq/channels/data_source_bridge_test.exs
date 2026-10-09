@@ -3,10 +3,11 @@ defmodule Zaq.Channels.DataSourceBridgeTest do
   use ExUnitProperties
 
   alias Zaq.Accounts.{People, PersonChannel}
-  alias Zaq.Channels.{Bridge, ChannelConfig, DataSourceBridge, DiskBridge}
+  alias Zaq.Channels.{Bridge, DataSourceBridge, DiskBridge}
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
   alias Zaq.Repo

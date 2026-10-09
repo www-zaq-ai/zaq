@@ -8,8 +8,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
   alias Zaq.Accounts
   alias Zaq.Accounts.People
   alias Zaq.Channels.AgentRouting
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo

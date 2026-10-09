@@ -95,6 +95,10 @@ IDs never resolve to an identity.
 
 ## Pipeline Flow
 
+The [incoming routing sequence](message-lifecycle.md#incoming-routing-overview)
+shows how Engine admits execution and selects the Agent hop through `NodeRouter`;
+Channels does not initiate a separate Agent dispatch after capture.
+
 ```
 User question (BO Chat / Channel)
   → Engine incoming routing (:route_incoming_message)
@@ -167,6 +171,11 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 
 ### Agent API + Executor
 - `Zaq.Agent.Api` is the role boundary entrypoint used by `NodeRouter.dispatch/1`
+- Channel requests require an Engine admission binding with non-empty conversation ID,
+  user-message ID and finalization token. Missing or malformed bindings return
+  `{:error, :invalid_conversation_binding}` before prompt processing, status or execution.
+  Internal workflow runs with `provider: nil` remain exempt. There is no whole-exchange
+  persistence fallback; Engine verifies the admission capability during finalization.
 - `:run_pipeline` is a single entrypoint with three sequential responsibilities:
   1. **Guard**: `PromptGuard.validate/1` — if it fails, returns a guard-blocked `Outgoing` through the standard persist + channels return-hop path (same delivery flow as regular pipeline responses)
   2. **Signal**: `Status.broadcast(:validating)` — fired once after the guard passes, before routing
@@ -457,7 +466,7 @@ without safe permission mutation support return `:unsupported`.
 - Accepts either an existing `%Zaq.Engine.Messages.Incoming{}` routing envelope or generic routing fields (`channel_id`, `provider`, `author_id`, `thread_id`, `message_id`, `metadata`).
 - Also accepts delivery aliases from notification workflows (`channel`, `channel_identifier`, `message`, `sent_message`). When an `Incoming` struct is supplied, other routing fields are not required.
 - Defaults the stored message role to `"assistant"` so workflows can persist assistant-initiated notifications or follow-ups without creating a fake user turn.
-- Conversation creation/reuse is delegated to `Zaq.Engine.Conversations.persist_message_history/2`, which uses the same channel and email topic grouping rules as `persist_from_incoming/2`.
+- Conversation creation/reuse is delegated to `Zaq.Engine.Conversations.persist_message_history/2`, which consumes the same Channels-computed conversation identity as admission.
 
 ### Runtime Factory (`Zaq.Agent.Factory`)
 - Standard runtime agent for all configured agents

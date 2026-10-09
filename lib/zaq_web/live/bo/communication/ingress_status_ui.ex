@@ -7,6 +7,29 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUI do
     |> status_color()
   end
 
+  @doc "Aggregates enabled connector health without treating provider ambiguity as failure."
+  def aggregate([]), do: %{status: :unsupported, summary: "No enabled connectors", connectors: []}
+
+  def aggregate([%{status: status}] = connectors), do: Map.put(status, :connectors, connectors)
+
+  def aggregate(connectors) do
+    values = Enum.map(connectors, &status_value(&1.status))
+    healthy = Enum.count(values, &(&1 in [:ok, "ok"]))
+
+    status =
+      cond do
+        healthy == length(values) -> :ok
+        Enum.all?(values, &(&1 in [:error, "error"])) -> :error
+        true -> :pending
+      end
+
+    %{
+      status: status,
+      summary: "#{healthy}/#{length(values)} connectors healthy",
+      connectors: connectors
+    }
+  end
+
   defp status_value(nil), do: nil
   defp status_value(status), do: status[:status] || status["status"]
 

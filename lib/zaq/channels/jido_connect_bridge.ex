@@ -54,13 +54,13 @@ defmodule Zaq.Channels.JidoConnectBridge do
   alias Jido.Connect.Catalog.ToolEntry
   alias Jido.Connect.Google.ServiceAccount
   alias Zaq.Channels.Bridge
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.JidoConnectBridge.FieldNormalization
   alias Zaq.Channels.JidoConnectBridge.RuntimeMapper
   alias Zaq.Channels.JidoConnectBridge.WebhookWorker
   alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Channels.ProviderCatalog
+  alias Zaq.Engine.ChannelConfig
 
   alias Zaq.Contracts.Sheets.{
     CellMatrix,

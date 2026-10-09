@@ -8,6 +8,10 @@ defmodule ZaqWeb.Components.ChatMessage do
   - Assistant: left-aligned column with ZAQ avatar, flat body on transcript surface,
     optional danger feedback for structured errors, source rows, confidence bar
 
+  Channel history opts into reversed alignment with `align`. Person names enable
+  initials avatars; assistants retain the ZAQ icon alongside an optional name.
+  Bubble footers follow the selected side; interactive chat defaults remain as above.
+
   Usage:
 
       <ChatMessage.user_bubble content={msg.body} timestamp={msg.timestamp}>
@@ -43,6 +47,9 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :timestamp, :any, required: true
   attr :filters, :list, default: []
   attr :attachments, :list, default: []
+  attr :align, :atom, values: [:left, :right], default: :right
+  attr :author_name, :string, default: nil
+  attr :person_id, :integer, default: nil
 
   slot :actions
 
@@ -50,35 +57,62 @@ defmodule ZaqWeb.Components.ChatMessage do
     assigns = assign(assigns, :body_html, build_body_html(assigns.content, assigns.filters))
 
     ~H"""
-    <div class="flex justify-end animate-slide-in-right" data-testid="chat-user-bubble">
+    <div
+      class={[
+        "flex gap-2",
+        if(@align == :left,
+          do: "justify-start animate-slide-in-left",
+          else: "justify-end animate-slide-in-right"
+        )
+      ]}
+      data-testid="chat-user-bubble"
+      data-align={@align}
+    >
+      <ZaqWeb.Components.PersonAvatar.avatar
+        :if={@author_name}
+        name={@author_name}
+        person_id={@person_id}
+      />
       <div class="max-w-[70%]">
+        <p :if={@author_name} class="zaq-text-caption mb-1">{@author_name}</p>
         <div class="zaq-chat-user-bubble">
           <%!-- Use div (not p): body_html may include buttons from @-filters; p+interactive HTML breaks layout in browsers. --%>
           <div class="zaq-text-body whitespace-pre-wrap">{@body_html}</div>
-          <div :if={@attachments != []} class="zaq-layout-stack-tight mt-3">
-            <div
-              :for={attachment <- @attachments}
-              class="zaq-layout-inline gap-2"
-              data-testid="chat-attachment"
-            >
-              <span class="zaq-text-body-sm">
-                {attachment_value(attachment, "name") || "Attachment"}
-              </span>
-              <span
-                class="zaq-text-caption"
-                style="color: var(--zaq-text-color-body-tertiary);"
-              >
-                {attachment_details(attachment)}
-              </span>
-            </div>
-          </div>
+          <.attachment_list attachments={@attachments} />
         </div>
-        <div class="flex items-center justify-end gap-2 mt-1 pr-1">
+        <div class={[
+          "flex items-center gap-2 mt-1",
+          if(@align == :left, do: "justify-start pl-1", else: "justify-end pr-1")
+        ]}>
           <span class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary);">
             {format_time(@timestamp)}
           </span>
           {render_slot(@actions)}
         </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :attachments, :list, required: true
+
+  defp attachment_list(assigns) do
+    ~H"""
+    <div :if={@attachments != []} class="zaq-layout-stack-tight mt-3">
+      <div
+        :for={attachment <- @attachments}
+        class="zaq-layout-inline gap-2"
+        data-testid="chat-attachment"
+      >
+        <span class="zaq-text-body-sm">
+          {attachment_value(attachment, "name") || "Attachment"}
+        </span>
+        <span
+          class="zaq-text-caption"
+          style="color: var(--zaq-text-color-body-tertiary);"
+        >
+          {attachment_details(attachment)}
+        </span>
       </div>
     </div>
     """
@@ -108,6 +142,7 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :confidence, :float, default: nil
   # List of sources — strings (file paths) or maps with "path" and optional "index"
   attr :sources, :list, default: []
+  attr :attachments, :list, default: []
   attr :is_error, :boolean, default: false
   attr :error_type, :atom, default: nil
   attr :source_click_event, :string, default: nil
@@ -115,6 +150,9 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :source_preview_path, :any, default: nil
   attr :saved_feedback_reasons, :string, default: nil
   attr :saved_feedback_user_comment, :string, default: nil
+  attr :align, :atom, values: [:left, :right], default: :left
+  attr :author_name, :string, default: nil
+  attr :person_id, :integer, default: nil
 
   slot :actions
 
@@ -132,9 +170,16 @@ defmodule ZaqWeb.Components.ChatMessage do
       )
 
     ~H"""
-    <div class="min-w-0 animate-slide-in-left" data-testid="chat-assistant-bubble">
-      <div class="flex justify-start min-w-0">
-        <div class="flex min-w-0 max-w-[82%] gap-4">
+    <div
+      class={[
+        "min-w-0",
+        if(@align == :right, do: "animate-slide-in-right", else: "animate-slide-in-left")
+      ]}
+      data-testid="chat-assistant-bubble"
+      data-align={@align}
+    >
+      <div class={["flex min-w-0", if(@align == :right, do: "justify-end", else: "justify-start")]}>
+        <div class={["flex min-w-0 max-w-[82%] gap-4", @align == :right && "flex-row-reverse"]}>
           <div class="shrink-0 mt-0.5">
             <img
               src={~p"/images/zaq.png"}
@@ -144,6 +189,7 @@ defmodule ZaqWeb.Components.ChatMessage do
           </div>
 
           <div class="flex-1 min-w-0">
+            <p :if={@author_name} class="zaq-text-caption mb-1">{@author_name}</p>
             <%= if @is_error && (@error_detail || @error_type != nil) do %>
               <%= if @error_type == :budget_exceeded do %>
                 <p
@@ -231,6 +277,8 @@ defmodule ZaqWeb.Components.ChatMessage do
               </div>
             <% end %>
 
+            <.attachment_list attachments={@attachments} />
+
             <%!-- Source references (flat rows) --%>
             <div
               :if={@sources != []}
@@ -247,7 +295,10 @@ defmodule ZaqWeb.Components.ChatMessage do
             </div>
 
             <%!-- Meta row: timestamp + confidence bar + actions --%>
-            <div class="flex items-center gap-2 mt-1.5 ml-0.5">
+            <div class={[
+              "flex items-center gap-2 mt-1.5",
+              if(@align == :right, do: "justify-end mr-0.5", else: "justify-start ml-0.5")
+            ]}>
               <span class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary);">
                 {format_time(@timestamp)}
               </span>
@@ -380,14 +431,22 @@ defmodule ZaqWeb.Components.ChatMessage do
 
   attr :message_id, :string, required: true
   attr :feedback, :atom, default: nil
+  attr :count, :integer, default: nil
+  attr :read_only, :boolean, default: false
 
   def feedback_positive_button(assigns) do
     ~H"""
-    <button
-      type="button"
-      phx-click="feedback"
-      phx-value-id={@message_id}
-      phx-value-type="positive"
+    <.dynamic_tag
+      tag_name={if @read_only, do: "span", else: "button"}
+      {if @read_only, do: %{}, else: %{type: "button"}}
+      phx-click={if !@read_only, do: "feedback"}
+      phx-value-id={if !@read_only, do: @message_id}
+      phx-value-type={if !@read_only, do: "positive"}
+      data-reaction-type="positive"
+      data-read-only={to_string(@read_only)}
+      role={if @read_only, do: "img"}
+      aria-label={if is_nil(@count), do: "Good response", else: "Positive reactions: #{@count}"}
+      aria-pressed={if !@read_only, do: to_string(@feedback == :positive)}
       data-feedback-active={to_string(@feedback == :positive)}
       class="zaq-chat-message__icon-btn"
       style={
@@ -399,6 +458,7 @@ defmodule ZaqWeb.Components.ChatMessage do
       title="Good response"
     >
       <svg
+        aria-hidden="true"
         width="13"
         height="13"
         viewBox="0 0 24 24"
@@ -411,20 +471,32 @@ defmodule ZaqWeb.Components.ChatMessage do
         <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3">
         </path>
       </svg>
-    </button>
+      <span
+        :if={is_integer(@count) and @count > 0}
+        class="zaq-chat-message__reaction-count zaq-text-caption"
+      >{@count}</span>
+    </.dynamic_tag>
     """
   end
 
   attr :message_id, :string, required: true
   attr :feedback, :atom, default: nil
+  attr :count, :integer, default: nil
+  attr :read_only, :boolean, default: false
 
   def feedback_negative_button(assigns) do
     ~H"""
-    <button
-      type="button"
-      phx-click="feedback"
-      phx-value-id={@message_id}
-      phx-value-type="negative"
+    <.dynamic_tag
+      tag_name={if @read_only, do: "span", else: "button"}
+      {if @read_only, do: %{}, else: %{type: "button"}}
+      phx-click={if !@read_only, do: "feedback"}
+      phx-value-id={if !@read_only, do: @message_id}
+      phx-value-type={if !@read_only, do: "negative"}
+      data-reaction-type="negative"
+      data-read-only={to_string(@read_only)}
+      role={if @read_only, do: "img"}
+      aria-label={if is_nil(@count), do: "Poor response", else: "Negative reactions: #{@count}"}
+      aria-pressed={if !@read_only, do: to_string(@feedback == :negative)}
       data-feedback-active={to_string(@feedback == :negative)}
       class="zaq-chat-message__icon-btn"
       style={
@@ -436,6 +508,7 @@ defmodule ZaqWeb.Components.ChatMessage do
       title="Poor response"
     >
       <svg
+        aria-hidden="true"
         width="13"
         height="13"
         viewBox="0 0 24 24"
@@ -448,7 +521,11 @@ defmodule ZaqWeb.Components.ChatMessage do
         <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17">
         </path>
       </svg>
-    </button>
+      <span
+        :if={is_integer(@count) and @count > 0}
+        class="zaq-chat-message__reaction-count zaq-text-caption"
+      >{@count}</span>
+    </.dynamic_tag>
     """
   end
 

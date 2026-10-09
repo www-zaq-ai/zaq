@@ -20,7 +20,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Channels.Api
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Repo

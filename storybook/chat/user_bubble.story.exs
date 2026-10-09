@@ -9,6 +9,17 @@ defmodule Storybook.Chat.UserBubble do
   def variations do
     [
       %Variation{
+        id: :channel_history,
+        description: "Channel history — Person on the left with round initials",
+        attributes: %{
+          content: "Could you summarize the rollout?",
+          timestamp: ~N[2026-10-01 10:30:00],
+          align: :left,
+          author_name: "Alex Morgan",
+          person_id: 42
+        }
+      },
+      %Variation{
         id: :short,
         description: "Short message",
         attributes: %{

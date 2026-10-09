@@ -2,7 +2,7 @@ defmodule Zaq.Storage.VolumeConfig do
   @moduledoc """
   Validates and normalizes disk data-source volume declarations.
 
-  The persisted source of truth is `Zaq.Channels.ChannelConfig.settings`; Storage owns the
+  The persisted source of truth is `Zaq.Engine.ChannelConfig.settings`; Storage owns the
   filesystem-facing interpretation of those settings.
   """
 

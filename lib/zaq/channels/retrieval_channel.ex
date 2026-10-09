@@ -24,7 +24,7 @@ defmodule Zaq.Channels.RetrievalChannel do
   import Ecto.Query
 
   alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
 
   schema "retrieval_channels" do

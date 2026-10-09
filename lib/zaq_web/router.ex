@@ -135,6 +135,10 @@ defmodule ZaqWeb.Router do
       # Channels — index (landing page with both sections)
       live "/channels", Live.BO.Communication.ChannelsIndexLive, :index
 
+      # Persisted communication-channel history (BO super-admin reads via Engine)
+      live "/channels/history", Live.BO.Communication.ChannelHistoryLive, :index
+      live "/channels/history/:id", Live.BO.Communication.ChannelHistoryLive, :show
+
       # Email channel configuration
       live "/channels/retrieval/email", Live.BO.Communication.NotificationEmailLive, :index
       live "/channels/retrieval/email/smtp", Live.BO.Communication.NotificationSmtpLive, :index
@@ -215,6 +219,7 @@ defmodule ZaqWeb.Router do
       post "/mcp-endpoints", E2EController, :create_mcp_endpoint
       post "/agents", E2EController, :create_agent
       post "/conversations", E2EController, :create_conversation
+      post "/channel-history", E2EController, :seed_channel_history
       post "/ingestion/touch_file", E2EController, :touch_file
       post "/ingestion/write_file", E2EController, :write_file
       post "/ingestion/multilingual_summary", E2EController, :multilingual_summary

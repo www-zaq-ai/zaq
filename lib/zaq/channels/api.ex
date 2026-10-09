@@ -22,10 +22,19 @@ defmodule Zaq.Channels.Api do
 
   @behaviour Zaq.InternalBoundaries
 
-  alias Zaq.Channels.{Bridge, ChannelConfig, CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.{
+    Bridge,
+    CommunicationBridge,
+    ConnectorRuntime,
+    DataSourceBridge
+  }
+
+  alias Zaq.Channels.DeliveryConfirmation
   alias Zaq.Channels.HttpClient
   alias Zaq.Channels.MessageFormatter
+  alias Zaq.ConnectorConfig.Settings
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Event
@@ -38,6 +47,82 @@ defmodule Zaq.Channels.Api do
   @supported_update_intents [:status, :reasoning, :tool_call, :stream_delta]
 
   @impl true
+  def handle_event(
+        %Event{
+          request: %{channel_config_id: config_id, channel_id: channel_id, message_id: message_id}
+        } = event,
+        :channel_room_message,
+        _context
+      ) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           %{user_id: user_id} when is_integer(user_id) <- event.actor,
+           %{role: %{name: "super_admin"}} <- Zaq.Accounts.get_user(user_id),
+           %ChannelConfig{enabled: true, archived_at: nil} = config <-
+             ChannelConfig.get(config_id) do
+        communication_bridge_module(event).fetch_room_message(
+          config,
+          channel_id,
+          message_id,
+          event.opts
+        )
+      else
+        _ -> {:error, :unavailable}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %{channel_config_id: config_id, channel_id: channel_id}} = event,
+        :channel_room_capabilities,
+        _context
+      ) do
+    response =
+      with %ChannelConfig{enabled: true, archived_at: nil} = config <-
+             ChannelConfig.get(config_id),
+           {:ok, capabilities} <-
+             communication_bridge_module(event).room_capabilities(
+               config,
+               channel_id,
+               event.opts
+             ) do
+        {:ok, capabilities}
+      else
+        _ -> {:ok, %{members: false}}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %{channel_config_id: config_id, channel_id: channel_id}} = event,
+        :channel_room_members,
+        _context
+      ) do
+    result =
+      case ChannelConfig.get(config_id) do
+        %ChannelConfig{enabled: true, archived_at: nil} = config ->
+          bridge = communication_bridge_module(event)
+
+          case bridge.room_capabilities(config, channel_id, event.opts) do
+            {:ok, %{members: true}} ->
+              bridge.room_members(config, channel_id, event.opts)
+
+            {:ok, %{members: false}} ->
+              {:error, :unsupported}
+
+            {:error, _} = error ->
+              error
+          end
+
+        _ ->
+          {:error, :unsupported}
+      end
+
+    %{event | response: result}
+  end
+
   def handle_event(%Event{request: request} = event, :materialize_record, _context)
       when is_map(request) do
     communication_bridge = communication_bridge_module(event)
@@ -51,13 +136,14 @@ defmodule Zaq.Channels.Api do
     with {:ok, outgoing} <- outgoing_from_event(event),
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider),
          {:ok, connection_details} <- delivery_connection(bridge_module, outgoing) do
-      outgoing =
+      formatted_outgoing =
         outgoing |> maybe_attach_status_message_id() |> MessageFormatter.format_outgoing()
 
       response =
-        outgoing
+        formatted_outgoing
         |> bridge.send_reply(connection_details)
         |> normalize_delivery_response()
+        |> DeliveryConfirmation.record(outgoing, event.opts)
 
       %{event | response: response}
     else
@@ -140,7 +226,7 @@ defmodule Zaq.Channels.Api do
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
          true <- supports_callback?(bridge, :open_dm_channel, 2) || {:error, :unsupported},
          {:ok, config, details} <- identity_connection(bridge_module, provider, request) do
-      bot_user_id = ChannelConfig.jido_chat_bot_user_id(config)
+      bot_user_id = Settings.jido_chat_bot_user_id(config)
 
       details =
         details
@@ -188,6 +274,22 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
+        %Event{request: %{config: config}} = event,
+        :sync_provider_runtime,
+        _context
+      ) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true do
+        runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
+        runtime_module.sync_provider_runtime(config)
+      else
+        {:error, :confidential_event_required}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(
         %Event{request: %{provider: provider}} = event,
         :sync_provider_runtime,
         _context
@@ -197,15 +299,27 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
-        %Event{request: %{channel_config_id: id}} = event,
-        :archive_channel_config,
+        %Event{request: %{config: config}} = event,
+        :connector_teardown_ingress,
         _context
       ) do
     response =
-      case ChannelConfig.get(id) do
-        %ChannelConfig{} = config -> ChannelConfig.archive(config)
-        _ -> {:error, :channel_config_not_found}
-      end
+      if Keyword.get(event.opts, :confidential) == true,
+        do: ConnectorRuntime.teardown_ingress(config, event.opts),
+        else: {:error, :confidential_event_required}
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %{before_config: before_config, after_config: after_config}} = event,
+        :connector_sync_runtime,
+        _context
+      ) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true,
+        do: ConnectorRuntime.sync_runtime(before_config, after_config, event.opts),
+        else: {:error, :confidential_event_required}
 
     %{event | response: response}
   end
@@ -896,8 +1010,8 @@ defmodule Zaq.Channels.Api do
        do: {:ok, bridge_module.fetch_connection_details(provider)}
 
   defp delivery_connection(bridge_module, %Outgoing{provider: provider}) do
-    with {:ok, _config} <- bridge_module.fetch_channel_config(provider) do
-      {:ok, bridge_module.fetch_connection_details(provider)}
+    with {:ok, config} <- bridge_module.fetch_channel_config(provider) do
+      {:ok, bridge_module.fetch_connection_details_for_config(config)}
     end
   end
 
@@ -917,7 +1031,7 @@ defmodule Zaq.Channels.Api do
   defp upsert_connection(bridge_module, %Outgoing{provider: provider}) do
     with {:ok, config} <-
            normalize_upsert_config(provider, bridge_module.fetch_channel_config(provider)) do
-      {:ok, config, bridge_module.fetch_connection_details(provider)}
+      {:ok, config, bridge_module.fetch_connection_details_for_config(config)}
     end
   end
 
@@ -942,6 +1056,12 @@ defmodule Zaq.Channels.Api do
 
   defp ingress_status_config(_bridge_module, _provider, %{config: config}) when is_map(config),
     do: {:ok, config}
+
+  defp ingress_status_config(bridge_module, provider, %{channel_config_id: id}) do
+    with {:ok, config} <- bridge_module.fetch_channel_config(provider, id) do
+      {:ok, ChannelConfig.to_runtime_config(config)}
+    end
+  end
 
   defp ingress_status_config(bridge_module, provider, _request),
     do: bridge_module.fetch_channel_config(provider)

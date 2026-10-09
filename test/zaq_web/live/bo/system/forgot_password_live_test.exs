@@ -7,7 +7,7 @@ defmodule ZaqWeb.Live.BO.System.ForgotPasswordLiveTest do
   import Swoosh.TestAssertions
 
   alias Zaq.Accounts
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
 
   describe "GET /bo/forgot-password" do

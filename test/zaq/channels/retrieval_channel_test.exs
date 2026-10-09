@@ -1,8 +1,8 @@
 defmodule Zaq.Channels.RetrievalChannelTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 

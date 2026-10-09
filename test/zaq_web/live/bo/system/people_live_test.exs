@@ -12,8 +12,8 @@ defmodule ZaqWeb.Live.BO.System.PeopleLiveTest do
   alias Zaq.Accounts.PeoplePermissions
   alias Zaq.Accounts.PersonSession
   alias Zaq.Channels.AgentRouting
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document

@@ -9,9 +9,9 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.Accounts
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.DataSource.CreateDocument
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Contracts.{Record, RecordPage}
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Chunk
   alias Zaq.Ingestion.Document

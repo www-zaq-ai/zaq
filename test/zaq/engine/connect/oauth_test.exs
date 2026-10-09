@@ -1,7 +1,7 @@
 defmodule Zaq.Engine.Connect.OAuthTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{OAuth, OAuthState}
   alias Zaq.Event

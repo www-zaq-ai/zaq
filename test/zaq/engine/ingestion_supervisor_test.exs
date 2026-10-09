@@ -3,7 +3,7 @@ defmodule Zaq.Engine.IngestionSupervisorTest do
 
   @moduletag capture_log: true
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.IngestionSupervisor
   alias Zaq.Repo
 

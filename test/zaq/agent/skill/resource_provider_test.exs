@@ -8,10 +8,10 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
   alias Zaq.Agent.Skill.ResourceProvider
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.DataSource.GetDocument
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.Materializers.DataSourceDocument
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.System
 

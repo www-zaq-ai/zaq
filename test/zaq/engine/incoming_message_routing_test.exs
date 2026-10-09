@@ -3,8 +3,8 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
 
   alias Zaq.Accounts.{People, Person}
   alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
-  alias Zaq.Engine.{IncomingMessageRouting, IncomingMessageRoutingRule}
+  alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Engine.{ChannelConfig, IncomingMessageRouting, IncomingMessageRoutingRule}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.SystemConfigFixtures
 
@@ -234,18 +234,30 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
       assert "is required for channel rules" in errors_on(channel).channel_config_id
     end
 
-    test "blank topic IDs normalize to nil" do
-      config = insert_channel_config!()
+    for topic_id <- ["", " \t "] do
+      test "blank topic ID #{inspect(topic_id)} normalizes to nil in changeset and persistence" do
+        config = insert_channel_config!()
 
-      changeset =
-        IncomingMessageRouting.change_rule(%IncomingMessageRoutingRule{}, %{
-          routing_mode: :none,
-          channel_config_id: config.id,
-          topic_id: "   "
-        })
+        changeset =
+          IncomingMessageRouting.change_rule(%IncomingMessageRoutingRule{}, %{
+            routing_mode: :none,
+            channel_config_id: config.id,
+            topic_id: unquote(topic_id)
+          })
 
-      assert changeset.valid?
-      assert get_field(changeset, :topic_id) == nil
+        assert changeset.valid?
+        assert get_field(changeset, :topic_id) == nil
+
+        assert {:ok, rule} =
+                 IncomingMessageRouting.upsert_rule(
+                   %{channel_config_id: config.id, topic_id: unquote(topic_id)},
+                   %{routing_mode: :none}
+                 )
+
+        assert rule.channel_config_id == config.id
+        assert rule.topic_id == nil
+        assert Repo.get!(IncomingMessageRoutingRule, rule.id).topic_id == nil
+      end
     end
 
     test "explicit nil topic IDs normalize through non-binary branch" do
@@ -379,6 +391,38 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
       assert updated.id == rule.id
       assert updated.routing_mode == :none
       assert updated.configured_agent_id == nil
+    end
+
+    test "loaded agent rule clears its configured agent when changed to none" do
+      agent = insert_agent!()
+
+      assert {:ok, original} =
+               IncomingMessageRouting.upsert_rule(%{}, %{
+                 routing_mode: :agent,
+                 configured_agent_id: agent.id
+               })
+
+      loaded = Repo.get!(IncomingMessageRoutingRule, original.id)
+
+      changeset =
+        IncomingMessageRouting.change_rule(loaded, %{
+          routing_mode: :none,
+          configured_agent_id: agent.id
+        })
+
+      assert changeset.valid?
+      assert Ecto.Changeset.get_field(changeset, :configured_agent_id) == nil
+
+      assert {:ok, updated} =
+               IncomingMessageRouting.upsert_rule(loaded, %{
+                 routing_mode: :none,
+                 configured_agent_id: agent.id
+               })
+
+      assert updated.id == original.id
+      assert updated.routing_mode == :none
+      assert updated.configured_agent_id == nil
+      assert Repo.get!(IncomingMessageRoutingRule, original.id).configured_agent_id == nil
     end
 
     test "rejects non conversation-enabled agents" do

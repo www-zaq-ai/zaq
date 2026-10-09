@@ -16,7 +16,7 @@ defmodule Zaq.Engine.Notifications.OutboundThreadingRegressionTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Notifications
   alias Zaq.Repo

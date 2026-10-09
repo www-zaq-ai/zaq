@@ -10,7 +10,8 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   """
 
   alias Zaq.Channels.EventNames
-  alias Zaq.Engine.{Conversations, IncomingMessageRouting}
+  alias Zaq.Engine.{Conversations, HistoryIngress, IncomingMessageRouting}
+  alias Zaq.Engine.History.CommunicationPolicy
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.EventHop
@@ -18,6 +19,8 @@ defmodule Zaq.Engine.IncomingMessageRouter do
   alias Zaq.Identity.ExecutionActor
   alias Zaq.NodeRouter
   alias Zaq.People.IdentityResolver
+
+  require Logger
 
   @doc "Routes an incoming-message event to its resolved destination."
   @spec route(Event.t()) :: Event.t()
@@ -27,14 +30,48 @@ defmodule Zaq.Engine.IncomingMessageRouter do
     {incoming, person_resolved?} = resolve_person(incoming, event.opts)
     resolution = IncomingMessageRouting.resolve(incoming, event.opts)
 
-    event
-    |> Map.put(:request, incoming)
-    |> Map.put(:actor, execution_actor(actor, incoming))
-    |> apply_resolution(resolution, person_resolved?)
+    event =
+      event
+      |> Map.put(:request, incoming)
+      |> Map.put(:actor, execution_actor(actor, incoming))
+
+    case maybe_capture_history(event, person_resolved?) do
+      :ok -> apply_resolution(event, resolution, person_resolved?)
+      {:error, reason} -> %{event | response: {:error, reason}, next_hop: nil}
+    end
   end
 
   def route(%Event{} = event),
     do: %{event | response: {:error, {:invalid_request, event.request}}}
+
+  defp maybe_capture_history(
+         %Event{opts: opts, request: %Incoming{} = incoming, actor: actor},
+         resolved?
+       ) do
+    kind = CommunicationPolicy.kind(incoming)
+
+    cond do
+      not match?({:ok, _}, kind) ->
+        :ok
+
+      not resolved? ->
+        {:error, :unresolved_history_author}
+
+      true ->
+        {:ok, kind} = kind
+
+        with {:ok, _} <- ExecutionActor.validate(actor),
+             {:ok, _} <-
+               HistoryIngress.capture_resolved(
+                 incoming,
+                 Incoming.person_id(incoming),
+                 kind,
+                 Keyword.get(opts, :identity_resolver, IdentityResolver)
+               ) do
+          :ok
+        end
+    end
+  end
 
   defp preserve_invalid_person(actor, nil), do: actor
 
@@ -143,10 +180,32 @@ defmodule Zaq.Engine.IncomingMessageRouter do
     resolver_opts = Keyword.get(opts, :identity_opts, [])
 
     case resolver.resolve(incoming, resolver_opts) do
-      {:ok, person} -> {%{incoming | person: resolver.person_payload(person)}, true}
-      {:error, _reason} -> {incoming, false}
+      {:ok, person} ->
+        {%{incoming | person: resolver.person_payload(person)}, true}
+
+      {:error, reason} ->
+        if match?({:ok, _}, CommunicationPolicy.kind(incoming)) do
+          Logger.warning(
+            "[IncomingMessageRouter] History author resolution failed " <>
+              "provider=#{incoming.provider} connector=#{incoming.routing_context.channel_config_id} " <>
+              "reason=#{inspect(identity_error_category(reason))}"
+          )
+        end
+
+        {incoming, false}
     end
   end
+
+  # Changeset data and arbitrary resolver errors can contain profile/transport secrets.
+  defp identity_error_category(%Ecto.Changeset{errors: errors}) do
+    {:validation,
+     Enum.map(errors, fn {field, {_message, opts}} ->
+       {field, opts[:constraint] || opts[:validation] || :invalid}
+     end)}
+  end
+
+  defp identity_error_category(reason) when is_atom(reason), do: reason
+  defp identity_error_category(_reason), do: :identity_resolution_failed
 
   defp apply_resolution(%Event{} = event, %{mode: :agent} = resolution, person_resolved?) do
     configured_agent_id = resolution.configured_agent_id

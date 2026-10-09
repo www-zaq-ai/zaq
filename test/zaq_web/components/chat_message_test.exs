@@ -5,6 +5,24 @@ defmodule ZaqWeb.Components.ChatMessageTest do
 
   alias ZaqWeb.Components.ChatMessage
 
+  test "bubble footers follow the selected side and named assistants retain the ZAQ icon" do
+    user =
+      render_component(&ChatMessage.user_bubble/1, content: "Hello", timestamp: nil, align: :left)
+
+    assistant =
+      render_component(&ChatMessage.assistant_bubble/1,
+        content: "Hi",
+        timestamp: nil,
+        align: :right,
+        author_name: "Support Agent"
+      )
+
+    assert user =~ "justify-start pl-1"
+    assert assistant =~ "justify-end mr-0.5"
+    assert assistant =~ ~s(alt="ZAQ")
+    refute assistant =~ ~s(data-testid="message-initials")
+  end
+
   test "user_bubble renders content, timestamp, and actions slot" do
     html =
       render_component(&ChatMessage.user_bubble/1,
@@ -36,6 +54,27 @@ defmodule ZaqWeb.Components.ChatMessageTest do
     assert html =~ "photo.png"
     assert html =~ "image/png"
     assert html =~ "2.0 KB"
+    assert html =~ "data-testid=\"chat-attachment\""
+  end
+
+  test "assistant_bubble renders preserved attachment metadata" do
+    html =
+      render_component(&ChatMessage.assistant_bubble/1,
+        content: "Answer with attachment",
+        timestamp: ~N[2026-04-15 09:30:00],
+        attachments: [
+          %{
+            "id" => "file-2",
+            "name" => "answer.pdf",
+            "mime_type" => "application/pdf",
+            "size" => 4096
+          }
+        ]
+      )
+
+    assert html =~ "answer.pdf"
+    assert html =~ "application/pdf"
+    assert html =~ "4.0 KB"
     assert html =~ "data-testid=\"chat-attachment\""
   end
 

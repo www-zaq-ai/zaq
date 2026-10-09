@@ -12,8 +12,10 @@ defmodule Zaq.People.IdentityResolver do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Channels.Bridge
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Messages.Incoming.Audience
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.NodeRouter
   alias Zaq.People.Resolver
@@ -28,23 +30,93 @@ defmodule Zaq.People.IdentityResolver do
   def resolve(%Incoming{author_id: nil}, _opts), do: {:error, :no_author}
 
   def resolve(%Incoming{} = incoming, opts) do
-    platform = incoming.provider |> to_string() |> canonical_platform()
+    provider = to_string(incoming.provider)
 
-    with :ok <- validate_connector(incoming.routing_context, platform) do
+    platform =
+      incoming.routing_context.identity_platform ||
+        to_string(Bridge.provider_to_bridge_key(provider) || provider)
+
+    with :ok <- validate_connector(incoming.routing_context, provider) do
       resolve_author(incoming, platform, opts)
     end
   end
 
-  defp validate_connector(%RoutingContext{channel_config_id: nil}, _platform), do: :ok
+  @doc "Discovers this message's visible recipients through the same identity owner as authors."
+  @spec resolve_audience(Incoming.t(), pos_integer()) ::
+          {:ok, [pos_integer()]} | {:error, :connector_mismatch | :invalid_recipient_evidence}
+  def resolve_audience(
+        %Incoming{
+          provider: provider,
+          author_id: author_id,
+          routing_context: %RoutingContext{
+            channel_config_id: config_id,
+            audience: %Audience{} = audience
+          }
+        },
+        config_id
+      )
+      when is_integer(config_id) and config_id > 0 do
+    with :ok <-
+           validate_connector(
+             %RoutingContext{channel_config_id: config_id},
+             to_string(provider),
+             true
+           ),
+         %Audience{sender: ^author_id} <- Audience.normalize(audience) do
+      audience.recipients
+      |> Enum.map(fn identifier ->
+        attrs =
+          Resolver.normalize(audience.platform, %{
+            channel_id: identifier,
+            display_name: participant_name(audience, identifier)
+          })
 
-  defp validate_connector(%RoutingContext{channel_config_id: id}, platform)
+        People.find_or_create_from_channel(
+          audience.platform,
+          Map.put(attrs, "channel_config_id", config_id)
+        )
+      end)
+      |> Enum.reduce_while({:ok, []}, fn
+        {:ok, %{id: id, status: "active"}}, {:ok, ids} -> {:cont, {:ok, [id | ids]}}
+        {:ok, _inactive}, acc -> {:cont, acc}
+        {:error, reason}, _ -> {:halt, {:error, reason}}
+      end)
+      |> case do
+        {:ok, ids} -> {:ok, ids |> Enum.uniq() |> Enum.sort()}
+        error -> error
+      end
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_recipient_evidence}
+    end
+  end
+
+  def resolve_audience(
+        %Incoming{routing_context: %RoutingContext{channel_config_id: id}},
+        id
+      )
+      when is_integer(id) and id > 0,
+      do: {:error, :invalid_recipient_evidence}
+
+  def resolve_audience(%Incoming{}, _config_id),
+    do: {:error, :connector_mismatch}
+
+  def resolve_audience(_, _), do: {:error, :invalid_recipient_evidence}
+
+  defp participant_name(audience, identifier) do
+    Enum.find_value(audience.participants, fn participant ->
+      if participant.identifier == identifier, do: participant.display_name
+    end)
+  end
+
+  defp validate_connector(context, platform, require_enabled \\ false)
+  defp validate_connector(%RoutingContext{channel_config_id: nil}, _platform, false), do: :ok
+
+  defp validate_connector(%RoutingContext{channel_config_id: id}, platform, require_enabled)
        when is_integer(id) and id > 0 do
     case Repo.get(ChannelConfig, id) do
-      %ChannelConfig{provider: "email:imap", kind: "retrieval", archived_at: nil}
-      when platform == "email" ->
-        :ok
-
-      %ChannelConfig{provider: ^platform, kind: "retrieval", archived_at: nil} ->
+      %ChannelConfig{provider: ^platform, kind: "retrieval", enabled: enabled, archived_at: nil}
+      when not require_enabled or enabled ->
         :ok
 
       _ ->
@@ -52,7 +124,7 @@ defmodule Zaq.People.IdentityResolver do
     end
   end
 
-  defp validate_connector(_, _platform), do: {:error, :connector_mismatch}
+  defp validate_connector(_, _platform, _require_enabled), do: {:error, :connector_mismatch}
 
   defp resolve_author(incoming, platform, opts) do
     config_id = incoming.routing_context.channel_config_id
@@ -62,6 +134,7 @@ defmodule Zaq.People.IdentityResolver do
       Resolver.normalize(platform, %{
         channel_id: incoming.author_id,
         username: incoming.author_name,
+        display_name: incoming.author_name,
         dm_channel_id: raw_dm_channel_id,
         metadata: incoming.metadata
       })
@@ -74,6 +147,9 @@ defmodule Zaq.People.IdentityResolver do
         touch_channel(channel, canonical["dm_channel_id"])
         maybe_backfill_dm_channel(channel, platform, incoming, opts)
         {:ok, person}
+
+      {:error, :identity_scope_changed} = error ->
+        error
 
       _ ->
         enriched = maybe_enrich(platform, incoming.author_id, canonical, config_id, opts)
@@ -227,9 +303,6 @@ defmodule Zaq.People.IdentityResolver do
   end
 
   defp find_channel(_person, _platform, _channel_id, _config_id), do: nil
-
-  defp canonical_platform("email:imap"), do: "email"
-  defp canonical_platform(platform), do: platform
 
   defp stringify_profile(profile) do
     Map.new(profile, fn

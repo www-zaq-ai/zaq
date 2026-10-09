@@ -2,8 +2,8 @@ defmodule Zaq.Engine.Connect.OAuthProviderBoundaryTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Accounts.Person
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.{DataSourceBridge, JidoConnectBridge}
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{Credential, Grant, OAuth, OAuthAttempts}
   alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP, PersonOAuth}

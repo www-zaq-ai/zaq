@@ -1,9 +1,10 @@
 defmodule Zaq.Channels.EmailBridge.IncomingAttachmentMaterializationIntegrationTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.{Api, ChannelConfig, EmailBridge}
+  alias Zaq.Channels.{Api, EmailBridge}
   alias Zaq.Channels.EmailBridge.{ImapAdapter, ImapClient, ImapConfigHelpers}
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Materialization
   alias Zaq.Materialization.Handle

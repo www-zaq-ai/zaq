@@ -19,7 +19,8 @@ defmodule Zaq.Channels.BridgeSupervisor do
 
   require Logger
 
-  alias Zaq.Channels.{ChannelConfig, CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.{CommunicationBridge, DataSourceBridge}
+  alias Zaq.Engine.ChannelConfig
 
   # ETS table: bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
   @table :zaq_channels_listeners

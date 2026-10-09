@@ -3,19 +3,10 @@ defmodule Zaq.Channels.BridgeTest do
 
   alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.Bridge
-  alias Zaq.Channels.ChannelConfig
-  alias Zaq.Channels.CommunicationBridge
   alias Zaq.Channels.DataSourceBridge
-  alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.Repo
-
-  defmodule StubConversations do
-    def persist_from_incoming(incoming, metadata) do
-      send(self(), {:stub_persist, incoming, metadata})
-      :ok
-    end
-  end
 
   defmodule StubNodeRouter do
     def dispatch(event) do
@@ -241,42 +232,6 @@ defmodule Zaq.Channels.BridgeTest do
     def build_runtime_specs(_config), do: {:ok, {%{state: :ok}, []}}
   end
 
-  test "calls override conversations module directly" do
-    incoming = %Incoming{content: "hi", channel_id: "c1", provider: :web}
-    metadata = %{answer: "ok"}
-
-    assert :ok = Bridge.persist_from_incoming(incoming, metadata, StubConversations, %{id: "u1"})
-
-    stamped = CommunicationBridge.put_conversation_identity(incoming)
-    assert_received {:stub_persist, ^stamped, ^metadata}
-  end
-
-  test "dispatches through node router for default conversations module" do
-    incoming = %Incoming{content: "hello", channel_id: "chan-1", provider: :mattermost}
-
-    metadata = %{
-      answer: "response",
-      confidence_score: 0.9,
-      latency_ms: 10,
-      prompt_tokens: 1,
-      completion_tokens: 1,
-      total_tokens: 2
-    }
-
-    assert :ok =
-             Bridge.persist_from_incoming(
-               incoming,
-               metadata,
-               Zaq.Engine.Conversations,
-               %{id: "user-1", provider: :mattermost},
-               StubNodeRouter
-             )
-
-    assert_received {:dispatch_called, event}
-    assert event.next_hop.destination == :engine
-    assert event.opts[:action] == :persist_from_incoming
-  end
-
   test "first_active_selection/2 returns first conversation-enabled candidate" do
     candidates = [
       {:channel_assignment, 10},
@@ -450,20 +405,7 @@ defmodule Zaq.Channels.BridgeTest do
              Bridge.restart_runtime(RestartableBridgeOtherStopError, %{provider: "mattermost"})
   end
 
-  test "persist_from_incoming returns node router response and ack normalizes event response" do
-    incoming = %Incoming{content: "hello", channel_id: "chan-1", provider: :mattermost}
-    metadata = %{answer: "ok"}
-
-    response =
-      Bridge.persist_from_incoming(
-        incoming,
-        metadata,
-        Zaq.Engine.Conversations,
-        %{id: "u1", provider: :mattermost},
-        StubNodeRouter
-      )
-
-    assert response == :ok
+  test "ack normalizes event response" do
     event = Event.new(%{ok: true}, :channels)
     assert :ok = Bridge.ack_from_event_response(%{event | response: :ok})
   end

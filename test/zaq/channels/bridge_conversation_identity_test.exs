@@ -122,6 +122,7 @@ defmodule Zaq.Channels.BridgeConversationIdentityTest do
       stamped = CommunicationBridge.put_conversation_identity(msg)
 
       assert stamped.metadata["conversation"] == %{
+               "scoped" => true,
                "channel_type" => "mattermost",
                "key" => nil,
                "channel_config_id" => 42,
@@ -141,6 +142,7 @@ defmodule Zaq.Channels.BridgeConversationIdentityTest do
         })
 
       assert CommunicationBridge.put_conversation_identity(msg).metadata["conversation"] == %{
+               "scoped" => true,
                "channel_type" => "discord",
                "key" => nil,
                "channel_config_id" => nil,

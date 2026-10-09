@@ -1,10 +1,204 @@
 defmodule Zaq.Channels.MattermostAdminTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.MattermostAdmin
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
   alias Zaq.TestSupport.OpenAIStub
+
+  describe "history capabilities" do
+    test "uses one identifier contract for advertisement and retrieval" do
+      config = %{url: "https://example.invalid", token: "token"}
+      valid = "abcde12345abcde12345abcde1"
+
+      assert {:ok, %{members: true}} =
+               MattermostAdmin.room_capabilities(config, valid)
+
+      assert {:ok, %{members: false}} =
+               MattermostAdmin.room_capabilities(config, "invalid")
+
+      assert {:error, :invalid_channel_id} =
+               MattermostAdmin.room_members(config, "invalid")
+    end
+  end
+
+  describe "fetch_room_message/3" do
+    test "returns unavailable for a non-binary message id without making a request" do
+      config = %{url: "https://example.invalid", token: "test-token"}
+      channel_id = "abcde12345abcde12345abcde1"
+
+      assert {:error, :unavailable} =
+               MattermostAdmin.fetch_room_message(config, channel_id, nil)
+
+      refute_receive {:openai_request, _, _, _, _}
+    end
+
+    test "returns a root post with nil timestamp when the millisecond value is out of range" do
+      channel_id = "abcde12345abcde12345abcde1"
+      assert {:error, :invalid_unix_time} = DateTime.from_unix(10 ** 30, :millisecond)
+
+      {child_spec, url} =
+        OpenAIStub.server(
+          fn conn, _body ->
+            assert conn.method == "GET"
+            assert conn.request_path == "/v1/api/v4/posts/root-1"
+
+            {200,
+             %{
+               "id" => "root-1",
+               "channel_id" => channel_id,
+               "root_id" => "",
+               "user_id" => "human-1",
+               "message" => "root",
+               "create_at" => 10 ** 30
+             }}
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      assert {:ok,
+              %{
+                author_id: "human-1",
+                content: "root",
+                role: "external",
+                inserted_at: nil,
+                attachments: []
+              }} =
+               MattermostAdmin.fetch_room_message(
+                 %{
+                   url: url,
+                   token: "test-token",
+                   settings: %{"jido_chat" => %{"bot_user_id" => "bot-1"}}
+                 },
+                 channel_id,
+                 "root-1"
+               )
+
+      assert_receive {:openai_request, "GET", "/v1/api/v4/posts/root-1", "", _}
+    end
+
+    test "returns a root post with nil timestamp when create_at is not an integer" do
+      channel_id = "abcde12345abcde12345abcde1"
+
+      {child_spec, url} =
+        OpenAIStub.server(
+          fn conn, _body ->
+            assert conn.method == "GET"
+            assert conn.request_path == "/v1/api/v4/posts/root-1"
+
+            {200,
+             %{
+               "id" => "root-1",
+               "channel_id" => channel_id,
+               "root_id" => "",
+               "user_id" => "human-1",
+               "message" => "root",
+               "create_at" => "not-a-millisecond"
+             }}
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      assert {:ok,
+              %{
+                author_id: "human-1",
+                content: "root",
+                role: "external",
+                inserted_at: nil,
+                attachments: []
+              }} =
+               MattermostAdmin.fetch_room_message(
+                 %{
+                   url: url,
+                   token: "test-token",
+                   settings: %{"jido_chat" => %{"bot_user_id" => "bot-1"}}
+                 },
+                 channel_id,
+                 "root-1"
+               )
+
+      assert_receive {:openai_request, "GET", "/v1/api/v4/posts/root-1", "", _}
+    end
+  end
+
+  describe "fetch_bot_user_id/2" do
+    test "returns bot id and preserves identity errors" do
+      {child_spec, url} =
+        OpenAIStub.server(
+          fn conn, _body ->
+            assert conn.method == "GET"
+            assert conn.request_path == "/v1/api/v4/users/me"
+            {200, %{"id" => "bot-user-1", "username" => "zaq-local"}}
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      assert {:ok, "bot-user-1"} = MattermostAdmin.fetch_bot_user_id(url, "token-1")
+      assert_receive {:openai_request, "GET", "/v1/api/v4/users/me", "", _}
+
+      {error_child_spec, error_url} =
+        OpenAIStub.server(
+          fn conn, _body ->
+            assert conn.request_path == "/v1/api/v4/users/me"
+            {200, %{"id" => "bot-user-1"}}
+          end,
+          self()
+        )
+
+      start_supervised!(error_child_spec)
+
+      assert {:error, :invalid_identity} = MattermostAdmin.fetch_bot_user_id(error_url, "token-1")
+      assert_receive {:openai_request, "GET", "/v1/api/v4/users/me", "", _}
+    end
+  end
+
+  describe "channel_membership_snapshot/3" do
+    test "rejects invalid arguments before attempting pagination" do
+      channel_id = "abcde12345abcde12345abcde1"
+      fetch_page = fn _, _, _, _ -> flunk("invalid channel IDs must not fetch a page") end
+
+      assert {:error, :invalid_channel_id} =
+               MattermostAdmin.channel_membership_snapshot(%{}, channel_id, %{
+                 fetch_page: fetch_page
+               })
+
+      assert {:error, :invalid_channel_id} =
+               MattermostAdmin.channel_membership_snapshot(%{}, nil, [])
+    end
+
+    test "fetches the first membership page from Mattermost by default" do
+      channel_id = "abcde12345abcde12345abcde1"
+      members_path = "/v1/api/v4/channels/#{channel_id}/members"
+
+      {child_spec, url} =
+        OpenAIStub.server(
+          fn conn, _body ->
+            assert conn.method == "GET"
+            assert conn.request_path == members_path
+
+            {200, [%{"user_id" => "member-1"}]}
+          end,
+          self()
+        )
+
+      start_supervised!(child_spec)
+
+      assert {:ok, %{complete: true, member_ids: ["member-1"]}} =
+               MattermostAdmin.channel_membership_snapshot(
+                 %{url: url, token: "test-token"},
+                 channel_id
+               )
+
+      assert_receive {:openai_request, "GET", ^members_path, query, _}
+      assert URI.decode_query(query) == %{"page" => "0", "per_page" => "200"}
+    end
+  end
 
   describe "fetch_bot_identity/2" do
     test "returns bot id and username on HTTP 200" do

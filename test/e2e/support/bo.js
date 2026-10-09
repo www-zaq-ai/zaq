@@ -374,6 +374,15 @@ async function createE2EConversation(request, attrs, options = {}) {
   return res.json();
 }
 
+async function seedE2EChannelHistory(request, options = {}) {
+  const baseURL = normalizeBaseURL(options.baseURL);
+  const res = await request.post(`${baseURL}/e2e/channel-history`);
+  if (!res.ok()) {
+    throw new Error(`/e2e/channel-history returned ${res.status()} ${await res.text()}`);
+  }
+  return res.json();
+}
+
 // Seed the initial "admin" user that satisfies bootstrap_admin_pending?/1.
 // After this call, navigate to GET /bo/bootstrap-login — the server creates a
 // session without a password and redirects straight to /bo/change-password.
@@ -463,6 +472,7 @@ module.exports = {
   createE2EMcpEndpoint,
   createE2EAgent,
   createE2EConversation,
+  seedE2EChannelHistory,
   createE2EBootstrapAdmin,
   createE2EOnboardingUser,
   createE2EDeclinedPortalUser,

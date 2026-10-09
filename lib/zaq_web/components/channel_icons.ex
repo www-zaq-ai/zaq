@@ -274,7 +274,7 @@ defmodule ZaqWeb.Components.ChannelIcons do
           <path d="M8 20h8" />
           <path d="M12 16v4" />
         </svg>
-      <% "email" -> %>
+      <% provider when provider in ["email", "email:imap", "email:smtp"] -> %>
         <svg
           class={@class}
           fill="none"

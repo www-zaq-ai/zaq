@@ -12,8 +12,8 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLiveTest do
   alias Zaq.Agent.Skill.Resource
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Skills.Limits
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DiskBridge
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
   alias ZaqWeb.Helpers.SizeFormat

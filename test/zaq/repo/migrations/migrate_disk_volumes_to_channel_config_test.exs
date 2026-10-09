@@ -5,7 +5,7 @@ Code.require_file(
 defmodule Zaq.Repo.Migrations.MigrateDiskVolumesToChannelConfigTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
   alias Zaq.Repo.Migrations.MigrateDiskVolumesToChannelConfig, as: Migration
 

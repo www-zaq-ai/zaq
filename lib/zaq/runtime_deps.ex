@@ -9,7 +9,7 @@ defmodule Zaq.RuntimeDeps do
   The defaults are production-safe implementations and can be overridden per environment.
   """
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.NodeRouter
 
   @doc "Returns the NodeRouter module used for cross-service dispatch."

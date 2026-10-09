@@ -2,10 +2,10 @@ defmodule Zaq.Channels.SupervisionTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Channels.BridgeSupervisor
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.PeopleAuthRateLimiter, as: Ingress
   alias Zaq.Channels.Supervisor, as: Channels
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.TestSupport.Channels.RuntimeAdapterStub, as: StubAdapter
 
   setup do

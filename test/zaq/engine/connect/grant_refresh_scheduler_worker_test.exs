@@ -2,7 +2,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshSchedulerWorkerTest do
   use Zaq.DataCase, async: true
   use Oban.Testing, repo: Zaq.Repo
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.GrantRefreshSchedulerWorker
   alias Zaq.Engine.Connect.GrantRefreshWorker

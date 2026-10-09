@@ -49,11 +49,11 @@ defmodule Zaq.Channels.DataSourceBridge do
   """
 
   alias Zaq.Channels.Bridge
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Authorization
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Contracts.RecordPage
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Events.Helper
   alias Zaq.Events.TrustedContext
 

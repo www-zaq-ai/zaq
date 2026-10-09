@@ -5,8 +5,8 @@ defmodule Zaq.Agent.Tools.People.UpdatePersonTest do
   alias Jido.Action.Schema
   alias Zaq.Accounts.{People, Person}
   alias Zaq.Agent.Tools.People.UpdatePerson
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Api
+  alias Zaq.Engine.ChannelConfig
 
   defmodule RoutedNodeRouter do
     def dispatch(event), do: Api.handle_event(event, :people_command, nil)

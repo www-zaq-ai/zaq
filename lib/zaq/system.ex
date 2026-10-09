@@ -7,7 +7,7 @@ defmodule Zaq.System do
 
   import Ecto.Query
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Engine.Connect.Grant

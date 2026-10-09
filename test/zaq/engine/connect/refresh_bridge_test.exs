@@ -2,8 +2,8 @@ defmodule Zaq.Engine.Connect.RefreshBridgeTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Accounts.Person
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Grant
   alias Zaq.TestSupport.{ConnectOAuthAttemptConfig, ConnectOAuthAttemptHTTP}

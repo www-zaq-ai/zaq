@@ -1,5 +1,5 @@
-defmodule Zaq.Channels.SmtpHelpers do
-  @moduledoc false
+defmodule Zaq.ConnectorConfig.SmtpSettings do
+  @moduledoc "Pure SMTP settings access shared by persistence, presentation and transport."
 
   @setting_atom_keys %{
     "relay" => :relay,

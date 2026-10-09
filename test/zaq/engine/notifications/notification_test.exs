@@ -7,7 +7,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications
   alias Zaq.Engine.Notifications.{Notification, NotificationLog}
@@ -26,6 +26,7 @@ defmodule Zaq.Engine.Notifications.NotificationTest do
 
     def bridge_for(_provider), do: __MODULE__
     def fetch_connection_details(_provider), do: %{}
+    def fetch_connection_details_for_config(_config), do: %{}
     def fetch_channel_config(provider), do: Bridge.fetch_channel_config(provider)
 
     def send_reply(%Outgoing{} = outgoing, _connection_details) do

@@ -16,7 +16,8 @@ defmodule Zaq.Engine.IncomingMessageRoutingRule do
 
   alias Zaq.Accounts.Person
   alias Zaq.Agent.ConfiguredAgent
-  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
+  alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Engine.ChannelConfig
 
   @routing_modes [:agent, :none]
   @type t :: %__MODULE__{}

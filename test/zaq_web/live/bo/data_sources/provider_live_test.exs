@@ -1,7 +1,10 @@
 defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
   use Zaq.DataCase, async: false
 
-  alias Zaq.Channels.ChannelConfig
+  import Zaq.AccountsFixtures
+
+  alias Zaq.Accounts
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Engine.DataSources
@@ -24,6 +27,9 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
     :ok = ZaqSystem.set_global_base_url("https://zaq.example")
     Application.put_env(:zaq, Zaq.Storage, base_path: "priv/documents")
     Application.delete_env(:zaq, :provider_live_data_source_bridge_module)
+    user = user_fixture(%{username: "provider-live-admin"})
+    {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
+    Process.put(:provider_live_current_user, user)
 
     on_exit(fn ->
       :ok = ZaqSystem.set_global_base_url(original_base_url)
@@ -49,7 +55,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLiveTest do
       assigns
       |> Map.put(:__changed__, %{})
       |> Map.put_new(:flash, %{})
-      |> Map.put_new(:current_user, %{id: 10, person_id: 20, username: "bo-user"})
+      |> Map.put_new(:current_user, Process.get(:provider_live_current_user))
 
     %Phoenix.LiveView.Socket{assigns: assigns}
   end

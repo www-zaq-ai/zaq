@@ -2,6 +2,9 @@
 
 ## Overview
 
+For normalization, identity resolution and confirmed delivery call chains across
+roles, see the [message lifecycle sequences](message-lifecycle.md).
+
 The Channels service provides transport and runtime infrastructure for communication adapters.
 
 - **Data Sources** (ingestion channels in routes/API) ingest external documents (Google Drive, SharePoint, etc.).
@@ -12,7 +15,16 @@ Channel delivery uses canonical message payload structs (`Incoming` / `Outgoing`
 
 `Zaq.People.IdentityResolver` checks that an ingress connector ID references a
 retrieval configuration for the message provider (including IMAP-to-email),
-then matches an author against the connector-scoped `PersonChannel` identity.
+then resolves authors and visible recipients through the shared People discovery
+operation. `PersonIdentity` owns the native key `(platform, authority, identifier)`;
+`PersonChannel` retains connector-specific routing and preferences. Channels'
+`IdentityScope` defines authority: Telegram/Discord native IDs and normalized email
+are global within their platform; Mattermost IDs are scoped to the canonical server
+endpoint (including deployment path). Providers without attested tenant scope remain
+connector-local. Bots on the same authority therefore reuse one Person without
+requiring profile email. Normalized profile email can also join established People
+across authorities. Conflicting native/email/phone owners fail atomically. Editing a
+connector endpoint cannot reinterpret a previously bound native identity.
 Unscoped legacy/BO-owned channel identities do not directly satisfy a scoped
 lookup. On ingress, a non-email opaque identity can be bound transactionally
 to the sole stored retrieval connector for its provider; archived or
@@ -30,17 +42,43 @@ BO web chat retains its internally trusted session-derived Person. This policy
 trusts internal event callers; it does not authenticate an arbitrary caller at
 `NodeRouter` or attest the event's stated provider/connector.
 
-The communication bridge also stamps a typed `routing_context.history_kind`
-from its configured adapter path, rather than copying an Incoming metadata or
-routing-context claim. Jido Chat's channel metadata distinguishes a DM from a
-room; missing kind stays unknown and does **not** default to Shared.
-`Jido.Chat.ChannelMeta.is_dm` defaults to false, so a typed metadata struct
-without an explicit room type is not room evidence. Claimed provider/room
-coordinates must match the configured bridge and received room. This is only a
-transport fact, not an access grant or a resolved Person: Engine resolves the
-actor after routing, and strategy consumers must use authorized transcript
-reads. Providers lacking trustworthy room metadata need adapter normalization
-before group history can be activated (`zaq-emb.14.2`).
+The provider's existing `Bridge.to_internal/2` path supplies typed
+`routing_context.conversation_type` facts (`:one_to_one`, `:room`, or
+`:recipient_addressed`), never a history strategy or title policy.
+Jido Chat also checks its normalized room metadata against the adapter's
+original event kind, configured provider, and room. `ChannelMeta.is_dm` defaults
+to false, and some adapters default an absent kind to `:channel` or `:dm`;
+neither default authorizes shared or direct history. The currently verified
+kind matrix is Mattermost D/O/P (DM/public/private room), Telegram explicit
+private/group/supergroup/channel, and Discord guild messages plus threads with
+an explicit guild and parent. Discord Direct requires matching independently
+fetched channel metadata with channel type 1; message `type` and absent guild
+fields are not evidence. Unknown kinds, Mattermost group DM, Discord DM
+without independent room evidence, and missing Discord thread parents remain
+unknown. Slack and Teams have no configured adapter in `config/config.exs`.
+This is only transport context, not authentication of arbitrary external
+envelopes, a grant, passive capture, or a resolved Person. Engine resolves the
+actor after routing; strategy consumers must use authorized transcript reads.
+Unaddressed messages are delivered through `:receive_incoming_message`; Engine
+decides capture without agent admission or a reply. Mattermost D/O/P, explicit Telegram kinds, and evidenced Discord guild
+rooms/threads are bounded supported capture paths; unsupported or unknown kinds
+do not become inferred Direct or Shared history. Only a complete Mattermost
+room-member pagination result can drive a Shared provider-grant refresh; private
+rooms still require the bot's own provider access. Other provider membership
+refresh capabilities remain unsupported rather than inferred from a message.
+
+Trusted Mattermost/Telegram ingress additionally normalizes `sender_membership`
+only when the raw provider sender matches the adapter author in a verified room.
+After scoped Person resolution and canonical capture, Engine may bootstrap that
+sender's provider grant once on the parent resource. This is message-local
+presence, not a complete snapshot: replay or later posts cannot override removal
+evidence, and re-entry requires a provider refresh or ordered membership event.
+The grant uses the existing provider source so reconciliation/removal can revoke
+it independently of manual access. Denied presence does not erase factual capture.
+Engine retains snapshot scope: complete-room evidence fences absent senders,
+whereas a targeted refresh/removal fences only its subjects. Unrelated first
+contacts remain eligible for bootstrap. Legacy unversioned states whose scope
+was not retained keep their conservative authority until verified reconciliation.
 
 The unconsumed provider-multiplicity migration permits more than one connector
 with the same provider. `ChannelConfig.resolve_by_provider/2` accepts an explicit
@@ -61,6 +99,94 @@ fail closed instead of selecting an arbitrary connector.
 Person identity enrichment and DM backfill pass the ingress-stamped connector
 ID to Channels; profile and DM calls use that connector's credentials and bot
 identity, never a different live account of the same provider.
+Provider-list ingress indicators query each enabled connector explicitly and
+aggregate those results; details retain individual connector health. SMTP and IMAP
+settings expose an explicit named Add Config flow, insert a distinct connector,
+and select it after saving. Existing SMTP defaults and IMAP reply bindings remain
+account-specific. BO reads and writes use the confidential
+`:email_connector_settings` Engine event. Engine `EmailConnectorSettings` reloads an
+exact connector ID and validates provider, kind, and archive state before saving;
+form validation uses the cached snapshot. `SaveEmailConnector` accepts only form
+fields and trusted execution actor context. A successful database write followed
+by runtime failure is returned as saved with a pending runtime warning.
+Engine sends the exact saved connector's bounded, resolved runtime configuration
+through confidential `:sync_provider_runtime` with `%{config: runtime_config}`.
+Channels uses the supplied map and existing provider runtime callback, without
+connector reload or database-backed BO actor authorization. Enabled IMAP edits
+restart that connector's listener; disabling stops it idempotently. The legacy
+provider-only runtime-sync path still reads configuration and is outside this
+incremental migration. Bootstrap and email delivery/attachment lookups have not
+yet been made Repo-free. Connector archive persistence now belongs to Engine.
+
+Canonical Incoming construction normalizes numeric room/thread identifiers using
+the transport-neutral ConversationIdentity helper. External numeric IDs may be
+negative (for example group chats); internal connector/Person IDs remain positive.
+Channels stamps `routing_context.source_scope` for chat-local message identifiers
+(Telegram uses its chat ID; IMAP uses its exact mailbox). Engine capture, admission,
+locking and replay share `SourceIdentity.account_key/3`. Scope strings are opaque:
+trimming can merge distinct mailbox identities, and malformed scopes never become
+the connector-global `nil` namespace. Channels also stamps `identity_platform`,
+message-local `Audience`, factual `conversation_type` and UTC `provider_sent_at`.
+The conversation identity stamp carries
+its explicit `scoped` policy; Engine never infers it from a provider name.
+Chat providers produce those fields through provider-local normalization integrations
+selected by existing provider registration, without history-specific configuration.
+Mattermost, Telegram, and Discord validate provider-native room and
+type evidence locally; `JidoChatBridge` consumes only the normalized result and
+never interprets raw provider payloads as authorization. Administrative membership
+and message lookup use consumer-neutral `room_capabilities/3`, `room_members/3`,
+and `fetch_room_message/4` bridge operations. Their Channels events are
+`:channel_room_capabilities`, `:channel_room_members`, and `:channel_room_message`.
+Member snapshots distinguish complete room membership from message-local recipients;
+Engine owns grant interpretation and detail-only root fallback.
+
+Email normalization additionally supplies a `conversation_id` from the root RFC
+References / In-Reply-To / Message-ID chain, separately from the sender-address
+delivery route. Missing identifiers produce a distinct unthreaded conversation;
+subjects never group inbound mail. Message-local audience evidence retains visible
+sender/To/CC names and roles. Recipient discovery matches canonical People even when
+they have no link to this inbox; inactive People remain inactive. Discovery alone
+does not grant previous history. `ReplyTargets` carries explicit To/CC destinations
+through Incoming and Outgoing. Reply-all uses Reply-To (or From) plus visible To/CC,
+deduplicates addresses, and excludes configured inbox/sending addresses plus the
+message-local receiving alias from the first `Delivered-To` header. The same
+Channels-owned `SelfAddresses` filter removes self-addresses from normalized
+discovery recipients and participants before People resolution or history capture.
+The parser applies inbox/alias exclusions; the bridge adds only the selected SMTP
+sender. Sender and reply-From metadata remain available as transport provenance.
+Later delivery
+hops do not establish additional self-addresses. For inbound replies, that receiving
+alias is also the default From address, ahead of the configured inbox address and
+SMTP sender fallback. SMTP authentication and connector selection remain independent
+of the message's From address. Recipient exclusion always retains the configured
+inbox address as well as the receiving alias and effective/configured SMTP senders.
+Bcc and Delivered-To never infer hidden access or visible reply-all targets. The selected
+SMTP connector remains authoritative; confirmed receipts enumerate the envelope
+actually submitted successfully, feeding the existing history-association owner.
+
+Inbound email replies carry `Auto-Submitted: auto-replied`; received automatic
+replies use history-only capture and cannot trigger another agent turn. Exact
+confirmed own-message echoes are acknowledged without capture or generation,
+including when the automatic-reply header is absent. Channels supplies normalized
+Message-ID/provider/connector/source coordinates to Engine's
+`:confirmed_history_delivery` lookup against existing `HistoryIngress` confirmation
+records. A sender address or Message-ID prefix alone never establishes an own echo.
+
+Confirmed send/edit receipts retain `confirmation: :confirmed` and the provider
+message ID normalized to the same nonempty string contract used by incoming events;
+provider-native numeric IDs never cross into Engine confirmation. `DeliveryConfirmation`
+forwards the receipt and bounded outgoing context through Engine's neutral
+`:record_delivery_confirmation` event. Engine `History.Delivery` alone interprets
+that evidence for canonical association. History failures retain a bounded
+error category and `history_capture: :unavailable` without changing send success.
+If the Engine event itself cannot be processed, Channels preserves the confirmed
+receipt with neutral `confirmation_recording: :unavailable` instead of inventing
+a history result. Receipt facts use `audience`, `conversation_id`, and `source_scope`;
+visible header recipients and the successfully submitted envelope remain distinct.
+The Engine records canonical message and target references atomically with ID-only
+association jobs; `HistoryIngress` owns immediate processing and recovery. This path
+never resends and is shared with PR B's delivery lifecycle.
+Pending receipts, failed sends and persisted generation alone are not confirmations.
 Pipeline replies carry the incoming routing context separately from metadata;
 delivery selects the matching connector credentials. A provider-only reply is
 allowed only when the provider has one unambiguous active connector.
@@ -95,6 +221,18 @@ still live. The post-archive reconciliation and late watch upserts schedule
 durable cleanup on the existing renewal worker. Only this cleanup path may use
 archived credentials to unwatch the exact matching connector; regular ingress
 and watch creation remain unavailable after archive.
+Engine `ConnectorLifecycle` owns descriptor/revision validation, watch ordering
+and archive persistence. Channels `ConnectorRuntime` owns only provider ingress
+teardown and runtime reconciliation. Engine sends resolved maps through confidential
+`:connector_teardown_ingress` (`%{config: runtime_config}`) and
+`:connector_sync_runtime` (`%{before_config: before, after_config: after}`). These
+leaf events perform no Repo lookup or database-backed BO authorization. Retries
+skip destructive teardown for archived rows but still stop the exact runtime.
+Archive runtime reconciliation resolves the configured bridge and calls its
+`stop_runtime/1` callback directly. It never invokes the ordinary enabled/disabled
+update flow, which may also tear down ingress. Already-stopped runtimes succeed;
+stop failures are pending after persistence, and retry never repeats teardown.
+The public result contains IDs and bounded outcomes, never credentials.
 
 ### Replicated email history contract (#768)
 
@@ -109,10 +247,22 @@ If that evidence is unavailable, do not invent a Bcc recipient.
 
 Associations are **per message**: adding an address to To/Cc on a later reply
 does not expose any earlier messages. Apply the same rule to bot replies, using
-the actual sender and that reply's own recipient evidence. The current IMAP
-parser does not yet normalize complete To/Cc lists, and SMTP delivery only
-returns success/failure for one explicit `identifier`; implementing this
-contract is tracked by `zaq-emb.14` and `zaq-emb.4`.
+the actual sender and that reply's own recipient evidence. The IMAP parser
+records the sender and all visible To/Cc addresses in the typed incoming
+routing context. When RFC headers are available, it does not substitute an
+envelope recipient for a missing To/Cc header; `Delivered-To` remains only a
+reply-routing hint. It never infers hidden Bcc from the selected mailbox.
+SMTP delivery's receipt-bearing variant returns the actual Swoosh sender and
+envelope recipients only after `Mailer.deliver/2` succeeds. Legacy notification
+callers still receive `:ok` or an error. EmailBridge includes that evidence in
+the outbound reply receipt when available; a legacy sender stub's `:ok` alone
+does not provide evidence. This is transport evidence, **not** Person identity,
+an access grant, or proof of mailbox arrival. The read-only People identity
+resolver consumes the normalized `Audience` namespace and identifiers only on the
+enabled, matching connector; it never creates recipient People or falls back to
+an unscoped/other connector identity. Engine does not parse email headers or
+reconstruct mailboxes from metadata. The caller must still attest adapter
+provenance before using those matches for capture.
 
 ### People authentication rate ownership (V1)
 
@@ -190,11 +340,11 @@ for cache refresh/expiry and eventual-consistency limitations.
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
 | `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | Static role parent and public runtime facade    |
 | `Zaq.Channels.BridgeSupervisor`     | `lib/zaq/channels/bridge_supervisor.ex`      | Dynamic bridge runtime lifecycle and bootstrap  |
-| `Zaq.Channels.ChannelConfig`        | `lib/zaq/channels/channel_config.ex`         | Ecto schema — connector configs                 |
+| `Zaq.Channels.ConnectorRuntime`     | `lib/zaq/channels/connector_runtime.ex`      | Repo-free supplied-config archive runtime stages |
 | `Zaq.Engine.Connect`                | `lib/zaq/engine/connect.ex`                  | Credential/grant lifecycle for Data Source auth |
 | `Zaq.Channels.RetrievalChannel`     | `lib/zaq/channels/retrieval_channel.ex`      | Ecto schema — per-channel subscriptions         |
 | `Zaq.Channels.MattermostAdmin`      | `lib/zaq/channels/mattermost_admin.ex`       | Admin helpers for Mattermost UI                 |
-| `Zaq.Channels.SmtpHelpers`          | `lib/zaq/channels/smtp_helpers.ex`           | Internal SMTP settings key normalizer           |
+| `Zaq.ConnectorConfig.SmtpSettings`  | `lib/zaq/connector_config/smtp_settings.ex`  | Shared pure SMTP settings access                 |
 | `Zaq.Engine.Messages.Incoming`      | `lib/zaq/engine/messages/incoming.ex`        | Canonical inbound message struct                |
 | `Zaq.Engine.Messages.Outgoing`      | `lib/zaq/engine/messages/outgoing.ex`        | Canonical outbound message struct               |
 
@@ -654,11 +804,9 @@ Required callbacks:
 Optional callbacks cover runtime/lifecycle and provider extras (`start_runtime/1`,
 `stop_runtime/1`, typing/reaction callbacks, profile/DM helpers, etc.).
 
-Shared helper:
-
-- `Zaq.Channels.Bridge.persist_from_incoming/4` centralizes persistence routing.
-  It dispatches via `%Zaq.Event{}` when using `Zaq.Engine.Conversations`, and
-  falls back to direct module calls for test overrides.
+Shared routing helpers pass normalized incoming envelopes to Engine admission.
+Engine persists the prompt before Agent execution and finalizes the outcome before
+delivery; bridges do not write whole exchanges.
 
 ---
 
@@ -701,7 +849,7 @@ Reactions are feedback, not a separate domain. The channel layer owns exactly on
 1. `on_reaction` fires `JidoChatBridge.handle_reaction_event/2` with a `%Jido.Chat.ReactionEvent{}`.
 2. Removals (`added: false`) are ignored.
 3. `ReactionMapper.to_rating/2` maps the emoji to `1..5`, or `:ignored` for anything unmapped — this is the only reaction-aware step.
-4. `CommunicationBridge.dispatch_message_rating/3` dispatches the engine's `:rate_message` action with `{:external_id, message_id}` and a `rater_attrs` map. **No bridge builds this event itself** — the seam is inherited by every bridge through `use Zaq.Channels.CommunicationBridge`.
+4. `CommunicationBridge.dispatch_message_rating/3` dispatches the engine's `:rate_message` action with `{:source, reference}` and a `rater_attrs` map. The reference carries trusted provider/connector identity, native channel ID, message source scope and external message ID. It reuses capture/delivery scope rules, including Telegram's chat-local IDs. Native room coordinates come from normalized Thread/ChannelRef handles before the event's fallback channel ID; handle prefixes are never parsed. **No bridge builds this event itself** — the seam is inherited by every bridge through `use Zaq.Channels.CommunicationBridge`.
 5. `[:zaq, :chat_bridge, :reaction, :processed | :failed]` telemetry is emitted, mirroring the message path.
 
 Nothing downstream of step 3 knows a reaction was involved. See `docs/services/engine.md` for the `:rate_message` contract.
@@ -756,7 +904,6 @@ All cross-service calls are overridable via Application env:
 | ----------------------------------- | ---------------------------------- |
 | `:chat_bridge_pipeline_module`      | `Zaq.Agent.Pipeline`               |
 | `:chat_bridge_router_module`        | `Zaq.Channels.CommunicationBridge` |
-| `:chat_bridge_conversations_module` | `Zaq.Engine.Conversations`         |
 | `:chat_bridge_accounts_module`      | `Zaq.Accounts`                     |
 | `:chat_bridge_permissions_module`   | `Zaq.Accounts.Permissions`         |
 | `:pipeline_hooks_module`            | `Zaq.Hooks`                        |
@@ -876,8 +1023,7 @@ The `CommunicationBridge` dispatchers (`conversation_channel_type/2`,
 application config only — never `ChannelConfig` — so the persist path stays free of
 DB lookups. Identity never crosses into the engine as a function call: inbound
 envelopes are stamped with `metadata["conversation"]`
-(`put_conversation_identity/2`, applied in `route_incoming_message/4` and
-`Bridge.persist_from_incoming/5`), and engine/agent callers ask the channels node
+(`put_conversation_identity/2`, applied in `route_incoming_message/5`), and engine/agent callers ask the channels node
 via the `:conversation_identity` event (`Zaq.Channels.Api`), passing either
 `%{platform, topic, subject}` (identity map back) or `%{incoming}` (stamped
 envelope back). Bridges without the callbacks resolve to `nil`; room-based providers
@@ -923,9 +1069,14 @@ root key.
 | SMTP_FROM_NAME  | ZAQ               | Sender display name            |
 | SMTP_TLS        | enabled           | TLS mode: enabled/always/never |
 
-### SMTP Helpers (`Zaq.Channels.SmtpHelpers`)
+### Shared email configuration helpers
 
-Internal utility module used by the email bridge. Not part of the public API.
+`Zaq.ConnectorConfig.SmtpSettings` is shared by Engine, BO presentation and transport.
+`Zaq.ConnectorConfig.ImapSettings.get/2,3` owns pure IMAP settings lookup;
+`EmailBridge.ImapConfigHelpers` retains provider-local mailbox/listener normalization
+and delegates its compatibility getter to the shared implementation. Engine never
+depends on that provider-local module. `Zaq.ConnectorConfig.Settings` owns pure
+stored-map projections; none of these shared helpers accesses Repo or credentials.
 
 - `map_get/2` — looks up a settings key by string name, falling back to its atom equivalent. Handles the dual string/atom key formats that SMTP settings maps may contain (e.g., `"relay"` and `:relay` are both accepted).
 
@@ -998,40 +1149,11 @@ continues starting bridge infrastructure.
 
 ## Channel Config
 
-`Zaq.Channels.ChannelConfig` (schema: `channel_configs`) stores connector configurations. One record per provider (unique constraint on `provider`).
-
-### Fields
-
-| Field      | Type            | Notes                                                                                                     |
-| ---------- | --------------- | --------------------------------------------------------------------------------------------------------- |
-| `name`     | string          | Human label                                                                                               |
-| `provider` | string          | One of: `mattermost`, `slack`, `teams`, `google_drive`, `sharepoint`, `email:imap`, `email:smtp`, `telegram`, `discord` |
-| `kind`     | string          | `"ingestion"` or `"retrieval"`                                                                            |
-| `url`      | string          | Base URL for the platform API                                                                             |
-| `token`    | EncryptedString | Bot token — stored encrypted via `Zaq.Types.EncryptedString`                                              |
-| `enabled`  | boolean         | Default `true`                                                                                            |
-| `settings` | map             | Provider-specific settings                                                                                |
-
-### jido_chat settings
-
-jido_chat adapter fields live in `settings["jido_chat"]`:
-
-| Key                  | Helper                    | Description                                                |
-| -------------------- | ------------------------- | ---------------------------------------------------------- |
-| `"bot_name"`         | `jido_chat_bot_name/1`    | Bot display name                                           |
-| `"bot_user_id"`      | `jido_chat_bot_user_id/1` | Bot user ID on the platform                                |
-| `"message_patterns"` | via `jido_chat_setting/3` | List of regex pattern strings for channel message matching |
-| `"ingress"`          | via `jido_chat_setting/3` | Ingress mode overrides map                                 |
-
-### Query functions
-
-| Function                 | Description                                                                 |
-| ------------------------ | --------------------------------------------------------------------------- |
-| `get_by_provider/1`      | Returns enabled config for a provider                                       |
-| `get_any_by_provider/1`  | Returns config regardless of `enabled` state                                |
-| `upsert_by_provider/2`   | Insert or update config for a provider                                      |
-| `list_enabled_by_kind/2` | Enabled configs for a kind, filtered by provider list                       |
-| `get_by_channel_id/2`    | Joins through `retrieval_channels` to find config for a platform channel ID |
+Configuration persistence is owned by [`Zaq.Engine.ChannelConfig`](engine.md#connector-configuration-persistence).
+The `channel_configs` table and identity FKs are unchanged. Legacy Channels
+bootstrap/delivery/provider-only paths still call this schema locally; its namespace
+move does not establish a Repo-free Channels node. Supplied email-save and archive
+runtime events do not use those legacy persistence paths.
 
 ---
 
@@ -1080,7 +1202,8 @@ When `list_active_by_config/1` returns non-empty results, the listener is starte
 - `EmailBridge` for IMAP ingress, SMTP delivery, and lazy email attachment materialization
 - `WebBridge` for LiveView sessions via PubSub (with status callback support)
 - `Supervisor` with ETS-backed runtime tracking and bootstrap on startup
-- `ChannelConfig` with encrypted token storage, jido_chat settings helpers, and full query API
+- Engine-owned `ChannelConfig` with encrypted token storage and full query API;
+  shared pure settings projections under `Zaq.ConnectorConfig`
 - `RetrievalChannel` with active/all channel queries
 - `MattermostAdmin` for UI-facing admin operations
 - Canonical `Incoming` / `Outgoing` structs as the adapter boundary contract

@@ -6,6 +6,100 @@ defmodule Zaq.Engine.History.StrategyTest do
   alias Zaq.Engine.History.{Facts, Strategy}
   alias Zaq.Permissions.ChannelHistoryResource
 
+  property "unresolved thread coordinates validate for capture without weakening parent policy" do
+    check all(thread <- string(:alphanumeric, min_length: 1, max_length: 64)) do
+      attrs = %{
+        provider: "mattermost",
+        channel_config_id: 12,
+        channel_id: "room-1",
+        kind: :channel,
+        actor_person_id: 5,
+        thread_id: thread
+      }
+
+      assert {:ok, capture} = Facts.for_capture(attrs)
+      assert capture.thread_id == thread
+      assert capture.parent == nil
+      assert {:error, :missing_parent} = Facts.new(attrs)
+    end
+  end
+
+  test "capture validation rejects invalid thread and root coordinates and non-map input" do
+    attrs = %{
+      provider: "mattermost",
+      channel_config_id: 12,
+      channel_id: "room-1",
+      kind: :channel,
+      actor_person_id: 5
+    }
+
+    assert {:error, :invalid_history_facts} = Facts.for_capture(Map.put(attrs, :thread_id, "   "))
+
+    assert {:error, :invalid_history_facts} =
+             Facts.for_capture(Map.merge(attrs, %{thread_id: "reply-1", channel_config_id: 0}))
+
+    assert {:error, :invalid_history_facts} = Facts.for_capture(nil)
+  end
+
+  test "new rejects non-map input independently of invalid map fields" do
+    assert {:error, :invalid_history_facts} = Facts.new(nil)
+  end
+
+  test "replicated unresolved threads are valid without a parent" do
+    assert {:ok, %Facts{kind: :replicated, thread_id: "reply-1", parent: nil}} =
+             facts(%{
+               provider: "email:imap",
+               kind: :replicated,
+               channel_id: "mail-thread",
+               channel_config_id: 12,
+               recipient_person_ids: [7],
+               thread_id: "reply-1"
+             })
+  end
+
+  test "non-Transcript thread parent fails closed" do
+    assert {:error, :parent_scope_mismatch} =
+             facts(%{thread_id: "reply-1", parent: %{id: Ecto.UUID.generate()}})
+  end
+
+  test "replicated parent requires an owner and person-history resource" do
+    replicated_parent =
+      parent("replicated", %{
+        provider: "email:imap",
+        channel_config_id: 12,
+        external_channel_id: "mail-thread",
+        permission_resource_type: "person_history",
+        permission_resource_id: "person:7"
+      })
+
+    attrs = %{
+      provider: "email:imap",
+      kind: :replicated,
+      channel_config_id: 12,
+      channel_id: "mail-thread",
+      actor_person_id: 5,
+      recipient_person_ids: [7],
+      thread_id: "reply-1",
+      parent: replicated_parent
+    }
+
+    assert {:error, :parent_scope_mismatch} =
+             facts(%{attrs | parent: %{replicated_parent | owner_person_id: nil}})
+
+    assert {:error, :parent_scope_mismatch} =
+             facts(%{
+               attrs
+               | parent: %{
+                   replicated_parent
+                   | owner_person_id: 7,
+                     permission_resource_type: "channel_history"
+                 }
+             })
+
+    assert {:ok, %Facts{kind: :replicated, thread_id: "reply-1"}} =
+             facts(%{attrs | parent: %{replicated_parent | owner_person_id: 7}})
+  end
+
   defp facts(overrides \\ %{}) do
     attrs = %{
       provider: "mattermost",
@@ -123,7 +217,7 @@ defmodule Zaq.Engine.History.StrategyTest do
     assert {:ok, mail} =
              facts(%{
                provider: "email:imap",
-               kind: :email,
+               kind: :replicated,
                channel_id: "conversation-1",
                actor_person_id: 5,
                recipient_person_ids: [8, 5, 7, 8]
@@ -142,7 +236,7 @@ defmodule Zaq.Engine.History.StrategyTest do
     assert {:ok, next_mail} =
              facts(%{
                provider: "email:imap",
-               kind: :email,
+               kind: :replicated,
                channel_id: "conversation-1",
                actor_person_id: 5,
                recipient_person_ids: [9]
@@ -153,19 +247,38 @@ defmodule Zaq.Engine.History.StrategyTest do
     refute Enum.any?(next_targets, &(&1.owner_person_id == 8))
   end
 
-  test "provider defaults and unsupported provider/kind combinations fail closed" do
-    for provider <- ~w(mattermost slack discord teams telegram), kind <- [:direct, :channel] do
+  test "confirmed outbound mail with no linked sender targets only independently evidenced recipients" do
+    assert {:ok, outbound} =
+             facts(%{
+               provider: "email:imap",
+               kind: :replicated,
+               channel_id: "recipient@example.com",
+               actor_person_id: nil,
+               recipient_person_ids: [7, 8, 7]
+             })
+
+    assert {:ok, targets} = Strategy.association_targets(outbound)
+    assert Enum.map(targets, & &1.owner_person_id) == [7, 8]
+    assert {:ok, []} = Strategy.resolve_transcripts(outbound)
+
+    assert {:error, :invalid_history_facts} =
+             facts(%{outbound | recipient_person_ids: []} |> Map.from_struct())
+
+    assert {:error, :invalid_history_facts} =
+             facts(%{actor_person_id: nil, kind: :channel, recipient_person_ids: [7]})
+  end
+
+  test "normalized strategy is independent of provider identity and unknown kinds fail closed" do
+    for provider <- ~w(mattermost telegram future_provider),
+        kind <- [:direct, :channel, :replicated] do
       assert {:ok, candidate} = facts(%{provider: provider, kind: kind})
       assert {:ok, [_]} = Strategy.association_targets(candidate)
     end
 
     for overrides <- [
-          %{provider: "email:imap", kind: :channel},
           %{provider: "mattermost", kind: :email},
           %{provider: "email:smtp", kind: :email},
-          %{provider: "google_drive", kind: :channel},
-          %{provider: "bo", kind: :direct},
-          %{provider: "api", kind: :direct},
+          %{kind: nil},
           %{kind: :unknown}
         ] do
       assert {:error, :unsupported_strategy} = facts(overrides)
@@ -189,7 +302,7 @@ defmodule Zaq.Engine.History.StrategyTest do
       assert {:ok, mail} =
                facts(%{
                  provider: "email:imap",
-                 kind: :email,
+                 kind: :replicated,
                  channel_id: "mail-thread",
                  recipient_person_ids: recipients
                })

@@ -2,8 +2,8 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions, PersonLoginChallenge}
-  alias Zaq.Channels.{ChannelConfig, PeopleAuthDeliveryMock}
-  alias Zaq.Engine.{Events, PeopleAuthGateway}
+  alias Zaq.Channels.PeopleAuthDeliveryMock
+  alias Zaq.Engine.{ChannelConfig, Events, PeopleAuthGateway}
   alias Zaq.TestSupport.{PeopleAuthClock, PeopleAuthDelivery}
   import Mox
 
@@ -363,7 +363,7 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
   test "skipped notification is not success and its challenge is invalidated" do
     {:ok, person} = People.create_person(%{full_name: "Portal", email: "portal@example.test"})
     {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
-    Repo.delete_all(Zaq.Channels.ChannelConfig)
+    Repo.delete_all(Zaq.Engine.ChannelConfig)
 
     assert {:error, :delivery_failed} =
              PeopleAuthGateway.request_challenge(" PORTAL@example.test ", {127, 0, 0, 22})

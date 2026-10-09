@@ -6,7 +6,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationEmailLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
 
   setup :verify_on_exit!
 

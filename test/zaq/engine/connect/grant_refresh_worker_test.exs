@@ -15,7 +15,7 @@ defmodule Zaq.Engine.Connect.GrantRefreshWorkerTest do
   end
 
   alias Oban.Job
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{Grant, GrantRefreshWorker}
   alias Zaq.Repo

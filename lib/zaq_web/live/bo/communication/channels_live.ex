@@ -5,8 +5,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
   require Logger
-  alias Zaq.Channels.{AgentRouting, Bridge, ChannelConfig}
+  alias Zaq.Channels.{AgentRouting, Bridge}
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
@@ -18,6 +19,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Components.DesignSystem.ChannelConnectorCard
   alias ZaqWeb.Helpers.Timezone
+  alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
   alias ZaqWeb.Live.BO.Communication.ChannelConfigPersistence
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
@@ -417,15 +419,45 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   def handle_event("delete", _params, socket) do
     id = socket.assigns.confirm_delete
 
-    case Repo.get(ChannelConfig, id) do
-      nil ->
+    request = %{
+      channel_config_id: id,
+      provider: socket.assigns.provider,
+      kind: socket.assigns.kind
+    }
+
+    event =
+      Event.new(request, :engine,
+        actor: BOActor.build(socket.assigns.current_user),
+        opts: [action: :archive_channel_connector, confidential: true]
+      )
+
+    case NodeRouter.dispatch(event).response do
+      {:ok, result} ->
+        {:noreply,
+         socket
+         |> delete_config_success_socket()
+         |> put_archive_result_flash(result, "Channel config archived.")}
+
+      {:error, :connector_not_found} ->
         {:noreply,
          socket
          |> assign(:confirm_delete, nil)
          |> put_flash(:error, "Config not found.")}
 
-      config ->
-        archive_after_ingress_teardown(socket, config)
+      {:error, {:ingress_teardown_failed, reason}} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(
+           :error,
+           "Cannot delete config: failed to teardown webhook ingress subscription (#{inspect(reason)})."
+         )}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(:error, "Cannot archive connector: #{inspect(reason)}")}
     end
   end
 
@@ -1239,75 +1271,26 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     NodeRouter.dispatch(event).response
   end
 
-  defp archive_after_ingress_teardown(socket, config) do
-    case teardown_ingress_before_delete(config) do
-      :ok ->
-        archive_config_and_refresh(socket, config, "Channel config archived.")
-
-      {:ok, message} when is_binary(message) ->
-        archive_config_and_refresh(socket, config, "Channel config archived. #{message}")
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:confirm_delete, nil)
-         |> put_flash(
-           :error,
-           "Cannot delete config: failed to teardown webhook ingress subscription (#{inspect(reason)})."
-         )}
-    end
-  end
-
-  defp teardown_ingress_before_delete(%ChannelConfig{} = config) do
-    if provider_requires_global_base_url?(:retrieval, config.provider) do
-      event =
-        Event.new(
-          %{provider: config.provider, params: %{strict: true, config_id: config.id}},
-          :channels,
-          opts: [action: :channel_delete_ingress_subscription]
+  defp put_archive_result_flash(socket, result, message) do
+    cond do
+      match?({:pending, _}, result.runtime) ->
+        put_flash(
+          socket,
+          :error,
+          "#{message} Runtime sync is pending: #{inspect(result.runtime)}"
         )
 
-      case NodeRouter.dispatch(event).response do
-        {:ok, %{type: :ingress_webhook, deleted: false, reason: reason}} ->
-          {:ok, "Webhook ingress subscription was not deleted (#{inspect(reason)})."}
+      match?({:warning, _}, result.ingress) ->
+        {:warning, reason} = result.ingress
 
-        {:ok, _result} ->
-          :ok
+        put_flash(
+          socket,
+          :info,
+          "#{message} Webhook ingress subscription was not deleted (#{inspect(reason)})."
+        )
 
-        {:error, :unsupported} ->
-          :ok
-
-        {:error, reason} ->
-          {:error, reason}
-
-        other ->
-          {:error, {:unexpected_response, other}}
-      end
-    else
-      :ok
-    end
-  end
-
-  defp archive_config_and_refresh(socket, config, message) do
-    event =
-      Event.new(%{channel_config_id: config.id}, :channels,
-        opts: [action: :archive_channel_config]
-      )
-
-    case NodeRouter.dispatch(event).response do
-      {:ok, %ChannelConfig{} = archived} ->
-        sync_result = sync_channel_runtime(config, archived)
-
-        {:noreply,
-         socket
-         |> delete_config_success_socket()
-         |> maybe_put_runtime_sync_flash(sync_result, message)}
-
-      other ->
-        {:noreply,
-         socket
-         |> assign(:confirm_delete, nil)
-         |> put_flash(:error, "Ingress stopped but connector archive failed: #{inspect(other)}")}
+      true ->
+        put_flash(socket, :info, message)
     end
   end
 

@@ -487,7 +487,7 @@ There is no fallback to plaintext persistence.
 ### Current sensitive fields
 
 - `ai_provider_credentials.api_key` (legacy migration/rollback field; not runtime authority)
-- `email.password`
+- SMTP connector `channel_configs.settings.password`
 - `channel_configs.token`
 
 ### Error contract
@@ -500,12 +500,19 @@ All BO forms must surface these errors to the user in the related input form.
 
 ## SMTP Password Encryption
 
-ZAQ encrypts SMTP passwords before persisting them in `system_configs`.
+ZAQ encrypts SMTP passwords before persisting them in the selected SMTP connector's
+`channel_configs.settings` map. SMTP settings are no longer stored in `system_configs`.
 
-- Encrypted at rest: `email.password`
-- Module: `Zaq.System.SecretConfig`
+- Encrypted at rest: `channel_configs.settings.password`
+- Owner: `Zaq.Engine.EmailConnectorSettings`, using `Zaq.Types.EncryptedString`
 - Cipher: AES-256-GCM
 - Strict mode: saving a non-empty SMTP password fails if encryption config is missing or invalid
+
+BO settings reads/writes/default selection use confidential Engine events.
+Engine retains encrypted persistence and sends resolved credentials only in the
+confidential runtime-configuration event to Channels. The supplied-config runtime
+path never reloads a connector from Repo on Channels; legacy delivery/bootstrap
+configuration access remains outside this incremental migration.
 
 ## Required Configuration
 

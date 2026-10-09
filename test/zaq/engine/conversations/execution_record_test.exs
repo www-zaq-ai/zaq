@@ -3,7 +3,7 @@ defmodule Zaq.Engine.Conversations.ExecutionRecordTest do
   use ExUnitProperties
 
   alias Zaq.Accounts.People
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{ExecutionRecord, Message, Transcript}
   alias Zaq.Permissions

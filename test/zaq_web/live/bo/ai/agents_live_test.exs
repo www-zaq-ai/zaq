@@ -13,7 +13,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Skills
-  alias Zaq.Channels.{ChannelConfig, RetrievalChannel}
+  alias Zaq.Channels.RetrievalChannel
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.IncomingMessageRoutingRule
   alias Zaq.Repo
   alias Zaq.System, as: ZaqSystem

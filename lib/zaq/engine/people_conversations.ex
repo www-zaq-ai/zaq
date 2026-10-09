@@ -23,7 +23,8 @@ defmodule Zaq.Engine.PeopleConversations do
     :share,
     :revoke_share,
     :source,
-    :artifact
+    :artifact,
+    :channel_history
   ]
   @page_size 25
 
@@ -79,6 +80,20 @@ defmodule Zaq.Engine.PeopleConversations do
        person: Map.take(auth.person, [:full_name]),
        permissions: auth.permissions
      }}
+  end
+
+  defp execute(:channel_history, request, auth) do
+    result =
+      Conversations.list_canonical_messages(auth.person, Map.get(request, :transcript_id),
+        after_position: Map.get(request, :after_position, 0),
+        up_to_position: Map.get(request, :up_to_position),
+        limit: Map.get(request, :limit, 50)
+      )
+
+    case result do
+      {:error, :unauthorized} -> {:error, :not_found}
+      other -> other
+    end
   end
 
   defp execute(op, request, auth) do

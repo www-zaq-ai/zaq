@@ -3,7 +3,7 @@ defmodule Zaq.TestSupport.DiskConfigFixtureTest do
 
   import Ecto.Query
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
   alias Zaq.TestSupport.DiskConfigFixture
 

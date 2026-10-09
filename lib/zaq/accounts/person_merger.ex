@@ -6,7 +6,9 @@ defmodule Zaq.Accounts.PersonMerger do
   mutations through their owners, deletes losers, then asks People to persist the
   complete survivor once. Any failure rolls back the transaction.
   Connect owns grant collision/transfer and attempt cancellation inside this same
-  transaction, before loser deletion. Retained aliases never migrate authorization.
+  transaction, before loser deletion. Conversations similarly transfers canonical
+  transcript and private execution ownership without coalescing permission resources.
+  Retained aliases never migrate authorization.
 
   IDs and history come only from persisted participants. Resource request editing
   belongs to People; workflow execution/audit JSON is never rewritten. No
@@ -24,6 +26,7 @@ defmodule Zaq.Accounts.PersonMerger do
     PeopleAuth,
     Person,
     PersonChannel,
+    PersonIdentities,
     PersonLoginChallenge,
     PersonSession
   }
@@ -92,6 +95,7 @@ defmodule Zaq.Accounts.PersonMerger do
       grants = permission_results(survivor.id, ids, relations.permissions)
       rules = routing_results(survivor.id, relations.rules)
       links = link_results(survivor.id, relations)
+      history = history_results(survivor.id, Enum.map(losers, & &1.id))
       authentication = authentication_results(relations)
       ratings = rating_results(survivor.id, relations.ratings)
 
@@ -116,15 +120,19 @@ defmodule Zaq.Accounts.PersonMerger do
         PersonSession.changeset(row, attrs) |> valid!()
       end)
 
+      validate_history!(history)
+
       Enum.each(authentication.person_ids, fn id ->
         PeopleAuth.invalidate_challenges(id) |> result!()
         PeopleAuth.revoke_all_sessions(id) |> result!()
       end)
 
+      PersonIdentities.transfer(survivor.id, Enum.map(losers, & &1.id))
       apply_channels(channel_results, email_channel)
       apply_permissions(relations.permissions, grants, opts)
       apply_routing(rules)
       transfer_links(links)
+      transfer_history(history)
 
       Enum.each(ratings, fn {row, attrs, rest} ->
         Enum.each(rest, &(Conversations.delete_rating(&1) |> result!()))
@@ -434,6 +442,41 @@ defmodule Zaq.Accounts.PersonMerger do
 
     Enum.each(links.notifications, fn {row, reference} ->
       NotificationLog.update_recipient(row, reference) |> result!()
+    end)
+  end
+
+  defp history_results(survivor_id, loser_ids) do
+    # The historical email-normalization migration runs before history storage
+    # exists. The context owns that storage compatibility, not this coordinator.
+    opts = [lock: true, allow_missing_table: true]
+
+    %{
+      transcripts:
+        Conversations.list_owned_transcripts(loser_ids, opts)
+        |> Enum.map(&{&1, survivor_id}),
+      executions:
+        Conversations.list_person_executions(loser_ids, opts)
+        |> Enum.map(&{&1, survivor_id})
+    }
+  end
+
+  defp validate_history!(history) do
+    Enum.each(history.transcripts, fn {row, person_id} ->
+      Conversations.change_transcript_owner(row, person_id) |> valid!()
+    end)
+
+    Enum.each(history.executions, fn {row, person_id} ->
+      Conversations.change_execution_owner(row, person_id) |> valid!()
+    end)
+  end
+
+  defp transfer_history(history) do
+    Enum.each(history.transcripts, fn {row, person_id} ->
+      Conversations.update_transcript_owner(row, person_id) |> result!()
+    end)
+
+    Enum.each(history.executions, fn {row, person_id} ->
+      Conversations.update_execution_owner(row, person_id) |> result!()
     end)
   end
 

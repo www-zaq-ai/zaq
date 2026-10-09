@@ -1,7 +1,7 @@
 defmodule Zaq.Engine.ConnectTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.{Credential, Grant}
   alias Zaq.Engine.Connect.GrantRefreshWorker

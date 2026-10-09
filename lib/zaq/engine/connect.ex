@@ -32,7 +32,7 @@ defmodule Zaq.Engine.Connect do
 
   alias Ecto.Changeset
   alias Oban.Job
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect.{Credential, Grant, MutationEvents, Mutations, OAuth, Refresh}
   alias Zaq.Engine.Connect.GrantRefreshWorker
   alias Zaq.Event

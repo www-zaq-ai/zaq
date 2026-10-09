@@ -6,7 +6,7 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
   alias Zaq.System.SecretConfig
 
@@ -14,18 +14,17 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
 
   setup %{conn: conn} do
     previous_sender = Application.get_env(:zaq, :email_bridge_smtp_module)
+    previous_owner = Application.get_env(:zaq, :smtp_live_test_owner)
+    previous_result = Application.get_env(:zaq, :smtp_live_test_result)
+    previous_error = Application.get_env(:zaq, :smtp_live_test_error)
     Application.put_env(:zaq, :email_bridge_smtp_module, ZaqWeb.NotificationSmtpLiveTest.Sender)
     Application.put_env(:zaq, :smtp_live_test_owner, self())
 
     on_exit(fn ->
-      if previous_sender do
-        Application.put_env(:zaq, :email_bridge_smtp_module, previous_sender)
-      else
-        Application.delete_env(:zaq, :email_bridge_smtp_module)
-      end
-
-      Application.delete_env(:zaq, :smtp_live_test_owner)
-      Application.delete_env(:zaq, :smtp_live_test_result)
+      restore_env(:email_bridge_smtp_module, previous_sender)
+      restore_env(:smtp_live_test_owner, previous_owner)
+      restore_env(:smtp_live_test_result, previous_result)
+      restore_env(:smtp_live_test_error, previous_error)
     end)
 
     user = user_fixture(%{username: "testadmin"})
@@ -43,6 +42,43 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assert has_element?(view, "#smtp-config-form")
     assert has_element?(view, "#test-email-form")
     assert has_element?(view, "button[phx-click='activate']", "Activate")
+  end
+
+  test "Add Config creates and selects a distinct named SMTP connector", %{conn: conn} do
+    original =
+      insert_smtp_channel(%{
+        name: "Original",
+        enabled: true,
+        settings: %{"relay" => "original.example.com"}
+      })
+
+    original = Repo.get!(ChannelConfig, original.id)
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+    view |> element("#new-smtp-config") |> render_click()
+    refute has_element?(view, "input[name='email_config[relay]'][value='original.example.com']")
+
+    view
+    |> element("#smtp-config-form")
+    |> render_submit(%{
+      "email_config" => %{
+        "connector_name" => "Second SMTP",
+        "relay" => "second.example.com",
+        "from_email" => "second@example.com",
+        "port" => "587"
+      }
+    })
+
+    assert has_element?(view, "#save-status-ok")
+    second = Repo.get_by!(ChannelConfig, name: "Second SMTP")
+    assert second.id != original.id
+    assert Repo.get!(ChannelConfig, original.id) == original
+
+    view
+    |> element("#smtp-config-form")
+    |> render_submit(%{"email_config" => %{"relay" => "edited.example.com"}})
+
+    assert Repo.get!(ChannelConfig, second.id).settings["relay"] == "edited.example.com"
+    assert length(ChannelConfig.list_by_provider("email:smtp")) == 2
   end
 
   test "loads existing smtp config values", %{conn: conn} do
@@ -110,6 +146,29 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assert Repo.get!(ChannelConfig, second.id).notification_default
     refute Repo.get!(ChannelConfig, first.id).notification_default
     assert has_element?(view, "#smtp-default-#{second.id}[aria-pressed='true']")
+  end
+
+  test "select_connector rejects an unknown id without changing the selected connector", %{
+    conn: conn
+  } do
+    connector =
+      insert_smtp_channel(%{
+        name: "Selected SMTP",
+        settings: %{"relay" => "selected.example.com"}
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    render_click(view, "select_connector", %{"id" => "nonexistent"})
+
+    assert render(view) =~ "Connector not found."
+
+    assert has_element?(
+             view,
+             "#smtp-config-form input[name='email_config[relay]'][value='selected.example.com']"
+           )
+
+    assert Repo.get!(ChannelConfig, connector.id).settings["relay"] == "selected.example.com"
   end
 
   test "validate renders smtp security warnings", %{conn: conn} do
@@ -186,6 +245,37 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     })
 
     assert has_element?(view, "#save-status-error")
+  end
+
+  test "save reports an archived selected connector without creating a replacement", %{
+    conn: conn
+  } do
+    connector = insert_smtp_channel(%{name: "Stale SMTP"})
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+    assert {:ok, _archived} = ChannelConfig.archive(Repo.get!(ChannelConfig, connector.id))
+
+    view
+    |> element("#smtp-config-form")
+    |> render_submit(%{
+      "email_config" => %{
+        "relay" => "replacement.example.com",
+        "port" => "587",
+        "transport_mode" => "starttls",
+        "tls" => "enabled",
+        "tls_verify" => "verify_peer",
+        "username" => "mailer@example.com",
+        "password" => "no-persist-secret",
+        "from_email" => "noreply@example.com",
+        "from_name" => "ZAQ"
+      }
+    })
+
+    assert render(view) =~ "Failed to save email configuration."
+    assert has_element?(view, "#save-status-error")
+    assert {:error, ":connector_mismatch"} = current_save_status(view)
+    assert Repo.get!(ChannelConfig, connector.id).settings["relay"] == "smtp.example.com"
+    assert ChannelConfig.list_by_provider("email:smtp") == []
+    refute Enum.any?(Repo.all(ChannelConfig), &(&1.settings["password"] == "no-persist-secret"))
   end
 
   test "save handles missing encryption key", %{conn: conn} do
@@ -281,6 +371,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     view |> element("button[phx-click='activate']") |> render_click()
 
     assert has_element?(view, "#save-status-error")
+  end
+
+  test "activate reports an archived selected connector", %{conn: conn} do
+    connector = insert_smtp_channel(%{name: "Stale SMTP", enabled: true})
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+    assert {:ok, _archived} = ChannelConfig.archive(Repo.get!(ChannelConfig, connector.id))
+
+    view |> element("button[phx-click='activate']") |> render_click()
+
+    assert render(view) =~ "Failed to update email status."
+    assert has_element?(view, "#save-status-error")
+    assert {:error, ":connector_mismatch"} = current_save_status(view)
+    assert ChannelConfig.list_by_provider("email:smtp") == []
   end
 
   test "test_connection validates recipient presence and format", %{conn: conn} do
@@ -463,6 +566,34 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     assert render(view) =~ "Email delivery failed unexpectedly. Check the server logs."
   end
 
+  test "test_connection reports an unexpected delivery response", %{conn: conn} do
+    insert_enabled_smtp_channel()
+    Application.put_env(:zaq, :smtp_live_test_result, :unexpected_receipt)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    view |> element("#test-email-form") |> render_submit(%{"recipient" => "user@example.com"})
+
+    assert {:error, "Email delivery returned an unexpected response."} = current_test_status(view)
+    assert render(view) =~ "Email delivery returned an unexpected response."
+    refute render(view) =~ "Test email sent"
+  end
+
+  test "test_connection reports a rescued sender exception and keeps the page alive", %{
+    conn: conn
+  } do
+    insert_enabled_smtp_channel()
+    Application.put_env(:zaq, :smtp_live_test_result, :raise)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+
+    view |> element("#test-email-form") |> render_submit(%{"recipient" => "user@example.com"})
+
+    assert {:error, "Safe SMTP sender failure"} = current_test_status(view)
+    assert render(view) =~ "Safe SMTP sender failure"
+    assert Process.alive?(view.pid)
+  end
+
   test "test_connection formats retry exhaustion reasons", %{conn: conn} do
     for {reason, expected, detail} <- [
           {{:retries_exceeded, {:missing_requirement, "smtp.example.com", :auth}},
@@ -493,6 +624,19 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
         refute message =~ "Details:"
       end
     end
+  end
+
+  test "test_connection preserves empty retry detail without a Details label", %{conn: conn} do
+    insert_enabled_smtp_channel()
+    put_failing_mailer({:retries_exceeded, ""})
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/email/smtp")
+    send(view.pid, {:send_test, "user@example.com"})
+    _ = :sys.get_state(view.pid)
+
+    assert {:error, "Could not reach the SMTP server. "} = current_test_status(view)
+    assert render(view) =~ "Could not reach the SMTP server."
+    refute render(view) =~ "Details:"
   end
 
   test "test_connection formats known smtp delivery errors", %{conn: conn} do
@@ -709,6 +853,22 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationSmtpLiveTest do
     Map.fetch!(assigns, :test_status)
   end
 
+  defp current_save_status(view) do
+    state = :sys.get_state(view.pid)
+
+    assigns =
+      case state do
+        %{socket: %{assigns: assigns}} -> assigns
+        %{socket: socket} -> socket.assigns
+        %{assigns: assigns} -> assigns
+      end
+
+    Map.fetch!(assigns, :save_status)
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:zaq, key)
+  defp restore_env(key, value), do: Application.put_env(:zaq, key, value)
+
   defp put_failing_mailer(reason) do
     previous_error = Application.get_env(:zaq, :smtp_live_test_error)
     Application.put_env(:zaq, :smtp_live_test_error, reason)
@@ -782,6 +942,12 @@ defmodule ZaqWeb.NotificationSmtpLiveTest.Sender do
     case Application.get_env(:zaq, :smtp_live_test_result, :ok) do
       :exit ->
         exit(:noproc)
+
+      :raise ->
+        raise "Safe SMTP sender failure"
+
+      result when result != :ok ->
+        result
 
       :ok ->
         case Application.get_env(:zaq, :smtp_live_test_error) do

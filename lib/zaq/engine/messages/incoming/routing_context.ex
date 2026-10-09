@@ -5,13 +5,35 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
   This struct carries only serializable identifiers and attributes derived from
   the transport/configuration layer. Persisted routing policy belongs to
   `Zaq.Engine.IncomingMessageRoutingRule`, not this context.
+
+  `conversation_type` describes one-to-one, room-based, or recipient-addressed
+  communication. It does not select a history strategy or confer access. Message
+  audience is message-local evidence, never a complete room-membership snapshot.
+  Missing or contradictory provider facts remain unknown (`nil`). Consumers own
+  interpretation; history kind and title presentation are not transport fields.
+
+  `sender_membership` is message-local presence evidence normalized by Channels.
+  It is not a complete membership snapshot or an authentication credential;
+  Engine accepts it only after trusted ingress and scoped identity validation.
   """
+
+  alias Zaq.Engine.Messages.Incoming.Audience
+  alias Zaq.Engine.Messages.ReplyTargets
+  alias Zaq.Engine.Messages.SourceIdentity
 
   defstruct [
     :channel_config_id,
     :retrieval_channel_id,
     :topic_id,
-    :history_kind,
+    :conversation_type,
+    :source_scope,
+    :audience,
+    :identity_platform,
+    :sender_membership,
+    :provider_sent_at,
+    :conversation_id,
+    :reply_targets,
+    :display_subject,
     attributes: %{}
   ]
 
@@ -19,7 +41,15 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
           channel_config_id: integer() | nil,
           retrieval_channel_id: integer() | nil,
           topic_id: String.t() | nil,
-          history_kind: :direct | :channel | :email | nil,
+          conversation_type: :one_to_one | :room | :recipient_addressed | nil,
+          source_scope: String.t() | nil | :invalid,
+          audience: Audience.t() | nil,
+          identity_platform: String.t() | nil,
+          sender_membership: map() | nil,
+          provider_sent_at: DateTime.t() | nil,
+          conversation_id: String.t() | nil,
+          reply_targets: ReplyTargets.t() | nil,
+          display_subject: String.t() | nil,
           attributes: map()
         }
 
@@ -30,7 +60,15 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
       channel_config_id: normalize_id(context.channel_config_id),
       retrieval_channel_id: normalize_id(context.retrieval_channel_id),
       topic_id: normalize_topic_id(context.topic_id),
-      history_kind: normalize_history_kind(context.history_kind),
+      conversation_type: normalize_conversation_type(context.conversation_type),
+      source_scope: normalize_source_scope(context.source_scope),
+      audience: Audience.normalize(context.audience),
+      identity_platform: normalize_topic_id(context.identity_platform),
+      sender_membership: normalize_sender_membership(context.sender_membership),
+      provider_sent_at: normalize_timestamp(context.provider_sent_at),
+      conversation_id: normalize_topic_id(context.conversation_id),
+      reply_targets: ReplyTargets.normalize(context.reply_targets),
+      display_subject: normalize_topic_id(context.display_subject),
       attributes: normalize_attributes(context.attributes)
     }
   end
@@ -40,7 +78,15 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
       channel_config_id: normalize_id(fetch(context, :channel_config_id)),
       retrieval_channel_id: normalize_id(fetch(context, :retrieval_channel_id)),
       topic_id: normalize_topic_id(fetch(context, :topic_id)),
-      history_kind: normalize_history_kind(fetch(context, :history_kind)),
+      conversation_type: normalize_conversation_type(fetch(context, :conversation_type)),
+      source_scope: normalize_source_scope(fetch(context, :source_scope)),
+      audience: Audience.normalize(fetch(context, :audience)),
+      identity_platform: normalize_topic_id(fetch(context, :identity_platform)),
+      sender_membership: normalize_sender_membership(fetch(context, :sender_membership)),
+      provider_sent_at: normalize_timestamp(fetch(context, :provider_sent_at)),
+      conversation_id: normalize_topic_id(fetch(context, :conversation_id)),
+      reply_targets: ReplyTargets.normalize(fetch(context, :reply_targets)),
+      display_subject: normalize_topic_id(fetch(context, :display_subject)),
       attributes: normalize_attributes(fetch(context, :attributes))
     }
   end
@@ -69,9 +115,29 @@ defmodule Zaq.Engine.Messages.Incoming.RoutingContext do
 
   defp normalize_topic_id(_topic_id), do: nil
 
-  defp normalize_history_kind(kind) when kind in [:direct, :channel, :email], do: kind
-  defp normalize_history_kind(_kind), do: nil
+  defp normalize_source_scope(scope),
+    do: if(SourceIdentity.valid_scope?(scope), do: scope, else: :invalid)
+
+  defp normalize_conversation_type(type) when type in [:one_to_one, :room, :recipient_addressed],
+    do: type
+
+  defp normalize_conversation_type(_), do: nil
 
   defp normalize_attributes(attributes) when is_map(attributes), do: attributes
   defp normalize_attributes(_attributes), do: %{}
+
+  defp normalize_sender_membership(evidence) when is_map(evidence) do
+    with platform when is_binary(platform) <-
+           normalize_topic_id(fetch(evidence, :identity_platform)),
+         member when is_binary(member) <- normalize_topic_id(fetch(evidence, :member_id)) do
+      %{identity_platform: platform, member_id: member}
+    else
+      _ -> nil
+    end
+  end
+
+  defp normalize_sender_membership(_), do: nil
+
+  defp normalize_timestamp(%DateTime{time_zone: "Etc/UTC"} = timestamp), do: timestamp
+  defp normalize_timestamp(_), do: nil
 end

@@ -46,6 +46,11 @@
       </div>
 
       <div class="flex items-center justify-end">
+        <ZaqWeb.Components.DesignSystem.Button.button
+          id="new-imap-config"
+          phx-click="new_connector"
+          icon="hero-plus"
+        >Add Config</ZaqWeb.Components.DesignSystem.Button.button>
         <button
           :if={length(@configs) <= 1 or @selected_config_id}
           type="button"
@@ -101,6 +106,22 @@
           phx-change="validate"
           class="space-y-5"
         >
+          <div>
+            <label for="imap-connector-name" class="zaq-field-label">Configuration name</label>
+            <input
+              id="imap-connector-name"
+              name="imap_config[connector_name]"
+              class="zaq-control"
+              required
+              value={
+                Map.get(
+                  @form.source.params || %{},
+                  "connector_name",
+                  ConnectorSelection.name(@configs, @selected_config_id, "Email IMAP")
+                )
+              }
+            />
+          </div>
           <div>
             <label
               for="imap-reply-smtp-select"

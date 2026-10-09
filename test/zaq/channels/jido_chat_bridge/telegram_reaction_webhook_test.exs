@@ -97,7 +97,17 @@ defmodule Zaq.Channels.JidoChatBridge.TelegramReactionWebhookTest do
 
     # Identical to the shape `mattermost_reaction_ingress_test.exs` asserts —
     # webhook and listener ingress converge on one origin-agnostic payload.
-    assert %{message_ref: {:external_id, "678"}, rater_attrs: %{rating: 5}} = event.request
+    assert %{
+             message_ref:
+               {:source,
+                %{
+                  provider: "telegram",
+                  channel_id: "12345",
+                  source_scope: "12345",
+                  message_id: "678"
+                }},
+             rater_attrs: %{rating: 5}
+           } = event.request
   end
 
   test "a telegram thumbs-down webhook dispatches the low rating", %{pid: pid, config: config} do

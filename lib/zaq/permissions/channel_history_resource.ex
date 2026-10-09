@@ -15,9 +15,4 @@ defmodule Zaq.Permissions.ChannelHistoryResource do
              is_binary(channel_id) and channel_id != "" do
     {"channel_history", Jason.encode!([provider, config_id, channel_id])}
   end
-
-  @doc "Checks a direct Person grant on the channel shared by its parent and threads."
-  @spec can_read?(Zaq.Accounts.Person.t() | nil, resource()) :: boolean()
-  def can_read?(person, {"channel_history", _id} = resource),
-    do: Zaq.Permissions.can?(person, :read, resource, direct_person_only: true)
 end

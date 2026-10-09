@@ -1,8 +1,8 @@
 defmodule Zaq.Engine.ChannelAdapterLoaderTest do
   use Zaq.DataCase, async: true
 
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.ChannelAdapterLoader
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
 
   defmodule StubAdapter do
@@ -58,13 +58,6 @@ defmodule Zaq.Engine.ChannelAdapterLoaderTest do
 
       assert length(configs) == 1
       assert hd(configs).provider == "mattermost"
-    end
-
-    test "returns [] when no enabled configs exist" do
-      configs =
-        ChannelAdapterLoader.load_configs(:retrieval, ["mattermost"], "TestSup", "retrieval")
-
-      assert configs == []
     end
 
     test "ignores disabled configs" do
@@ -176,5 +169,31 @@ defmodule Zaq.Engine.ChannelAdapterLoaderTest do
     %ChannelConfig{}
     |> ChannelConfig.changeset(Map.merge(defaults, attrs))
     |> Repo.insert!()
+  end
+end
+
+defmodule Zaq.Engine.ChannelAdapterLoaderEmptyConfigLogTest do
+  use Zaq.DataCase, async: false
+
+  alias Zaq.Engine.ChannelAdapterLoader
+
+  test "logs when no enabled configs exist and returns an empty list" do
+    previous_logger_level = Logger.level()
+    Logger.configure(level: :info)
+
+    on_exit(fn -> Logger.configure(level: previous_logger_level) end)
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :info], fn ->
+        assert [] =
+                 ChannelAdapterLoader.load_configs(
+                   :retrieval,
+                   ["mattermost"],
+                   "TestSup",
+                   "retrieval"
+                 )
+      end)
+
+    assert log =~ "[TestSup] No enabled retrieval channel configs found, starting empty."
   end
 end

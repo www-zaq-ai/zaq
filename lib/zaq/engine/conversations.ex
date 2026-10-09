@@ -7,23 +7,28 @@ defmodule Zaq.Engine.Conversations do
   """
 
   import Ecto.Query
-  alias Ecto.Multi
 
   alias Zaq.Engine.Conversations.{
     Conversation,
     ConversationShare,
+    ExecutionRecord,
     Message,
     MessageRating,
     MessageTraceArtifact,
     TitleGenerator,
     TokenUsageAggregator,
-    TranscriptHistory
+    Transcript,
+    TranscriptHistory,
+    TranscriptMessage
   }
 
-  alias Zaq.Accounts.{Person, PersonChannel, User}
+  alias Zaq.Accounts.{People, Person, PersonChannel, User}
   alias Zaq.Agent.CitationNormalizer
   alias Zaq.Agent.StreamEvents
-  alias Zaq.Engine.Messages.{ConversationIdentity, Incoming, Measurements}
+  alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.History.{CommunicationPolicy, Facts}
+  alias Zaq.Engine.Messages.{ConversationIdentity, Incoming, Measurements, SourceIdentity}
+  alias Zaq.Engine.Messages.Incoming.Audience
   alias Zaq.Engine.Telemetry
   alias Zaq.Repo
 
@@ -33,11 +38,97 @@ defmodule Zaq.Engine.Conversations do
   def append_canonical_message(transcript_id, message_attrs, source_context),
     do: TranscriptHistory.append(transcript_id, message_attrs, source_context)
 
+  @doc "Atomically places one provider message into its strategy-owned transcript scopes."
+  @spec capture_canonical_message(Facts.t(), map(), map()) :: {:ok, map()} | {:error, term()}
+  def capture_canonical_message(facts, message_attrs, source_context),
+    do: TranscriptHistory.capture(facts, message_attrs, source_context)
+
   @doc "Reads a bounded, sanitized transcript projection for an authorized Person only."
   @spec list_canonical_messages(Person.t() | nil, term(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def list_canonical_messages(person, transcript_id, opts \\ []),
     do: TranscriptHistory.list(person, transcript_id, opts)
+
+  @doc """
+  Lists transcripts by literal Person ownership, in ID order, without alias inference.
+
+  `lock: true` requires an existing transaction and locks rows for update.
+  `allow_missing_table: true` is reserved for historical migration compatibility;
+  only an absent table yields an empty list, not other database errors.
+  """
+  @spec list_owned_transcripts([pos_integer()], keyword()) :: [Transcript.t()]
+  def list_owned_transcripts(person_ids, opts \\ []) do
+    query =
+      from t in Transcript,
+        where: t.owner_person_id in ^person_ids,
+        order_by: t.id
+
+    list_ownership_rows(query, "transcripts", person_ids, opts)
+  end
+
+  @doc """
+  Lists private executions by literal Person ownership, in ID order.
+
+  Supports the same transaction-required `lock` and historical-migration
+  `allow_missing_table` options as `list_owned_transcripts/2`.
+  """
+  @spec list_person_executions([pos_integer()], keyword()) :: [ExecutionRecord.t()]
+  def list_person_executions(person_ids, opts \\ []) do
+    query =
+      from e in ExecutionRecord,
+        where: e.person_id in ^person_ids,
+        order_by: e.id
+
+    list_ownership_rows(query, "execution_records", person_ids, opts)
+  end
+
+  defp list_ownership_rows(query, table, person_ids, opts) do
+    lock? = Keyword.get(opts, :lock, false)
+
+    if lock? and not Repo.in_transaction?() do
+      raise ArgumentError, "ownership row locking requires a transaction"
+    end
+
+    cond do
+      person_ids == [] -> []
+      Keyword.get(opts, :allow_missing_table, false) and not ownership_table_exists?(table) -> []
+      lock? -> query |> lock("FOR UPDATE") |> Repo.all()
+      true -> Repo.all(query)
+    end
+  end
+
+  defp ownership_table_exists?(table) do
+    %{rows: [[relation]]} = Repo.query!("SELECT to_regclass($1)", [table], log: false)
+    not is_nil(relation)
+  end
+
+  @doc "Validates transcript ownership without changing its scope or permission resource."
+  @spec change_transcript_owner(Transcript.t(), pos_integer()) :: Ecto.Changeset.t()
+  def change_transcript_owner(%Transcript{} = transcript, person_id),
+    do: Transcript.changeset(transcript, %{owner_person_id: person_id})
+
+  @doc "Updates transcript ownership without changing its scope or permission resource."
+  @spec update_transcript_owner(Transcript.t(), pos_integer()) ::
+          {:ok, Transcript.t()} | {:error, Ecto.Changeset.t()}
+  def update_transcript_owner(%Transcript{} = transcript, person_id) do
+    transcript
+    |> change_transcript_owner(person_id)
+    |> Repo.update()
+  end
+
+  @doc "Validates private execution ownership without changing its messages or capability."
+  @spec change_execution_owner(ExecutionRecord.t(), pos_integer()) :: Ecto.Changeset.t()
+  def change_execution_owner(%ExecutionRecord{} = execution, person_id),
+    do: ExecutionRecord.changeset(execution, %{person_id: person_id})
+
+  @doc "Updates private execution ownership without changing its messages or capability."
+  @spec update_execution_owner(ExecutionRecord.t(), pos_integer()) ::
+          {:ok, ExecutionRecord.t()} | {:error, Ecto.Changeset.t()}
+  def update_execution_owner(%ExecutionRecord{} = execution, person_id) do
+    execution
+    |> change_execution_owner(person_id)
+    |> Repo.update()
+  end
 
   # ── Conversations ──────────────────────────────────────────────────
 
@@ -269,7 +360,47 @@ defmodule Zaq.Engine.Conversations do
              finalization_token: String.t() | nil
            }}
           | {:error, term()}
-  def admit_incoming(%Incoming{} = msg) do
+  def admit_incoming(%Incoming{routing_context: %{source_scope: :invalid}}),
+    do: {:error, :invalid_history_source}
+
+  def admit_incoming(%Incoming{routing_context: %{conversation_type: nil}} = msg),
+    do: admit_unlocked(msg, :none)
+
+  def admit_incoming(%Incoming{message_id: id} = msg) when is_binary(id) and id != "" do
+    Repo.transaction(fn ->
+      lock_admission_source(msg)
+      source = canonical_admission_source(msg)
+
+      result =
+        case source do
+          {:ok, _provider, _account_key} -> admit_unlocked(msg, source)
+          :none -> admit_unlocked(msg, source)
+          {:error, _} = error -> error
+        end
+
+      case result do
+        {:ok, admitted} -> admitted
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  def admit_incoming(%Incoming{} = msg), do: admit_unlocked(msg, :none)
+
+  defp lock_admission_source(%Incoming{message_id: id, routing_context: context} = msg) do
+    if is_binary(id) and id != "" and not is_nil(context.conversation_type) and
+         is_integer(context.channel_config_id) and context.channel_config_id > 0 and
+         SourceIdentity.valid_scope?(context.source_scope) do
+      TranscriptHistory.lock_source_identity(
+        to_string(msg.provider),
+        context.channel_config_id,
+        %{source_scope: context.source_scope},
+        %{external_message_id: id}
+      )
+    end
+  end
+
+  defp admit_unlocked(msg, source) do
     identity = conversation_identity(msg)
     channel_user_id = identity.conversation_key || identity.participant_id || msg.author_id
 
@@ -277,7 +408,7 @@ defmodule Zaq.Engine.Conversations do
          {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
          {:ok, conv} <- maybe_assign_person(conv, Incoming.person_id(msg)),
          {:ok, {user_message, admitted?, finalization_token}} <-
-           get_or_insert_admitted_message(conv, msg) do
+           get_or_insert_admitted_message(conv, msg, source) do
       {:ok,
        %{
          conversation_id: conv.id,
@@ -288,13 +419,186 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  defp get_or_insert_admitted_message(%Conversation{} = conv, %Incoming{} = msg) do
+  defp get_or_insert_admitted_message(%Conversation{} = conv, %Incoming{} = msg, source) do
     case admitted_message(conv.id, msg.message_id) do
       %Message{} = message ->
-        {:ok, {message, false, nil}}
+        if matching_admitted_replay?(message, msg),
+          do: {:ok, {message, false, nil}},
+          else: {:error, :source_conflict}
 
       nil ->
-        insert_admitted_message(conv, msg)
+        case adopt_canonical_message(conv, msg, source) do
+          :none -> insert_admitted_message(conv, msg)
+          result -> result
+        end
+    end
+  end
+
+  defp matching_admitted_replay?(message, msg) do
+    expected_source =
+      case normalized_history_source(msg) do
+        {:ok, source} -> source
+        :error -> nil
+      end
+
+    message.role == "user" and message.content == (msg.content || "") and
+      message.author_id == msg.author_id and
+      Map.get(message.metadata || %{}, "history_source") == expected_source
+  end
+
+  defp adopt_canonical_message(conv, msg, source) do
+    case source do
+      {:ok, provider, account_key} ->
+        maybe_attach_canonical_admission(conv, msg, provider, account_key)
+
+      _ ->
+        :none
+    end
+  end
+
+  defp maybe_attach_canonical_admission(conv, msg, provider, account_key) do
+    case Repo.get_by(Message,
+           source_provider: provider,
+           source_account_key: account_key,
+           external_message_id: msg.message_id
+         ) do
+      %Message{} = canonical -> attach_canonical_in_transaction(conv, msg, canonical.id)
+      nil -> :none
+    end
+  end
+
+  defp attach_canonical_in_transaction(conv, msg, id) do
+    Repo.transaction(fn ->
+      locked = Repo.one(from m in Message, where: m.id == ^id, lock: "FOR UPDATE")
+
+      case attach_canonical_admission(conv, msg, locked) do
+        {:ok, result} -> result
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp canonical_admission_source(%Incoming{message_id: id, routing_context: context} = msg)
+       when is_binary(id) and id != "" do
+    provider = to_string(msg.provider)
+    config_id = context.channel_config_id
+    {:ok, kind} = CommunicationPolicy.kind(msg)
+
+    source_scope = context.source_scope
+
+    with {:ok, _} <- Facts.strategy(%Facts{provider: provider, kind: kind}),
+         true <- is_integer(config_id) and config_id > 0,
+         true <- SourceIdentity.valid_scope?(source_scope),
+         true <- kind != :replicated or (is_binary(source_scope) and source_scope != ""),
+         %ChannelConfig{provider: ^provider, kind: "retrieval", enabled: true, archived_at: nil} =
+           config <-
+           Repo.get(ChannelConfig, config_id),
+         true <- kind != :replicated or match?({:ok, _}, normalized_history_source(msg, config)) do
+      {:ok, provider, SourceIdentity.account_key(provider, config_id, source_scope)}
+    else
+      _ -> {:error, :invalid_history_source}
+    end
+  end
+
+  defp canonical_admission_source(_msg), do: :none
+
+  defp attach_canonical_admission(conv, msg, %Message{} = message) do
+    cond do
+      not matching_canonical_admission?(message, msg) ->
+        {:error, :source_conflict}
+
+      message.role == "user" and message.conversation_id == conv.id ->
+        {:ok, {message, false, nil}}
+
+      message.role != "external" or not is_nil(message.conversation_id) ->
+        {:error, :source_conflict}
+
+      true ->
+        adopt_canonical_user_turn(conv, msg, message)
+    end
+  end
+
+  defp attach_canonical_admission(_conv, _msg, nil), do: {:error, :source_conflict}
+
+  defp matching_canonical_admission?(message, msg) do
+    message.content == msg.content and message.author_id == msg.author_id and
+      matching_canonical_placement?(message.id, msg)
+  end
+
+  defp matching_canonical_placement?(message_id, msg) do
+    {:ok, kind} = CommunicationPolicy.kind(msg)
+    facts = %Facts{provider: to_string(msg.provider), kind: kind}
+
+    case Facts.strategy(facts) do
+      {:ok, kind} ->
+        strategy = Atom.to_string(kind)
+
+        thread_scope =
+          case kind do
+            :shared -> msg.thread_id
+            :replicated -> msg.routing_context.conversation_id
+            _ -> nil
+          end
+
+        message_id
+        |> canonical_placements(msg, strategy)
+        |> scope_admission_thread(thread_scope)
+        |> Repo.exists?()
+
+      _ ->
+        false
+    end
+  end
+
+  defp canonical_placements(message_id, msg, strategy) do
+    channel_id =
+      if strategy == "replicated",
+        do: msg.routing_context.conversation_id || msg.channel_id,
+        else: msg.channel_id
+
+    from placement in TranscriptMessage,
+      join: transcript in Transcript,
+      on: transcript.id == placement.transcript_id,
+      where:
+        placement.message_id == ^message_id and
+          transcript.external_channel_id == ^channel_id and
+          transcript.channel_config_id == ^msg.routing_context.channel_config_id and
+          transcript.provider == ^to_string(msg.provider) and
+          transcript.strategy == ^strategy
+  end
+
+  defp scope_admission_thread(query, nil),
+    do: where(query, [_, transcript], is_nil(transcript.external_thread_id))
+
+  defp scope_admission_thread(query, thread_id),
+    do: where(query, [_, transcript], transcript.external_thread_id == ^thread_id)
+
+  defp adopt_canonical_user_turn(conv, msg, message) do
+    token = Ecto.UUID.generate()
+
+    metadata =
+      (message.metadata || %{})
+      |> Map.merge(incoming_attachment_metadata(msg))
+      |> Map.put("execution_status", "pending")
+      |> Map.put("finalization_token_hash", finalization_token_hash(token))
+      |> maybe_put_external_message_id(msg.message_id)
+      |> maybe_put_history_source(msg)
+
+    message
+    |> Message.changeset(%{
+      conversation_id: conv.id,
+      role: "user",
+      content: msg.content,
+      metadata: metadata
+    })
+    |> Repo.update()
+    |> case do
+      {:ok, admitted} ->
+        after_message_insert(conv, admitted)
+        {:ok, {admitted, true, token}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -307,33 +611,49 @@ defmodule Zaq.Engine.Conversations do
       |> Map.put("execution_status", "pending")
       |> Map.put("finalization_token_hash", finalization_token_hash(finalization_token))
       |> maybe_put_external_message_id(msg.message_id)
+      |> maybe_put_history_source(msg)
 
     conv
-    |> add_message(%{role: "user", content: msg.content || "", metadata: metadata})
+    |> add_message(%{
+      role: "user",
+      content: msg.content || "",
+      author_id: msg.author_id,
+      provider_sent_at: msg.routing_context.provider_sent_at,
+      metadata: metadata
+    })
     |> case do
       {:ok, message} -> {:ok, {message, true, finalization_token}}
       error -> error
     end
-    |> recover_admitted_message_conflict(conv.id, msg.message_id)
+    |> recover_admitted_message_conflict(conv.id, msg)
   end
 
   defp recover_admitted_message_conflict(
          {:error, %Ecto.Changeset{} = changeset} = error,
          conversation_id,
-         external_message_id
+         %Incoming{} = incoming
        ) do
     if Keyword.has_key?(changeset.errors, :metadata) do
-      case admitted_message(conversation_id, external_message_id) do
-        %Message{} = message -> {:ok, {message, false, nil}}
-        nil -> error
-      end
+      recover_existing_admission(conversation_id, incoming, error)
     else
       error
     end
   end
 
-  defp recover_admitted_message_conflict(result, _conversation_id, _external_message_id),
+  defp recover_admitted_message_conflict(result, _conversation_id, _incoming),
     do: result
+
+  defp recover_existing_admission(conversation_id, incoming, error) do
+    case admitted_message(conversation_id, incoming.message_id) do
+      %Message{} = message ->
+        if matching_admitted_replay?(message, incoming),
+          do: {:ok, {message, false, nil}},
+          else: {:error, :source_conflict}
+
+      nil ->
+        error
+    end
+  end
 
   defp admitted_message(_conversation_id, nil), do: nil
   defp admitted_message(_conversation_id, ""), do: nil
@@ -356,6 +676,56 @@ defmodule Zaq.Engine.Conversations do
   defp maybe_put_external_message_id(metadata, external_message_id),
     do: Map.put(metadata, "external_message_id", to_string(external_message_id))
 
+  defp maybe_put_history_source(metadata, incoming) do
+    case normalized_history_source(incoming) do
+      {:ok, source} -> Map.put(metadata, "history_source", source)
+      :error -> metadata
+    end
+  end
+
+  defp normalized_history_source(incoming, config \\ nil)
+
+  defp normalized_history_source(
+         %Incoming{
+           provider: provider,
+           channel_id: channel_id,
+           author_id: author_id,
+           routing_context:
+             %{
+               channel_config_id: config_id,
+               conversation_type: :recipient_addressed,
+               source_scope: scope,
+               audience: %Audience{sender: sender} = audience
+             } = context
+         },
+         config
+       ) do
+    provider = to_string(provider)
+
+    with true <- is_binary(scope) and scope != "" and byte_size(scope) <= 255,
+         true <- sender == author_id,
+         %Audience{} <- Audience.normalize(audience),
+         %ChannelConfig{
+           provider: ^provider,
+           kind: "retrieval",
+           enabled: true,
+           archived_at: nil
+         } <-
+           config || Repo.get(ChannelConfig, config_id) do
+      {:ok,
+       %{
+         "provider" => provider,
+         "channel_config_id" => config_id,
+         "channel_id" => context.conversation_id || channel_id,
+         "source_scope" => scope
+       }}
+    else
+      _ -> :error
+    end
+  end
+
+  defp normalized_history_source(_incoming, _config), do: :error
+
   @doc """
   Finalizes a handled Agent outcome against its previously admitted user message.
 
@@ -373,22 +743,22 @@ defmodule Zaq.Engine.Conversations do
       Repo.transaction(fn ->
         finalize_transaction(user_message_id, finalization_token, result, artifacts, opts)
       end)
-      |> case do
-        {:ok, %{assistant_message: %Message{} = assistant} = finalized} ->
-          after_message_insert(get_conversation(assistant.conversation_id), assistant)
-          {:ok, Map.delete(finalized, :assistant_message)}
-
-        {:ok, finalized} ->
-          {:ok, finalized}
-
-        {:error, reason} ->
-          {:error, normalize_artifact_error(reason)}
-      end
+      |> complete_finalization()
     end
   end
 
   def finalize_incoming(_user_message_id, _finalization_token, _result, _opts),
     do: {:error, :invalid_finalization}
+
+  defp complete_finalization({:ok, %{assistant_message: %Message{} = assistant} = finalized}) do
+    after_message_insert(get_conversation(assistant.conversation_id), assistant)
+    {:ok, Map.delete(finalized, :assistant_message)}
+  end
+
+  defp complete_finalization({:ok, finalized}), do: {:ok, finalized}
+
+  defp complete_finalization({:error, reason}),
+    do: {:error, normalize_artifact_error(reason)}
 
   defp finalize_transaction(user_message_id, finalization_token, result, artifacts, opts) do
     case lock_admitted_message(user_message_id) do
@@ -524,51 +894,6 @@ defmodule Zaq.Engine.Conversations do
     }
   end
 
-  @doc """
-  Persists a user message and its pipeline result into a conversation.
-  Gets or creates a conversation scoped to the sender and provider (channel type).
-  """
-  def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result),
-    do: persist_from_incoming(msg, result, [])
-
-  @doc "Persists an incoming exchange with optional artifact/config overrides."
-  def persist_from_incoming(%Zaq.Engine.Messages.Incoming{} = msg, result, opts)
-      when is_list(opts) do
-    identity = conversation_identity(msg)
-    channel_user_id = identity.conversation_key || identity.participant_id || msg.author_id
-    %{body: assistant_body, sources: assistant_sources} = normalize_assistant_response(result)
-
-    with {:ok, conv} <- conversation_for_persistence(msg, channel_user_id, identity),
-         {:ok, conv} <- maybe_store_author_id(conv, msg.author_id),
-         {:ok, conv} <-
-           maybe_assign_person(conv, Incoming.person_id(msg) || Map.get(result, :person_id)),
-         {:ok, artifacts} <- prepare_trace_artifacts(result, opts),
-         {:ok, assistant_msg} <-
-           persist_exchange(conv, msg, result, assistant_body, assistant_sources, artifacts, opts) do
-      {:ok, %{conversation_id: conv.id, assistant_message_id: assistant_msg.id}}
-    end
-  end
-
-  defp persist_exchange(conv, msg, result, assistant_body, assistant_sources, artifacts, opts) do
-    user_attrs = %{
-      role: "user",
-      content: msg.content || "",
-      metadata: incoming_attachment_metadata(msg)
-    }
-
-    assistant_attrs =
-      assistant_message_attrs(result, assistant_body, assistant_sources, artifacts)
-
-    Multi.new()
-    |> Multi.insert(:user_message, message_changeset(conv, user_attrs))
-    |> Multi.insert(:assistant_message, message_changeset(conv, assistant_attrs))
-    |> Multi.run(:trace_artifacts, fn repo, %{assistant_message: assistant_message} ->
-      insert_trace_artifacts(repo, assistant_message, artifacts, artifact_max_bytes(opts))
-    end)
-    |> Repo.transaction()
-    |> finish_persist_exchange(conv)
-  end
-
   defp assistant_message_attrs(result, assistant_body, assistant_sources, artifacts) do
     %{
       role: "assistant",
@@ -584,18 +909,6 @@ defmodule Zaq.Engine.Conversations do
       trace: assistant_trace(result, artifacts)
     }
   end
-
-  defp finish_persist_exchange(
-         {:ok, %{user_message: user_message, assistant_message: assistant_message}},
-         conv
-       ) do
-    after_message_insert(conv, user_message)
-    after_message_insert(conv, assistant_message)
-    {:ok, assistant_message}
-  end
-
-  defp finish_persist_exchange({:error, _operation, reason, _changes}, _conv),
-    do: {:error, normalize_artifact_error(reason)}
 
   defp prepare_trace_artifacts(result, opts) when is_map(result) do
     result
@@ -685,7 +998,7 @@ defmodule Zaq.Engine.Conversations do
   @doc """
   Persists one message into the conversation resolved from an incoming routing envelope.
 
-  Unlike `persist_from_incoming/2`, this stores exactly one message and defaults
+  This stores exactly one message and defaults
   the message role to `"assistant"`, which supports assistant-initiated follow-ups
   or notifications without fabricating a user turn.
   """
@@ -737,7 +1050,7 @@ defmodule Zaq.Engine.Conversations do
       external_thread_id: ConversationIdentity.identifier(identity, "thread_id"),
       participant_id: participant_id,
       scoped?:
-        is_nil(conversation_key) and channel_type not in ["api", "bo", "email:imap"] and
+        identity["scoped"] == true and is_nil(conversation_key) and
           not is_nil(external_channel_id) and not is_nil(participant_id)
     }
   end
@@ -1296,13 +1609,6 @@ defmodule Zaq.Engine.Conversations do
   defp maybe_limit(query, nil), do: query
   defp maybe_limit(query, n) when is_integer(n), do: limit(query, ^n)
 
-  def get_message_by_external_id(external_message_id) when is_binary(external_message_id) do
-    Repo.one(
-      from m in Message,
-        where: fragment("?->>'external_message_id' = ?", m.metadata, ^external_message_id)
-    )
-  end
-
   # ── Ratings ────────────────────────────────────────────────────────
 
   @doc "Creates a rating for a message."
@@ -1412,20 +1718,87 @@ defmodule Zaq.Engine.Conversations do
     end)
   end
 
-  @doc """
-  Creates or updates a rating for a message identified by its provider-assigned
-  external id.
-
-  Origin-agnostic: `rater_attrs` is the same map `rate_message_by_id/2` takes, so
-  a channel-originated rating and a back-office one differ only in how the
-  message is looked up. Returns `{:error, :not_found}` when no message carries
-  that external id.
-  """
-  def rate_message_by_external_id(external_message_id, rater_attrs, _opts \\ []) do
-    case get_message_by_external_id(to_string(external_message_id)) do
-      %Message{} = message -> rate_message_by_id(message.id, rater_attrs)
-      nil -> {:error, :not_found}
+  @doc "Rates a scoped canonical message from trusted Channels ingress for a resolved provider actor."
+  def rate_message_by_source(
+        %{
+          provider: provider,
+          channel_config_id: config_id,
+          channel_id: channel_id,
+          source_scope: scope,
+          message_id: external_id
+        } = reference,
+        %{channel_user_id: actor_id, rating: rating} = attrs
+      )
+      when is_binary(provider) and is_integer(config_id) and config_id > 0 and rating in 1..5 do
+    with {:scope, true} <-
+           {:scope,
+            valid_rating_identifiers?([channel_id, external_id, actor_id]) and
+              SourceIdentity.valid_scope?(scope)},
+         {:connector,
+          %ChannelConfig{provider: ^provider, enabled: true, archived_at: nil, kind: "retrieval"}} <-
+           {:connector, Repo.get(ChannelConfig, config_id)},
+         {:actor, {:ok, %Person{status: "active"} = person}} <-
+           {:actor, People.match_by_channel(provider, actor_id, config_id)} do
+      Repo.transaction(fn -> rate_source_locked(reference, person, attrs) end)
+    else
+      {:scope, _} -> {:error, :invalid_source_scope}
+      {:connector, _} -> {:error, :invalid_connector}
+      {:actor, _} -> {:error, :unresolved_actor}
     end
+  end
+
+  def rate_message_by_source(_, _), do: {:error, :invalid_request}
+
+  defp valid_rating_identifiers?(ids), do: Enum.all?(ids, &(is_binary(&1) and &1 != ""))
+
+  defp rate_source_locked(reference, person, attrs) do
+    %{
+      provider: provider,
+      channel_config_id: config_id,
+      channel_id: channel_id,
+      message_id: external_id
+    } = reference
+
+    key = SourceIdentity.account_key(provider, config_id, reference.source_scope)
+
+    message =
+      Repo.one(
+        from m in Message,
+          where:
+            m.source_provider == ^provider and
+              m.source_account_key == ^key and m.external_message_id == ^external_id,
+          lock: "FOR UPDATE"
+      )
+
+    with %Message{} <- message,
+         {:scope, true} <- {:scope, source_placement?(message, provider, config_id, channel_id)},
+         {:ok, saved} <-
+           upsert_rating(message, %{
+             person_id: person.id,
+             rating: attrs.rating,
+             comment: attrs[:comment]
+           }) do
+      saved
+    else
+      {:error, reason} -> Repo.rollback(reason)
+      {:scope, false} -> Repo.rollback(:source_scope_mismatch)
+      _ -> Repo.rollback(:not_found)
+    end
+  end
+
+  # Provider authorization is established at Channels ingress. This checks the
+  # event's exact target, not whether the actor may read ZAQ's stored history.
+  defp source_placement?(message, provider, config_id, channel_id) do
+    Repo.exists?(
+      from p in TranscriptMessage,
+        join: t in Transcript,
+        on: t.id == p.transcript_id,
+        where:
+          p.message_id == ^message.id and t.provider == ^provider and
+            t.channel_config_id == ^config_id and
+            t.external_channel_id == ^channel_id,
+        select: p.id
+    )
   end
 
   # ── Sharing ────────────────────────────────────────────────────────
@@ -1468,6 +1841,8 @@ defmodule Zaq.Engine.Conversations do
 
   # ── Private ────────────────────────────────────────────────────────
 
+  defp list_conversation_messages(nil), do: []
+
   defp list_conversation_messages(conversation_id) do
     from(m in Message,
       where: m.conversation_id == ^conversation_id,
@@ -1476,9 +1851,11 @@ defmodule Zaq.Engine.Conversations do
     |> Repo.all()
   end
 
-  defp enqueue_token_aggregator(conversation_id, %Message{model: model})
+  defp enqueue_token_aggregator(conversation_id, %Message{model: model, inserted_at: inserted_at})
        when is_binary(model) do
-    %{conversation_id: conversation_id, model: model}
+    date = inserted_at |> DateTime.to_date() |> Date.to_iso8601()
+
+    %{conversation_id: conversation_id, model: model, date: date}
     |> TokenUsageAggregator.new()
     |> Oban.insert()
   end

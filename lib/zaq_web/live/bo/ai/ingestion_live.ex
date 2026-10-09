@@ -11,11 +11,11 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.DataSource.CreateDocument
   alias Zaq.Agent.Tools.General.EncodeBase64
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Channels.WebhookUrl
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Document, ExternalSource, IngestJob}

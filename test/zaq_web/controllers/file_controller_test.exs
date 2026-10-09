@@ -4,8 +4,8 @@ defmodule ZaqWeb.FileControllerTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Ingestion.Document
   alias Zaq.Repo
   alias Zaq.Storage.Materializers.DiskDocument

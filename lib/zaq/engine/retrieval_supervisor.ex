@@ -8,7 +8,7 @@ defmodule Zaq.Engine.RetrievalSupervisor do
 
   ## Adapter resolution
 
-  Adapters are resolved from the `provider` field on `Zaq.Channels.ChannelConfig`.
+  Adapters are resolved from the `provider` field on `Zaq.Engine.ChannelConfig`.
   Each provider string maps to an adapter module:
 
       "slack"      => Zaq.Channels.Retrieval.Slack

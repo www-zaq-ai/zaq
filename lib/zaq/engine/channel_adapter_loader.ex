@@ -33,7 +33,7 @@ defmodule Zaq.Engine.ChannelAdapterLoader do
   - `:kind_label` (defaults to `to_string(kind)`)
   """
 
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
 
   require Logger
 

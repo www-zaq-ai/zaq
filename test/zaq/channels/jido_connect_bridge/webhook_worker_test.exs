@@ -4,8 +4,8 @@ defmodule Zaq.Channels.JidoConnectBridge.WebhookWorkerTest do
   use Zaq.DataCase, async: false
 
   alias Oban.Job
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoConnectBridge.WebhookWorker
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
 
   test "perform/1 returns cancel for missing config args" do

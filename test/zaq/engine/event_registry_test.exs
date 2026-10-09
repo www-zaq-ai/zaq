@@ -124,15 +124,15 @@ defmodule Zaq.Engine.EventRegistryTest do
     test "stores unseen opts[:action] as false when no name is set" do
       pid = start_registry()
 
-      broadcast(build_action_event(:persist_from_incoming))
+      broadcast(build_action_event(:finalize_incoming))
       :sys.get_state(pid)
 
-      assert Map.get(get_events(pid), "engine:persist_from_incoming") == false
+      assert Map.get(get_events(pid), "engine:finalize_incoming") == false
     end
 
     test "fires TriggerNode when opts[:action] matches a known trigger event_name" do
       {:ok, _} =
-        Workflows.create_trigger(%{event_name: "engine:persist_from_incoming", enabled: true})
+        Workflows.create_trigger(%{event_name: "engine:finalize_incoming", enabled: true})
 
       test_pid = self()
 
@@ -142,10 +142,10 @@ defmodule Zaq.Engine.EventRegistryTest do
       end
 
       with_registry_as_singleton([trigger_node_fn: trigger_node_fn], fn pid ->
-        broadcast(build_action_event(:persist_from_incoming))
+        broadcast(build_action_event(:finalize_incoming))
         :sys.get_state(pid)
 
-        assert_receive {:trigger_node_fired, "engine:persist_from_incoming"}
+        assert_receive {:trigger_node_fired, "engine:finalize_incoming"}
       end)
     end
 

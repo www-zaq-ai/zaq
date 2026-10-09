@@ -50,6 +50,7 @@ defmodule ZaqWeb.Components.BOLayout do
   slot :page_icon, doc: "Optional custom page icon; takes precedence over page_icon_provider."
 
   slot :subtitle, doc: "Optional custom subtitle content; takes precedence over page_subtitle."
+  slot :page_actions, doc: "Optional page-specific actions in the fixed header."
 
   def bo_layout(assigns) do
     app_version =
@@ -424,6 +425,7 @@ defmodule ZaqWeb.Components.BOLayout do
             />
           </:context>
           <:actions>
+            {render_slot(@page_actions)}
             <.theme_toggle />
             <a
               id="header-notifications-link"
@@ -946,6 +948,13 @@ defmodule ZaqWeb.Components.BOLayout do
             icon: "history",
             label: "History",
             active: current_path == "/bo/history"
+          },
+          # Communication-channel transcript inspection
+          %{
+            href: ~p"/bo/channels/history",
+            icon: "history",
+            label: "Channel history",
+            active: String.starts_with?(current_path, "/bo/channels/history")
           }
         ]
       }

@@ -13,11 +13,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.ZAQRouter
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.DiskBridge
   alias Zaq.Contracts.{Record, RecordPage}
   alias Zaq.Contracts.Record.Provenance
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Repo
   alias Zaq.System

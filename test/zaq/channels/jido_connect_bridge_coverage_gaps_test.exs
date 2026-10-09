@@ -24,9 +24,9 @@ defmodule Zaq.Channels.JidoConnectBridgeCoverageGapsTest do
 
   alias Jido.Connect.Spec
   alias StubIntegration, as: BridgeStubIntegration
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoConnectBridge
   alias Zaq.Contracts.Record.Provenance
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Ingestion.Document

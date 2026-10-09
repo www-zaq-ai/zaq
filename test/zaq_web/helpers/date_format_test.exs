@@ -77,6 +77,15 @@ defmodule ZaqWeb.Helpers.DateFormatTest do
   end
 
   describe "inject_date_separators/2" do
+    test "groups UTC messages by the displayed system-local day across midnight" do
+      stub_system_timezone("GMT+03:00")
+      first = %{timestamp: ~U[2026-10-01 22:30:00Z]}
+      second = %{timestamp: ~U[2026-10-02 01:30:00Z]}
+
+      assert [%{type: :date_separator, date: ~D[2026-10-02]}, ^first, ^second] =
+               DateFormat.inject_date_separators([first, second])
+    end
+
     test "empty list returns empty list" do
       assert DateFormat.inject_date_separators([]) == []
     end

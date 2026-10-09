@@ -1,6 +1,6 @@
 defmodule Zaq.TestSupport.PeopleSourceFixture do
   @moduledoc "Sandboxed, unindexed disk source shared by People resource and browser tests."
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Repo
   alias Zaq.Storage
   alias Zaq.Storage.EntryCatalog

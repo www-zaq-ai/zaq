@@ -1,8 +1,14 @@
 defmodule Zaq.Engine.PeopleConversationsTest do
   use Zaq.DataCase, async: false
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions, PersonSession}
-  alias Zaq.Engine.{Conversations, Events, PeopleConversations}
+  alias Zaq.Engine.{ChannelConfig, Conversations, Events, PeopleConversations}
+  alias Zaq.Engine.Conversations.Message
+  alias Zaq.Engine.History.Facts
+  alias Zaq.Event
   alias Zaq.Ingestion.Document
+  alias Zaq.NodeRouter
+  alias Zaq.Permissions
+  alias Zaq.Permissions.{ChannelHistoryResource, ResourcePermission}
   alias Zaq.Storage.Materializers.DiskDocument
 
   setup do
@@ -63,6 +69,119 @@ defmodule Zaq.Engine.PeopleConversationsTest do
     assert {:error, :not_found} = call(ctx, :detail, %{conversation_id: "bad"})
     {:ok, _} = PeopleAuth.revoke_session(ctx.token)
     assert {:error, :invalid_session} = call(ctx, :detail)
+  end
+
+  test "channel history derives the Person from the bearer and projects only bounded public content",
+       ctx do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "People channel history",
+        provider: "mattermost",
+        kind: "retrieval",
+        url: "https://example.invalid",
+        token: "fixture-token"
+      })
+      |> Repo.insert!()
+
+    facts = %Facts{
+      provider: "mattermost",
+      channel_config_id: config.id,
+      channel_id: "room-1",
+      kind: :direct,
+      actor_person_id: ctx.person.id
+    }
+
+    source = %{provider: "mattermost", channel_config_id: config.id, provenance: "provider_event"}
+
+    assert {:ok, captured} =
+             Conversations.capture_canonical_message(
+               facts,
+               %{
+                 role: "external",
+                 content: "visible",
+                 author_id: "sender-1",
+                 external_message_id: "history-1"
+               },
+               source
+             )
+
+    captured.message_id
+    |> then(&Repo.get!(Message, &1))
+    |> Ecto.Changeset.change(metadata: %{"private" => "secret"}, trace: [%{"raw" => "secret"}])
+    |> Repo.update!()
+
+    request = %{transcript_id: captured.transcript_id, person_id: ctx.other.id}
+    assert {:error, :forbidden} = call(ctx, :channel_history, request)
+    grant_history()
+
+    assert {:ok, [%{content: "visible", message_id: message_id} = row]} =
+             call(ctx, :channel_history, request)
+
+    assert message_id == captured.message_id
+    refute Map.has_key?(row, :metadata)
+    refute Map.has_key?(row, :trace)
+
+    event =
+      Event.new(Map.merge(request, %{op: :channel_history, token: ctx.token}), :engine,
+        opts: [action: :people_conversations, confidential: true]
+      )
+      |> NodeRouter.dispatch()
+
+    assert event.response == {:ok, [row]}
+
+    assert {:ok, []} =
+             call(ctx, :channel_history, Map.put(request, :after_position, row.position))
+
+    assert {:error, :not_found} =
+             call(ctx, :channel_history, %{
+               request
+               | transcript_id: other_history_transcript(ctx.other, config, source)
+             })
+
+    assert {:error, :invalid_cursor} =
+             call(ctx, :channel_history, Map.put(request, :limit, 101))
+
+    assert {:error, :not_found} =
+             call(ctx, :channel_history, Map.put(request, :transcript_id, "bad"))
+
+    resource = ChannelHistoryResource.for("mattermost", config.id, "room-1")
+
+    provider_grant =
+      Repo.get_by!(ResourcePermission,
+        resource_type: elem(resource, 0),
+        resource_id: elem(resource, 1),
+        person_id: ctx.person.id,
+        source_key: "channel_history:participant"
+      )
+
+    assert :ok = Permissions.revoke(resource, provider_grant)
+    assert {:error, :not_found} = call(ctx, :channel_history, request)
+
+    {:ok, _} = PeopleAuth.revoke_session(ctx.token)
+    assert {:error, :invalid_session} = call(ctx, :channel_history, request)
+  end
+
+  defp other_history_transcript(other, config, source) do
+    {:ok, result} =
+      Conversations.capture_canonical_message(
+        %Facts{
+          provider: "mattermost",
+          channel_config_id: config.id,
+          channel_id: "private-room",
+          kind: :direct,
+          actor_person_id: other.id
+        },
+        %{
+          role: "external",
+          content: "other",
+          author_id: "sender-2",
+          external_message_id: "history-2"
+        },
+        source
+      )
+
+    result.transcript_id
   end
 
   test "paging is bounded and includes archived owned history", ctx do

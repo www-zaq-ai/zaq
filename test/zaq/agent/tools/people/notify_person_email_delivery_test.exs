@@ -4,7 +4,8 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonEmailDeliveryTest do
 
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions, PersonLoginChallenge}
   alias Zaq.Agent.Tools.People.NotifyPerson
-  alias Zaq.Channels.{ChannelConfig, PeopleAuthDeliveryMock}
+  alias Zaq.Channels.PeopleAuthDeliveryMock
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.PeopleAuthGateway
   alias Zaq.TestSupport.PeopleAuthDelivery
 

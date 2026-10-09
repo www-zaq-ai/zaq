@@ -8,14 +8,14 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
 
   alias Zaq.Accounts
   alias Zaq.Channels.AgentRouting
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias ZaqWeb.Live.BO.Communication.NotificationImapLive
 
   defmodule RouterStubOk do
     def list_mailboxes("email:imap", _config), do: {:ok, ["INBOX", "Support", "Sales"]}
-    def sync_provider_runtime("email:imap"), do: :ok
+    def sync_provider_runtime(%{provider: "email:imap"}), do: :ok
   end
 
   defmodule RouterStubSlow do
@@ -24,42 +24,42 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
       {:ok, ["INBOX", "Support"]}
     end
 
-    def sync_provider_runtime("email:imap"), do: :ok
+    def sync_provider_runtime(%{provider: "email:imap"}), do: :ok
   end
 
   defmodule RouterStubError do
     def list_mailboxes("email:imap", _config), do: {:error, :auth_failed}
-    def sync_provider_runtime("email:imap"), do: :ok
+    def sync_provider_runtime(%{provider: "email:imap"}), do: :ok
   end
 
   defmodule RouterStubConnectError do
     def list_mailboxes("email:imap", _config), do: {:error, {:connect_failed, :econnrefused}}
-    def sync_provider_runtime("email:imap"), do: :ok
+    def sync_provider_runtime(%{provider: "email:imap"}), do: :ok
   end
 
   defmodule RouterStubListError do
     def list_mailboxes("email:imap", _config), do: {:error, {:list_mailboxes_failed, :timeout}}
-    def sync_provider_runtime("email:imap"), do: :ok
+    def sync_provider_runtime(%{provider: "email:imap"}), do: :ok
   end
 
   defmodule RouterStubRaise do
     def list_mailboxes("email:imap", _config), do: raise("boom")
-    def sync_provider_runtime("email:imap"), do: :ok
+    def sync_provider_runtime(%{provider: "email:imap"}), do: :ok
   end
 
   defmodule RouterStubExit do
     def list_mailboxes("email:imap", _config), do: exit(:killed)
-    def sync_provider_runtime("email:imap"), do: :ok
+    def sync_provider_runtime(%{provider: "email:imap"}), do: :ok
   end
 
   defmodule RouterStubSyncError do
     def list_mailboxes("email:imap", _config), do: {:ok, ["INBOX"]}
-    def sync_provider_runtime("email:imap"), do: {:error, :sync_failed}
+    def sync_provider_runtime(%{provider: "email:imap"}), do: {:error, :sync_failed}
   end
 
   defmodule RouterStubSyncNil do
     def list_mailboxes("email:imap", _config), do: {:ok, ["INBOX"]}
-    def sync_provider_runtime("email:imap"), do: nil
+    def sync_provider_runtime(%{provider: "email:imap"}), do: nil
   end
 
   defmodule NodeRouterDispatchStub do
@@ -73,20 +73,59 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
     end
 
     def dispatch(%Zaq.Event{opts: opts} = event) do
-      if pid = Process.whereis(:notification_imap_dispatch_observer) do
-        send(pid, {:notification_imap_dispatch_called, event})
+      if Keyword.get(opts, :action) != :email_connector_settings do
+        if pid = Process.whereis(:notification_imap_dispatch_observer) do
+          send(pid, {:notification_imap_dispatch_called, event})
+        end
       end
 
       response =
         case Keyword.get(opts, :action) do
-          :sync_provider_runtime -> :ok
-          :list_mailboxes -> {:ok, ["INBOX", "Support", "Sales"]}
+          :sync_provider_runtime ->
+            :ok
+
+          :list_mailboxes ->
+            {:ok, ["INBOX", "Support", "Sales"]}
         end
 
       %{event | response: response}
     end
 
     def call(_role, _mod, _fun, _args), do: {:error, :unexpected_call_path}
+  end
+
+  defmodule RoutingDeniedDispatchStub do
+    def dispatch(%Zaq.Event{opts: opts} = event) do
+      if Keyword.get(opts, :action) == :upsert_incoming_message_routing_rules do
+        %{event | response: {:error, :routing_denied}}
+      else
+        NodeRouterDispatchStub.dispatch(event)
+      end
+    end
+
+    def dispatch(event), do: NodeRouterDispatchStub.dispatch(event)
+  end
+
+  defmodule StatusSaveErrorDispatchStub do
+    def dispatch(%Zaq.Event{opts: opts, request: %{op: :save}} = event) do
+      if Keyword.get(opts, :action) == :email_connector_settings do
+        %{event | response: {:error, :engine_unavailable}}
+      else
+        NodeRouterDispatchStub.dispatch(event)
+      end
+    end
+
+    def dispatch(event), do: NodeRouterDispatchStub.dispatch(event)
+  end
+
+  defmodule RoutingReadErrorDispatchStub do
+    def dispatch(%Zaq.Event{opts: opts} = event) do
+      if Keyword.get(opts, :action) == :get_incoming_message_routing_rules do
+        %{event | response: {:error, :routing_unavailable}}
+      else
+        NodeRouterDispatchStub.dispatch(event)
+      end
+    end
   end
 
   setup :verify_on_exit!
@@ -152,6 +191,173 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
              view,
              "#imap-config-form input[name='imap_config[url]'][value='second.example.com']"
            )
+  end
+
+  test "unknown connector selection retains the current connector", %{conn: conn} do
+    channel = insert_imap_channel(%{url: "current.example.com"})
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    render_hook(view, "select_connector", %{"id" => "nonexistent"})
+
+    assert render(view) =~ "Connector not found."
+
+    assert has_element?(
+             view,
+             "#imap-config-form input[name='imap_config[url]'][value='current.example.com']"
+           )
+
+    assert Repo.get!(ChannelConfig, channel.id).url == "current.example.com"
+  end
+
+  test "routing failure reports saved configuration without persisting routing", %{conn: conn} do
+    previous = Application.get_env(:zaq, :notification_imap_node_router_module)
+    Application.put_env(:zaq, :notification_imap_node_router_module, RoutingDeniedDispatchStub)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:zaq, :notification_imap_node_router_module, previous),
+        else: Application.delete_env(:zaq, :notification_imap_node_router_module)
+    end)
+
+    agent = create_conversation_agent(true, "imap-routing-denied")
+
+    channel =
+      insert_imap_channel(%{
+        settings: %{
+          "imap" => %{"username" => "zaq@example.com", "selected_mailboxes" => ["INBOX"]}
+        }
+      })
+
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    render_hook(view, "save", %{
+      "imap_config" => %{
+        "url" => "saved.example.com",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "selected_mailboxes" => ["INBOX"],
+        "provider_default_agent_id" => to_string(agent.id)
+      }
+    })
+
+    assert Repo.get!(ChannelConfig, channel.id).url == "saved.example.com"
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: channel.id}) == nil
+    assert render(view) =~ "IMAP settings saved, but routing update failed"
+    assert has_element?(view, "#save-status-error")
+  end
+
+  test "activate reports status save errors and leaves connector disabled", %{conn: conn} do
+    previous = Application.get_env(:zaq, :notification_imap_node_router_module)
+    Application.put_env(:zaq, :notification_imap_node_router_module, StatusSaveErrorDispatchStub)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:zaq, :notification_imap_node_router_module, previous),
+        else: Application.delete_env(:zaq, :notification_imap_node_router_module)
+    end)
+
+    channel =
+      insert_imap_channel(%{
+        url: "imap.example.com",
+        settings: %{
+          "imap" => %{"username" => "zaq@example.com", "selected_mailboxes" => ["INBOX"]}
+        }
+      })
+
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+    view |> element("button[phx-click='activate']") |> render_click()
+
+    refute Repo.get!(ChannelConfig, channel.id).enabled
+    assert render(view) =~ "Failed to update IMAP status."
+    assert has_element?(view, "#save-status-error")
+  end
+
+  test "routing read failure renders mailbox routing fallback without changing stored rule", %{
+    conn: conn
+  } do
+    previous = Application.get_env(:zaq, :notification_imap_node_router_module)
+    Application.put_env(:zaq, :notification_imap_node_router_module, RoutingReadErrorDispatchStub)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:zaq, :notification_imap_node_router_module, previous),
+        else: Application.delete_env(:zaq, :notification_imap_node_router_module)
+    end)
+
+    agent = create_conversation_agent(true, "imap-routing-read")
+
+    channel =
+      insert_imap_channel(%{
+        settings: %{
+          "imap" => %{"username" => "zaq@example.com", "selected_mailboxes" => ["INBOX"]}
+        }
+      })
+
+    assert {:ok, _rule} =
+             IncomingMessageRouting.upsert_rule(
+               %{channel_config_id: channel.id, topic_id: "INBOX"},
+               %{routing_mode: :agent, configured_agent_id: agent.id}
+             )
+
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    assert has_element?(view, "#imap-config-form")
+
+    assert has_element?(
+             view,
+             "select[name='imap_config[mailbox_agent_ids][INBOX]'] option[value=''][selected]",
+             "Use fallback"
+           )
+
+    refute has_element?(
+             view,
+             "select[name='imap_config[mailbox_agent_ids][INBOX]'] option[value='#{agent.id}'][selected]"
+           )
+
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: channel.id, topic_id: "INBOX"}).configured_agent_id ==
+             agent.id
+  end
+
+  test "partial save payload preserves existing routing defaults", %{conn: conn} do
+    agent = create_conversation_agent(true, "imap-partial-save")
+
+    channel =
+      insert_imap_channel(%{
+        settings: %{
+          "imap" => %{"username" => "zaq@example.com", "selected_mailboxes" => ["INBOX"]}
+        }
+      })
+
+    assert {:ok, _rule} =
+             IncomingMessageRouting.upsert_rule(
+               %{channel_config_id: channel.id},
+               %{routing_mode: :agent, configured_agent_id: agent.id}
+             )
+
+    assert {:ok, _rule} =
+             IncomingMessageRouting.upsert_rule(
+               %{channel_config_id: channel.id, topic_id: "INBOX"},
+               %{routing_mode: :agent, configured_agent_id: agent.id}
+             )
+
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+
+    render_hook(view, "save", %{
+      "imap_config" => %{
+        "url" => "partial.example.com",
+        "username" => "zaq@example.com",
+        "password" => "secret",
+        "selected_mailboxes" => ["INBOX"]
+      }
+    })
+
+    assert has_element?(view, "#save-status-ok")
+
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: channel.id}).configured_agent_id ==
+             agent.id
+
+    assert IncomingMessageRouting.get_rule(%{channel_config_id: channel.id, topic_id: "INBOX"}).configured_agent_id ==
+             agent.id
   end
 
   test "selected IMAP inbox persists an explicit SMTP reply connector", %{conn: conn} do
@@ -303,6 +509,37 @@ defmodule ZaqWeb.Live.BO.Communication.NotificationImapLiveTest do
              reloaded_view,
              "#imap-config-form input[name='imap_config[username]'][value='zaq@example.com']"
            )
+  end
+
+  test "Add Config creates and selects a distinct named IMAP connector", %{conn: conn} do
+    original = insert_imap_channel(%{name: "Original IMAP", enabled: false})
+    original = Repo.get!(ChannelConfig, original.id)
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/email/imap")
+    view |> element("#new-imap-config") |> render_click()
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{
+      "imap_config" => %{
+        "connector_name" => "Second IMAP",
+        "url" => "second.example.com",
+        "port" => "993",
+        "username" => "second@example.com",
+        "password" => "test-secret"
+      }
+    })
+
+    assert has_element?(view, "#save-status-ok")
+    second = Repo.get_by!(ChannelConfig, name: "Second IMAP")
+    assert second.id != original.id
+    assert Repo.get!(ChannelConfig, original.id) == original
+
+    view
+    |> element("#imap-config-form")
+    |> render_submit(%{"imap_config" => %{"url" => "edited.example.com"}})
+
+    assert Repo.get!(ChannelConfig, second.id).url == "edited.example.com"
+    assert length(ChannelConfig.list_by_provider("email:imap")) == 2
   end
 
   test "save accepts blank optional username and parses positive strings", %{conn: conn} do

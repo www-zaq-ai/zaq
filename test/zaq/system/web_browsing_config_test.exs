@@ -2,8 +2,8 @@ defmodule Zaq.System.WebBrowsingConfigTest do
   use Zaq.DataCase, async: false
   use ExUnitProperties
 
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Api
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.System
   alias Zaq.System.WebBrowsingConfig

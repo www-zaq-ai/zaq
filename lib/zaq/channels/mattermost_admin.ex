@@ -8,7 +8,72 @@ defmodule Zaq.Channels.MattermostAdmin do
   """
 
   alias Jido.Chat.Mattermost.Transport.ReqClient
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.ConnectorConfig.Settings
+  alias Zaq.Engine.ChannelConfig
+
+  @membership_page_size 200
+  @membership_max_pages 50
+
+  @doc "Advertises whether the room identifier supports member queries."
+  def room_capabilities(_config, channel_id),
+    do: {:ok, %{members: valid_history_channel_id?(channel_id)}}
+
+  @doc "Returns complete member identifiers in the provider identity namespace."
+  def room_members(config, channel_id) do
+    with {:ok, snapshot} <- channel_membership_snapshot(config, channel_id) do
+      {:ok, Map.put(snapshot, :identity_platform, "mattermost")}
+    end
+  end
+
+  @doc "Reads a root post for bounded BO history context, verifying its exact room and identity."
+  def fetch_room_message(config, channel_id, message_id) when is_binary(message_id) do
+    with true <- Regex.match?(~r/\A[a-zA-Z0-9_-]{1,255}\z/, message_id),
+         {:ok,
+          %{
+            status: 200,
+            body:
+              %{
+                "id" => ^message_id,
+                "channel_id" => ^channel_id,
+                "root_id" => "",
+                "user_id" => author,
+                "message" => content
+              } = post
+          }} <-
+           Req.get(config.url <> "/api/v4/posts/" <> message_id,
+             headers: [{"Authorization", "Bearer " <> config.token}],
+             retry: false,
+             receive_timeout: 3_000
+           ),
+         true <- is_binary(author) and is_binary(content) do
+      {:ok,
+       %{
+         author_id: author,
+         author_name: author,
+         content: content,
+         role:
+           if(author == Settings.jido_chat_bot_user_id(config),
+             do: "assistant",
+             else: "external"
+           ),
+         inserted_at: root_timestamp(post["create_at"]),
+         attachments: []
+       }}
+    else
+      _ -> {:error, :unavailable}
+    end
+  end
+
+  def fetch_room_message(_, _, _), do: {:error, :unavailable}
+
+  defp root_timestamp(value) when is_integer(value) do
+    case DateTime.from_unix(value, :millisecond) do
+      {:ok, timestamp} -> timestamp
+      _ -> nil
+    end
+  end
+
+  defp root_timestamp(_), do: nil
 
   # ---------------------------------------------------------------------------
   # Send
@@ -76,6 +141,67 @@ defmodule Zaq.Channels.MattermostAdmin do
       {:ok, user} when is_map(user) -> {:ok, atomize(user)}
       error -> error
     end
+  end
+
+  @doc "Returns a complete channel membership snapshot, or an error without a partial member list."
+  def channel_membership_snapshot(config, channel_id, opts \\ [])
+
+  def channel_membership_snapshot(config, channel_id, opts)
+      when is_binary(channel_id) and is_list(opts) do
+    if valid_history_channel_id?(channel_id) do
+      fetch_page = Keyword.get(opts, :fetch_page, &fetch_membership_page/4)
+      collect_members(config, channel_id, fetch_page, 0, MapSet.new())
+    else
+      {:error, :invalid_channel_id}
+    end
+  end
+
+  def channel_membership_snapshot(_, _, _), do: {:error, :invalid_channel_id}
+
+  defp valid_history_channel_id?(channel_id),
+    do: is_binary(channel_id) and Regex.match?(~r/\A[a-z0-9]{26}\z/, channel_id)
+
+  defp collect_members(_config, _channel_id, _fetch_page, @membership_max_pages, _seen),
+    do: {:error, :snapshot_too_large}
+
+  defp collect_members(config, channel_id, fetch_page, page, seen) do
+    case fetch_page.(config, channel_id, page, @membership_page_size) do
+      {:ok, rows} when is_list(rows) and length(rows) <= @membership_page_size ->
+        with {:ok, ids} <- member_ids(rows) do
+          collected_members(config, channel_id, fetch_page, page, seen, rows, ids)
+        end
+
+      {:error, _} = error ->
+        error
+
+      _ ->
+        {:error, :invalid_membership_page}
+    end
+  end
+
+  defp collected_members(config, channel_id, fetch_page, page, seen, rows, ids) do
+    members = Enum.reduce(ids, seen, &MapSet.put(&2, &1))
+
+    if length(rows) < @membership_page_size do
+      {:ok, %{complete: true, member_ids: members |> MapSet.to_list() |> Enum.sort()}}
+    else
+      collect_members(config, channel_id, fetch_page, page + 1, members)
+    end
+  end
+
+  defp member_ids(rows) do
+    if Enum.all?(rows, fn
+         %{"user_id" => id} when is_binary(id) -> id != "" and byte_size(id) <= 255
+         _ -> false
+       end),
+       do: {:ok, Enum.map(rows, & &1["user_id"])},
+       else: {:error, :invalid_membership_page}
+  end
+
+  defp fetch_membership_page(config, channel_id, page, per_page) do
+    config
+    |> to_opts()
+    |> get("/api/v4/channels/#{channel_id}/members", page: page, per_page: per_page)
   end
 
   # ---------------------------------------------------------------------------

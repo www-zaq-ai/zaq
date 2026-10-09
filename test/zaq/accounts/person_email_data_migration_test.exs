@@ -286,7 +286,10 @@ defmodule Zaq.Accounts.PersonEmailDataMigrationTest do
         person_id: first,
         platform: "email",
         channel_identifier: " MIGRATION@example.com ",
-        weight: 4
+        weight: 4,
+        username: "kept",
+        metadata: %{"nested" => %{"keep" => false, "fill" => " "}},
+        last_interaction_at: ~U[2026-01-01 00:00:00Z]
       })
 
     Repo.insert!(%PersonChannel{
@@ -298,7 +301,13 @@ defmodule Zaq.Accounts.PersonEmailDataMigrationTest do
     Repo.insert!(%PersonChannel{
       person_id: second,
       platform: "email",
-      channel_identifier: "Migration@example.com"
+      channel_identifier: "Migration@example.com",
+      username: "discarded",
+      display_name: "Filled",
+      phone: "123",
+      dm_channel_id: "dm-filled",
+      metadata: %{"nested" => %{"keep" => true, "fill" => "value"}},
+      last_interaction_at: ~U[2026-03-01 00:00:00Z]
     })
 
     Repo.insert!(%PersonChannel{
@@ -319,6 +328,12 @@ defmodule Zaq.Accounts.PersonEmailDataMigrationTest do
     assert [email] = Enum.filter(People.list_person_channels(first), &(&1.platform == "email"))
     assert email.id == winner.id
     assert email.weight == 4
+    assert email.username == "kept"
+    assert email.display_name == "Filled"
+    assert email.phone == "123"
+    assert email.dm_channel_id == "dm-filled"
+    assert email.metadata == %{"nested" => %{"keep" => false, "fill" => "value"}}
+    assert email.last_interaction_at == ~U[2026-03-01 00:00:00Z]
     assert email.channel_identifier == "migration@example.com"
     assert survivor.merged_person_ids == [second, third]
 
@@ -449,6 +464,26 @@ defmodule Zaq.Accounts.PersonEmailDataMigrationTest do
              People.create_person(%{full_name: "New", email: "Single@EXAMPLE.com"})
 
     assert errors_on(changeset).email == ["has already been taken"]
+  end
+
+  test "historical blank names retain priority-channel and ID labels during migration" do
+    survivor = legacy_person(" LABEL@example.com ", "Kept")
+    nameless = legacy_person("label@example.com", " ")
+    fallback = legacy_person("Label@example.com", "")
+
+    for {identifier, weight} <- [{"lower-priority-label", 9}, {"primary-label", 0}] do
+      Repo.insert!(%PersonChannel{
+        person_id: nameless,
+        platform: "slack",
+        channel_identifier: identifier,
+        weight: weight
+      })
+    end
+
+    assert :ok = migrate()
+
+    assert Enum.map(People.get_person!(survivor).merge_history, &{&1["id"], &1["label"]}) ==
+             [{nameless, "primary-label"}, {fallback, "Person ##{fallback}"}]
   end
 
   defp run_migration do

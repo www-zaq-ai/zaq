@@ -3,8 +3,8 @@ defmodule Zaq.Channels.ApiTest do
 
   alias Zaq.Channels.Api
   alias Zaq.Channels.Bridge
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
@@ -42,6 +42,10 @@ defmodule Zaq.Channels.ApiTest do
     def fetch_channel_config(provider, id),
       do: Bridge.fetch_channel_config(provider, id)
 
+    def fetch_connection_details_for_config(%{id: 1, provider: "mattermost"} = config)
+        when map_size(config) == 2,
+        do: %{url: "https://example.test", token: "token"}
+
     def fetch_connection_details_for_config(config),
       do: Bridge.fetch_connection_details_for_config(config)
 
@@ -72,6 +76,16 @@ defmodule Zaq.Channels.ApiTest do
          labels: %{text: "Text"}
        }}
     end
+
+    def room_capabilities(config, channel_id, _opts) do
+      send(self(), {:room_capabilities, config.provider, channel_id})
+      {:ok, %{members: true}}
+    end
+
+    def room_members(config, channel_id, _opts) do
+      send(self(), {:room_members, config.provider, channel_id})
+      {:ok, %{complete: true, identity_platform: config.provider, member_ids: ["member-1"]}}
+    end
   end
 
   test "handles materialize_record through the communication bridge boundary" do
@@ -89,11 +103,68 @@ defmodule Zaq.Channels.ApiTest do
     assert opts[:action] == :materialize_record
   end
 
+  test "delegates room capabilities and membership without provider branches" do
+    config = insert_config("discord")
+
+    capability_event =
+      Event.new(%{channel_config_id: config.id, channel_id: "room-1"}, :channels,
+        opts: [
+          action: :channel_room_capabilities,
+          communication_bridge_module: StubCommunicationBridge
+        ]
+      )
+
+    assert %{response: {:ok, %{members: true}}} =
+             Api.handle_event(capability_event, :channel_room_capabilities, nil)
+
+    assert_received {:room_capabilities, "discord", "room-1"}
+
+    snapshot_event =
+      Event.new(%{channel_config_id: config.id, channel_id: "room-1"}, :channels,
+        opts: [
+          action: :channel_room_members,
+          communication_bridge_module: StubCommunicationBridge
+        ]
+      )
+
+    assert %{response: {:ok, %{identity_platform: "discord", member_ids: ["member-1"]}}} =
+             Api.handle_event(snapshot_event, :channel_room_members, nil)
+
+    assert_received {:room_members, "discord", "room-1"}
+  end
+
   defmodule StubCommunicationBridgeConfigError do
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
     def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_connection_details(_provider), do: %{url: "https://example.test", token: "token"}
     def fetch_channel_config(_provider), do: {:error, :channel_not_configured}
+  end
+
+  defmodule DatabaseCommunicationBridge do
+    def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubBridgeImpl
+    defdelegate fetch_channel_config(provider), to: Bridge
+    defdelegate fetch_connection_details(provider), to: Bridge
+    defdelegate fetch_connection_details_for_config(config), to: Bridge
+  end
+
+  test "provider-only status updates reuse the selected connector" do
+    config = insert_config("discord")
+
+    event =
+      Event.new(
+        %{provider: "discord", channel_id: "room", request_id: "request", body: "Thinking"},
+        :channels,
+        opts: [action: :upsert_message, bridge_module: DatabaseCommunicationBridge]
+      )
+
+    {result, queries} =
+      Zaq.QueryRecorder.capture(fn -> Api.handle_event(event, :upsert_message, nil) end)
+
+    assert {:ok, _} = result.response
+    assert_received {:bridge_upsert_message, selected, _, details}
+    assert selected.id == config.id
+    assert details == Bridge.fetch_connection_details_for_config(config)
+    assert Enum.count(queries, &(&1.source == "channel_configs")) == 1
   end
 
   defmodule StubIngressRuntimeModule do
@@ -111,7 +182,7 @@ defmodule Zaq.Channels.ApiTest do
   defmodule StubBridgeImpl do
     def send_reply(%Outgoing{} = outgoing, details) do
       send(self(), {:bridge_send_reply, outgoing, details})
-      :ok
+      Process.get(:chat_delivery_response, :ok)
     end
 
     def test_connection(%ChannelConfig{} = config, channel_id) do
@@ -164,11 +235,128 @@ defmodule Zaq.Channels.ApiTest do
     end
   end
 
+  defmodule ConfirmedEmailBridge do
+    def send_reply(_outgoing, _details) do
+      Process.get(:email_delivery_response, {:error, :provider_down})
+    end
+  end
+
+  defmodule ConfirmedEmailRouting do
+    def bridge_for(_provider), do: Zaq.Channels.ApiTest.ConfirmedEmailBridge
+    def bridge_for(provider, _opts), do: bridge_for(provider)
+    def fetch_channel_config(_provider, id), do: {:ok, %{id: id, provider: "email:imap"}}
+    def fetch_connection_details_for_config(_), do: %{}
+  end
+
+  defmodule ConfirmedEmailHistoryRouter do
+    def dispatch(event) do
+      send(self(), {:confirmed_email_history, event})
+
+      %{
+        event
+        | response:
+            Process.get(
+              :email_history_response,
+              {:ok, Map.put(event.request.receipt, :history_capture, :stored)}
+            )
+      }
+    end
+  end
+
+  test "confirmed email delivery captures only receipt evidence, and persistence failure does not relabel delivery" do
+    outgoing = %Outgoing{
+      body: "visible answer",
+      channel_id: "receiver@example.com",
+      provider: :"email:imap",
+      routing_context: %{channel_config_id: 12, conversation_type: :recipient_addressed},
+      metadata: %{assistant_message_id: "existing-id", trace: [%{private: "do not forward"}]}
+    }
+
+    receipt = %{
+      message_id: "smtp-1",
+      confirmation: :confirmed,
+      source_scope: "smtp:confirmed",
+      audience: %Zaq.Engine.Messages.Incoming.Audience{
+        platform: "email",
+        sender: "support@example.com",
+        recipients: ["receiver@example.com"]
+      }
+    }
+
+    Process.put(:email_delivery_response, {:ok, receipt})
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [
+          action: :deliver_outgoing,
+          bridge_module: ConfirmedEmailRouting,
+          delivery_node_router: ConfirmedEmailHistoryRouter
+        ]
+      )
+
+    assert {:ok, %{history_capture: :stored}} =
+             Api.handle_event(event, :deliver_outgoing, nil).response
+
+    assert_received {:confirmed_email_history, %Event{request: request, opts: opts}}
+    assert opts[:action] == :record_delivery_confirmation
+    assert request.outgoing.body == "visible answer"
+    assert request.receipt.audience.sender == "support@example.com"
+    refute Map.has_key?(request.outgoing.metadata, :trace)
+
+    Process.put(:email_history_response, {:error, :storage_unavailable})
+
+    assert {:ok, %{confirmation_recording: :unavailable, confirmation: :confirmed}} =
+             Api.handle_event(event, :deliver_outgoing, nil).response
+
+    assert_received {:confirmed_email_history, _}
+    Process.put(:email_delivery_response, {:error, :smtp_down})
+    assert {:error, :smtp_down} = Api.handle_event(event, :deliver_outgoing, nil).response
+    refute_received {:confirmed_email_history, _}
+  end
+
+  test "confirmed chat reply is associated only after bridge success using persisted IDs" do
+    config = insert_config(:mattermost)
+
+    outgoing = %Outgoing{
+      body: "chat answer",
+      channel_id: "room-1",
+      provider: :mattermost,
+      routing_context: %{channel_config_id: config.id, conversation_type: :room},
+      metadata: %{user_message_id: "input-id", assistant_message_id: "answer-id"}
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [
+          action: :deliver_outgoing,
+          bridge_module: StubCommunicationBridge,
+          delivery_node_router: ConfirmedEmailHistoryRouter
+        ]
+      )
+
+    Process.delete(:email_history_response)
+    Process.put(:chat_delivery_response, {:ok, %{confirmation: :confirmed}})
+
+    assert {:ok, %{history_capture: :stored}} =
+             Api.handle_event(event, :deliver_outgoing, nil).response
+
+    assert_received {:confirmed_email_history, %Event{request: request, opts: opts}}
+    assert opts[:action] == :record_delivery_confirmation
+    assert request == %{outgoing: outgoing, receipt: %{confirmation: :confirmed}}
+
+    no_binding = %{outgoing | metadata: %{}}
+    no_binding_event = %{event | request: no_binding}
+    Process.put(:email_history_response, {:ok, %{confirmation: :confirmed}})
+    assert {:ok, %{}} = Api.handle_event(no_binding_event, :deliver_outgoing, nil).response
+    assert_received {:confirmed_email_history, %Event{request: %{outgoing: ^no_binding}}}
+  end
+
   defmodule StubCommunicationReplyTimeout do
     def bridge_for(_provider), do: Zaq.Channels.ApiTest.StubReplyTimeoutBridge
     def bridge_for(provider, _opts), do: bridge_for(provider)
     def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
     def fetch_connection_details(_provider), do: %{}
+    def fetch_connection_details_for_config(_config), do: %{}
   end
 
   defmodule StubBridgeNoCallbacks do
@@ -1839,6 +2027,20 @@ defmodule Zaq.Channels.ApiTest do
   end
 
   describe "channel_ingress_status config override" do
+    test "explicit connector status selects that connector across providers" do
+      for provider <- ["mattermost", "telegram"], _ <- 1..2 do
+        id = insert_config(provider).id
+
+        event =
+          Event.new(%{provider: provider, channel_config_id: id}, :channels,
+            opts: [action: :channel_ingress_status, bridge_module: StubCommunicationBridge]
+          )
+
+        assert %{response: {:ok, _}} = Api.handle_event(event, :channel_ingress_status, nil)
+        assert_received {:bridge_channel_ingress_status, %{id: ^id, provider: ^provider}}
+      end
+    end
+
     test "channel_ingress_status uses request config map directly" do
       event =
         Event.new(

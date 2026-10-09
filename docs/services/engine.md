@@ -5,6 +5,9 @@ Foundation hardening evidence, acceptance map and measured coverage exceptions:
 
 ## Overview
 
+For incoming routing, participant persistence and delivery recovery call chains,
+see the [message lifecycle sequences](message-lifecycle.md).
+
 The Engine service is the operational backbone of ZAQ. Its responsibilities include:
 
 1. **Conversations** — persisting and querying the full conversation/message/rating lifecycle.
@@ -46,6 +49,41 @@ ROLES=engine iex --sname engine@localhost --cookie zaq_dev -S mix
 
 ## Data Flow
 
+### Email connector settings
+
+`Zaq.Engine.EmailConnectorSettings` owns IMAP/SMTP BO snapshots, exact connector
+selection, validation, encrypted persistence, SMTP binding and notification-default
+selection. BO calls Engine's confidential `:email_connector_settings` event with
+`op: :snapshot`, `:save`, or `:set_default`; authorization rechecks the current BO
+user in Engine. Saves execute `Zaq.Engine.Actions.SaveEmailConnector` through
+`Jido.Exec`, retaining its Zoi input/output contracts and existing result shapes.
+
+After persistence Engine resolves credentials and sends only runtime fields for
+the saved connector to Channels via confidential `:sync_provider_runtime` and
+`%{config: runtime_config}`. Channels applies the supplied configuration without
+Repo access in this path. Remote/runtime failure returns saved with pending sync,
+never a false rollback. `Zaq.Engine.ChannelConfig` now owns persistence; legacy
+Channels database callers remain during this incremental move. This does not
+establish Repo-free Channels bootstrap or delivery.
+
+### Connector configuration persistence
+
+`Zaq.Engine.ChannelConfig` owns the existing `channel_configs` Ecto schema, queries,
+mutations, SMTP defaults, validation and token encryption/runtime resolution.
+Multiple named connectors may share a provider; explicit ID resolution checks
+scope and enablement, and ambiguous provider-only calls fail closed. No table,
+ID, foreign-key or credential encoding migration accompanies this namespace move.
+
+Fields: `name`, `provider`, `kind` (`data_source` or `retrieval`), `url`, encrypted
+`token`, `enabled`, `archived_at`, `notification_default`, and provider `settings`.
+`get_by_provider/1`, `get_any_by_provider/1`, `upsert_by_provider/2`,
+`list_enabled_by_kind/2` and `get_by_channel_id/2` retain their selection contracts.
+Pure `jido_chat` and IMAP projections delegate to `Zaq.ConnectorConfig.Settings`;
+runtime transport consumers can use that shared module without Ecto dependency.
+Stored `jido_chat` fields include bot name/user ID, message patterns and ingress
+overrides. SMTP and IMAP lookup helpers live in `Zaq.ConnectorConfig`; bridge/listener
+normalization remains provider-local in Channels.
+
 ### Conversations
 
 Channel history grant foundation: `Zaq.Permissions.ChannelHistoryResource` identifies
@@ -53,8 +91,8 @@ the channel by provider, connector configuration and external channel ID; thread
 use the same permission resource. `ResourcePermission.source_key` distinguishes
 manual grants from provider-derived grants so provider removal can preserve an
 administrator's manual grant. Generic manual grant replacement/mutation cannot
-alter provider rows. `ChannelHistoryResource.can_read?/2` checks a direct Person
-grant and never treats a nil Person or a team grant as channel history access.
+alter provider rows. History reads use `Permissions.can?/4` on that resource,
+including ordinary Person, team and Everyone grants. Reads require an existing Person.
 The strategy-managed transcript/read migration is tracked in `zaq-emb`; existing
 conversation readers have not all migrated to this grant check yet.
 
@@ -65,27 +103,139 @@ conflicting identity still fails execution validation. BO web chat may supply
 its internally trusted session-derived Person. See the ingress trust scope in
 [Channels](channels.md); the Event envelope itself is not caller attestation.
 
+Engine `History.CommunicationPolicy` selects history from normalized communication
+facts, independently of provider: `:one_to_one` uses Direct, `:room` uses Shared,
+and `:recipient_addressed` uses Replicated. Unknown facts remain unsupported;
+transport `history_kind` or title hints cannot select policy. Engine also derives
+title presentation and capture eligibility. `IncomingMessageRouter` captures supported
+facts before admission without a Channels `capture_history` flag. Receive-only
+`:receive_incoming_message` events capture supported facts without triggering an
+agent response. `:record_delivery_confirmation` takes `%{receipt: receipt,
+outgoing: outgoing}` and delegates interpretation to `History.Delivery`; transport
+success remains success if history association fails.
+
 Canonical-history storage is being introduced without rewriting existing rows:
 `messages.id` stays stable for ratings and private trace artifacts, while new
 canonical messages can exist without a legacy `conversation_id`. A provider
 message's optional external identity is unique within its provider and trusted
 account key (including mailbox/collection when the provider's ID is only unique
-there); the absence of a provider ID does not imply deduplication. A
+there). Source namespaces are opaque, preserved exactly, and limited to 255 bytes;
+the encoded provider/connector/namespace account key is stored as text so that the
+envelope and JSON escaping cannot truncate a valid namespace. Existing encoded key
+bytes and uniqueness semantics remain stable. The absence of a provider ID does not
+imply deduplication. A
 `Transcript` stores strategy, provider/connector scope, optional parent and the
 permission-resource coordinate. Direct and Shared transcripts use explicit
 participant history grants; only Replicated transcripts require a Person owner.
 `TranscriptMessage` associates one message with one or more transcripts at a
-transcript-local position. The Engine-only canonical append path serializes
-placements by locking the transcript, deduplicates only by verified
+transcript-local position. The Engine-only capture path resolves or creates
+strategy targets atomically: Direct threads reuse their parent transcript;
+Shared threads use a child with the same grant resource. Replicated copies
+belong only to this message's
+resolved People. Their scope uses Channels' normalized conversation identity,
+independently of the latest sender or outbound destination, and remains
+connector-specific. Canonical `Message.history_context` stores bounded Person
+participant references/roles, identity namespace and presentation hints separately
+from execution-private metadata. BO participant summaries include visible recipients;
+email titles use the first visible sender Person and trimmed subject, and Telegram
+Direct titles use the peer Person. These references are presentation evidence, not
+authorization grants. Direct participant grants are seeded once when the parent is
+created, not on redelivery or after revocation; manual grants have their own
+source and survive a provider-grant removal. Email capture requires a scoped
+mailbox/account key, and replays with a changed recipient set or normalized
+conversation placement fail rather than backfilling earlier audience or adopting
+the persisted placement. The canonical append path serializes placements
+by locking the transcript, deduplicates only by verified
 provider/connector/source-scope/external-ID identity, and rejects conflicting
-replays. Its context must come from trusted internal ingress, not browser input
-or agent arguments. Reads require an existing Person with a direct channel-history
-grant (Direct/Shared) or recipient ownership (Replicated), and return only bounded
+replays; absent provider IDs create distinct messages. New capture is rejected
+when its connector is disabled or archived, while existing authorized history
+remains readable. Capture and append
+context must come from trusted internal ingress, not browser input or agent
+arguments. When Engine already admitted a user message, capture can attach that
+verified, locked message UUID rather than inserting a duplicate; it preserves
+legacy conversation, rating and private metadata references, and rejects a
+mismatched source. New IMAP admissions record a private source coordinate only
+when the enabled connector, mailbox and adapter-stamped sender agree; an
+unscoped email conversation cannot itself prove connector or mailbox identity.
+This reuse path is wired to supported ingress; older unstamped rows and rows
+without an attested audience instead enter restricted legacy snapshots and are
+never automatically granted as fresh channel history. An agent admission can
+also adopt an earlier passive canonical
+message only when its source identity, content, author and transcript scope
+match, retaining that message UUID; replaying admission does not mint another
+finalization token. For scoped provider IDs, capture and admission share a
+transaction-scoped source-key lock, so simultaneous first writes reuse one UUID.
+Canonical replay after adoption keeps the persisted user role; a conflicting
+author, body, room, strategy or thread fails closed rather than placing a reused
+source in a different audience. Neither this writer nor its source lock proves
+that arbitrary `Incoming` metadata originated from a channel adapter. Adapter-
+stamped nonmentions are captured without agent admission; direct Engine Event
+envelopes are not an externally authenticated provider transport.
+Reads require an existing Person with a read grant on the transcript's permission
+resource for every strategy, and return only bounded
 content and primitive attachment descriptors — not private execution metadata or
-trace artifacts. Provider strategy selection, recipient evidence, ingress wiring
-and legacy backfill/cutover remain in `zaq-emb.14`, `.4` and `.15`. Existing
-conversation reads still follow the legacy path; a canonical message UUID is not
-an authorization token.
+trace artifacts. Existing owner-scoped conversation reads still follow their
+legacy path; a canonical message UUID is not an authorization token. A restricted
+legacy transcript keeps original message, rating and trace references and is
+readable only by current BO super-admin inspection; no fresh Person grant can
+turn it into a channel-history read. Shared membership refresh consumes complete
+Channels snapshots under a room-scoped transaction lock; capability and transport
+ID validation live in Channels. Refresh never withdraws a separate manual row.
+The existing `RefreshChannelHistoryMembership` Action accepts either a transcript
+or a Person plus connector, checks a current super-admin again, and is not an
+agent tool. Person refresh changes only that Person's grants in existing Shared
+rooms of the selected connector; it does not discover new rooms.
+
+Normalized add/remove events use provider-supplied room revisions. Durable
+per-member fences let unrelated reordered events apply while preventing stale
+events or snapshots from restoring removed access. Targeted snapshots fence only
+their selected identities. Unversioned snapshots cannot overwrite versioned
+evidence; an unversioned baseline needs a versioned snapshot before ordered events
+can take over. Mattermost currently declares complete snapshot support, not push
+event synchronization; provider event wiring remains separate. Both refresh and
+events use the same resource lock and preserve manual grants.
+
+Replicated capture seeds an ordinary recipient read grant atomically with each new
+copy. Its resource is scoped by provider, connector, conversation and recipient;
+ownership determines message associations, not an alternative authorization path.
+Redelivery never restores revoked grants. A new conversation has a distinct resource.
+
+Provider reactions use the existing scoped `:rate_message` operation and shared
+rating upsert. Trusted Channels ingress supplies the connector, native channel,
+source namespace, message ID and actor. Engine validates the active connector and
+resolved Person, canonical source identity and exact channel placement. Recording
+feedback neither requires nor creates a transcript-read grant. Invalid source,
+connector, actor, placement and missing-message failures remain distinguishable.
+
+Confirmed chat sends place persisted assistant
+UUIDs into Direct/Shared history only after provider success. Confirmation atomically
+binds the provider/account/source-scope/external-ID identity to that same assistant
+row using the canonical immutable-source changeset. Duplicate source identities
+fail without leaving a partial confirmation; retries retain the original UUID.
+Chat receipts inherit the Channels-normalized outgoing source scope when they omit
+an explicit namespace and always carry a Channels-normalized string message ID,
+preserving chat-local message identities for confirmation and later feedback.
+Confirmed IMAP-
+bound SMTP replies use actual envelope recipients to place message-local copies;
+an execution record alone never proves delivery. Capture failure after provider
+success remains reported as `history_capture: :unavailable`, not a failed send.
+`HistoryIngress` owns confirmation and association recovery. It commits the canonical
+message reference, bounded provider receipt and fixed transcript IDs in private message
+metadata together with an Oban job carrying only `message_id`. Replicated deliveries
+without an existing answer UUID first prepare canonical content once, without placing
+it in a transcript. Confirmed assistant deliveries resolve only actual recipients
+as replica owners; the transport sender stays message provenance even if it matches
+an existing Person. Immediate association and retries use `associate_confirmation/1`;
+they never resolve a new audience or invoke transport delivery. `HistoryDeliveryWorker`
+is only its scheduling adapter, not a second delivery lifecycle. PR B's completion
+lifecycle must reuse this owner and recovery path.
+
+Confirmation survives association failure, retry exhaustion and Oban pruning.
+Conflicting delivery evidence cannot overwrite it. Missing messages cancel retries;
+unavailable targets or disabled connectors remain retryable with fixed error categories.
+Recovery accepts only canonical message references. Payload-bearing jobs from earlier
+iterations of this unlanded stack are unsupported and are not promoted at runtime.
+Historical assistant rows without confirmation evidence are not repaired by inference.
 
 `ExecutionRecord` stores Person ownership, a **hash** of the finalization
 capability, private trace/tool-result entries, usage and outcome apart from
@@ -99,16 +249,15 @@ does not copy them or change the existing finalization path.
 The pure `Zaq.Engine.History.Strategy` contract selects a code-defined Direct,
 Shared or Replicated policy from `Zaq.Engine.History.Facts`. The facts require a
 trusted connector ID, external conversation ID, resolved actor and an explicit
-conversation kind. Channel providers (Mattermost, Slack, Discord, Teams,
-Telegram) support Direct for one-to-one channels and Shared for rooms; IMAP
-email uses Replicated. BO/API histories remain on their legacy route until an
+conversation kind. Strategy selection is provider-independent: `:direct`,
+`:channel`, and `:replicated` select Direct, Shared, and Replicated respectively.
+Channels owns the verified transport-to-kind mapping. BO/API histories remain on their legacy route until an
 explicit policy is defined. Shared threads require a matching persisted parent;
 Direct threads reuse the one-to-one transcript; Replicated mail targets only
 this message's sender and independently evidenced recipients. The strategy
 returns target coordinates, required grant/owner hints and context-source
-priority, **not** permission or proof of recipient identity. Channels normalization
-(`zaq-emb.14.2`) and Engine strategy integration (`zaq-emb.4`) must supply and
-consume these facts; an arbitrary Event/metadata envelope does not attest them.
+priority, **not** permission or proof of recipient identity. An arbitrary
+Event/metadata envelope does not attest these internally normalized facts.
 Mention gating remains separate from history selection.
 
 ```
@@ -118,7 +267,7 @@ Channel adapter or BO chat
           → resolve canonical conversation
           → add_message/2 (role: "user", execution_status: "pending")
       → Agent executes with explicit conversation/user-message references
-      → Conversations.finalize_incoming/2
+      → Conversations.finalize_incoming/3
           → success: mark input complete + add assistant message
           → handled failure: mark input failed + retain trace on input
            → Telemetry.record("qa.message.count" / "qa.answer.count")
@@ -797,10 +946,6 @@ Distributed server invalidation remains a later consumer integration.
   across titles and message content, SQL wildcards matched literally) and `from`/`to`
   (`DateTime` bounds on `updated_at`).
 - `update_conversation/2`, `archive_conversation/1`, `delete_conversation/1` — lifecycle.
-- `persist_from_incoming/2` — convenience: upserts conversation + stores both user and
-  assistant messages from a pipeline result in one call. Accessed media bytes are
-  stored in `message_trace_artifacts` in the same transaction as both messages;
-  the assistant JSON trace receives only artifact IDs and safe descriptors.
 - `admit_incoming/1` — resolves the canonical conversation and commits the user message
   before Agent execution. A newly admitted input returns trusted conversation/message IDs
   plus a per-admission execution capability; provider redeliveries reuse the same input and are
@@ -810,6 +955,10 @@ Distributed server invalidation remains a later consumer integration.
   message; handled failure stores safe
   execution metadata, trace and artifacts on the input without adding a model-history turn.
   This is one final database write after execution, not per LLM/tool turn.
+  Accessed media bytes are stored in `message_trace_artifacts` in the finalization
+  transaction; JSON traces receive only artifact IDs and safe descriptors. A failed
+  transaction preserves the already-admitted prompt and creates no assistant turn.
+  Channel exchanges use admission followed by finalization exclusively.
 - `get_authorized_trace_artifact/2` — returns artifact bytes only to the owning or
   shared BO user, with super-admin access across conversations. BO serves these
   through authenticated `GET /bo/trace-artifacts/:id`; unauthorized and missing
@@ -831,10 +980,11 @@ Distributed server invalidation remains a later consumer integration.
   rating CRUD.
 - `rate_message_by_id/2` — upserts a rating by message UUID; dispatches `:feedback_provided`
   hook after success.
-- `rate_message_by_external_id/3` — resolves a message by its provider-assigned external id, then
-  delegates to `rate_message_by_id/2`. Returns `{:error, :not_found}` when no message carries that
-  id. Origin-agnostic: it takes the same `rater_attrs` map as `rate_message_by_id/2` and carries no
-  channel or reaction vocabulary.
+- `rate_message_by_source/2` — resolves a canonical message within provider/connector/source
+  identity and verifies an active resolved Person's access to a matching transcript placement.
+  Serializes updates on the message before calling the existing `upsert_rating/2` owner.
+  Canonical-only messages are supported without weakening the legacy UUID-only endpoint.
+  Unscoped metadata lookup is removed; missing targets never fall back to legacy matches.
 
 #### Rating a message from any origin
 
@@ -842,22 +992,46 @@ Ratings reach the engine through a single action, `:rate_message`, whose request
 
 ```elixir
 %{
-  message_ref: {:id, uuid} | {:external_id, provider_message_id},
+  message_ref: {:id, uuid} | {:source, %{
+    provider: provider, channel_config_id: connector_id, channel_id: native_room_id,
+    source_scope: scope, message_id: provider_message_id
+  }},
   rater_attrs: %{optional(:user_id) => integer(), optional(:channel_user_id) => String.t(),
                  :rating => 1..5, optional(:comment) => String.t()}
 }
 ```
 
-`rater_attrs` is the same map the back-office builds (`MessageHelpers.positive_rater_attrs/1`) and
-feeds straight into `MessageRating.changeset/2`. Only `message_ref` differs by origin: the BO holds
-a message UUID, a channel only has the provider's identifier.
+The BO supplies its `user_id`; a channel supplies `channel_user_id`, which the scoped
+operation resolves through existing canonical Person/channel identity. The saved rating uses
+only `person_id`, never a mixture of Person and channel/BO actor fields. Missing/inactive
+identities, unavailable connectors and inaccessible placements cannot grant permission.
 
-The engine cannot tell a reaction-originated rating from a back-office one — that is deliberate.
-Channels map their provider's emoji vocabulary to a ZAQ rating _before_ dispatch (see
+Engine receives normalized feedback and source coordinates, never emoji. Channels map their
+provider's emoji vocabulary to a ZAQ rating _before_ dispatch (see
 `Zaq.Channels.JidoChatBridge.ReactionMapper`) and dispatch through the shared
 `CommunicationBridge.dispatch_message_rating/3` seam. A `:message_id` key inside `rater_attrs` is
 rejected rather than ignored, since it would silently override the message resolved from
 `message_ref`.
+
+Channel History projects positive/negative rating totals for every message role separately
+from the current BO user's own vote. Counts are message-owned, not multiplied by transcript
+placements. Replica owner names are resolved in the admin projection; list rows show them
+beneath Strategy and detail subtitles link to the resolved Person in the People Directory.
+`ChannelHistoryProjection` batches participant counts/recent People, first-message titles,
+thread counts, stored roots, connector-scoped identities, and rating summaries for the
+finite list page. List requests never call a provider; only detail may use the verified
+Channels root fallback when a thread root is absent locally. The list query budget remains
+constant as the page grows to its 50-row bound.
+
+`ConnectorLifecycle.context/3` produces an exactly scoped, revisioned descriptor in
+Engine. `archive/2,3` validates scope/revision, stops data-source watches, requests
+confidential supplied-config provider teardown, then locks/rechecks the row and
+persists archival in Engine. It requests Channels runtime reconciliation and
+reconciles late watch cleanup afterward. Pre-archive failures
+leave the connector live. Runtime or cleanup failures after commit are returned as explicit
+pending stages, and retries resume the idempotent remaining work. BO callers and the
+`ArchiveChannelConnector` Action send only connector ID, provider, and kind with a current
+trusted actor.
 
 - `share_conversation/2`, `list_shares/1`, `revoke_share/1` — share link management.
 - `get_conversation_by_token/1` — resolves a conversation from an unexpired share token.
@@ -965,7 +1139,11 @@ metadata/activity; newly added identity channels have no recorded interaction.
   Person resources are reassigned and unioned per principal. Routing scopes are unioned,
   with survivor policy winning conflicts, otherwise lowest original person ID.
 - Conversation ownership and typed notification recipient links move to the survivor;
-  notification payloads remain unchanged. The merger uses ordinary owner APIs for
+  Replicated transcript and private execution ownership also move to the survivor.
+  Existing replica UUIDs, placements, source identities and permission resources stay
+  distinct; subsequent capture prefers the survivor's canonical replica and otherwise
+  continues one deterministic transferred replica. Replays retain their original
+  placements. Notification payloads remain unchanged. The merger uses ordinary owner APIs for
   channels, generic permission coordinates, routing, conversations and recipients;
   merge decisions belong to `PersonMerger`, validation/persistence to the owners.
 - Authentication challenges and sessions are revoked for **every participant**, including

@@ -7,8 +7,8 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
   alias Zaq.Accounts.People
   alias Zaq.Agent
   alias Zaq.Agent.ServerManager
-  alias Zaq.Channels.{ChannelConfig, JidoChatBridge}
-  alias Zaq.Engine.{Connect, Conversations}
+  alias Zaq.Channels.JidoChatBridge
+  alias Zaq.Engine.{ChannelConfig, Connect, Conversations}
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Identity.ActorNormalizer

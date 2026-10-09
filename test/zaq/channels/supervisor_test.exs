@@ -4,12 +4,12 @@ defmodule Zaq.Channels.SupervisorTest do
 
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Zaq.Channels.BridgeSupervisor
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.CommunicationBridge
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.Supervisor
+  alias Zaq.Engine.ChannelConfig
 
   defmodule ListenerProc do
     use GenServer

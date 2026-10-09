@@ -36,6 +36,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 | Agent execution, retrieval and tools | [Agent](services/agent.md) |
 | Routing, conversations and coordination | [Engine](services/engine.md), including [personal grant sequences](services/personal-grant-sequences.md) |
 | Provider bridges and integrations | [Channels](services/channels.md) |
+| Message identity, routing, history and delivery sequences | [Message lifecycle](services/message-lifecycle.md) |
 | Documents, chunking and search | [Ingestion](services/ingestion.md) |
 | Mounted filesystem ownership | [Storage architecture](architecture.md#storage-and-materialization) |
 | Record materialization handles | [Materialization](services/materialization.md) |
@@ -51,5 +52,5 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 
 - [Planning strategy](exec-plans/PLAN_STRATEGY.md): new execution plans and progress belong in Beadwork.
 - [Quality assessment](QUALITY_SCORE.md) and [debt tracker](exec-plans/tech-debt-tracker.md).
-- [Completed plan archive](exec-plans/completed/), [design/roadmap documents](plans/), and [UX artifacts](ux/)
+- [Completed plan archive](exec-plans/completed/), [design/roadmap documents](plans/), and [UX artifacts](ux/) (including the [PR A channel-history UX review](ux/communication-channel-history.md))
   provide historical or proposed context; verify status before treating them as current contracts.

@@ -67,6 +67,11 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
 
   defmodule StubFactoryUsage do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []) do
+      model = Process.get(:executor_usage_model, "openai:gpt-4.1-mini")
+
+      call_data = %{usage: %{input_tokens: 11, output_tokens: 7, total_tokens: 18}}
+      call_data = if is_nil(model), do: call_data, else: Map.put(call_data, :model, model)
+
       {:ok,
        %{
          request: :request,
@@ -78,10 +83,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
              request_id: "req-usage",
              run_id: "run-usage",
              llm_call_id: "call-usage",
-             data: %{
-               model: "openai:gpt-4.1-mini",
-               usage: %{input_tokens: 11, output_tokens: 7, total_tokens: 18}
-             }
+             data: call_data
            },
            %{
              kind: :request_completed,
@@ -1591,6 +1593,84 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
                where: p.metric_key == "qa.tokens.total",
                select: p.dimensions["llm_usage_attribution"]
            ) == "v1"
+  end
+
+  test "normalizes LLM model and metadata telemetry dimensions at boundary values" do
+    {configured_agent, _credential, _endpoint} = credential_agent_fixture(self())
+    Sandbox.allow(Repo, self(), Process.whereis(Buffer))
+    Buffer.flush()
+
+    cases = [
+      {
+        "unqualified-model",
+        %{"conversation_id" => "conv-unqualified", "session_id" => "session-ok"},
+        "unqualified-model",
+        "openai",
+        "unqualified-model",
+        "conv-unqualified",
+        "session-ok"
+      },
+      {"openai:", %{}, "openai:", "openai", "openai:", nil, nil},
+      {":x", %{}, ":x", "openai", ":x", nil, nil},
+      {"missing-model", %{}, nil, "openai", nil, nil, nil},
+      {
+        "blank-dimensions",
+        %{"conversation_id" => "", "session_id" => "session-kept"},
+        "openai:gpt-4.1-mini",
+        "openai",
+        "gpt-4.1-mini",
+        nil,
+        "session-kept"
+      }
+    ]
+
+    for {label, metadata, model, expected_provider, expected_model, expected_conversation,
+         expected_session} <- cases do
+      Process.put(:executor_usage_model, model)
+      Buffer.flush()
+      Repo.delete_all(Point)
+
+      incoming = %Incoming{
+        content: "hi",
+        channel_id: "telemetry-#{label}",
+        provider: :web,
+        metadata: metadata
+      }
+
+      outgoing =
+        Executor.run(incoming,
+          event: execution_event(),
+          agent_id: to_string(configured_agent.id),
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryUsage
+        )
+
+      assert outgoing.metadata.error == false
+      assert :ok = Buffer.flush()
+
+      assert [%Point{value: 1.0, dimensions: dimensions}] =
+               Repo.all(from p in Point, where: p.metric_key == "qa.llm.call.count")
+
+      assert dimensions["llm_provider"] == expected_provider, label
+
+      if is_nil(expected_model) do
+        refute Map.has_key?(dimensions, "model")
+      else
+        assert dimensions["model"] == expected_model, label
+      end
+
+      if is_nil(expected_conversation) do
+        refute Map.has_key?(dimensions, "conversation_id")
+      else
+        assert dimensions["conversation_id"] == expected_conversation, label
+      end
+
+      if is_nil(expected_session) do
+        refute Map.has_key?(dimensions, "session_id")
+      else
+        assert dimensions["session_id"] == expected_session, label
+      end
+    end
   end
 
   test "attachment metadata falls back to canonical values when runtime storage is unavailable" do

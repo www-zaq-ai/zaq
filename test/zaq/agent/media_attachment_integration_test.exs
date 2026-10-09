@@ -87,7 +87,10 @@ defmodule Zaq.Agent.MediaAttachmentIntegrationTest do
     }
 
     assert {:ok, %{assistant_message_id: message_id}} =
-             Conversations.persist_from_incoming(persisted_incoming, stream_result)
+             Zaq.ConversationLifecycleFixtures.complete_exchange(
+               persisted_incoming,
+               stream_result
+             )
 
     message = Repo.get!(Zaq.Engine.Conversations.Message, message_id)
     assert [%{"id" => "tool-media", "artifacts" => [descriptor]}] = message.trace

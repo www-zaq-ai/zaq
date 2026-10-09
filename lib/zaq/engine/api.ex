@@ -6,14 +6,22 @@ defmodule Zaq.Engine.Api do
   @behaviour Zaq.InternalBoundaries
 
   alias Zaq.Accounts
+  alias Zaq.Accounts.BOActor
   alias Zaq.Accounts.People
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.Actions.SaveEmailConnector
+  alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.ChannelHistoryAdmin
+  alias Zaq.Engine.ChannelHistoryMembership
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Connect.OAuth.Registry, as: OAuthBehaviourRegistry
   alias Zaq.Engine.Connect.OAuthAttempts
+  alias Zaq.Engine.ConnectorLifecycle
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.DataSources
+  alias Zaq.Engine.EmailConnectorSettings
+  alias Zaq.Engine.History.{CommunicationPolicy, Delivery}
+  alias Zaq.Engine.HistoryIngress
   alias Zaq.Engine.IncomingMessageRouter
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
@@ -31,9 +39,73 @@ defmodule Zaq.Engine.Api do
   alias Zaq.System
 
   @impl true
+  def handle_event(
+        %Event{request: %{op: :snapshot, provider: provider} = request} = event,
+        :email_connector_settings,
+        _context
+      ) do
+    response =
+      if confidential_email_settings_event?(event),
+        do: EmailConnectorSettings.snapshot(provider, Map.get(request, :selected_config_id)),
+        else: {:error, :confidential_event_required}
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %{op: :save} = request} = event,
+        :email_connector_settings,
+        _context
+      ) do
+    response =
+      if confidential_email_settings_event?(event) do
+        case Jido.Exec.run(SaveEmailConnector, Map.delete(request, :op), %{
+               actor: event.actor,
+               opts: event.opts
+             }) do
+          {:ok, %{result: result}} -> result
+          {:error, _} = error -> error
+        end
+      else
+        {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %{op: :set_default, id: id}} = event,
+        :email_connector_settings,
+        _context
+      ) do
+    response =
+      if confidential_email_settings_event?(event),
+        do: EmailConnectorSettings.set_default_smtp(id),
+        else: {:error, :confidential_event_required}
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :email_connector_settings, _context),
+    do: %{event | response: {:error, :invalid_request}}
+
   def handle_event(%Event{} = event, :telemetry_load_llm_performance, _context) do
     filters = if is_map(event.request), do: event.request, else: %{}
     %{event | response: Telemetry.load_llm_performance(filters)}
+  end
+
+  def handle_event(%Event{} = event, :archive_channel_connector, _context) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           {:ok, id} <- authenticated_user_id(event.actor),
+           user when not is_nil(user) <- Accounts.get_user(id),
+           true <- not user.must_change_password do
+        ConnectorLifecycle.archive(event.request, event.actor, event.opts)
+      else
+        _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
   end
 
   def handle_event(%Event{} = event, :people_conversations, _context) do
@@ -43,6 +115,83 @@ defmodule Zaq.Engine.Api do
         else: {:error, :confidential_event_required}
 
     %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :channel_history_admin, _context) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           {:ok, id} <- authenticated_user_id(event.actor),
+           %{role: %{name: "super_admin"}} <- Accounts.get_user(id) do
+        request =
+          case event.request do
+            %{op: op} = request when op in [:list, :detail, :refresh, :rate] ->
+              Map.put(request, :actor, event.actor)
+
+            other ->
+              other
+          end
+
+        ChannelHistoryAdmin.dispatch(request)
+      else
+        _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %Incoming{} = incoming} = event,
+        :receive_incoming_message,
+        _context
+      ) do
+    response =
+      case CommunicationPolicy.kind(incoming) do
+        {:ok, _} -> HistoryIngress.capture(incoming)
+        {:error, :unsupported_history_kind} -> {:ok, :received}
+      end
+
+    %{event | response: response, next_hop: nil}
+  end
+
+  def handle_event(
+        %Event{request: %Incoming{} = incoming} = event,
+        :capture_incoming_history,
+        _context
+      ) do
+    %{event | response: HistoryIngress.capture(incoming), next_hop: nil}
+  end
+
+  def handle_event(%Event{} = event, :capture_incoming_history, _context),
+    do: %{event | response: {:error, :invalid_request}, next_hop: nil}
+
+  def handle_event(%Event{request: delivered} = event, :capture_delivered_history, _context)
+      when is_map(delivered) do
+    %{event | response: HistoryIngress.capture_confirmed(delivered), next_hop: nil}
+  end
+
+  def handle_event(
+        %Event{request: %{receipt: receipt, outgoing: outgoing}} = event,
+        :record_delivery_confirmation,
+        _context
+      ) do
+    %{event | response: Delivery.capture({:ok, receipt}, outgoing, event.opts)}
+  end
+
+  def handle_event(%Event{request: reference} = event, :confirmed_history_delivery, _context) do
+    %{event | response: HistoryIngress.confirmed_delivery?(reference), next_hop: nil}
+  end
+
+  def handle_event(
+        %Event{request: membership} = event,
+        :channel_history_membership_event,
+        _context
+      )
+      when is_map(membership) do
+    %{
+      event
+      | response: ChannelHistoryMembership.apply_event(membership),
+        next_hop: nil
+    }
   end
 
   def handle_event(%Event{} = event, :people_auth, _context) do
@@ -79,17 +228,6 @@ defmodule Zaq.Engine.Api do
       end
 
     %{event | response: response}
-  end
-
-  def handle_event(%Event{} = event, :persist_from_incoming, _context) do
-    case event.request do
-      %{incoming: %Incoming{} = incoming, metadata: metadata} when is_map(metadata) ->
-        conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
-        %{event | response: conversations_module.persist_from_incoming(incoming, metadata)}
-
-      other ->
-        %{event | response: {:error, {:invalid_request, other}}}
-    end
   end
 
   def handle_event(%Event{} = event, :finalize_incoming, _context) do
@@ -154,6 +292,19 @@ defmodule Zaq.Engine.Api do
         %{event | response: {:error, {:invalid_request, other}}}
     end
   end
+
+  def handle_event(
+        %Event{request: %{scopes: scopes}} = event,
+        :get_incoming_message_routing_rules,
+        _context
+      )
+      when is_list(scopes) and length(scopes) <= 100 do
+    rules = Enum.map(scopes, &%{scope: &1, rule: IncomingMessageRouting.get_rule(&1)})
+    %{event | response: {:ok, rules}}
+  end
+
+  def handle_event(%Event{} = event, :get_incoming_message_routing_rules, _context),
+    do: %{event | response: {:error, :invalid_request}}
 
   def handle_event(%Event{} = event, :invoke, _context),
     do: InternalBoundaries.invoke_request(event)
@@ -889,8 +1040,8 @@ defmodule Zaq.Engine.Api do
     conversations_module.rate_message_by_id(message_id, rater_attrs)
   end
 
-  defp rate_by_message_ref(conversations_module, {:external_id, external_id}, rater_attrs) do
-    conversations_module.rate_message_by_external_id(external_id, rater_attrs)
+  defp rate_by_message_ref(conversations_module, {:source, reference}, rater_attrs) do
+    conversations_module.rate_message_by_source(reference, rater_attrs)
   end
 
   defp rate_by_message_ref(_conversations_module, other, _rater_attrs) do
@@ -925,6 +1076,10 @@ defmodule Zaq.Engine.Api do
     workflow = Workflows.get_workflow!(run.workflow_id)
     person = People.get_person(person_id)
     person != nil and Permissions.can?(person, :run, workflow)
+  end
+
+  defp confidential_email_settings_event?(%Event{actor: actor, opts: opts}) do
+    Keyword.get(opts, :confidential) == true and match?({:ok, _}, BOActor.current_user(actor))
   end
 
   defp authenticated_user_id(%{user_id: user_id}) when not is_nil(user_id), do: {:ok, user_id}

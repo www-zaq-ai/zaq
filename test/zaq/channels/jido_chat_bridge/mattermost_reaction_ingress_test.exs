@@ -125,7 +125,14 @@ defmodule Zaq.Channels.JidoChatBridge.MattermostReactionIngressTest do
     # Identical to the shape `telegram_reaction_webhook_test.exs` asserts: the
     # two ingress modes converge on one origin-agnostic rating payload.
     assert %{
-             message_ref: {:external_id, "post-1"},
+             message_ref:
+               {:source,
+                %{
+                  provider: "mattermost",
+                  channel_id: "chan-abc",
+                  source_scope: nil,
+                  message_id: "post-1"
+                }},
              rater_attrs: %{channel_user_id: "user-123", rating: 5}
            } = event.request
   end
@@ -153,7 +160,14 @@ defmodule Zaq.Channels.JidoChatBridge.MattermostReactionIngressTest do
       assert event.opts[:action] == :rate_message
 
       assert %{
-               message_ref: {:external_id, "post-1"},
+               message_ref:
+                 {:source,
+                  %{
+                    provider: "mattermost",
+                    channel_id: "chan-abc",
+                    source_scope: nil,
+                    message_id: "post-1"
+                  }},
                rater_attrs: %{channel_user_id: "user-123", rating: ^rating}
              } = event.request
 

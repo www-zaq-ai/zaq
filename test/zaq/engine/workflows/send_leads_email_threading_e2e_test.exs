@@ -31,7 +31,7 @@ defmodule Zaq.Engine.Workflows.SendLeadsEmailThreadingE2ETest do
 
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.Workflow.DispatchEvent
-  alias Zaq.Channels.ChannelConfig
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Engine.{TriggerNode, Workflows}

@@ -28,9 +28,9 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   alias Jido.Chat
   alias Jido.Chat.Adapter
   alias Jido.Chat.EventEnvelope
-  alias Zaq.Channels.ChannelConfig
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
+  alias Zaq.ConnectorConfig.Settings
 
   @type state :: %{
           bridge_id: String.t(),
@@ -314,7 +314,7 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   end
 
   defp build_chat(config, provider, handler_opts) do
-    bot_name = ChannelConfig.jido_chat_bot_name(config) || "zaq"
+    bot_name = Settings.jido_chat_bot_name(config) || "zaq"
 
     {:ok, adapter} = bridge_module().adapter_for(config.provider)
 
