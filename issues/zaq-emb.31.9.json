@@ -11,9 +11,15 @@
   "id": "zaq-emb.31.9",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Execution IDs now flow through canonical admissions, router, Agent bindings/native refs and Engine history/control/receipt/finalization. Exact record selection rejects ambiguity; fresh recovery root capability stays private, immutable receipt retains old token/state, one-root and recovery-link DB indexes added. Independent-connection concurrency proves only one caller gets a capability; recovery finalization replay/accounting and security cases pass. 177 tests/8 properties combined Engine/Agent matrix passes; 3 migration upgrade/preflight/rollback tests pass; mix q passes after increasing timeout and fixing docs types. Existing capability property strengthened with competing-root rejection under the approved uniqueness contract. Engine/Agent docs updated. No commit/publication; live dispatch still C.",
+      "timestamp": "2026-10-09T12:31:22Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] B: explicitly addressed execution and follow-up roots",
   "type": "task",
-  "updated_at": "2026-10-09T12:06:08Z"
+  "updated_at": "2026-10-09T12:31:22Z"
 }
