@@ -11,9 +11,15 @@
   "id": "zaq-p8t.3",
   "labels": [],
   "parent": "zaq-p8t",
+  "comments": [
+    {
+      "text": "Updated People OAuth modal copy to 'Continue to {provider} to sign in, then return to ZAQ. Your access tokens are never displayed.' Provider remains dynamically interpolated; regression derives expected provider from canonical credential. 20 People/device LiveView tests pass; mix q passes. Final mix precommit retry passes formatting/Credo but fails application startup at Channels.BridgeSupervisor with SQL sandbox connection checkout timeout before tests. No assertions weakened or unrelated startup changes made. UX approval still required before new feature E2E authoring.",
+      "timestamp": "2026-10-09T17:17:50Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-p8t.3] Both credential modals and dispatch",
   "type": "task",
-  "updated_at": "2026-10-09T12:18:47Z"
+  "updated_at": "2026-10-09T17:17:50Z"
 }
