@@ -7,9 +7,15 @@
   "id": "zaq-emb.31.7",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Regression reproduced again within combined registry/StreamEvents/API/Executor/history-flow matrix seed625: 199 tests/9 properties/6 doctests, exactly one failure (sealing_race); mix q passes. Only actual native consumer is temporarily suspended; real Jido completes; immutable registry still tool_completed; real provider-ingressed correction queues Engine receipt then receives {:rejected,:idle}, becomes unconsumed, and no model followup arrives. Receipt/root uniqueness contract blocks an unchecked fallback: RequestControl has already linked the admitted input as immutable child, so starting another answer with same binding cannot legitimately turn that child into an owning root. No persistence semantics changed. Failure remains uncommitted and unskipped. Need recovery design decision; do not conflate with .31.5 concurrency or deployed sleep-error cause. Service guide and existing handoff updated; unrelated WIP preserved.",
+      "timestamp": "2026-10-09T08:11:26Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[#768] Retry native-sealed late corrections without changing receipt ownership",
   "type": "bug",
-  "updated_at": "2026-10-09T08:07:02Z"
+  "updated_at": "2026-10-09T08:11:26Z"
 }
