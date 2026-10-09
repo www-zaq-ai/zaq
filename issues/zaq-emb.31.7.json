@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T08:07:02Z",
+  "description": "Deterministic production-path regression: delay only actual stream consumer after second real sleep, let native Jido complete, then ingress Spanish correction while registry remains tool_completed. Engine queues durable child; native steer rejects {:rejected,:idle}; receipt becomes unconsumed; no followup model request. Preserve regression in history_strategy_full_flow_test.exs (steering_phase:sealing_race), no skip/weaken. Status lookup fix validated and locally committed 95b0e726a is independent. Need safe automatic followup admission/retry design retaining immutable child receipt, canonical input UUID, exactly one answer-owning root/accounting per execution, permissions and removal fences. Current ExecutionRecord unique user-message ownership/immutable receipt-root contract means naive :not_active fallback after rejection is unsafe. Reuse existing Engine admission/lifecycle and RequestControl paths; no parallel generation/provider logic. Await design decision before changing persistence semantics. Latest isolated race test seed625: 1 test/1 failure, root delivered, child unconsumed, async {:rejected,:idle}.",
+  "id": "zaq-emb.31.7",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[#768] Retry native-sealed late corrections without changing receipt ownership",
+  "type": "bug",
+  "updated_at": "2026-10-09T08:07:02Z"
+}
