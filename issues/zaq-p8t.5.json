@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-p8t.4"
+  ],
   "blocks": [],
   "created": "2026-10-09T12:18:43Z",
   "description": "After human UX approval implement feature browser scenarios for both modals: initiate code, external link security, pending approval, completion, cancel, expiry, interrupted worker and restart. Run isolated regression suites, mix q per issue, coverage review and final mix precommit. Follow validation failure handling; document unrelated baseline blockers; do not weaken assertions. Action reuse not applicable to validation itself.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-p8t.5] E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-09T12:18:44Z"
+  "updated_at": "2026-10-09T12:18:48Z"
 }
