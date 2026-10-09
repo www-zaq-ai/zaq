@@ -8,9 +8,15 @@
   "description": "Final performance validation is blocked by test/zaq_web/live/bo/llm_performance_failure_test.exs:12. The unchanged test expects DBConnection.OwnershipError with no sandbox checkout but full-suite runs instead exit from DBConnection.Holder.checkout against a terminated/stale holder. Reproduced in final mix precommit at seed 108297 and again in a subsequent full run; the isolated test with seed 108297 passes (1 test, 0 failures). Do not weaken its assertions or claim the latest gate passed. A previous full run passed before the final unscoped-admission boundary preservation. Investigate full-suite ownership/order cleanup separately; no unrelated telemetry/BO code has been modified. Action reuse: not applicable to triage-only tracking.",
   "id": "zaq-mcw",
   "labels": [],
+  "comments": [
+    {
+      "text": "Device sign-in finalization also reproduces this unchanged baseline failure: final mix precommit seed 659734 (8854 tests/139 properties, 2 failures; both pass via mix test --failed), and subsequent gate (8037 tests/133 properties, 1 failure at llm_performance_failure_test.exs:12, stale holder owner exited). Earlier full gate passed 9989 tests/191 properties/48 doctests. No telemetry assertions weakened and no unrelated implementation edits. Blocks zaq-p8t.5 final approval; device browser journeys pass all 3 engines at 390/1280px.",
+      "timestamp": "2026-10-09T18:35:54Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[query-amplification] Investigate full-suite telemetry sandbox checkout failure",
   "type": "bug",
-  "updated_at": "2026-10-07T11:39:03Z"
+  "updated_at": "2026-10-09T18:35:54Z"
 }
