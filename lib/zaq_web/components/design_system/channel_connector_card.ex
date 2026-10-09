@@ -18,6 +18,7 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
   attr :provider, :string, required: true
   attr :url, :string, default: nil
   attr :enabled, :boolean, default: false
+  attr :enabled_label, :string, default: "Active"
   attr :selected, :boolean, default: false
   attr :select_event, :string, default: nil
   attr :connector_id, :integer, default: nil
@@ -77,12 +78,12 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
             {render_slot(@status)}
             <span class={[
               "font-mono text-[0.6rem] px-2 py-0.5 rounded-full uppercase tracking-wider",
-              if(@enabled,
+              if(@enabled and @enabled_label == "Active",
                 do: "bg-emerald-100 text-emerald-700",
                 else: "bg-black/5 text-black/30"
               )
             ]}>
-              {if @enabled, do: "Active", else: "Disabled"}
+              {if @enabled, do: @enabled_label, else: "Disabled"}
             </span>
           </div>
           <div class="flex items-center gap-3">

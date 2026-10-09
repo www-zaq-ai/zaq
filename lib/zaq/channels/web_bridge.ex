@@ -34,6 +34,13 @@ defmodule Zaq.Channels.WebBridge do
   @impl Zaq.Channels.Bridge
   def build_runtime_specs(config), do: Runtime.build(config)
 
+  @impl Zaq.Channels.CommunicationBridge
+  def channel_ingress_status(config), do: channel_ingress_status(config, [])
+
+  @doc "Resolves widget adapter readiness using the routed runtime configuration options."
+  @spec channel_ingress_status(map(), keyword()) :: {:ok, map()} | {:error, atom()}
+  def channel_ingress_status(config, opts), do: Runtime.ingress_status(config, opts)
+
   @impl Zaq.Channels.Bridge
   def start_runtime(%{provider: provider} = config)
       when provider in [:web_widget, "web_widget"] do

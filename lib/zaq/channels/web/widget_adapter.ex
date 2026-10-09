@@ -16,4 +16,10 @@ defmodule Zaq.Channels.Web.WidgetAdapter do
 
   @doc "Builds installation markup from the connector ID and global ZAQ base URL."
   @callback embed_script(pos_integer(), String.t()) :: {:ok, String.t()} | {:error, term()}
+
+  @doc "Reports bounded, secret-free installed readiness under the WebBridge status contract."
+  @callback status(pos_integer(), keyword()) ::
+              {:ok, map()} | {:error, :invalid_request | :check_timeout | :check_failed}
+
+  @optional_callbacks status: 2
 end

@@ -4,9 +4,14 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
+  alias Zaq.ConnectorConfig.WidgetSettings
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias ZaqWeb.Live.BO.AI.BOActor
+  alias ZaqWeb.Live.BO.Communication.IngressStatusUI
+
+  @health_refresh_ms 15_000
+  @policy_fields ~w(identity_issuer identity_audience same_site)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -24,10 +29,34 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
       |> assign(:authentication_key, nil)
       |> assign(:errors, %{})
       |> assign(:recovery_message, nil)
+      |> assign(:ingress_statuses, %{})
+      |> assign(:changed_settings, MapSet.new())
+      |> assign(:health_timer, nil)
       |> assign(:form, to_form(default_params(), as: :widget))
       |> assign(:agent_options, agent_options(socket))
 
     {:ok, reload(socket, nil)}
+  end
+
+  @impl true
+  def handle_info(:refresh_widget_statuses, socket) do
+    {:noreply, refresh_health(socket)}
+  end
+
+  @impl true
+  def handle_async(:widget_statuses, {:ok, result}, socket) do
+    {:noreply,
+     socket
+     |> assign(:configs, result.configs)
+     |> assign(:ingress_statuses, result.statuses)
+     |> assign(:base_url, result.base_url)
+     |> assign(:adapter, result.adapter)
+     |> schedule_health_refresh()}
+  end
+
+  def handle_async(:widget_statuses, _failure, socket) do
+    statuses = Map.new(socket.assigns.configs, &{&1.id, unknown_health()})
+    {:noreply, socket |> assign(:ingress_statuses, statuses) |> schedule_health_refresh()}
   end
 
   @impl true
@@ -50,7 +79,28 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   def handle_event("reload_configuration", _params, socket),
     do: {:noreply, socket |> clear_flash() |> reload(selected_id(socket))}
 
+  def handle_event("validate", %{"widget" => params} = event, socket) do
+    changed =
+      case Map.get(event, "_target") do
+        ["widget", field] when field in @policy_fields ->
+          MapSet.put(socket.assigns.changed_settings, field)
+
+        _ ->
+          socket.assigns.changed_settings
+      end
+
+    {:noreply,
+     socket
+     |> assign(:changed_settings, changed)
+     |> assign(:form, to_form(Map.merge(socket.assigns.form.params, params), as: :widget))}
+  end
+
   def handle_event("save", %{"widget" => params}, socket) do
+    socket =
+      assign(socket, :form, to_form(Map.merge(socket.assigns.form.params, params), as: :widget))
+
+    params = preserve_legacy_settings(params, socket)
+
     params =
       if Map.has_key?(params, "allowed_domains"),
         do: Map.update!(params, "allowed_domains", &split_origins/1),
@@ -173,6 +223,70 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     |> assign(:form, to_form(form_params(snapshot.selected), as: :widget))
     |> assign(:expanded_script_id, nil)
     |> assign(:snippet, {:error, :selection_required})
+    |> assign(:changed_settings, MapSet.new())
+    |> assign(:ingress_statuses, %{})
+    |> refresh_health()
+  end
+
+  defp preserve_legacy_settings(params, %{assigns: %{selected: nil}}), do: params
+
+  defp preserve_legacy_settings(params, socket) do
+    Enum.reduce(@policy_fields, params, fn field, acc ->
+      original = Map.get(socket.assigns.selected, policy_key(field))
+
+      if is_nil(original) and Map.get(acc, field) == "" and
+           not MapSet.member?(socket.assigns.changed_settings, field),
+         do: Map.delete(acc, field),
+         else: acc
+    end)
+  end
+
+  defp refresh_health(socket) do
+    socket = cancel_health_timer(socket)
+
+    if connected?(socket) do
+      user = socket.assigns.current_user
+
+      start_async(socket, :widget_statuses, fn ->
+        {:ok, snapshot} =
+          dispatch_user(user, :engine, :widget_connector_settings, %{op: :snapshot, id: :new})
+
+        enabled = Enum.filter(snapshot.configs, & &1.enabled)
+
+        statuses =
+          enabled
+          |> IngressStatusUI.collect(&fetch_widget_health(user, &1))
+          |> Map.new(&{&1.id, &1.status})
+
+        %{
+          configs: snapshot.configs,
+          statuses: statuses,
+          base_url: snapshot.base_url,
+          adapter: snapshot.adapter
+        }
+      end)
+    else
+      socket
+    end
+  end
+
+  defp fetch_widget_health(user, config) do
+    request = %{provider: "web_widget", channel_config_id: config.id}
+
+    user
+    |> dispatch_user(:channels, :channel_ingress_status, request)
+    |> IngressStatusUI.normalize_response()
+  end
+
+  defp schedule_health_refresh(socket) do
+    socket = cancel_health_timer(socket)
+    timer = Process.send_after(self(), :refresh_widget_statuses, @health_refresh_ms)
+    assign(socket, :health_timer, timer)
+  end
+
+  defp cancel_health_timer(socket) do
+    if socket.assigns.health_timer, do: Process.cancel_timer(socket.assigns.health_timer)
+    assign(socket, :health_timer, nil)
   end
 
   defp toggle_script(%{assigns: %{expanded_script_id: id}} = socket, id),
@@ -196,12 +310,12 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   defp clear_key(socket), do: assign(socket, :authentication_key, nil)
 
   defp default_params do
-    %{
+    Map.merge(WidgetSettings.defaults(), %{
       "name" => "",
       "allowed_domains" => "",
       "agent_id" => "",
       "enabled" => false
-    }
+    })
   end
 
   defp form_params(nil), do: default_params()
@@ -211,7 +325,10 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
       "name" => selected.name,
       "allowed_domains" => Enum.join(selected.allowed_domains, "\n"),
       "agent_id" => selected.agent_id,
-      "enabled" => selected.enabled
+      "enabled" => selected.enabled,
+      "identity_issuer" => selected.identity_issuer || "",
+      "identity_audience" => selected.identity_audience || "",
+      "same_site" => selected.same_site || ""
     }
   end
 
@@ -242,9 +359,13 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     do: dispatch(socket, :engine, :widget_connector_settings, request)
 
   defp dispatch(socket, role, action, request) do
+    dispatch_user(socket.assigns.current_user, role, action, request)
+  end
+
+  defp dispatch_user(user, role, action, request) do
     event =
       Event.new(request, role,
-        actor: BOActor.build(socket.assigns.current_user),
+        actor: BOActor.build(user),
         opts: [action: action, confidential: true]
       )
 
@@ -288,6 +409,33 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
 
   defp adapter_available?({:ok, %{available?: true}}), do: true
   defp adapter_available?(_adapter), do: false
+
+  defp policy_key("identity_issuer"), do: :identity_issuer
+  defp policy_key("identity_audience"), do: :identity_audience
+  defp policy_key("same_site"), do: :same_site
+
+  defp widget_health(config, statuses) do
+    if config.enabled,
+      do: Map.get(statuses, config.id, %{status: :pending, summary: "Checking widget readiness"}),
+      else: %{status: :disabled, summary: "Disabled"}
+  end
+
+  defp unknown_health, do: %{status: :unknown, summary: "Widget readiness cannot be verified"}
+
+  defp policy_hint(selected, statuses, key) do
+    effective =
+      if selected,
+        do: get_in(statuses, [selected.id, :effective_settings, key]),
+        else: nil
+
+    case effective do
+      %{value: value, source: source} when is_binary(value) ->
+        "Effective: #{value} (#{source}). Saved changes require adapter support and synchronization."
+
+      _ ->
+        "Effective value is unverified. Blank legacy fields preserve existing adapter configuration."
+    end
+  end
 
   attr :message, :string, required: true
 

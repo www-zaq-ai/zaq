@@ -235,6 +235,162 @@ Engine persistence and Channels construction reuse the same pure
 [`WidgetSettings.validate/1`](../../lib/zaq/connector_config/widget_settings.ex)
 contract; neither role duplicates its validation or calls the other role's runtime.
 
+### Connector authentication and cookie settings contract
+
+**ZAQ host support implemented; external enforcement pending.** The ZAQ form,
+settings projection and runtime configuration support this extension. Saving a
+value does not establish that the installed external adapter applies it.
+Adapter work is tracked in [web_widget #10](https://github.com/www-zaq-ai/web_widget/issues/10)
+and [#12](https://github.com/www-zaq-ai/web_widget/issues/12); contract coordination
+is tracked in Beadwork `zaq-yx7`, with host implementation in `zaq-kgw` and `zaq-m0a`.
+These requirements extend the existing settings
+and runtime boundaries; they do not introduce another configuration store.
+
+Persist these string keys in `channel_configs.settings`. Use the same keys in the
+confidential management request and allowlisted BO snapshot. The trusted adapter
+reads them from `config.settings` on `build/2`; they are not duplicated into hooks.
+
+| Key | Value contract | Default for a new connector |
+| --- | --- | --- |
+| `identity_issuer` | UTF-8 string, 1–255 bytes, no leading/trailing whitespace | `zaq_issuer` |
+| `identity_audience` | UTF-8 string, 1–255 bytes, no leading/trailing whitespace | `zaq_audience` |
+| `same_site` | Exactly `"None"`, `"Lax"` or `"Strict"` | `"None"` |
+
+Issuer/audience are exact, case-sensitive JWT `iss`/`aud` expectations, not URLs
+or secrets. The parent backend signs with the same effective values. Present blank,
+nil, invalid or wrongly typed values reject; they must not silently choose a fallback.
+Engine and Channels reuse the pure `WidgetSettings` contract. A partial save such as
+enable/disable preserves omitted settings; new connectors persist the defaults.
+
+For existing connectors with missing identity keys, resolution is per key:
+explicit connector setting → existing trusted adapter integration option of the
+same name → the new default. Validate the selected value. BO must expose the
+effective values and their source; it must not display a default while the running
+adapter uses a legacy application override. Saving an explicitly edited value makes
+it connector-owned. If the legacy value cannot be resolved, mark it unresolved
+rather than implicitly replacing it. Unrelated edits must not migrate it silently.
+
+A missing legacy `same_site` preserves the serving endpoint's existing effective
+policy until explicitly changed; it must not silently relax cookies to `"None"`.
+Its effective policy and source likewise need to be reported, or marked unresolved.
+Resolved identity options, effective cookie policy, verifier selection, PubSub and
+endpoint selection remain server-owned. Browser input cannot override them.
+
+`"None"` requires a Secure cookie over HTTPS. The adapter must enforce the requested
+policy on widget-scoped session cookies and keep the session compatible with the
+existing LiveView handshake. It must not relax ZAQ's BO session cookie or let widgets
+with different policies overwrite each other's cookies. A cookie scoped only to
+`/widget/:id` does not reach `/live`; copying attributes onto the shared BO cookie
+does not establish isolation. Host-mounted and package-endpoint modes must document
+and verify the same session contract. Do not remove CSRF protection merely because
+JWT authentication exists, or add another browser socket as an implicit workaround.
+
+Until this is supported, settings may be saved as desired configuration but must not
+be presented as applied. Report `cookie_policy_unsupported` or
+`cookie_policy_mismatch` through the readiness contract below. `SameSite=None` does
+not guarantee operation when a browser blocks third-party cookies. Explicit HTTP
+development exceptions require a separately documented policy, not a silent weakening
+of the production `"None"` contract. Configuration changes reuse the existing runtime
+refresh and session-generation invalidation path.
+
+### Adapter readiness callback contract
+
+**ZAQ callback invocation and validation implemented; external probing pending.** Tracked in
+[web_widget #16](https://github.com/www-zaq-ai/web_widget/issues/16).
+The optional `status(widget_id, opts)` runs on the same configured adapter that implements
+`build/2` and `embed_script/2`. ZAQ declares it in `WidgetAdapter`, invokes it through
+`Web.Runtime`, validates it with `Web.Readiness`, and projects it through WebBridge's
+ingress callback. Host work is tracked in `zaq-p6e`. Older adapters may omit it: that means unknown
+health, not an unavailable adapter or a healthy runtime.
+
+- `widget_id` is the positive integer connector ID; never a browser-selected ID.
+- `opts` is a keyword list containing `timeout_ms: 2_000`, the total check budget.
+  The adapter resolves serving endpoint and PubSub from trusted server configuration;
+  these values and arbitrary probe URLs cannot come from the browser or widget settings.
+- The callback is read-only and returns a plain map, never a ZAQ struct. It does not
+  consume a JWT, authenticate a synthetic visitor, create a conversation, change
+  runtime ownership or require an existing connection.
+- A successful response has the schematic shape below. All five checks are required;
+  `reason` is a closed atom from the table below or nil.
+
+```elixir
+{:ok,
+ %{
+   protocol_version: 1,
+   status: :ready,
+   reason: nil,
+   checks: %{
+     runtime: %{status: :ready, reason: nil},
+     transport: %{status: :ready, reason: nil},
+     delivery: %{status: :ready, reason: nil},
+     authentication: %{status: :ready, reason: nil},
+     cookie_policy: %{status: :ready, reason: nil}
+   },
+   effective_settings: %{
+     identity_issuer: %{value: "zaq_issuer", source: :connector},
+     identity_audience: %{value: "zaq_audience", source: :connector},
+     same_site: %{value: "None", source: :connector}
+   }
+ }}
+```
+
+Every check and overall `status` is exactly `:ready`, `:starting`, `:unavailable` or
+`:unknown`. Ready checks have nil reasons; other checks require a reason below.
+Overall precedence is unavailable → unknown → starting → ready. The overall reason
+comes from the first check with that status in this order: runtime, transport,
+delivery, authentication, cookie_policy. ZAQ verifies this aggregation rather than
+trusting a contradictory overall result.
+
+| Check | What ready establishes | Allowed non-ready reasons |
+| --- | --- | --- |
+| `runtime` | The exact widget is registered and its configuration process responds | `runtime_not_registered`, `runtime_unresponsive`, `runtime_starting` |
+| `transport` | The serving HTTP listener and its LiveView WebSocket transport are accepting connections | `transport_not_listening`, `transport_starting`, `transport_unverifiable` |
+| `delivery` | The configured response PubSub is available | `pubsub_unavailable` |
+| `authentication` | The installed runtime has a configured verifier and effective issuer/audience matching the desired settings | `identity_not_configured`, `identity_settings_mismatch` |
+| `cookie_policy` | The serving widget session applies the desired cookie policy without affecting BO sessions | `cookie_policy_unsupported`, `cookie_policy_mismatch`, `secure_cookie_required`, `https_required` |
+
+Any check may also return `check_timeout` or `check_failed`; these do not imply ready.
+Use starting only for `runtime_starting` and `transport_starting`; use unknown for
+`transport_unverifiable`, `cookie_policy_unsupported`, `check_timeout` and
+`check_failed`. The remaining reasons indicate unavailable. Unknown fields, missing
+checks, invalid source/value pairs and a ready check with a non-nil reason invalidate
+the response. An unresolved effective value cannot have a ready authentication or
+cookie-policy check.
+Effective-setting sources are exactly `:connector`, `:application`, `:endpoint` or
+`:default`; `:endpoint` applies only to `same_site`. An unresolved effective setting
+is `%{value: nil, source: :unresolved}`. The callback must report values used by the
+installed runtime, not merely repeat the desired database configuration. No keys,
+JWTs, verifier MFAs, cookies, private runtime maps or exception text may appear.
+
+Callback-level failures return `{:error, reason}` where reason is exactly
+`:invalid_request`, `:check_timeout` or `:check_failed`. ZAQ bounds the complete
+invocation to 2,000 ms, handles exceptions/exits, validates the version and closed
+shape, and projects absent callbacks, timeouts, failures and malformed replies to
+unknown with a safe explanation. Do not pass unbounded or raw diagnostics to BO.
+
+In host-mounted mode, check the host endpoint serving `/live`; in package mode,
+check the package endpoint. A registered configuration process, loaded module or
+living endpoint supervisor alone does not prove a listening WebSocket transport.
+If a reliable local transport check is unavailable, return `:unknown` with
+`transport_unverifiable`. This contract proves local readiness only, not public
+proxy/TLS reachability, successful visitor authentication or endpoint security.
+
+ZAQ projects ready → healthy, starting → checking, unavailable → unavailable and
+unknown → unknown through the existing Channels `:channel_ingress_status` event;
+both BO surfaces reuse that result via NodeRouter. Disabled is a separate
+Engine-owned configuration state: disabled connectors display Disabled without
+probing or contributing to enabled-connector health. Enabled is never synonymous
+with healthy. Readiness support is not an additional enablement prerequisite for
+legacy adapters. Checks run asynchronously, refresh after lifecycle changes and
+while the page is open, and discard stale results after disable/removal/replacement.
+
+Acceptance must cover per-connector identity overrides/defaults/legacy values,
+invalid values and partial saves; widget-scoped cookies and unchanged BO sessions;
+zero-visitor readiness, stopped listeners despite registered runtimes, PubSub loss,
+both endpoint modes, restart/recovery, absent callbacks, malformed/secret-bearing
+results and timeouts. Actual browser WebSocket connection/reconnection tests remain
+necessary for adapter acceptance; a GenServer-only fixture cannot establish it.
+
 ## BO configuration and installation
 
 Channels → Communication → Web Widget uses

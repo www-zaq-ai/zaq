@@ -7,6 +7,56 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUI do
     |> status_color()
   end
 
+  def label(status) do
+    case status_value(status) do
+      :ok -> "Ready"
+      :pending -> "Checking"
+      :error -> "Unavailable"
+      :disabled -> "Disabled"
+      _ -> "Unknown"
+    end
+  end
+
+  def tone(status) do
+    case status_value(status) do
+      :ok -> :success
+      :pending -> :warning
+      :error -> :danger
+      _ -> :neutral
+    end
+  end
+
+  @doc "Collects connector observations concurrently without leaking failed-check diagnostics."
+  @spec collect([map()], (map() -> map())) :: [map()]
+  def collect(configs, fetch_status) do
+    configs
+    |> Task.async_stream(&safe_fetch(fetch_status, &1),
+      max_concurrency: 4,
+      timeout: 5_000,
+      on_timeout: :kill_task
+    )
+    |> Enum.zip(configs)
+    |> Enum.map(&connector_result/1)
+  end
+
+  defp safe_fetch(fetch_status, config) do
+    fetch_status.(config)
+  rescue
+    _error -> %{status: :unknown, summary: "Readiness check unavailable"}
+  catch
+    _kind, _reason -> %{status: :unknown, summary: "Readiness check unavailable"}
+  end
+
+  defp connector_result({{:ok, status}, config}),
+    do: %{id: config.id, name: config.name, status: status}
+
+  defp connector_result({_failure, config}),
+    do: %{
+      id: config.id,
+      name: config.name,
+      status: %{status: :unknown, summary: "Readiness check unavailable"}
+    }
+
   @doc "Aggregates enabled connector health without treating provider ambiguity as failure."
   def aggregate([]), do: %{status: :unsupported, summary: "No enabled connectors", connectors: []}
 
@@ -20,6 +70,7 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUI do
       cond do
         healthy == length(values) -> :ok
         Enum.all?(values, &(&1 in [:error, "error"])) -> :error
+        Enum.any?(values, &(&1 in [:unknown, "unknown"])) -> :unknown
         true -> :pending
       end
 
@@ -71,9 +122,21 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUI do
   end
 
   def apply_async_result(socket, {:ok, statuses}) when is_map(statuses) do
-    socket
-    |> Phoenix.Component.assign(:ingress_statuses, statuses)
-    |> Phoenix.Component.assign(:ingress_status_loading, %{})
+    socket =
+      socket
+      |> Phoenix.Component.assign(:ingress_statuses, statuses)
+      |> Phoenix.Component.assign(:ingress_status_loading, %{})
+
+    case socket.assigns[:ingress_status_modal] do
+      %{provider: provider} = modal ->
+        Phoenix.Component.assign(socket, :ingress_status_modal, %{
+          modal
+          | status: Map.get(statuses, provider)
+        })
+
+      _ ->
+        socket
+    end
   end
 
   def apply_async_result(socket, _result) do

@@ -4,6 +4,34 @@ defmodule Zaq.ConnectorConfig.WidgetSettingsTest do
 
   alias Zaq.ConnectorConfig.WidgetSettings
 
+  test "authentication and cookie settings have canonical defaults and strict validation" do
+    assert WidgetSettings.defaults() == %{
+             "identity_issuer" => "zaq_issuer",
+             "identity_audience" => "zaq_audience",
+             "same_site" => "None"
+           }
+
+    for policy <- ["None", "Lax", "Strict"] do
+      assert :ok =
+               WidgetSettings.validate(Map.put(WidgetSettings.defaults(), "same_site", policy))
+    end
+
+    for key <- ["identity_issuer", "identity_audience"],
+        value <- [nil, "", " issuer", "issuer ", 12, String.duplicate("a", 256), <<255>>] do
+      assert {:error, :invalid_widget_settings} = WidgetSettings.validate(%{key => value})
+    end
+
+    for value <- [nil, "", "none", "Invalid", :lax] do
+      assert {:error, :invalid_widget_settings} = WidgetSettings.validate(%{"same_site" => value})
+    end
+  end
+
+  property "arbitrary policy values outside the closed SameSite enum are rejected" do
+    check all(value <- term(), value not in ["None", "Lax", "Strict"]) do
+      assert {:error, :invalid_widget_settings} = WidgetSettings.validate(%{"same_site" => value})
+    end
+  end
+
   test "accepts absent settings and bounded presentation settings" do
     assert :ok = WidgetSettings.validate(%{})
 

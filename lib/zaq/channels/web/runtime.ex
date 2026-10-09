@@ -8,7 +8,7 @@ defmodule Zaq.Channels.Web.Runtime do
   select a builder, override widget ID or replace the configuration-bound sink.
   """
 
-  alias Zaq.Channels.Web.{Command, Context, Delivery, Message, Response}
+  alias Zaq.Channels.Web.{Command, Context, Delivery, Message, Readiness, Response}
   alias Zaq.ConnectorConfig.WidgetSettings
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -88,6 +88,63 @@ defmodule Zaq.Channels.Web.Runtime do
   end
 
   defp runtime_status(_id), do: :not_running
+
+  @doc "Reports verified adapter transport readiness through the shared ingress status boundary."
+  @spec ingress_status(map(), keyword()) :: {:ok, map()} | {:error, :invalid_request}
+  def ingress_status(config, opts \\ [])
+
+  def ingress_status(%{provider: provider, enabled: false}, _opts)
+      when provider in [:web_widget, "web_widget"],
+      do: {:ok, %{status: :disabled, mode: "websocket", summary: "Disabled"}}
+
+  def ingress_status(%{provider: provider, id: id} = config, opts)
+      when provider in [:web_widget, "web_widget"] and is_integer(id) and id > 0 do
+    definition = Zaq.Config.get(:zaq, :channels, %{}, opts) |> Map.get(:web_widget, %{})
+    adapter = Map.get(definition, :adapter)
+
+    health =
+      if supports_callback?(adapter, :status) do
+        case adapter_readiness(adapter, id) do
+          {:ok, response} -> Readiness.project(response, Map.get(config, :settings) || %{})
+          {:error, reason} -> Readiness.unknown(reason)
+        end
+      else
+        Readiness.unknown(:readiness_unsupported)
+      end
+
+    {:ok, health}
+  rescue
+    _error -> {:ok, Readiness.unknown(:check_failed)}
+  catch
+    _kind, _reason -> {:ok, Readiness.unknown(:check_failed)}
+  end
+
+  def ingress_status(_config, _opts), do: {:error, :invalid_request}
+
+  defp adapter_readiness(adapter, id) do
+    task = Task.Supervisor.async_nolink(Zaq.TaskSupervisor, fn -> safe_readiness(adapter, id) end)
+
+    case Task.yield(task, 2_000) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      nil -> {:error, :check_timeout}
+      _ -> {:error, :check_failed}
+    end
+  end
+
+  defp safe_readiness(adapter, id) do
+    case adapter.status(id, timeout_ms: 2_000) do
+      {:ok, response} -> normalize_readiness(Readiness.validate(response))
+      {:error, :check_timeout} -> {:error, :check_timeout}
+      _ -> {:error, :check_failed}
+    end
+  rescue
+    _error -> {:error, :check_failed}
+  catch
+    _kind, _reason -> {:error, :check_failed}
+  end
+
+  defp normalize_readiness({:ok, response}), do: {:ok, response}
+  defp normalize_readiness(_error), do: {:error, :check_failed}
 
   defp supports_callback?(adapter, callback) do
     is_atom(adapter) and not is_nil(adapter) and Code.ensure_loaded?(adapter) and

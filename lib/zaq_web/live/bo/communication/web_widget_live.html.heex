@@ -33,6 +33,7 @@
           provider="Web Widget"
           url={"Widget ID: #{config.id}"}
           enabled={config.enabled}
+          enabled_label="Enabled"
           connector_id={config.id}
           icon="hero-globe-alt"
           select_event="select_connector"
@@ -47,6 +48,16 @@
           edit_event="select_connector"
           edit_button_id={"edit-widget-#{config.id}"}
         >
+          <:status :if={config.enabled}>
+            <ZaqWeb.Components.DesignSystem.Table.table_badge
+              id={"widget-health-#{config.id}"}
+              status={IngressStatusUI.label(widget_health(config, @ingress_statuses))}
+              tone={IngressStatusUI.tone(widget_health(config, @ingress_statuses))}
+              title={widget_health(config, @ingress_statuses).summary}
+            >
+              {IngressStatusUI.label(widget_health(config, @ingress_statuses))}
+            </ZaqWeb.Components.DesignSystem.Table.table_badge>
+          </:status>
           <:actions>
             <ZaqWeb.Components.DesignSystem.Button.button
               id={"widget-script-#{config.id}"}
@@ -156,7 +167,13 @@
           data-share-url={@selected.id}
           icon="hero-clipboard"
         >Copy widget ID</ZaqWeb.Components.DesignSystem.Button.button>
-        <.form for={@form} id="widget-config-form" phx-submit="save" class="space-y-5">
+        <.form
+          for={@form}
+          id="widget-config-form"
+          phx-submit="save"
+          phx-change="validate"
+          class="space-y-5"
+        >
           <ZaqWeb.Components.DesignSystem.Input.input
             field={@form[:name]}
             label="Configuration name"
@@ -179,6 +196,43 @@
           />
           <p class="zaq-field-helper">
             Uses connector-scoped IncomingMessageRouting. Inherited routing and NONE retain their existing behavior.
+          </p>
+          <ZaqWeb.Components.DesignSystem.Input.input
+            id="widget-identity-issuer"
+            field={@form[:identity_issuer]}
+            label="JWT token issuer"
+            placeholder="Preserve existing adapter value"
+            hint={policy_hint(@selected, @ingress_statuses, :identity_issuer)}
+          />
+          <ZaqWeb.Components.DesignSystem.Input.input
+            id="widget-identity-audience"
+            field={@form[:identity_audience]}
+            label="JWT token audience"
+            placeholder="Preserve existing adapter value"
+            hint={policy_hint(@selected, @ingress_statuses, :identity_audience)}
+          />
+          <ZaqWeb.Select.select
+            id="widget-same-site"
+            name="widget[same_site]"
+            label="Cookie SameSite policy"
+            value={@form[:same_site].value}
+            options={
+              if @selected && is_nil(@selected.same_site),
+                do: [
+                  {"Preserve existing policy", ""},
+                  {"None", "None"},
+                  {"Lax", "Lax"},
+                  {"Strict", "Strict"}
+                ],
+                else: [{"None", "None"}, {"Lax", "Lax"}, {"Strict", "Strict"}]
+            }
+          />
+          <p class="zaq-field-helper">
+            None requires Secure cookies over HTTPS. Browser third-party-cookie restrictions still apply. {policy_hint(
+              @selected,
+              @ingress_statuses,
+              :same_site
+            )}
           </p>
           <ZaqWeb.Components.DesignSystem.Checkbox.checkbox
             field={@form[:enabled]}

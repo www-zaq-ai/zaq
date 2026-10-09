@@ -30,6 +30,14 @@ protections and subscription authorization. No ZAQ widget route macro or use
 of the BO LiveView socket is required. Bundle the adapter's own default styling;
 an optional website-specific HTTP(S) stylesheet can be supplied during initialization.
 
+For connector settings and the optional readiness extension supported by ZAQ,
+follow the canonical [configuration keys](../services/web-bridge.md#connector-authentication-and-cookie-settings-contract)
+and [adapter status callback](../services/web-bridge.md#adapter-readiness-callback-contract).
+Adapter issues #10, #12 and #16 linked there own the corresponding external work;
+existing installation support does not imply the installed adapter enforces these
+settings or implements actual transport probing. BO displays Unknown until readiness
+can be verified; desired settings and observed effective values remain distinct.
+
 ## Configure in ZAQ BO
 
 1. Open Channels → Communication → Web Widget and add a named configuration.

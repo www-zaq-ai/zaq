@@ -1,6 +1,6 @@
 defmodule Zaq.ConnectorConfig.WidgetSettings do
   @moduledoc """
-  Pure validation of persisted widget presentation and embedding settings.
+  Pure validation of persisted widget presentation, embedding and authentication settings.
 
   Stylesheet URLs belong to instance initialization, never connector settings.
 
@@ -8,6 +8,16 @@ defmodule Zaq.ConnectorConfig.WidgetSettings do
   value contract. It does not build runtimes, authenticate senders or enforce
   endpoint access; those responsibilities remain with their existing owners.
   """
+
+  @defaults %{
+    "identity_issuer" => "zaq_issuer",
+    "identity_audience" => "zaq_audience",
+    "same_site" => "None"
+  }
+
+  @doc "Defaults for new connectors only; legacy omitted settings retain their runtime policy."
+  @spec defaults() :: map()
+  def defaults, do: @defaults
 
   @doc "Validates the settings map without interpreting a browser-supplied widget identity."
   @spec validate(term()) :: :ok | {:error, :invalid_widget_settings}
@@ -17,12 +27,32 @@ defmodule Zaq.ConnectorConfig.WidgetSettings do
         valid_name?(Map.get(settings, "display_name")) and
         valid_domains?(Map.get(settings, "allowed_domains", [])) and
         not Map.has_key?(settings, "stylesheet_url") and
-        not Map.has_key?(settings, :stylesheet_url)
+        not Map.has_key?(settings, :stylesheet_url) and
+        valid_authentication?(settings)
 
     if valid, do: :ok, else: {:error, :invalid_widget_settings}
   end
 
   def validate(_settings), do: {:error, :invalid_widget_settings}
+
+  defp valid_authentication?(settings) do
+    not Enum.any?([:identity_issuer, :identity_audience, :same_site], &Map.has_key?(settings, &1)) and
+      optional_setting?(settings, "identity_issuer", &valid_identifier?/1) and
+      optional_setting?(settings, "identity_audience", &valid_identifier?/1) and
+      optional_setting?(settings, "same_site", &(&1 in ["None", "Lax", "Strict"]))
+  end
+
+  defp optional_setting?(settings, key, validate) do
+    case Map.fetch(settings, key) do
+      :error -> true
+      {:ok, value} -> validate.(value)
+    end
+  end
+
+  defp valid_identifier?(value) when is_binary(value),
+    do: String.valid?(value) and byte_size(value) in 1..255 and String.trim(value) == value
+
+  defp valid_identifier?(_value), do: false
 
   defp valid_name?(nil), do: true
 

@@ -11,6 +11,7 @@ defmodule Zaq.Channels.Web.RuntimeTest do
     @impl true
     def build(config, hooks) do
       send(config.settings["test_pid"], {:hooks, hooks})
+      send(config.settings["test_pid"], {:runtime_settings, config.settings})
 
       if config.settings["fail"],
         do: {:error, :fixture_failure},
@@ -82,6 +83,24 @@ defmodule Zaq.Channels.Web.RuntimeTest do
     assert {:ok, %{available?: true, runtime: :running}} = Runtime.status(config.id)
     assert :ok = WebBridge.stop_runtime(config)
     assert {:ok, %{available?: true, runtime: :not_running}} = Runtime.status(config.id)
+  end
+
+  test "authentication and cookie settings reach the adapter only in server configuration", %{
+    config: config
+  } do
+    settings =
+      Map.merge(config.settings, %{
+        "identity_issuer" => "parent_issuer",
+        "identity_audience" => "widget_audience",
+        "same_site" => "Strict"
+      })
+
+    assert :ok = WebBridge.start_runtime(%{config | settings: settings})
+    assert_receive {:runtime_settings, ^settings}
+    assert_receive {:hooks, hooks}
+    refute Map.has_key?(hooks, :identity_issuer)
+    refute Map.has_key?(hooks, :identity_audience)
+    refute Map.has_key?(hooks, :same_site)
   end
 
   test "changed configuration restarts, unchanged preserves, disable stops", %{config: config} do

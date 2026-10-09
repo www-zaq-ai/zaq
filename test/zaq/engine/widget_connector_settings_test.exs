@@ -35,6 +35,60 @@ defmodule Zaq.Engine.WidgetConnectorSettingsTest do
 
   @opts [node_router: Router]
 
+  test "new settings default, roundtrip and partial edits preserve custom policy" do
+    {:ok, created} = save(:new, nil, %{"name" => "Defaults", "enabled" => false})
+    selected = created.snapshot.selected
+    assert selected.identity_issuer == "zaq_issuer"
+    assert selected.identity_audience == "zaq_audience"
+    assert selected.same_site == "None"
+    assert Repo.get!(ChannelConfig, selected.id).settings["same_site"] == "None"
+
+    {:ok, edited} =
+      save(selected.id, selected.revision, %{
+        "identity_issuer" => "custom_parent",
+        "identity_audience" => "custom_widget",
+        "same_site" => "Strict"
+      })
+
+    selected = edited.snapshot.selected
+    {:ok, renamed} = save(selected.id, selected.revision, %{"name" => "Renamed"})
+    assert renamed.snapshot.selected.identity_issuer == "custom_parent"
+    assert renamed.snapshot.selected.identity_audience == "custom_widget"
+    assert renamed.snapshot.selected.same_site == "Strict"
+  end
+
+  test "legacy omitted settings stay omitted on unrelated saves" do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Legacy",
+        provider: "web_widget",
+        kind: "retrieval",
+        enabled: false,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+    {:ok, snapshot} = WidgetConnectorSettings.execute(%{op: :snapshot, id: config.id}, @opts)
+    assert snapshot.selected.identity_issuer == nil
+    assert snapshot.selected.same_site == nil
+    {:ok, _} = save(config.id, snapshot.selected.revision, %{"name" => "Legacy renamed"})
+    assert Repo.get!(ChannelConfig, config.id).settings == %{}
+  end
+
+  test "invalid issuer, audience and cookie policy never persist" do
+    for {key, value} <- [
+          {"identity_issuer", ""},
+          {"identity_audience", nil},
+          {"same_site", "none"}
+        ] do
+      assert {:error, {:validation, _}} =
+               save(:new, nil, %{"name" => "Invalid", "enabled" => false, key => value})
+    end
+
+    assert ChannelConfig.list_by_provider("web_widget") == []
+  end
+
   test "disabled creation returns only a secret-free configuration snapshot" do
     assert {:ok, result} = save(:new, nil, %{"name" => "Support", "enabled" => false})
     config = result.snapshot.selected

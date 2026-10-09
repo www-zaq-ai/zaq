@@ -876,7 +876,12 @@ defmodule Zaq.Channels.Api do
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
          true <- supports_callback?(bridge, :channel_ingress_status, 1) || {:error, :unsupported},
          {:ok, config} <- ingress_status_config(bridge_module, provider, request) do
-      %{event | response: bridge.channel_ingress_status(config)}
+      response =
+        if supports_callback?(bridge, :channel_ingress_status, 2),
+          do: bridge.channel_ingress_status(config, event.opts),
+          else: bridge.channel_ingress_status(config)
+
+      %{event | response: response}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
     end

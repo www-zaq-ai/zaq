@@ -10,6 +10,7 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
   after persistence are pending warnings, never false rollbacks.
   """
 
+  alias Zaq.ConnectorConfig.WidgetSettings
   alias Zaq.Engine.{ChannelConfig, ConnectorLifecycle, IncomingMessageRouting}
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -18,7 +19,7 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
   alias Zaq.Utils.ParseUtils
 
   @provider "web_widget"
-  @fields ~w(name enabled display_name allowed_domains agent_id)
+  @fields ~w(name enabled display_name allowed_domains agent_id identity_issuer identity_audience same_site)
 
   @doc "Executes an authenticated management request through the owning BO Action."
   def execute(request, opts \\ [])
@@ -121,10 +122,13 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
 
   defp persist(config, params, opts) do
     settings =
-      (config.settings || %{})
+      initial_settings(config)
       |> Map.drop(["stylesheet_url", :stylesheet_url])
       |> put_setting(params, "display_name")
       |> put_setting(params, "allowed_domains")
+      |> put_setting(params, "identity_issuer")
+      |> put_setting(params, "identity_audience")
+      |> put_setting(params, "same_site")
 
     attrs = params |> Map.take(["name", "enabled"]) |> Map.put("settings", settings)
 
@@ -138,6 +142,11 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
       {:ok, saved}
     end
   end
+
+  defp initial_settings(%ChannelConfig{id: nil, settings: settings}),
+    do: Map.merge(WidgetSettings.defaults(), settings || %{})
+
+  defp initial_settings(config), do: config.settings || %{}
 
   defp put_setting(settings, params, key) do
     case Map.fetch(params, key) do
@@ -238,6 +247,9 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
       enabled: config.enabled,
       display_name: Map.get(config.settings || %{}, "display_name", ""),
       allowed_domains: Map.get(config.settings || %{}, "allowed_domains", []),
+      identity_issuer: Map.get(config.settings || %{}, "identity_issuer"),
+      identity_audience: Map.get(config.settings || %{}, "identity_audience"),
+      same_site: Map.get(config.settings || %{}, "same_site"),
       key_present?: key_present?(config),
       key_rotated_at: Map.get(config.settings || %{}, "key_rotated_at"),
       revision: descriptor.revision,

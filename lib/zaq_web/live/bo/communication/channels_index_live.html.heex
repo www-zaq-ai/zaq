@@ -269,7 +269,19 @@
                 phx-click="open_ingress_status"
                 phx-value-provider={card.id}
                 class="inline-flex items-center justify-center"
-                title="Ingress status"
+                title={
+                  if card.id == "web_widget",
+                    do:
+                      (Map.get(@ingress_statuses, card.id) || %{})[:summary] ||
+                        "Checking widget readiness",
+                    else: "Ingress status"
+                }
+                aria-label={
+                  if card.id == "web_widget",
+                    do:
+                      "Web Widget readiness: #{IngressStatusUI.label(Map.get(@ingress_statuses, card.id))}",
+                    else: "Ingress status"
+                }
               >
                 <span class={[
                   "status",

@@ -22,6 +22,12 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
       do: {:ok, "<script src=\"#{base_url}/widget.js\" data-widget-id=\"#{id}\"></script>"}
   end
 
+  defmodule ReadyAdapter do
+    defdelegate build(config, hooks), to: Adapter
+    defdelegate embed_script(id, base_url), to: Adapter
+    def status(_id, timeout_ms: 2_000), do: {:ok, Zaq.WidgetReadinessFixtures.response()}
+  end
+
   setup %{conn: conn} do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :channels@localhost end)
     user = admin_fixture(%{must_change_password: false})
@@ -103,6 +109,132 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
     refute has_element?(view, "#new-widget-key")
     view |> element("#new-widget-config") |> render_click()
     refute has_element?(view, "#new-widget-key")
+  end
+
+  test "JWT and SameSite fields default, save, reopen and reject invalid settings", %{conn: conn} do
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    view |> element("#new-widget-config") |> render_click()
+    assert has_element?(view, "#widget-identity-issuer[value='zaq_issuer']")
+    assert has_element?(view, "#widget-identity-audience[value='zaq_audience']")
+    assert has_element?(view, "#widget-same-site input[name='widget[same_site]'][value='None']")
+
+    render_change(view, "validate", %{
+      "widget" => %{"same_site" => "Strict"},
+      "_target" => ["widget", "same_site"]
+    })
+
+    view
+    |> form("#widget-config-form",
+      widget: %{
+        name: "Configured claims",
+        identity_issuer: "parent_backend",
+        identity_audience: "support_widget",
+        same_site: "Strict"
+      }
+    )
+    |> render_submit()
+
+    config = Repo.get_by!(ChannelConfig, name: "Configured claims")
+    assert config.settings["identity_issuer"] == "parent_backend"
+    assert config.settings["identity_audience"] == "support_widget"
+    assert config.settings["same_site"] == "Strict"
+    view |> element("#close-widget-modal") |> render_click()
+    view |> element("#edit-widget-#{config.id}") |> render_click()
+    assert has_element?(view, "#widget-identity-issuer[value='parent_backend']")
+    assert has_element?(view, "#widget-same-site input[name='widget[same_site]'][value='Strict']")
+
+    view |> form("#widget-config-form", widget: %{identity_issuer: ""}) |> render_submit()
+    assert render(view) =~ "invalid widget settings"
+    assert Repo.get!(ChannelConfig, config.id).settings == config.settings
+    assert has_element?(view, "#widget-identity-issuer[value='']")
+  end
+
+  test "legacy settings remain unset when the form is submitted unchanged", %{conn: conn} do
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "Legacy policy",
+        provider: "web_widget",
+        kind: "retrieval",
+        enabled: false,
+        settings: %{}
+      })
+      |> Repo.insert!()
+
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    view |> element("#edit-widget-#{config.id}") |> render_click()
+    assert has_element?(view, "#widget-same-site input[name='widget[same_site]'][value='']")
+    assert has_element?(view, "#widget-same-site-trigger", "Preserve existing")
+    view |> form("#widget-config-form", widget: %{name: "Legacy renamed"}) |> render_submit()
+    assert Repo.get!(ChannelConfig, config.id).settings == %{"allowed_domains" => []}
+  end
+
+  test "enabled widgets without readiness support show Unknown on both surfaces", %{conn: conn} do
+    configure_adapter()
+    assert :ok = Zaq.System.set_global_base_url("https://zaq.example.test")
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    create(view, "Unknown readiness")
+    config = Repo.get_by!(ChannelConfig, name: "Unknown readiness")
+    on_exit(fn -> WebBridge.stop_runtime(%{id: config.id, provider: "web_widget"}) end)
+    view |> element("#toggle-widget-#{config.id}") |> render_click()
+    render_async(view, 5_000)
+    assert has_element?(view, "#widget-health-#{config.id}", "Unknown")
+    assert has_element?(view, "#widget-connector-#{config.id}", "Enabled")
+    refute has_element?(view, "#widget-connector-#{config.id}", "Active")
+
+    {:ok, list, _} = live(conn, ~p"/bo/channels/retrieval")
+    render_async(list, 5_000)
+    list |> element("#ingress-status-dot-web_widget") |> render_click()
+
+    assert has_element?(
+             list,
+             "#ingress-status-modal",
+             "Adapter does not support readiness checks"
+           )
+  end
+
+  test "live health refresh preserves edits and agrees with the Channels list", %{conn: conn} do
+    configure_adapter(ReadyAdapter)
+    assert :ok = Zaq.System.set_global_base_url("https://zaq.example.test")
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    create(view, "Ready widget")
+    config = Repo.get_by!(ChannelConfig, name: "Ready widget")
+    on_exit(fn -> WebBridge.stop_runtime(%{id: config.id, provider: "web_widget"}) end)
+    view |> element("#toggle-widget-#{config.id}") |> render_click()
+    render_async(view, 5_000)
+    assert has_element?(view, "#widget-health-#{config.id}", "Ready")
+
+    {:ok, list, _} = live(conn, ~p"/bo/channels/retrieval")
+    render_async(list, 5_000)
+    assert has_element?(list, "#ingress-status-dot-web_widget .status-success")
+
+    view |> element("#edit-widget-#{config.id}") |> render_click()
+
+    view
+    |> form("#widget-config-form", widget: %{identity_issuer: "unsaved_parent"})
+    |> render_change()
+
+    channels = Application.get_env(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.put(channels, :web_widget, %{bridge: WebBridge, adapter: Adapter})
+    )
+
+    send(view.pid, :refresh_widget_statuses)
+    send(list.pid, :refresh_widget_ingress_statuses)
+    render_async(view, 5_000)
+    render_async(list, 5_000)
+    assert has_element?(view, "#widget-health-#{config.id}", "Unknown")
+    assert has_element?(view, "#widget-identity-issuer[value='unsaved_parent']")
+    assert Repo.get!(ChannelConfig, config.id).settings["identity_issuer"] == "zaq_issuer"
+    assert has_element?(list, "#ingress-status-dot-web_widget .status-neutral")
+
+    view |> element("#toggle-widget-#{config.id}") |> render_click()
+    render_async(view, 5_000)
+    refute has_element?(view, "#widget-health-#{config.id}")
+    assert has_element?(view, "#widget-connector-#{config.id}", "Disabled")
   end
 
   test "configured base URL leaves only the missing adapter error in the modal", %{conn: conn} do
@@ -338,13 +470,13 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveTest do
     })
   end
 
-  defp configure_adapter do
+  defp configure_adapter(adapter \\ Adapter) do
     previous = Application.get_env(:zaq, :channels)
 
     Application.put_env(
       :zaq,
       :channels,
-      Map.put(previous, :web_widget, %{bridge: WebBridge, adapter: Adapter})
+      Map.put(previous, :web_widget, %{bridge: WebBridge, adapter: adapter})
     )
 
     on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)

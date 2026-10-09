@@ -64,6 +64,26 @@ defmodule Storybook.Components.Cards.ChannelConnectorCard do
           </ZaqWeb.Components.DesignSystem.Button.button>
         </:actions>
       </.channel_connector_card>
+      <.channel_connector_card
+        id="config-card-104"
+        name="Enabled widget — readiness unverified"
+        provider="Web Widget"
+        url="Widget ID: 104"
+        enabled
+        enabled_label="Enabled"
+        icon="hero-globe-alt"
+        connector_id={104}
+        toggle_event="toggle_enabled"
+        edit_event="select_connector"
+      >
+        <:status>
+          <ZaqWeb.Components.DesignSystem.Table.table_badge
+            status="Unknown"
+            tone={:neutral}
+            title="Adapter does not support readiness checks"
+          >Unknown</ZaqWeb.Components.DesignSystem.Table.table_badge>
+        </:status>
+      </.channel_connector_card>
     </div>
     """
   end
