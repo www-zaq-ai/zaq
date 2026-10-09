@@ -3,8 +3,10 @@ defmodule Zaq.Channels.ApiTest do
 
   alias Zaq.Channels.Api
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.Web.{Delivery, Response}
   alias Zaq.Contracts.Record
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
@@ -2142,11 +2144,30 @@ defmodule Zaq.Channels.ApiTest do
   end
 
   test "falls back to default bridge module when opts are not a keyword list" do
-    outgoing = %Outgoing{body: "ok", channel_id: "c1", provider: :web}
+    topic = "chat:#{Ecto.UUID.generate()}"
+    Phoenix.PubSub.subscribe(Zaq.PubSub, topic)
+    delivery = Delivery.bo(topic)
+
+    outgoing = %Outgoing{
+      body: "ok",
+      channel_id: "c1",
+      provider: :web,
+      metadata: %{request_id: "default-bridge-request"},
+      routing_context: %RoutingContext{
+        attributes: %{"web_delivery" => Delivery.reference(delivery)}
+      }
+    }
+
     event = Event.new(outgoing, :channels)
     result = Api.handle_event(%{event | opts: :invalid_opts}, :deliver_outgoing, nil)
 
-    assert result.response == {:ok, %{}}
+    assert result.response == {:ok, %{delivered: true}}
+
+    assert_receive {:web_response, :pipeline_result,
+                    %Response{
+                      request_id: "default-bridge-request",
+                      payload: %{body: "ok"}
+                    }}
   end
 
   describe "broadcast re-broadcaster" do

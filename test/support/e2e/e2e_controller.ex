@@ -612,6 +612,16 @@ defmodule ZaqWeb.E2EController do
 
     content = fake_llm_content(messages, system_content)
 
+    # Test-only latency keeps the pending-request/new-chat journey reproducible.
+    # Delay retrieval only; completion is observed through persisted BO history.
+    if retrieval_call?(system_content) and
+         Enum.any?(messages, fn message ->
+           Map.get(message, "role") == "user" and
+             String.contains?(Map.get(message, "content", ""), "E2E_DELAYED_WEBBRIDGE")
+         end) do
+      Process.sleep(2_000)
+    end
+
     if streaming? do
       fake_llm_stream(conn, content)
     else

@@ -11,8 +11,10 @@ defmodule Zaq.Channels.BridgeSupervisor do
 
   Runs under `Zaq.Channels.Supervisor`, which retains the public runtime API and
   NodeRouter role-discovery name. Bootstrap runs on every dynamic child restart.
-  The parent owns `:zaq_channels_listeners` because it calls this `start_link/1`;
-  the table survives this child's restart and is cleared before reloading configs.
+  The parent owns `:zaq_channels_listeners` and the private current-child index
+  because it calls this `start_link/1`; both survive this child's restart and
+  are cleared before reloading configs. The public runtime table retains its
+  original bridge-ID/map shape; the private index follows automatic restarts.
   """
 
   use DynamicSupervisor
@@ -24,15 +26,17 @@ defmodule Zaq.Channels.BridgeSupervisor do
 
   # ETS table: bridge_id => %{listener_pids: [pid], state_pid: pid | nil}
   @table :zaq_channels_listeners
+  @children_table :zaq_channels_runtime_children
 
   def start_link(_opts) do
-    if :ets.whereis(@table) == :undefined do
-      :ets.new(@table, [:named_table, :public, :set])
-    end
+    Enum.each([@table, @children_table], fn table ->
+      if :ets.whereis(table) == :undefined, do: :ets.new(table, [:named_table, :public, :set])
+    end)
 
     case DynamicSupervisor.start_link(__MODULE__, [], name: __MODULE__) do
       {:ok, _pid} = result ->
         :ets.delete_all_objects(@table)
+        :ets.delete_all_objects(@children_table)
         load_initial_runtimes()
         result
 
@@ -83,8 +87,8 @@ defmodule Zaq.Channels.BridgeSupervisor do
     case runtime_entry(bridge_id) do
       [{^bridge_id, runtime}] ->
         try do
-          Enum.each(runtime.listener_pids, &safe_terminate_child/1)
-          maybe_stop_state(runtime.state_pid)
+          stop_listener_children(runtime.listener_pids, bridge_id)
+          stop_tracked_child(bridge_id, :state, runtime.state_pid)
         after
           delete_runtime_entry(bridge_id)
         end
@@ -148,7 +152,15 @@ defmodule Zaq.Channels.BridgeSupervisor do
   end
 
   defp do_start_runtime(bridge_id, state_spec, listener_specs) do
-    case maybe_start_state_process(state_spec) do
+    # Reject malformed listener specs before starting any runtime children.
+    listener_specs =
+      Enum.map(listener_specs, fn spec ->
+        spec = Supervisor.child_spec(spec, [])
+        unless Map.has_key?(spec, :start), do: throw({:invalid_child_spec, spec})
+        spec
+      end)
+
+    case maybe_start_state_process(tracked_spec(state_spec, bridge_id, :state)) do
       {:ok, state_pid} ->
         case start_listener_children(listener_specs, bridge_id) do
           {:ok, listener_pids} ->
@@ -158,8 +170,8 @@ defmodule Zaq.Channels.BridgeSupervisor do
             {:ok, runtime}
 
           {:error, reason} = error ->
-            maybe_stop_state(state_pid)
-            :ets.delete(@table, bridge_id)
+            stop_tracked_child(bridge_id, :state, state_pid)
+            delete_runtime_entry(bridge_id)
 
             Logger.warning(
               "[Channels.BridgeSupervisor] Could not start runtime for bridge_id=#{bridge_id}: #{inspect(reason)}"
@@ -169,6 +181,8 @@ defmodule Zaq.Channels.BridgeSupervisor do
         end
 
       {:error, reason} = error ->
+        delete_runtime_entry(bridge_id)
+
         Logger.warning(
           "[Channels.BridgeSupervisor] Could not start state process for bridge_id=#{bridge_id}: #{inspect(reason)}"
         )
@@ -182,11 +196,17 @@ defmodule Zaq.Channels.BridgeSupervisor do
       )
 
       {:error, Exception.message(e)}
+  catch
+    {:invalid_child_spec, _spec} = reason ->
+      listener_child_start_error(bridge_id, reason)
+      {:error, reason}
   end
 
   defp start_listener_children(specs, bridge_id) do
-    Enum.reduce_while(specs, {:ok, []}, fn spec, {:ok, pids} ->
-      case DynamicSupervisor.start_child(__MODULE__, spec) do
+    specs
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {spec, index}, {:ok, pids} ->
+      case DynamicSupervisor.start_child(__MODULE__, tracked_spec(spec, bridge_id, index)) do
         {:ok, pid} ->
           {:cont, {:ok, [pid | pids]}}
 
@@ -194,7 +214,7 @@ defmodule Zaq.Channels.BridgeSupervisor do
           {:cont, {:ok, [pid | pids]}}
 
         {:error, reason} ->
-          Enum.each(pids, &DynamicSupervisor.terminate_child(__MODULE__, &1))
+          stop_listener_children(Enum.reverse(pids), bridge_id)
           listener_child_start_error(bridge_id, reason)
           {:halt, {:error, reason}}
       end
@@ -211,6 +231,14 @@ defmodule Zaq.Channels.BridgeSupervisor do
     )
   end
 
+  defp stop_listener_children(pids, bridge_id) do
+    pids
+    |> Enum.with_index()
+    |> Enum.each(fn {pid, slot} ->
+      stop_tracked_child(bridge_id, slot, pid)
+    end)
+  end
+
   defp start_state_process(spec) do
     case DynamicSupervisor.start_child(__MODULE__, spec) do
       {:ok, pid} -> {:ok, pid}
@@ -221,10 +249,6 @@ defmodule Zaq.Channels.BridgeSupervisor do
 
   defp maybe_start_state_process(nil), do: {:ok, nil}
   defp maybe_start_state_process(spec), do: start_state_process(spec)
-
-  defp maybe_stop_state(pid) when is_pid(pid), do: safe_terminate_child(pid)
-
-  defp maybe_stop_state(_), do: :ok
 
   defp maybe_monitor_listeners(state_spec, state_pid, listener_pids) when is_pid(state_pid) do
     case state_module_from_spec(state_spec) do
@@ -271,26 +295,90 @@ defmodule Zaq.Channels.BridgeSupervisor do
   # The owning parent can stop between an ETS presence check and the operation.
   # Only missing-table errors at this boundary represent an absent runtime.
   defp runtime_entry(bridge_id) do
-    :ets.lookup(@table, bridge_id)
+    case :ets.lookup(@table, bridge_id) do
+      [{^bridge_id, runtime}] ->
+        state_pid = current_child(bridge_id, :state, runtime.state_pid)
+
+        listeners =
+          runtime.listener_pids
+          |> Enum.with_index()
+          |> Enum.map(fn {pid, index} -> current_child(bridge_id, index, pid) end)
+
+        [{bridge_id, %{state_pid: state_pid, listener_pids: listeners}}]
+
+      [] ->
+        []
+    end
   rescue
     ArgumentError -> []
   end
 
   defp delete_runtime_entry(bridge_id) do
     :ets.delete(@table, bridge_id)
+    :ets.match_delete(@children_table, {{:runtime_child, bridge_id, :_}, :_})
   rescue
     ArgumentError -> :ok
   end
 
+  defp tracked_spec(nil, _bridge_id, _slot), do: nil
+
+  defp tracked_spec(spec, bridge_id, slot) do
+    spec = Supervisor.child_spec(spec, [])
+    %{spec | start: {__MODULE__, :start_tracked_child, [spec.start, bridge_id, slot]}}
+  end
+
+  @doc false
+  def start_tracked_child({module, function, args}, bridge_id, slot) do
+    result = apply(module, function, args)
+
+    case result do
+      {:ok, pid} ->
+        :ets.insert(@children_table, {{:runtime_child, bridge_id, slot}, pid})
+
+      {:ok, pid, _info} ->
+        :ets.insert(@children_table, {{:runtime_child, bridge_id, slot}, pid})
+
+      {:error, {:already_started, pid}} ->
+        :ets.insert(@children_table, {{:runtime_child, bridge_id, slot}, pid})
+
+      _ ->
+        :ok
+    end
+
+    result
+  end
+
+  defp current_child(bridge_id, slot, fallback) do
+    case :ets.lookup(@children_table, {:runtime_child, bridge_id, slot}) do
+      [{_key, pid}] -> pid
+      [] -> fallback
+    end
+  end
+
+  defp stop_tracked_child(bridge_id, slot, fallback) do
+    pid = current_child(bridge_id, slot, fallback)
+
+    case safe_terminate_child(pid) do
+      {:error, :not_found} ->
+        replacement = current_child(bridge_id, slot, pid)
+        if replacement != pid, do: stop_tracked_child(bridge_id, slot, replacement), else: :ok
+
+      _ ->
+        :ok
+    end
+  end
+
   defp bridge_id(config), do: "#{config.provider}_#{config.id}"
 
-  # ChannelConfig handles sub-provider matching (`email` matches `email:imap`),
-  # so the supervisor only needs to pass configured base provider keys.
+  # Runtime construction is supplied by the configured provider adapter.
+  # ChannelConfig handles sub-provider matching (`email` matches `email:imap`).
   defp configured_providers do
     :zaq
     |> Application.get_env(:channels, %{})
     |> Enum.flat_map(fn {provider, cfg} ->
-      if is_map(cfg) and Map.has_key?(cfg, :adapter), do: [to_string(provider)], else: []
+      if is_map(cfg) and Map.has_key?(cfg, :adapter),
+        do: [to_string(provider)],
+        else: []
     end)
   end
 end

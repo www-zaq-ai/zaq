@@ -1,77 +1,191 @@
 defmodule Zaq.Channels.WebBridgeTest do
   use ExUnit.Case, async: true
 
+  alias Zaq.Channels.Web.{Context, Delivery, Message, Response}
   alias Zaq.Channels.WebBridge
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
 
-  describe "to_internal/2" do
-    test "builds %Incoming{provider: :web} from params" do
-      params = %{content: "hello", channel_id: "bo", session_id: "s1", request_id: "r1"}
-      msg = WebBridge.to_internal(params)
+  setup do
+    topic = "chat:#{Ecto.UUID.generate()}"
+    Phoenix.PubSub.subscribe(Zaq.PubSub, topic)
+    delivery = Delivery.bo(topic)
 
-      assert %Incoming{} = msg
-      assert msg.content == "hello"
-      assert msg.channel_id == "bo"
-      assert msg.provider == :web
-      assert msg.metadata.session_id == "s1"
-      assert msg.metadata.request_id == "r1"
-    end
+    routing_context = %RoutingContext{
+      attributes: %{"web_delivery" => Delivery.reference(delivery)}
+    }
 
-    test "defaults channel_id to 'bo'" do
-      params = %{content: "hi", session_id: "s1"}
-      msg = WebBridge.to_internal(params)
-      assert msg.channel_id == "bo"
+    %{delivery: delivery, routing_context: routing_context}
+  end
+
+  test "translates normalized message correlation and original content", %{delivery: delivery} do
+    {:ok, message} =
+      Message.new(%{
+        content: "hello",
+        channel: "bo",
+        mode: :sync,
+        timestamp: DateTime.utc_now(),
+        request_id: "r1",
+        message_id: "m1"
+      })
+
+    {:ok, context} = Context.new(%{user_id: 1}, consumer: :bo, delivery: delivery)
+    assert %Incoming{} = incoming = WebBridge.to_internal(message, context)
+    assert incoming.provider == :web
+    assert incoming.channel_id == "bo"
+    assert incoming.message_id == "m1"
+    assert incoming.metadata.request_id == "r1"
+    assert incoming.metadata.user_content == "hello"
+  end
+
+  test "publishes normalized final response", %{routing_context: routing_context} do
+    outgoing = %Outgoing{
+      body: "answer",
+      provider: :web,
+      channel_id: "bo",
+      routing_context: routing_context,
+      metadata: %{request_id: "r1", user_content: "question"}
+    }
+
+    assert {:ok, %{delivered: true}} = WebBridge.send_reply(outgoing, %{})
+
+    assert_receive {:web_response, :pipeline_result,
+                    %Response{
+                      request_id: "r1",
+                      type: :message_complete,
+                      payload: %{body: "answer", user_content: "question"}
+                    }}
+  end
+
+  test "streaming upsert preserves atom stage and replacement intent", %{routing_context: context} do
+    request = %{
+      request_id: "r1",
+      body: "Full response",
+      intent_meta: %{stage: :retrieving},
+      update_intent: :stream_delta,
+      routing_context: context
+    }
+
+    assert {:ok, %{action: :created, message_id: "r1", update_intent: :stream_delta}} =
+             WebBridge.upsert_message(%{}, request, %{})
+
+    assert_receive {:web_response, :status_update,
+                    %Response{
+                      type: :message_edit,
+                      payload: %{
+                        stage: :retrieving,
+                        body: "Full response",
+                        update_intent: :stream_delta
+                      }
+                    }}
+  end
+
+  test "upsert retains existing message correlation", %{routing_context: context} do
+    request = %{
+      request_id: "r1",
+      message_id: "assistant-1",
+      body: "Revised",
+      routing_context: context
+    }
+
+    assert {:ok, %{action: :updated, message_id: "assistant-1"}} =
+             WebBridge.upsert_message(%{}, request, %{})
+
+    assert_receive {:web_response, :status_update, %Response{message_id: "assistant-1"}}
+  end
+
+  test "missing correlation or content is a no-op", %{routing_context: context} do
+    for fields <- [
+          %{request_id: nil, body: "answer"},
+          %{request_id: "r1", body: nil},
+          %{request_id: "r1", body: ""}
+        ] do
+      request = Map.merge(fields, %{update_intent: :stream_delta, routing_context: context})
+
+      assert {:ok, %{action: :noop, message_id: nil}} =
+               WebBridge.upsert_message(%{}, request, %{})
+
+      refute_receive {:web_response, _, _}
     end
   end
 
-  describe "send_reply/2" do
-    test "broadcasts {:pipeline_result, ...} to the session PubSub topic" do
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:session-abc")
-
-      outgoing = %Outgoing{
-        body: "the answer",
-        channel_id: "bo",
-        provider: :web,
-        metadata: %{session_id: "session-abc", request_id: "req-42", user_content: "my question"}
+  test "string and absent stages default to answering", %{routing_context: context} do
+    for intent_meta <- [%{stage: "retrieving"}, nil] do
+      request = %{
+        request_id: "r1",
+        body: "Status",
+        intent_meta: intent_meta,
+        routing_context: context
       }
 
-      :ok = WebBridge.send_reply(outgoing, %{})
-
-      assert_receive {:pipeline_result, "req-42", ^outgoing, "my question"}
+      assert {:ok, %{action: :created}} = WebBridge.upsert_message(%{}, request, %{})
+      assert_receive {:web_response, :status_update, %Response{payload: %{stage: :answering}}}
     end
   end
 
-  describe "upsert_message/3" do
-    test "broadcasts :answering when intent_meta stage is not an atom" do
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:session-abc")
+  test "widget final projection excludes private traces and raw tool calls" do
+    {delivery, context} = widget_delivery()
 
-      request = %{
-        request_id: "req-42",
-        session_id: "session-abc",
-        body: "Checking sources",
-        intent_meta: %{stage: "retrieving"}
+    outgoing = %Outgoing{
+      body: "answer",
+      provider: :web_widget,
+      channel_id: "native-chat",
+      in_reply_to: "question-1",
+      routing_context: context,
+      metadata: %{
+        request_id: "request-1",
+        conversation_id: "chat-1",
+        assistant_message_id: "persisted-answer",
+        user_message_id: "persisted-question",
+        trace: [%{reasoning: "private reasoning"}],
+        tool_calls: [%{arguments: "private arguments"}],
+        agent: %{credentials: "private credential"},
+        error_type: nil
       }
+    }
 
-      assert {:ok, %{action: :created, message_id: "req-42"}} =
-               WebBridge.upsert_message(%{}, request, %{})
+    assert {:ok, %{delivered: true}} = WebBridge.send_reply(outgoing, %{})
+    assert_receive {:web_response, "response.message.complete", %Response{payload: payload}}
+    assert payload.body == "answer"
+    assert payload.assistant_message_id == "persisted-answer"
+    refute Map.has_key?(payload, :trace)
+    refute Map.has_key?(payload, :tool_calls)
+    refute Map.has_key?(payload, :agent)
+    assert delivery.consumer == :widget
+  end
 
-      assert_receive {:status_update, "req-42", :answering, "Checking sources", nil}
-    end
+  defp widget_delivery do
+    topic = "widget:#{Ecto.UUID.generate()}"
+    Phoenix.PubSub.subscribe(Zaq.PubSub, topic)
 
-    test "broadcasts :answering when intent_meta is nil" do
-      Phoenix.PubSub.subscribe(Zaq.PubSub, "chat:session-abc")
+    {:ok, delivery} =
+      Delivery.new(%{
+        consumer: :widget,
+        topic: topic,
+        protocol_version: 1,
+        channel_config_id: 123,
+        events: %{
+          message_complete: "response.message.complete",
+          message_failed: "response.message.failed",
+          message_edit: "response.message.edit",
+          message_create: "response.message.create"
+        }
+      })
 
-      request = %{
-        request_id: "req-43",
-        session_id: "session-abc",
-        body: "Generating response",
-        intent_meta: nil
-      }
+    {delivery,
+     %RoutingContext{
+       channel_config_id: 123,
+       attributes: %{"web_delivery" => Delivery.reference(delivery)}
+     }}
+  end
 
-      assert {:ok, %{action: :created, message_id: "req-43"}} =
-               WebBridge.upsert_message(%{}, request, %{})
+  test "rejects final and status delivery without a trusted descriptor" do
+    outgoing = %Outgoing{body: "answer", provider: :web, channel_id: "bo"}
+    assert {:error, :missing_delivery_descriptor} = WebBridge.send_reply(outgoing, %{})
 
-      assert_receive {:status_update, "req-43", :answering, "Generating response", nil}
-    end
+    assert {:error, :missing_delivery_descriptor} =
+             WebBridge.upsert_message(%{}, %{body: "answer"}, %{})
+
+    refute_receive {:web_response, _, _}
   end
 end

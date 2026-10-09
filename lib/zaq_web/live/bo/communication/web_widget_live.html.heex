@@ -1,0 +1,344 @@
+<ZaqWeb.Components.BOLayout.bo_layout
+  current_user={@current_user}
+  flash={@flash}
+  page_title={@page_title}
+  page_subtitle="Embed a private, authenticated conversation on your website."
+  page_icon_provider="web_widget"
+  current_path={@current_path}
+  features_version={@features_version}
+>
+  <div class="space-y-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <ZaqWeb.Components.DesignSystem.Breadcrumb.page_breadcrumb
+        id="widget-breadcrumb"
+        items={[
+          %{label: "Channels", to: ~p"/bo/channels"},
+          %{label: "Communication", to: ~p"/bo/channels/retrieval"},
+          %{label: "Web Widget", current: true}
+        ]}
+      />
+      <div class="flex flex-wrap gap-2">
+        <ZaqWeb.Components.DesignSystem.Button.button
+          id="new-widget-config"
+          phx-click="new_connector"
+          icon="hero-plus"
+        >Add configuration</ZaqWeb.Components.DesignSystem.Button.button>
+      </div>
+    </div>
+    <div class="space-y-3">
+      <div :for={config <- @configs} class="space-y-3">
+        <ZaqWeb.Components.DesignSystem.ChannelConnectorCard.channel_connector_card
+          id={"widget-connector-#{config.id}"}
+          name={config.name}
+          provider="Web Widget"
+          url={"Widget ID: #{config.id}"}
+          enabled={config.enabled}
+          enabled_label="Enabled"
+          connector_id={config.id}
+          icon="hero-globe-alt"
+          select_event="select_connector"
+          selected={not is_nil(@selected) and @selected.id == config.id}
+          toggle_event="toggle_enabled"
+          toggle_button_id={"toggle-widget-#{config.id}"}
+          toggle_disabled={!config.enabled && (!@base_url || !adapter_available?(@adapter))}
+          toggle_disabled_reason={
+            if !config.enabled && (!@base_url || !adapter_available?(@adapter)),
+              do: "Configure the global base URL and widget adapter before enabling."
+          }
+          edit_event="select_connector"
+          edit_button_id={"edit-widget-#{config.id}"}
+        >
+          <:status :if={config.enabled}>
+            <ZaqWeb.Components.DesignSystem.Table.table_badge
+              id={"widget-health-#{config.id}"}
+              status={IngressStatusUI.label(widget_health(config, @ingress_statuses))}
+              tone={IngressStatusUI.tone(widget_health(config, @ingress_statuses))}
+              title={widget_health(config, @ingress_statuses).summary}
+            >
+              {IngressStatusUI.label(widget_health(config, @ingress_statuses))}
+            </ZaqWeb.Components.DesignSystem.Table.table_badge>
+          </:status>
+          <:actions>
+            <ZaqWeb.Components.DesignSystem.Button.button
+              id={"widget-script-#{config.id}"}
+              variant={:secondary}
+              phx-click="toggle_script"
+              phx-value-id={config.id}
+              disabled={!@base_url || !adapter_available?(@adapter)}
+              aria-expanded={to_string(@expanded_script_id == config.id)}
+              aria-controls={"widget-installation-#{config.id}"}
+            >Installation script</ZaqWeb.Components.DesignSystem.Button.button>
+          </:actions>
+        </ZaqWeb.Components.DesignSystem.ChannelConnectorCard.channel_connector_card>
+        <section
+          :if={@expanded_script_id == config.id}
+          id={"widget-installation-#{config.id}"}
+          class="zaq-card-default p-6 space-y-4"
+        >
+          <h2 class="zaq-text-h3">Install {config.name} on your website</h2>
+          <%= case @snippet do %>
+            <% {:ok, snippet} -> %>
+              <ZaqWeb.Components.DesignSystem.Input.input
+                id="widget-install-script"
+                name="widget-install-script"
+                type="textarea"
+                label="Installation script"
+                value={snippet}
+                rows="4"
+                readonly
+              />
+              <ZaqWeb.Components.DesignSystem.Button.button
+                id="copy-widget-script"
+                variant={:secondary}
+                phx-hook="CopyToClipboard"
+                data-share-url={snippet}
+              >Copy installation script</ZaqWeb.Components.DesignSystem.Button.button>
+            <% _ -> %>
+              <p id="widget-script-unavailable" class="zaq-field-helper">
+                {snippet_message(@snippet)}
+              </p>
+          <% end %>
+          <p class="zaq-field-helper">
+            The adapter generates this snippet. Runtime status does not verify your external endpoint's security.
+          </p>
+          <p class="zaq-field-helper">
+            Optional styling is supplied during initialization as an absolute HTTPS URL (HTTP supports development). Local files are not supported.
+          </p>
+        </section>
+      </div>
+    </div>
+    <p :if={@configs == []} class="zaq-field-helper">
+      No widget configurations yet. Add a configuration to get started.
+    </p>
+    <.configuration_recovery :if={@recovery_message && !@modal_open} message={@recovery_message} />
+    <ZaqWeb.Components.BOModal.form_dialog
+      :if={@modal_open}
+      id="widget-config-modal"
+      cancel_event="close_modal"
+      title={if @selected, do: "Edit Web Widget", else: "Add Web Widget"}
+      max_width_class="zaq-modal--width-lg"
+      body_class="space-y-6"
+    >
+      <div
+        :if={!@base_url || !adapter_available?(@adapter)}
+        id="widget-prerequisite-errors"
+        class="space-y-3"
+      >
+        <div :if={!@base_url} class="space-y-2">
+          <ZaqWeb.Components.DesignSystem.FeedbackBanner.feedback_banner
+            id="widget-base-url-error"
+            kind={:error}
+            auto_dismiss={false}
+            dismissible={false}
+            message="Global base URL is missing. Set it in System Configuration before enabling this widget or generating its installation script. You can still save this configuration disabled."
+          />
+          <ZaqWeb.Components.DesignSystem.Link.nav_link
+            destination={~p"/bo/system-config"}
+            size={:sm}
+            tone={:accent}
+          >
+            Open System Configuration
+          </ZaqWeb.Components.DesignSystem.Link.nav_link>
+        </div>
+        <ZaqWeb.Components.DesignSystem.FeedbackBanner.feedback_banner
+          :if={!adapter_available?(@adapter)}
+          id="widget-adapter-error"
+          kind={:error}
+          auto_dismiss={false}
+          dismissible={false}
+          message="Web Widget adapter is not configured or cannot be reached. Ask your ZAQ administrator to install and configure the external adapter in the Channels service before enabling this widget or generating its installation script. You can still save this configuration disabled."
+        />
+      </div>
+      <.configuration_recovery :if={@recovery_message} message={@recovery_message} />
+      <section class="space-y-5">
+        <ZaqWeb.Components.DesignSystem.Input.input
+          :if={@selected}
+          id="widget-id"
+          name="widget-id"
+          label="Widget ID (configuration ID)"
+          value={@selected.id}
+          readonly
+        />
+        <ZaqWeb.Components.DesignSystem.Button.button
+          :if={@selected}
+          variant={:tertiary}
+          id="copy-widget-id"
+          phx-hook="CopyToClipboard"
+          data-share-url={@selected.id}
+          icon="hero-clipboard"
+        >Copy widget ID</ZaqWeb.Components.DesignSystem.Button.button>
+        <.form
+          for={@form}
+          id="widget-config-form"
+          phx-submit="save"
+          phx-change="validate"
+          class="space-y-5"
+        >
+          <ZaqWeb.Components.DesignSystem.Input.input
+            field={@form[:name]}
+            label="Configuration name"
+            required
+          />
+          <ZaqWeb.Components.DesignSystem.Input.input
+            field={@form[:allowed_domains]}
+            type="textarea"
+            label="Allowed embedding origins"
+            rows="4"
+            placeholder="https://www.example.com"
+            hint="One exact HTTP(S) origin per line, without a trailing slash. Empty permits no embedding."
+          />
+          <ZaqWeb.Select.select
+            id="widget-agent"
+            name="widget[agent_id]"
+            label="Default agent"
+            value={@form[:agent_id].value}
+            options={@agent_options}
+          />
+          <p class="zaq-field-helper">
+            Uses connector-scoped IncomingMessageRouting. Inherited routing and NONE retain their existing behavior.
+          </p>
+          <ZaqWeb.Components.DesignSystem.Input.input
+            id="widget-identity-issuer"
+            field={@form[:identity_issuer]}
+            label="JWT token issuer"
+            placeholder="Preserve existing adapter value"
+            hint={policy_hint(@selected, @ingress_statuses, :identity_issuer)}
+          />
+          <ZaqWeb.Components.DesignSystem.Input.input
+            id="widget-identity-audience"
+            field={@form[:identity_audience]}
+            label="JWT token audience"
+            placeholder="Preserve existing adapter value"
+            hint={policy_hint(@selected, @ingress_statuses, :identity_audience)}
+          />
+          <ZaqWeb.Select.select
+            id="widget-same-site"
+            name="widget[same_site]"
+            label="Cookie SameSite policy"
+            value={@form[:same_site].value}
+            options={
+              if @selected && is_nil(@selected.same_site),
+                do: [
+                  {"Preserve existing policy", ""},
+                  {"None", "None"},
+                  {"Lax", "Lax"},
+                  {"Strict", "Strict"}
+                ],
+                else: [{"None", "None"}, {"Lax", "Lax"}, {"Strict", "Strict"}]
+            }
+          />
+          <p class="zaq-field-helper">
+            None requires Secure cookies over HTTPS. Browser third-party-cookie restrictions still apply. {policy_hint(
+              @selected,
+              @ingress_statuses,
+              :same_site
+            )}
+          </p>
+          <ZaqWeb.Components.DesignSystem.Checkbox.checkbox
+            field={@form[:enabled]}
+            id="widget-enabled"
+            label="Enabled"
+            disabled={
+              (!@base_url || !adapter_available?(@adapter)) && !(@selected && @selected.enabled)
+            }
+          />
+          <p :for={{field, messages} <- @errors} class="zaq-field-helper" role="alert">
+            {field}: {Enum.join(messages, ", ")}
+          </p>
+        </.form>
+      </section>
+      <section class="space-y-4">
+        <h2 class="zaq-text-h3">Sender authentication</h2>
+        <p :if={!@selected} class="zaq-field-helper">
+          Save this configuration first to generate its authentication key.
+        </p>
+        <ZaqWeb.Components.DesignSystem.SecretInput.secret_input
+          :if={!@authentication_key}
+          id="widget-key-status"
+          name="authentication_key_status"
+          label="Authentication key"
+          value=""
+          readonly
+          autocomplete="off"
+          placeholder={
+            if @selected && @selected.key_present?,
+              do: "Configured — stored encrypted",
+              else: "Not generated"
+          }
+          hint="Stored keys are never revealed again. Generate or rotate to receive a new key once."
+        />
+        <p class="zaq-text-body-sm">
+          {if @selected && @selected.key_present?,
+            do: "Authentication key configured",
+            else: "No authentication key generated"}
+        </p>
+        <p :if={@selected && @selected.key_rotated_at} class="zaq-field-helper">
+          Last generated or rotated: {@selected.key_rotated_at}
+        </p>
+        <p class="zaq-field-helper">
+          Provision the key securely to your host application's backend. Never put it in the website script or browser widget.
+        </p>
+        <ZaqWeb.Components.DesignSystem.Button.button
+          :if={!@selected || !@selected.key_present?}
+          id="generate-widget-key"
+          phx-click="generate_key"
+          variant={:secondary}
+          disabled={!@selected}
+        >Generate authentication key</ZaqWeb.Components.DesignSystem.Button.button>
+        <ZaqWeb.Components.DesignSystem.Button.button
+          :if={@selected && @selected.key_present?}
+          id="rotate-widget-key"
+          phx-click="rotate_key"
+          variant={:secondary}
+          data-confirm="Replace this key? Reprovision your host backend immediately. The adapter must reject old-key assertions and revoke affected sessions; runtime synchronization failures require retry."
+        >Rotate authentication key</ZaqWeb.Components.DesignSystem.Button.button>
+        <div :if={@authentication_key} id="widget-key-reveal" class="space-y-3">
+          <p class="zaq-field-helper">
+            Shown only now. Copy and securely provision it before dismissing or leaving this page.
+          </p>
+          <ZaqWeb.Components.DesignSystem.SecretInput.secret_input
+            id="new-widget-key"
+            name="authentication_key"
+            label="New authentication key"
+            value={@authentication_key}
+            readonly
+            autocomplete="off"
+          />
+          <div class="flex flex-wrap gap-2">
+            <ZaqWeb.Components.DesignSystem.Button.button
+              id="copy-widget-key"
+              variant={:secondary}
+              phx-hook="CopyToClipboard"
+              data-share-url={@authentication_key}
+            >Copy key</ZaqWeb.Components.DesignSystem.Button.button>
+            <ZaqWeb.Components.DesignSystem.Button.button
+              id="dismiss-widget-key"
+              variant={:tertiary}
+              phx-click="dismiss_key"
+            >Dismiss key</ZaqWeb.Components.DesignSystem.Button.button>
+          </div>
+        </div>
+      </section>
+      <ZaqWeb.Components.DesignSystem.Button.button
+        :if={@selected}
+        id="archive-widget-config"
+        variant={:tertiary}
+        danger
+        phx-click="archive"
+        data-confirm="Archive this widget configuration? Its runtime will stop; conversation history is preserved."
+      >Archive configuration</ZaqWeb.Components.DesignSystem.Button.button>
+      <:actions>
+        <ZaqWeb.Components.DesignSystem.Button.button
+          type="submit"
+          id="save-widget-config"
+          form="widget-config-form"
+        >Save configuration</ZaqWeb.Components.DesignSystem.Button.button>
+        <ZaqWeb.Components.DesignSystem.Button.button
+          id="close-widget-modal"
+          variant={:secondary}
+          phx-click="close_modal"
+        >Done</ZaqWeb.Components.DesignSystem.Button.button>
+      </:actions>
+    </ZaqWeb.Components.BOModal.form_dialog>
+  </div>
+</ZaqWeb.Components.BOLayout.bo_layout>

@@ -338,6 +338,7 @@ for cache refresh/expiry and eventual-consistency limitations.
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email IMAP ingress, SMTP delivery, and attachment materialization |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
+| `Zaq.Channels.Web.*`                | `lib/zaq/channels/web/`                      | Shared BO/widget transport contracts            |
 | `Zaq.Channels.Supervisor`           | `lib/zaq/channels/supervisor.ex`             | Static role parent and public runtime facade    |
 | `Zaq.Channels.BridgeSupervisor`     | `lib/zaq/channels/bridge_supervisor.ex`      | Dynamic bridge runtime lifecycle and bootstrap  |
 | `Zaq.Channels.ConnectorRuntime`     | `lib/zaq/channels/connector_runtime.ex`      | Repo-free supplied-config archive runtime stages |
@@ -347,6 +348,40 @@ for cache refresh/expiry and eventual-consistency limitations.
 | `Zaq.ConnectorConfig.SmtpSettings`  | `lib/zaq/connector_config/smtp_settings.ex`  | Shared pure SMTP settings access                 |
 | `Zaq.Engine.Messages.Incoming`      | `lib/zaq/engine/messages/incoming.ex`        | Canonical inbound message struct                |
 | `Zaq.Engine.Messages.Outgoing`      | `lib/zaq/engine/messages/outgoing.ex`        | Canonical outbound message struct               |
+
+---
+
+## Web transport contracts
+
+`Zaq.Channels.Web.Message` and `Zaq.Channels.Web.Command` are the shared adapter-facing
+inputs for BO chat and web widget adapters. They are not replacements for Engine
+`Incoming`/`Outgoing`: WebBridge owns the translation from a validated `Message` into
+canonical `Incoming`, while commands represent non-message operations such as conversation
+initialization and history retrieval.
+
+Trusted values remain separate from adapter-decoded payloads:
+
+- `Zaq.Channels.Web.Context` carries trusted identity/configuration and BO's explicit
+  capabilities/routing inputs. Nil actor never grants a BO capability; widget Context
+  instead requires the adapter-verified sender and scoped connector identity.
+- `Zaq.Channels.Web.Delivery` carries a server-resolved PubSub topic and a closed semantic
+  event mapping. Browser payloads must not construct or override it.
+- `Zaq.Channels.Web.Response` is the versioned semantic result before adapter wire encoding;
+  it rejects private execution and credential fields.
+
+The detailed [WebBridge protocol](web-bridge.md) owns field/signature tables, message
+translation, command results, trusted identity, response/event projection, ordering,
+timeouts, restoration and version compatibility. Its
+[runtime construction contract](web-bridge.md#widget-runtime-construction) describes
+adapter-owned children and the fixed config-bound sink; the
+[integration handoff](../guides/web-widget-integration.md) supplies installation examples
+and external acceptance responsibilities.
+
+Channels exposes the closed `:web_ingress` action through NodeRouter and preserves the
+trusted serialized Delivery reference across Engine/Agent hops. BO remains on its
+authenticated session policy; widget requests use connector-scoped People identity and
+private Direct history. Only an actual widget question creates a chat. These are host-side
+integration seams, not an installed widget endpoint or an endpoint-security guarantee.
 
 ---
 
@@ -1086,9 +1121,11 @@ stored-map projections; none of these shared helpers accesses Repo or credential
 
 `Zaq.Channels.WebBridge` serves the ChatLive web channel.
 
-- `to_internal/2` — converts ChatLive form params to `%Incoming{provider: :web}`. Expects params keys `:content`, `:channel_id`, `:session_id`, `:request_id`.
-- `send_reply/2` — broadcasts `{:pipeline_result, request_id, outgoing, user_content}` to the `"chat:<session_id>"` PubSub topic.
-- ChatLive dispatches `%Incoming{provider: :web, channel_id: "bo"}` to Engine with `action: :route_incoming_message`. Its agent selector is carried as transient `event.assigns["agent_selection"]` (`source: "bo_explicit"`) and is resolved by Engine before the event continues to Agent.
+- `to_internal/2` — translates a normalized `Web.Message` and trusted `Web.Context` into canonical Incoming (`:web` for BO, `:web_widget` for widgets).
+- `send_reply/2` and `upsert_message/3` — publish `{:web_response, adapter_event_name, %Web.Response{}}` using the trusted delivery descriptor, never a metadata-selected topic.
+- ChatLive uses `ZaqWeb.Chat.BridgeClient` to dispatch normalized messages and commands to Channels through `:web_ingress`. WebBridge owns canonical Engine routing. BO agent selection remains transient `event.assigns["agent_selection"]` (`source: "bo_explicit"`) and is resolved by Engine before the event continues to Agent.
+
+See [Web transport contracts](#web-transport-contracts) for initialization, history and semantic delivery.
 
 ---
 

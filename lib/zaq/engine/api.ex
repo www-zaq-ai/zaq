@@ -8,8 +8,10 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Accounts
   alias Zaq.Accounts.BOActor
   alias Zaq.Accounts.People
+  alias Zaq.Engine.Actions.ManageWidgetConnector
   alias Zaq.Engine.Actions.SaveEmailConnector
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.ChannelConversations
   alias Zaq.Engine.ChannelHistoryAdmin
   alias Zaq.Engine.ChannelHistoryMembership
   alias Zaq.Engine.Connect
@@ -39,6 +41,23 @@ defmodule Zaq.Engine.Api do
   alias Zaq.System
 
   @impl true
+  def handle_event(%Event{} = event, :widget_connector_settings, _context) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           {:ok, _user} <- BOActor.current_user(event.actor),
+           {:ok, %{result: result}} <-
+             Jido.Exec.run(ManageWidgetConnector, %{request: event.request}, %{
+               actor: event.actor,
+               opts: event.opts
+             }) do
+        result
+      else
+        _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(
         %Event{request: %{op: :snapshot, provider: provider} = request} = event,
         :email_connector_settings,
@@ -106,6 +125,10 @@ defmodule Zaq.Engine.Api do
       end
 
     %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :channel_conversations, _context) do
+    %{event | response: ChannelConversations.dispatch(event.request), next_hop: nil}
   end
 
   def handle_event(%Event{} = event, :people_conversations, _context) do
@@ -978,39 +1001,57 @@ defmodule Zaq.Engine.Api do
 
   def handle_event(%Event{} = event, :conversation, _context) do
     conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
-
-    response =
-      case event.request do
-        %{action: :list, opts: opts} when is_list(opts) ->
-          conversations_module.list_conversations(opts)
-
-        %{action: :get, conversation_id: conversation_id} ->
-          conversations_module.get_conversation(conversation_id)
-
-        %{action: :get!, conversation_id: conversation_id} ->
-          conversations_module.get_conversation!(conversation_id)
-
-        %{action: :messages, conversation: conversation} ->
-          conversations_module.list_messages(conversation)
-
-        %{action: :create, attrs: attrs} when is_map(attrs) ->
-          conversations_module.create_conversation(attrs)
-
-        %{action: :add_message, conversation: conversation, attrs: attrs} when is_map(attrs) ->
-          conversations_module.add_message(conversation, attrs)
-
-        %{action: :delete, conversation_id: conversation_id} ->
-          conversations_module.delete_conversation_by_id(conversation_id)
-
-        other ->
-          {:error, {:invalid_request, other}}
-      end
+    response = handle_conversation_request(event.request, conversations_module)
 
     %{event | response: response}
   end
 
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
+  end
+
+  defp handle_conversation_request(%{action: :list, opts: opts}, module) when is_list(opts),
+    do: module.list_conversations(opts)
+
+  defp handle_conversation_request(%{action: :get, conversation_id: id}, module),
+    do: module.get_conversation(id)
+
+  defp handle_conversation_request(%{action: :get!, conversation_id: id}, module),
+    do: module.get_conversation!(id)
+
+  defp handle_conversation_request(%{action: :messages, conversation: conversation}, module),
+    do: module.list_messages(conversation)
+
+  defp handle_conversation_request(%{action: :create, attrs: attrs}, module)
+       when is_map(attrs),
+       do: module.create_conversation(attrs)
+
+  defp handle_conversation_request(
+         %{action: :add_message, conversation: conversation, attrs: attrs},
+         module
+       )
+       when is_map(attrs),
+       do: module.add_message(conversation, attrs)
+
+  defp handle_conversation_request(
+         %{action: :add_message, conversation_id: conversation_id, attrs: attrs},
+         module
+       )
+       when is_map(attrs),
+       do: add_message_to_conversation(module, conversation_id, attrs)
+
+  defp handle_conversation_request(%{action: :delete, conversation_id: id}, module),
+    do: module.delete_conversation_by_id(id)
+
+  defp handle_conversation_request(other, _module), do: {:error, {:invalid_request, other}}
+
+  defp add_message_to_conversation(conversations_module, conversation_id, attrs) do
+    case conversations_module.get_conversation(conversation_id) do
+      %{} = conversation -> conversations_module.add_message(conversation, attrs)
+      nil -> {:error, :conversation_not_found}
+      {:error, _reason} = error -> error
+      _ -> {:error, :conversation_unavailable}
+    end
   end
 
   # Ratings reach the engine as an origin-agnostic payload: a message reference

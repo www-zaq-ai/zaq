@@ -46,4 +46,19 @@ defmodule ZaqWeb.Components.DesignSystem.FeedbackBannerTest do
     assert html =~ ">user portal</a>"
     assert html =~ "&lt;Alice&gt;"
   end
+
+  test "persistent prerequisite errors do not offer flash dismissal" do
+    html =
+      render_component(&FeedbackBanner.feedback_banner/1,
+        kind: :error,
+        message: "Global base URL is missing.",
+        dismissible: false,
+        auto_dismiss: false
+      )
+
+    assert html =~ ~s(role="alert")
+    assert html =~ ~s(data-auto-dismiss-duration="0")
+    refute html =~ ~s(phx-click="lv:clear-flash")
+    refute html =~ ~s(aria-label="Dismiss")
+  end
 end

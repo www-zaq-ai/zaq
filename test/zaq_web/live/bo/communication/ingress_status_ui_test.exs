@@ -3,6 +3,33 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUITest do
 
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
 
+  test "concurrent collection preserves connector scope and sanitizes exceptions" do
+    configs = [%{id: 1, name: "Healthy"}, %{id: 2, name: "Unavailable"}]
+
+    assert [first, second] =
+             IngressStatusUI.collect(configs, fn
+               %{id: 1} -> %{status: :ok}
+               %{id: 2} -> raise "private diagnostic"
+             end)
+
+    assert first == %{id: 1, name: "Healthy", status: %{status: :ok}}
+    assert second.id == 2
+    assert second.status.status == :unknown
+    refute inspect(second) =~ "private diagnostic"
+  end
+
+  test "unknown connector health stays unknown in mixed-provider aggregation" do
+    connectors = [
+      %{id: 1, status: %{status: :ok}},
+      %{id: 2, status: %{status: :unknown}}
+    ]
+
+    assert IngressStatusUI.aggregate(connectors).status == :unknown
+    assert IngressStatusUI.label(%{status: :unknown}) == "Unknown"
+    assert IngressStatusUI.tone(%{status: :unknown}) == :neutral
+    assert IngressStatusUI.label(%{status: :disabled}) == "Disabled"
+  end
+
   describe "color/1" do
     test "returns success class for string ok status" do
       assert IngressStatusUI.color(%{"status" => "ok"}) == "status-success"
@@ -115,6 +142,19 @@ defmodule ZaqWeb.Live.BO.Communication.IngressStatusUITest do
   end
 
   describe "apply_async_result/2" do
+    test "refreshes an already open status modal without reopening it" do
+      socket =
+        %Phoenix.LiveView.Socket{}
+        |> Phoenix.Component.assign(:ingress_status_modal, %{
+          provider: "web_widget",
+          status: %{status: :ok}
+        })
+
+      statuses = %{"web_widget" => %{status: :unknown}}
+      updated = IngressStatusUI.apply_async_result(socket, {:ok, statuses})
+      assert updated.assigns.ingress_status_modal.status == %{status: :unknown}
+    end
+
     test "sets statuses and clears loading for successful async map result" do
       socket =
         %Phoenix.LiveView.Socket{}

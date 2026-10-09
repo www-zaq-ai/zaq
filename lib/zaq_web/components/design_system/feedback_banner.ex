@@ -11,6 +11,7 @@ defmodule ZaqWeb.Components.DesignSystem.FeedbackBanner do
   attr :message, :string, required: true
   attr :id, :string, default: nil
   attr :auto_dismiss, :boolean, default: true
+  attr :dismissible, :boolean, default: true
   attr :auto_dismiss_duration, :integer, default: 5000
 
   def feedback_banner(assigns) do
@@ -50,6 +51,7 @@ defmodule ZaqWeb.Components.DesignSystem.FeedbackBanner do
       </span>
       <span class="zaq-feedback-body">{flash_body(@message)}</span>
       <button
+        :if={@dismissible}
         type="button"
         phx-click="lv:clear-flash"
         phx-value-key={@kind}

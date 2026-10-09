@@ -36,6 +36,7 @@ defmodule Zaq.Engine.ApiTest do
     end
 
     def list_conversations(opts), do: {:listed, opts}
+    def get_conversation("message-conversation"), do: %{id: "message-conversation"}
     def get_conversation(id), do: {:conversation, id}
     def get_conversation!(id), do: {:conversation!, id}
     def list_messages(conversation), do: {:messages, conversation}
@@ -165,6 +166,11 @@ defmodule Zaq.Engine.ApiTest do
         {%{action: :create, attrs: %{channel_type: "bo"}}, {:created, %{channel_type: "bo"}}},
         {%{action: :add_message, conversation: :conversation, attrs: %{role: "assistant"}},
          {:message_added, :conversation, %{role: "assistant"}}},
+        {%{
+           action: :add_message,
+           conversation_id: "message-conversation",
+           attrs: %{role: "assistant"}
+         }, {:message_added, %{id: "message-conversation"}, %{role: "assistant"}}},
         {%{action: :delete, conversation_id: "c1"}, {:deleted, "c1"}}
       ]
 

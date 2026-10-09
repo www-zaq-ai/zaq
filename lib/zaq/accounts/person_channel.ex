@@ -10,7 +10,7 @@ defmodule Zaq.Accounts.PersonChannel do
 
   alias Zaq.Accounts.Person
 
-  @valid_platforms ~w(mattermost slack microsoft_teams whatsapp email telegram discord)
+  @valid_platforms ~w(mattermost slack microsoft_teams whatsapp email telegram discord web_widget)
 
   @type t :: %__MODULE__{}
 

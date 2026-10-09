@@ -399,6 +399,7 @@ defmodule Zaq.Channels.EmailBridge do
            actor_from_incoming(incoming),
            channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
            topic_id: connection[:mailbox],
+           acknowledge_response: true,
            pipeline_module: pipeline_module(),
            node_router: node_router_module()
          ) do

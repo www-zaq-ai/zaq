@@ -27,7 +27,7 @@ defmodule Zaq.Engine.Conversations.Conversation do
     timestamps(type: :utc_datetime_usec)
   end
 
-  @valid_channel_types ~w[mattermost discord slack bo api email:imap telegram teams]
+  @valid_channel_types ~w[mattermost discord slack bo api email:imap telegram teams web_widget]
   @valid_statuses ~w[active archived]
 
   @doc "Changeset for creating or updating a conversation."

@@ -5,7 +5,7 @@ defmodule Storybook.Components.Cards.ChannelConnectorCard do
   import ZaqWeb.Components.DesignSystem.ChannelConnectorCard
 
   def description,
-    do: "Connector settings bar with parent-owned selection, status, and action buttons."
+    do: "Connector settings bar with shared edit/enable controls and provider-specific actions."
 
   def render(assigns) do
     ~H"""
@@ -16,12 +16,14 @@ defmodule Storybook.Components.Cards.ChannelConnectorCard do
         provider="Mattermost"
         url="https://chat.example.test"
         enabled
+        connector_id={100}
+        toggle_event="toggle_enabled"
+        toggle_button_id="toggle-config-100"
+        edit_event="open_modal"
+        edit_button_id="edit-config-100"
+        edit_action="edit"
       >
         <:status><span class="status status-success" title="Ingress connected" /></:status>
-        <:actions>
-          <button id="toggle-config-100" class="zaq-btn zaq-btn-tertiary">Disable</button>
-          <button id="edit-config-100" class="zaq-btn zaq-btn-tertiary">Edit</button>
-        </:actions>
       </.channel_connector_card>
 
       <.channel_connector_card
@@ -32,8 +34,9 @@ defmodule Storybook.Components.Cards.ChannelConnectorCard do
         connector_id={101}
         select_event="select_config"
         selected
+        toggle_event="toggle_enabled"
+        edit_event="select_config"
       >
-        <:actions><button class="zaq-btn zaq-btn-tertiary">Configure</button></:actions>
       </.channel_connector_card>
 
       <.channel_connector_card
@@ -43,6 +46,44 @@ defmodule Storybook.Components.Cards.ChannelConnectorCard do
         connector_id={102}
         select_event="select_config"
       />
+      <.channel_connector_card
+        id="config-card-103"
+        name="Website support"
+        provider="Web Widget"
+        url="Widget ID: 103"
+        icon="hero-globe-alt"
+        connector_id={103}
+        toggle_event="toggle_enabled"
+        toggle_disabled
+        toggle_disabled_reason="Configure the global base URL and adapter before enabling."
+        edit_event="select_connector"
+      >
+        <:actions>
+          <ZaqWeb.Components.DesignSystem.Button.button variant={:secondary}>
+            Installation script
+          </ZaqWeb.Components.DesignSystem.Button.button>
+        </:actions>
+      </.channel_connector_card>
+      <.channel_connector_card
+        id="config-card-104"
+        name="Enabled widget — readiness unverified"
+        provider="Web Widget"
+        url="Widget ID: 104"
+        enabled
+        enabled_label="Enabled"
+        icon="hero-globe-alt"
+        connector_id={104}
+        toggle_event="toggle_enabled"
+        edit_event="select_connector"
+      >
+        <:status>
+          <ZaqWeb.Components.DesignSystem.Table.table_badge
+            status="Unknown"
+            tone={:neutral}
+            title="Adapter does not support readiness checks"
+          >Unknown</ZaqWeb.Components.DesignSystem.Table.table_badge>
+        </:status>
+      </.channel_connector_card>
     </div>
     """
   end

@@ -306,6 +306,8 @@ defmodule ZaqWeb.Components.ChannelIcons do
           <circle cx="9" cy="14" r="1" fill="currentColor" />
           <circle cx="15" cy="14" r="1" fill="currentColor" />
         </svg>
+      <% "web_widget" -> %>
+        <ZaqWeb.CoreComponents.icon name="hero-globe-alt" class={@class} />
       <% _ -> %>
         <svg class={@class} fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="10" />

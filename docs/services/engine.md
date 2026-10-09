@@ -1036,6 +1036,33 @@ trusted actor.
 - `share_conversation/2`, `list_shares/1`, `revoke_share/1` — share link management.
 - `get_conversation_by_token/1` — resolves a conversation from an unexpired share token.
 
+### Private channel conversations (`Zaq.Engine.ChannelConversations`)
+
+The internal `:channel_conversations` role action supports closed `:initialize`,
+`:history` and `:prepare` operations for verified channel integrations. The adapter
+authenticates the external sender; Engine resolves an active connector-scoped Person
+from `channel_config_id` and `sender_id`. A fabricated Event or sender field does not
+authenticate an external caller. No People bearer is manufactured for this boundary.
+
+`initialize/2` checks readiness or authorizes an existing chat without creating one.
+`history/3` requires a privately owned active conversation, matching provider/configuration
+and an existing Direct transcript, then reuses `Conversations.list_canonical_messages/3`
+for grants, ordering, bounds and safe projection. Missing/inaccessible/unbound chats have
+the same `:conversation_not_found` result; generic conversation listing is not a fallback.
+
+`prepare/3` receives an already normalized, scoped Incoming for an actual question.
+It creates the private conversation only at that point, or revalidates resume and restores
+its native channel coordinate. Optional initial content is a normal user message inserted
+through `Conversations.add_message/2` and attached through canonical capture, in the same
+preparation transaction. Ordinary title behavior is unchanged. Preparation then returns
+the bound Incoming for normal routing/admission; it does not execute the Agent or replace
+the admission/finalization lifecycle. No transcript or placeholder message is created for
+an idle widget opening.
+
+The adapter-facing field, response and runtime contract is owned by the
+[WebBridge protocol](web-bridge.md); this section owns Engine's authorization and
+conversation/history composition boundary.
+
 ### People Command Gateway (`Zaq.Engine.PeopleGateway`)
 
 - The separate PeopleAuth lifecycle and Hammer ETS/PubSub limiter are documented in

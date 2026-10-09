@@ -141,6 +141,7 @@ defmodule ZaqWeb.Router do
       live "/channels/retrieval/email/imap", Live.BO.Communication.NotificationImapLive, :index
 
       # Retrieval channels — provider detail pages
+      live "/channels/retrieval/web_widget", Live.BO.Communication.WebWidgetLive, :index
       live "/channels/retrieval", Live.BO.Communication.ChannelsIndexLive, :retrieval
       live "/channels/retrieval/:provider", Live.BO.Communication.ChannelsLive, :retrieval
 

@@ -1011,6 +1011,59 @@ defmodule Zaq.Channels.CommunicationBridgeTest do
       assert event.opts[:action] == :route_incoming_message
     end
 
+    test "returns a structured error for an unexpected routing response" do
+      msg = %Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert {:error, {:unexpected_response, :unexpected}} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [node_router_response: :unexpected],
+                 actor,
+                 node_router: StubNodeRouter
+               )
+    end
+
+    test "acknowledgement-only consumers retain non-error responses but propagate errors" do
+      msg = %Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert :ok =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [node_router_response: :unexpected],
+                 actor,
+                 node_router: StubNodeRouter,
+                 acknowledge_response: true
+               )
+
+      assert {:error, :unauthorized} =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [node_router_response: {:error, :unauthorized}],
+                 actor,
+                 node_router: StubNodeRouter,
+                 acknowledge_response: true
+               )
+    end
+
+    test "acknowledges canonical duplicate admission without dispatching it again" do
+      msg = %Incoming{content: "hi", provider: :mattermost, channel_id: "c1"}
+      actor = %{id: "u1", provider: :mattermost}
+
+      assert :ok =
+               CommunicationBridge.route_incoming_message(
+                 msg,
+                 [node_router_response: {:ok, :duplicate_incoming}],
+                 actor,
+                 node_router: StubNodeRouter
+               )
+
+      assert_received {:node_router_dispatch, event}
+      assert event.opts[:action] == :route_incoming_message
+      refute_received {:node_router_dispatch, _}
+    end
+
     test "trims and attaches string channel_config_id before delegated pipeline execution" do
       msg = %Zaq.Engine.Messages.Incoming{
         content: "hi",

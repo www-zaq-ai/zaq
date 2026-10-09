@@ -87,6 +87,12 @@
         provider={@provider_label}
         url={config.url}
         enabled={config.enabled}
+        connector_id={config.id}
+        toggle_event="toggle_enabled"
+        toggle_button_id={"toggle-config-#{config.id}"}
+        edit_event="open_modal"
+        edit_button_id={"edit-config-#{config.id}"}
+        edit_action="edit"
       >
         <:status>
           <button
@@ -113,33 +119,6 @@
           </div>
         </:detail>
         <:actions>
-          <button
-            id={"toggle-config-#{config.id}"}
-            phx-click="toggle_enabled"
-            phx-value-id={config.id}
-            class="font-mono text-[0.7rem] px-3 py-1.5 rounded-lg border border-black/10 text-black/40 hover:text-black hover:border-black/20 transition-all"
-          >
-            {if config.enabled, do: "Disable", else: "Enable"}
-          </button>
-          <button
-            id={"edit-config-#{config.id}"}
-            phx-click="open_modal"
-            phx-value-action="edit"
-            phx-value-id={config.id}
-            class="w-8 h-8 rounded-lg border border-black/10 grid place-items-center text-black/30 hover:text-[#03b6d4] hover:border-[#03b6d4]/30 transition-all"
-            title="Edit"
-          >
-            <svg
-              class="w-3.5 h-3.5"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              viewBox="0 0 24 24"
-            >
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
-          </button>
           <button
             id={"open-test-config-#{config.id}"}
             phx-click="open_test"

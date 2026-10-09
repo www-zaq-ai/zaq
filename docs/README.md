@@ -16,6 +16,8 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 - [Database extension provisioning](database-setup.md)
 - [Agent workflow setup: Context Mode, Serena and Beadwork](agent-setup.md)
 - [User and integration guides](guides/)
+- [Web widget adapter integration handoff](guides/web-widget-integration.md)
+- [Shared BO/widget WebBridge protocol](services/web-bridge.md)
 - [Operational guides](operations/)
 
 ## Develop and validate

@@ -543,7 +543,13 @@ defmodule Zaq.Channels.CommunicationBridge do
     end
   end
 
-  @doc "Builds and either dispatches or only fires the canonical Engine routing event."
+  @doc """
+  Builds and either dispatches or only fires the canonical Engine routing event.
+
+  `acknowledge_response: true` preserves acknowledgement-only consumers: any
+  non-error Event response is acknowledged when it carries no Outgoing. Explicit
+  Engine errors still propagate. The default rejects unexpected response shapes.
+  """
   @spec route_incoming_message(Incoming.t(), keyword(), map(), keyword()) ::
           Outgoing.t() | :ok | {:error, term()}
   def route_incoming_message(%Incoming{} = msg, pipeline_opts, actor, opts \\ [])
@@ -597,7 +603,7 @@ defmodule Zaq.Channels.CommunicationBridge do
        ) do
     msg
     |> build_incoming_routing_event(pipeline_opts, actor, opts)
-    |> dispatch_incoming_routing_event(node_router_module)
+    |> dispatch_incoming_routing_event(node_router_module, opts)
   end
 
   defp route_resolved_incoming_message(
@@ -620,6 +626,7 @@ defmodule Zaq.Channels.CommunicationBridge do
       |> maybe_put_event_opt(:identity_opts, Keyword.get(opts, :identity_opts))
       |> maybe_put_event_opt(:identity_resolver, Keyword.get(opts, :identity_resolver))
       |> maybe_put_event_opt(:node_router, Keyword.get(opts, :node_router))
+      |> maybe_put_event_opt(:agent_hop_type, Keyword.get(opts, :agent_hop_type))
 
     Event.new(msg, :engine,
       type: :sync,
@@ -629,13 +636,24 @@ defmodule Zaq.Channels.CommunicationBridge do
     )
   end
 
-  defp dispatch_incoming_routing_event(%Event{} = event, node_router_module) do
+  defp dispatch_incoming_routing_event(%Event{} = event, node_router_module, opts) do
     case node_router_module.dispatch(event) do
       %Event{response: {:error, _} = error} -> error
       %Event{response: %Outgoing{} = outgoing} -> outgoing
       %Event{response: {:ok, %Outgoing{} = outgoing}} -> outgoing
-      %Event{} -> :ok
+      %Event{response: {:ok, :duplicate_incoming}} -> :ok
+      %Event{request: %Outgoing{} = outgoing, response: :ok} -> outgoing
+      %Event{response: response} -> acknowledge_routing_response(response, opts)
+      response -> {:error, {:unexpected_response, response}}
     end
+  end
+
+  defp acknowledge_routing_response(response, _opts) when response in [:ok, nil], do: :ok
+
+  defp acknowledge_routing_response(response, opts) do
+    if Keyword.get(opts, :acknowledge_response, false) == true,
+      do: :ok,
+      else: {:error, {:unexpected_response, response}}
   end
 
   @doc """

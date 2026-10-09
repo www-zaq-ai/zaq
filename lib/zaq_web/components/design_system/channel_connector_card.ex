@@ -2,20 +2,34 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
   @moduledoc """
   Connector settings bar shared by channel configuration pages.
 
-  The parent LiveView owns selection and action events. Pass its existing buttons
-  through `:actions` so their IDs and event contracts remain unchanged.
+  The parent LiveView owns selection and action events. Configure the common edit
+  and enable/disable controls with their existing IDs and events. Provider-specific
+  controls belong in `:actions`.
   """
 
   use Phoenix.Component
+
+  import ZaqWeb.CoreComponents, only: [icon: 1]
+
+  alias ZaqWeb.Components.DesignSystem.Button
 
   attr :id, :string, required: true
   attr :name, :string, required: true
   attr :provider, :string, required: true
   attr :url, :string, default: nil
   attr :enabled, :boolean, default: false
+  attr :enabled_label, :string, default: "Active"
   attr :selected, :boolean, default: false
   attr :select_event, :string, default: nil
   attr :connector_id, :integer, default: nil
+  attr :icon, :string, default: nil
+  attr :toggle_event, :string, default: nil
+  attr :toggle_button_id, :string, default: nil
+  attr :toggle_disabled, :boolean, default: false
+  attr :toggle_disabled_reason, :string, default: nil
+  attr :edit_event, :string, default: nil
+  attr :edit_button_id, :string, default: nil
+  attr :edit_action, :string, default: nil
 
   slot :status
   slot :detail
@@ -26,7 +40,7 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
     <div
       id={@id}
       class={[
-        "bg-white rounded-xl border p-5 flex items-center justify-between",
+        "bg-white rounded-xl border p-5 flex flex-wrap gap-4 items-center justify-between",
         if(@selected, do: "border-[var(--zaq-border-color-accent)]", else: "border-black/10")
       ]}
     >
@@ -35,7 +49,9 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
           "w-10 h-10 rounded-xl grid place-items-center",
           if(@enabled, do: "bg-[#0058CC]/10", else: "bg-black/5")
         ]}>
+          <.icon :if={@icon} name={@icon} class="zaq-icon-md" />
           <svg
+            :if={!@icon}
             class={if(@enabled, do: "w-5 h-5 text-[#0058CC]", else: "w-5 h-5 text-black/30")}
             fill="none"
             stroke="currentColor"
@@ -62,12 +78,12 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
             {render_slot(@status)}
             <span class={[
               "font-mono text-[0.6rem] px-2 py-0.5 rounded-full uppercase tracking-wider",
-              if(@enabled,
+              if(@enabled and @enabled_label == "Active",
                 do: "bg-emerald-100 text-emerald-700",
                 else: "bg-black/5 text-black/30"
               )
             ]}>
-              {if @enabled, do: "Active", else: "Disabled"}
+              {if @enabled, do: @enabled_label, else: "Disabled"}
             </span>
           </div>
           <div class="flex items-center gap-3">
@@ -80,7 +96,30 @@ defmodule ZaqWeb.Components.DesignSystem.ChannelConnectorCard do
           {render_slot(@detail)}
         </div>
       </div>
-      <div class="flex items-center gap-2">{render_slot(@actions)}</div>
+      <div class="flex flex-wrap items-center gap-2">
+        <Button.button
+          :if={@toggle_event}
+          id={@toggle_button_id || "toggle-#{@id}"}
+          variant={:secondary}
+          phx-click={@toggle_event}
+          phx-value-id={@connector_id}
+          disabled={@toggle_disabled}
+          title={@toggle_disabled_reason}
+        >{if @enabled, do: "Disable", else: "Enable"}</Button.button>
+        <Button.button
+          :if={@edit_event}
+          id={@edit_button_id || "edit-#{@id}"}
+          variant={:tertiary}
+          icon="hero-pencil-square"
+          icon_only
+          aria-label="Edit"
+          title="Edit"
+          phx-click={@edit_event}
+          phx-value-id={@connector_id}
+          phx-value-action={@edit_action}
+        />
+        {render_slot(@actions)}
+      </div>
     </div>
     """
   end

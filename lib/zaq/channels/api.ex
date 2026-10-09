@@ -4,7 +4,7 @@ defmodule Zaq.Channels.Api do
 
   Responsibilities:
 
-  - Handle channels-scoped event actions (`:deliver_outgoing`, `:send_typing`,
+  - Handle channels-scoped event actions (`:web_ingress`, `:deliver_outgoing`, `:send_typing`,
     `:fetch_profile`, `:open_dm_channel`, runtime sync, bridge availability,
     connection testing, and generic `:invoke`).
   - Re-broadcast `{:broadcast, topic, message}` events over `Zaq.PubSub` (the
@@ -26,16 +26,19 @@ defmodule Zaq.Channels.Api do
     Bridge,
     CommunicationBridge,
     ConnectorRuntime,
-    DataSourceBridge
+    DataSourceBridge,
+    WebBridge
   }
 
   alias Zaq.Channels.DeliveryConfirmation
   alias Zaq.Channels.HttpClient
   alias Zaq.Channels.MessageFormatter
+  alias Zaq.Channels.Web.{Command, Context, Message, Runtime}
   alias Zaq.ConnectorConfig.Settings
   alias Zaq.Contracts.Record
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Engine.Messages.Incoming.RoutingContext
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.Event
   alias Zaq.Events.Helper
@@ -47,6 +50,40 @@ defmodule Zaq.Channels.Api do
   @supported_update_intents [:status, :reasoning, :tool_call, :stream_delta]
 
   @impl true
+  def handle_event(%Event{} = event, :widget_adapter_setup, _context) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true,
+        do: widget_adapter_setup(event.request, event.opts),
+        else: {:error, :confidential_event_required}
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %{payload: payload, context: %Context{} = web_context}} = event,
+        :web_ingress,
+        _context
+      )
+      when is_struct(payload, Message) or is_struct(payload, Command) do
+    web_bridge = Keyword.get(event.opts, :web_bridge_module, WebBridge)
+
+    response =
+      with true <- event.actor == web_context.actor || {:error, :unauthorized},
+           true <-
+             (Code.ensure_loaded?(web_bridge) and
+                function_exported?(web_bridge, :from_listener, 3)) ||
+               {:error, :unsupported} do
+        sink_opts = Keyword.put(event.opts, :context, web_context)
+        config = Keyword.get(event.opts, :web_config, %{provider: "web"})
+        web_bridge.from_listener(config, payload, sink_opts)
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :web_ingress, _context),
+    do: %{event | response: {:error, :invalid_web_ingress}}
+
   def handle_event(
         %Event{
           request: %{channel_config_id: config_id, channel_id: channel_id, message_id: message_id}
@@ -839,7 +876,12 @@ defmodule Zaq.Channels.Api do
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
          true <- supports_callback?(bridge, :channel_ingress_status, 1) || {:error, :unsupported},
          {:ok, config} <- ingress_status_config(bridge_module, provider, request) do
-      %{event | response: bridge.channel_ingress_status(config)}
+      response =
+        if supports_callback?(bridge, :channel_ingress_status, 2),
+          do: bridge.channel_ingress_status(config, event.opts),
+          else: bridge.channel_ingress_status(config)
+
+      %{event | response: response}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
     end
@@ -937,6 +979,14 @@ defmodule Zaq.Channels.Api do
 
   defp dispatch_webhook(_module, _provider, _payload, _id),
     do: {:error, :invalid_connector_id}
+
+  defp widget_adapter_setup(%{op: :status} = request, opts),
+    do: Runtime.status(Map.get(request, :widget_id), opts)
+
+  defp widget_adapter_setup(%{op: :embed_script, widget_id: id, base_url: base_url}, opts),
+    do: Runtime.embed_script(id, base_url, opts)
+
+  defp widget_adapter_setup(_request, _opts), do: {:error, :invalid_request}
 
   defp outgoing_from_event(%Event{request: %Outgoing{} = outgoing}), do: {:ok, outgoing}
   defp outgoing_from_event(%Event{response: %Outgoing{} = outgoing}), do: {:ok, outgoing}
@@ -1127,6 +1177,7 @@ defmodule Zaq.Channels.Api do
       intent_meta: Map.get(metadata, :intent_meta) || Map.get(metadata, "intent_meta"),
       update_intent: Map.get(metadata, :update_intent) || Map.get(metadata, "update_intent"),
       message_id: Map.get(metadata, :message_id) || Map.get(metadata, "message_id"),
+      routing_context: outgoing.routing_context,
       format: Map.get(metadata, :format)
     }
   end
@@ -1146,6 +1197,7 @@ defmodule Zaq.Channels.Api do
       channel_id: fetch(request, :channel_id),
       thread_id: fetch(request, :thread_id),
       body: fetch(request, :body),
+      routing_context: RoutingContext.normalize(fetch(request, :routing_context)),
       metadata: metadata
     }
   end

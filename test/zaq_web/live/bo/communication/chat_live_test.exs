@@ -10,6 +10,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   alias Zaq.Agent.{Answering, Retrieval, ServerManager}
   alias Zaq.Agent.MCP
   alias Zaq.Agent.PromptTemplate
+  alias Zaq.Channels.Web.{Command, Context, Response}
+  alias Zaq.Channels.Web.Message, as: WebMessage
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.Message
   alias Zaq.Engine.Messages.Outgoing
@@ -48,6 +50,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     defp domain_event?(%Event{next_hop: %{destination: :engine}, opts: opts}),
       do: Keyword.get(opts, :action) in [:conversation, :rate_message]
+
+    defp domain_event?(%Event{next_hop: %{destination: :channels}, opts: opts}),
+      do: Keyword.get(opts, :action) == :web_ingress
 
     defp domain_event?(%Event{next_hop: %{destination: :ingestion}, opts: opts}),
       do:
@@ -120,6 +125,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
            :conversation
          ),
          do: {Zaq.Engine.Conversations, :add_message, [conversation, attrs]}
+
+    defp legacy_call(
+           %{action: :add_message, conversation_id: conversation_id, attrs: attrs},
+           :engine,
+           :conversation
+         ),
+         do: {Zaq.Engine.Conversations, :add_message, [conversation_id, attrs]}
 
     defp legacy_call(%{action: :delete, conversation_id: id}, :engine, :conversation),
       do: {Zaq.Engine.Conversations, :delete_conversation_by_id, [id]}
@@ -376,6 +388,19 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     assert_receive {:chat_dispatch_event, %Event{} = dispatched_event}, 1_000
 
+    assert %Event{
+             next_hop: %{destination: :channels},
+             request: %{payload: %WebMessage{} = web_message, context: %Context{} = web_context}
+           } =
+             Enum.find(NodeRouterFake.dispatches(), fn event ->
+               event.next_hop.destination == :channels and event.opts[:action] == :web_ingress and
+                 match?(%{payload: %WebMessage{}}, event.request)
+             end)
+
+    assert web_message.mode == :sync
+    assert web_context.selected_agent_id == to_string(configured_agent.id)
+    assert MapSet.member?(web_context.capabilities, :skip_permissions)
+
     assert dispatched_event.next_hop.destination == :engine
     assert dispatched_event.opts[:action] == :route_incoming_message
     assert dispatched_event.opts[:agent_hop_type] == :sync
@@ -421,6 +446,22 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     render_hook(view, "load_conversation", %{"id" => conv.id})
 
     assert_eventually(fn ->
+      Enum.any?(NodeRouterFake.dispatches(), fn
+        %Event{
+          next_hop: %{destination: :channels},
+          opts: opts,
+          request: %{
+            payload: %Command{type: :conversation_history, conversation_id: conversation_id}
+          }
+        } ->
+          Keyword.get(opts, :action) == :web_ingress and conversation_id == conv.id
+
+        _ ->
+          false
+      end)
+    end)
+
+    assert_eventually(fn ->
       state = :sys.get_state(view.pid)
       assigns = state.socket.assigns
 
@@ -437,7 +478,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   test "status_update handle_info updates only for matching request id", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {:status_update, nil, :retrieving, "fetching docs"})
+    send_response(view.pid, {:status_update, nil, :retrieving, "fetching docs"})
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
@@ -446,7 +487,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         state.socket.assigns.status_message == "fetching docs"
     end)
 
-    send(view.pid, {:status_update, "stale", :answering, "ignored"})
+    send_response(view.pid, {:status_update, "stale", :answering, "ignored"})
 
     state = :sys.get_state(view.pid)
     assert state.socket.assigns.status == :retrieving
@@ -456,7 +497,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   test "status_update :validating assigns status and renders indicator", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {:status_update, nil, :validating, "checking input"})
+    send_response(view.pid, {:status_update, nil, :validating, "checking input"})
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
@@ -473,7 +514,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   test "status_update :answering assigns status and renders indicator", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {:status_update, nil, :answering, "generating response"})
+    send_response(view.pid, {:status_update, nil, :answering, "generating response"})
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
@@ -496,7 +537,10 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       put_in(state.socket.assigns.current_request_id, "req-stream")
     end)
 
-    send(view.pid, {:status_update, "req-stream", :answering, "Final **answer**", :stream_delta})
+    send_response(
+      view.pid,
+      {:status_update, "req-stream", :answering, "Final **answer**", :stream_delta}
+    )
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
@@ -516,6 +560,99 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     refute html =~ "generating response"
   end
 
+  test "normalized message edits and completion preserve the streaming bubble", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "req-normalized")
+    end)
+
+    send(
+      view.pid,
+      {:web_response, :status_update,
+       %Response{
+         protocol_version: 1,
+         request_id: "req-normalized",
+         message_id: "req-normalized",
+         type: :message_edit,
+         payload: %{body: "Partial answer", stage: :answering, update_intent: :stream_delta}
+       }}
+    )
+
+    assert_eventually(fn -> render(view) =~ "Partial answer" end)
+
+    send(
+      view.pid,
+      {:web_response, :pipeline_result,
+       %Response{
+         protocol_version: 1,
+         request_id: "req-normalized",
+         message_id: "req-normalized",
+         type: :message_complete,
+         conversation_id: "conversation-1",
+         payload: %{
+           body: "Final answer",
+           sources: [],
+           confidence_score: 0.9,
+           error: false,
+           assistant_message_id: "assistant-1"
+         }
+       }}
+    )
+
+    assert_eventually(fn ->
+      html = render(view)
+      html =~ "Final answer" and not (html =~ "Partial answer")
+    end)
+  end
+
+  test "normalized errors render one fallback and stale responses are ignored", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "req-error")
+    end)
+
+    stale = %Response{
+      protocol_version: 1,
+      request_id: "stale-request",
+      type: :error,
+      payload: %{code: :engine_unavailable}
+    }
+
+    send(view.pid, {:web_response, :pipeline_result, stale})
+    refute render(view) =~ "Something went wrong"
+
+    error = %{stale | request_id: "req-error"}
+    send(view.pid, {:web_response, :pipeline_result, error})
+
+    assert_eventually(fn -> render(view) =~ "Sorry, something went wrong" end)
+  end
+
+  test "new chat invalidates a pending normalized response", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "previous-chat-request")
+    end)
+
+    render_hook(view, "new_chat", %{})
+
+    send(
+      view.pid,
+      {:web_response, :pipeline_result,
+       %Response{
+         protocol_version: 1,
+         request_id: "previous-chat-request",
+         type: :message_complete,
+         payload: %{body: "Late previous answer", sources: [], error: false}
+       }}
+    )
+
+    refute render(view) =~ "Late previous answer"
+    assert :sys.get_state(view.pid).socket.assigns.current_request_id == nil
+  end
+
   test "status_update stream_delta with string intent updates streaming message and clears status message",
        %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
@@ -524,7 +661,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       put_in(state.socket.assigns.current_request_id, "req-string")
     end)
 
-    send(view.pid, {:status_update, "req-string", :answering, "chunk", "stream_delta"})
+    send_response(view.pid, {:status_update, "req-string", :answering, "chunk", "stream_delta"})
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
@@ -546,7 +683,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       put_in(state.socket.assigns.current_request_id, "req-unknown")
     end)
 
-    send(
+    send_response(
       view.pid,
       {:status_update, "req-unknown", :answering, "still working",
        "not_existing_atom_for_chat_live_test"}
@@ -565,7 +702,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       put_in(state.socket.assigns.current_request_id, "req-map")
     end)
 
-    send(view.pid, {:status_update, "req-map", :answering, "map intent", %{}})
+    send_response(view.pid, {:status_update, "req-map", :answering, "map intent", %{}})
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
@@ -586,7 +723,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       put_in(state.socket.assigns.current_request_id, "req-repeat")
     end)
 
-    send(view.pid, {:status_update, "req-repeat", :answering, "first", :stream_delta})
+    send_response(view.pid, {:status_update, "req-repeat", :answering, "first", :stream_delta})
 
     first_streaming_message =
       eventually_value(fn ->
@@ -599,7 +736,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     first_timestamp = first_streaming_message.timestamp
 
-    send(view.pid, {:status_update, "req-repeat", :answering, "second", :stream_delta})
+    send_response(view.pid, {:status_update, "req-repeat", :answering, "second", :stream_delta})
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
@@ -620,7 +757,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       put_in(state.socket.assigns.current_request_id, "req-final")
     end)
 
-    send(view.pid, {:status_update, "req-final", :answering, "partial", :stream_delta})
+    send_response(view.pid, {:status_update, "req-final", :answering, "partial", :stream_delta})
 
     streaming_message =
       eventually_value(fn ->
@@ -628,7 +765,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         Enum.find(state.socket.assigns.messages, &(&1.id == "stream-req-final"))
       end)
 
-    send(view.pid, {
+    send_response(view.pid, {
       :pipeline_result,
       "req-final",
       %{
@@ -656,7 +793,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   test "status_update unknown stage atom does not crash", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {:status_update, nil, :unknown_stage, "some message"})
+    send_response(view.pid, {:status_update, nil, :unknown_stage, "some message"})
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
@@ -698,7 +835,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {
+    send_response(view.pid, {
       :pipeline_result,
       nil,
       %{
@@ -740,7 +877,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   } do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {
+    send_response(view.pid, {
       :pipeline_result,
       nil,
       %Outgoing{
@@ -1217,9 +1354,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   test "stale async pipeline messages are ignored", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {:status_update, "stale-1", :answering, "stale status"})
+    send_response(view.pid, {:status_update, "stale-1", :answering, "stale status"})
 
-    send(
+    send_response(
       view.pid,
       {:pipeline_result, "stale-1",
        %Outgoing{
@@ -2122,7 +2259,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   test "close_message_info_modal clears message info modal assigns", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(
+    send_response(
       view.pid,
       {:pipeline_result, nil,
        %Outgoing{
@@ -2452,7 +2589,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
   test "pipeline_result with nil body trims gracefully without crashing", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {
+    send_response(view.pid, {
       :pipeline_result,
       nil,
       %{
@@ -2498,7 +2635,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {
+    send_response(view.pid, {
       :pipeline_result,
       nil,
       %{
@@ -2557,7 +2694,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       state.socket.assigns.current_conversation_id == conv.id
     end)
 
-    send(view.pid, {
+    send_response(view.pid, {
       :pipeline_result,
       nil,
       %{
@@ -2580,7 +2717,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
-  test "pipeline_result falls back to new conversation when get_conversation returns non-map", %{
+  test "pipeline_result applies to a loaded conversation after a later lookup failure", %{
     conn: conn,
     user: user
   } do
@@ -2593,11 +2730,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     {:ok, _} = Conversations.add_message(conv, %{role: "assistant", content: "A1"})
 
-    # get_conversation returns non-map → triggers create_fresh_conversation fallback
-    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :get_conversation, fn [_id] ->
-      {:error, :not_found}
-    end)
-
     pipeline_result_stubs("conv-fallback", user)
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
@@ -2609,7 +2741,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       state.socket.assigns.current_conversation_id == conv.id
     end)
 
-    send(view.pid, {
+    NodeRouterFake.put(:engine, Zaq.Engine.Conversations, :get_conversation, fn [_id] ->
+      {:error, :not_found}
+    end)
+
+    send_response(view.pid, {
       :pipeline_result,
       nil,
       %{
@@ -2692,15 +2828,28 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
       Enum.any?(dispatches, fn
         %Event{
-          next_hop: %{destination: :engine},
+          next_hop: %{destination: :channels},
           opts: opts,
-          request: %{action: :get, conversation_id: ^conv_id}
+          request: %{
+            payload: %Command{type: :conversation_init, conversation_id: ^conv_id}
+          }
         } ->
-          Keyword.get(opts, :action) == :conversation
+          Keyword.get(opts, :action) == :web_ingress
 
         _ ->
           false
       end) and
+        Enum.any?(dispatches, fn
+          %Event{
+            next_hop: %{destination: :engine},
+            opts: opts,
+            request: %{action: :get, conversation_id: ^conv_id}
+          } ->
+            Keyword.get(opts, :action) == :conversation
+
+          _ ->
+            false
+        end) and
         not Enum.any?(dispatches, fn
           %Event{request: %{action: :create}} -> true
           _ -> false
@@ -2815,7 +2964,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
-    send(view.pid, {
+    send_response(view.pid, {
       :pipeline_result,
       nil,
       %{
@@ -3224,6 +3373,49 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
   defp select_chat_agent(view, agent_id) do
     render_hook(view, "select_agent", %{"agent_id" => to_string(agent_id)})
+  end
+
+  # Characterization shorthand builds normalized Responses; production ChatLive
+  # never receives these fixture tuples.
+  defp send_response(pid, {:status_update, request_id, stage, body}) do
+    send_response(pid, {:status_update, request_id, stage, body, nil})
+  end
+
+  defp send_response(pid, {:status_update, request_id, stage, body, intent}) do
+    type = if intent in [:stream_delta, "stream_delta"], do: :message_edit, else: :status
+
+    send(
+      pid,
+      {:web_response, :status_update,
+       %Response{
+         protocol_version: 1,
+         request_id: request_id,
+         type: type,
+         payload: %{stage: stage, body: body, update_intent: intent}
+       }}
+    )
+  end
+
+  defp send_response(pid, {:pipeline_result, request_id, result, user_content}) do
+    metadata = result.metadata || %{}
+
+    payload =
+      metadata
+      |> Map.put(:body, result.body)
+      |> Map.put(:user_content, user_content)
+      |> Map.put(:sources, Map.get(result, :sources) || Map.get(metadata, :sources, []))
+
+    send(
+      pid,
+      {:web_response, :pipeline_result,
+       %Response{
+         protocol_version: 1,
+         request_id: request_id,
+         type: if(metadata[:error], do: :message_failed, else: :message_complete),
+         conversation_id: metadata[:conversation_id],
+         payload: payload
+       }}
+    )
   end
 
   defp assert_eventually(fun, retries \\ 80)

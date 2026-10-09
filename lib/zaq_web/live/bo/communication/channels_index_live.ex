@@ -17,7 +17,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   @pending_ingress_status_retry_ms 200
   @pending_ingress_status_max_attempts 25
 
-  @retrieval_providers ~w(slack teams mattermost discord telegram webhook email)
+  @retrieval_providers ~w(slack teams mattermost discord telegram webhook email web_widget)
   @data_source_providers ~w(disk google_drive sharepoint)
   @notification_providers ~w(email:smtp)
 
@@ -26,6 +26,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   # ---------------------------------------------------------------------------
 
   @retrieval_cards [
+    %{
+      id: "web_widget",
+      label: "Web Widget",
+      color: "#027589",
+      desc: "Embed authenticated conversations on your website with an external widget adapter."
+    },
     %{
       id: "slack",
       label: "Slack",
@@ -126,6 +132,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
      |> assign(:ingress_status_loading, ingress_status_loading(configured_providers))
      |> assign(:ingress_status_refresh_attempts, 0)
      |> assign(:ingress_status_modal, nil)
+     |> assign(:widget_refresh_timer, nil)
      |> schedule_ingress_status_refresh(configured_providers)}
   end
 
@@ -134,11 +141,27 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     {:noreply,
      socket
      |> IngressStatusUI.apply_async_result(result)
-     |> maybe_schedule_pending_ingress_status_refresh()}
+     |> maybe_schedule_pending_ingress_status_refresh()
+     |> schedule_widget_status_refresh()}
   end
 
   @impl true
   def handle_info(:refresh_pending_ingress_statuses, socket) do
+    {:noreply, retry_ingress_status_refresh(socket)}
+  end
+
+  def handle_info(:refresh_widget_ingress_statuses, socket) do
+    if socket.assigns.widget_refresh_timer,
+      do: Process.cancel_timer(socket.assigns.widget_refresh_timer)
+
+    configured = configured_retrieval_providers()
+
+    socket =
+      socket
+      |> assign(:configured_ingress_providers, configured)
+      |> assign(:stats, compute_stats())
+      |> assign(:widget_refresh_timer, nil)
+
     {:noreply, retry_ingress_status_refresh(socket)}
   end
 
@@ -350,13 +373,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     providers = ingress_status_providers(configured_providers)
 
     Enum.reduce(providers, %{}, fn provider, acc ->
-      statuses =
-        provider
-        |> ChannelConfig.list_by_provider()
-        |> Enum.filter(& &1.enabled)
-        |> Enum.map(fn config ->
-          %{id: config.id, name: config.name, status: fetch_ingress_status(config)}
-        end)
+      configs = provider |> ChannelConfig.list_by_provider() |> Enum.filter(& &1.enabled)
+
+      statuses = IngressStatusUI.collect(configs, &fetch_ingress_status/1)
 
       Map.put(acc, provider, IngressStatusUI.aggregate(statuses))
     end)
@@ -400,6 +419,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
       @pending_ingress_status_retry_ms,
       @pending_ingress_status_max_attempts
     )
+  end
+
+  defp schedule_widget_status_refresh(socket) do
+    if connected?(socket) and socket.assigns.service_available and
+         is_nil(socket.assigns.widget_refresh_timer) do
+      timer = Process.send_after(self(), :refresh_widget_ingress_statuses, 15_000)
+      assign(socket, :widget_refresh_timer, timer)
+    else
+      socket
+    end
   end
 
   defp configured_retrieval_providers do
