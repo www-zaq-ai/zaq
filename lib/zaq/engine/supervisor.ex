@@ -19,6 +19,7 @@ defmodule Zaq.Engine.Supervisor do
 
   - `Zaq.Engine.Telemetry.Supervisor` — runtime telemetry collection
   - `Zaq.People.AuthRateLimiter` — distributed OTP Person/IP issuance budgets only
+  - `Zaq.Engine.Connect.DeviceSupervisor` — temporary device sign-in workers, never recovered
   - `Zaq.Engine.IngestionSupervisor` — supervises all ingestion channel adapters
   - `Zaq.Engine.RetrievalSupervisor` — supervises all retrieval channel adapters
   - `Zaq.Engine.Workflows.StartupRecovery` — one-shot task that enqueues a recovery job per stale run
@@ -36,6 +37,7 @@ defmodule Zaq.Engine.Supervisor do
       {Registry, keys: :unique, name: Zaq.Engine.Workflows.RunRegistry},
       Zaq.Engine.Telemetry.Supervisor,
       Zaq.People.AuthRateLimiter,
+      {DynamicSupervisor, strategy: :one_for_one, name: Zaq.Engine.Connect.DeviceSupervisor},
       Zaq.Engine.IngestionSupervisor,
       Zaq.Engine.RetrievalSupervisor,
       Zaq.Engine.EventRegistry,

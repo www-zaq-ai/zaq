@@ -586,6 +586,40 @@ projection and canonical grant replacement between handshake lifecycles. Existin
 authorization-code attempts retain their irreversible pre-exchange claim and PKCE
 checks; device polling must not use that claim protocol.
 
+`DeviceAttempts` stores a separate encrypted `DeviceAttempt`, bound to its initiating
+Person session (or trusted org setup), credential fingerprint, provider and deadline.
+One temporary `DeviceWorker` under the Engine's `DeviceSupervisor` drives HTTP and
+timers. Provider-normalized intervals/slowdown feed the worker; no provider names,
+endpoints or error codes enter its scheduling logic. There is one in-flight poll per
+worker. HTTP has bounded timeouts, redirects and automatic retries disabled, and runs
+outside database transactions. Approval uses shared binding validation and canonical
+mutations; grant persistence and terminal success commit atomically. Cancellation or
+configuration/session invalidation prevents late completion. Terminal writes force
+all device/candidate/user-code ciphertext columns to SQL NULL.
+
+Workers are `restart: :temporary`: no Oban polling, recovery job or replacement worker
+resumes an interrupted attempt. The stored PID identifies the original process/node
+incarnation. Status checks report `interrupted` after confirmed worker death, but a
+remote-node timeout reports `:unavailable` rather than declaring it dead or replacing
+it. Browser disconnects do not cancel the worker. Reopening the modal observes the
+same owner/session's latest attempt; success remains visible after worker shutdown.
+Connect's existing maintenance worker performs bounded expired-device-row cleanup.
+Person merge/deletion cancels both kinds of attempts under the existing lock order.
+
+Person operations through confidential `:people_auth` are
+`:start_self_credential_device`, `:self_credential_device_status`,
+`:self_credential_device_current` and `:cancel_self_credential_device`.
+All require authenticated profile/credential-management permissions. Current/status/
+cancel derive ownership and initiating session from the bearer; another Person or
+session cannot observe the code. Start also checks the AI association allowlist.
+Trusted BO admin operations use confidential `:connect_device` with `op: :start`
+(`credential_id`, `attrs`), `:status`/`:cancel` (`attempt_id`), or `:current`
+(`credential_id`). These are domain operations, not agent tools or generic invoke APIs.
+Start/status DTOs allow only attempt ID/status/expiry, pending verification URL/user
+code, and the completed credential ID. Protocol material, tokens, candidates and
+worker identity never cross these transports. OAuth summaries additionally expose a
+boolean `device_code_supported`, not profile metadata or implementation modules.
+
 #### One-use OAuth and canonical admin setup (`zaq-jrg.6`)
 
 The trusted backend API is:
