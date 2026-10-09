@@ -3,7 +3,25 @@ defmodule Zaq.E2E.ResetTest do
 
   alias Zaq.E2E.Reset
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.Telemetry
+  alias Zaq.Engine.Telemetry.{Buffer, Rollup}
+  alias Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker
   alias Zaq.System
+
+  test "reset preserves aggregation progress while retaining raw telemetry" do
+    Telemetry.record("qa.llm.call.count", 1, %{"model" => "e2e-fake"})
+    :ok = Buffer.flush()
+    :ok = AggregateRollupsWorker.perform(%Oban.Job{})
+    cursor = Telemetry.get_cursor_id("telemetry.rollup_point_id_cursor")
+    assert cursor > 0
+    rollups = Repo.all(Rollup)
+
+    Reset.reset_system_config!()
+
+    assert Telemetry.get_cursor_id("telemetry.rollup_point_id_cursor") == cursor
+    :ok = AggregateRollupsWorker.perform(%Oban.Job{})
+    assert Repo.all(Rollup) == rollups
+  end
 
   test "reset removes AI credentials and their Connect credentials and grants" do
     assert {:ok, credential} =
