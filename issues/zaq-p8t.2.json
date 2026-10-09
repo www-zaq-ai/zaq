@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-p8t.1"
+  ],
   "blocks": [],
   "created": "2026-10-09T12:18:38Z",
   "description": "Tests first: encrypted secrets, session/config binding, expiration, one worker, cancellation racing completion, crash and interrupted restart, existing grant preservation and atomic success. Add separate device schema and temporary worker supervision on Engine; reuse shared binding and canonical Mutations. Worker consumes provider instructions; no Oban or recovery. Internal local-only polling is not independently exposed. Public start/status/cancel are domain operations at authenticated/confidential dispatch boundaries. Property-test terminal-state and timing invariants. No network inside Repo transactions.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-p8t.2] Device attempts and temporary worker",
   "type": "task",
-  "updated_at": "2026-10-09T12:18:39Z"
+  "updated_at": "2026-10-09T12:18:45Z"
 }

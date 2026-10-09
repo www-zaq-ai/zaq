@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-p8t.2"
+  ],
   "created": "2026-10-09T12:18:36Z",
   "description": "Tests first: Codex request/response fixtures including string intervals, pending 403/404, slowdown, malformed approval and code-to-token exchange. Add separate pure device behavior and static capability registry. Reuse existing Codex normalization and OAuth HTTP seam; extract shared attempt-binding validation/completion from OAuthAttempts, preserving callback semantics. Local-only protocol/lifecycle primitives are not agent or workflow Actions: secret-bearing server orchestration must remain confidential. Update engine/system-config owner docs. Verify no automatic HTTP retry, safe URLs and sanitized errors.",
   "id": "zaq-p8t.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[zaq-p8t.1] Protocol and shared binding",
   "type": "task",
-  "updated_at": "2026-10-09T12:18:37Z"
+  "updated_at": "2026-10-09T12:18:45Z"
 }
