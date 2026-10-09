@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T12:17:19Z",
+  "description": "Implement agreed provider-neutral device authentication: separate protocol behavior; temporary supervised worker as Connect orchestrator; encrypted session/config-bound attempt; no recovery after worker/app restart; canonical grant completion and refresh reuse. Codex first. BO AI credentials and People Credentials adding modals show verification URL, adjacent open-new-tab button and user code. Human UX approval gates feature E2E. Work in a new branch in current worktree, as explicitly authorized.",
+  "id": "zaq-p8t",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Device-code sign-in for Connect and both credential modals",
+  "type": "epic",
+  "updated_at": "2026-10-09T12:17:19Z"
+}
