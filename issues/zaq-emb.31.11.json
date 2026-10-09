@@ -25,11 +25,15 @@
     {
       "text": "User authorizes minimal OpaqueAliases compatibility adaptation and proceeding. Read-only scan found only ZAQ struct expansion at opaque_aliases.ex142; dependency jido/jido_ai/jido_signal legacy references use map patterns and already support metadata defaults. Zoi.default keeps base schema and semantic metadata, stores {:value,value} in meta.default; probe confirms explicit nil supported. Reuse/extend existing collect_paths schema traversal, remove obsolete wrapper clause only; no default application, signing, runtime or Action behavior changes. Existing defaults/unions regression retained; new defaulted-handle property pins expansion, foreign-scope rejection, missing-scope rejection and nil preservation across signed handles. Preserve prior WIP and stop/report any additional dependency incompatibility.",
       "timestamp": "2026-10-09T17:34:23Z"
+    },
+    {
+      "text": "Validated upstream adoption and minimal Zoi adaptation: one obsolete OpaqueAliases Default-wrapper clause deleted; existing schema/default/union assertions unchanged; new defaulted-handle property protects expansion, foreign/missing scope denial and nil preservation. Alias/native/HTTP suites seed625: 31 tests/2 properties pass. Expanded Agent/Conversations/Channels/workflow/email/media/ratings matrix seed625: 2357 tests/59 properties/17 doctests pass, 21 existing-tag exclusions. Native inspection includes actual2010 DISTINCT deltas beyond trace cap, exact retained text, subsequent-request isolation, default100-request eviction, archived authorization/teardown and unavailable shutdown. Repeat seed2026 aliases/native/HTTP/nested: 38 tests/2 properties pass. Current-tree mix q after docs updates passes exit0/no signal/error (1544 files/19013 mods-funs no issues/docs generated); diff check passes. No other dependency incompatibility. Generic Jido Emit remains unchanged; PR370 native worker directive resolves observed ordering tests. Five-file seed0 repeat had unrelated/unattributed Shared ownerfollowup committed-delivery timeout; native/alias regressions passed; same active-update cases pass unchanged isolated10 tests. Track intermittent acceptance in .31.10, do not claim full #768 acceptance or .31.5/deployed error causation. Service/diagnostic/handoff updated. No commit/push/merge; all39stashes and WIP retained.",
+      "timestamp": "2026-10-09T18:00:24Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Native late model/checkpoint events leave completed reusable runtime awaiting_llm",
   "type": "bug",
-  "updated_at": "2026-10-09T17:34:23Z"
+  "updated_at": "2026-10-09T18:00:24Z"
 }
