@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T13:48:41Z",
+  "description": "Extend existing WebWidgetLive form with issuer/audience/SameSite controls; preserve legacy omissions and dirty edits during async health refresh. Both list and configuration card use channel_ingress_status via NodeRouter. Reuse existing Input/Select/status badge components. Tests first: LiveView defaults/save/reopen/invalid/legacy, enabled not healthy, async refresh/disabling, list aggregation. Final UX approval then E2E. Docs: web-bridge and guide.",
+  "id": "zaq-m0a",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Widget configuration form and live status surfaces",
+  "type": "task",
+  "updated_at": "2026-10-09T13:48:41Z"
+}
