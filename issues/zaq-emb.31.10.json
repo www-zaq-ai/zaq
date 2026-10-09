@@ -26,11 +26,15 @@
     {
       "text": "Authorized diagnostic-only step: extend existing delivery assertion with bounded pre-teardown execution/confirmation/placement snapshots, native call tracking and HTTP/SQL wait telemetry; preserve assertions/deadlines. Test-support-only, Action reuse not applicable (no domain operation changes). Verify forced diagnostic failure and original five-file seed0 suite plus mix q. Acceptance remains open; no production fix/publication authorized.",
       "timestamp": "2026-10-09T19:58:42Z"
+    },
+    {
+      "text": "Diagnostic-only step complete: test/support/delivery_diagnostics.ex uses a separate OTP trace session and sanitized bounded recent SQL/Finch events; delivery wait appends pre-teardown execution/confirmation/placement snapshots and pending call/process evidence to original ExUnit assertion. Existing five-second waits and assertions retained. No production files changed for this step. mix q and git diff --check pass. Original five-file seed0/max_cases4 suite passes75tests/2properties. In-memory-only forced missing notification produced expected original assertion failure with completed root, consumed receipt, confirmed placement, confirmation, stacks and HTTP/SQL timings; cleanup left zero diagnostic handlers. Missing collector/sandbox safely reports unavailable. Forced failure is diagnostic verification, not reproduction of unknown #1. Keep acceptance issue open; root cause remains unresolved. No commit/push/merge.",
+      "timestamp": "2026-10-09T20:04:22Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
   "type": "task",
-  "updated_at": "2026-10-09T19:58:42Z"
+  "updated_at": "2026-10-09T20:04:22Z"
 }
