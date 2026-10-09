@@ -11,9 +11,15 @@
   "description": "Extend existing WebWidgetLive form with issuer/audience/SameSite controls; preserve legacy omissions and dirty edits during async health refresh. Both list and configuration card use channel_ingress_status via NodeRouter. Reuse existing Input/Select/status badge components. Tests first: LiveView defaults/save/reopen/invalid/legacy, enabled not healthy, async refresh/disabling, list aggregation. Final UX approval then E2E. Docs: web-bridge and guide.",
   "id": "zaq-m0a",
   "labels": [],
+  "comments": [
+    {
+      "text": "Form/status implementation present despite prerequisite validation blockers: issuer/audience inputs, SameSite dropdown default None, save/reopen/invalid/legacy-preservation tests. Actual health in both list and config cards, Enabled distinct from Ready; bounded concurrent collection reused in IngressStatusUI, polling after scan completion, old results superseded after changes, form edits preserved, open status modal refreshes. Storybook enabled-but-unverified example added. Passing 205 tests + 6 properties. Browser setup attempted in isolated E2E partition; dependency compilation timed out twice, so no visual inspection or existing browser journeys completed. mix q/precommit blocked by ExDNA timeout. No final UX approval request until validation gate passes.",
+      "timestamp": "2026-10-09T15:13:54Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-m0a] Widget configuration form and live status surfaces",
   "type": "task",
-  "updated_at": "2026-10-09T13:49:11Z"
+  "updated_at": "2026-10-09T15:13:54Z"
 }
