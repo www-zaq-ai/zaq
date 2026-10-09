@@ -92,6 +92,7 @@ defmodule Zaq.Engine.Connect.CredentialStatuses do
         name: c.name,
         provider: c.provider,
         auth_kind: c.auth_kind,
+        auth_profile: fragment("?->>'auth_profile'", c.metadata),
         personal_credential_policy: c.personal_credential_policy,
         status: g.status,
         expires_at: g.expires_at
@@ -109,19 +110,37 @@ defmodule Zaq.Engine.Connect.CredentialStatuses do
         name: c.name,
         provider: c.provider,
         auth_kind: c.auth_kind,
+        auth_profile: fragment("?->>'auth_profile'", c.metadata),
         personal_credential_policy: c.personal_credential_policy,
         status: g.status,
         expires_at: g.expires_at
       }
   end
 
-  defp project(%{status: nil} = row, _now), do: %{row | status: "absent"}
+  defp project(row, now) do
+    profile = row.auth_profile
+    row = Map.delete(row, :auth_profile)
 
-  defp project(%{status: "active", expires_at: %DateTime{} = expiry} = row, now) do
+    row =
+      if row.auth_kind == "oauth2",
+        do:
+          Map.put(
+            row,
+            :device_code_supported,
+            match?({:ok, _}, Zaq.Engine.Connect.OAuth.Device.Registry.fetch(profile))
+          ),
+        else: row
+
+    project_status(row, now)
+  end
+
+  defp project_status(%{status: nil} = row, _now), do: %{row | status: "absent"}
+
+  defp project_status(%{status: "active", expires_at: %DateTime{} = expiry} = row, now) do
     if DateTime.compare(expiry, now) == :gt, do: row, else: %{row | status: "expired"}
   end
 
-  defp project(row, _now), do: row
+  defp project_status(row, _now), do: row
 
   defp maybe_limit_credentials(query, opts) do
     case Keyword.get(opts, :credential_ids) do

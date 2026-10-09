@@ -35,7 +35,15 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
   import Ecto.Query
 
   alias Zaq.Accounts.Person
-  alias Zaq.Engine.Connect.{Credential, CredentialStatuses, Mutations, OAuthAttempts}
+
+  alias Zaq.Engine.Connect.{
+    Credential,
+    CredentialStatuses,
+    DeviceAttempts,
+    Mutations,
+    OAuthAttempts
+  }
+
   alias Zaq.Repo
 
   @type mutation_result :: %{credential_id: pos_integer(), status: String.t()}
@@ -55,6 +63,15 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
          :ok <- valid_id(credential_id),
          :ok <- allowed_id(credential_id, opts) do
       OAuthAttempts.prepare_person(person, session_id, credential_id, opts)
+    end
+  end
+
+  @doc "Prepares device sign-in using authenticated identity and allowed AI associations."
+  def prepare_device(authenticated_person, session_id, credential_id, opts \\ []) do
+    with {:ok, person} <- current_person(authenticated_person),
+         :ok <- valid_id(credential_id),
+         :ok <- allowed_id(credential_id, opts) do
+      DeviceAttempts.prepare_person(person, session_id, credential_id, opts)
     end
   end
 

@@ -15,7 +15,7 @@ defmodule Zaq.Engine.Connect.PersonLifecycle do
   import Ecto.Query
   alias Ecto.Changeset
   alias Zaq.Accounts.Person
-  alias Zaq.Engine.Connect.{Credential, Grant, MutationEvents, OAuthAttempt}
+  alias Zaq.Engine.Connect.{Credential, DeviceAttempt, Grant, MutationEvents, OAuthAttempt}
   alias Zaq.Repo
 
   @grant_identity [:id, :credential_id, :resource_type, :resource_id, :owner_type, :owner_id]
@@ -50,7 +50,15 @@ defmodule Zaq.Engine.Connect.PersonLifecycle do
     attempts = from a in OAuthAttempt, where: a.owner_type == "person" and a.owner_id in ^ids
     credential_ids = Repo.all(from g in grants, select: g.credential_id)
     attempt_credentials = Repo.all(from a in attempts, select: a.credential_id)
-    locked = lock_credentials(credential_ids ++ attempt_credentials)
+
+    device_credentials =
+      Repo.all(
+        from a in DeviceAttempt,
+          where: a.owner_type == "person" and a.owner_id in ^ids,
+          select: a.credential_id
+      )
+
+    locked = lock_credentials(credential_ids ++ attempt_credentials ++ device_credentials)
 
     Repo.all(
       from g in grants,
@@ -95,7 +103,13 @@ defmodule Zaq.Engine.Connect.PersonLifecycle do
   end
 
   defp cancel_attempts(ids) do
-    from(a in OAuthAttempt,
+    Enum.reduce([OAuthAttempt, DeviceAttempt], 0, fn schema, count ->
+      count + cancel_schema_attempts(schema, ids)
+    end)
+  end
+
+  defp cancel_schema_attempts(schema, ids) do
+    from(a in schema,
       where: a.owner_type == "person" and a.owner_id in ^ids,
       order_by: a.id,
       lock: "FOR UPDATE",

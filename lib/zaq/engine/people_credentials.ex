@@ -9,7 +9,8 @@ defmodule Zaq.Engine.PeopleCredentials do
   """
 
   alias Zaq.Accounts.{PeopleAuth, PeoplePermissions}
-  alias Zaq.Engine.Connect.{OAuthAttempts, PersonCredentials}
+  alias Zaq.Engine.Connect.{DeviceAttempts, OAuthAttempts, PersonCredentials}
+  alias Zaq.Engine.Connect.OAuth.Binding
   alias Zaq.Repo
   alias Zaq.System
 
@@ -71,6 +72,33 @@ defmodule Zaq.Engine.PeopleCredentials do
     end
   end
 
+  def dispatch(%{op: :start_self_credential_device, token: token, credential_id: id}, opts) do
+    with :ok <- Binding.outside_transaction(),
+         {:ok, prepared} <- prepare_device(token, id, opts) do
+      DeviceAttempts.authorize_prepared(prepared, opts)
+    end
+  end
+
+  def dispatch(%{op: op, token: token, attempt_id: id}, opts)
+      when op in [:self_credential_device_status, :cancel_self_credential_device] do
+    with {:ok, owner} <- device_owner(token, opts) do
+      case op do
+        :self_credential_device_status -> DeviceAttempts.status(id, owner, opts)
+        :cancel_self_credential_device -> DeviceAttempts.cancel(id, owner, opts)
+      end
+    end
+  end
+
+  def dispatch(%{op: :self_credential_device_current, token: token, credential_id: id}, opts) do
+    with {:ok, owner} <- device_owner(token, opts),
+         true <- id in System.list_ai_provider_connect_credential_ids() do
+      DeviceAttempts.current(id, owner, opts)
+    else
+      false -> {:error, :not_found}
+      error -> error
+    end
+  end
+
   def dispatch(_, _), do: {:error, :invalid_request}
 
   defp authenticated(token, opts, mode, operation) do
@@ -97,6 +125,35 @@ defmodule Zaq.Engine.PeopleCredentials do
                person_opts(opts)
              ) do
         prepared
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp prepare_device(token, credential_id, opts) do
+    Repo.transaction(fn ->
+      with {:ok, auth} <- PeopleAuth.authenticate(token, opts),
+           :ok <- authorize(auth, :write),
+           {:ok, prepared} <-
+             PersonCredentials.prepare_device(
+               auth.person,
+               auth.session.id,
+               credential_id,
+               person_opts(opts)
+             ) do
+        prepared
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp device_owner(token, opts) do
+    Repo.transaction(fn ->
+      with {:ok, auth} <- PeopleAuth.authenticate(token, opts),
+           :ok <- authorize(auth, :write) do
+        {"person", auth.person.id, auth.session.id}
       else
         {:error, reason} -> Repo.rollback(reason)
       end

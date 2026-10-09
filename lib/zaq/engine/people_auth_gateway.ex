@@ -69,7 +69,11 @@ defmodule Zaq.Engine.PeopleAuthGateway do
              :revoke_self_credential,
              :remove_self_credential,
              :start_self_credential_oauth,
-             :reconnect_self_credential_oauth
+             :reconnect_self_credential_oauth,
+             :start_self_credential_device,
+             :self_credential_device_status,
+             :self_credential_device_current,
+             :cancel_self_credential_device
            ] ->
         PeopleCredentials.dispatch(request, opts)
 
