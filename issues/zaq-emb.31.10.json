@@ -14,11 +14,15 @@
     {
       "text": "Added real 2101-delta native trace-cap and 101-run default request-retention tests, retaining original observation tests. Real long stream exposed terminal inspection buffered_chars retaining 477 after forced flush: do_flush tried register(:streaming) after completed, so immutable terminal fence rejected entire presentation update. Reuse/extend existing StreamEvents flush/register, using status-free presentation-only updates (local lifecycle mechanics, no business Action); terminal ownership remains unchanged. Fix made after failing regression; validation ongoing. Repeated native runs also reveal a request-completed/strategy-awaiting_llm stall; isolating actual caller/state before attributing it. User mix q evidence recorded and C closed; D remains open. No commit/publication.",
       "timestamp": "2026-10-09T15:02:16Z"
+    },
+    {
+      "text": "Current preservation evidence: normal-scheduler mix q passes (exit0/no subprocess error), Credo 1544 files/19014 mods-funs no issues/docs generated. Manager/StreamEvents/observations pass 92 tests/6 properties seed625. Suspended native shutdown regression reproduced Manager crash via get_state timeout, then passes using existing bounded drain on exit; retained protected ETS survives. Action reuse: extend StreamEvents presentation register (status-free final flush), Factory exact native lifecycle reader (pending-only acceptance), ServerManager in_flight_requests? (local-only bounded shutdown, no composable business Action or tool). Existing owning APIs preserve actor/errors/lifecycle; no duplicated operation or new execution path. Direct init fixtures migrated to real supervised restart/protected ETS; minimal state fixture completed, assertions unchanged. Expanded Agent/Conversations/Channels/workflow/email/media/ratings matrix: 2357 tests/58 properties/17 doctests, 2 failures, 21 existing-tag exclusions; ordered native long-stream inspection and HTTP native completion wait. HTTP passes unchanged isolated. 101-run default eviction/archive authorization/teardown passed combined but intermittent native stall remains .31.11 blocker; native distinct Unicode text is reordered. Handoff and diagnostic updated. Remaining real busy-admission closure, repeat full acceptance, independent .31.5 diagnosis, human/E2E/review/coverage/precommit still open. No commit/push/merge, stashes and unrelated WIP preserved.",
+      "timestamp": "2026-10-09T15:51:22Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
   "type": "task",
-  "updated_at": "2026-10-09T15:22:08Z"
+  "updated_at": "2026-10-09T15:51:22Z"
 }
