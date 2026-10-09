@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-p8t.1"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-p8t",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-p8t.2] Device attempts and temporary worker",
   "type": "task",
-  "updated_at": "2026-10-09T12:18:46Z"
+  "updated_at": "2026-10-09T12:56:47Z"
 }
