@@ -8,9 +8,15 @@
   "description": "Extend WidgetAdapter with optional status/2 and Web.Runtime with bounded confidential-safe validation; implement WebBridge ingress health through existing channel_ingress_status event. Add closed response validator owned by Channels web boundary; no new tool/Action since adapter lifecycle health is local-only and existing domain dispatch is reused. Tests first: ready/start/unavailable/unknown, strict shape, no secrets, timeout/exits, absent callback, disabled and desired/effective mismatch. Docs: web-bridge. Isolated tests and mix q required.",
   "id": "zaq-p6e",
   "labels": [],
+  "comments": [
+    {
+      "text": "Implementation present: optional WidgetAdapter.status/2; Web.Runtime invokes under 2000ms unlinked task; new pure Web.Readiness closes schema/version/reasons/sources and reconciles desired/effective mismatch; WebBridge existing ingress event callback and event opts propagation. Unknown for unsupported/failed/timeout/private output. Focused tests included in passing 205 tests + 6 properties. Final mix precommit and mix q blocked by ExDNA.Credo internal five-second timeout. External actual transport/cookie enforcement remains web_widget #10/#12/#16; GH issues updated with host status. Existing domain dispatch reused; validator/probe lifecycle helpers local-only.",
+      "timestamp": "2026-10-09T15:13:53Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p6e] Widget adapter readiness and ingress health",
   "type": "task",
-  "updated_at": "2026-10-09T13:49:09Z"
+  "updated_at": "2026-10-09T15:13:53Z"
 }
