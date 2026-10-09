@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T11:29:00Z",
+  "description": "Approved focused plan /Users/julien/.opencode/plan/768-request-lifecycle-race.md step A. Preserve existing WIP. Functional scope: ServerManager ownership/presentation/removal ETS, Factory native request reads, StreamEvents presentation, all registry consumers and supervisor. Tests first: native-complete lag, full field parity, \u003e2000 events/retention/teardown, principals/workflows/removal. Action reuse: extend existing lifecycle/stream/native boundaries; local-only coordination, no new business Action. Inspection remains authorized/read-only and retains current lifetime. Docs Agent/message lifecycle; per-issue validation required.",
+  "id": "zaq-emb.31.8",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.31] A: native authority and remove RequestRegistry",
+  "type": "task",
+  "updated_at": "2026-10-09T11:29:00Z"
+}
