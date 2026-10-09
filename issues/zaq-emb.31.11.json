@@ -21,11 +21,15 @@
     {
       "text": "Authorized update resolved successfully: jido_ai970575a89631d9be0cc0fa22d380ff1d211fa286 (2.4.0), jido2.4.0, zoi0.18.11; mix.exs floors now jido~\u003e2.4/zoi~\u003e0.18.11. Resolver also updated transitive crontab1.2.1, jido_signal2.3.2, phoenix_pubsub2.4.1, telemetry_metrics1.2.0, time_zone_info0.8.0. All dependencies compiled, including jido_mcp/connect/studio/runic/chat; ZAQ compile exits1 at lib/zaq/agent/opaque_aliases.ex:142: Zoi.Types.Default.__struct__/1 undefined. Zoi default wrapper is no longer available in new version; existing collect_paths matches the old internal struct. Per user stop-and-report constraint, no compatibility fix, further upgrade, fallback or test run attempted. Manifest/lock updates remain uncommitted; earlier WIP/stashes preserved. Issue stays open; requires decision on ZAQ Zoi compatibility adaptation before preservation can rerun. Diagnostic/handoff dependency-no-change statements describe preceding checkpoint and need updating after decision; upstream PR370 is linked.",
       "timestamp": "2026-10-09T17:22:03Z"
+    },
+    {
+      "text": "User authorizes minimal OpaqueAliases compatibility adaptation and proceeding. Read-only scan found only ZAQ struct expansion at opaque_aliases.ex142; dependency jido/jido_ai/jido_signal legacy references use map patterns and already support metadata defaults. Zoi.default keeps base schema and semantic metadata, stores {:value,value} in meta.default; probe confirms explicit nil supported. Reuse/extend existing collect_paths schema traversal, remove obsolete wrapper clause only; no default application, signing, runtime or Action behavior changes. Existing defaults/unions regression retained; new defaulted-handle property pins expansion, foreign-scope rejection, missing-scope rejection and nil preservation across signed handles. Preserve prior WIP and stop/report any additional dependency incompatibility.",
+      "timestamp": "2026-10-09T17:34:23Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] Native late model/checkpoint events leave completed reusable runtime awaiting_llm",
   "type": "bug",
-  "updated_at": "2026-10-09T17:22:03Z"
+  "updated_at": "2026-10-09T17:34:23Z"
 }
