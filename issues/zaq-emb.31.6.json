@@ -2,6 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-10-09T08:11:13Z",
+  "close_reason": "Active-status steering fixed and validated in local commit 95b0e726a: actual 10s+5s sleep flow, second sleep, reasoning/text, silent next-model call and ordinary completed followup. 198 tests/9 properties/6 doctests passed plus mix q/hooks. Narrow native-sealed stale-registry late-input recovery is separately reproduced and tracked in zaq-emb.31.7; integrated .31 acceptance remains blocked. No push/merge/deployment claim.",
   "created": "2026-10-09T07:44:54Z",
   "description": "Tests first: exact owner/agent/scope steering across running, streaming, tool_running and tool_completed; real tool execution and silent next-model calls; terminal/removal and native sealing remain authoritative. Reuse/extend: RequestRegistry active lookup plus existing RequestControl, Factory and native Jido input queue. Local-only registry predicate (request lifecycle policy, not a composable business Action); no new Actions/tools or provider logic. Preserve existing unrelated WIP and integrated acceptance blocker .31.5.",
   "id": "zaq-emb.31.6",
@@ -14,8 +16,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#768] Preserve steering through tool and model-wait phases",
   "type": "bug",
-  "updated_at": "2026-10-09T08:02:58Z"
+  "updated_at": "2026-10-09T08:11:13Z"
 }
