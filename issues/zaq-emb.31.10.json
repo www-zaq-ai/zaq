@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-09T11:29:16Z",
+  "description": "Approved focused plan step D, after .31.7 live handoff. Run real Agent/Engine/Channels preservation including inspection, six steering cases, sealing regression, Direct/Shared/Replicated/email/removal/credentials/ratings/media/accounting. Action reuse not applicable validation only. Docs authoritative services/diagnostic/handoff; independent .31.5 remains separate. Per-issue checks, review/coverage/final workflow gates; human/E2E still existing broader issues. No publication authorized.",
+  "id": "zaq-emb.31.10",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
+  "type": "task",
+  "updated_at": "2026-10-09T11:29:16Z"
+}
