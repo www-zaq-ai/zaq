@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "zaq-kgw"
+    "zaq-kgw",
+    "zaq-p6e"
   ],
   "blocks": [],
   "created": "2026-10-09T13:48:41Z",
@@ -12,5 +13,5 @@
   "status": "open",
   "title": "[zaq-m0a] Widget configuration form and live status surfaces",
   "type": "task",
-  "updated_at": "2026-10-09T13:49:08Z"
+  "updated_at": "2026-10-09T13:49:09Z"
 }
