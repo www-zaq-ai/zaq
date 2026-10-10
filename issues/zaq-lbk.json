@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T16:16:23Z",
+  "description": "Dependent on pinned host integration zaq-3px. Real adapter tests: connector-specific JWT issuer/audience/key; runtime rebuild/old proof rejection; scoped cookies/CSRF/socket and BO policy unchanged; actual zero-visitor ready/listener down/timeout; form save/reopen enable two status surfaces. Browser manual verification and existing E2E execution; new feature journeys remain gated by zaq-xfl approval and consolidated zaq-vrq. Record Go/no-Go for dependency stack with SHA and limits, never infer authorization to merge. Docs setup at existing guide and contract owner.",
+  "id": "zaq-lbk",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Verify actual widget dependency against ZAQ host contract",
+  "type": "task",
+  "updated_at": "2026-10-10T16:16:23Z"
+}
