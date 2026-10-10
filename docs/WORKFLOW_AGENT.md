@@ -49,6 +49,9 @@ For feature work, assess E2E need and follow the
 [feature E2E approval gate](testing-approach.md#feature-e2e-approval-gate).
 When needed, create/reuse one E2E issue and wire implementation → human UX/UI
 approval → E2E dependencies per `docs/exec-plans/PLAN_STRATEGY.md`.
+For any task that changes existing test expectations, identify the current and
+proposed contract during planning and obtain explicit human approval before
+changing the test, per the [existing test behavior approval gate](testing-approach.md#existing-test-behavior-approval-gate).
 
 ---
 
@@ -58,7 +61,9 @@ Work through the planned Beadwork issues one at a time:
 
 1. Follow [the tool boundary](agent-tools.md#tool-boundaries) to inspect the affected source or documentation.
 2. Implement the change with a symbol-aware edit when supported, or the host-required patch/edit tool. Retrieve only the code/text needed for that edit.
-3. Write or update unit tests covering the change.
+3. Write or update unit tests covering the change. Changes to what an existing
+   test verifies require the explicit approval described in the
+   [testing handbook](testing-approach.md#existing-test-behavior-approval-gate).
 4. Focus tests on critical behavior, failure paths, permissions, and regressions rather than a numerical coverage ratio. Keep code async-testable through injected configuration/dependencies and isolated state; preserve the guidance in `docs/testing-approach.md`.
 5. Apply `docs/testing-approach.md`: add property tests when the change touches invariants, broad input spaces, normalization, or permission/safety defaults.
 6. Complete the [issue validation checks](#unit-validation) before marking each issue complete.
@@ -77,6 +82,9 @@ Work through the planned Beadwork issues one at a time:
 - Never persist sensitive values without encrypting first — see `docs/services/system-config.md`.
 - Never bypass Ecto changesets for data mutations.
 - If you discover something unexpected, add it to the decisions log before continuing.
+- If a test needs an unplanned behavioral expectation change, pause that change
+  and seek explicit human approval before editing it; record the approved scope
+  in Beadwork. Do not adjust assertions merely to make new code pass.
 
 ---
 
@@ -195,3 +203,4 @@ After merging:
 - An E2E test is failing and the failure is unrelated to your change.
 - The plan's blocker cannot be resolved by reading existing docs or code.
 - A decision has significant product or security implications.
+- An existing test's behavioral expectations need to change without prior explicit approval.
