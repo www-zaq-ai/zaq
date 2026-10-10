@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-p8t.11"
   ],
+  "closed_at": "2026-10-10T13:27:53Z",
+  "close_reason": "One shared generation-checked observer now deduplicates reopen timers, cancels switching/terminal timers and rejects queued stale ticks. Unit/property tests first failed without helper, then passed; both LiveView reopen regressions pass. 31 tests/1 property and mix q pass. Uncommitted; no Git mutations.",
   "created": "2026-10-10T13:18:17Z",
   "description": "PR #841 finding 2. Shared local-only BO/People polling helper tracks one attempt, timer ref and generation. Extend existing LiveView observation; no Actions or domain logic. Tests first repeated reopen, switching attempts, stale messages and terminal shutdown; deterministic Process timers tested with refs and explicit messages. Preserve confidential NodeRouter operations. Depends on initialization fix. Isolated tests and mix q.",
   "id": "zaq-p8t.10",
   "labels": [],
   "parent": "zaq-p8t",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Deduplicate device sign-in observation timers",
   "type": "task",
-  "updated_at": "2026-10-10T13:23:22Z"
+  "updated_at": "2026-10-10T13:27:53Z"
 }
