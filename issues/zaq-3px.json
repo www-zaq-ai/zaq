@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T16:16:14Z",
+  "description": "User-approved candidate integration: pin web_widget PR22 ref 4bd6929bb599ced0bc4a9c0536588fb8b7a002b9; configure trusted adapter/PubSub/auth membership/readiness; mount channels-only routes and scoped widget LiveView socket without BO session. Reuse WebBridge runtime lifecycle and ManageWidgetConnector; endpoint/router/config integration local-only, no new Actions/tools. Tests first for role guards/BO unchanged/real adapter configuration, legacy explicit policy required (no inferred data migration). Isolated tests plus mix q.",
+  "id": "zaq-3px",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Pin widget candidate and mount scoped host transport",
+  "type": "task",
+  "updated_at": "2026-10-10T16:16:14Z"
+}
