@@ -7,9 +7,15 @@
   "id": "zaq-763.2",
   "labels": [],
   "parent": "zaq-763",
+  "comments": [
+    {
+      "text": "Invalid reference test implemented and reviewed; combined targeted run: 13 tests and 1 property, 0 failures. Final q/coverage pending.",
+      "timestamp": "2026-10-10T16:04:12Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-763] Implement credential status coverage plan",
   "type": "task",
-  "updated_at": "2026-10-10T16:00:43Z"
+  "updated_at": "2026-10-10T16:04:12Z"
 }
