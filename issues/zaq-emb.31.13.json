@@ -7,9 +7,15 @@
   "id": "zaq-emb.31.13",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Blocked at approved native-cleanup contract gate. Permanent membership-removal test now monitors native runtime_task and LLM HTTP borrower before releasing external barrier: initial run failed runner DOWN after5s; subsequent integrated pass does not erase intermittent failure. In-memory Factory prototype awaiting request-specific Jido.AgentServer.await_completion instead of immediate active_request_id nil passed blocked-model case, but no production lifecycle change applied. Additional real HttpRequestFlowIntegrationTest regression exercises actual configured agent/tool -\u003e NodeRouter -\u003e Channels HTTP against held external API: ai.react.cancel plus native request await returns {:ok,%{status: :failed}} while HTTP borrower remains alive beyond5s. This proves native terminal status alone insufficient for cross-service tool transport cleanup; not attributed solely to Jido (ZAQ tool dispatches to Channels). Stop/report per approved plan before workaround/extra dependency changes. Integrated156tests/2properties has1 failure this regression; mix q passes. Need explicit owning-boundary cancellation propagation design or scope decision before claiming complete cleanup. Reuse existing Factory/ServerManager/removal worker; preserve fences and pending cleanup retries. No commits/push.",
+      "timestamp": "2026-10-10T07:31:37Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[#768] Confirm native cancellation before runtime teardown",
   "type": "bug",
-  "updated_at": "2026-10-10T07:15:04Z"
+  "updated_at": "2026-10-10T07:31:37Z"
 }
