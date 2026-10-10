@@ -19,11 +19,15 @@
     {
       "text": "Approved fix: single HTTP/1 Finch pool preserving per-origin capacity, new REQ_LLM_POOL_SIZE with legacy REQ_LLM_POOL_COUNT capacity fallback. Regression first: force supported selector collision and hold two real HTTP/ReqLLM calls; cover saturation/cancellation/reuse and env validation. Action reuse N/A configuration/test infrastructure. Issue1 deferred per user; diagnostic capture retained. No dependency upgrade or publication authorized.",
       "timestamp": "2026-10-10T06:22:39Z"
+    },
+    {
+      "text": "Implemented confirmed shard-contention fix: runtime Finch count1/size50 default; positive REQ_LLM_POOL_SIZE wins over legacy REQ_LLM_POOL_COUNT capacity fallback. Deterministic real ReqLLM barrier with forced same-shard selector failed on old configuration at second arrival, passes on shared pool. Existing 10-call workflow now runs against one 8-connection pool. New saturation/supported stream halt/reuse coverage and startup capacity validation pass (5 isolated tests). Integrated nine-file history/inspection/HTTP/nested/workflow matrix seed0 max_cases4 passes128tests/2properties. mix q and git diff --check pass. Docs dev-setup updated. Separate exploratory observation: abruptly killing a checked-out Finch borrower via Task.shutdown(:brutal_kill) left another queued request timing out; supported Finch.stream_while halt cancellation passes. This is not attributed to shard configuration and needs separate investigation before any dependency change; no dependencies changed here. User deferred issue1 until recurrence; diagnostics retained. No commit/push/merge or final acceptance approval requested.",
+      "timestamp": "2026-10-10T06:32:07Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] Diagnose intermittent committed-delivery wait in real concurrency",
   "type": "bug",
-  "updated_at": "2026-10-10T06:22:39Z"
+  "updated_at": "2026-10-10T06:32:07Z"
 }
