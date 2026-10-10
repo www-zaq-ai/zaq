@@ -7,9 +7,15 @@
   "id": "zaq-emb.31.12",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Implemented immutable upstream NimblePool PR54 pin at23326be3b9742d22ad11774a408b830e4b882a43 in mix.exs/mix.lock, with release replacement condition. Permanent checked-out borrower :kill regression failed on1.1.0 and passes on pin; preserved graceful halt test. Added actual ReqLLM cancel saturated1/50-slot queue wake/reuse cases. Eight isolated pool/config tests pass; mix q and diffcheck pass. Integrated10-file seed0 maxcases4 result156tests/2properties with1 failure solely new pending HTTP-tool cancellation regression tracked .31.13; pool and concurrent People cases pass. Existing Finch0.23 retained. Broader #768 acceptance remains open. No publication.",
+      "timestamp": "2026-10-10T07:31:25Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[#768] Reclaim queued Finch capacity after borrower cancellation",
   "type": "bug",
-  "updated_at": "2026-10-10T07:14:57Z"
+  "updated_at": "2026-10-10T07:31:25Z"
 }
