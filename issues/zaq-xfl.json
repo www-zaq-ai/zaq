@@ -1,6 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
+    "zaq-lbk",
     "zaq-m0a"
   ],
   "blocks": [
@@ -20,5 +21,5 @@
   "status": "open",
   "title": "[zaq-xfl] Approve completed widget configuration and health UX",
   "type": "task",
-  "updated_at": "2026-10-09T15:13:56Z"
+  "updated_at": "2026-10-10T16:16:42Z"
 }
