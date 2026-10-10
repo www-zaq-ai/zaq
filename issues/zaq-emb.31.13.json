@@ -2,6 +2,8 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-10-10T12:44:55Z",
+  "close_reason": "Superseded, not fixed: approved admission-time authorization retires runtimes after accepted work drains instead of cancelling membership work. Independent cancellation defects remain open in zaq-4sl (real HTTP borrower reproducer) and zaq-t3g (remote RPC ownership).",
   "created": "2026-10-10T07:15:04Z",
   "description": "Approved local-only lifecycle extension: Factory native request-specific cancellation completion, ServerManager immediate fences and nonblocking cleanup with explicit error/retry handling through existing removal worker. Regression real membership removal HTTP/runner exit before provider release, delayed cancellation, stale incarnation/generation, unaffected People. Verify native completion guarantees cleanup first; stop/report upstream gap rather than application workaround. Preserve assertions and five-second deadlines, WIP. No publication.",
   "id": "zaq-emb.31.13",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[#768] Confirm native cancellation before runtime teardown",
   "type": "bug",
-  "updated_at": "2026-10-10T10:07:30Z"
+  "updated_at": "2026-10-10T12:44:55Z"
 }
