@@ -3,13 +3,13 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-10T11:39:14Z",
-  "description": "",
+  "description": "Coordinate seven supplied-file coverage plans, merge overlapping test ownership, delegate test-only implementation, run mix q and targeted --cover only. Action reuse: not applicable — no executable operation changes. Existing E2E scope unchanged. Seven planners dispatched; implementation awaits complete ownership review.",
   "id": "zaq-p8t.8",
   "labels": [],
   "parent": "zaq-p8t",
   "priority": 2,
-  "status": "open",
-  "title": "Cover supplied device sign-in missed lines",
+  "status": "in_progress",
+  "title": "[zaq-p8t.8] Cover supplied device sign-in missed lines",
   "type": "task",
-  "updated_at": "2026-10-10T11:39:14Z"
+  "updated_at": "2026-10-10T11:39:15Z"
 }
