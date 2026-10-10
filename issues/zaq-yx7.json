@@ -10,11 +10,15 @@
     {
       "text": "Defined agreed implementation-target settings and optional status/2 contract in docs/services/web-bridge.md, linked from docs/guides/web-widget-integration.md. Updated external issues: #10 comment 6081733350, #12 comment 6081733327, #16 comment 6081743443; all linked to this OpenChamber session. Local Markdown path/anchor checks and git diff --check passed. Scope is documentation only; no executable adapter/ZAQ UI changes. Final mix precommit blocked: ExDNA.Credo Task.Supervised.stream(5000) internal timeout checking 1545 source files. No final approval requested; full implementation and validation remain outstanding.",
       "timestamp": "2026-10-09T13:24:10Z"
+    },
+    {
+      "text": "Candidate host integration zaq-3px and scoped acceptance zaq-lbk completed. GO for adapter #20 -\u003e #19 -\u003e #22 at 4bd6929bb599ced0bc4a9c0536588fb8b7a002b9 in tested single-node/direct-TLS host; no adapter code edits or merges. Latest mix q and isolated suite passed (148 tests, 9 properties); existing 3-browser regression suite 201 passes; manual embedded authentication/reply/renew/reconnect/explicit durable restoration/backend disconnect passed. User explicitly deferred feature finalization: approval zaq-xfl and consolidated E2E zaq-vrq remain open, review/coverage/final precommit not completed. Current host dependency/config/router/endpoint/docs/tests edits are uncommitted in refactor/webbridge; previous feature commit remains published at PR836. Main uptake must wait for external stack merge + green CI, then change mix.exs ref to branch main, update mix.lock, rerun real-host checks; do not infer permission to merge upstream. Evaluation server running in shell sh_126b520cc0016by7WpbWhuVw9M at HTTP4002/HTTPS4003, E2E-only partition _widget_candidate_20261010; evaluation key/cert/CA in approved temp widget-candidate-tls. Disposable ignored manual probe tmp/widget-host-probe.cjs and screenshots tmp/widget-candidate-{form,ready,channels,embedded}.png; no keys captured in evidence.",
+      "timestamp": "2026-10-10T17:56:22Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-yx7] Define widget connector configuration and readiness contract",
   "type": "task",
-  "updated_at": "2026-10-09T13:24:10Z"
+  "updated_at": "2026-10-10T17:56:22Z"
 }
