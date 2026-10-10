@@ -9,9 +9,15 @@
   "id": "zaq-emb.31.14",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Engine admission timestamp/migration, confidential admit_execution operation, shared history policy with trusted denial, never-admitted denial closure and admitted replay immunity implemented. Initial four regressions failed as expected; focused execution history/private concurrency/migration: 42 tests + 1 property pass. mix q passes after local readability fixes. No commit/publication. Broader admission/lifecycle property scenarios remain P7.",
+      "timestamp": "2026-10-10T10:16:54Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] P1 Engine admission evidence",
   "type": "task",
-  "updated_at": "2026-10-10T10:07:29Z"
+  "updated_at": "2026-10-10T10:16:54Z"
 }
