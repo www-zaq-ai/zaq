@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-p8t.9"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "zaq-p8t",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Deduplicate device sign-in observation timers",
   "type": "task",
-  "updated_at": "2026-10-10T13:18:30Z"
+  "updated_at": "2026-10-10T13:23:22Z"
 }
