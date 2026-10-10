@@ -23,11 +23,15 @@
     {
       "text": "Approval .32 recorded/closed after Julien's explicit dev-tested confirmation2026-10-10. Reuse existing HistoryStrategyFullFlowTest real Mattermost/email ingress, native agent/tool, receipt/delivery observations and SQLSandbox; extend with real Playwright browser via ephemeral Bandit Endpoint (existing PeopleBrowserTest pattern), normal CSRF BO login and private stdin/stdout checkpoints. Local-only test orchestration, no new business Action or production test hook. External LLM/transport only mocked. No E2E bootstrap/reset or reuse of user's dev/demo port. Preserve staged WIP, five-second assertions and deferred upstream-timeout/cancellation failures; timeout stays below threshold. .31 stays open for intermittent delivery investigation/review and later acceptance.",
       "timestamp": "2026-10-10T17:14:05Z"
+    },
+    {
+      "text": "Consolidated approved B E2E implemented using real browser Endpoint/CSRF BO login and real ingress/native agent/tools/persistence/delivery, external-only LLM/provider/SMTP doubles.21browser cases across ChromiumFirefoxWebKit each390/1280px: SharedDirectReplicated persisted measurements/traces/reload/staffdenial; concurrent Person ownership/recipient-only isolation; accepted queued steering completes/delivers after revocation with fresh input failed unadmitted and exact runtime retirement; immutable rejected receipt gets one linked bounded recovery, both answers persist after access loss/retirement. Existing complementary native busy-lease/manual-survival/retained-pairs/delayedproviderfailure assertions retained. Combined browser+native matrix83tests0failures seed0/318.7s; current mix q/diffcheck pass. Prior18browser matrix133.2s overlaps. Separate five-file repeat75tests2properties seed0/81.3s passes but DOES NOT resolve earlier intermittent delivery failure. Initial incomplete run exposed ordinary mobile sidebar interception and additive include filter; runner closes real sidebar through normal button, no forced clicks/DOM edits/assertion weakening. No DBreset/demo restart/devcredentials/newproductionhooks or new business Action. docs/e2e-testing.md documents commands/scope. .31/.31.10 remain open for investigation/review/coverage/finalgate; timeout deferred, upstream report NOT filed403. No commit/push/merge.",
+      "timestamp": "2026-10-10T17:40:40Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.13.2] PR B live-execution and completion E2E",
   "type": "task",
-  "updated_at": "2026-10-10T17:14:05Z"
+  "updated_at": "2026-10-10T17:40:40Z"
 }
