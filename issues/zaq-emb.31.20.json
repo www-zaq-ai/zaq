@@ -18,11 +18,15 @@
     {
       "text": "Busy canonical Executor lease/root-closure scenario added using real configured runtime and external-only barriers. Gate succeeds while root busy; exact lease waiter/pins observed; revoke before completion; child reaches real next model, both private roots/public answers persist; runtime retires afterward. Initial test drafts fixed wrong channel-vs-thread scope, explicit release of second external barrier, and global singleton-manager assumption; final scope is connector/transcript/Person/agent bound, deadlines unchanged. Final core matrix282tests/7properties passes137.4s; current mix q/diff-check pass. Native ask-specific busy-refusal race is not independently reproduced by this lease-waiter test. Local implementation/regressions ready for human behavior gate; .32/.13.2, review/coverage/precommit still pending. No final acceptance or publication.",
       "timestamp": "2026-10-10T13:00:15Z"
+    },
+    {
+      "text": "Live manual behavior review blocked and preserved in .31.21/docs/operations/admission-live-demo-blocker.md. Accepted pending original -\u003e Engine revoke -\u003e new input failed unadmitted -\u003e release model -\u003e original still pending, native parent awaiting_llm / worker idle, one pin and lease retained. Cause unknown, long held external HTTP timing distinct from short regressions. User did not approve behavior; no consolidated E2E or final acceptance. Current mix q/diff-check still pass after manual fixture addition.",
+      "timestamp": "2026-10-10T13:22:30Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] P7 Integrated admission acceptance",
   "type": "task",
-  "updated_at": "2026-10-10T13:22:28Z"
+  "updated_at": "2026-10-10T13:22:30Z"
 }
