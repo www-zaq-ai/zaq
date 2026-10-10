@@ -7,9 +7,15 @@
   "id": "zaq-p8t.6",
   "labels": [],
   "parent": "zaq-p8t",
+  "comments": [
+    {
+      "text": "Implemented owner-domain boundary refactor on zaq-p8t/device-code-sign-in for linked PR #841. Binding accepts a typed server-derived descriptor and only coordinates Authorization, Credential and Mutations; no schema queries/reflection or duplicated lifecycle rules. Accounts owns active literal lookup; PeopleCredentials.Authorization centralizes management permission and delegates session checks; Credential owns allowlisted candidate projection/restoration and personal eligibility; Mutations owns transaction-scoped locking/configuration binding; OAuth owns token projection/HTTP transaction guard. OAuthAttempts and DeviceAttempts own attempt locks/expiry/single-use checks. Preserved original start-time error semantics after tests caught premature session revalidation. Canonical grants, lock order, interruption/cancellation and encrypted staging unchanged. Final focused suite seed191521: 500 tests/24 properties, zero failures; final browser seed353018: both modals, Chromium/Firefox/WebKit,390/1280px all pass; mix q passes17599mods/funs. Latest full precommit failed17doctests/141properties/8862tests with3failures in unchanged FinchPoolContentionTest,DiskDocumentFlowIntegrationTest,LLMPerformanceFailureTest; all3 pass isolated via mix test --failed seed962479. Full gate remains red, not waived; .5 stays blocked by zaq-mcw. Self-review complete. Numerical coverage phase awaits PR review approval; no claim of numerical coverage. Refactor remains uncommitted; no push/merge performed in this work.",
+      "timestamp": "2026-10-10T07:02:07Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Narrow OAuth binding to owner-domain coordination",
   "type": "task",
-  "updated_at": "2026-10-10T06:20:50Z"
+  "updated_at": "2026-10-10T07:02:07Z"
 }
