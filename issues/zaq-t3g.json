@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T12:44:23Z",
+  "description": "Separate from #768 membership retirement. Earlier cancellation investigation (zaq-emb.31.13) found remote RPC execution surviving caller death and local single-node work owned by a Jido.Exec timeout worker. No remote cancellation guarantee is established. Preserve and formalize a real multi-node reproducer before designing a fix; inspect NodeRouter RPC ownership and Action worker lifecycle rather than introducing channel-specific coordination. Scope is deferred evidence/ownership investigation, not implementation under the admission-time plan. No claim that graceful runtime retirement fixes generic RPC cancellation.",
+  "id": "zaq-t3g",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[follow-up] Remote Action execution can outlive its cancelled RPC caller",
+  "type": "bug",
+  "updated_at": "2026-10-10T12:44:23Z"
+}
