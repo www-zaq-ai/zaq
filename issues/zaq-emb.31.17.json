@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.31.16"
+  ],
   "blocks": [],
   "created": "2026-10-10T10:07:20Z",
   "description": "Specific verified history-access loss stops new reads but accepted execution uses last bounded authorized projection in existing lease/session. Preserve tools/cursors, persistence, waiter progression. Other errors fail truthfully. Approved plan: /Users/julien/.opencode/plan/768-admission-time-authorization.md. Reuse Engine Conversations/ExecutionLifecycle/TranscriptHistory and Agent HistorySync/HistoryLifecycle/ServerManager; local-only lifecycle mechanics, no new business Action. Preserve WIP and five-second deadlines. No dependency changes or publication.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] P4 Authorized history refresh while draining",
   "type": "task",
-  "updated_at": "2026-10-10T10:07:20Z"
+  "updated_at": "2026-10-10T10:07:26Z"
 }
