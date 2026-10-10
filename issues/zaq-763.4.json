@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T16:00:45Z",
+  "description": "Own device_attempts_test.exs; remote-node case only if supported existing infrastructure. Full plan supplied verbatim. Tests only; no operation changes; no dependencies.",
+  "id": "zaq-763.4",
+  "labels": [],
+  "parent": "zaq-763",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-763] Implement device attempt coverage plan",
+  "type": "task",
+  "updated_at": "2026-10-10T16:00:45Z"
+}
