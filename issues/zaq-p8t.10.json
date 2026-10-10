@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-p8t.9"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-p8t.11"
+  ],
   "created": "2026-10-10T13:18:17Z",
   "description": "PR #841 finding 2. Shared local-only BO/People polling helper tracks one attempt, timer ref and generation. Extend existing LiveView observation; no Actions or domain logic. Tests first repeated reopen, switching attempts, stale messages and terminal shutdown; deterministic Process timers tested with refs and explicit messages. Preserve confidential NodeRouter operations. Depends on initialization fix. Isolated tests and mix q.",
   "id": "zaq-p8t.10",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Deduplicate device sign-in observation timers",
   "type": "task",
-  "updated_at": "2026-10-10T13:18:26Z"
+  "updated_at": "2026-10-10T13:18:30Z"
 }

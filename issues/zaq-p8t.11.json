@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-p8t.10"
+  ],
   "blocks": [],
   "created": "2026-10-10T13:18:18Z",
   "description": "PR #841 finding 3. Explicit not_found clears secret instructions, stops timer and exposes restart in BO and People; transient unavailable retries, permission/session errors preserved. Tests first reconcile/delete before refresh, restart and retry. Reuse shared DeviceSignIn and domain status; local-only presentation, no Action. Depends on timer fix; update owner docs and Storybook, run affected suites and existing browser journeys. Changed UX needs human approval before expanded E2E.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Stop device observation when attempts disappear",
   "type": "task",
-  "updated_at": "2026-10-10T13:18:18Z"
+  "updated_at": "2026-10-10T13:18:30Z"
 }
