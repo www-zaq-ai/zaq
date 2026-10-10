@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [
     "zaq-emb.32"
   ],
@@ -22,8 +22,8 @@
     }
   ],
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "[zaq-emb.13.2] PR B live-execution and completion E2E",
   "type": "task",
-  "updated_at": "2026-10-10T13:00:17Z"
+  "updated_at": "2026-10-10T17:11:26Z"
 }
