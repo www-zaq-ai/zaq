@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "zaq-emb.31.15"
+  ],
   "blocks": [],
   "created": "2026-10-10T10:07:18Z",
   "description": "Use recorded admission for queue/followup, preserve native acceptance and immutable receipt rules. Pin exact runtime before lookup/submission; same-incarnation bounded FIFO recovery survives membership loss. Approved plan: /Users/julien/.opencode/plan/768-admission-time-authorization.md. Reuse Engine Conversations/ExecutionLifecycle/TranscriptHistory and Agent HistorySync/HistoryLifecycle/ServerManager; local-only lifecycle mechanics, no new business Action. Preserve WIP and five-second deadlines. No dependency changes or publication.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] P3 Admitted steering and live handoff",
   "type": "task",
-  "updated_at": "2026-10-10T10:07:18Z"
+  "updated_at": "2026-10-10T10:07:25Z"
 }

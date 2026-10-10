@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.31.14"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.31.16"
+  ],
   "created": "2026-10-10T10:07:17Z",
   "description": "Carry Engine-issued accepted context through API/Pipeline/Executor once; standalone canonical Executor enters same gate; preserve credentials, explicit principals, attachments. Test revoke after gate before runtime creation. Approved plan: /Users/julien/.opencode/plan/768-admission-time-authorization.md. Reuse Engine Conversations/ExecutionLifecycle/TranscriptHistory and Agent HistorySync/HistoryLifecycle/ServerManager; local-only lifecycle mechanics, no new business Action. Preserve WIP and five-second deadlines. No dependency changes or publication.",
   "id": "zaq-emb.31.15",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[#768] P2 Carry admission through execution",
   "type": "task",
-  "updated_at": "2026-10-10T10:07:24Z"
+  "updated_at": "2026-10-10T10:07:25Z"
 }
