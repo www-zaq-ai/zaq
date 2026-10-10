@@ -1,9 +1,26 @@
+defmodule Zaq.Engine.PeopleAuthGatewayTest.Clock do
+  def reset, do: Process.put({__MODULE__, :calls}, 0)
+
+  def utc_now(:second) do
+    case Process.get({__MODULE__, :calls}) do
+      0 ->
+        Process.put({__MODULE__, :calls}, 1)
+        ~U[2026-09-14 12:00:00Z]
+
+      1 ->
+        Process.put({__MODULE__, :calls}, 2)
+        raise RuntimeError, "private status clock failure"
+    end
+  end
+end
+
 defmodule Zaq.Engine.PeopleAuthGatewayTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions, PersonLoginChallenge}
   alias Zaq.Channels.{ChannelConfig, PeopleAuthDeliveryMock}
   alias Zaq.Engine.{Events, PeopleAuthGateway}
+  alias Zaq.Engine.PeopleAuthGatewayTest.Clock
   alias Zaq.TestSupport.{PeopleAuthClock, PeopleAuthDelivery}
   import Mox
 
@@ -188,6 +205,39 @@ defmodule Zaq.Engine.PeopleAuthGatewayTest do
     refute log =~ person.email
 
     assert Repo.one!(from c in PersonLoginChallenge, where: c.person_id == ^person.id).invalidated_at
+  end
+
+  test "status clock exception after successful delivery is safely reported and invalidates challenge" do
+    PeopleAuthDelivery.setup()
+
+    {:ok, person} =
+      People.create_person(%{full_name: "Status clock", email: "status-clock@example.test"})
+
+    {:ok, _} = PeoplePermissions.grant(:everyone, :access_profile)
+    Clock.reset()
+    parent = self()
+
+    expect(PeopleAuthDeliveryMock, :send_reply, fn outgoing, _ ->
+      [_, code] = Regex.run(~r/\*\*([0-9]{4}-[0-9]{4})\*\*/, outgoing.body)
+      send(parent, {:delivered_code, code})
+      :ok
+    end)
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        assert {:error, :delivery_failed} =
+                 PeopleAuthGateway.request_challenge(person.email, {127, 0, 2, 26}, clock: Clock)
+      end)
+
+    assert_received {:delivered_code, code}
+    assert log =~ "phase=execution"
+    assert log =~ "error_type=RuntimeError"
+    refute log =~ "private status clock failure"
+    refute log =~ code
+
+    challenge = Repo.one!(from c in PersonLoginChallenge, where: c.person_id == ^person.id)
+    assert challenge.invalidated_at
+    refute challenge.consumed_at
   end
 
   test "resolved canonical target crosses the real action and Engine boundaries" do

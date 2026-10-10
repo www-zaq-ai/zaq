@@ -1,7 +1,85 @@
 defmodule Zaq.Engine.Connect.CredentialTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Engine.Connect.Credential
+
+  @no_auth_error "none requires disabled, secret-free configuration"
+
+  defp valid_none_attrs(overrides \\ %{}) do
+    %{
+      name: "No-auth credential",
+      provider: "example",
+      auth_kind: "none"
+    }
+    |> Map.merge(overrides)
+  end
+
+  test "accepts none auth with disabled, secret-free configuration" do
+    changeset = Credential.changeset(%Credential{}, valid_none_attrs())
+
+    assert changeset.valid?
+    assert errors_on(changeset) == %{}
+  end
+
+  test "rejects none auth when personal policy is enabled" do
+    for policy <- [:optional, :required] do
+      changeset =
+        Credential.changeset(
+          %Credential{},
+          valid_none_attrs(%{personal_credential_policy: policy})
+        )
+
+      refute changeset.valid?
+      assert errors_on(changeset).auth_kind == [@no_auth_error]
+    end
+  end
+
+  test "rejects none auth with grant secret binding" do
+    changeset =
+      Credential.changeset(%Credential{}, valid_none_attrs(%{secret_binding: :grant}))
+
+    refute changeset.valid?
+    assert errors_on(changeset).auth_kind == [@no_auth_error]
+  end
+
+  test "rejects none auth when any configuration secret is supplied" do
+    for field <- [:api_key, :client_id, :client_secret, :private_key] do
+      changeset =
+        Credential.changeset(%Credential{}, valid_none_attrs(%{field => "secret-value"}))
+
+      refute changeset.valid?
+      assert errors_on(changeset).auth_kind == [@no_auth_error]
+    end
+  end
+
+  property "none auth rejects every non-default contract combination" do
+    check all(
+            policy <- member_of([:disabled, :optional, :required]),
+            binding <- member_of([:configuration, :grant]),
+            supplied_secrets <-
+              list_of(member_of([:api_key, :client_id, :client_secret, :private_key]),
+                max_length: 4
+              ),
+            max_runs: 60
+          ) do
+      supplied_secrets = Enum.uniq(supplied_secrets)
+
+      attrs =
+        %{personal_credential_policy: policy, secret_binding: binding}
+        |> Map.merge(Map.new(supplied_secrets, &{&1, "secret-value"}))
+
+      changeset = Credential.changeset(%Credential{}, valid_none_attrs(attrs))
+
+      if policy != :disabled or binding != :configuration or supplied_secrets != [] do
+        refute changeset.valid?
+        assert errors_on(changeset).auth_kind == [@no_auth_error]
+      else
+        assert changeset.valid?
+        assert errors_on(changeset) == %{}
+      end
+    end
+  end
 
   defp valid_oauth_attrs(metadata) do
     %{
