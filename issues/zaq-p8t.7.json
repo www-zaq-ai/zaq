@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T09:47:21Z",
+  "description": "Julien approved the scoped post-binding cleanup: remove outside_transaction wrappers in OAuthAttempts/DeviceAttempts/PeopleCredentials, OAuthAttempts.token_material and replace forwarding, and PersonCredentials.eligible wrapper. Share authenticated transaction/rollback handling in PeopleCredentials through one private helper receiving full Accounts auth context; preserve Person-only domain calls, session-derived device owner, authorization errors, AI allowlist, lock order and provider IO outside transactions. Reuse evidence: existing OAuth.ensure_outside_transaction/token_material, Credential.personal_grants_enabled?, Binding.replace and Authorization.authenticate remain owners; no new domain operation or Action. Local-only transaction callback is private credential-gateway orchestration, not exposed as an agent tool. Tests first: existing gateway permission/identity/allowlist/error regressions plus cross-operation invalid bearer and caller transaction rejection. Then full Connect/People/UI affected suites and mix q; .5 final gate remains blocked by zaq-mcw, no unrelated fixes or Git mutations.",
+  "id": "zaq-p8t.7",
+  "labels": [],
+  "parent": "zaq-p8t",
+  "priority": 2,
+  "status": "open",
+  "title": "Remove forwarding helpers and unify credential gateway transactions",
+  "type": "task",
+  "updated_at": "2026-10-10T09:47:21Z"
+}
