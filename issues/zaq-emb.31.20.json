@@ -13,11 +13,15 @@
     {
       "text": "Latest core matrix passes281tests/7properties (150.8s); wider preservation passes374tests/15properties/6doctests (76.9s), overlapping not additive totals. Covers Direct/Shared/Replicated/email, native tools/media/receipts/recovery/inspection, standalone post-gate revocation, real slow HTTP retirement, unchanged credential lifecycle, workflows pool and nested agents. Self-review removed implicit downstream queue admission; native callback unit fixtures now use valid GenServer.from tuple and complete history state (no production test affordance). Explicit independent cancellation reproducer still fails. Need remaining busy-admission native closure scenario, final self-review/docs consistency, human behavior/E2E gate, review/coverage and final mix precommit. No commit/push/merge.",
       "timestamp": "2026-10-10T12:45:01Z"
+    },
+    {
+      "text": "Busy canonical Executor lease/root-closure scenario added using real configured runtime and external-only barriers. Gate succeeds while root busy; exact lease waiter/pins observed; revoke before completion; child reaches real next model, both private roots/public answers persist; runtime retires afterward. Initial test drafts fixed wrong channel-vs-thread scope, explicit release of second external barrier, and global singleton-manager assumption; final scope is connector/transcript/Person/agent bound, deadlines unchanged. Final core matrix282tests/7properties passes137.4s; current mix q/diff-check pass. Native ask-specific busy-refusal race is not independently reproduced by this lease-waiter test. Local implementation/regressions ready for human behavior gate; .32/.13.2, review/coverage/precommit still pending. No final acceptance or publication.",
+      "timestamp": "2026-10-10T13:00:15Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] P7 Integrated admission acceptance",
   "type": "task",
-  "updated_at": "2026-10-10T12:45:01Z"
+  "updated_at": "2026-10-10T13:00:15Z"
 }
