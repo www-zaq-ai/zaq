@@ -11,9 +11,15 @@
   "id": "zaq-emb.31.19",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "P6 contract tests and owner docs updated; superseded .31.13 closed explicitly as superseded (not fixed), separate open bugs zaq-4sl and zaq-t3g preserve general cancellation scope. Opt-in test/repro/native_http_tool_cancellation.exs retains native cancel/await and original five-second borrower-death failure; explicit run still fails as expected. Minimal external fixture no longer creates unrelated credentials; no production path is mocked. Core matrix281tests/7properties and preservation374tests/15properties/6doctests pass. Remaining final gates tracked in .31.20/.31.10; no publication.",
+      "timestamp": "2026-10-10T12:44:59Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "[#768] P6 Contract tests docs and deferred evidence",
   "type": "task",
-  "updated_at": "2026-10-10T10:07:28Z"
+  "updated_at": "2026-10-10T12:44:59Z"
 }
