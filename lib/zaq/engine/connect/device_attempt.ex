@@ -23,7 +23,8 @@ defmodule Zaq.Engine.Connect.DeviceAttempt do
     field :user_code, Zaq.Types.EncryptedString, redact: true
     field :interval, :integer
     field :expires_at, :utc_datetime_usec
-    field :status, :string, default: "pending"
+    field :initialization_expires_at, :utc_datetime_usec
+    field :status, :string, default: "initializing"
     field :result_credential_id, :integer
     timestamps(type: :utc_datetime_usec)
   end

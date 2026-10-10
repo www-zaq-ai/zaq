@@ -361,6 +361,11 @@ verification URL with an adjacent **Open in new tab** button (`noopener noreferr
 user code, deadline, pending status and explicit cancellation/restart guidance.
 Browser popup authorization remains available. Closing the modal does not cancel
 sign-in; reopening observes the existing worker rather than starting another.
+During initialization the modals show “Starting sign-in” without provider
+instructions and allow cancellation. Reopening keeps a single observation timer.
+If expiry cleanup removes the attempt before the next status read, instructions
+are cleared and “This sign-in is no longer available. Start again.” enables a new
+flow; transient connection failures continue observation instead.
 
 New BO AI device setup reuses the existing setup-pending required-policy definition
 path. The desired policy is encrypted in Connect's immutable admin candidate and

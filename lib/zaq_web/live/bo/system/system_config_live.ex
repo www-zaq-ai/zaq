@@ -40,6 +40,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPRows
   alias ZaqWeb.Live.BO.System.SystemConfig.SkillsTab
   alias ZaqWeb.Live.BO.System.SystemConfig.TelemetryEvents
+  alias ZaqWeb.Live.DeviceSignInPolling
   alias ZaqWeb.StudioRuntime
 
   def mount(_params, session, socket) do
@@ -998,6 +999,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     {:noreply,
      socket
      |> assign(ai_device_attempt: nil, ai_device_policy: nil)
+     |> schedule_ai_device_status(nil)
      |> AICredentialEvents.open_new_modal(&load_ai_credential_form/1)}
   end
 
@@ -1010,14 +1012,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         _ -> nil
       end
 
-    schedule_ai_device_status(attempt)
-
     {:noreply,
      AICredentialEvents.open_edit_modal(
        assign(socket, ai_device_attempt: attempt, ai_device_policy: nil),
        credential,
        &engine_change_ai_provider_credential/2
-     )}
+     )
+     |> schedule_ai_device_status(attempt)}
   end
 
   def handle_event("connect_ai_credential_oauth", %{"id" => id}, socket) do
@@ -1054,8 +1055,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     case socket.assigns.ai_device_attempt do
       %{attempt_id: id} ->
         case dispatch_device(%{op: :cancel, attempt_id: id}) do
-          {:ok, attempt} -> {:noreply, assign(socket, ai_device_attempt: attempt)}
-          _ -> {:noreply, put_flash(socket, :error, "Unable to cancel device sign-in.")}
+          {:ok, attempt} ->
+            {:noreply,
+             socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)}
+
+          _ ->
+            {:noreply, put_flash(socket, :error, "Unable to cancel device sign-in.")}
         end
 
       _ ->
@@ -1243,15 +1248,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  def handle_info({:ai_device_status, id}, socket) do
-    case socket.assigns.ai_device_attempt do
-      %{attempt_id: ^id, status: "pending"} = previous ->
-        refresh_ai_device_status(socket, previous)
-
-      _ ->
-        {:noreply, socket}
+  def handle_info({:ai_device_status, id, generation}, socket) do
+    case DeviceSignInPolling.consume(socket, id, generation) do
+      {:ok, socket} -> refresh_ai_device_status(socket, socket.assigns.ai_device_attempt)
+      :stale -> {:noreply, socket}
     end
   end
+
+  def handle_info({:ai_device_status, _id}, socket), do: {:noreply, socket}
 
   def handle_info(:studio_runtime_started, socket) do
     {:noreply, assign(socket, :studio_running, StudioRuntime.running?())}
@@ -1262,17 +1266,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp refresh_ai_device_status(socket, previous) do
     case dispatch_device(%{op: :status, attempt_id: previous.attempt_id}) do
       {:ok, attempt} ->
-        schedule_ai_device_status(attempt)
-        socket = assign(socket, ai_device_attempt: attempt)
+        socket =
+          socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)
 
         socket =
           if attempt.status == "active", do: refresh_ai_device_success(socket), else: socket
 
         {:noreply, socket}
 
+      {:error, :not_found} ->
+        attempt = %{attempt_id: previous.attempt_id, status: "unavailable"}
+
+        {:noreply,
+         socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)}
+
       _ ->
-        schedule_ai_device_status(previous)
-        {:noreply, socket}
+        {:noreply, schedule_ai_device_status(socket, previous)}
     end
   end
 
@@ -1887,28 +1896,26 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp start_ai_device(
-         %{assigns: %{ai_device_attempt: %{status: "pending"}}} = socket,
+         %{assigns: %{ai_device_attempt: %{status: status}}} = socket,
          _id,
          _attrs
-       ) do
+       )
+       when status in ["initializing", "pending"] do
     socket
   end
 
   defp start_ai_device(socket, credential_id, attrs) do
     case dispatch_device(%{op: :start, credential_id: credential_id, attrs: attrs}) do
       {:ok, attempt} ->
-        schedule_ai_device_status(attempt)
-        assign(socket, ai_device_attempt: attempt)
+        socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)
 
       _ ->
         put_flash(socket, :error, "Unable to start device sign-in. Please try again.")
     end
   end
 
-  defp schedule_ai_device_status(%{status: "pending", attempt_id: id}),
-    do: Process.send_after(self(), {:ai_device_status, id}, 1_000)
-
-  defp schedule_ai_device_status(_), do: :ok
+  defp schedule_ai_device_status(socket, attempt),
+    do: DeviceSignInPolling.schedule(socket, attempt, :ai_device_status)
 
   defp dispatch_device(request) do
     Events.build_and_dispatch_invoke_event(request, :connect_device,

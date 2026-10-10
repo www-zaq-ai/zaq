@@ -12,7 +12,7 @@ defmodule Zaq.Engine.Connect.DeviceWorker do
 
   @impl true
   def init({id, opts}) do
-    case DeviceAttempts.attach_worker(id, self()) do
+    case DeviceAttempts.attach_worker(id, self(), opts) do
       {:ok, attempt} ->
         schedule(attempt, opts)
         {:ok, %{id: id, opts: opts}}

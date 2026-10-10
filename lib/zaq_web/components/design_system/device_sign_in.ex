@@ -3,6 +3,10 @@ defmodule ZaqWeb.Components.DesignSystem.DeviceSignIn do
   use Phoenix.Component
   alias ZaqWeb.Components.DesignSystem.Button
 
+  @doc "Whether sign-in is starting or awaiting approval, so modal actions must not start it again."
+  def in_progress?(%{status: status}), do: status in ["initializing", "pending"]
+  def in_progress?(_), do: false
+
   attr :id, :string, required: true
   attr :attempt, :map, required: true
 
@@ -57,6 +61,9 @@ defmodule ZaqWeb.Components.DesignSystem.DeviceSignIn do
 
   defp status_message("active"), do: "Device sign-in completed. Your credential is connected."
 
+  defp status_message("initializing"),
+    do: "Starting sign-in. Please wait; you can cancel this sign-in."
+
   defp status_message("interrupted"),
     do: "Sign-in was interrupted. Start a new device sign-in; the previous flow cannot resume."
 
@@ -66,5 +73,6 @@ defmodule ZaqWeb.Components.DesignSystem.DeviceSignIn do
     do: "Authorization was denied. Start a new device sign-in to try again."
 
   defp status_message("cancelled"), do: "Device sign-in cancelled."
+  defp status_message("unavailable"), do: "This sign-in is no longer available. Start again."
   defp status_message(_), do: "Device sign-in failed. Start a new device sign-in to try again."
 end

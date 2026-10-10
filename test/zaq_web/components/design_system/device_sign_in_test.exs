@@ -35,6 +35,23 @@ defmodule ZaqWeb.Components.DesignSystem.DeviceSignInTest do
     end
   end
 
+  test "initializing state exposes no instructions and remains in progress" do
+    attempt = %{
+      status: "initializing",
+      user_code: "PRIVATE_CODE",
+      verification_uri: "https://private.example.test"
+    }
+
+    html = render_component(&DeviceSignIn.device_sign_in/1, id: "device", attempt: attempt)
+    assert html =~ "Starting sign-in"
+    refute html =~ "PRIVATE_CODE"
+    refute html =~ "private.example.test"
+    assert DeviceSignIn.in_progress?(attempt)
+    assert DeviceSignIn.in_progress?(%{status: "pending"})
+    refute DeviceSignIn.in_progress?(nil)
+    refute DeviceSignIn.in_progress?(%{status: "cancelled"})
+  end
+
   test "active state confirms completion without pending-flow content" do
     html =
       render_component(&DeviceSignIn.device_sign_in/1,
@@ -48,5 +65,18 @@ defmodule ZaqWeb.Components.DesignSystem.DeviceSignInTest do
     refute html =~ "Open in new tab"
     refute html =~ "target="
     refute html =~ "Start a new device sign-in"
+  end
+
+  test "unavailable observation has restart guidance without old provider instructions" do
+    html =
+      render_component(&DeviceSignIn.device_sign_in/1,
+        id: "device",
+        attempt: %{status: "unavailable", user_code: "OLD_CODE"}
+      )
+
+    assert html =~ "This sign-in is no longer available. Start again."
+    refute html =~ "OLD_CODE"
+    refute html =~ "Open in new tab"
+    refute DeviceSignIn.in_progress?(%{status: "unavailable"})
   end
 end

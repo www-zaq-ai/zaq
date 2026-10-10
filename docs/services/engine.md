@@ -608,6 +608,13 @@ mutations; grant persistence and terminal success commit atomically. Cancellatio
 configuration/session invalidation prevents late completion. Terminal writes force
 all device/candidate/user-code ciphertext columns to SQL NULL.
 
+Initiation has a separate `initializing` state with a 30-second deadline. Status
+reads during provider IO preserve that state and expose no code or verification
+URL. Worker attachment atomically changes it to `pending`; cancellation and
+initialization expiry reject late instructions or attachment. Existing pending
+rows retain their original worker semantics. Expired initialization is included
+in the same bounded cleanup even after provider instructions have been stored.
+
 Workers are `restart: :temporary`: no Oban polling, recovery job or replacement worker
 resumes an interrupted attempt. The stored PID identifies the original process/node
 incarnation. Status checks report `interrupted` after confirmed worker death, but a
@@ -616,6 +623,13 @@ it. Browser disconnects do not cancel the worker. Reopening the modal observes t
 same owner/session's latest attempt; success remains visible after worker shutdown.
 Connect's existing maintenance worker performs bounded expired-device-row cleanup.
 Person merge/deletion cancels both kinds of attempts under the existing lock order.
+
+BO and People LiveViews share one generation-checked observation timer. Reopening
+the same attempt retains the timer; switching, cancellation and terminal status
+cancel it, and already queued stale ticks cannot reschedule. A missing attempt
+ends observation, clears displayed instructions and enables explicit restart.
+Transient transport unavailability remains retryable. The UI's `unavailable`
+presentation is not a persisted attempt state.
 
 Person operations through confidential `:people_auth` are
 `:start_self_credential_device`, `:self_credential_device_status`,

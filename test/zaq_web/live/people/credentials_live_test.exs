@@ -762,7 +762,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     assert render(view) =~ "ABCD-EFGH"
     assert Repo.get!(DeviceAttempt, attempt.id).status == "pending"
 
-    send(view.pid, {:device_status, attempt.id})
+    refresh_device_status(view, attempt.id)
     assert render(view) =~ "ABCD-EFGH"
     assert has_element?(view, "#people-device-sign-in", "Waiting for approval.")
   end
@@ -792,7 +792,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     end)
 
     assert {:ok, %{status: "active"}} = DeviceAttempts.poll(attempt.id, pid, [])
-    send(view.pid, {:device_status, attempt.id})
+    refresh_device_status(view, attempt.id)
 
     assert has_element?(
              view,
@@ -820,7 +820,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     assert {:ok, %{status: "cancelled"}} =
              DeviceAttempts.cancel(attempt.id, {"person", ctx.person.id, attempt.session_id})
 
-    send(view.pid, {:device_status, attempt.id})
+    refresh_device_status(view, attempt.id)
 
     assert has_element?(view, "#people-device-sign-in", "Device sign-in cancelled.")
 
@@ -847,15 +847,15 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     attempt = device_attempt(credential.connect_credential_id)
 
     {:ok, _} = System.set_config("people_access.session_lifetime_seconds", "broken")
-    send(view.pid, {:device_status, attempt.id})
+    refresh_device_status(view, attempt.id)
     assert render(view) =~ "ABCD-EFGH"
     assert Repo.get!(DeviceAttempt, attempt.id).status == "pending"
     {:ok, _} = System.set_config("people_access.session_lifetime_seconds", "604800")
-    send(view.pid, {:device_status, attempt.id})
+    refresh_device_status(view, attempt.id)
     assert render(view) =~ "ABCD-EFGH"
 
     {:ok, _} = PeoplePermissions.revoke(:everyone, :manage_credentials)
-    send(view.pid, {:device_status, attempt.id})
+    refresh_device_status(view, attempt.id)
     assert_error_flash(view, "You do not have permission to manage credentials.")
   end
 
@@ -867,11 +867,11 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     attempt = device_attempt(credential.connect_credential_id)
     {:ok, _} = PeopleAuth.revoke_session(ctx.token)
 
-    send(view.pid, {:device_status, attempt.id})
+    refresh_device_status(view, attempt.id)
     assert_redirect(view, "/people/login")
   end
 
-  test "device status denies an attempt that no longer exists", ctx do
+  test "missing device status clears instructions, stops observation and permits restart", ctx do
     {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
@@ -879,8 +879,23 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     attempt = device_attempt(credential.connect_credential_id)
     Repo.delete!(attempt)
 
-    send(view.pid, {:device_status, attempt.id})
-    assert_error_flash(view, "You do not have permission to manage credentials.")
+    refresh_device_status(view, attempt.id)
+
+    assert has_element?(
+             view,
+             "#people-device-sign-in",
+             "This sign-in is no longer available. Start again."
+           )
+
+    refute has_element?(view, "#people-device-sign-in-code")
+    assert :sys.get_state(view.pid).socket.private.device_sign_in_polling == nil
+    refute render(view) =~ "You do not have permission to manage credentials."
+
+    expect_device_code(view)
+    view |> element("#credential-device-#{credential.connect_credential_id}") |> render_click()
+    restarted = device_attempt(credential.connect_credential_id)
+    refute restarted.id == attempt.id
+    assert has_element?(view, "#people-device-sign-in-code", "ABCD-EFGH")
   end
 
   test "reopening a device credential after session revocation does not expose a stale attempt",
@@ -914,6 +929,11 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
         person_permissions: permissions
       }
     }
+  end
+
+  defp refresh_device_status(view, id) do
+    %{generation: generation} = :sys.get_state(view.pid).socket.private.device_sign_in_polling
+    send(view.pid, {:device_status, id, generation})
   end
 
   defp mount_credentials(ctx, permissions) do
