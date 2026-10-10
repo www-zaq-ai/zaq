@@ -3,13 +3,13 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-10T11:41:38Z",
-  "description": "Plan: Expand only test/zaq_web/live/people/credentials_live_test.exs with device start/cancel failures, status matching/active refresh, status session/permission/not-found/configuration failure and recovery, stale attempt lookup after session revocation, and dispatch guard investigation. Assert exact flashes/state/status and no secret leakage. Reuse existing local fixtures/helpers and device test cleanup conventions. Keep async:false; no E2E, sleeps, production edits, global mocks, or test hooks. Defer all Mix validation to coordinator isolated-test follow-up. Action reuse not applicable; no plan file. Mermaid: graph LR; start_cancel --\u003e status_refresh --\u003e status_failures --\u003e stale_lookup --\u003e dispatch_guards.",
+  "description": "Coverage: edit only test/zaq_web/live/people/credentials_live_test.exs; keep credentials_live_render_test.exs unchanged. Reuse ConnCase setup/helpers and DeviceCredentialsLiveTest Req.Test HTTP stub/worker cleanup pattern. Keep async:false; no E2E. (1) Start/cancel failures: duplicate connect while pending yields exact start failure, same attempt/no second row; revoke management and forge start; cancel with no attempt denies; revoked authenticated session cancellation yields exact cancellation error/no success. (2) Status: unrelated ID leaves attempt/code; matching ID refreshes pending; valid terminal active attempt plus Person grant refreshes row to Configured without grant secrets; non-active terminal status refreshes device display only. (3) Failures separately: revoked session redirects /people/login; revoked permission and removed owned attempt yield exact denied flash; invalid People-access config preserves pending and status refresh recovers after restore. (4) Current lookup: revoke session after mount, forge open modal; it opens without stale device code/material. (5) Investigate Events.build_and_dispatch_invoke_event/3 public-boundary failure; do not stop routers, add production hooks, or mutate global mocks. If no isolated production-relevant trigger exists, document rescue/catch guards as justified uncovered. Tests use observable messages, no sleeps/polling/private call order; worker cleanup and DB sandbox isolation. Action reuse not applicable, no operation/E2E. Validation deferred to coordinator; no Mix/test/format.",
   "id": "zaq-p8t.8.4",
   "labels": [],
   "parent": "zaq-p8t.8",
   "priority": 2,
   "status": "in_progress",
-  "title": "zaq-p8t child: CredentialsLive device coverage",
+  "title": "zaq-p8t.8.4 CredentialsLive device coverage",
   "type": "task",
-  "updated_at": "2026-10-10T11:41:39Z"
+  "updated_at": "2026-10-10T11:43:34Z"
 }
