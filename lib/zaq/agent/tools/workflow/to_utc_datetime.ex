@@ -15,37 +15,6 @@ defmodule Zaq.Agent.Tools.Workflow.ToUtcDateTime do
       %{datetime: "2026-07-15T12:00:00+02:00"}
   """
 
-  use Zaq.Engine.Workflows.Action,
-    name: "to_utc_datetime",
-    description: "Convert a delay or timezone-qualified datetime to a UTC ISO8601 datetime.",
-    schema: [
-      datetime: [
-        type: :string,
-        required: false,
-        doc:
-          "ISO8601 datetime. Include a timezone offset, or provide timezone=UTC for naive input."
-      ],
-      timezone: [
-        type: :string,
-        required: false,
-        doc:
-          "Timezone for naive datetime input. Only UTC/Etc/UTC is supported without extra deps."
-      ],
-      delay: [
-        type: :map,
-        required: false,
-        doc:
-          "Delay map with amount and unit, e.g. %{amount: 15, unit: \"minutes\"}. Supported units: second, minute, hour, day."
-      ]
-    ],
-    output_schema: [
-      datetime: [
-        type: :string,
-        required: true,
-        doc: "UTC ISO8601 datetime."
-      ]
-    ]
-
   @units %{
     "second" => 1,
     "seconds" => 1,
@@ -56,6 +25,53 @@ defmodule Zaq.Agent.Tools.Workflow.ToUtcDateTime do
     "day" => 86_400,
     "days" => 86_400
   }
+
+  @delay_schema Zoi.object(
+                  %{
+                    amount:
+                      Zoi.integer(description: "Positive number of delay units.")
+                      |> Zoi.gte(1),
+                    unit:
+                      Zoi.enum(Map.keys(@units),
+                        description:
+                          "Delay unit: second, seconds, minute, minutes, hour, hours, day, or days."
+                      )
+                  },
+                  coerce: true,
+                  unrecognized_keys: :preserve,
+                  description:
+                    "Delay map with amount and unit, e.g. %{amount: 15, unit: \"minutes\"}."
+                )
+
+  use Zaq.Engine.Workflows.Action,
+    name: "to_utc_datetime",
+    description: "Convert a delay or timezone-qualified datetime to a UTC ISO8601 datetime.",
+    schema:
+      Zoi.object(
+        %{
+          datetime:
+            Zoi.string(
+              description:
+                "ISO8601 datetime. Include a timezone offset, or provide timezone=UTC for naive input."
+            )
+            |> Zoi.optional(),
+          timezone:
+            Zoi.string(
+              description:
+                "Timezone for naive datetime input. Only UTC/Etc/UTC is supported without extra deps."
+            )
+            |> Zoi.optional(),
+          delay:
+            @delay_schema
+            |> Zoi.optional()
+        },
+        coerce: true,
+        unrecognized_keys: :preserve
+      ),
+    output_schema:
+      Zoi.object(%{
+        datetime: Zoi.string(description: "UTC ISO8601 datetime.")
+      })
 
   alias Zaq.MapUtils
 
