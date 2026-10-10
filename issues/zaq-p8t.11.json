@@ -4,14 +4,16 @@
     "zaq-p8t.10"
   ],
   "blocks": [],
+  "closed_at": "2026-10-10T13:47:17Z",
+  "close_reason": "Missing-attempt integration/component tests failed first, now pass; both surfaces erase instructions, stop generation timer and permit restart, while transient errors retry. Owner docs/Storybook updated. Broader541tests/25properties, final focused63tests/2properties,3browser tests(all3engines/mobile+desktop),mix q and diff whitespace pass. Full precommit17doctests/141properties/8894tests fails only existing LLMPerformanceFailureTest; isolated same-seed rerun passes. Finalization remains blocked by zaq-mcw and new UX confirmation before expanded E2E; no final approval requested. Uncommitted, no push.",
   "created": "2026-10-10T13:18:18Z",
   "description": "PR #841 finding 3. Explicit not_found clears secret instructions, stops timer and exposes restart in BO and People; transient unavailable retries, permission/session errors preserved. Tests first reconcile/delete before refresh, restart and retry. Reuse shared DeviceSignIn and domain status; local-only presentation, no Action. Depends on timer fix; update owner docs and Storybook, run affected suites and existing browser journeys. Changed UX needs human approval before expanded E2E.",
   "id": "zaq-p8t.11",
   "labels": [],
   "parent": "zaq-p8t",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Stop device observation when attempts disappear",
   "type": "task",
-  "updated_at": "2026-10-10T13:27:56Z"
+  "updated_at": "2026-10-10T13:47:17Z"
 }
