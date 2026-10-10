@@ -6,14 +6,16 @@
   "blocks": [
     "zaq-emb.31.19"
   ],
+  "closed_at": "2026-10-10T12:44:58Z",
+  "close_reason": "P5 validated: accepted pins/leases/reservations and persistence drain before asynchronous native idle checks/exact-PID shutdown; no forced membership timer; stale idle/retirement callbacks cannot kill replacements; regrant waits outside Manager. Real HTTP tool/model survive \u003e1500ms old forced deadline. Removed membership producer/broadcast/fences/generations/output suppression; inert old-job worker validated. Preservation374tests/15properties/6doctests passes; core281tests/7properties passes.",
   "created": "2026-10-10T10:07:21Z",
   "description": "Soft exact-PID retirement from trusted admission/read denial; accepted pins/leases drain without forced cancellation. Idle protection. Remove membership cancellation events/fences/generations; keep provider evidence and inert old Oban worker. Approved plan: /Users/julien/.opencode/plan/768-admission-time-authorization.md. Reuse Engine Conversations/ExecutionLifecycle/TranscriptHistory and Agent HistorySync/HistoryLifecycle/ServerManager; local-only lifecycle mechanics, no new business Action. Preserve WIP and five-second deadlines. No dependency changes or publication.",
   "id": "zaq-emb.31.18",
   "labels": [],
   "parent": "zaq-emb.31",
   "priority": 1,
-  "status": "open",
+  "status": "closed",
   "title": "[#768] P5 Graceful retirement and removal cleanup",
   "type": "task",
-  "updated_at": "2026-10-10T10:07:28Z"
+  "updated_at": "2026-10-10T12:44:58Z"
 }
