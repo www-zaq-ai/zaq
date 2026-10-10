@@ -7,7 +7,8 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   and canonical grant replacement commit together; cancellation wins if committed first.
   """
   import Ecto.Query
-  alias Zaq.Engine.Connect.{Credential, DeviceAttempt, DeviceWorker, Mutations}
+  alias Zaq.Accounts.People
+  alias Zaq.Engine.Connect.{Credential, DeviceAttempt, DeviceWorker, Mutations, OAuth}
   alias Zaq.Engine.Connect.OAuth.Binding
   alias Zaq.Engine.Connect.OAuth.Device.Registry
   alias Zaq.Repo
@@ -16,8 +17,8 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
 
   def prepare_person(person, session_id, credential_id, opts \\ []) do
     if Repo.in_transaction?() do
-      credential = Binding.lock_credential(credential_id)
-      ensure(Binding.active_person?(person.id) and Binding.eligible?(credential), :not_found)
+      credential = unwrap(Mutations.prepare_person_oauth_configuration(credential_id))
+      ensure(People.get_active_literal_person(person.id) != nil, :not_found)
       persist(credential, "person", person.id, session_id, nil, opts)
     else
       {:error, :transaction_required}
@@ -25,13 +26,20 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   end
 
   def start_global_configuration(ref, attrs, opts \\ []) do
-    with :ok <- outside_transaction(),
+    with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, prepared} <-
            Repo.transaction(fn ->
              credential = unwrap(Mutations.prepare_oauth_configuration(ref, attrs))
 
              unwrap(
-               persist(credential, "org", nil, nil, Binding.configuration_attrs(credential), opts)
+               persist(
+                 credential,
+                 "org",
+                 nil,
+                 nil,
+                 Credential.oauth_configuration_attrs(credential),
+                 opts
+               )
              )
            end) do
       authorize_prepared(prepared, opts)
@@ -42,7 +50,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
     attempt = Repo.get!(DeviceAttempt, attempt.id)
     opts = Keyword.put(opts, :device_http_client, http_client(opts))
 
-    with :ok <- outside_transaction(),
+    with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, credential} <- validate(attempt, opts),
          {:ok, behaviour} <- behaviour(credential),
          {:ok, status, body} <- request(behaviour.initiate_request(credential), opts),
@@ -66,7 +74,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   end
 
   def status(id, owner, opts \\ []) do
-    with :ok <- outside_transaction(),
+    with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, attempt} <- owned(id, owner),
          {:ok, current} <- validated_status(attempt, opts) do
       {:ok, public_status(current)}
@@ -74,7 +82,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   end
 
   def cancel(id, owner, opts \\ []) do
-    with :ok <- outside_transaction(),
+    with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, _} <- owned(id, owner),
          {:ok, attempt} <- terminal(id, "cancelled", opts) do
       {:ok, public_status(attempt)}
@@ -174,7 +182,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
 
   @doc "Executes one provider poll for the bound worker, outside database transactions."
   def poll(id, pid, opts) do
-    with :ok <- outside_transaction(),
+    with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, {attempt, credential}} <- prepare_poll(id, pid, opts),
          {:ok, behaviour} <- behaviour(credential),
          {:ok, material} <- Jason.decode(attempt.device_material),
@@ -220,7 +228,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
         owner_id: owner_id,
         session_id: session_id,
         provider: credential.provider,
-        config_fingerprint: Binding.fingerprint(credential.id),
+        config_fingerprint: Mutations.oauth_configuration_fingerprint(credential.id),
         candidate_config: encrypt(if(candidate, do: Jason.encode!(candidate)), opts),
         expires_at: DateTime.add(DateUtils.now(opts), 900)
       })
@@ -230,9 +238,8 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
 
   defp initialize(attempt, instructions, opts) do
     Repo.transaction(fn ->
-      Binding.validate_locked(attempt, attempt.provider, opts)
+      {current, _credential} = validate_locked(attempt, opts)
       ensure(valid_instructions?(instructions), :oauth_failed)
-      current = locked(attempt.id)
       ensure(current.status == "pending" and is_nil(current.worker_pid), :invalid_attempt)
 
       current
@@ -260,7 +267,18 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   defp valid_code?(code), do: is_binary(code) and byte_size(code) in 1..4096
 
   defp validate(attempt, opts),
-    do: Repo.transaction(fn -> Binding.validate_locked(attempt, attempt.provider, opts) end)
+    do:
+      Repo.transaction(fn ->
+        {_current, credential} = validate_locked(attempt, opts)
+        credential
+      end)
+
+  defp validate_locked(attempt, opts) do
+    credential = Binding.validate_locked(configuration_binding(attempt), opts)
+    current = locked(attempt.id)
+    ensure(DateTime.compare(current.expires_at, DateUtils.now(opts)) == :gt, :invalid_attempt)
+    {current, credential}
+  end
 
   defp prepare_poll(id, pid, opts) do
     with %DeviceAttempt{} = attempt <- Repo.get(DeviceAttempt, id),
@@ -273,8 +291,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   end
 
   defp poll_binding(attempt, pid, opts) do
-    credential = Binding.validate_locked(attempt, attempt.provider, opts)
-    current = locked(attempt.id)
+    {current, credential} = validate_locked(attempt, opts)
 
     ensure(
       current.status == "pending" and current.worker_pid == :erlang.term_to_binary(pid),
@@ -303,23 +320,39 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
       payload
       |> normalize_expiry(opts)
       |> normalizer.normalize_token_payload()
-      |> Binding.token_material()
+      |> OAuth.token_material()
 
     case Repo.transaction(fn ->
-           current_credential = Binding.validate_locked(attempt, attempt.provider, opts)
-           current = locked(attempt.id)
+           {current, current_credential} = validate_locked(attempt, opts)
 
            ensure(
              current.status == "pending" and current.worker_pid == attempt.worker_pid,
              :invalid_attempt
            )
 
-           result = unwrap(Binding.replace(attempt, current_credential, material, opts))
+           result =
+             unwrap(
+               Binding.replace(configuration_binding(attempt), current_credential, material, opts)
+             )
+
            finish(current, "active", %{result_credential_id: result.credential_id})
          end) do
       {:ok, _} = success -> success
       _ -> terminal(attempt.id, "failed", opts)
     end
+  end
+
+  defp configuration_binding(attempt) do
+    owner = if attempt.owner_type == "person", do: {:person, attempt.owner_id}, else: :org
+
+    Binding.new(
+      owner,
+      attempt.credential_id,
+      attempt.session_id,
+      attempt.provider,
+      attempt.config_fingerprint,
+      attempt.candidate_config
+    )
   end
 
   defp normalize_expiry(payload, opts) do
@@ -334,8 +367,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
 
   defp pending(attempt, interval, opts) do
     Repo.transaction(fn ->
-      Binding.validate_locked(attempt, attempt.provider, opts)
-      current = locked(attempt.id)
+      {current, _credential} = validate_locked(attempt, opts)
 
       if current.status == "pending" do
         current
@@ -495,9 +527,6 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
       _ -> Repo.rollback(:encryption_failed)
     end
   end
-
-  defp outside_transaction,
-    do: Binding.outside_transaction()
 
   defp ensure(true, _), do: :ok
   defp ensure(false, error), do: Repo.rollback(error)

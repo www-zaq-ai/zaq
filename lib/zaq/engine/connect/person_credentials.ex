@@ -34,7 +34,7 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
 
   import Ecto.Query
 
-  alias Zaq.Accounts.Person
+  alias Zaq.Accounts.{People, Person}
 
   alias Zaq.Engine.Connect.{
     Credential,
@@ -98,7 +98,7 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
   @spec put_own_authentication(Person.t(), pos_integer(), map(), keyword()) :: result()
   def put_own_authentication(authenticated_person, credential_id, material, opts \\ []) do
     mutate(authenticated_person, credential_id, opts, fn credential, owner ->
-      unless eligible?(credential), do: Repo.rollback(:not_found)
+      unless Credential.personal_grants_enabled?(credential), do: Repo.rollback(:not_found)
 
       unless credential.auth_kind in ["api_key", "jwt_bearer"],
         do: Repo.rollback(:unsupported_auth_kind)
@@ -140,7 +140,7 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
 
   defp current_person(%Person{id: id, __meta__: %{state: :loaded}})
        when is_integer(id) and id > 0 and id <= 9_223_372_036_854_775_807 do
-    case Repo.get_by(Person, id: id, status: "active") do
+    case People.get_active_literal_person(id) do
       nil -> {:error, :unauthorized}
       person -> {:ok, person}
     end
@@ -157,11 +157,6 @@ defmodule Zaq.Engine.Connect.PersonCredentials do
       _ -> :ok
     end
   end
-
-  defp eligible?(credential),
-    do:
-      credential.secret_binding == :grant and
-        credential.personal_credential_policy in [:optional, :required]
 
   defp unwrap({:ok, value}), do: value
   defp unwrap({:error, reason}), do: Repo.rollback(reason)
