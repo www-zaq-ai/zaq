@@ -7,9 +7,15 @@
   "id": "zaq-763.6",
   "labels": [],
   "parent": "zaq-763",
+  "comments": [
+    {
+      "text": "Authentication gateway targeted run passes 16 tests, zero failures. Reviewed test-local module clock and exact sanitized log assertions.",
+      "timestamp": "2026-10-10T16:04:56Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-763] Implement people authentication rescue coverage",
   "type": "task",
-  "updated_at": "2026-10-10T16:02:28Z"
+  "updated_at": "2026-10-10T16:04:56Z"
 }
