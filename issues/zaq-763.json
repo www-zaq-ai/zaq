@@ -14,11 +14,15 @@
     {
       "text": "Reviewed all seven full plans. Merged worker and lifecycle plans under shared transaction-test ownership; worker49 blocked (no production edits). Six implementation owners have disjoint test files. Independent roots have no prerequisite edges; parent is tracking only. Validation serialized. Device original deadline regression preserved after review; gateway clock injection under correction.",
       "timestamp": "2026-10-10T16:03:24Z"
+    },
+    {
+      "text": "Initial mix q failed in ExDNA internal Task.Supervised.stream(5000) timeout after hooks.verify passed. Detailed retry/diagnosis plan delegated; no check suppression or production/config changes authorized.",
+      "timestamp": "2026-10-10T16:39:26Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-763] Cover seven supplied Connect and SystemConfig gaps",
   "type": "task",
-  "updated_at": "2026-10-10T16:03:24Z"
+  "updated_at": "2026-10-10T16:39:26Z"
 }
