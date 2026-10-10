@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.31.17"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.31.19"
+  ],
   "created": "2026-10-10T10:07:21Z",
   "description": "Soft exact-PID retirement from trusted admission/read denial; accepted pins/leases drain without forced cancellation. Idle protection. Remove membership cancellation events/fences/generations; keep provider evidence and inert old Oban worker. Approved plan: /Users/julien/.opencode/plan/768-admission-time-authorization.md. Reuse Engine Conversations/ExecutionLifecycle/TranscriptHistory and Agent HistorySync/HistoryLifecycle/ServerManager; local-only lifecycle mechanics, no new business Action. Preserve WIP and five-second deadlines. No dependency changes or publication.",
   "id": "zaq-emb.31.18",
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "[#768] P5 Graceful retirement and removal cleanup",
   "type": "task",
-  "updated_at": "2026-10-10T10:07:26Z"
+  "updated_at": "2026-10-10T10:07:28Z"
 }
