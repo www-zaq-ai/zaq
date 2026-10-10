@@ -1,8 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [
-    "zaq-emb.31.19",
-    "zaq-emb.31.21"
+    "zaq-emb.31.19"
   ],
   "blocks": [],
   "created": "2026-10-10T10:07:23Z",
@@ -28,5 +27,5 @@
   "status": "in_progress",
   "title": "[#768] P7 Integrated admission acceptance",
   "type": "task",
-  "updated_at": "2026-10-10T13:22:30Z"
+  "updated_at": "2026-10-10T14:55:33Z"
 }

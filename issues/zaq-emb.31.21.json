@@ -1,9 +1,7 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [
-    "zaq-emb.31.20"
-  ],
+  "blocks": [],
   "created": "2026-10-10T13:22:14Z",
   "description": "Diagnosed native ReAct stream timeout: Runner silently exhausts without terminal event; worker runtime.done clears worker but leaves parent pending. Original long-held demo preserved. Executed database-free comparison: prompt success about203ms; explicit1s deadline ends about1016ms with only request_started/llm_started. Report docs/operations/jido-ai-stream-timeout-report.md; runnable test/repro/react_stream_timeout_upstream.exs. Parent harness inconclusive, not a completed regression. User explicitly deferred dependency fix and requested bounded validation plus upstream reporting. Both gh CLI and configured GitHub integration issue creation failed403 Resource not accessible by personal access token; NO upstream issue created. Keep open for publication/follow-up, do not claim fixed/reported or change dependencies. Independent bounded live scenario passed92ms barrier, accepted completion/delivery after revocation and exact retirement; original untouched. Evidence docs/operations/admission-live-demo-blocker.md. Non-blocking for declared bounded .31.20 acceptance, not a waiver of .32 human approval, E2E, review/coverage/precommit or prior intermittent delivery failure. No commit/push/merge.",
   "id": "zaq-emb.31.21",
