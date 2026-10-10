@@ -353,6 +353,21 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "web browsing settings" do
+    test "unexpected configuration response disables the settings form", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config -> %{event | response: :unexpected}
+          _ -> build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      assert html =~ "Could not load Web browsing settings"
+      refute has_element?(view, "#web-browsing-config-form")
+    end
+
     test "shows the tab and saves an exact host policy", %{conn: conn} do
       {:ok, view, html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
 
@@ -1043,6 +1058,76 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert_received {:screenshot_folder_list, "parent-folder"}
       assert has_element?(view, "#web-browsing-folder-picker", "Captures")
       assert {:ok, %{provider: nil}} = System.get_web_browsing_config()
+    end
+
+    test "failed screenshot folder creation preserves the nested dialog", %{
+      conn: conn,
+      user: user
+    } do
+      source =
+        channel_config_fixture(%{name: "Denied Screenshot Drive", provider: "google_drive"})
+
+      before = System.get_web_browsing_config()
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :system_config_get_web_browsing_config ->
+            %{event | response: before}
+
+          :system_config_list_skill_resource_data_sources ->
+            %{event | response: {:ok, [source]}}
+
+          :data_source_list_source_scopes ->
+            scopes = [
+              %{
+                provider: "google_drive",
+                config_id: source.id,
+                scope_id: "root",
+                label: "Root",
+                filters: %{"parent" => "root"}
+              }
+            ]
+
+            %{event | response: {:ok, scopes}}
+
+          :data_source_list_files ->
+            records = [%Record{id: "parent", name: "Parent", path: "Parent", kind: :folder}]
+            %{event | response: {:ok, %{records: records}}}
+
+          :data_source_create_file ->
+            assert event.next_hop.destination == :channels
+            assert event.request.provider == "google_drive"
+
+            assert event.request.params == %{
+                     "config_id" => to_string(source.id),
+                     "kind" => "folder",
+                     "name" => "Captures",
+                     "parent_id" => "parent",
+                     "path" => "root/Parent"
+                   }
+
+            assert event.actor.user_id == user.id
+            %{event | response: {:error, :denied}}
+
+          action when action in @web_browsing_stub_read_actions ->
+            build_stub_response(event)
+
+          action ->
+            flunk("unexpected screenshot-folder failure action: #{inspect(action)}")
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=web_browsing")
+      render_click(view, "open_web_browsing_folder_modal", %{})
+      render_click(view, "web_browsing_folder_navigate", %{"id" => "parent"})
+      render_click(view, "show_new_folder_modal", %{})
+      html = render_submit(view, "create_folder", %{"name" => "Captures"})
+
+      assert html =~ "Could not create folder"
+      assert has_element?(view, "#web-browsing-folder-picker")
+      assert has_element?(view, "#new-folder-input")
+      assert System.get_web_browsing_config() == before
     end
   end
 
@@ -2560,6 +2645,337 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "AI credentials modal and validation" do
+    test "editing opens without a current device attempt", %{conn: conn} do
+      credential = device_flow_credential()
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      stub_device_flow_router(fn
+        %{op: :current, credential_id: id} ->
+          assert id == credential.connect_credential_id
+          {:error, :unavailable}
+
+        request ->
+          flunk("unexpected device request: #{inspect(request)}")
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
+      assert has_element?(view, "#ai-credential-form")
+      refute has_element?(view, "#ai-device-sign-in")
+    end
+
+    test "successful cancellation renders a terminal state and hides cancel", %{conn: conn} do
+      credential = device_flow_credential()
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      stub_device_flow_router(fn
+        %{op: :current, credential_id: id} ->
+          assert id == credential.connect_credential_id
+          {:ok, pending_device_attempt()}
+
+        %{op: :start} ->
+          flunk("an in-progress attempt must not be started again")
+
+        %{op: :cancel, attempt_id: "attempt-pending"} ->
+          {:ok, %{attempt_id: "attempt-pending", status: "cancelled"}}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
+      assert has_element?(view, "button[phx-click='cancel_ai_device']")
+      render_click(view, "connect_ai_device", %{})
+      assert has_element?(view, "#ai-device-sign-in-code", "ABCD-EFGH")
+      html = render_click(view, "cancel_ai_device", %{})
+      assert html =~ "Device sign-in cancelled."
+      refute has_element?(view, "button[phx-click='cancel_ai_device']")
+    end
+
+    test "failed cancellation retains the pending attempt", %{conn: conn} do
+      credential = device_flow_credential()
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      stub_device_flow_router(fn
+        %{op: :current, credential_id: id} ->
+          assert id == credential.connect_credential_id
+          {:ok, pending_device_attempt()}
+
+        %{op: :cancel, attempt_id: "attempt-pending"} ->
+          {:error, :denied}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
+      html = render_click(view, "cancel_ai_device", %{})
+      assert html =~ "Unable to cancel device sign-in."
+      assert has_element?(view, "button[phx-click='cancel_ai_device']")
+      assert has_element?(view, "#ai-device-sign-in-code", "ABCD-EFGH")
+    end
+
+    test "transient status error retains the attempt and continues polling", %{conn: conn} do
+      credential = device_flow_credential()
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      parent = self()
+      statuses = :atomics.new(1, [])
+
+      stub_device_flow_router(fn
+        %{op: :current} ->
+          {:ok, pending_device_attempt()}
+
+        %{op: :status, attempt_id: "attempt-pending"} ->
+          call = :atomics.add_get(statuses, 1, 1)
+          send(parent, {:device_status_observed, call})
+
+          if call == 1,
+            do: {:error, :temporarily_unavailable},
+            else: {:ok, pending_device_attempt()}
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
+      assert_receive {:device_status_observed, 1}, 2_000
+      assert_receive {:device_status_observed, 2}, 2_000
+      assert has_element?(view, "#ai-device-sign-in-code", "ABCD-EFGH")
+      assert has_element?(view, "button[phx-click='cancel_ai_device']")
+    end
+
+    test "active polling refreshes the credential and preserves the modal", %{conn: conn} do
+      credential = device_flow_credential()
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      parent = self()
+      refresh_calls = :atomics.new(3, [])
+
+      stub_device_flow_router(
+        fn
+          %{op: :current, credential_id: id} ->
+            assert id == credential.connect_credential_id
+            {:ok, pending_device_attempt()}
+
+          %{op: :status, attempt_id: "attempt-pending"} ->
+            send(parent, :device_status_completed)
+
+            {:ok,
+             %{
+               attempt_id: "attempt-pending",
+               status: "active",
+               credential_id: credential.connect_credential_id
+             }}
+        end,
+        fn %Zaq.Event{} = event ->
+          case event.opts[:action] do
+            :system_config_get_ai_provider_credential_bang ->
+              assert to_string(event.request.id) == to_string(credential.id)
+              :atomics.add(refresh_calls, 1, 1)
+
+            :system_config_list_ai_provider_credentials ->
+              :atomics.add(refresh_calls, 2, 1)
+
+            :connect_list_grants ->
+              assert event.request.filters == %{
+                       resource_type: "connect_credential",
+                       owner_type: "org"
+                     }
+
+              assert event.request.projection == :summary
+              :atomics.add(refresh_calls, 3, 1)
+
+            _ ->
+              :ok
+          end
+        end
+      )
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
+      assert_receive :device_status_completed, 2_000
+      assert has_element?(view, "#ai-credential-modal")
+      assert has_element?(view, "#ai-device-sign-in", "Device sign-in completed")
+      refute has_element?(view, "button[phx-click='cancel_ai_device']")
+      assert :atomics.get(refresh_calls, 1) >= 2
+      assert :atomics.get(refresh_calls, 2) >= 2
+      assert :atomics.get(refresh_calls, 3) >= 2
+    end
+
+    test "device dispatch converts router raise and exit into unavailable result", %{conn: conn} do
+      for failure <- [:raise, :exit] do
+        credential = device_flow_credential()
+        conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+        stub_device_flow_router(fn
+          %{op: :current, credential_id: id} ->
+            assert id == credential.connect_credential_id
+            {:error, :not_found}
+
+          %{op: :start} when failure == :raise ->
+            raise "router unavailable"
+
+          %{op: :start} when failure == :exit ->
+            exit(:router_unavailable)
+        end)
+
+        {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+        render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
+        html = render_click(view, "connect_ai_device", %{})
+        assert html =~ "Unable to start device sign-in. Please try again."
+      end
+    end
+
+    test "device credential creation changeset errors leave creation modal open", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      before_credentials = System.list_ai_provider_credentials()
+
+      stub_device_flow_router(fn request ->
+        flunk("unexpected device request: #{inspect(request)}")
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "new_ai_credential", %{})
+
+      html =
+        render_submit(view, "save_ai_credential", %{
+          "oauth_flow" => "device_code",
+          "ai_credential" => %{
+            "name" => "",
+            "provider" => "openai_codex",
+            "endpoint" => "https://chatgpt.com/backend-api",
+            "auth_kind" => "oauth2",
+            "metadata" => %{"auth_profile" => "openai_chatgpt_codex"}
+          }
+        })
+
+      assert has_element?(view, "#ai-credential-form")
+      assert has_element?(view, "#ai-credential-form", "can't be blank")
+      refute html =~ "Unable to create the credential."
+      assert System.list_ai_provider_credentials() == before_credentials
+    end
+
+    test "device start failure forwards staged policy and allows retry", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+      test_pid = self()
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        case event.opts[:action] do
+          :connect_oauth_behaviours ->
+            entries = Zaq.Engine.Connect.OAuth.Registry.public_entries()
+            codex = Enum.find(entries, &(&1.id == "openai_chatgpt_codex"))
+            assert codex.device_code_supported
+            %{event | response: entries}
+
+          :system_config_create_ai_provider_credential ->
+            response = System.create_ai_provider_credential(event.request.attrs)
+            assert {:ok, created} = response
+            assert created.metadata["oauth_setup_pending"]
+            send(test_pid, {:device_definition_created, created})
+            %{event | response: response}
+
+          :system_config_get_ai_provider_credential ->
+            %{event | response: System.get_ai_provider_credential(event.request.id)}
+
+          :system_config_get_ai_provider_credential_bang ->
+            %{event | response: {:ok, System.get_ai_provider_credential(event.request.id)}}
+
+          :connect_fetch_credential ->
+            %{event | response: Connect.fetch_credential(event.request.credential_id)}
+
+          :connect_device ->
+            assert event.opts[:confidential] == true
+            send(test_pid, {:device_request, event.request})
+            %{event | response: {:error, :unavailable}}
+
+          _ ->
+            build_stub_response(event)
+        end
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "new_ai_credential", %{})
+
+      html =
+        render_submit(view, "save_ai_credential", %{
+          "oauth_flow" => "device_code",
+          "ai_credential" => %{
+            "name" => "Retryable Codex #{Ecto.UUID.generate()}",
+            "provider" => "openai_codex",
+            "endpoint" => "https://chatgpt.com/backend-api",
+            "auth_mode" => "api_key",
+            "api_key" => "ignored-key",
+            "personal_credential_policy" => "optional",
+            "metadata" => "{}"
+          }
+        })
+
+      assert_received {:device_definition_created, credential}
+      assert credential.metadata["oauth_setup_pending"]
+      assert_received {:device_request, %{op: :start, credential_id: credential_id, attrs: attrs}}
+      assert credential_id == credential.connect_credential_id
+      assert attrs == %{personal_credential_policy: "optional"}
+      assert html =~ "Unable to start device sign-in"
+      assert has_element?(view, "#ai-credential-modal")
+      refute html =~ "ignored-key"
+      refute html =~ "access_token"
+      refute html =~ "refresh_token"
+
+      render_click(view, "connect_ai_device", %{})
+
+      assert_received {:device_request,
+                       %{op: :start, credential_id: ^credential_id, attrs: ^attrs}}
+    end
+
+    test "cancel without a device attempt does nothing", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :connect_device,
+          do: flunk("cancel without an attempt must not dispatch"),
+          else: build_stub_response(event)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "cancel_ai_device", %{})
+      refute has_element?(view, "#ai-device-sign-in")
+    end
+
+    test "legacy device status message is ignored", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :connect_device,
+          do: flunk("legacy status message must not dispatch device status"),
+          else: build_stub_response(event)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      send(view.pid, {:ai_device_status, 123})
+      refute has_element?(view, "#ai-device-sign-in")
+    end
+
+    test "device sign-in rejects an unsupported OAuth profile", %{conn: conn} do
+      conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
+
+      Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        if event.opts[:action] == :connect_device,
+          do: flunk("unsupported profile must not start device sign-in"),
+          else: build_stub_response(event)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
+      render_click(view, "new_ai_credential", %{})
+
+      html =
+        render_submit(view, "save_ai_credential", %{
+          "oauth_flow" => "device_code",
+          "ai_credential" => %{
+            "name" => "Unsupported device profile",
+            "provider" => "openai",
+            "endpoint" => "https://api.openai.com/v1",
+            "auth_kind" => "oauth2",
+            "metadata" => %{"auth_profile" => "standard"}
+          }
+        })
+
+      assert html =~ "This credential does not support device sign-in."
+      assert has_element?(view, "#ai-credential-form")
+    end
+
     test "api key field has show/hide eye controls", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
@@ -7411,6 +7827,91 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           "ChatGPT subscription OAuth2 with Codex redirect, PKCE, and account metadata."
       }
     ]
+  end
+
+  defp device_flow_credential do
+    {:ok, credential} =
+      System.create_ai_provider_credential(%{
+        name: "Device flow #{Ecto.UUID.generate()}",
+        provider: "openai_codex",
+        endpoint: "https://chatgpt.com/backend-api",
+        auth_kind: "oauth2",
+        metadata: %{
+          "auth_profile" => "openai_chatgpt_codex",
+          "authorize_url" => "https://auth.openai.com/oauth/authorize",
+          "token_url" => "https://auth.openai.com/oauth/token",
+          "client_id" => "system-config-test-client",
+          "scope" => "openid profile email offline_access"
+        }
+      })
+
+    credential
+  end
+
+  defp pending_device_attempt do
+    %{
+      attempt_id: "attempt-pending",
+      status: "pending",
+      expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+      verification_uri: "https://chatgpt.com/device",
+      user_code: "ABCD-EFGH"
+    }
+  end
+
+  defp stub_device_flow_router(device_response, observer \\ fn _event -> :ok end) do
+    Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+      observer.(event)
+      device_flow_router_response(event, device_response)
+    end)
+  end
+
+  defp device_flow_router_response(event, device_response) do
+    case event.opts[:action] do
+      :connect_oauth_behaviours ->
+        %{event | response: Zaq.Engine.Connect.OAuth.Registry.public_entries()}
+
+      action
+      when action in [
+             :system_config_get_ai_provider_credential,
+             :system_config_get_ai_provider_credential_bang,
+             :system_config_create_ai_provider_credential
+           ] ->
+        device_flow_credential_response(event, action)
+
+      :connect_fetch_credential ->
+        %{event | response: Connect.fetch_credential(event.request.credential_id)}
+
+      :connect_device ->
+        assert event.opts[:confidential] == true
+        %{event | response: device_response.(event.request)}
+
+      action
+      when action in [
+             :system_config_list_ai_provider_credentials,
+             :system_config_connect_list_credentials,
+             :connect_list_grants
+           ] ->
+        %{event | response: []}
+
+      :system_config_connect_next_refresh_jobs_for_grants ->
+        %{event | response: %{}}
+
+      _ ->
+        build_stub_response(event)
+    end
+  end
+
+  defp device_flow_credential_response(event, :system_config_get_ai_provider_credential) do
+    %{event | response: System.get_ai_provider_credential(event.request.id)}
+  end
+
+  defp device_flow_credential_response(event, :system_config_get_ai_provider_credential_bang) do
+    credential = System.get_ai_provider_credential(event.request.id)
+    %{event | response: if(credential, do: {:ok, credential}, else: {:error, :not_found})}
+  end
+
+  defp device_flow_credential_response(event, :system_config_create_ai_provider_credential) do
+    %{event | response: System.create_ai_provider_credential(event.request.attrs)}
   end
 
   defp tmp_volume(name) do

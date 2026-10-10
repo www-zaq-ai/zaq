@@ -184,6 +184,47 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     assert %{status: "expired", worker_pid: nil, candidate_config: nil} = Repo.one!(DeviceAttempt)
   end
 
+  test "initialization expires between status validation and refresh without exposing instructions" do
+    {:ok, dto} = Connect.save_credential_configuration(nil, attrs())
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      attempt = Repo.one!(DeviceAttempt)
+      just_before = DateTime.add(attempt.initialization_expires_at, -1, :microsecond)
+      calls = start_supervised!({Agent, fn -> 0 end})
+
+      clock = fn ->
+        count = Agent.get_and_update(calls, fn n -> {n, n + 1} end)
+        if count < 2, do: just_before, else: attempt.initialization_expires_at
+      end
+
+      assert {:ok, status} =
+               DeviceAttempts.status(attempt.id, :org, Keyword.put(@opts, :now, clock))
+
+      assert status.status == "expired"
+      refute Map.has_key?(status, :user_code)
+      refute Map.has_key?(status, :verification_uri)
+      assert Agent.get(calls, & &1) == 3
+
+      Req.Test.json(conn, %{
+        "device_auth_id" => "PRIVATE",
+        "user_code" => "CODE",
+        "interval" => 900
+      })
+    end)
+
+    assert {:error, :oauth_failed} =
+             DeviceAttempts.start_global_configuration(dto.credential_id, %{}, @opts)
+
+    attempt = Repo.one!(DeviceAttempt)
+    assert attempt.status == "expired"
+
+    assert %{rows: [[nil, nil, nil]]} =
+             Repo.query!(
+               "SELECT candidate_config, device_material, user_code FROM connect_device_attempts WHERE id=$1",
+               [attempt.id]
+             )
+  end
+
   test "approval exchanges verifier and commits canonical grant and success together" do
     {_dto, attempt, pid} = start()
 
