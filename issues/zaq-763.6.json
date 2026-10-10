@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T16:02:28Z",
+  "description": "Independent owner test/zaq/engine/people_auth_gateway_test.exs. Full plan passed verbatim. Test only; Action reuse not applicable. No dependencies.",
+  "id": "zaq-763.6",
+  "labels": [],
+  "parent": "zaq-763",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-763] Implement people authentication rescue coverage",
+  "type": "task",
+  "updated_at": "2026-10-10T16:02:28Z"
+}
