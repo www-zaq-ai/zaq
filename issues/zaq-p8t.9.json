@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-p8t.10"
+  ],
   "created": "2026-10-10T13:18:02Z",
   "description": "PR #841 review finding 1. Tests first: status during blocked initiation, initialization expiry/cancellation, one worker. Extend DeviceAttempts/DeviceAttempt with initializing state; attach worker and transition atomically. Reuse Binding/Mutations, existing confidential dispatch and HTTP/clock seams. Local-only secret lifecycle, no Action exposure. Initialization DTO contains no instructions; pending begins on attachment. Existing pending rows preserved. Validate isolated tests and mix q.",
   "id": "zaq-p8t.9",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Fix device sign-in initialization race",
   "type": "task",
-  "updated_at": "2026-10-10T13:18:02Z"
+  "updated_at": "2026-10-10T13:18:26Z"
 }
