@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T11:41:38Z",
+  "description": "Plan: Expand only test/zaq_web/live/people/credentials_live_test.exs with device start/cancel failures, status matching/active refresh, status session/permission/not-found/configuration failure and recovery, stale attempt lookup after session revocation, and dispatch guard investigation. Assert exact flashes/state/status and no secret leakage. Reuse existing local fixtures/helpers and device test cleanup conventions. Keep async:false; no E2E, sleeps, production edits, global mocks, or test hooks. Defer all Mix validation to coordinator isolated-test follow-up. Action reuse not applicable; no plan file. Mermaid: graph LR; start_cancel --\u003e status_refresh --\u003e status_failures --\u003e stale_lookup --\u003e dispatch_guards.",
+  "id": "zaq-p8t.8.4",
+  "labels": [],
+  "parent": "zaq-p8t.8",
+  "priority": 2,
+  "status": "open",
+  "title": "zaq-p8t child: CredentialsLive device coverage",
+  "type": "task",
+  "updated_at": "2026-10-10T11:41:38Z"
+}
