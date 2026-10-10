@@ -4,14 +4,16 @@
   "blocks": [
     "zaq-p8t.10"
   ],
+  "closed_at": "2026-10-10T13:23:19Z",
+  "close_reason": "Implemented explicit 30-second initialization deadline and atomic worker attachment/pending transition; cancellation/expiry erase secrets and prevent late initiation. Initial test run blocked by startup pool starvation at +S 2; +S 4 resolves it. 42 focused tests/1 property and mix q pass. Uncommitted, no push; remaining UI timer/missing-attempt work tracked by .10/.11.",
   "created": "2026-10-10T13:18:02Z",
   "description": "PR #841 review finding 1. Tests first: status during blocked initiation, initialization expiry/cancellation, one worker. Extend DeviceAttempts/DeviceAttempt with initializing state; attach worker and transition atomically. Reuse Binding/Mutations, existing confidential dispatch and HTTP/clock seams. Local-only secret lifecycle, no Action exposure. Initialization DTO contains no instructions; pending begins on attachment. Existing pending rows preserved. Validate isolated tests and mix q.",
   "id": "zaq-p8t.9",
   "labels": [],
   "parent": "zaq-p8t",
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix device sign-in initialization race",
   "type": "task",
-  "updated_at": "2026-10-10T13:18:35Z"
+  "updated_at": "2026-10-10T13:23:19Z"
 }
