@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.31.15"
+  ],
   "created": "2026-10-10T10:07:16Z",
   "description": "Add write-once admitted_at to existing ExecutionRecord, shared effective history authorization and trusted denial, confidential admit_execution route. Tests first: preadmission vs accepted, denied provisional root closure, replay immunity, actor/capability/content/scope, manual grants, read-only semantics, migration. Approved plan: /Users/julien/.opencode/plan/768-admission-time-authorization.md. Reuse Engine Conversations/ExecutionLifecycle/TranscriptHistory and Agent HistorySync/HistoryLifecycle/ServerManager; local-only lifecycle mechanics, no new business Action. Preserve WIP and five-second deadlines. No dependency changes or publication.",
   "id": "zaq-emb.31.14",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] P1 Engine admission evidence",
   "type": "task",
-  "updated_at": "2026-10-10T10:07:16Z"
+  "updated_at": "2026-10-10T10:07:24Z"
 }
