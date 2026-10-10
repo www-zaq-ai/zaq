@@ -31,11 +31,15 @@
     {
       "text": "User selected Show live behavior first, not approval. Manual isolated browser walkthrough now blocked: accepted original stays pending after external response release (native parent awaiting_llm while worker idle); new input was correctly denied/unadmitted and BO shows no grants. Evidence docs/operations/admission-live-demo-blocker.md; diagnostic issue .31.21 blocks finalization. No E2E authored/approval granted, no dependency or production fix, no publication. Earlier passing matrices do not waive this live failure.",
       "timestamp": "2026-10-10T13:22:29Z"
+    },
+    {
+      "text": "Bounded live behavior shown with92ms external model pause: accepted pending input, real revoke, new input failed unadmitted, accepted answer persisted/provider terminal update observed, exact runtime retired. Browser transcript05bd4630-e520-4265-8f00-3ae4d749b96e shows answer and No current grants; screenshot docs/exec-plans/active/admission-demo-04-bounded-no-grants.png. Original failed long-held request retained, timeout diagnosis and unpublished upstream report saved; issue creation403 on both routes, dependency fix explicitly deferred. NO human behavior approval recorded yet. This gate is not final acceptance, timeout repair or commit/push/merge authorization; consolidated feature E2E remains behind explicit approval.",
+      "timestamp": "2026-10-10T14:55:51Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.32] PR B explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-10-10T13:22:29Z"
+  "updated_at": "2026-10-10T14:55:51Z"
 }
