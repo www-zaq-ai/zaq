@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T16:00:46Z",
+  "description": "Own test/zaq_web/live/bo/system/system_config_live_test.exs. Full plan supplied verbatim. Tests only; no operation changes; no dependencies.",
+  "id": "zaq-763.5",
+  "labels": [],
+  "parent": "zaq-763",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-763] Implement SystemConfig LiveView coverage plan",
+  "type": "task",
+  "updated_at": "2026-10-10T16:00:46Z"
+}
