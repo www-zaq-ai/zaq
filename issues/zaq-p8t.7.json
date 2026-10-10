@@ -17,11 +17,15 @@
     {
       "text": "Correction to preceding validation note: the browser seed518887 was not verified and must be disregarded. The verified browser result is3tests/0failures and all Chromium/Firefox/WebKit390/1280px journeys passed. Focused suite seed79858 is verified.",
       "timestamp": "2026-10-10T09:54:03Z"
+    },
+    {
+      "text": "Julien approved commit/push. Included in17d443969 with owner-domain refactor and pushed to origin/zaq-p8t/device-code-sign-in for PR #841. Commit quality/message hooks and pre-push formatting pass; worktree clean. Verified issue tests/browser matrix already recorded; full final gate remains tracked separately.",
+      "timestamp": "2026-10-10T11:06:49Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "Remove forwarding helpers and unify credential gateway transactions",
   "type": "task",
-  "updated_at": "2026-10-10T09:54:09Z"
+  "updated_at": "2026-10-10T11:06:49Z"
 }
