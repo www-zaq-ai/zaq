@@ -7,9 +7,15 @@
   "id": "zaq-763.3",
   "labels": [],
   "parent": "zaq-763",
+  "comments": [
+    {
+      "text": "Guard and invalid-transfer rollback tests implemented and reviewed; targeted run 5 tests, 0 failures. Worker49 remains blocked; no production changes. Final q/coverage pending.",
+      "timestamp": "2026-10-10T16:04:13Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-763] Implement lifecycle coverage plan and worker exception",
   "type": "task",
-  "updated_at": "2026-10-10T16:00:44Z"
+  "updated_at": "2026-10-10T16:04:13Z"
 }
