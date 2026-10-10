@@ -73,6 +73,36 @@ defmodule Zaq.Engine.Connect.Credential do
           updated_at: DateTime.t() | nil
         }
 
+  @doc "Whether the configuration admits personal grants, independent of authentication kind."
+  @spec personal_grants_enabled?(t()) :: boolean()
+  def personal_grants_enabled?(%__MODULE__{} = credential),
+    do:
+      credential.secret_binding == :grant and
+        credential.personal_credential_policy in [:optional, :required]
+
+  @doc "Explicit secret-bearing OAuth candidate projection for internal encrypted staging only."
+  @spec oauth_configuration_attrs(t()) :: map()
+  def oauth_configuration_attrs(%__MODULE__{} = credential) do
+    credential
+    |> Map.take(@required_fields ++ @optional_fields)
+    |> Map.reject(fn {_, value} -> is_nil(value) end)
+  end
+
+  @doc "Restores an internal candidate through this schema's configuration validation."
+  @spec restore_oauth_configuration(String.t() | nil) ::
+          {:ok, t()} | {:error, :invalid_configuration}
+  def restore_oauth_configuration(serialized) when is_binary(serialized) do
+    with {:ok, attrs} when is_map(attrs) <- Jason.decode(serialized),
+         changeset = changeset(%__MODULE__{}, attrs),
+         true <- changeset.valid? do
+      {:ok, apply_changes(changeset)}
+    else
+      _ -> {:error, :invalid_configuration}
+    end
+  end
+
+  def restore_oauth_configuration(_), do: {:error, :invalid_configuration}
+
   def changeset(credential, attrs) do
     credential
     |> cast(attrs, @required_fields ++ @optional_fields)

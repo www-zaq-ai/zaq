@@ -25,8 +25,23 @@ defmodule Zaq.Engine.Connect.OAuth do
   alias Zaq.Engine.Connect.OAuthState
   alias Zaq.Event
   alias Zaq.NodeRouter
+  alias Zaq.Repo
   alias Zaq.Utils.DateUtils
   alias Zaq.Utils.Map, as: MapUtils
+
+  @doc "Rejects caller transactions before a handshake can execute provider network IO."
+  @spec ensure_outside_transaction() :: :ok | {:error, :transaction_not_allowed}
+  def ensure_outside_transaction,
+    do: if(Repo.in_transaction?(), do: {:error, :transaction_not_allowed}, else: :ok)
+
+  @doc "Projects normalized provider tokens onto canonical OAuth grant material."
+  @spec token_material(map()) :: map()
+  def token_material(payload) do
+    Enum.reduce([:access_token, :refresh_token, :expires_at, :metadata], %{}, fn key, acc ->
+      value = Map.get(payload, key) || Map.get(payload, Atom.to_string(key))
+      if is_nil(value), do: acc, else: Map.put(acc, key, value)
+    end)
+  end
 
   @doc "Internal provider preparation shared by trusted attempts; contains a plaintext verifier."
   @spec prepare_attempt(Credential.t()) :: map()

@@ -23,7 +23,7 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
   existing provider HTTP and encryption dependencies. None of these opts is browser input.
   """
   import Ecto.Query
-  alias Zaq.Accounts.Person
+  alias Zaq.Accounts.{People, Person}
   alias Zaq.Engine.Connect.{Credential, Mutations, OAuth, OAuthAttempt, OAuthState}
   alias Zaq.Engine.Connect.OAuth.Binding
   alias Zaq.Repo
@@ -46,9 +46,8 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
       when is_integer(id) and id > 0 and is_binary(session_id) and is_integer(credential_id) and
              credential_id > 0 do
     if Repo.in_transaction?() do
-      credential = lock_credential(credential_id)
-      ensure(active_person?(id), :unauthorized)
-      ensure(eligible?(credential), :not_found)
+      credential = unwrap(Mutations.prepare_person_oauth_configuration(credential_id))
+      ensure(People.get_active_literal_person(id) != nil, :unauthorized)
       {:ok, persist_attempt(credential, "person", id, session_id, nil, opts)}
     else
       {:error, :transaction_required}
@@ -71,7 +70,15 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
     start(
       fn ->
         candidate = unwrap(Mutations.prepare_oauth_configuration(ref, attrs))
-        persist_attempt(candidate, "org", nil, nil, configuration_attrs(candidate), opts)
+
+        persist_attempt(
+          candidate,
+          "org",
+          nil,
+          nil,
+          Credential.oauth_configuration_attrs(candidate),
+          opts
+        )
       end,
       opts
     )
@@ -83,7 +90,7 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
 
   def finalize_callback(provider, %{"state" => state} = params, opts)
       when is_binary(provider) and is_binary(state) do
-    with :ok <- outside_transaction(),
+    with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, %{"attempt_id" => id} = payload} when map_size(payload) == 1 <-
            OAuthState.verify(state),
          true <- is_binary(id),
@@ -103,7 +110,7 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
   def finalize_callback(_, _, _), do: {:error, :invalid_attempt}
 
   defp start(operation, opts) do
-    with :ok <- outside_transaction(),
+    with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, {attempt, credential, binding}} <- Repo.transaction(operation) do
       state = OAuthState.sign(%{"attempt_id" => attempt.id})
       authorize(attempt, credential, state, binding, opts)
@@ -134,7 +141,7 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
         owner_id: owner_id,
         session_id: session_id,
         provider: credential.provider,
-        config_fingerprint: fingerprint(credential.id),
+        config_fingerprint: Mutations.oauth_configuration_fingerprint(credential.id),
         redirect_uri: binding.redirect_uri,
         pkce_verifier: encrypt(binding.pkce["code_verifier"], opts),
         candidate_config: encrypt(if(candidate, do: Jason.encode!(candidate)), opts),
@@ -172,7 +179,16 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
     do: Repo.transaction(fn -> validate_locked(attempt, provider, opts) end)
 
   defp validate_locked(attempt, provider, opts) do
-    credential = Binding.validate_locked(attempt, provider, opts)
+    ensure(attempt.provider == provider, :invalid_attempt)
+    credential = Binding.validate_locked(configuration_binding(attempt), opts)
+
+    persisted =
+      Repo.one(
+        from a in OAuthAttempt, where: a.id == ^attempt.id, lock: "FOR UPDATE", select: a.id
+      )
+
+    ensure(persisted != nil, :invalid_attempt)
+    ensure(DateTime.compare(attempt.expires_at, now(opts)) == :gt, :invalid_attempt)
 
     ensure(
       is_binary(attempt.pkce_verifier) and byte_size(attempt.pkce_verifier) > 0,
@@ -186,21 +202,26 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
   defp exchange(credential, code, attempt, opts) do
     case safe_provider(fn -> OAuth.exchange_attempt(credential, code, attempt, opts) end) do
       {:ok, payload} when is_map(payload) ->
-        {:ok, token_material(payload)}
+        {:ok, OAuth.token_material(payload)}
 
       _ ->
         {:error, :oauth_failed}
     end
   end
 
-  defp token_material(payload), do: Binding.token_material(payload)
-
   defp complete(attempt, provider, material, opts) do
     case Repo.transaction(fn ->
            credential = validate_locked(attempt, provider, opts)
 
            result =
-             unwrap(replace(attempt, credential, material, Keyword.put(opts, :now, now(opts))))
+             unwrap(
+               Binding.replace(
+                 configuration_binding(attempt),
+                 credential,
+                 material,
+                 Keyword.put(opts, :now, now(opts))
+               )
+             )
 
            %{credential_id: result.credential_id, status: "active"}
          end) do
@@ -209,23 +230,18 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
     end
   end
 
-  defp replace(attempt, credential, material, opts),
-    do: Binding.replace(attempt, credential, material, opts)
+  defp configuration_binding(attempt) do
+    owner = if attempt.owner_type == "person", do: {:person, attempt.owner_id}, else: :org
 
-  defp configuration_attrs(credential), do: Binding.configuration_attrs(credential)
-
-  # Hash the actual stored administrative fields, including ciphertext digests. No
-  # timestamp revision: same-second edits and unreadable/corrupt ciphertext differ.
-  defp fingerprint(id), do: Binding.fingerprint(id)
-
-  defp lock_credential(id),
-    do: Binding.lock_credential(id)
-
-  defp active_person?(id),
-    do: Binding.active_person?(id)
-
-  defp eligible?(c),
-    do: Binding.eligible?(c)
+    Binding.new(
+      owner,
+      attempt.credential_id,
+      attempt.session_id,
+      attempt.provider,
+      attempt.config_fingerprint,
+      attempt.candidate_config
+    )
+  end
 
   defp valid_redirect?(url) do
     uri = URI.parse(url)
@@ -256,9 +272,6 @@ defmodule Zaq.Engine.Connect.OAuthAttempts do
 
     %{value | microsecond: {elem(value.microsecond, 0), 6}}
   end
-
-  defp outside_transaction,
-    do: Binding.outside_transaction()
 
   defp ensure(true, _), do: :ok
   defp ensure(false, reason), do: Repo.rollback(reason)

@@ -310,6 +310,14 @@ defmodule Zaq.Accounts.People do
     end)
   end
 
+  @doc "Returns an active literal identity, without resolving merge aliases or authenticating a caller."
+  @spec get_active_literal_person(term()) :: Person.t() | nil
+  def get_active_literal_person(id)
+      when is_integer(id) and id > 0 and id <= 9_223_372_036_854_775_807,
+      do: Repo.get_by(Person, id: id, status: "active")
+
+  def get_active_literal_person(_), do: nil
+
   @doc "Retrieves a current Person by its ID or retained historical ID in one query."
   @spec get_person(integer() | String.t() | nil) :: Person.t() | nil
   def get_person(id) when is_nil(id), do: nil

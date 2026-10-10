@@ -3,7 +3,7 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
 
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissionGrant, PeoplePermissions}
   alias Zaq.Engine.{Api, Connect, Events, PeopleAuthGateway}
-  alias Zaq.Engine.Connect.{Credential, OAuthAttempt, OAuthAttempts, OAuthState}
+  alias Zaq.Engine.Connect.{Credential, Grant, OAuthAttempt, OAuthAttempts, OAuthState}
   alias Zaq.System.AIProviderCredential
   alias Zaq.TestSupport.ConnectOAuthAttemptConfig
 
@@ -233,6 +233,45 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
     refute function_exported?(OAuthAttempts, :start_person, 3)
     refute function_exported?(Zaq.Engine.Connect.PersonCredentials, :start_oauth, 3)
     refute function_exported?(Zaq.Engine.Connect.PersonCredentials, :reconnect_oauth, 3)
+  end
+
+  test "all credential operations reject a revoked bearer before domain work", ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    {:ok, _} = PeopleAuth.revoke_session(ctx.token)
+
+    operations = [
+      {:list_self_credentials, %{}},
+      {:get_self_credential, %{credential_id: ctx.credential.id}},
+      {:put_self_credential, %{credential_id: ctx.credential.id, material: %{api_key: "DENIED"}}},
+      {:revoke_self_credential, %{credential_id: ctx.credential.id}},
+      {:remove_self_credential, %{credential_id: ctx.credential.id}},
+      {:start_self_credential_oauth, %{credential_id: ctx.credential.id}},
+      {:reconnect_self_credential_oauth, %{credential_id: ctx.credential.id}},
+      {:start_self_credential_device, %{credential_id: ctx.credential.id}},
+      {:self_credential_device_status, %{attempt_id: Ecto.UUID.generate()}},
+      {:cancel_self_credential_device, %{attempt_id: Ecto.UUID.generate()}},
+      {:self_credential_device_current, %{credential_id: ctx.credential.id}}
+    ]
+
+    for {op, params} <- operations do
+      assert dispatch(op, ctx.token, params) == {:error, :invalid_session},
+             "#{op} must reject the revoked session"
+    end
+
+    refute Repo.get_by(Grant, credential_id: ctx.credential.id)
+  end
+
+  test "network-bearing starts reject caller transactions before authentication", ctx do
+    for op <- [
+          :start_self_credential_oauth,
+          :reconnect_self_credential_oauth,
+          :start_self_credential_device
+        ] do
+      assert {:ok, {:error, :transaction_not_allowed}} =
+               Repo.transaction(fn ->
+                 dispatch(op, "invalid-bearer", %{credential_id: ctx.credential.id})
+               end)
+    end
   end
 
   defp dispatch(op, token, params \\ %{}),

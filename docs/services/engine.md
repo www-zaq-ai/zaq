@@ -581,10 +581,21 @@ against its device callback; it is not the standard RFC 8628 token polling grant
 Codex HTTP 403/404 mean pending. Its initial interval comes from the response
 (including string intervals), with a five-second default and 15-minute deadline.
 
-`OAuth.Binding` shares server-bound identity/configuration validation, token-material
-projection and canonical grant replacement between handshake lifecycles. Existing
-authorization-code attempts retain their irreversible pre-exchange claim and PKCE
-checks; device polling must not use that claim protocol.
+`OAuth.Binding` only coordinates owner-domain APIs for identity/configuration binding
+and canonical grant completion. `PeopleCredentials.Authorization` shares the
+credential-management permission requirement between the authenticated gateway and
+deferred completion, reusing Accounts' session revalidation. Accounts also owns the
+active literal-identity lookup (`People.get_active_literal_person/1`); no merge aliases
+are followed. `Mutations.prepare_person_oauth_configuration/1` and
+`validate_oauth_configuration/1` require a caller transaction and retain credential
+locks; their secret-bearing configuration results never cross transport boundaries.
+`Credential` owns personal eligibility and explicit allowlisted candidate projection/
+restoration. `OAuth` owns token-material projection. Each attempt module owns its
+row locking, existence, deadline and lifecycle checks after identity/configuration
+validation, maintaining Person/session → credential → attempt lock order. Binding
+never queries these schemas or reconstructs their records. Authorization-code attempts
+retain their irreversible pre-exchange claim and PKCE checks; device polling must not
+use that claim protocol.
 
 `DeviceAttempts` stores a separate encrypted `DeviceAttempt`, bound to its initiating
 Person session (or trusted org setup), credential fingerprint, provider and deadline.

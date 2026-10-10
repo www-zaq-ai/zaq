@@ -8,18 +8,20 @@ defmodule Zaq.Engine.PeopleCredentials do
   writes and OAuth authorization additionally require `manage_credentials`.
   """
 
-  alias Zaq.Accounts.{PeopleAuth, PeoplePermissions}
-  alias Zaq.Engine.Connect.{DeviceAttempts, OAuthAttempts, PersonCredentials}
-  alias Zaq.Engine.Connect.OAuth.Binding
+  alias Zaq.Engine.Connect.{DeviceAttempts, OAuth, OAuthAttempts, PersonCredentials}
+  alias Zaq.Engine.PeopleCredentials.Authorization
   alias Zaq.Repo
   alias Zaq.System
-
-  @write_permissions [:access_profile, :manage_credentials]
 
   @spec dispatch(map(), keyword()) :: {:ok, term()} | {:error, term()}
   def dispatch(%{op: :list_self_credentials, token: token}, opts),
     do:
-      authenticated(token, opts, :read, &PersonCredentials.list_available(&1, person_opts(opts)))
+      authenticated(
+        token,
+        opts,
+        :read,
+        &PersonCredentials.list_available(&1.person, person_opts(opts))
+      )
 
   def dispatch(%{op: :get_self_credential, token: token, credential_id: id}, opts),
     do:
@@ -27,7 +29,7 @@ defmodule Zaq.Engine.PeopleCredentials do
         token,
         opts,
         :read,
-        &PersonCredentials.get_own_status(&1, id, person_opts(opts))
+        &PersonCredentials.get_own_status(&1.person, id, person_opts(opts))
       )
 
   def dispatch(
@@ -40,7 +42,7 @@ defmodule Zaq.Engine.PeopleCredentials do
           token,
           opts,
           :write,
-          &PersonCredentials.put_own_authentication(&1, id, material, person_opts(opts))
+          &PersonCredentials.put_own_authentication(&1.person, id, material, person_opts(opts))
         )
 
   def dispatch(%{op: :revoke_self_credential, token: token, credential_id: id}, opts),
@@ -49,7 +51,7 @@ defmodule Zaq.Engine.PeopleCredentials do
         token,
         opts,
         :write,
-        &PersonCredentials.revoke_own_grant(&1, id, person_opts(opts))
+        &PersonCredentials.revoke_own_grant(&1.person, id, person_opts(opts))
       )
 
   def dispatch(%{op: :remove_self_credential, token: token, credential_id: id}, opts),
@@ -58,23 +60,26 @@ defmodule Zaq.Engine.PeopleCredentials do
         token,
         opts,
         :write,
-        &PersonCredentials.remove_own_grant(&1, id, person_opts(opts))
+        &PersonCredentials.remove_own_grant(&1.person, id, person_opts(opts))
       )
 
   def dispatch(%{op: op, token: token, credential_id: id}, opts)
       when op in [:start_self_credential_oauth, :reconnect_self_credential_oauth] do
-    if Repo.in_transaction?() do
-      {:error, :transaction_not_allowed}
-    else
-      with {:ok, prepared} <- prepare_oauth(token, id, opts) do
-        OAuthAttempts.authorize_prepared(prepared, opts)
-      end
+    with :ok <- OAuth.ensure_outside_transaction(),
+         {:ok, prepared} <-
+           authenticated(token, opts, :write, fn auth ->
+             PersonCredentials.prepare_oauth(auth.person, auth.session.id, id, person_opts(opts))
+           end) do
+      OAuthAttempts.authorize_prepared(prepared, opts)
     end
   end
 
   def dispatch(%{op: :start_self_credential_device, token: token, credential_id: id}, opts) do
-    with :ok <- Binding.outside_transaction(),
-         {:ok, prepared} <- prepare_device(token, id, opts) do
+    with :ok <- OAuth.ensure_outside_transaction(),
+         {:ok, prepared} <-
+           authenticated(token, opts, :write, fn auth ->
+             PersonCredentials.prepare_device(auth.person, auth.session.id, id, person_opts(opts))
+           end) do
       DeviceAttempts.authorize_prepared(prepared, opts)
     end
   end
@@ -103,9 +108,8 @@ defmodule Zaq.Engine.PeopleCredentials do
 
   defp authenticated(token, opts, mode, operation) do
     Repo.transaction(fn ->
-      with {:ok, auth} <- PeopleAuth.authenticate(token, opts),
-           :ok <- authorize(auth, mode),
-           {:ok, result} <- operation.(auth.person) do
+      with {:ok, auth} <- Authorization.authenticate(token, mode, opts),
+           {:ok, result} <- operation.(auth) do
         result
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -113,59 +117,10 @@ defmodule Zaq.Engine.PeopleCredentials do
     end)
   end
 
-  defp prepare_oauth(token, credential_id, opts) do
-    Repo.transaction(fn ->
-      with {:ok, auth} <- PeopleAuth.authenticate(token, opts),
-           :ok <- authorize(auth, :write),
-           {:ok, prepared} <-
-             PersonCredentials.prepare_oauth(
-               auth.person,
-               auth.session.id,
-               credential_id,
-               person_opts(opts)
-             ) do
-        prepared
-      else
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-  end
-
-  defp prepare_device(token, credential_id, opts) do
-    Repo.transaction(fn ->
-      with {:ok, auth} <- PeopleAuth.authenticate(token, opts),
-           :ok <- authorize(auth, :write),
-           {:ok, prepared} <-
-             PersonCredentials.prepare_device(
-               auth.person,
-               auth.session.id,
-               credential_id,
-               person_opts(opts)
-             ) do
-        prepared
-      else
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-  end
-
   defp device_owner(token, opts) do
-    Repo.transaction(fn ->
-      with {:ok, auth} <- PeopleAuth.authenticate(token, opts),
-           :ok <- authorize(auth, :write) do
-        {"person", auth.person.id, auth.session.id}
-      else
-        {:error, reason} -> Repo.rollback(reason)
-      end
+    authenticated(token, opts, :write, fn auth ->
+      {:ok, {"person", auth.person.id, auth.session.id}}
     end)
-  end
-
-  defp authorize(_auth, :read), do: :ok
-
-  defp authorize(%{person: person}, :write) do
-    if PeoplePermissions.allowed?(person, @write_permissions),
-      do: :ok,
-      else: {:error, :forbidden}
   end
 
   defp person_opts(opts) do
