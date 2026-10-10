@@ -21,11 +21,15 @@
     {
       "text": "Live manual behavior review blocked and preserved in .31.21/docs/operations/admission-live-demo-blocker.md. Accepted pending original -\u003e Engine revoke -\u003e new input failed unadmitted -\u003e release model -\u003e original still pending, native parent awaiting_llm / worker idle, one pin and lease retained. Cause unknown, long held external HTTP timing distinct from short regressions. User did not approve behavior; no consolidated E2E or final acceptance. Current mix q/diff-check still pass after manual fixture addition.",
       "timestamp": "2026-10-10T13:22:30Z"
+    },
+    {
+      "text": "Bounded live scenario passed:92ms model barrier; real admitted pending input -\u003e membership revoke -\u003e new input failed without admission/answer -\u003e accepted original answer persisted and provider terminal update observed -\u003e exact runtime retired. Original stuck demo unchanged. Browser shows answer with No current grants, screenshot docs/exec-plans/active/admission-demo-04-bounded-no-grants.png. .31.21 diagnosed native silent-timeout defect; both issue-create routes403, draft saved but NOT filed; explicitly deferred/non-blocking bounded validation, dep removed. Current mix q passes; focused Mattermost/history and HTTP suites27tests pass63.7s. Failed fixture drafts documented, not production regressions. .32 human approval still pending, no consolidated E2E/review/coverage/final precommit, no Git mutation. Prior intermittent committed-delivery failure remains unresolved.",
+      "timestamp": "2026-10-10T14:55:54Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] P7 Integrated admission acceptance",
   "type": "task",
-  "updated_at": "2026-10-10T14:55:33Z"
+  "updated_at": "2026-10-10T14:55:54Z"
 }
