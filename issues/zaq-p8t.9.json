@@ -15,11 +15,15 @@
     {
       "text": "Julien requested collapse of unreleased migrations and authorized disposable test DBs. Folded initialization_expires_at, initializing status default and expanded status check into original20261009150000_add_connect_device_attempts.exs; removed uncommitted20261010133000 follow-up. Action reuse N/A: equivalent schema packaging, no operation/permission changes. Validation uses fresh explicitly partitioned test database; development and existing test DBs untouched. No commit/push.",
       "timestamp": "2026-10-10T13:56:19Z"
+    },
+    {
+      "text": "Collapsed migration validated from scratch on unique MIX_TEST_PARTITION _collapse_1791640591293: all migrations applied,32device/protocol tests and2properties passed(seed872101); disposable partition DB dropped afterward. mix q and git diff --check pass. Existing default test DB untouched; fresh recreations now use the single original migration. No commit/push, previous final-suite zaq-mcw blocker not waived.",
+      "timestamp": "2026-10-10T13:58:19Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "Fix device sign-in initialization race",
   "type": "task",
-  "updated_at": "2026-10-10T13:56:19Z"
+  "updated_at": "2026-10-10T13:58:19Z"
 }
