@@ -6,9 +6,15 @@
   "description": "Coordinate supplied seven-file missed-line coverage. General planners produce complete per-file plans; merge shared test ownership, mini-worker implementation, mix q, targeted edited-test coverage only. Action reuse not applicable: tests only; no production operations change. No commits or full-suite coverage rerun authorized.",
   "id": "zaq-763",
   "labels": [],
+  "comments": [
+    {
+      "text": "Planning findings: worker line 49 requires production behavior change, not authorized for test-only scope. Device lines 215,465,541 have no valid public path; remote worker lines 460,471 depend on supported isolated distributed-node infrastructure. Credential and statuses tests have separate ownership. SystemConfig plan owns its existing LiveView test file.",
+      "timestamp": "2026-10-10T16:00:30Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-763] Cover seven supplied Connect and SystemConfig gaps",
   "type": "task",
-  "updated_at": "2026-10-10T16:00:05Z"
+  "updated_at": "2026-10-10T16:00:30Z"
 }
