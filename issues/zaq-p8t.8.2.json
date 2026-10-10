@@ -11,11 +11,15 @@
     {
       "text": "Validation: mix test test/zaq/engine/connect/device_attempts_test.exs test/zaq/engine/people_credentials_gateway_test.exs — 1 property, 34 tests, 0 failures (seed 625170). Initial run exposed: gateway OAuth fixture missing client_id; new-setup attempt DTO does not contain credential_id; start(3600) was invalid at initiation. Fixed test fixtures/assertions by adding client_id, asserting no canonical credential, and setting persisted interval to 3600 after normal setup. Also changed injected-client test coverage remains map-shaped post function (verified accepted by poll path; passing suite) and clock Agent uses start_supervised! for failure-safe cleanup. No production changes. Existing nonfatal warning: configured :license_manager application unavailable.",
       "timestamp": "2026-10-10T11:44:27Z"
+    },
+    {
+      "text": "Robustness review follow-up: initiation failures now register a test-local HTTP client callback signal and compare DB attempt IDs before/after each call, asserting exactly one new attempt (no timestamp ordering). Injected clients are modules with post/1 and their call is verified; process registration is cleaned in after. Worker slowdown test now starts with the normal long timer, updates persisted prior interval to 1, installs Req.Test expectation, then sends :poll before message/sys barrier. Gateway fixture was unchanged: existing isolated tests confirm its fixture is valid, and no auth_profile is needed for this lookup branch. Revalidated serially: mix test test/zaq/engine/connect/device_attempts_test.exs test/zaq/engine/people_credentials_gateway_test.exs — 1 property, 34 tests, 0 failures (seed 833820). Nonfatal existing :license_manager warning. Issue remains open pending mix q/coverage.",
+      "timestamp": "2026-10-10T11:49:03Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p8t.8] Implement full device attempt and gateway coverage handoff",
   "type": "task",
-  "updated_at": "2026-10-10T11:44:27Z"
+  "updated_at": "2026-10-10T11:49:03Z"
 }
