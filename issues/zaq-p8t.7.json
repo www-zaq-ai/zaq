@@ -7,9 +7,15 @@
   "id": "zaq-p8t.7",
   "labels": [],
   "parent": "zaq-p8t",
+  "comments": [
+    {
+      "text": "Implemented approved cleanup only: removed8private helpers (3outside_transaction forwards,token_material,replace,eligible?,and duplicate OAuth/device preparation wrappers). PeopleCredentials now has one Repo.transaction/Authorization.authenticate site; callbacks receive full auth context, forward only auth.person to Person domain operations and session.id to preparation, and device_owner derives its owner/session through the same helper. Canonical APIs and Binding retained; no changes to identity rechecks, lock order, encrypted staging, allowlist or IO transaction boundaries. Added gateway matrix regression for revoked bearer across11operations with no grant write and caller-transaction rejection for3network-bearing starts before authentication;10gateway tests passed before production cleanup. Final affected suite seed79858:510tests/24properties,0failures; browser seed518887 (see actual output for seed if needed):3tests, both surfaces/all3engines390/1280px pass; mix q17591mods/funs noissues; git diff --check clean. No new/substantially rewritten E2E or numerical coverage work. Self-review confirms removed wrapper definitions and single auth/transaction site. Full precommit not rerun per issue; zaq-p8t.5 remains blocked by prior final-gate failures/zaq-mcw. Changes uncommitted; no push/merge.",
+      "timestamp": "2026-10-10T09:53:57Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Remove forwarding helpers and unify credential gateway transactions",
   "type": "task",
-  "updated_at": "2026-10-10T09:47:25Z"
+  "updated_at": "2026-10-10T09:53:57Z"
 }
