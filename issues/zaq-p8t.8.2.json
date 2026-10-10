@@ -7,9 +7,15 @@
   "id": "zaq-p8t.8.2",
   "labels": [],
   "parent": "zaq-p8t.8",
+  "comments": [
+    {
+      "text": "Validation: mix test test/zaq/engine/connect/device_attempts_test.exs test/zaq/engine/people_credentials_gateway_test.exs — 1 property, 34 tests, 0 failures (seed 625170). Initial run exposed: gateway OAuth fixture missing client_id; new-setup attempt DTO does not contain credential_id; start(3600) was invalid at initiation. Fixed test fixtures/assertions by adding client_id, asserting no canonical credential, and setting persisted interval to 3600 after normal setup. Also changed injected-client test coverage remains map-shaped post function (verified accepted by poll path; passing suite) and clock Agent uses start_supervised! for failure-safe cleanup. No production changes. Existing nonfatal warning: configured :license_manager application unavailable.",
+      "timestamp": "2026-10-10T11:44:27Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p8t.8] Implement full device attempt and gateway coverage handoff",
   "type": "task",
-  "updated_at": "2026-10-10T11:41:19Z"
+  "updated_at": "2026-10-10T11:44:27Z"
 }
