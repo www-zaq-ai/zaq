@@ -92,6 +92,25 @@ defmodule Zaq.Engine.PeopleCredentialsGatewayTest do
              })
   end
 
+  test "current device request rejects an unassociated credential", ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+
+    {:ok, unrelated} =
+      Connect.create_credential(%{
+        name: "unassociated-device-#{Ecto.UUID.generate()}",
+        provider: "example",
+        auth_kind: "oauth2",
+        secret_binding: :grant,
+        personal_credential_policy: :required,
+        client_id: "unassociated-client"
+      })
+
+    refute unrelated.id in Zaq.System.list_ai_provider_connect_credential_ids()
+
+    assert {:error, :not_found} =
+             dispatch(:self_credential_device_current, ctx.token, %{credential_id: unrelated.id})
+  end
+
   test "revoked sessions and inactive People cannot manage credentials", ctx do
     {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
     {:ok, _} = PeopleAuth.revoke_session(ctx.token)

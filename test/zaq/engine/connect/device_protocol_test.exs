@@ -39,6 +39,42 @@ defmodule Zaq.Engine.Connect.DeviceProtocolTest do
     assert {:terminal, :failed} = Codex.poll_response(500, %{}, 7)
   end
 
+  test "Codex initiation rejects failed and malformed responses" do
+    valid_body = %{"device_auth_id" => "device", "user_code" => "code", "interval" => 5}
+
+    assert {:error, :oauth_failed} = Codex.initiate_response(500, valid_body)
+    assert {:error, :oauth_failed} = Codex.initiate_response(200, nil)
+  end
+
+  test "Codex polling classifies pending statuses and malformed responses" do
+    assert {:pending, 7} = Codex.poll_response(400, %{"error" => "authorization_pending"}, 7)
+    assert {:pending, 7} = Codex.poll_response(403, nil, 7)
+    assert {:pending, 7} = Codex.poll_response(404, "not-json", 7)
+    assert {:terminal, :failed} = Codex.poll_response(200, nil, 7)
+    assert {:terminal, :failed} = Codex.poll_response(500, [], 7)
+  end
+
+  test "Codex interval defaults and enforces its supported boundaries" do
+    body = %{"device_auth_id" => "device", "user_code" => "code"}
+
+    assert {:ok, %{interval: 5}} = Codex.initiate_response(200, body)
+
+    for interval <- [1, 900] do
+      assert {:ok, instructions} =
+               Codex.initiate_response(200, Map.put(body, "interval", interval))
+
+      assert instructions.interval == interval
+      assert instructions.expires_in == 900
+      assert instructions.verification_uri == "https://auth.openai.com/codex/device"
+      assert instructions.material == %{"device_auth_id" => "device", "user_code" => "code"}
+    end
+
+    for interval <- ["7seconds", "", nil, 0, 7.5, 901] do
+      assert {:error, :oauth_failed} =
+               Codex.initiate_response(200, Map.put(body, "interval", interval))
+    end
+  end
+
   test "approval requires code and verifier and exchanges against the device redirect" do
     response = %{"authorization_code" => "code", "code_verifier" => "verifier"}
     assert {:exchange, ^response} = Codex.poll_response(200, response, 5)
@@ -53,7 +89,7 @@ defmodule Zaq.Engine.Connect.DeviceProtocolTest do
   end
 
   property "invalid provider timing never becomes scheduling instructions" do
-    check all(interval <- integer(-10_000..0)) do
+    check all(interval <- one_of([integer(-10_000..0), integer(901..10_000)])) do
       assert {:error, :oauth_failed} =
                Codex.initiate_response(200, %{
                  "device_auth_id" => "device",
