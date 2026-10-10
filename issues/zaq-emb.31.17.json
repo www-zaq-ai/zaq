@@ -3,7 +3,9 @@
   "blocked_by": [
     "zaq-emb.31.16"
   ],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.31.18"
+  ],
   "created": "2026-10-10T10:07:20Z",
   "description": "Specific verified history-access loss stops new reads but accepted execution uses last bounded authorized projection in existing lease/session. Preserve tools/cursors, persistence, waiter progression. Other errors fail truthfully. Approved plan: /Users/julien/.opencode/plan/768-admission-time-authorization.md. Reuse Engine Conversations/ExecutionLifecycle/TranscriptHistory and Agent HistorySync/HistoryLifecycle/ServerManager; local-only lifecycle mechanics, no new business Action. Preserve WIP and five-second deadlines. No dependency changes or publication.",
   "id": "zaq-emb.31.17",
