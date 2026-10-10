@@ -30,11 +30,15 @@
     {
       "text": "Diagnostic-only step complete: test/support/delivery_diagnostics.ex uses a separate OTP trace session and sanitized bounded recent SQL/Finch events; delivery wait appends pre-teardown execution/confirmation/placement snapshots and pending call/process evidence to original ExUnit assertion. Existing five-second waits and assertions retained. No production files changed for this step. mix q and git diff --check pass. Original five-file seed0/max_cases4 suite passes75tests/2properties. In-memory-only forced missing notification produced expected original assertion failure with completed root, consumed receipt, confirmed placement, confirmation, stacks and HTTP/SQL timings; cleanup left zero diagnostic handlers. Missing collector/sandbox safely reports unavailable. Forced failure is diagnostic verification, not reproduction of unknown #1. Keep acceptance issue open; root cause remains unresolved. No commit/push/merge.",
       "timestamp": "2026-10-09T20:04:22Z"
+    },
+    {
+      "text": "Admission-time implementation now replaces strict membership cancellation, not the independent native cleanup defect. Core281tests/7properties and wider preservation374tests/15properties/6doctests pass after latest queue hardening; matrix totals overlap. Retired sealing recovery, manual-access survival, slow real HTTP tool, finalization/inspection and media/accounting covered. Independent HTTP cancellation moved to opt-in test/repro/native_http_tool_cancellation.exs and still fails; followups zaq-4sl/zaq-t3g. Acceptance remains open for busy native admission closure, human/E2E, review/coverage/precommit; earlier intermittent missing committed-delivery symptom remains unresolved and diagnostics preserved. No publication.",
+      "timestamp": "2026-10-10T12:45:02Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
   "type": "task",
-  "updated_at": "2026-10-09T20:04:22Z"
+  "updated_at": "2026-10-10T12:45:02Z"
 }
