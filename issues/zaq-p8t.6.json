@@ -2,6 +2,8 @@
   "assignee": "Julien",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-10-10T07:02:29Z",
+  "close_reason": "Owner-boundary refactor implemented and self-reviewed; focused 500 tests/24 properties, browser matrix and mix q pass. Final full-suite blocker remains explicitly tracked in zaq-p8t.5/zaq-mcw; changes uncommitted.",
   "created": "2026-10-10T06:20:46Z",
   "description": "Authorized by Julien after boundary review of OAuth.Binding on PR #841. Move literal identity/session verification and credential-management policy to a cohesive Engine authorization boundary reusing PeopleAuth/PeoplePermissions, credential locking and OAuth configuration validation to Mutations, candidate projection/reconstruction and personal eligibility to Credential, attempt persistence/expiry to each lifecycle. Preserve Person/session -\u003e credential -\u003e attempt order, single-use callback, encrypted immutable candidate, cancellation, expiry, config/session invalidation and atomic grants. Action reuse: extend existing owner APIs (PeopleAuth revalidation, Credential configuration, Mutations validation/save), reuse canonical writes; local-only coordinator and transaction-scoped authorization helpers carry secrets/locks and are not standalone Actions or exposed agent tools. Tests first: owner-domain contracts, identity/permissions/eligibility, allowlisted candidate fields, lifecycle/concurrency and existing 3-engine browser journeys. Run mix q, isolated tests and final mix precommit; existing zaq-mcw full-suite telemetry flake remains tracked, not weakened.",
   "id": "zaq-p8t.6",
@@ -14,8 +16,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Narrow OAuth binding to owner-domain coordination",
   "type": "task",
-  "updated_at": "2026-10-10T07:02:07Z"
+  "updated_at": "2026-10-10T07:02:29Z"
 }
