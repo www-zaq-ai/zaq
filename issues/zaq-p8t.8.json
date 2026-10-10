@@ -3,7 +3,7 @@
   "blocked_by": [],
   "blocks": [],
   "created": "2026-10-10T11:39:14Z",
-  "description": "Coordinate seven supplied-file coverage plans, merge overlapping test ownership, delegate test-only implementation, run mix q and targeted --cover only. Action reuse: not applicable — no executable operation changes. Existing E2E scope unchanged. Seven planners dispatched; implementation awaits complete ownership review.",
+  "description": "Seven per-file plans reviewed. Four disjoint implementation assignments: device_protocol_test.exs; device_attempts_test.exs + people_credentials_gateway_test.exs (merged three plans); device_sign_in_test.exs; credentials_live_test.exs. Independent implementation roots, no cross-step dependency edges required. Workers store full plans in child issues. Mix validation serialized after worker edits. Reconciliation worker line 49: planner found DeviceAttempts.reconcile/0 fixed-default transaction returns success or raises, not an error tuple; changing its production contract solely for coverage rejected. Keep defensive branch uncovered. Attempts lines 198/511 statically unreachable; 433/441 depend on distributed fixture; 438 lacks deterministic public race synchronization. LiveView exception guards to be assessed without global router interference. Action reuse N/A: test-only work. No new E2E scope or production changes authorized.",
   "id": "zaq-p8t.8",
   "labels": [],
   "parent": "zaq-p8t",
@@ -11,5 +11,5 @@
   "status": "in_progress",
   "title": "[zaq-p8t.8] Cover supplied device sign-in missed lines",
   "type": "task",
-  "updated_at": "2026-10-10T11:39:15Z"
+  "updated_at": "2026-10-10T11:41:30Z"
 }
