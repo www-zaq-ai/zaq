@@ -8,9 +8,15 @@
   "description": "User-approved candidate integration: pin web_widget PR22 ref 4bd6929bb599ced0bc4a9c0536588fb8b7a002b9; configure trusted adapter/PubSub/auth membership/readiness; mount channels-only routes and scoped widget LiveView socket without BO session. Reuse WebBridge runtime lifecycle and ManageWidgetConnector; endpoint/router/config integration local-only, no new Actions/tools. Tests first for role guards/BO unchanged/real adapter configuration, legacy explicit policy required (no inferred data migration). Isolated tests plus mix q.",
   "id": "zaq-3px",
   "labels": [],
+  "comments": [
+    {
+      "text": "Pinned web_widget 4bd6929bb599ced0bc4a9c0536588fb8b7a002b9 in mix.exs/mix.lock. Trusted RuntimeBuilder, Zaq.PubSub, connector-key verifier, explicit authentication replica membership and direct TLS/readiness configuration wired. Widget routes are channels-role-only and outside BO/browser session pipelines; scoped /widget/:id/live mounted while BO /live and _zaq_key/Lax unchanged. Legacy records are not rewritten; adapter rejects missing issuer/audience/SameSite explicitly, with disabled-record upgrade steps in existing installation guide. Reuse evidence: existing WebBridge.start_runtime/sync_runtime/stop_runtime and Engine ManageWidgetConnector path retained; boot config/router/socket mounting are local-only host composition, not composable business operations; no Actions or agent tools added. Validation: latest mix q passed (no Credo findings), 148 isolated tests and 9 property tests passed, git diff --check passed, changed docs local paths checked. New host tests cover real adapter key/claim isolation and rotations, obsolete runtime rejection, role controls, duplicate cookie guard, actual HTTP/TLS WebSocket readiness and stopped listeners, scoped/partitioned cookies, unchanged BO session, real BO save/reopen/rebuild/readiness on both surfaces.",
+      "timestamp": "2026-10-10T17:16:13Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-3px] Pin widget candidate and mount scoped host transport",
   "type": "task",
-  "updated_at": "2026-10-10T16:16:41Z"
+  "updated_at": "2026-10-10T17:16:13Z"
 }
