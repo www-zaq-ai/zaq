@@ -39,11 +39,15 @@
     {
       "text": "Human response2026-10-10: prefers testing personally on a dev environment; does NOT approve current screenshot walkthrough. Reports today's agent answer without visible corresponding received Person message. Fixture uses November2023 provider timestamps so Person inputs are grouped far above today's answer; misleading demonstration, not accepted UX evidence. Keep .32 OPEN, no consolidated new-feature E2E authoring. Next arrange user-led normal development testing rather than further automated fixture approval requests; preserve original screenshots/records.",
       "timestamp": "2026-10-10T15:15:48Z"
+    },
+    {
+      "text": "User will set up/start the development environment personally and report back once ready. Do not start/reset/configure it on their behalf. Behavior approval remains pending; consolidated feature E2E not authorized by this response. Await user-led testing feedback.",
+      "timestamp": "2026-10-10T15:30:30Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.32] PR B explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-10-10T15:15:48Z"
+  "updated_at": "2026-10-10T15:30:30Z"
 }
