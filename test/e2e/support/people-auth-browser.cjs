@@ -21,7 +21,7 @@ async function expectFloatingWithinViewport(locator, page) {
 async function completeOAuth(page, row, rowAction, providerAction) {
   await row.getByRole("button", { name: rowAction, exact: true }).click()
   const dialog = page.locator("#credential-form-dialog")
-  await expect(dialog).toContainText("Authentication details are never displayed")
+  await expect(dialog).toContainText("Your access tokens are never displayed")
   const popupPromise = page.waitForEvent("popup")
   const modalAction = rowAction === "Connect" ? "Connect" : "Reconnect"
   await dialog.getByRole("button", { name: modalAction, exact: true }).click()

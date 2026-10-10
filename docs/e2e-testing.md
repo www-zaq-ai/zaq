@@ -225,6 +225,22 @@ mobile tables scroll within their wrapper. The same no-reset sandbox command
 above runs the entire journey. Do not run separate Mix test processes concurrently
 against this database: their global-grant transactions can block one another.
 
+### Device credential sign-in (isolated, no reset)
+
+```sh
+mix test test/zaq_web/device_credentials_browser_test.exs --include real_browser --timeout 240000
+```
+
+This sandboxed Playwright journey exercises both BO AI and People credential
+modals in Chromium, Firefox and WebKit at 390px and 1280px. It covers the safe
+new-tab verification link, pending code, reload observation, cancellation, expiry,
+worker interruption, explicit restart and successful canonical grant persistence.
+The provider HTTP collaborator is `test/support/device_browser_http.ex`; the
+external provider tab is intercepted locally. No provider network requests,
+database reset or production test hook is used. Private stdin/stdout checkpoints
+control the sandbox's attempt deadline, worker lifetime and provider approval.
+Screenshots are saved under `test/e2e/test-results/device-*.png`.
+
 ### Distributed confidentiality and cookie/logging regression tests
 
 ```sh

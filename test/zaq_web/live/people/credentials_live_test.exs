@@ -7,10 +7,27 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
 
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissionGrant, PeoplePermissions}
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Grant, OAuthAttempt}
+  alias Zaq.Engine.Connect.{DeviceAttempt, DeviceAttempts, Grant, OAuthAttempt}
   alias Zaq.Repo
   alias Zaq.System
+  alias Zaq.TestSupport.{ConnectOAuthAttemptHTTP, PersonOAuth}
   alias ZaqWeb.Live.People.CredentialsLive
+
+  setup {Req.Test, :verify_on_exit!}
+
+  setup do
+    original = Application.fetch_env(:zaq, :connect_oauth_http_client)
+    Application.put_env(:zaq, :connect_oauth_http_client, ConnectOAuthAttemptHTTP)
+
+    on_exit(fn ->
+      case original do
+        {:ok, value} -> Application.put_env(:zaq, :connect_oauth_http_client, value)
+        :error -> Application.delete_env(:zaq, :connect_oauth_http_client)
+      end
+    end)
+
+    :ok
+  end
 
   setup %{conn: conn} do
     Repo.delete_all(PeoplePermissionGrant)
@@ -227,6 +244,18 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     assert has_element?(view, "#credential-edit-#{oauth_id}.zaq-btn-secondary", "Connect")
 
     html = view |> element("#credential-edit-#{oauth_id}") |> render_click()
+
+    provider = Repo.get!(Connect.Credential, oauth_id).provider
+
+    assert has_element?(
+             view,
+             "#credential-form-dialog p",
+             "Continue to #{provider} to sign in, then return to ZAQ."
+           )
+
+    assert html =~ "Your access tokens are never displayed."
+    refute html =~ "to authorize ZAQ"
+    refute html =~ "Authentication details are never displayed."
     assert html =~ "Add AI: Personal Codex"
     view |> element("#credential-oauth-#{oauth_id}") |> render_click()
     assert_push_event(view, "open_oauth_popup", %{url: url})
@@ -673,6 +702,224 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     assert id == ctx.credential.id
   end
 
+  test "device start failures preserve the pending attempt and reject revoked permission", ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    {credential, view} = open_device_credential(ctx)
+    expect_device_code(view)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    attempt = device_attempt(credential.connect_credential_id)
+
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    assert_error_flash(view, "Unable to start device sign-in. Please try again.")
+
+    assert Repo.get_by!(DeviceAttempt, credential_id: credential.connect_credential_id).id ==
+             attempt.id
+
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :manage_credentials)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    assert_error_flash(view, "Unable to start device sign-in. Please try again.")
+
+    assert Repo.aggregate(
+             Ecto.Query.from(a in DeviceAttempt,
+               where: a.credential_id == ^credential.connect_credential_id
+             ),
+             :count
+           ) == 1
+  end
+
+  test "device cancellation requires an attempt and fails when its session is revoked", ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    mounted = mount_credentials(ctx, MapSet.new([:access_profile, :manage_credentials]))
+    {:noreply, denied} = CredentialsLive.handle_event("cancel_device", %{}, mounted)
+    assert_normalized_error(denied, "You do not have permission to manage credentials.")
+
+    {credential, view} = open_device_credential(ctx)
+    expect_device_code(view)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    attempt = device_attempt(credential.connect_credential_id)
+    {:ok, _} = PeopleAuth.revoke_session(ctx.token)
+
+    stale_socket =
+      %{
+        mounted
+        | assigns:
+            Map.put(mounted.assigns, :device_attempt, %{attempt_id: attempt.id, status: "pending"})
+      }
+
+    {:noreply, failed} = CredentialsLive.handle_event("cancel_device", %{}, stale_socket)
+    assert_normalized_error(failed, "Unable to cancel device sign-in. Please try again.")
+    assert Repo.get!(DeviceAttempt, attempt.id).status == "pending"
+  end
+
+  test "device status refresh matches only the current pending attempt", ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    {credential, view} = open_device_credential(ctx)
+    expect_device_code(view)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    attempt = device_attempt(credential.connect_credential_id)
+
+    send(view.pid, {:device_status, Ecto.UUID.generate()})
+    assert render(view) =~ "ABCD-EFGH"
+    assert Repo.get!(DeviceAttempt, attempt.id).status == "pending"
+
+    refresh_device_status(view, attempt.id)
+    assert render(view) =~ "ABCD-EFGH"
+    assert has_element?(view, "#people-device-sign-in", "Waiting for approval.")
+  end
+
+  test "matching active device status refreshes the credential grant", ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    {credential, view} = open_device_credential(ctx)
+    expect_device_code(view)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    attempt = device_attempt(credential.connect_credential_id)
+    pid = :erlang.binary_to_term(attempt.worker_pid, [:safe])
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      Req.Test.json(conn, %{"authorization_code" => "DEVICE_CODE", "code_verifier" => "VERIFIER"})
+    end)
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      {:ok, body, _} = Plug.Conn.read_body(conn)
+      form = URI.decode_query(body)
+      assert form["code_verifier"] == "VERIFIER"
+
+      Req.Test.json(conn, %{
+        "access_token" => "DEVICE_ACCESS_SECRET",
+        "refresh_token" => "DEVICE_REFRESH_SECRET",
+        "expires_in" => 3600
+      })
+    end)
+
+    assert {:ok, %{status: "active"}} = DeviceAttempts.poll(attempt.id, pid, [])
+    refresh_device_status(view, attempt.id)
+
+    assert has_element?(
+             view,
+             "#credential-status-#{credential.connect_credential_id}[aria-label='Configured']"
+           )
+
+    refute render(view) =~ "DEVICE_ACCESS_SECRET"
+    refute render(view) =~ "DEVICE_REFRESH_SECRET"
+
+    assert {:ok, %{status: "active"}} =
+             Connect.get_credential_grant_status(
+               Connect.get_credential!(credential.connect_credential_id),
+               {:person, ctx.person.id}
+             )
+  end
+
+  test "matching cancelled device status updates its display without changing credential status",
+       ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    {credential, view} = open_device_credential(ctx)
+    expect_device_code(view)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    attempt = device_attempt(credential.connect_credential_id)
+
+    assert {:ok, %{status: "cancelled"}} =
+             DeviceAttempts.cancel(attempt.id, {"person", ctx.person.id, attempt.session_id})
+
+    refresh_device_status(view, attempt.id)
+
+    assert has_element?(view, "#people-device-sign-in", "Device sign-in cancelled.")
+
+    assert has_element?(
+             view,
+             "#credential-status-#{credential.connect_credential_id}[aria-label='Not configured']"
+           )
+
+    refute render(view) =~ "ABCD-EFGH"
+    refute render(view) =~ "PRIVATE_DEVICE"
+
+    assert {:ok, %{status: "absent"}} =
+             Connect.get_credential_grant_status(
+               Connect.get_credential!(credential.connect_credential_id),
+               {:person, ctx.person.id}
+             )
+  end
+
+  test "device status failures redirect, deny and recover after configuration restoration", ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    {credential, view} = open_device_credential(ctx)
+    expect_device_code(view)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    attempt = device_attempt(credential.connect_credential_id)
+
+    {:ok, _} = System.set_config("people_access.session_lifetime_seconds", "broken")
+    refresh_device_status(view, attempt.id)
+    assert render(view) =~ "ABCD-EFGH"
+    assert Repo.get!(DeviceAttempt, attempt.id).status == "pending"
+    {:ok, _} = System.set_config("people_access.session_lifetime_seconds", "604800")
+    refresh_device_status(view, attempt.id)
+    assert render(view) =~ "ABCD-EFGH"
+
+    {:ok, _} = PeoplePermissions.revoke(:everyone, :manage_credentials)
+    refresh_device_status(view, attempt.id)
+    assert_error_flash(view, "You do not have permission to manage credentials.")
+  end
+
+  test "device status redirects after the authenticated session is revoked", ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    {credential, view} = open_device_credential(ctx)
+    expect_device_code(view)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    attempt = device_attempt(credential.connect_credential_id)
+    {:ok, _} = PeopleAuth.revoke_session(ctx.token)
+
+    refresh_device_status(view, attempt.id)
+    assert_redirect(view, "/people/login")
+  end
+
+  test "missing device status clears instructions, stops observation and permits restart", ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    {credential, view} = open_device_credential(ctx)
+    expect_device_code(view)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    attempt = device_attempt(credential.connect_credential_id)
+    Repo.delete!(attempt)
+
+    refresh_device_status(view, attempt.id)
+
+    assert has_element?(
+             view,
+             "#people-device-sign-in",
+             "This sign-in is no longer available. Start again."
+           )
+
+    refute has_element?(view, "#people-device-sign-in-code")
+    assert :sys.get_state(view.pid).socket.private.device_sign_in_polling == nil
+    refute render(view) =~ "You do not have permission to manage credentials."
+
+    expect_device_code(view)
+    view |> element("#credential-device-#{credential.connect_credential_id}") |> render_click()
+    restarted = device_attempt(credential.connect_credential_id)
+    refute restarted.id == attempt.id
+    assert has_element?(view, "#people-device-sign-in-code", "ABCD-EFGH")
+  end
+
+  test "reopening a device credential after session revocation does not expose a stale attempt",
+       ctx do
+    {:ok, _} = PeoplePermissions.grant(:everyone, :manage_credentials)
+    {credential, view} = open_device_credential(ctx)
+    expect_device_code(view)
+    render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
+    _attempt = device_attempt(credential.connect_credential_id)
+    mounted = mount_credentials(ctx, MapSet.new([:access_profile, :manage_credentials]))
+    {:ok, _} = PeopleAuth.revoke_session(ctx.token)
+
+    {:noreply, opened} =
+      CredentialsLive.handle_event(
+        "open_credential_modal",
+        %{"id" => to_string(credential.connect_credential_id)},
+        mounted
+      )
+
+    assert opened.assigns.credential_modal.credential_id == credential.connect_credential_id
+    assert opened.assigns.device_attempt == nil
+    refute render_credentials(opened) =~ "ABCD-EFGH"
+  end
+
   defp callback_socket(ctx, permissions) do
     %Phoenix.LiveView.Socket{
       assigns: %{
@@ -682,6 +929,11 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
         person_permissions: permissions
       }
     }
+  end
+
+  defp refresh_device_status(view, id) do
+    %{generation: generation} = :sys.get_state(view.pid).socket.private.device_sign_in_polling
+    send(view.pid, {:device_status, id, generation})
   end
 
   defp mount_credentials(ctx, permissions) do
@@ -722,6 +974,56 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     inputs = LazyHTML.query(document, "#credential-api-key-#{credential_id}")
     assert Enum.count(inputs) == 1
     assert LazyHTML.attribute(inputs, "value") in [[], [""]]
+  end
+
+  defp device_credential do
+    {:ok, credential} =
+      System.create_ai_provider_credential(%{
+        name: "People Device Codex",
+        provider: "openai_codex",
+        endpoint: "https://chatgpt.com/backend-api",
+        auth_kind: "oauth2",
+        personal_credential_policy: "required",
+        metadata: %{
+          "auth_profile" => "openai_chatgpt_codex",
+          "authorize_url" => "https://auth.openai.com/oauth/authorize",
+          "token_url" => "https://auth.openai.com/oauth/token",
+          "client_id" => "codex-client"
+        }
+      })
+
+    {:ok, _} = PersonOAuth.associate(credential.connect_credential_id)
+    credential
+  end
+
+  defp open_device_credential(ctx) do
+    credential = device_credential()
+    {:ok, view, _} = live(ctx.conn, "/people/credentials")
+
+    render_click(view, "open_credential_modal", %{
+      "id" => to_string(credential.connect_credential_id)
+    })
+
+    {credential, view}
+  end
+
+  defp expect_device_code(view) do
+    Req.Test.allow(ConnectOAuthAttemptHTTP, self(), view.pid)
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      Req.Test.json(conn, %{
+        "device_auth_id" => "PRIVATE_DEVICE",
+        "user_code" => "ABCD-EFGH",
+        "interval" => 900
+      })
+    end)
+  end
+
+  defp device_attempt(credential_id) do
+    attempt = Repo.get_by!(DeviceAttempt, credential_id: credential_id)
+    pid = :erlang.binary_to_term(attempt.worker_pid, [:safe])
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
+    attempt
   end
 
   defp normalize_text(text), do: text |> String.replace(~r/\s+/, " ") |> String.trim()

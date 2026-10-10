@@ -15,6 +15,7 @@
   "/storybook/components/cards/metric_card",
   "/storybook/components/charts/charts",
   "/storybook/components/design_system/breadcrumb",
+  "/storybook/components/design_system/device_sign_in",
   "/storybook/components/design_system/dropzone",
   "/storybook/components/design_system/link",
   "/storybook/components/design_system/person_header",

@@ -570,6 +570,81 @@ admin/runtime Connect CRUD, token-cache and resolver functions remain privileged
 internal operations; none is exposed as a Person action. Person OAuth uses the
 one-use trusted attempts below, never the legacy context path.
 
+#### Device sign-in protocol (`zaq-p8t`)
+
+Device-capable OAuth profiles use the separate pure
+`Zaq.Engine.Connect.OAuth.Device.Behaviour` contract and static Device registry.
+Implementations construct initiation/poll/exchange requests and interpret provider
+responses, including timing. They do not execute HTTP or own state or grants.
+Codex's device poll returns an authorization code and verifier for a final exchange
+against its device callback; it is not the standard RFC 8628 token polling grant.
+Codex HTTP 403/404 mean pending. Its initial interval comes from the response
+(including string intervals), with a five-second default and 15-minute deadline.
+
+`OAuth.Binding` only coordinates owner-domain APIs for identity/configuration binding
+and canonical grant completion. `PeopleCredentials.Authorization` shares the
+credential-management permission requirement between the authenticated gateway and
+deferred completion, reusing Accounts' session revalidation. Accounts also owns the
+active literal-identity lookup (`People.get_active_literal_person/1`); no merge aliases
+are followed. `Mutations.prepare_person_oauth_configuration/1` and
+`validate_oauth_configuration/1` require a caller transaction and retain credential
+locks; their secret-bearing configuration results never cross transport boundaries.
+`Credential` owns personal eligibility and explicit allowlisted candidate projection/
+restoration. `OAuth` owns token-material projection. Each attempt module owns its
+row locking, existence, deadline and lifecycle checks after identity/configuration
+validation, maintaining Person/session → credential → attempt lock order. Binding
+never queries these schemas or reconstructs their records. Authorization-code attempts
+retain their irreversible pre-exchange claim and PKCE checks; device polling must not
+use that claim protocol.
+
+`DeviceAttempts` stores a separate encrypted `DeviceAttempt`, bound to its initiating
+Person session (or trusted org setup), credential fingerprint, provider and deadline.
+One temporary `DeviceWorker` under the Engine's `DeviceSupervisor` drives HTTP and
+timers. Provider-normalized intervals/slowdown feed the worker; no provider names,
+endpoints or error codes enter its scheduling logic. There is one in-flight poll per
+worker. HTTP has bounded timeouts, redirects and automatic retries disabled, and runs
+outside database transactions. Approval uses shared binding validation and canonical
+mutations; grant persistence and terminal success commit atomically. Cancellation or
+configuration/session invalidation prevents late completion. Terminal writes force
+all device/candidate/user-code ciphertext columns to SQL NULL.
+
+Initiation has a separate `initializing` state with a 30-second deadline. Status
+reads during provider IO preserve that state and expose no code or verification
+URL. Worker attachment atomically changes it to `pending`; cancellation and
+initialization expiry reject late instructions or attachment. Existing pending
+rows retain their original worker semantics. Expired initialization is included
+in the same bounded cleanup even after provider instructions have been stored.
+
+Workers are `restart: :temporary`: no Oban polling, recovery job or replacement worker
+resumes an interrupted attempt. The stored PID identifies the original process/node
+incarnation. Status checks report `interrupted` after confirmed worker death, but a
+remote-node timeout reports `:unavailable` rather than declaring it dead or replacing
+it. Browser disconnects do not cancel the worker. Reopening the modal observes the
+same owner/session's latest attempt; success remains visible after worker shutdown.
+Connect's existing maintenance worker performs bounded expired-device-row cleanup.
+Person merge/deletion cancels both kinds of attempts under the existing lock order.
+
+BO and People LiveViews share one generation-checked observation timer. Reopening
+the same attempt retains the timer; switching, cancellation and terminal status
+cancel it, and already queued stale ticks cannot reschedule. A missing attempt
+ends observation, clears displayed instructions and enables explicit restart.
+Transient transport unavailability remains retryable. The UI's `unavailable`
+presentation is not a persisted attempt state.
+
+Person operations through confidential `:people_auth` are
+`:start_self_credential_device`, `:self_credential_device_status`,
+`:self_credential_device_current` and `:cancel_self_credential_device`.
+All require authenticated profile/credential-management permissions. Current/status/
+cancel derive ownership and initiating session from the bearer; another Person or
+session cannot observe the code. Start also checks the AI association allowlist.
+Trusted BO admin operations use confidential `:connect_device` with `op: :start`
+(`credential_id`, `attrs`), `:status`/`:cancel` (`attempt_id`), or `:current`
+(`credential_id`). These are domain operations, not agent tools or generic invoke APIs.
+Start/status DTOs allow only attempt ID/status/expiry, pending verification URL/user
+code, and the completed credential ID. Protocol material, tokens, candidates and
+worker identity never cross these transports. OAuth summaries additionally expose a
+boolean `device_code_supported`, not profile metadata or implementation modules.
+
 #### One-use OAuth and canonical admin setup (`zaq-jrg.6`)
 
 The trusted backend API is:

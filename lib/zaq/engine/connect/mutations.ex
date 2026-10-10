@@ -24,7 +24,7 @@ defmodule Zaq.Engine.Connect.Mutations do
   alias Ecto.Changeset
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
-  alias Zaq.Engine.Connect.{Credential, Grant, MutationEvents}
+  alias Zaq.Engine.Connect.{Credential, Grant, MutationEvents, Snapshot}
   alias Zaq.Engine.Connect.OAuth.Registry, as: OAuthBehaviourRegistry
   alias Zaq.Repo
   alias Zaq.System.AIProviderCredential
@@ -138,6 +138,66 @@ defmodule Zaq.Engine.Connect.Mutations do
       validate_auth_change(original, candidate, {:replace, %{}})
       candidate
     end)
+  end
+
+  @doc "Locks and validates a personal OAuth configuration inside the authentication transaction."
+  @spec prepare_person_oauth_configuration(pos_integer()) ::
+          {:ok, Credential.t()} | {:error, atom()}
+  def prepare_person_oauth_configuration(id) do
+    in_caller_transaction(fn ->
+      credential = lock_credential(id)
+
+      ensure(
+        credential.auth_kind == "oauth2" and Credential.personal_grants_enabled?(credential),
+        :not_found
+      )
+
+      credential
+    end)
+  end
+
+  @doc "Validates the immutable OAuth configuration binding under the canonical credential lock."
+  @spec validate_oauth_configuration(map()) :: {:ok, Credential.t()} | {:error, atom()}
+  def validate_oauth_configuration(binding) do
+    in_caller_transaction(fn ->
+      owner = validate_owner(binding.owner)
+      current = if binding.credential_id, do: lock_credential(binding.credential_id)
+
+      ensure(
+        binding.config_fingerprint == oauth_configuration_fingerprint(binding.credential_id),
+        :invalid_attempt
+      )
+
+      credential = oauth_candidate(owner, binding.candidate_config, current)
+
+      ensure(
+        credential.provider == binding.provider and credential.auth_kind == "oauth2",
+        :invalid_attempt
+      )
+
+      if match?({:person, _}, owner),
+        do: ensure(Credential.personal_grants_enabled?(credential), :invalid_attempt)
+
+      credential
+    end)
+  end
+
+  @doc "Configuration revision for OAuth binding, including ciphertext but excluding timestamps."
+  @spec oauth_configuration_fingerprint(pos_integer() | nil) :: binary()
+  def oauth_configuration_fingerprint(nil), do: :crypto.hash(:sha256, "new-credential")
+  def oauth_configuration_fingerprint(id), do: Snapshot.credential(id, timestamps: false)
+
+  defp oauth_candidate({:person, _}, _candidate, current), do: current
+
+  defp oauth_candidate(:org, serialized, _current) do
+    case Credential.restore_oauth_configuration(serialized) do
+      {:ok, credential} -> credential
+      _ -> Repo.rollback(:invalid_attempt)
+    end
+  end
+
+  defp in_caller_transaction(operation) do
+    if Repo.in_transaction?(), do: transact(operation), else: {:error, :transaction_required}
   end
 
   defp configuration_candidate(original, attrs) do

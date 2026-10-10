@@ -7,7 +7,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
   alias Phoenix.LiveView.JS
   alias Zaq.Utils.Map, as: MapUtils
   alias ZaqWeb.Components.BOModal
-  alias ZaqWeb.Components.DesignSystem.Button
+  alias ZaqWeb.Components.DesignSystem.{Button, DeviceSignIn}
 
   attr :credentials, :list, required: true
   attr :ai_grants, :list, default: []
@@ -18,6 +18,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
   attr :credential_id, :any, default: nil
   attr :provider_options, :list, required: true
   attr :oauth_behaviours, :list, required: true
+  attr :device_attempt, :map, default: nil
 
   def panel(assigns) do
     ~H"""
@@ -91,6 +92,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
       max_width_class="max-w-2xl"
     >
       <.form
+        :if={!DeviceSignIn.in_progress?(@device_attempt)}
         id="ai-credential-form"
         for={@form}
         phx-change="validate_ai_credential"
@@ -401,10 +403,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
         </div>
       </.form>
 
+      <DeviceSignIn.device_sign_in
+        :if={@device_attempt}
+        id="ai-device-sign-in"
+        attempt={@device_attempt}
+      />
+
       <:actions>
         <div class="flex w-full items-center justify-between gap-3">
           <Button.button
-            :if={@action == :edit}
+            :if={@action == :edit and !DeviceSignIn.in_progress?(@device_attempt)}
             variant={:tertiary}
             danger
             phx-click="open_delete_ai_credential_confirm"
@@ -414,7 +422,28 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
 
           <div class="ml-auto flex items-center gap-3">
             <Button.button
-              :if={@action == :edit and auth_mode(@form) == "oauth2"}
+              :if={
+                device_supported?(@form, @oauth_behaviours) and
+                  !DeviceSignIn.in_progress?(@device_attempt)
+              }
+              id="ai-device-connect"
+              variant={:secondary}
+              type={if(@action == :new, do: "submit", else: "button")}
+              form={if(@action == :new, do: "ai-credential-form")}
+              name={if(@action == :new, do: "oauth_flow")}
+              value={if(@action == :new, do: "device_code")}
+              phx-click={if(@action == :edit, do: "connect_ai_device")}
+            >Sign in with device code</Button.button>
+            <Button.button
+              :if={DeviceSignIn.in_progress?(@device_attempt)}
+              variant={:secondary}
+              phx-click="cancel_ai_device"
+            >Cancel sign-in</Button.button>
+            <Button.button
+              :if={
+                @action == :edit and auth_mode(@form) == "oauth2" and
+                  !DeviceSignIn.in_progress?(@device_attempt)
+              }
               variant={:secondary}
               type="button"
               phx-click="connect_ai_credential_oauth"
@@ -425,7 +454,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
             <Button.button variant={:secondary} phx-click="close_ai_credential_modal">
               Cancel
             </Button.button>
-            <Button.button type="submit" form="ai-credential-form">
+            <Button.button
+              :if={!DeviceSignIn.in_progress?(@device_attempt)}
+              type="submit"
+              form="ai-credential-form"
+            >
               Save credential
             </Button.button>
           </div>
@@ -444,6 +477,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
       />
     </BOModal.form_dialog>
     """
+  end
+
+  defp device_supported?(form, behaviours) do
+    auth_mode(form) == "oauth2" and
+      Enum.any?(behaviours, fn entry ->
+        entry.id == oauth_behaviour(form) and Map.get(entry, :device_code_supported, false)
+      end)
   end
 
   defp auth_mode(form) do

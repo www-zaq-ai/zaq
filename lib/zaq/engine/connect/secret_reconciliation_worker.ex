@@ -14,7 +14,7 @@ defmodule Zaq.Engine.Connect.SecretReconciliationWorker do
       states: [:available, :scheduled, :executing, :retryable]
     ]
 
-  alias Zaq.Engine.Connect.PersonLifecycle
+  alias Zaq.Engine.Connect.{DeviceAttempts, PersonLifecycle}
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
@@ -23,7 +23,7 @@ defmodule Zaq.Engine.Connect.SecretReconciliationWorker do
 
     {outcome, counts} =
       case result do
-        {:ok, result} -> {:ok, Map.take(result, [:grants_deleted, :attempts_deleted])}
+        {:ok, result} -> device_cleanup(result)
         {:error, _} -> {:error, %{grants_deleted: 0, attempts_deleted: 0}}
       end
 
@@ -36,5 +36,18 @@ defmodule Zaq.Engine.Connect.SecretReconciliationWorker do
     if outcome == :ok, do: :ok, else: {:error, :reconciliation_failed}
   rescue
     _ -> {:error, :reconciliation_failed}
+  end
+
+  defp device_cleanup(result) do
+    case DeviceAttempts.reconcile() do
+      {:ok, count} ->
+        {:ok,
+         result
+         |> Map.take([:grants_deleted, :attempts_deleted])
+         |> Map.update!(:attempts_deleted, &(&1 + count))}
+
+      _ ->
+        {:error, Map.take(result, [:grants_deleted, :attempts_deleted])}
+    end
   end
 end

@@ -9,6 +9,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Accounts.People
   alias Zaq.Channels.ChannelConfig
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.Connect.DeviceAttempts
   alias Zaq.Engine.Connect.OAuth
   alias Zaq.Engine.Connect.OAuth.Registry, as: OAuthBehaviourRegistry
   alias Zaq.Engine.Connect.OAuthAttempts
@@ -695,6 +696,17 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(%Event{} = event, :connect_device, _context) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true do
+        device_request(event.request, event.opts)
+      else
+        {:error, :confidential_event_required}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, :workflow, _context) do
     case event.request do
       %{action: "run.approve", run_id: run_id, person_id: person_id} = req ->
@@ -890,6 +902,21 @@ defmodule Zaq.Engine.Api do
     person = People.get_person(person_id)
     person != nil and Permissions.can?(person, :run, workflow)
   end
+
+  defp device_request(%{op: :start, credential_id: id, attrs: attrs}, opts)
+       when (is_integer(id) or is_nil(id)) and is_map(attrs),
+       do: DeviceAttempts.start_global_configuration(id, attrs, opts)
+
+  defp device_request(%{op: :status, attempt_id: id}, opts),
+    do: DeviceAttempts.status(id, :org, opts)
+
+  defp device_request(%{op: :current, credential_id: id}, opts) when is_integer(id),
+    do: DeviceAttempts.current(id, :org, opts)
+
+  defp device_request(%{op: :cancel, attempt_id: id}, opts),
+    do: DeviceAttempts.cancel(id, :org, opts)
+
+  defp device_request(_, _), do: {:error, :invalid_request}
 
   defp authenticated_user_id(%{user_id: user_id}) when not is_nil(user_id), do: {:ok, user_id}
   defp authenticated_user_id(%{"user_id" => user_id}) when not is_nil(user_id), do: {:ok, user_id}

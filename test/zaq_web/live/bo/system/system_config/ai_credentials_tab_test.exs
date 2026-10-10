@@ -223,6 +223,48 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
     assert html =~ "{}"
   end
 
+  test "new and edit Codex modals expose device sign-in, pending instructions and cancellation" do
+    credential = %AIProviderCredential{
+      name: "Codex",
+      provider: "openai_codex",
+      auth_kind: "oauth2",
+      metadata: %{"auth_profile" => "openai_chatgpt_codex"},
+      endpoint: "https://chatgpt.com/backend-api"
+    }
+
+    form = credential |> AIProviderCredential.changeset(%{}) |> to_form(as: :ai_credential)
+    behaviours = Zaq.Engine.Connect.OAuth.Registry.public_entries()
+
+    for action <- [:new, :edit] do
+      html = render_panel(modal: true, action: action, form: form, oauth_behaviours: behaviours)
+      assert html =~ "ai-device-connect"
+      assert html =~ "Sign in with device code"
+    end
+
+    pending = %{
+      status: "pending",
+      verification_uri: "https://auth.openai.com/codex/device",
+      user_code: "ABCD-EFGH",
+      expires_at: ~U[2026-10-09 12:15:00Z]
+    }
+
+    html =
+      render_panel(
+        modal: true,
+        action: :new,
+        form: form,
+        device_attempt: pending,
+        oauth_behaviours: behaviours
+      )
+
+    assert html =~ "ABCD-EFGH"
+    assert html =~ "Open in new tab"
+    assert html =~ "cancel_ai_device"
+    refute html =~ "ai-device-connect"
+    refute html =~ "Save credential"
+    refute html =~ "ai_credential[metadata]"
+  end
+
   defp render_panel(assigns) do
     render_component(
       &AICredentialsTab.panel/1,

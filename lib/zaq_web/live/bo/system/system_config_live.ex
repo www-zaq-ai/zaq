@@ -40,6 +40,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPRows
   alias ZaqWeb.Live.BO.System.SystemConfig.SkillsTab
   alias ZaqWeb.Live.BO.System.SystemConfig.TelemetryEvents
+  alias ZaqWeb.Live.DeviceSignInPolling
   alias ZaqWeb.StudioRuntime
 
   def mount(_params, session, socket) do
@@ -60,6 +61,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:people_access_load_error, nil)
      |> assign(:node_router_module, node_router_module)
      |> assign(:ai_credential_modal, false)
+     |> assign(:ai_device_attempt, nil)
+     |> assign(:ai_device_policy, nil)
      |> assign(:ai_credential_delete_confirm_modal, false)
      |> assign(:ai_credential_action, :new)
      |> assign(:ai_credential_id, nil)
@@ -993,18 +996,29 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── AI Credentials ─────────────────────────────────────────────────────
 
   def handle_event("new_ai_credential", _params, socket) do
-    {:noreply, AICredentialEvents.open_new_modal(socket, &load_ai_credential_form/1)}
+    {:noreply,
+     socket
+     |> assign(ai_device_attempt: nil, ai_device_policy: nil)
+     |> schedule_ai_device_status(nil)
+     |> AICredentialEvents.open_new_modal(&load_ai_credential_form/1)}
   end
 
   def handle_event("edit_ai_credential", %{"id" => id}, socket) do
     credential = engine_get_ai_provider_credential!(id)
 
+    attempt =
+      case dispatch_device(%{op: :current, credential_id: credential.connect_credential_id}) do
+        {:ok, attempt} -> attempt
+        _ -> nil
+      end
+
     {:noreply,
      AICredentialEvents.open_edit_modal(
-       socket,
+       assign(socket, ai_device_attempt: attempt, ai_device_policy: nil),
        credential,
        &engine_change_ai_provider_credential/2
-     )}
+     )
+     |> schedule_ai_device_status(attempt)}
   end
 
   def handle_event("connect_ai_credential_oauth", %{"id" => id}, socket) do
@@ -1021,6 +1035,37 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   def handle_event("close_ai_credential_modal", _params, socket) do
     {:noreply, AICredentialEvents.close_modal(socket)}
+  end
+
+  def handle_event("connect_ai_device", _, socket) do
+    with {:ok, credential} <- fetch_ai_credential(socket.assigns.ai_credential_id),
+         {:ok, connect} <- ensure_ai_connect_credential(credential) do
+      attrs =
+        if socket.assigns.ai_device_policy,
+          do: %{personal_credential_policy: socket.assigns.ai_device_policy},
+          else: %{}
+
+      {:noreply, start_ai_device(socket, connect.id, attrs)}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Unable to start device sign-in.")}
+    end
+  end
+
+  def handle_event("cancel_ai_device", _, socket) do
+    case socket.assigns.ai_device_attempt do
+      %{attempt_id: id} ->
+        case dispatch_device(%{op: :cancel, attempt_id: id}) do
+          {:ok, attempt} ->
+            {:noreply,
+             socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)}
+
+          _ ->
+            {:noreply, put_flash(socket, :error, "Unable to cancel device sign-in.")}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("open_delete_ai_credential_confirm", _params, socket) do
@@ -1076,6 +1121,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
       |> Map.put(:action, :validate)
 
     {:noreply, assign(socket, :ai_credential_form, to_form(changeset, as: :ai_credential))}
+  end
+
+  def handle_event(
+        "save_ai_credential",
+        %{"ai_credential" => params, "oauth_flow" => "device_code"},
+        socket
+      ) do
+    params = AICredentialEvents.normalize_params(params)
+    {:noreply, save_new_device_and_connect(socket, params)}
   end
 
   def handle_event("save_ai_credential", %{"ai_credential" => params}, socket) do
@@ -1194,11 +1248,42 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
+  def handle_info({:ai_device_status, id, generation}, socket) do
+    case DeviceSignInPolling.consume(socket, id, generation) do
+      {:ok, socket} -> refresh_ai_device_status(socket, socket.assigns.ai_device_attempt)
+      :stale -> {:noreply, socket}
+    end
+  end
+
+  def handle_info({:ai_device_status, _id}, socket), do: {:noreply, socket}
+
   def handle_info(:studio_runtime_started, socket) do
     {:noreply, assign(socket, :studio_running, StudioRuntime.running?())}
   end
 
   # ── Private ────────────────────────────────────────────────────────────
+
+  defp refresh_ai_device_status(socket, previous) do
+    case dispatch_device(%{op: :status, attempt_id: previous.attempt_id}) do
+      {:ok, attempt} ->
+        socket =
+          socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)
+
+        socket =
+          if attempt.status == "active", do: refresh_ai_device_success(socket), else: socket
+
+        {:noreply, socket}
+
+      {:error, :not_found} ->
+        attempt = %{attempt_id: previous.attempt_id, status: "unavailable"}
+
+        {:noreply,
+         socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)}
+
+      _ ->
+        {:noreply, schedule_ai_device_status(socket, previous)}
+    end
+  end
 
   defp do_save_embedding(socket, params) do
     changeset = EmbeddingConfig.changeset(engine_get_embedding_config(), params)
@@ -1755,6 +1840,103 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         |> load_ai_credentials()
         |> put_flash(:error, ai_oauth_error(reason))
     end
+  end
+
+  defp save_new_device_and_connect(socket, params) do
+    profile = MapUtils.metadata_value(params["metadata"], "auth_profile")
+
+    supported =
+      Enum.any?(socket.assigns.oauth_behaviours, fn entry ->
+        entry.id == profile and Map.get(entry, :device_code_supported, false)
+      end)
+
+    if socket.assigns.ai_credential_action == :new and params["auth_kind"] == "oauth2" and
+         supported do
+      desired_policy = params["personal_credential_policy"] || "required"
+
+      staged =
+        params |> Map.put("personal_credential_policy", "required") |> mark_oauth_setup_pending()
+
+      create_device_definition(socket, staged, desired_policy)
+    else
+      put_flash(socket, :error, "This credential does not support device sign-in.")
+    end
+  end
+
+  defp create_device_definition(socket, params, desired_policy) do
+    case engine_create_ai_provider_credential(params) do
+      {:ok, credential} ->
+        socket =
+          AICredentialEvents.open_edit_modal(
+            socket,
+            credential,
+            &engine_change_ai_provider_credential/2
+          )
+
+        socket = assign(socket, ai_device_policy: desired_policy)
+
+        case ensure_ai_connect_credential(credential) do
+          {:ok, connect} ->
+            start_ai_device(socket, connect.id, %{personal_credential_policy: desired_policy})
+
+          _ ->
+            put_flash(socket, :error, "Unable to start device sign-in.")
+        end
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        assign(
+          socket,
+          :ai_credential_form,
+          to_form(Map.put(changeset, :action, :validate), as: :ai_credential)
+        )
+
+      _ ->
+        put_flash(socket, :error, "Unable to create the credential.")
+    end
+  end
+
+  defp start_ai_device(
+         %{assigns: %{ai_device_attempt: %{status: status}}} = socket,
+         _id,
+         _attrs
+       )
+       when status in ["initializing", "pending"] do
+    socket
+  end
+
+  defp start_ai_device(socket, credential_id, attrs) do
+    case dispatch_device(%{op: :start, credential_id: credential_id, attrs: attrs}) do
+      {:ok, attempt} ->
+        socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)
+
+      _ ->
+        put_flash(socket, :error, "Unable to start device sign-in. Please try again.")
+    end
+  end
+
+  defp schedule_ai_device_status(socket, attempt),
+    do: DeviceSignInPolling.schedule(socket, attempt, :ai_device_status)
+
+  defp dispatch_device(request) do
+    Events.build_and_dispatch_invoke_event(request, :connect_device,
+      node_router: node_router_module(),
+      event_opts: [confidential: true]
+    ).response
+  rescue
+    _ -> {:error, :unavailable}
+  catch
+    :exit, _ -> {:error, :unavailable}
+  end
+
+  defp refresh_ai_device_success(socket) do
+    modal_open = socket.assigns.ai_credential_modal
+    credential = engine_get_ai_provider_credential!(socket.assigns.ai_credential_id)
+
+    socket
+    |> AICredentialEvents.open_edit_modal(credential, &engine_change_ai_provider_credential/2)
+    |> assign(ai_device_policy: nil, ai_credential_modal: modal_open)
+    |> load_ai_credentials()
+    |> load_ai_grants()
   end
 
   defp mark_oauth_setup_pending(params) do
