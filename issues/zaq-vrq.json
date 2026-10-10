@@ -12,11 +12,15 @@
     {
       "text": "Keep blocked by zaq-xfl final completed UX approval. Host implementation now covers desired issuer/audience/SameSite, legacy preserve choices, enabled-vs-readiness chips, periodic health on both surfaces, dirty edits preserved. Add final journey scenarios only after approval. Real adapter websocket/session enforcement awaits widget #10/#12/#16. Browser bootstrap in isolated _widget_settings_20261009 partition timed out compiling dependencies; no E2E pass claimed.",
       "timestamp": "2026-10-09T15:13:55Z"
+    },
+    {
+      "text": "Candidate integration now verified at 4bd6929bb599ced0bc4a9c0536588fb8b7a002b9; prerequisite zaq-lbk completed. Keep blocked on explicit human completed UX approval zaq-xfl. Consolidated journey should cover create/save/reopen defaults and custom issuer/audience/SameSite; strict legacy upgrade/no automatic rewrite; generate/rotate key and enable/disable; enabled distinct from Ready with zero visitors; saved versus effective configuration and dirty edits during health refresh; Channels list matching connector cards; scoped cookies/CSRF/BO isolation and actual embedded question/reply/renew/reconnect/context-selected restore/signed disconnect. Manual exploratory probe is not committed feature E2E. Existing 201 E2E tests across three browsers passed, but this does not satisfy new feature coverage gate.",
+      "timestamp": "2026-10-10T17:16:17Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-vrq] Finalize widget settings and health feature E2E",
   "type": "task",
-  "updated_at": "2026-10-09T15:13:55Z"
+  "updated_at": "2026-10-10T17:16:17Z"
 }
