@@ -22,11 +22,15 @@
     {
       "text": "Approved post-binding cleanup completed under zaq-p8t.7: redundant forwards removed and credential gateway auth/transaction/rollback consolidated without changing domain ownership or IO/locking. Final issue-level validation510tests/24properties plus3browser tests(all3engines,bothsurfaces,390/1280px) and mix q pass. Full precommit not rerun as an issue-level check; latest final-gate failure remains unresolved, not waived. No final approval requested; refactor/cleanup remain uncommitted.",
       "timestamp": "2026-10-10T09:54:17Z"
+    },
+    {
+      "text": "Owner-domain refactor and approved cleanup committed/pushed as17d443969 on PR #841 at Julien's explicit request. Worktree clean; commit/pre-push hooks pass. Existing focused510tests/24properties and browser matrix validation retained. No merge; latest full-suite validation blocker remains unresolved and no green full gate claimed.",
+      "timestamp": "2026-10-10T11:06:50Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p8t.5] E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-10T09:54:17Z"
+  "updated_at": "2026-10-10T11:06:50Z"
 }
