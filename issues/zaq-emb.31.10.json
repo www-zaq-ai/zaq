@@ -38,11 +38,15 @@
     {
       "text": "Latest integrated core is282tests/7properties pass137.4s, current mix q/diff-check pass; wider374tests/15properties/6doctests passes and overlaps. Added real standalone accepted Executor busy lease -\u003e root closure -\u003e continued input after access loss -\u003e two persisted answers -\u003e retirement, selecting exact scope not global state. Keep prior intermittent committed-delivery evidence unresolved; passing retry does not prove its cause/fix. Human behavior/E2E, review/coverage/precommit still pending, no publication.",
       "timestamp": "2026-10-10T13:00:15Z"
+    },
+    {
+      "text": "New live manual demo blocker .31.21 must be reconciled before acceptance; docs/operations/admission-live-demo-blocker.md preserves exact evidence. Original native pending parent/idle worker differs from previously closed .31.11 completed-record ordering case. Do not conflate or assume dependency incompatibility. No implementation change made for this finding.",
+      "timestamp": "2026-10-10T13:22:31Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
   "type": "task",
-  "updated_at": "2026-10-10T13:00:15Z"
+  "updated_at": "2026-10-10T13:22:31Z"
 }
