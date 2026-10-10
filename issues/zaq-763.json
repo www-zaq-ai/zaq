@@ -18,11 +18,15 @@
     {
       "text": "Initial mix q failed in ExDNA internal Task.Supervised.stream(5000) timeout after hooks.verify passed. Detailed retry/diagnosis plan delegated; no check suppression or production/config changes authorized.",
       "timestamp": "2026-10-10T16:39:26Z"
+    },
+    {
+      "text": "Final scoped coverage used only seven added/edited test files. Table truncates long paths; widened grep in a second targeted run. Latest run: 299 tests, 3 properties, 1 failure (DBConnection checkout queue timeout during SystemConfigLive mount). No assertion weakening or further rerun. Scoped percentages: credential95.1, credential_statuses7.8, device_attempts97.5, person_lifecycle72.0, secret_reconciliation_worker61.5, people_auth_gateway96.9, system_config_live94.8 (2663 lines). These subset percentages are not comparable to supplied whole-suite baselines. mix q passed; all isolated file tests passed before coverage. Remaining unreachable/environment-dependent gaps documented above. Work uncommitted; task remains open due coverage-run failure and exceptions.",
+      "timestamp": "2026-10-10T16:51:03Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-763] Cover seven supplied Connect and SystemConfig gaps",
   "type": "task",
-  "updated_at": "2026-10-10T16:39:26Z"
+  "updated_at": "2026-10-10T16:51:03Z"
 }
