@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T15:59:58Z",
+  "description": "Coordinate supplied seven-file missed-line coverage. General planners produce complete per-file plans; merge shared test ownership, mini-worker implementation, mix q, targeted edited-test coverage only. Action reuse not applicable: tests only; no production operations change. No commits or full-suite coverage rerun authorized.",
+  "id": "zaq-763",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[coverage] Cover seven supplied Connect and SystemConfig gaps",
+  "type": "task",
+  "updated_at": "2026-10-10T15:59:58Z"
+}
