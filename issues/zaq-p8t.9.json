@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Julien",
   "blocked_by": [],
   "blocks": [
     "zaq-p8t.10"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "zaq-p8t",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Fix device sign-in initialization race",
   "type": "task",
-  "updated_at": "2026-10-10T13:18:26Z"
+  "updated_at": "2026-10-10T13:18:35Z"
 }
