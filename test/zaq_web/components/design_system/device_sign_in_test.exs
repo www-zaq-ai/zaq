@@ -34,4 +34,19 @@ defmodule ZaqWeb.Components.DesignSystem.DeviceSignInTest do
       refute html =~ "target="
     end
   end
+
+  test "active state confirms completion without pending-flow content" do
+    html =
+      render_component(&DeviceSignIn.device_sign_in/1,
+        id: "device",
+        attempt: %{status: "active"}
+      )
+
+    assert html =~ ~s(id="device")
+    assert html =~ "Device sign-in completed. Your credential is connected."
+    refute html =~ "Sign-in code"
+    refute html =~ "Open in new tab"
+    refute html =~ "target="
+    refute html =~ "Start a new device sign-in"
+  end
 end
