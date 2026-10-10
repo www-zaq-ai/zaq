@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T11:41:15Z",
+  "description": "Independent test-only child; no dependencies. Merge Plans A/B/C in full. Allowed files only test/zaq/engine/connect/device_attempts_test.exs and test/zaq/engine/people_credentials_gateway_test.exs. Cover initiation malformed response, raising/injected request fallback; slow_down at interval 3600; poll HTTP raise; approval missing access_token rollback; missing expires_in; cancellation during pending poll; invalid ID/owner, exact expiry status, advancing now clock expiry, pre-attachment interrupted state; start encryption failure and invalid OAuth config rollback. Cover worker rejected second worker preserving original PID/pending status; worker 429 slow_down reschedule interval 6 using Req.Test message and :sys.get_state barrier, then cancel/monitor normal termination/secrets erased. Gateway: authenticated device status before revocation in existing person session test; valid bearer + manage permission current lookup of unassociated Connect credential returns exactly not_found and verify absent from AI-associated IDs. Preserve existing property coverage. Explicitly document unreachable: approved poll tuple absent from static providers; changed binding fallback rejected earlier; nonpending row race lacks deterministic synchronization. Remote PID liveness only test if deterministic existing remote fixture supported; otherwise document infra exception. No fabricated seam, no sleeps, no config mutation, no production edits. Do not run tests/mix/format until coordinator follow-up. Action reuse N/A. Coordinator directs no worker validation; central mix q and targeted coverage at end.",
+  "id": "zaq-p8t.8.2",
+  "labels": [],
+  "parent": "zaq-p8t.8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-p8t.8] Implement full device attempt and gateway coverage handoff",
+  "type": "task",
+  "updated_at": "2026-10-10T11:41:15Z"
+}
