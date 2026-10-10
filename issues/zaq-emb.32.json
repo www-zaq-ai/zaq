@@ -27,11 +27,15 @@
     {
       "text": "Admission-time continuation is now locally validated through P1-P6; core282tests/7properties and preservation374tests/15properties/6doctests pass, mix q/diff-check pass. Renewed behavior to review: each input gates once; accepted running/waiting/steering/recovered work finishes and delivers after membership loss; fresh history/new input/inspection remain currently authorized; prior authorized context/tool pairs persist; manual grant survival prevents retirement; exact-PID retirement waits for accepted completion. No approver/date/scope recorded; no new browser E2E authored. This is the behavior approval gate, not final quality approval or Git authorization. Evidence checkpoint docs/exec-plans/active/2026-10-08-handoff-history-b.md.",
       "timestamp": "2026-10-10T13:00:16Z"
+    },
+    {
+      "text": "User selected Show live behavior first, not approval. Manual isolated browser walkthrough now blocked: accepted original stays pending after external response release (native parent awaiting_llm while worker idle); new input was correctly denied/unadmitted and BO shows no grants. Evidence docs/operations/admission-live-demo-blocker.md; diagnostic issue .31.21 blocks finalization. No E2E authored/approval granted, no dependency or production fix, no publication. Earlier passing matrices do not waive this live failure.",
+      "timestamp": "2026-10-10T13:22:29Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.32] PR B explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-10-10T13:00:16Z"
+  "updated_at": "2026-10-10T13:22:29Z"
 }
