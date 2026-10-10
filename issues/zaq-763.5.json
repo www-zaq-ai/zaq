@@ -7,9 +7,15 @@
   "id": "zaq-763.5",
   "labels": [],
   "parent": "zaq-763",
+  "comments": [
+    {
+      "text": "Full reachable LiveView scenarios implemented. Reviewed and corrected capability fabrication, validation assertions, active refresh observations and staged confidentiality checks. Isolated file passes 238 tests. Unsupported creation response/missing link and private helper reachability exceptions remain.",
+      "timestamp": "2026-10-10T16:39:17Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-763] Implement SystemConfig LiveView coverage plan",
   "type": "task",
-  "updated_at": "2026-10-10T16:00:46Z"
+  "updated_at": "2026-10-10T16:39:17Z"
 }
