@@ -13,11 +13,15 @@
     {
       "text": "Device sign-in finalization also reproduces this unchanged baseline failure: final mix precommit seed 659734 (8854 tests/139 properties, 2 failures; both pass via mix test --failed), and subsequent gate (8037 tests/133 properties, 1 failure at llm_performance_failure_test.exs:12, stale holder owner exited). Earlier full gate passed 9989 tests/191 properties/48 doctests. No telemetry assertions weakened and no unrelated implementation edits. Blocks zaq-p8t.5 final approval; device browser journeys pass all 3 engines at 390/1280px.",
       "timestamp": "2026-10-09T18:35:54Z"
+    },
+    {
+      "text": "Telemetry stale-holder failure recurred during device-code binding refactor final mix precommit; LLMPerformanceFailureTest plus two unchanged workflow/disk tests failed in full run (17doctests/141properties/8862tests,3failures). Immediate mix test --failed seed962479 passes all3. Focused500tests/24properties,3engine browser matrix and mix q pass. No telemetry assertions or production code altered. zaq-p8t.5 finalization remains blocked.",
+      "timestamp": "2026-10-10T07:02:22Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[query-amplification] Investigate full-suite telemetry sandbox checkout failure",
   "type": "bug",
-  "updated_at": "2026-10-09T18:35:59Z"
+  "updated_at": "2026-10-10T07:02:22Z"
 }
