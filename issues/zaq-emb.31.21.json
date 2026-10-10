@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "zaq-emb.31.20"
+  ],
   "created": "2026-10-10T13:22:14Z",
   "description": "2026-10-10 manual browser demo test/repro/admission_live_demo.exs on branch-isolated fresh E2E DB and separate _build/test-e2e. Original input admitted/pending; real Engine membership removal revision2 revoked access; new input failed unadmitted. Releasing several-minutes-held external model did not finish original input: native parent awaiting_llm/pending, worker idle/runtime_task nil/run_id nil/last_error nil, lease and pin retained. Evidence docs/operations/admission-live-demo-blocker.md and screenshots in docs/exec-plans/active/. Jido/JidoAI2.4.0 ReqLLM1.22.0 loaded. Do not assume membership defect or dependency incompatibility; distinguish timeout/fixture/worker-incarnation/request-correlation before fixes. Similar historical .31.11 was completed-request reordering; this parent request is pending, so do not silently reopen or equate them. Preserve failure, no assertion weakening or retries-as-fixes, stop/report new dependency incompatibilities before fixing. Human selected Show live behavior first: .32 approval not granted; E2E/review/coverage/precommit/publication remain open. No production/dependency edits authorized by this finding.",
   "id": "zaq-emb.31.21",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "[#768] Diagnose blocked live admission walkthrough before behavior approval",
   "type": "bug",
-  "updated_at": "2026-10-10T13:22:14Z"
+  "updated_at": "2026-10-10T13:22:28Z"
 }
