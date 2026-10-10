@@ -15,11 +15,15 @@
     {
       "text": "Current blocker: after test-only queue_target1000ms,16 consecutive isolated runs of both concurrent cases passed (32 executions), but final10file seed625 matrix still180tests8properties1failure at refreshed-Shared Bob initial model assertion5s. A focused diagnostic reproduced it: no extra/misclassified concurrent_initial request was present, and both private roots remained pending. Thus absent Bob model request, not proven wrong prompt/label. Initial-race root cause remains undetermined after repeated attempts; escalate rather than self-approve or waive. Ten subsequent isolated retries passed but do not erase the recorded failure. All temporary native tracing, telemetry tracing, stdout diagnostics and helper changes removed; original strategy test file has zero uncommitted diff. mix q and diffcheck pass. Leave config/test.exs queue adjustment, stronger Shared revocation fixtures and updated handoff uncommitted pending successful acceptance validation. zaq-emb.31 in_progress, .32 open/blocked; no E2E/newpublication/finalprecommit approval.",
       "timestamp": "2026-10-08T21:25:33Z"
+    },
+    {
+      "text": "Approved fix: single HTTP/1 Finch pool preserving per-origin capacity, new REQ_LLM_POOL_SIZE with legacy REQ_LLM_POOL_COUNT capacity fallback. Regression first: force supported selector collision and hold two real HTTP/ReqLLM calls; cover saturation/cancellation/reuse and env validation. Action reuse N/A configuration/test infrastructure. Issue1 deferred per user; diagnostic capture retained. No dependency upgrade or publication authorized.",
+      "timestamp": "2026-10-10T06:22:39Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] Diagnose intermittent committed-delivery wait in real concurrency",
   "type": "bug",
-  "updated_at": "2026-10-08T21:25:33Z"
+  "updated_at": "2026-10-10T06:22:39Z"
 }
