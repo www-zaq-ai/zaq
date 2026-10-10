@@ -7,9 +7,15 @@
   "id": "zaq-p8t.8.3",
   "labels": [],
   "parent": "zaq-p8t.8",
+  "comments": [
+    {
+      "text": "Validation: mix test test/zaq_web/components/design_system/device_sign_in_test.exs — 3 tests, 0 failures. No coverage or formatting run. Keeping open pending central mix q and coverage.",
+      "timestamp": "2026-10-10T11:42:40Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p8t.8.3] Add active device sign-in component regression coverage",
   "type": "task",
-  "updated_at": "2026-10-10T11:41:21Z"
+  "updated_at": "2026-10-10T11:42:40Z"
 }
