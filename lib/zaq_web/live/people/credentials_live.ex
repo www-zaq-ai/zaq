@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
   alias ZaqWeb.Components.BOModal
   alias ZaqWeb.Components.DesignSystem.{Button, DeviceSignIn, PersonHeader, SecretInput, Table}
   alias ZaqWeb.Components.PersonLayout
+  alias ZaqWeb.Live.DeviceSignInPolling
 
   @impl true
   def mount(_params, session, socket) do
@@ -40,10 +41,11 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
          {:ok, _credential_id, credential} <- credential(socket, id),
          true <- configurable?(credential) do
       attempt = current_device_attempt(socket, credential)
-      schedule_device_status(attempt)
 
       {:noreply,
-       assign(socket, credential_modal: credential, confirm_action: nil, device_attempt: attempt)}
+       socket
+       |> assign(credential_modal: credential, confirm_action: nil, device_attempt: attempt)
+       |> schedule_device_status(attempt)}
     else
       _ -> denied(socket)
     end
@@ -54,15 +56,12 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
 
   def handle_event("connect_device", %{"id" => id}, socket) do
     with true <- socket.assigns.manageable,
-         true <-
-           is_nil(socket.assigns.device_attempt) or
-             socket.assigns.device_attempt.status != "pending",
+         false <- DeviceSignIn.in_progress?(socket.assigns.device_attempt),
          {:ok, credential_id, credential} <- credential(socket, id),
          true <- Map.get(credential, :device_code_supported, false),
          {:ok, attempt} <-
            command(socket, :start_self_credential_device, %{credential_id: credential_id}) do
-      schedule_device_status(attempt)
-      {:noreply, assign(socket, device_attempt: attempt)}
+      {:noreply, socket |> assign(device_attempt: attempt) |> schedule_device_status(attempt)}
     else
       _ -> failed(socket, "Unable to start device sign-in. Please try again.")
     end
@@ -72,8 +71,12 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
     case socket.assigns.device_attempt do
       %{attempt_id: id} ->
         case command(socket, :cancel_self_credential_device, %{attempt_id: id}) do
-          {:ok, attempt} -> {:noreply, assign(socket, device_attempt: attempt)}
-          _ -> failed(socket, "Unable to cancel device sign-in. Please try again.")
+          {:ok, attempt} ->
+            {:noreply,
+             socket |> assign(device_attempt: attempt) |> schedule_device_status(attempt)}
+
+          _ ->
+            failed(socket, "Unable to cancel device sign-in. Please try again.")
         end
 
       _ ->
@@ -159,40 +162,39 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
   def handle_event(_, _, socket), do: denied(socket)
 
   @impl true
-  def handle_info({:device_status, id}, socket) do
-    case socket.assigns.device_attempt do
-      %{attempt_id: ^id, status: "pending"} = previous ->
-        refresh_device_status(socket, previous)
-
-      _ ->
-        {:noreply, socket}
+  def handle_info({:device_status, id, generation}, socket) do
+    case DeviceSignInPolling.consume(socket, id, generation) do
+      {:ok, socket} -> refresh_device_status(socket, socket.assigns.device_attempt)
+      :stale -> {:noreply, socket}
     end
   end
+
+  def handle_info({:device_status, _id}, socket), do: {:noreply, socket}
 
   defp refresh_device_status(socket, previous) do
     case command(socket, :self_credential_device_status, %{attempt_id: previous.attempt_id}) do
       {:ok, attempt} ->
-        schedule_device_status(attempt)
-        socket = assign(socket, device_attempt: attempt)
+        socket = socket |> assign(device_attempt: attempt) |> schedule_device_status(attempt)
         socket = if attempt.status == "active", do: load_credentials(socket), else: socket
         {:noreply, socket}
 
       {:error, :invalid_session} ->
         {:noreply, redirect(socket, to: "/people/login")}
 
-      {:error, reason} when reason in [:forbidden, :not_found] ->
+      {:error, :not_found} ->
+        attempt = %{attempt_id: previous.attempt_id, status: "unavailable"}
+        {:noreply, socket |> assign(device_attempt: attempt) |> schedule_device_status(attempt)}
+
+      {:error, :forbidden} ->
         denied(socket)
 
       _ ->
-        schedule_device_status(previous)
-        {:noreply, socket}
+        {:noreply, schedule_device_status(socket, previous)}
     end
   end
 
-  defp schedule_device_status(%{status: "pending", attempt_id: id}),
-    do: Process.send_after(self(), {:device_status, id}, 1_000)
-
-  defp schedule_device_status(_), do: :ok
+  defp schedule_device_status(socket, attempt),
+    do: DeviceSignInPolling.schedule(socket, attempt, :device_status)
 
   defp current_device_attempt(socket, credential) do
     if Map.get(credential, :device_code_supported, false) do
@@ -212,6 +214,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
       {:noreply,
        socket
        |> assign(credential_modal: nil, confirm_action: nil)
+       |> schedule_device_status(nil)
        |> load_credentials()
        |> put_flash(:info, message)}
     else
@@ -225,6 +228,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
     {:noreply,
      socket
      |> assign(credential_modal: nil, confirm_action: nil)
+     |> schedule_device_status(nil)
      |> load_credentials()
      |> put_flash(:error, "You do not have permission to manage credentials.")}
   end
@@ -503,7 +507,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
           <Button.button
             :if={
               Map.get(@credential_modal, :device_code_supported, false) and
-                (!@device_attempt or @device_attempt.status != "pending")
+                !DeviceSignIn.in_progress?(@device_attempt)
             }
             variant={:secondary}
             id={"credential-device-#{@credential_modal.credential_id}"}
@@ -511,14 +515,14 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
             phx-value-id={@credential_modal.credential_id}
           >Sign in with device code</Button.button>
           <Button.button
-            :if={@device_attempt && @device_attempt.status == "pending"}
+            :if={DeviceSignIn.in_progress?(@device_attempt)}
             variant={:secondary}
             phx-click="cancel_device"
           >Cancel sign-in</Button.button>
           <Button.button
             :if={
               @credential_modal.auth_kind == "oauth2" and
-                (!@device_attempt or @device_attempt.status != "pending")
+                !DeviceSignIn.in_progress?(@device_attempt)
             }
             id={"credential-oauth-#{@credential_modal.credential_id}"}
             phx-click="connect_oauth"

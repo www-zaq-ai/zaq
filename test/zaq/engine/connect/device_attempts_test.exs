@@ -109,6 +109,81 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     assert {:ok, %{status: "pending"}} = DeviceAttempts.status(attempt.id, :org, @opts)
   end
 
+  test "current status during provider initiation does not interrupt the starting attempt" do
+    {:ok, dto} = Connect.save_credential_configuration(nil, attrs())
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      assert {:ok, starting} = DeviceAttempts.current(dto.credential_id, :org, @opts)
+      assert starting.status == "initializing"
+      refute Map.has_key?(starting, :user_code)
+      refute Map.has_key?(starting, :verification_uri)
+      assert Repo.get!(DeviceAttempt, starting.attempt_id).candidate_config != nil
+
+      Req.Test.json(conn, %{
+        "device_auth_id" => "PRIVATE",
+        "user_code" => "CODE",
+        "interval" => 900
+      })
+    end)
+
+    assert {:ok, %{status: "pending", attempt_id: id}} =
+             DeviceAttempts.start_global_configuration(dto.credential_id, %{}, @opts)
+
+    pid = :erlang.binary_to_term(Repo.get!(DeviceAttempt, id).worker_pid, [:safe])
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
+  end
+
+  test "cancellation while initiating prevents late instructions and worker attachment" do
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      attempt = Repo.one!(DeviceAttempt)
+      assert {:ok, %{status: "cancelled"}} = DeviceAttempts.cancel(attempt.id, :org, @opts)
+
+      Req.Test.json(conn, %{
+        "device_auth_id" => "PRIVATE",
+        "user_code" => "CODE",
+        "interval" => 900
+      })
+    end)
+
+    assert {:error, :oauth_failed} =
+             DeviceAttempts.start_global_configuration(nil, attrs(), @opts)
+
+    assert %{
+             status: "cancelled",
+             worker_pid: nil,
+             candidate_config: nil,
+             device_material: nil,
+             user_code: nil
+           } = Repo.one!(DeviceAttempt)
+  end
+
+  test "initialization expires at its own deadline without exposing instructions" do
+    {:ok, dto} = Connect.save_credential_configuration(nil, attrs())
+
+    Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
+      attempt = Repo.one!(DeviceAttempt)
+      assert DateTime.diff(attempt.initialization_expires_at, attempt.inserted_at) in 29..30
+
+      assert {:ok, %{status: "expired"}} =
+               DeviceAttempts.status(
+                 attempt.id,
+                 :org,
+                 Keyword.put(@opts, :now, attempt.initialization_expires_at)
+               )
+
+      Req.Test.json(conn, %{
+        "device_auth_id" => "PRIVATE",
+        "user_code" => "CODE",
+        "interval" => 900
+      })
+    end)
+
+    assert {:error, :oauth_failed} =
+             DeviceAttempts.start_global_configuration(dto.credential_id, %{}, @opts)
+
+    assert %{status: "expired", worker_pid: nil, candidate_config: nil} = Repo.one!(DeviceAttempt)
+  end
+
   test "approval exchanges verifier and commits canonical grant and success together" do
     {_dto, attempt, pid} = start()
 

@@ -17,7 +17,8 @@ defmodule Zaq.Repo.Migrations.AddConnectDeviceAttempts do
       add :user_code, :text
       add :interval, :integer
       add :expires_at, :utc_datetime_usec, null: false
-      add :status, :string, null: false, default: "pending"
+      add :initialization_expires_at, :utc_datetime_usec
+      add :status, :string, null: false, default: "initializing"
       add :result_credential_id, references(:connect_credentials, on_delete: :delete_all)
       timestamps(type: :utc_datetime_usec)
     end
@@ -32,7 +33,7 @@ defmodule Zaq.Repo.Migrations.AddConnectDeviceAttempts do
 
     create constraint(:connect_device_attempts, :connect_device_attempt_status_check,
              check:
-               "status IN ('pending', 'active', 'cancelled', 'expired', 'denied', 'failed', 'interrupted')"
+               "status IN ('initializing', 'pending', 'active', 'cancelled', 'expired', 'denied', 'failed', 'interrupted')"
            )
   end
 end

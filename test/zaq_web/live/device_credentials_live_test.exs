@@ -91,12 +91,15 @@ defmodule ZaqWeb.Live.DeviceCredentialsLiveTest do
            )
 
     {attempt, _pid} = worker(id)
+    timer = :sys.get_state(view.pid).socket.private.device_sign_in_polling
     view |> element("button[phx-click=close_credential_modal]", "Cancel") |> render_click()
     view |> element("#credential-edit-#{id}") |> render_click()
+    assert :sys.get_state(view.pid).socket.private.device_sign_in_polling == timer
     assert has_element?(view, "#people-device-sign-in-code", "ABCD-EFGH")
     view |> element("button[phx-click=cancel_device]") |> render_click()
     assert has_element?(view, "#people-device-sign-in", "Device sign-in cancelled")
     assert Repo.get!(DeviceAttempt, attempt.id).device_material == nil
+    assert :sys.get_state(view.pid).socket.private.device_sign_in_polling == nil
   end
 
   test "BO AI modal shows device code and explicit restart after worker interruption", %{
@@ -120,13 +123,22 @@ defmodule ZaqWeb.Live.DeviceCredentialsLiveTest do
            )
 
     {attempt, pid} = worker(credential.connect_credential_id)
+    timer = :sys.get_state(view.pid).socket.private.device_sign_in_polling
+
+    for _ <- 1..3 do
+      render_click(view, "close_ai_credential_modal", %{})
+      render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
+      assert :sys.get_state(view.pid).socket.private.device_sign_in_polling == timer
+    end
+
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
-    send(view.pid, {:ai_device_status, attempt.id})
+    send(view.pid, {:ai_device_status, attempt.id, timer.generation})
     assert render(view) =~ "previous flow cannot resume"
     assert has_element?(view, "#ai-device-connect", "Sign in with device code")
     refute has_element?(view, "#ai-device-sign-in-code")
+    assert :sys.get_state(view.pid).socket.private.device_sign_in_polling == nil
   end
 
   test "BO new credential form can initiate device sign-in before a global grant exists", %{
@@ -161,5 +173,42 @@ defmodule ZaqWeb.Live.DeviceCredentialsLiveTest do
     credential = System.get_ai_provider_credential_by_name("New device Codex")
     {attempt, _pid} = worker(credential.connect_credential_id)
     assert {:ok, %{status: "cancelled"}} = DeviceAttempts.cancel(attempt.id, :org)
+  end
+
+  test "BO cleanup before status refresh clears instructions, stops observation and permits restart",
+       %{conn: conn} do
+    user = user_fixture(%{email: "device-cleanup-admin@example.test", username: "device_cleanup"})
+    {:ok, user} = Zaq.Accounts.change_password(user, %{password: "StrongPass1!"})
+    credential = credential()
+
+    {:ok, view, _} =
+      live(init_test_session(conn, %{user_id: user.id}), "/bo/system-config?tab=ai_credentials")
+
+    render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
+    expect_code(view)
+    view |> element("#ai-device-connect") |> render_click()
+    {attempt, _pid} = worker(credential.connect_credential_id)
+    timer = :sys.get_state(view.pid).socket.private.device_sign_in_polling
+    assert {:ok, 1} = DeviceAttempts.reconcile(now: attempt.expires_at)
+
+    send(view.pid, {:ai_device_status, attempt.id, timer.generation})
+
+    assert has_element?(
+             view,
+             "#ai-device-sign-in",
+             "This sign-in is no longer available. Start again."
+           )
+
+    refute has_element?(view, "#ai-device-sign-in-code")
+    assert :sys.get_state(view.pid).socket.private.device_sign_in_polling == nil
+    send(view.pid, {:ai_device_status, attempt.id, timer.generation})
+    refute render(view) =~ "ABCD-EFGH"
+    assert :sys.get_state(view.pid).socket.private.device_sign_in_polling == nil
+
+    expect_code(view)
+    view |> element("#ai-device-connect") |> render_click()
+    {restarted, _pid} = worker(credential.connect_credential_id)
+    refute restarted.id == attempt.id
+    assert has_element?(view, "#ai-device-sign-in-code", "ABCD-EFGH")
   end
 end

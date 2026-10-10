@@ -13,7 +13,7 @@ defmodule Storybook.Components.DesignSystem.DeviceSignIn do
         user_code: "ABCD-EFGH", expires_at: ~U[2026-10-09 12:15:00Z]
       }} />
       <DeviceSignIn.device_sign_in
-        :for={status <- ["active", "interrupted", "expired", "denied", "cancelled", "failed"]}
+        :for={status <- ["initializing", "active", "interrupted", "expired", "denied", "cancelled", "failed", "unavailable"]}
         id={"device-" <> status}
         attempt={%{status: status}}
       />

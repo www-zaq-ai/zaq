@@ -92,7 +92,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
       max_width_class="max-w-2xl"
     >
       <.form
-        :if={!@device_attempt or @device_attempt.status != "pending"}
+        :if={!DeviceSignIn.in_progress?(@device_attempt)}
         id="ai-credential-form"
         for={@form}
         phx-change="validate_ai_credential"
@@ -412,7 +412,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
       <:actions>
         <div class="flex w-full items-center justify-between gap-3">
           <Button.button
-            :if={@action == :edit and (!@device_attempt or @device_attempt.status != "pending")}
+            :if={@action == :edit and !DeviceSignIn.in_progress?(@device_attempt)}
             variant={:tertiary}
             danger
             phx-click="open_delete_ai_credential_confirm"
@@ -424,7 +424,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
             <Button.button
               :if={
                 device_supported?(@form, @oauth_behaviours) and
-                  (!@device_attempt or @device_attempt.status != "pending")
+                  !DeviceSignIn.in_progress?(@device_attempt)
               }
               id="ai-device-connect"
               variant={:secondary}
@@ -435,14 +435,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
               phx-click={if(@action == :edit, do: "connect_ai_device")}
             >Sign in with device code</Button.button>
             <Button.button
-              :if={@device_attempt && @device_attempt.status == "pending"}
+              :if={DeviceSignIn.in_progress?(@device_attempt)}
               variant={:secondary}
               phx-click="cancel_ai_device"
             >Cancel sign-in</Button.button>
             <Button.button
               :if={
                 @action == :edit and auth_mode(@form) == "oauth2" and
-                  (!@device_attempt or @device_attempt.status != "pending")
+                  !DeviceSignIn.in_progress?(@device_attempt)
               }
               variant={:secondary}
               type="button"
@@ -455,7 +455,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
               Cancel
             </Button.button>
             <Button.button
-              :if={!@device_attempt or @device_attempt.status != "pending"}
+              :if={!DeviceSignIn.in_progress?(@device_attempt)}
               type="submit"
               form="ai-credential-form"
             >

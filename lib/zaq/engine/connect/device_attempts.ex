@@ -15,6 +15,8 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   alias Zaq.System.SecretConfig
   alias Zaq.Utils.DateUtils
 
+  @initialization_seconds 30
+
   def prepare_person(person, session_id, credential_id, opts \\ []) do
     if Repo.in_transaction?() do
       credential = unwrap(Mutations.prepare_person_oauth_configuration(credential_id))
@@ -127,7 +129,9 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
         rows =
           Repo.all(
             from a in DeviceAttempt,
-              where: a.expires_at <= ^now,
+              where:
+                a.expires_at <= ^now or
+                  (a.status == "initializing" and a.initialization_expires_at <= ^now),
               order_by: [a.expires_at, a.id],
               limit: ^limit,
               select: %{id: a.id, credential_id: a.credential_id}
@@ -153,7 +157,10 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
         locked =
           Repo.all(
             from a in DeviceAttempt,
-              where: a.id in ^ids and a.expires_at <= ^now,
+              where:
+                a.id in ^ids and
+                  (a.expires_at <= ^now or
+                     (a.status == "initializing" and a.initialization_expires_at <= ^now)),
               order_by: a.id,
               lock: "FOR UPDATE",
               select: struct(a, [:id])
@@ -168,13 +175,23 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   end
 
   @doc "Binds exactly one temporary worker incarnation to an unused device attempt."
-  def attach_worker(id, pid) do
+  def attach_worker(id, pid, opts \\ []) do
     Repo.transaction(fn ->
       attempt = locked(id)
-      ensure(attempt.status == "pending" and is_nil(attempt.worker_pid), :invalid_attempt)
+      ensure(attempt.status == "initializing" and is_nil(attempt.worker_pid), :invalid_attempt)
+
+      ensure(
+        DateTime.compare(attempt.initialization_expires_at, DateUtils.now(opts)) == :gt,
+        :invalid_attempt
+      )
+
+      ensure(
+        is_binary(attempt.device_material) and is_integer(attempt.interval),
+        :invalid_attempt
+      )
 
       attempt
-      |> DeviceAttempt.changeset(%{worker_pid: :erlang.term_to_binary(pid)})
+      |> DeviceAttempt.changeset(%{worker_pid: :erlang.term_to_binary(pid), status: "pending"})
       |> Repo.update(log: false)
       |> unwrap()
     end)
@@ -214,12 +231,14 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   defp terminal(id, status, _opts) do
     Repo.transaction(fn ->
       attempt = locked(id)
-      if attempt.status == "pending", do: finish(attempt, status), else: attempt
+      if attempt.status in ["initializing", "pending"], do: finish(attempt, status), else: attempt
     end)
   end
 
   defp persist(credential, owner_type, owner_id, session_id, candidate, opts) do
     with {:ok, _} <- behaviour(credential) do
+      initialization_deadline = DateTime.add(DateUtils.now(opts), @initialization_seconds)
+
       %DeviceAttempt{}
       |> DeviceAttempt.changeset(%{
         id: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false),
@@ -230,7 +249,8 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
         provider: credential.provider,
         config_fingerprint: Mutations.oauth_configuration_fingerprint(credential.id),
         candidate_config: encrypt(if(candidate, do: Jason.encode!(candidate)), opts),
-        expires_at: DateTime.add(DateUtils.now(opts), 900)
+        expires_at: initialization_deadline,
+        initialization_expires_at: initialization_deadline
       })
       |> Repo.insert(log: false)
     end
@@ -240,7 +260,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
     Repo.transaction(fn ->
       {current, _credential} = validate_locked(attempt, opts)
       ensure(valid_instructions?(instructions), :oauth_failed)
-      ensure(current.status == "pending" and is_nil(current.worker_pid), :invalid_attempt)
+      ensure(current.status == "initializing" and is_nil(current.worker_pid), :invalid_attempt)
 
       current
       |> DeviceAttempt.changeset(%{
@@ -276,7 +296,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
   defp validate_locked(attempt, opts) do
     credential = Binding.validate_locked(configuration_binding(attempt), opts)
     current = locked(attempt.id)
-    ensure(DateTime.compare(current.expires_at, DateUtils.now(opts)) == :gt, :invalid_attempt)
+    ensure(DateTime.compare(deadline(current), DateUtils.now(opts)) == :gt, :invalid_attempt)
     {current, credential}
   end
 
@@ -399,8 +419,9 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
 
   defp owned(_, _), do: {:error, :not_found}
 
-  defp validated_status(%{status: "pending"} = attempt, opts) do
-    if DateTime.compare(attempt.expires_at, DateUtils.now(opts)) != :gt do
+  defp validated_status(%{status: status} = attempt, opts)
+       when status in ["initializing", "pending"] do
+    if DateTime.compare(deadline(attempt), DateUtils.now(opts)) != :gt do
       terminal(attempt.id, "expired", opts)
     else
       validate_pending_status(attempt, opts)
@@ -411,9 +432,15 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
 
   defp validate_pending_status(attempt, opts) do
     case validate(attempt, opts) do
-      {:ok, _} -> refresh_status(attempt, opts)
+      {:ok, _} -> refresh_status(Repo.get!(DeviceAttempt, attempt.id), opts)
       _ -> terminal(attempt.id, "failed", opts)
     end
+  end
+
+  defp refresh_status(%{status: "initializing"} = attempt, opts) do
+    if DateTime.compare(deadline(attempt), DateUtils.now(opts)) == :gt,
+      do: {:ok, attempt},
+      else: terminal(attempt.id, "expired", opts)
   end
 
   defp refresh_status(%{status: "pending"} = attempt, opts) do
@@ -437,11 +464,14 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
 
   defp refresh_status(attempt, _), do: {:ok, attempt}
 
+  defp deadline(%{status: "initializing", initialization_expires_at: deadline}), do: deadline
+  defp deadline(attempt), do: attempt.expires_at
+
   defp worker_alive?(pid) when node(pid) == node(), do: Process.alive?(pid)
   defp worker_alive?(pid), do: :rpc.call(node(pid), Process, :alive?, [pid], 2_000)
 
   defp public_status(attempt) do
-    base = %{attempt_id: attempt.id, status: attempt.status, expires_at: attempt.expires_at}
+    base = %{attempt_id: attempt.id, status: attempt.status, expires_at: deadline(attempt)}
 
     case attempt.status do
       "pending" ->
