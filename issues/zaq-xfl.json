@@ -15,11 +15,15 @@
     {
       "text": "Implementation is present but final validation is blocked by ExDNA.Credo internal Task.Supervised.stream(5000) timeout; browser bootstrap dependency compilation also timed out. Do not treat prior contract approval or passing unit/LiveView tests as UX approval. No completed UX approval recorded.",
       "timestamp": "2026-10-09T15:13:56Z"
+    },
+    {
+      "text": "Host candidate implementation and real adapter verification now complete. Manual BO and embedded browser checks completed; screenshots available at tmp/widget-candidate-form.png, tmp/widget-candidate-ready.png, tmp/widget-candidate-channels.png, tmp/widget-candidate-embedded.png. Explicit human UX/UI approval is still required; no final feature approval inferred from tests or implementation go-ahead. Approval unblocks consolidated feature journey zaq-vrq, not automatic commit/merge.",
+      "timestamp": "2026-10-10T17:16:18Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-xfl] Approve completed widget configuration and health UX",
   "type": "task",
-  "updated_at": "2026-10-10T16:16:42Z"
+  "updated_at": "2026-10-10T17:16:18Z"
 }
