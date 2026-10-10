@@ -18,11 +18,15 @@
     {
       "text": "Post-boundary-refactor final validation: 500 focused Connect/People/UI tests and24properties pass; 3browser tests covering both modals on3engines at390/1280px pass; mix q passes. Latest full mix precommit (785.2s) failed17doctests/141properties/8862tests with3failures: FinchPoolContentionTest,DiskDocumentFlowIntegrationTest,LLMPerformanceFailureTest. All3 pass immediate isolated --failed rerun seed962479. The failures lie outside refactor paths but are not waived or silently treated as baseline; telemetry recurrence remains tracked by zaq-mcw. Full final gate remains blocked; do not request final approval or claim ready to merge. PR #841 discovered and linked to this session. Refactor uncommitted; no push/merge performed.",
       "timestamp": "2026-10-10T07:02:16Z"
+    },
+    {
+      "text": "Approved post-binding cleanup completed under zaq-p8t.7: redundant forwards removed and credential gateway auth/transaction/rollback consolidated without changing domain ownership or IO/locking. Final issue-level validation510tests/24properties plus3browser tests(all3engines,bothsurfaces,390/1280px) and mix q pass. Full precommit not rerun as an issue-level check; latest final-gate failure remains unresolved, not waived. No final approval requested; refactor/cleanup remain uncommitted.",
+      "timestamp": "2026-10-10T09:54:17Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p8t.5] E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-10T07:02:16Z"
+  "updated_at": "2026-10-10T09:54:17Z"
 }
