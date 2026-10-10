@@ -23,11 +23,15 @@
     {
       "text": "Still open/blocked: inventory fixes implemented but renewed acceptance remains incomplete after final10file matrix exposed refreshed-Shared concurrent Bob first-model timeout. zaq-emb.31.5 is in_progress; no approver/date/scope recorded, no browser E2E authoring authorization. Existing handoff updated with current blocked state rather than reusing historical green claims. A separate prior approval is not B approval; final approval/publication remain separate.",
       "timestamp": "2026-10-08T21:25:57Z"
+    },
+    {
+      "text": "Admission-time continuation is now locally validated through P1-P6; core282tests/7properties and preservation374tests/15properties/6doctests pass, mix q/diff-check pass. Renewed behavior to review: each input gates once; accepted running/waiting/steering/recovered work finishes and delivers after membership loss; fresh history/new input/inspection remain currently authorized; prior authorized context/tool pairs persist; manual grant survival prevents retirement; exact-PID retirement waits for accepted completion. No approver/date/scope recorded; no new browser E2E authored. This is the behavior approval gate, not final quality approval or Git authorization. Evidence checkpoint docs/exec-plans/active/2026-10-08-handoff-history-b.md.",
+      "timestamp": "2026-10-10T13:00:16Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[zaq-emb.32] PR B explicit human UX approval",
   "type": "task",
-  "updated_at": "2026-10-08T21:25:57Z"
+  "updated_at": "2026-10-10T13:00:16Z"
 }
