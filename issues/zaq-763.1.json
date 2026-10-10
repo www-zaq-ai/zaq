@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T16:00:42Z",
+  "description": "Independent test owner test/zaq/engine/connect/credential_test.exs. Full plan supplied verbatim in worker session. Tests only; no operation changes; no dependencies.",
+  "id": "zaq-763.1",
+  "labels": [],
+  "parent": "zaq-763",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-763] Implement credential validation coverage plan",
+  "type": "task",
+  "updated_at": "2026-10-10T16:00:42Z"
+}
