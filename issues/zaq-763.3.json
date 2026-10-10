@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T16:00:44Z",
+  "description": "Own person_lifecycle_guard_test.exs and person_lifecycle_transaction_test.exs; worker line49 shares transaction file but is blocked on production behavior change. Full plans supplied verbatim. Tests only; no operation changes; no dependencies.",
+  "id": "zaq-763.3",
+  "labels": [],
+  "parent": "zaq-763",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-763] Implement lifecycle coverage plan and worker exception",
+  "type": "task",
+  "updated_at": "2026-10-10T16:00:44Z"
+}
