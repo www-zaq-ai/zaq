@@ -50,11 +50,15 @@
     {
       "text": "2026-10-10 Julien confirmed behavior after personal devtesting; .32closed. Consolidated21browsercases plus complementarynative matrix83tests pass318.7s, mixq/diff pass; .13.2closed. Same five-file preservation seed0 reproducing prior75test/2property scope passes81.3s, diagnostics/assertions intact. Historical intermittent Sharedownerfollowup commitnotification failure NOT causally resolved by this green repeat; keep .31.10open. Next scoped repeat/diagnostics and branchreview; coverage/finalprecommit not yet performed; noGitpublication.",
       "timestamp": "2026-10-10T17:40:43Z"
+    },
+    {
+      "text": "Bounded diagnosis: same five-file seed0 scope75tests2properties now green on three independent runs81.3s/101.6s/82.2s; broader native AgentChannelsConversations+workflowpool+ReqLLM config seed0 passes3490tests79properties17doctests343.8s. Existing failure-only sanitized native/SQL/Finch snapshots and five-second assertions intact. Original Sharedownerfollowup committed-delivery failure NOT reproduced with new diagnostics; no cause/fix established, do NOT close on retries. E2E21browsercases done within83test matrix; partial core review artifact reports unresolved validation finding. Need continued investigation or explicit human carry-forward decision, plus remaining review/coverage/finalgate. User-staged WIP preserved, noGitcommit/push.",
+      "timestamp": "2026-10-10T17:55:46Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
   "type": "task",
-  "updated_at": "2026-10-10T17:40:43Z"
+  "updated_at": "2026-10-10T17:55:46Z"
 }
