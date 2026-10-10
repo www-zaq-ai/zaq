@@ -3,7 +3,7 @@ description: Executes clearly scoped coding or inspection tasks with explicit
   allowed paths, success criteria, and minimal autonomy. Do not use for
   architecture, planning, or broad exploration.
 mode: subagent
-model: openai/gpt-5.6-sol
+model: openai/gpt-6-luna
 temperature: 0.1
 tools:
   write: true
