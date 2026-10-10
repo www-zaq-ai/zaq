@@ -25,11 +25,15 @@
     {
       "text": "Bounded live scenario passed:92ms model barrier; real admitted pending input -\u003e membership revoke -\u003e new input failed without admission/answer -\u003e accepted original answer persisted and provider terminal update observed -\u003e exact runtime retired. Original stuck demo unchanged. Browser shows answer with No current grants, screenshot docs/exec-plans/active/admission-demo-04-bounded-no-grants.png. .31.21 diagnosed native silent-timeout defect; both issue-create routes403, draft saved but NOT filed; explicitly deferred/non-blocking bounded validation, dep removed. Current mix q passes; focused Mattermost/history and HTTP suites27tests pass63.7s. Failed fixture drafts documented, not production regressions. .32 human approval still pending, no consolidated E2E/review/coverage/final precommit, no Git mutation. Prior intermittent committed-delivery failure remains unresolved.",
       "timestamp": "2026-10-10T14:55:54Z"
+    },
+    {
+      "text": "Julien explicitly approved behavior after personal devtesting; .32closed, .13.2closed after consolidated21browsercases+native83test matrixpasses. Exact live recovery browser cases retain both answers after revocation/retirement. Currentmixq/diffpass, wide native3490tests79properties17doctests green. Historical delivery intermittent remains causally unresolved despite three75test seed0 repeats; .31.10 staysopen, partialreview. Coverage/finalprecommit stillnotperformed, no finalacceptance or Gitpublication.",
+      "timestamp": "2026-10-10T17:55:47Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] P7 Integrated admission acceptance",
   "type": "task",
-  "updated_at": "2026-10-10T14:55:54Z"
+  "updated_at": "2026-10-10T17:55:47Z"
 }
