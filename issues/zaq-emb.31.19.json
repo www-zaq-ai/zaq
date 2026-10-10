@@ -6,6 +6,8 @@
   "blocks": [
     "zaq-emb.31.20"
   ],
+  "closed_at": "2026-10-10T13:00:14Z",
+  "close_reason": "P6 reconciled: owner Agent/Engine/message-lifecycle docs and superseded tests updated; removed production cancellation seams/checked refs; valid obsolete jobs are inert. .31.13 closed as superseded not fixed with separate zaq-4sl/zaq-t3g; opt-in native HTTP cancellation reproducer still fails unchanged five-second contract. Current mix q/diff-check pass; owner local links resolve. Core282tests/7properties and wider374tests/15properties/6doctests pass (overlap).",
   "created": "2026-10-10T10:07:22Z",
   "description": "Update superseded membership tests and docs explicitly. Preserve explicit cancellation reproducer unchanged outside feature acceptance per approved plan. Reconcile tasks and prior plans. Approved plan: /Users/julien/.opencode/plan/768-admission-time-authorization.md. Reuse Engine Conversations/ExecutionLifecycle/TranscriptHistory and Agent HistorySync/HistoryLifecycle/ServerManager; local-only lifecycle mechanics, no new business Action. Preserve WIP and five-second deadlines. No dependency changes or publication.",
   "id": "zaq-emb.31.19",
@@ -18,8 +20,8 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "[#768] P6 Contract tests docs and deferred evidence",
   "type": "task",
-  "updated_at": "2026-10-10T12:45:00Z"
+  "updated_at": "2026-10-10T13:00:14Z"
 }
