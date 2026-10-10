@@ -42,11 +42,15 @@
     {
       "text": "New live manual demo blocker .31.21 must be reconciled before acceptance; docs/operations/admission-live-demo-blocker.md preserves exact evidence. Original native pending parent/idle worker differs from previously closed .31.11 completed-record ordering case. Do not conflate or assume dependency incompatibility. No implementation change made for this finding.",
       "timestamp": "2026-10-10T13:22:31Z"
+    },
+    {
+      "text": "Live long-held pending-parent/idle-worker mismatch diagnosed as native stream timeout without terminal propagation, not .31.11 completed-record ordering. Executed standalone Runner repro and saved upstream report; CLI/integration creation both403, NOT filed. User defers dependency fix; separate bounded demo passed92ms barrier with real revocation, denied unadmitted input, accepted persistence/provider terminal delivery and exact retirement, original untouched. Focused27tests pass63.7s; mix q passes. Evidence/handoff updated. Earlier intermittent committed-delivery failure remains unresolved; no acceptance/E2E/review/coverage/precommit/publication claimed.",
+      "timestamp": "2026-10-10T14:55:53Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[zaq-emb.31] D: registry removal and live recovery preservation",
   "type": "task",
-  "updated_at": "2026-10-10T13:22:31Z"
+  "updated_at": "2026-10-10T14:55:53Z"
 }
