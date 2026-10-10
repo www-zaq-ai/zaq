@@ -5,13 +5,13 @@
     "zaq-emb.31.20"
   ],
   "created": "2026-10-10T13:22:14Z",
-  "description": "2026-10-10 manual browser demo test/repro/admission_live_demo.exs on branch-isolated fresh E2E DB and separate _build/test-e2e. Original input admitted/pending; real Engine membership removal revision2 revoked access; new input failed unadmitted. Releasing several-minutes-held external model did not finish original input: native parent awaiting_llm/pending, worker idle/runtime_task nil/run_id nil/last_error nil, lease and pin retained. Evidence docs/operations/admission-live-demo-blocker.md and screenshots in docs/exec-plans/active/. Jido/JidoAI2.4.0 ReqLLM1.22.0 loaded. Do not assume membership defect or dependency incompatibility; distinguish timeout/fixture/worker-incarnation/request-correlation before fixes. Similar historical .31.11 was completed-request reordering; this parent request is pending, so do not silently reopen or equate them. Preserve failure, no assertion weakening or retries-as-fixes, stop/report new dependency incompatibilities before fixing. Human selected Show live behavior first: .32 approval not granted; E2E/review/coverage/precommit/publication remain open. No production/dependency edits authorized by this finding.",
+  "description": "Diagnosed native ReAct stream timeout: Runner silently exhausts without terminal event; worker runtime.done clears worker but leaves parent pending. Original long-held demo preserved. Executed database-free comparison: prompt success about203ms; explicit1s deadline ends about1016ms with only request_started/llm_started. Report docs/operations/jido-ai-stream-timeout-report.md; runnable test/repro/react_stream_timeout_upstream.exs. Parent harness inconclusive, not a completed regression. User explicitly deferred dependency fix and requested bounded validation plus upstream reporting. Both gh CLI and configured GitHub integration issue creation failed403 Resource not accessible by personal access token; NO upstream issue created. Keep open for publication/follow-up, do not claim fixed/reported or change dependencies. Independent bounded live scenario passed92ms barrier, accepted completion/delivery after revocation and exact retirement; original untouched. Evidence docs/operations/admission-live-demo-blocker.md. Non-blocking for declared bounded .31.20 acceptance, not a waiver of .32 human approval, E2E, review/coverage/precommit or prior intermittent delivery failure. No commit/push/merge.",
   "id": "zaq-emb.31.21",
   "labels": [],
   "parent": "zaq-emb.31",
   "priority": 1,
   "status": "open",
-  "title": "[#768] Diagnose blocked live admission walkthrough before behavior approval",
+  "title": "[#768] Deferred Jido AI timeout: publish upstream report when authorized",
   "type": "bug",
-  "updated_at": "2026-10-10T13:22:28Z"
+  "updated_at": "2026-10-10T14:55:33Z"
 }
