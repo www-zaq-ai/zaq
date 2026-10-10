@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T12:44:15Z",
+  "description": "Independent cancellation defect, excluded from membership-retirement acceptance by the approved admission-time plan. Explicit reproducer: mix test test/repro/native_http_tool_cancellation.exs. Real configured Agent -\u003e Jido tool -\u003e NodeRouter -\u003e Channels HTTP against held local external API. Native ai.react.cancel and request-specific await_completion return {:ok, %{status: :failed}}, but the real Finch borrower stays alive for the unchanged five-second cleanup assertion. Reconfirmed after relocation (2026-10-10). General Jido.Exec/Action worker ownership investigation required; no dependency or cancellation fix authorized here. Preserve assertion and external-barrier evidence; graceful retirement does not resolve this defect. Superseded historical coordination task: zaq-emb.31.13.",
+  "id": "zaq-4sl",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[follow-up] Native cancellation acknowledges completion before HTTP Action cleanup",
+  "type": "bug",
+  "updated_at": "2026-10-10T12:44:15Z"
+}
