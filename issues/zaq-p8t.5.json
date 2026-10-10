@@ -14,11 +14,15 @@
     {
       "text": "Committed E2E/support/guide as d5ccecede. UX approved by Julien (zaq-p8t.4). Browser journeys pass Chromium/Firefox/WebKit at 390px and 1280px for both surfaces: secure new-tab, pending, reload persistence, cancellation, expiry, worker death/restart and successful canonical grants. Provider IO mocked only at HTTP seam, no production test hooks or real provider requests. Focused suite: 6 properties/98 tests pass; mix q and commit hooks pass. Full precommit previously passed 9989 tests/191 properties/48 doctests, but latest final-state retries reproduce existing telemetry stale-sandbox-holder failure tracked by zaq-mcw, which is now a blocker. Both failed tests pass isolated. Feature finalization remains open; no final approval requested, no push/PR/merge performed. Coverage-focused numerical gate follows PR review per workflow; invariant, security and lifecycle scenarios covered now.",
       "timestamp": "2026-10-09T18:38:14Z"
+    },
+    {
+      "text": "Post-boundary-refactor final validation: 500 focused Connect/People/UI tests and24properties pass; 3browser tests covering both modals on3engines at390/1280px pass; mix q passes. Latest full mix precommit (785.2s) failed17doctests/141properties/8862tests with3failures: FinchPoolContentionTest,DiskDocumentFlowIntegrationTest,LLMPerformanceFailureTest. All3 pass immediate isolated --failed rerun seed962479. The failures lie outside refactor paths but are not waived or silently treated as baseline; telemetry recurrence remains tracked by zaq-mcw. Full final gate remains blocked; do not request final approval or claim ready to merge. PR #841 discovered and linked to this session. Refactor uncommitted; no push/merge performed.",
+      "timestamp": "2026-10-10T07:02:16Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p8t.5] E2E and final validation",
   "type": "task",
-  "updated_at": "2026-10-09T18:38:14Z"
+  "updated_at": "2026-10-10T07:02:16Z"
 }
