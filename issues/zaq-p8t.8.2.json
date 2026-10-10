@@ -15,11 +15,15 @@
     {
       "text": "Robustness review follow-up: initiation failures now register a test-local HTTP client callback signal and compare DB attempt IDs before/after each call, asserting exactly one new attempt (no timestamp ordering). Injected clients are modules with post/1 and their call is verified; process registration is cleaned in after. Worker slowdown test now starts with the normal long timer, updates persisted prior interval to 1, installs Req.Test expectation, then sends :poll before message/sys barrier. Gateway fixture was unchanged: existing isolated tests confirm its fixture is valid, and no auth_profile is needed for this lookup branch. Revalidated serially: mix test test/zaq/engine/connect/device_attempts_test.exs test/zaq/engine/people_credentials_gateway_test.exs — 1 property, 34 tests, 0 failures (seed 833820). Nonfatal existing :license_manager warning. Issue remains open pending mix q/coverage.",
       "timestamp": "2026-10-10T11:49:03Z"
+    },
+    {
+      "text": "Quality fix from mix q finding: added DeviceWorker to the existing Zaq.Engine.Connect alias group and used DeviceWorker.start_link/1 in the duplicate-worker test. Validation: mix test test/zaq/engine/connect/device_attempts_test.exs — 1 property, 23 tests, 0 failures (seed 455103). Did not run format/q/coverage; coordinator will rerun q. Nonfatal :license_manager configuration warning remains.",
+      "timestamp": "2026-10-10T11:50:03Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-p8t.8] Implement full device attempt and gateway coverage handoff",
   "type": "task",
-  "updated_at": "2026-10-10T11:49:03Z"
+  "updated_at": "2026-10-10T11:50:03Z"
 }
