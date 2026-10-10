@@ -10,6 +10,12 @@
   "description": "Dependent on pinned host integration zaq-3px. Real adapter tests: connector-specific JWT issuer/audience/key; runtime rebuild/old proof rejection; scoped cookies/CSRF/socket and BO policy unchanged; actual zero-visitor ready/listener down/timeout; form save/reopen enable two status surfaces. Browser manual verification and existing E2E execution; new feature journeys remain gated by zaq-xfl approval and consolidated zaq-vrq. Record Go/no-Go for dependency stack with SHA and limits, never infer authorization to merge. Docs setup at existing guide and contract owner.",
   "id": "zaq-lbk",
   "labels": [],
+  "comments": [
+    {
+      "text": "GO recommendation for the adapter fixes stack #20 -\u003e #19 -\u003e #22 at 4bd6929bb599ced0bc4a9c0536588fb8b7a002b9 within tested single-node direct-TLS ZAQ hosting. No adapter source edits. Real host contract suite and regressions: 148 tests/9 properties green; mix q green. Existing Channels/BO Chat/System Configuration E2E: 201 passes across Chromium, Firefox, WebKit. Manual Chromium embedded probe against ZAQ: zero-visitor TLS readiness, parent-backend HS256 JWT (integer widget_id), real Engine/Agent-backed first reply using E2E LLM, fresh-proof renewal, verified second scoped WebSocket/reconnect, explicitly selected durable conversation restoration after parent reload, and signed backend disconnect revoking live iframe; no browser errors. Transport observed only wss://localhost:4003/widget/:id/live/websocket. Evaluation browser allowed local test certificates only; independent TLS readiness test verified generated CA, never disable readiness certificate checks. Manual BO verified None/Lax/Strict selection, create/save/generate/enable/reopen/change issuer-audience/rebuild and Ready on both surfaces; screenshots tmp/widget-candidate-{form,ready,channels,embedded}.png are ignored local artifacts, no secret fields. Limitations: multi-node quorum/failover and proxy-only TLS not validated; production replica membership required on all application nodes; existing enabled legacy settings must be explicitly upgraded. Upstream stack head/checks rechecked green/open. No merge performed; dependency remains pinned until stack merges. ZAQ feature remains not finalized pending UX approval zaq-xfl, consolidated E2E zaq-vrq, PR review/coverage/final precommit and CI for new host edits.",
+      "timestamp": "2026-10-10T17:16:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[zaq-lbk] Verify actual widget dependency against ZAQ host contract",
