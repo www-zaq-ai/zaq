@@ -11,9 +11,15 @@
   "id": "zaq-emb.31.15",
   "labels": [],
   "parent": "zaq-emb.31",
+  "comments": [
+    {
+      "text": "Validation resumed after user reported host contention. Current P2 API/Engine retry:107 tests+2properties pass (23.9s); Executor/history-sync/Engine matrix:94tests+2properties pass (50.9s); real Mattermost selected-agent + history-strategy full-flow:40tests pass (54.9s). Corrected q local nested helper/alias issues; mix q passes (1547files/19060mods-funs). Strengthened session regression:changed content/foreign actor/another session cannot borrow admission after revocation; focused1test passes. git diff --check passes. Earlier Sandbox ownership timeout not reproduced; host-contention explanation plausible, not proven, no deadline/config/dependency changes. P2 remains open for after-gate-before-runtime real completion scenario (downstream fresh-read behavior still pending P4); P3-P7 not implemented. No commit/publication.",
+      "timestamp": "2026-10-10T11:16:44Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[#768] P2 Carry admission through execution",
   "type": "task",
-  "updated_at": "2026-10-10T10:16:57Z"
+  "updated_at": "2026-10-10T11:16:44Z"
 }
