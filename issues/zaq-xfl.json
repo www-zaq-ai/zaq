@@ -19,11 +19,15 @@
     {
       "text": "Host candidate implementation and real adapter verification now complete. Manual BO and embedded browser checks completed; screenshots available at tmp/widget-candidate-form.png, tmp/widget-candidate-ready.png, tmp/widget-candidate-channels.png, tmp/widget-candidate-embedded.png. Explicit human UX/UI approval is still required; no final feature approval inferred from tests or implementation go-ahead. Approval unblocks consolidated feature journey zaq-vrq, not automatic commit/merge.",
       "timestamp": "2026-10-10T17:16:18Z"
+    },
+    {
+      "text": "2026-10-10: User selected Defer finalization in the completed Widget UX approval question. This is not UX approval. Leave zaq-xfl and dependent zaq-vrq open; do not author consolidated feature E2E or request final approval. Adapter candidate remains pinned and host integration edits remain uncommitted.",
+      "timestamp": "2026-10-10T17:56:20Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-xfl] Approve completed widget configuration and health UX",
   "type": "task",
-  "updated_at": "2026-10-10T17:16:18Z"
+  "updated_at": "2026-10-10T17:56:20Z"
 }
