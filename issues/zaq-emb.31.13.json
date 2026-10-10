@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T07:15:04Z",
+  "description": "Approved local-only lifecycle extension: Factory native request-specific cancellation completion, ServerManager immediate fences and nonblocking cleanup with explicit error/retry handling through existing removal worker. Regression real membership removal HTTP/runner exit before provider release, delayed cancellation, stale incarnation/generation, unaffected People. Verify native completion guarantees cleanup first; stop/report upstream gap rather than application workaround. Preserve assertions and five-second deadlines, WIP. No publication.",
+  "id": "zaq-emb.31.13",
+  "labels": [],
+  "parent": "zaq-emb.31",
+  "priority": 1,
+  "status": "open",
+  "title": "[#768] Confirm native cancellation before runtime teardown",
+  "type": "bug",
+  "updated_at": "2026-10-10T07:15:04Z"
+}
