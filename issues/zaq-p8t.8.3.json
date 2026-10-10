@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-10-10T11:41:18Z",
+  "description": "Coverage plan for lib/zaq_web/components/design_system/device_sign_in.ex:58. Edit only test/zaq_web/components/design_system/device_sign_in_test.exs. Add one component-level regression test for the active status using the existing Phoenix.LiveViewTest.render_component/2 pattern. Render \u0026DeviceSignIn.device_sign_in/1 with id: \"device\" and attempt: %{status: \"active\"}, omitting verification_uri, user_code, and expires_at to prove the completed state does not require pending-flow data. Assert the rendered section retains id=\"device\" and contains the exact success message: Device sign-in completed. Your credential is connected. Assert pending-only content is absent: Sign-in code, Open in new tab, and any target= attribute. Also assert recovery guidance (Start a new device sign-in) is absent so completed sign-in cannot be mistaken for failure. Reuse existing imports and inline attempt-map fixture; no helper, database fixture, mock, process, or app configuration. Keep async: true: rendering is synchronous and changes no shared state. Property test is unwarranted for one fixed-status mapping; no browser E2E in scope. Action reuse: N/A, test-only. No dependencies; independent root under parent. Implementation handoff validation only: isolated component test then repository validation gates at prescribed stage. Do not run mix/test/format during implementation; coordinator serializes validation.",
+  "id": "zaq-p8t.8.3",
+  "labels": [],
+  "parent": "zaq-p8t.8",
+  "priority": 2,
+  "status": "open",
+  "title": "[zaq-p8t.8.2] Add active device sign-in component regression coverage",
+  "type": "task",
+  "updated_at": "2026-10-10T11:41:18Z"
+}
