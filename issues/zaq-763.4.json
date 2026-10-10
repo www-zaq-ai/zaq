@@ -7,9 +7,15 @@
   "id": "zaq-763.4",
   "labels": [],
   "parent": "zaq-763",
+  "comments": [
+    {
+      "text": "Device-attempt file passes 27 tests, zero failures. Reviewed distinct refresh-expiry test; original deadline test preserved. Remote-node infrastructure and unreachable branches remain coverage exceptions from planner, despite worker reporting no test-run blocker.",
+      "timestamp": "2026-10-10T16:04:55Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "[zaq-763] Implement device attempt coverage plan",
   "type": "task",
-  "updated_at": "2026-10-10T16:00:45Z"
+  "updated_at": "2026-10-10T16:04:55Z"
 }
