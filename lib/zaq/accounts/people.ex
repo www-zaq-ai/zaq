@@ -270,9 +270,15 @@ defmodule Zaq.Accounts.People do
   end
 
   defp match_discovered_person(platform, attrs) do
-    case PersonIdentities.lookup(platform, attrs) do
+    result =
+      case PersonIdentities.lookup(platform, attrs) do
+        {:error, :not_found} -> match_connector_person(platform, attrs)
+        result -> result
+      end
+
+    case result do
       {:ok, person} -> consistent_discovered_owner(person, attrs)
-      {:error, :not_found} -> match_connector_person(platform, attrs)
+      error -> error
     end
   end
 

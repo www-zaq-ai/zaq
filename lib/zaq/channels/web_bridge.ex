@@ -43,7 +43,38 @@ defmodule Zaq.Channels.WebBridge do
   @callback ingress_status(map(), keyword()) :: {:ok, map()} | {:error, atom()}
   @callback installation(map() | pos_integer(), String.t(), keyword()) ::
               {:ok, String.t()} | {:error, atom()}
-  @optional_callbacks infrastructure_child_specs: 1, ingress_status: 2, installation: 3
+  @optional_callbacks infrastructure_child_specs: 1,
+                      ingress_status: 2,
+                      installation: 3
+
+  @doc "Fetches a verified sender profile from its connector-scoped adapter."
+  @spec fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  @impl Zaq.Channels.CommunicationBridge
+  def fetch_profile(sender, %{channel_config_id: id} = details)
+      when is_binary(sender) and is_integer(id) and id > 0 do
+    with %{sender_id: ^sender, channel_config_id: ^id, profile: profile}
+         when is_map(profile) <- Map.get(details, :profile_context),
+         true <-
+           Enum.all?([:full_name, :email, :phone], fn key ->
+             value = metadata_value(profile, key)
+
+             is_nil(value) or
+               (is_binary(value) and String.valid?(value) and byte_size(value) <= 1000)
+           end) do
+      {:ok,
+       %{
+         channel_id: sender,
+         display_name: metadata_value(profile, :full_name),
+         email: metadata_value(profile, :email),
+         phone: metadata_value(profile, :phone)
+       }}
+    else
+      nil -> {:error, :not_found}
+      _ -> {:error, :invalid_profile}
+    end
+  end
+
+  def fetch_profile(_sender, _details), do: {:error, :missing_connection_details}
 
   @doc "Resolves the web transport adapter registered for the provider."
   @spec adapter_for(atom() | String.t(), keyword()) :: {:ok, module()} | {:error, atom()}
@@ -260,7 +291,12 @@ defmodule Zaq.Channels.WebBridge do
     with %Context{consumer: :widget, channel_config_id: ^id} = context <-
            Keyword.get(opts, :context),
          true <- is_struct(payload, WebMessage) or is_struct(payload, Command) do
-      Event.new(%{payload: payload, context: context}, :channels, opts: [action: :web_ingress])
+      event_opts =
+        if is_nil(context.profile_context),
+          do: [action: :web_ingress],
+          else: [action: :web_ingress, confidential: true]
+
+      Event.new(%{payload: payload, context: context}, :channels, opts: event_opts)
       |> NodeRouter.dispatch()
       |> Map.fetch!(:response)
     else
@@ -759,7 +795,8 @@ defmodule Zaq.Channels.WebBridge do
       channel_config_id:
         context.channel_config_id || delivery_channel_config_id(context.delivery),
       provider: "web_widget",
-      sender_id: context.sender_id
+      sender_id: context.sender_id,
+      profile_context: context.profile_context
     }
   end
 
@@ -773,8 +810,16 @@ defmodule Zaq.Channels.WebBridge do
   end
 
   defp dispatch_channel_conversations(request, context, sink_opts) do
+    event_opts =
+      if is_nil(context.profile_context),
+        do: [action: :channel_conversations],
+        else: [action: :channel_conversations, confidential: true]
+
     event =
-      Event.new(request, :engine, actor: context.actor, opts: [action: :channel_conversations])
+      Event.new(request, :engine,
+        actor: context.actor,
+        opts: event_opts
+      )
 
     node_router = Keyword.get(sink_opts, :node_router, NodeRouter)
 

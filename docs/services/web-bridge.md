@@ -128,6 +128,33 @@ performs its separate People/routing/chat/history authorization. Neither constru
 nor browser-supplied IDs authenticate a sender. Never put shared secrets, raw identity
 proofs or credentials in browser configuration, canonical routing context or history.
 
+### Verified sender profiles
+
+Adapters may supply optional trusted `Context.profile_context` containing
+`%{sender_id: verified_sender, channel_config_id: id, profile: profile}`. The profile
+has optional `full_name`, `email` and `phone` keys (atoms or strings). It originates
+from authenticated parent assertions; browser message fields cannot override it.
+The adapter carries it with initialization and message preparation, without an
+independent profile cache or replicated store.
+
+The existing Channels `:fetch_profile` event carries the resolved connector ID to
+WebBridge, together with opaque request-scoped profile context. Engine and
+IdentityResolver forward that context without interpreting profile fields. The bridge
+validates sender/configuration binding, pins `channel_id` to the verified sender,
+and maps `full_name` to discovery's `display_name`. IdentityResolver
+uses its existing enrichment and `People.find_or_create_from_channel/2` for missing
+or incomplete senders, including initialization. Complete identities use the existing
+link without profile fetching. Missing profiles retain identifier-only discovery;
+invalid supplied profiles fail discovery. Other bridges retain their provider API
+lookup. Profile-bearing Engine and Channels events are confidential to exclude
+observer broadcasts. Context travels across node hops, never in process-local lookup state.
+
+People owns email/phone matching, channel linking, backfill and atomic conflict
+handling. Profile email creation still requires a resolvable email connector under
+the [People email contract](engine.md#canonical-person-email). Messages carry the
+existing normalized `Incoming.person`; no profile payload is added to Incoming
+or the web message protocol. People remains the sole durable profile store.
+
 ## Delivery, responses and lifecycle
 
 Delivery fields are required `consumer` (`:bo` / `:widget`), required `topic`,

@@ -6,8 +6,13 @@ defmodule ZaqWeb.WidgetHostIntegrationTest do
 
   alias WebWidget.Integration.{BindingStore, SignedIdentity}
   alias WebWidget.Runtime, as: WidgetRuntime
+  alias Zaq.Accounts.People
   alias Zaq.Channels.WebBridge
+  alias Zaq.CommunicationFixtures
   alias Zaq.ConnectorConfig.WidgetSettings
+  alias Zaq.Engine.ChannelConfig
+  alias Zaq.Repo
+  alias Zaq.System, as: ZaqSystem
 
   setup do
     previous_roles = System.get_env("ROLES")
@@ -777,6 +782,66 @@ defmodule ZaqWeb.WidgetHostIntegrationTest do
         WebBridge.stop_runtime(second)
       end
     end
+  end
+
+  test "signed parent profile reaches People through the real adapter", %{widget: widget} do
+    previous_base_url = ZaqSystem.get_global_base_url()
+    :ok = ZaqSystem.set_global_base_url("https://zaq.example.test")
+    on_exit(fn -> ZaqSystem.set_global_base_url(previous_base_url) end)
+
+    %ChannelConfig{id: widget.id}
+    |> ChannelConfig.changeset(
+      Map.take(widget, [:name, :provider, :enabled, :token, :settings])
+      |> Map.put(:kind, "retrieval")
+    )
+    |> Repo.insert!()
+
+    CommunicationFixtures.connector_fixture("email")
+
+    if is_nil(Process.whereis(Zaq.Channels.Supervisor)) do
+      start_supervised!(%{
+        id: Zaq.Channels.Supervisor,
+        start:
+          {Supervisor, :start_link, [[], [strategy: :one_for_one, name: Zaq.Channels.Supervisor]]}
+      })
+    end
+
+    {:ok, assertion} =
+      SignedIdentity.sign(
+        widget.token,
+        widget.id,
+        %{
+          user_id: "profile-user",
+          profile: %{full_name: "Ada Lovelace", email: "ada@example.com", phone: "+14155550123"}
+        },
+        issuer: widget.settings["identity_issuer"],
+        audience: widget.settings["identity_audience"]
+      )
+
+    assert {:ok, session} =
+             WidgetRuntime.authenticate(to_string(widget.id), assertion, "profile-page")
+
+    if is_nil(Process.whereis(Zaq.Engine.Supervisor)) do
+      start_supervised!(%{
+        id: Zaq.Engine.Supervisor,
+        start:
+          {Supervisor, :start_link, [[], [strategy: :one_for_one, name: Zaq.Engine.Supervisor]]}
+      })
+    end
+
+    response =
+      WidgetRuntime.dispatch(
+        %{type: "widget.init", request_id: "profile-init", conversation_id: nil, params: %{}},
+        session
+      )
+
+    assert response.type == :widget_initialized
+    assert {:ok, person} = People.match_by_channel("web_widget", "profile-user", widget.id)
+    assert person.full_name == "Ada Lovelace"
+    assert person.email == "ada@example.com"
+    assert person.phone == "+14155550123"
+    assert {:ok, linked} = People.match_by_channel("web_widget", "profile-user", widget.id)
+    assert linked.id == person.id
   end
 
   defp proof(widget) do

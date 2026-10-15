@@ -24,12 +24,14 @@ defmodule Zaq.People.IdentityResolver do
 
   @type person_payload :: %{id: integer(), full_name: String.t() | nil, team_ids: [integer()]}
 
-  @doc "Resolves a verified connector sender without creating a conversation or fetching a profile."
+  @doc "Resolves a verified connector sender, enriching discovery through its channel profile."
   @spec resolve_channel_sender(map()) :: {:ok, Person.t()} | {:error, :unauthorized}
   def resolve_channel_sender(scope) do
     with {:ok, platform, sender, config_id} <- channel_sender(scope),
          {:ok, %Person{status: "active"} = person} <-
-           discover_person(platform, %{"channel_id" => sender}, config_id) do
+           discover_channel_sender(platform, sender, config_id,
+             profile_context: Map.get(scope, :profile_context)
+           ) do
       {:ok, person}
     else
       _ -> {:error, :unauthorized}
@@ -61,6 +63,20 @@ defmodule Zaq.People.IdentityResolver do
   end
 
   defp channel_sender(_scope), do: {:error, :unauthorized}
+
+  defp discover_channel_sender(platform, sender, config_id, opts) do
+    case match_author(platform, sender, config_id) do
+      {:ok, %{incomplete: false} = person} ->
+        {:ok, person}
+
+      {:error, :identity_scope_changed} = error ->
+        error
+
+      _ ->
+        profile = maybe_enrich(platform, sender, %{"channel_id" => sender}, config_id, opts)
+        discover_person(platform, profile, config_id)
+    end
+  end
 
   @spec resolve(Incoming.t(), keyword()) :: {:ok, Zaq.Accounts.Person.t()} | {:error, term()}
   def resolve(%Incoming{provider: provider}, _opts) when provider in [:web, "web"],
@@ -227,6 +243,8 @@ defmodule Zaq.People.IdentityResolver do
     end
   end
 
+  defp discover_person(_platform, {:error, _} = error, _config_id), do: error
+
   defp discover_person(platform, profile, config_id) do
     attrs = if config_id, do: Map.put(profile, "channel_config_id", config_id), else: profile
     People.find_or_create_from_channel(platform, attrs)
@@ -242,11 +260,21 @@ defmodule Zaq.People.IdentityResolver do
 
     result =
       if channels_mod == Zaq.Channels.Api do
+        event_opts =
+          if is_nil(Keyword.get(opts, :profile_context)),
+            do: [action: :fetch_profile],
+            else: [action: :fetch_profile, confidential: true]
+
         event =
           Zaq.Event.new(
-            %{provider: platform, author_id: author_id, channel_config_id: config_id},
+            %{
+              provider: platform,
+              author_id: author_id,
+              channel_config_id: config_id,
+              profile_context: Keyword.get(opts, :profile_context)
+            },
             :channels,
-            opts: [action: :fetch_profile]
+            opts: event_opts
           )
 
         NodeRouter.dispatch(event).response
@@ -263,6 +291,7 @@ defmodule Zaq.People.IdentityResolver do
 
     case result do
       {:ok, profile} -> Map.merge(canonical, stringify_profile(profile))
+      {:error, :invalid_profile} = error -> error
       _ -> canonical
     end
   end

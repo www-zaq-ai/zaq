@@ -268,8 +268,9 @@ defmodule Zaq.Channels.Api do
 
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
          true <- supports_callback?(bridge, :fetch_profile, 2) || {:error, :unsupported},
-         {:ok, _config, details} <- identity_connection(bridge_module, provider, request) do
-      details = Map.put(details, :provider, provider)
+         {:ok, config, details} <- identity_connection(bridge_module, provider, request) do
+      details = Map.merge(details, %{provider: provider, channel_config_id: config.id})
+      details = Map.put(details, :profile_context, Map.get(request, :profile_context))
       %{event | response: bridge.fetch_profile(author_id, details)}
     else
       {:error, reason} -> %{event | response: {:error, reason}}

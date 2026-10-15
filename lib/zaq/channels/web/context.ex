@@ -19,6 +19,7 @@ defmodule Zaq.Channels.Web.Context do
                 :selected_agent_id,
                 :sender_id,
                 :channel_config_id,
+                :profile_context,
                 content_filter: [],
                 history: %{}
               ]
@@ -31,6 +32,7 @@ defmodule Zaq.Channels.Web.Context do
           selected_agent_id: String.t() | nil,
           sender_id: String.t() | nil,
           channel_config_id: pos_integer() | nil,
+          profile_context: map() | nil,
           content_filter: [String.t()],
           history: map()
         }
@@ -46,8 +48,12 @@ defmodule Zaq.Channels.Web.Context do
     history = Keyword.get(opts, :history, %{})
     sender_id = normalize_optional_string(Keyword.get(opts, :sender_id))
     channel_config_id = Keyword.get(opts, :channel_config_id)
+    profile_context = Keyword.get(opts, :profile_context)
 
     with :ok <- validate_consumer(consumer),
+         true <-
+           (is_nil(profile_context) or is_map(profile_context)) ||
+             {:error, {:invalid_field, :profile_context}},
          {:ok, capabilities} <- validate_capabilities(capabilities),
          :ok <- validate_delivery(delivery, consumer),
          :ok <- validate_content_filter(content_filter),
@@ -71,6 +77,7 @@ defmodule Zaq.Channels.Web.Context do
          selected_agent_id: selected_agent_id,
          sender_id: sender_id,
          channel_config_id: channel_config_id,
+         profile_context: profile_context,
          content_filter: content_filter,
          history: history
        }}
@@ -89,7 +96,8 @@ defmodule Zaq.Channels.Web.Context do
       content_filter: context.content_filter,
       history: context.history,
       sender_id: context.sender_id,
-      channel_config_id: context.channel_config_id
+      channel_config_id: context.channel_config_id,
+      profile_context: context.profile_context
     )
   end
 
