@@ -4,6 +4,7 @@ defmodule Zaq.Channels.WebBridgeProfileTest do
   import Zaq.CommunicationFixtures
   alias Zaq.Accounts.People
   alias Zaq.Channels.{CommunicationBridge, WebBridge}
+  alias Zaq.Channels.Web.{Command, Context, Delivery, Response}
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.People.IdentityResolver
   alias Zaq.TestSupport.ChannelConversationBoundary
@@ -38,6 +39,107 @@ defmodule Zaq.Channels.WebBridgeProfileTest do
       channel_config_id: scope.channel_config_id,
       profile: profile
     })
+  end
+
+  test "initialization privately binds the resolved Person, independent of page", %{scope: scope} do
+    {:ok, person} = IdentityResolver.resolve_channel_sender(scope)
+    {:ok, command} = Command.new(%{type: :conversation_init, request_id: "init"})
+
+    bindings =
+      for page <- ["first-page", "refreshed-page"] do
+        {:ok, delivery} =
+          Delivery.new(%{
+            consumer: :widget,
+            channel_config_id: scope.channel_config_id,
+            topic: page,
+            events: %{typing: "response.typing"}
+          })
+
+        {:ok, context} =
+          Context.new(nil,
+            consumer: :widget,
+            sender_id: scope.sender_id,
+            channel_config_id: scope.channel_config_id,
+            delivery: delivery
+          )
+
+        assert %{
+                 response: %Response{type: :widget_initialized, payload: public},
+                 delivery_binding: %Delivery{} = binding
+               } =
+                 WebBridge.from_listener(%{}, command, context: context)
+
+        refute Map.has_key?(public, :person_id)
+        refute Map.has_key?(public, :delivery_binding)
+        refute Map.has_key?(public, :topic)
+        assert binding.topic == "web_widget:recipient:#{scope.channel_config_id}:#{person.id}"
+        binding
+      end
+
+    assert hd(bindings) == List.last(bindings)
+  end
+
+  property "recipient topics separate resolved People and connectors", %{scope: scope} do
+    check all(suffix <- positive_integer(), max_runs: 5) do
+      other_scope = %{scope | sender_id: "other-#{suffix}"}
+
+      other_config =
+        Repo.insert!(%Zaq.Engine.ChannelConfig{
+          name: "Other widget #{suffix}",
+          provider: "web_widget",
+          kind: "retrieval",
+          enabled: true,
+          token: "",
+          url: ""
+        })
+
+      topics =
+        for current <- [scope, other_scope, %{scope | channel_config_id: other_config.id}] do
+          {:ok, command} = Command.new(%{type: :conversation_init, request_id: "scope-init"})
+
+          {:ok, context} =
+            Context.new(nil,
+              consumer: :widget,
+              sender_id: current.sender_id,
+              channel_config_id: current.channel_config_id
+            )
+
+          assert %{delivery_binding: binding} =
+                   WebBridge.from_listener(%{}, command, context: context)
+
+          binding.topic
+        end
+
+      assert length(Enum.uniq(topics)) == 3
+    end
+  end
+
+  test "different verified sender IDs resolving to one Person share a binding", %{scope: scope} do
+    topics =
+      for sender <- ["parent-account", "linked-parent-account"] do
+        current =
+          profiled(%{scope | sender_id: sender}, %{
+            email: "same-person@example.com",
+            full_name: "Same Person"
+          })
+
+        {:ok, command} = Command.new(%{type: :conversation_init, request_id: "linked-init"})
+
+        {:ok, context} =
+          Context.new(nil,
+            consumer: :widget,
+            sender_id: sender,
+            channel_config_id: scope.channel_config_id,
+            profile_context: current.profile_context
+          )
+
+        assert %{delivery_binding: binding} =
+                 WebBridge.from_listener(%{}, command, context: context)
+
+        binding.topic
+      end
+
+    assert hd(topics) == List.last(topics)
   end
 
   property "transient profile binding survives serialization and cannot select another sender", %{

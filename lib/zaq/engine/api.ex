@@ -131,7 +131,13 @@ defmodule Zaq.Engine.Api do
   end
 
   def handle_event(%Event{} = event, :channel_conversations, _context) do
-    %{event | response: channel_conversation_request(event.request), next_hop: nil}
+    response =
+      case event.request do
+        %{operation: :processing} = scope -> channel_processing_status(scope, event.opts)
+        request -> channel_conversation_request(request)
+      end
+
+    %{event | response: response, next_hop: nil}
   end
 
   def handle_event(%Event{} = event, :people_conversations, _context) do
@@ -1099,8 +1105,10 @@ defmodule Zaq.Engine.Api do
   end
 
   defp channel_conversation_request(%{operation: :initialize} = scope) do
-    with {:ok, person} <- IdentityResolver.resolve_channel_sender(scope) do
-      initialize_channel_conversation(person, scope, Map.get(scope, :conversation_id))
+    with {:ok, person} <- IdentityResolver.resolve_channel_sender(scope),
+         {:ok, details} <-
+           initialize_channel_conversation(person, scope, Map.get(scope, :conversation_id)) do
+      {:ok, Map.put(details, :person_id, person.id)}
     end
   end
 
@@ -1114,6 +1122,24 @@ defmodule Zaq.Engine.Api do
              Map.get(scope, :page, [])
            ) do
       {:ok, messages}
+    end
+  end
+
+  defp channel_conversation_request(
+         %{operation: :accepted_message, conversation_id: id, external_message_id: external_id} =
+           scope
+       )
+       when is_binary(external_id) and byte_size(external_id) > 0 do
+    with {:ok, person} <- IdentityResolver.resolve_channel_sender(scope),
+         {:ok, %{messages: messages}} <-
+           Conversations.restore_channel_conversation(person, scope, id,
+             external_message_id: external_id,
+             limit: 2
+           ) do
+      case messages do
+        [%{role: role} = message] when role in ["user", "external"] -> {:ok, message}
+        _ -> {:error, :message_not_found}
+      end
     end
   end
 
@@ -1132,6 +1158,53 @@ defmodule Zaq.Engine.Api do
   end
 
   defp channel_conversation_request(_request), do: {:error, :invalid_request}
+
+  defp channel_processing_status(%{conversation_id: id} = scope, opts) when is_binary(id) do
+    with {:ok, person} <- IdentityResolver.resolve_channel_sender(scope),
+         {:ok, %{conversation: conversation}} <-
+           Conversations.restore_channel_conversation(person, scope, id, limit: 1) do
+      router = Keyword.get(opts, :node_router, Zaq.NodeRouter)
+
+      event =
+        Event.new(%{}, :agent,
+          actor: %{person: IdentityResolver.person_payload(person)},
+          opts: [action: :processing_status, confidential: true]
+        )
+
+      {:ok, aggregate_processing(router.dispatch_all(event), conversation)}
+    end
+  end
+
+  defp channel_processing_status(_scope, _opts), do: {:error, :invalid_request}
+
+  defp aggregate_processing({:ok, [_ | _] = events}, conversation) do
+    states =
+      Enum.flat_map(events, fn
+        %Event{response: {:ok, entries}} when is_list(entries) ->
+          Enum.map(entries, &conversation_processing(&1, conversation))
+
+        _ ->
+          [:unknown]
+      end)
+
+    cond do
+      :active in states -> :active
+      :unknown in states -> :unknown
+      true -> :idle
+    end
+  end
+
+  defp aggregate_processing(_result, _conversation), do: :unknown
+
+  defp conversation_processing(%{user_message_id: id, status: status}, conversation)
+       when status in [:active, :unknown] do
+    case Conversations.get_conversation_message(conversation, id) do
+      %{role: "user"} -> status
+      _ -> :idle
+    end
+  end
+
+  defp conversation_processing(_entry, _conversation), do: :unknown
 
   defp initialize_channel_conversation(_person, _scope, nil),
     do: {:ok, %{conversation_id: nil, created: false}}

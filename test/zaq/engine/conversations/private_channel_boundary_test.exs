@@ -27,6 +27,17 @@ defmodule Zaq.Engine.Conversations.PrivateChannelBoundaryTest do
   alias Zaq.SystemConfigFixtures
   alias Zaq.TestSupport.ChannelConversationBoundary, as: ChannelConversations
 
+  defmodule ProcessingNodes do
+    def dispatch_all(event) do
+      send(self(), {:processing_query, event})
+
+      case Process.get(:processing_node_replies) do
+        {:error, _} = error -> error
+        replies -> {:ok, Enum.map(replies, &%{event | response: &1, next_hop: nil})}
+      end
+    end
+  end
+
   setup do
     assert :ok = Zaq.System.set_global_base_url("https://zaq.example.test")
 
@@ -289,13 +300,113 @@ defmodule Zaq.Engine.Conversations.PrivateChannelBoundaryTest do
              Api.handle_event(bad, :channel_conversations, nil).response
   end
 
+  test "processing recovery uses authorized inputs and aggregates Agent-node uncertainty", %{
+    config: config,
+    scope: scope
+  } do
+    {conversation, _transcript, message_id} = chat(config, scope)
+    {_other_conversation, _other_transcript, other_message_id} = chat(config, scope)
+    active = %{user_message_id: message_id, status: :active}
+    uncertain = %{user_message_id: message_id, status: :unknown}
+    other_active = %{user_message_id: other_message_id, status: :active}
+
+    event =
+      Event.new(
+        Map.merge(scope, %{
+          operation: :processing,
+          conversation_id: conversation.id,
+          user_message_ids: ["browser-cannot-select-an-input"]
+        }),
+        :engine,
+        opts: [node_router: ProcessingNodes]
+      )
+
+    for {replies, expected} <- [
+          {[{:ok, []}, {:ok, [active]}], :active},
+          {[{:ok, []}, {:ok, [uncertain]}], :unknown},
+          {[{:ok, []}, {:error, :unavailable}], :unknown},
+          {[{:ok, []}, {:ok, []}], :idle},
+          {[{:ok, [other_active]}], :idle},
+          {[], :unknown},
+          {{:error, :service_unavailable}, :unknown}
+        ] do
+      Process.put(:processing_node_replies, replies)
+      assert %{response: {:ok, ^expected}} = Api.handle_event(event, :channel_conversations, nil)
+
+      assert_receive {:processing_query,
+                      %{
+                        request: query,
+                        actor: %{person: %{id: person_id}},
+                        opts: opts
+                      }}
+
+      assert person_id == conversation.person_id
+      assert query == %{}
+      assert opts[:action] == :processing_status
+      assert opts[:confidential] == true
+    end
+
+    foreign = %{event | request: %{event.request | sender_id: "foreign-parent"}}
+
+    assert %{response: {:error, :conversation_not_found}} =
+             Api.handle_event(foreign, :channel_conversations, nil)
+
+    refute_received {:processing_query, _}
+  end
+
+  test "processing recovery is independent of history pagination", %{config: config, scope: scope} do
+    {conversation, transcript, input_id} = chat(config, scope)
+
+    Repo.update_all(from(p in TranscriptMessage, where: p.transcript_id == ^transcript),
+      set: [position: 101]
+    )
+
+    for position <- 1..100 do
+      message =
+        %Message{}
+        |> Message.changeset(%{
+          conversation_id: conversation.id,
+          role: "assistant",
+          content: "Earlier answer"
+        })
+        |> Repo.insert!()
+
+      Repo.insert!(%TranscriptMessage{
+        transcript_id: transcript,
+        message_id: message.id,
+        position: position,
+        provenance: "captured"
+      })
+    end
+
+    assert {:ok, first_page} = ChannelConversations.history(scope, conversation.id, limit: 100)
+    refute Enum.any?(first_page, &(&1.message_id == input_id))
+
+    Process.put(:processing_node_replies, [{:ok, [%{user_message_id: input_id, status: :active}]}])
+
+    event =
+      Event.new(
+        Map.merge(scope, %{operation: :processing, conversation_id: conversation.id}),
+        :engine,
+        opts: [node_router: ProcessingNodes]
+      )
+
+    assert %{response: {:ok, :active}} = Api.handle_event(event, :channel_conversations, nil)
+  end
+
   test "shared widget command reaches the authorized Engine boundary without creating a chat", %{
     scope: scope
   } do
     context = widget_context(scope)
     {:ok, command} = Command.new(%{request_id: "widget-init", type: :conversation_init})
 
-    assert %Response{type: :widget_initialized, conversation_id: nil, payload: %{created: false}} =
+    assert %{
+             response: %Response{
+               type: :widget_initialized,
+               conversation_id: nil,
+               payload: %{created: false}
+             }
+           } =
              web_ingress(command, context)
 
     assert Repo.aggregate(Conversation, :count) == 0

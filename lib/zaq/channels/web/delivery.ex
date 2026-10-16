@@ -14,6 +14,7 @@ defmodule Zaq.Channels.Web.Delivery do
     :conversation_initialized,
     :conversation_created,
     :conversation_history,
+    :user_message,
     :typing,
     :message_create,
     :message_edit,

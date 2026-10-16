@@ -4,6 +4,8 @@ defmodule Zaq.Agent.RequestControl do
   execution admission while a runtime is busy. Engine owns canonical admission,
   grants and durable receipts; this module owns authorized PID targeting and Jido
   control invocation. It never creates public answers or interprets provider data.
+  Read-only recovery queries reuse the same Person-bound runtime targeting and
+  report uncertainty until native execution and finalization have settled.
   """
 
   alias Zaq.Agent.{Answering, Factory, HistorySync, InputPrompt, ServerManager}
@@ -20,6 +22,45 @@ defmodule Zaq.Agent.RequestControl do
          :ok <- authorize_person(event, state, identity),
          do: {:ok, state}
   end
+
+  @doc "Reads private canonical input references and processing states for the current Person."
+  def processing_status(%Event{request: request} = event)
+      when is_map(request) and map_size(request) == 0 do
+    factory = Keyword.get(event.opts, :factory_module, Factory)
+
+    with true <- Keyword.get(event.opts, :confidential) == true,
+         {:ok, {:person, id}} when id > 0 <- ExecutionActor.identity(event.actor),
+         {:ok, candidates} <- ServerManager.runtime_candidates(event.actor) do
+      states =
+        candidates
+        |> Enum.filter(&(is_binary(&1.execution_user_message_id) and not is_nil(&1.lease_token)))
+        |> Enum.map(fn candidate ->
+          %{
+            user_message_id: candidate.execution_user_message_id,
+            status: processing_candidate(candidate, factory)
+          }
+        end)
+
+      {:ok, states}
+    else
+      _ -> {:error, :unauthorized}
+    end
+  catch
+    :exit, _ -> {:error, :runtime_unavailable}
+  end
+
+  def processing_status(_event), do: {:error, :unauthorized}
+
+  defp processing_candidate(%{lease_request_id: id, runtime_pid: pid}, factory)
+       when is_binary(id) do
+    case factory.request_state(pid, id) do
+      {:ok, %{status: :pending}} -> :active
+      # A completed native request may still be awaiting Engine finalization.
+      _ -> :unknown
+    end
+  end
+
+  defp processing_candidate(_candidate, _factory), do: :unknown
 
   defp authorize_target(event, request_id) do
     with {:ok, state} <- find_request(event.actor, nil, nil, request_id),

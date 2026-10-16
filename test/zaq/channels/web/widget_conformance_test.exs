@@ -1,11 +1,26 @@
 defmodule Zaq.Channels.Web.WidgetConformanceTest do
   use Zaq.DataCase, async: false
 
+  alias Zaq.Accounts.People
+  alias Zaq.Agent.Api, as: AgentApi
   alias Zaq.Channels.Web.{Command, Context, Delivery, Message, Response}
+  alias Zaq.Channels.WebBridge
   alias Zaq.Engine.{ChannelConfig, IncomingMessageRouting}
+  alias Zaq.Event
   alias Zaq.SystemConfigFixtures
   alias Zaq.TestSupport.ChannelConversationBoundary, as: ChannelConversations
   alias Zaq.TestSupport.OpenAIStub
+
+  defmodule CompletedNativeRequest do
+    def request_state(pid, id) do
+      send(self(), {:native_status_read, pid, id})
+      {:ok, %{status: :completed}}
+    end
+  end
+
+  defmodule UnavailableNativeRequest do
+    def request_state(_pid, _id), do: exit(:runtime_unavailable)
+  end
 
   defmodule AdapterFixture do
     alias Zaq.Channels.WebBridge
@@ -151,7 +166,7 @@ defmodule Zaq.Channels.Web.WidgetConformanceTest do
   } do
     {:ok, init} = Command.new(%{request_id: "init", type: :conversation_init})
 
-    assert %Response{type: :widget_initialized, conversation_id: nil} =
+    assert %{response: %Response{type: :widget_initialized, conversation_id: nil}} =
              AdapterFixture.ingress(init, config.id, topic)
 
     {:ok, message} =
@@ -265,6 +280,161 @@ defmodule Zaq.Channels.Web.WidgetConformanceTest do
              AdapterFixture.ingress(sync_message, config.id, topic)
 
     refute_received {:web_response, _, _}
+  end
+
+  @tag hold_response: true
+  test "accepted user record is published while the native answer is still pending", %{
+    config: config,
+    topic: topic
+  } do
+    {:ok, init} = Command.new(%{request_id: "accepted-init", type: :conversation_init})
+    assert %{delivery_binding: binding} = AdapterFixture.ingress(init, config.id, topic)
+    Phoenix.PubSub.subscribe(Zaq.PubSub, binding.topic)
+
+    {:ok, message} =
+      Message.new(%{
+        request_id: "accepted-before-answer",
+        message_id: Ecto.UUID.generate(),
+        timestamp: DateTime.utc_now(),
+        content: "Say hello",
+        channel: "default",
+        mode: :async
+      })
+
+    {:ok, context} =
+      Context.new(nil,
+        consumer: :widget,
+        sender_id: "verified-parent-user",
+        channel_config_id: config.id,
+        delivery: binding
+      )
+
+    assert {:ok, receipt} = WebBridge.from_listener(%{}, message, context: context)
+
+    assert_receive {:web_response, "response.user_message",
+                    %Response{request_id: "accepted-before-answer", payload: payload}}
+
+    assert payload == receipt.payload
+    assert %{role: "user", content: "Say hello", position: position} = payload.user_message
+    assert position > 0
+    assert_receive {:model_waiting, model}, 30_000
+    refute_received {:web_response, "response.message_complete", _}
+    send(model, :release_response)
+
+    assert_receive {:web_response, "response.message_complete",
+                    %Response{payload: %{body: "Widget answer"}}},
+                   30_000
+  end
+
+  @tag hold_response: true
+  test "a new page receives the old request on the resolved recipient destination", %{
+    config: config,
+    topic: bootstrap
+  } do
+    {:ok, init} = Command.new(%{request_id: "old-page-init", type: :conversation_init})
+    assert %{delivery_binding: binding} = AdapterFixture.ingress(init, config.id, bootstrap)
+    Phoenix.PubSub.subscribe(Zaq.PubSub, binding.topic)
+
+    {:ok, message} =
+      Message.new(%{
+        request_id: "before-reload",
+        message_id: Ecto.UUID.generate(),
+        timestamp: DateTime.utc_now(),
+        content: "Say hello",
+        channel: "default",
+        mode: :async
+      })
+
+    assert {:ok, %Response{conversation_id: conversation}} =
+             AdapterFixture.ingress(message, config.id, binding.topic)
+
+    assert_receive {:model_waiting, model}, 30_000
+
+    {:ok, history} =
+      Command.new(%{
+        request_id: "recovery",
+        type: :conversation_history,
+        conversation_id: conversation
+      })
+
+    assert %Response{payload: %{processing: :active, messages: current_messages}} =
+             AdapterFixture.ingress(history, config.id, binding.topic)
+
+    {:ok, person} =
+      People.match_by_channel("web_widget", "verified-parent-user", config.id)
+
+    ids = for %{role: "user", message_id: id} <- current_messages, do: id
+
+    status =
+      Event.new(%{}, :agent,
+        actor: %{person: %{id: person.id}},
+        opts: [confidential: true, factory_module: CompletedNativeRequest]
+      )
+
+    assert %{response: {:ok, [%{user_message_id: input_id, status: :unknown}]}} =
+             AgentApi.handle_event(status, :processing_status, nil)
+
+    assert input_id in ids
+
+    assert_receive {:native_status_read, pid, native_id}
+    assert is_pid(pid)
+    refute native_id == "before-reload"
+
+    unavailable = %{status | opts: [confidential: true, factory_module: UnavailableNativeRequest]}
+
+    assert %{response: {:error, :runtime_unavailable}} =
+             AgentApi.handle_event(unavailable, :processing_status, nil)
+
+    unrelated = %{status | actor: %{person: %{id: person.id + 1}}}
+
+    assert %{response: {:ok, []}} =
+             AgentApi.handle_event(unrelated, :processing_status, nil)
+
+    refute_received {:native_status_read, _, _}
+
+    Phoenix.PubSub.unsubscribe(Zaq.PubSub, binding.topic)
+    owner = self()
+
+    page =
+      spawn_link(fn ->
+        {:ok, resume} =
+          Command.new(%{
+            request_id: "new-page-init",
+            type: :conversation_init,
+            conversation_id: conversation
+          })
+
+        %{delivery_binding: restored} = AdapterFixture.ingress(resume, config.id, "new-page")
+        Phoenix.PubSub.subscribe(Zaq.PubSub, restored.topic)
+        send(owner, {:page_subscribed, restored.topic})
+
+        receive do
+          {:web_response, "response.message_complete", result} ->
+            send(owner, {:restored_answer, result})
+        after
+          30_000 -> send(owner, :missing_restored_answer)
+        end
+      end)
+
+    assert_receive {:page_subscribed, topic}, 30_000
+    assert topic == binding.topic
+    send(model, :release_response)
+
+    assert_receive {:restored_answer,
+                    %Response{
+                      request_id: "before-reload",
+                      conversation_id: ^conversation,
+                      payload: %{body: "Widget answer"}
+                    }},
+                   30_000
+
+    monitor = Process.monitor(page)
+    assert_receive {:DOWN, ^monitor, :process, ^page, _}
+
+    assert %Response{payload: %{processing: :idle, messages: messages}} =
+             AdapterFixture.ingress(history, config.id, binding.topic)
+
+    assert Enum.any?(messages, &(&1.content == "Widget answer"))
   end
 
   @tag hold_response: true

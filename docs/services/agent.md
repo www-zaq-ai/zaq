@@ -140,6 +140,14 @@ User question (BO Chat / Channel)
 
 ### Status broadcast ownership
 
+The confidential `:processing_status` Agent action reads existing Person-bound
+runtime leases and returns canonical user-message references privately to Engine.
+`RequestControl` uses `Factory.request_state/2` to distinguish pending generation
+from uncertain finalization. No public caller receives runtime targets or a new
+application-side request archive. Engine queries all available Agent nodes, checks
+input membership in the authorized conversation and projects only `:active`, `:idle`
+or `:unknown` through Channels, independently of the displayed history page.
+
 Consumers may opt into `notify_execution_lifecycle` through trusted pipeline options.
 `StreamEvents` reports `:execution_started` only on native `request_started`, not on
 dispatch or ask-handle acquisition. Agent API reports safe `:submission_accepted` for

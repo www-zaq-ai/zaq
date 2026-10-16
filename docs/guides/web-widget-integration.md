@@ -1,6 +1,6 @@
 # Web widget integration handoff
 
-This walkthrough targets shared web protocol version **1** on the `refactor/webbridge`
+This walkthrough targets shared web protocol version **2** on the `refactor/webbridge`
 implementation for [ZAQ issue 830](https://github.com/www-zaq-ai/zaq/issues/830).
 The protocol source is [`lib/zaq/channels/web/`](../../lib/zaq/channels/web/), not a
 second widget schema. Pin the final reviewed ZAQ revision when installing the
@@ -12,9 +12,10 @@ runtime, trust and delivery contract. BO's working consumer is
 
 ### Included candidate package
 
-ZAQ pins `www-zaq-ai/web_widget` to the published supervised-host candidate from
-[#24](https://github.com/www-zaq-ai/web_widget/pull/24), on
-`ww-v12/explicit-host-startup`. [`mix.exs`](../../mix.exs) and
+ZAQ pins `www-zaq-ai/web_widget` to the verified-profile and recipient-recovery candidate
+from [#30](https://github.com/www-zaq-ai/web_widget/pull/30), built on the supervised-host
+contract introduced by [#24](https://github.com/www-zaq-ai/web_widget/pull/24).
+[`mix.exs`](../../mix.exs) and
 [`mix.lock`](../../mix.lock) own the exact revision. This is an integration candidate,
 not an assertion that the changes have merged into `main`. After acceptance and merge, change the dependency
 selector in `mix.exs` from `ref` to `branch: "main"`, run
@@ -194,6 +195,13 @@ For restoration after a parent-page reload, save the ID reported by the
 then call `zaq.widget.updateContext({conversation_id: savedId})`. Verify both
 `event.source` and the exact widget `event.origin` before accepting parent events.
 Reload alone does not implicitly select a previous durable conversation.
+
+Once restored, the adapter receives a ZAQ-resolved private recipient delivery binding
+and subscribes before accepting messages. The same Person/connector uses the same
+destination across authenticated tabs and full reloads. The binding is server-only;
+embedding applications must not supply a topic or Person ID. Recovery loads authorized
+history and a public processing indication; subsequent full-body events can restore
+an assistant message even when its original create event preceded the reload.
 
 ### Legacy connector upgrade
 

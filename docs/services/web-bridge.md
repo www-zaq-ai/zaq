@@ -89,9 +89,21 @@ on HTTPS pages. Both constructors and ingress validate manually constructed comm
 | BO init | `:conversation_initialized`; conversation ID and `created`, optionally `replaced_missing_id` |
 | Widget idle init | `:widget_initialized`; `created: false`, readiness, no new conversation ID |
 | Widget resume init | Same initialized type with an authorized existing conversation ID; never replacement creation |
-| Widget history | `:conversation_history`, payload `%{messages: ordered_public_messages}` |
+| Widget history | `:conversation_history`, public ordered `messages` and `processing` indication |
 | BO history | Same semantic type with BO conversation/message projections, including its UI ratings/info fields |
 | Command failure | `:error`, payload `%{code: stable_code}` |
+
+Successful widget initialization returns a **server-only envelope**
+`%{response: Web.Response.t(), delivery_binding: Web.Delivery.t()}`. The public
+response remains `:widget_initialized`. Engine resolves the verified sender through
+People and returns the Person ID internally; WebBridge alone derives the normalized
+destination `web_widget:recipient:<connector_id>:<person_id>`. The adapter retains
+the binding, subscribes before accepting submissions, and reuses it as trusted
+Context delivery. Each authenticated tab initializes independently. Neither the
+Person ID nor binding/topic is added to the public response, browser configuration
+or parent messages. Errors retain the ordinary public error response and yield no
+binding. Internal initialization/ingress events are confidential so the private
+return cannot enter observer broadcasts.
 
 Widget history/resume resolves sender through connector-scoped People identity and
 requires literal Person/configuration ownership, an existing Direct transcript and
@@ -103,6 +115,18 @@ Widget history params are `limit` (default 50, maximum 100), `after_position` an
 ascending public message projections, not execution records. Conversation IDs are
 not transcript IDs; use the returned positions for pagination. See the canonical
 history contract in [Engine](engine.md), not generic conversation reads.
+WebBridge projects captured `external` input rows as widget `user` messages; the
+stored role and canonical identity remain unchanged.
+
+Widget history responses also include `processing: :active | :idle | :unknown`.
+Engine reauthorizes the conversation and queries available Agent nodes privately.
+Agent reuses its Person-bound runtime leases and native request status, returning
+canonical input references internally. Engine verifies those references against the
+authorized conversation using its existing message lookup, independently of history
+pagination. No runtime IDs, PIDs or execution records are projected to the widget.
+Pending native generation is active. An unfinished finalization lease or unavailable
+node/runtime is unknown, never proof of completion. This is a processing indication, not
+a promise that each accepted submission produces an answer or a partial-text archive.
 
 BO retains its named missing-conversation fallback. ChatLive owns welcome presentation
 and persists the fixed welcome only after newly-created BO init. Listing/deletion,
@@ -164,6 +188,9 @@ nonblank strings or nonboolean/nonnil atoms. Unknown semantic keys are rejected.
 Widget messages require mappings for typing, create, edit, step, complete, failed and
 error before creating the chat. Command/acceptance responses are returned directly
 and must also be encoded by the adapter; they do not depend on PubSub subscription.
+New initialization bindings also include `user_message: "response.user_message"`
+for accepted-user synchronization across authenticated tabs. Older explicit trusted
+descriptors without that mapping still receive the enriched direct receipt.
 The bridge binds optional trusted `conversation_id` and `message_id` to the descriptor
 after preparation. Only Channels interprets these correlation fields; generic role
 code carries the serialized reference opaquely. A reserved transport ID does not
@@ -180,6 +207,7 @@ fields. Widget finals exclude BO traces, raw tool calls and agent metadata.
 | `:conversation_initialized` | BO init details | Direct command result |
 | `:conversation_created` | First async receipt: `accepted: true`, `created: true`, new conversation ID | Not BO widget receipt |
 | `:conversation_history` | `messages` public ordered history | Direct command result |
+| `:user_message` | `accepted: true`, `created`, canonical `user_message`; same accepted record as async receipt | Not emitted by BO descriptor |
 | `:typing` | `active: true` / `false` | Not emitted by BO descriptor |
 | `:message_create` | Empty assistant `body`, stable transport ID | Not emitted by BO descriptor |
 | `:message_edit` | Full current `body`; replacement snapshot, never append-only delta | `:status_update` |
@@ -202,13 +230,32 @@ and `inserted_at`; rating fields are `id`, `rating`, `reason` and `comment`.
 These BO information fields are not the widget's public projection.
 
 Submission and assistant-message lifecycles are independent. Async returns a
-creation/status receipt with `accepted: true`, the request/conversation IDs and **no
-assistant message ID**. This acknowledges submission dispatch, not native input
-consumption, generation or a promised answer. Workflow-only inputs, provider replays
+creation/status receipt with `accepted: true`, the request/conversation IDs, canonical
+`user_message` and **no assistant message ID**. After synchronous routing succeeds,
+Engine reauthorizes the conversation and reuses the canonical reader's exact
+`external_message_id` filter to retrieve the saved input. No parallel persistence
+operation or history-page scan is introduced. WebBridge publishes a `:user_message`
+response on the recipient topic before returning the receipt; both carry identical
+accepted payloads. The nested record includes its canonical `message_id`, transcript
+`position`, role, saved content and public history fields. This acknowledges saved
+input, not native input consumption, generation or a promised answer. Workflow-only inputs, provider replays
 and accepted steering can produce no independent assistant message. An additional
 accepted status may use `response.status` when no explicit status mapping exists.
 
-Async responses go directly to the adapter's existing authorized subscription; there
+Adapters converge the direct accepted receipt and its broadcast idempotently by
+canonical message ID, independently of arrival order and history restoration.
+The submission `request_id` identifies the originating pending send; receipt and
+broadcast must not clear another tab's draft or acknowledge its different request.
+The submitting composer retains its text while showing a disabled Sending state,
+then clears only the matching accepted draft. Rejection retains the draft; unknown
+outcomes retain it and require reconciliation before resubmission. A saved input
+whose acknowledgement lookup fails returns `:acknowledgement_unavailable` with
+`outcome: :unknown` and the known conversation ID, never a false acceptance. PubSub
+does not guarantee delivery; the direct receipt and authorized history remain
+recovery paths. User events do not switch another tab's selected conversation or
+manufacture a pending assistant response.
+
+Async responses go directly to the adapter's authorized recipient subscription; there
 is no per-message transport owner or relay. Native `request_started` is projected
 through Agent's existing Status boundary to typing active → assistant create. Only
 then do stream edits and safe activity steps follow. Generic pre-admission statuses

@@ -11,7 +11,9 @@ defmodule Zaq.Channels.WebBridge do
   normalized semantic responses.
 
   Widgets use config-bound adapter context and direct transport delivery for
-  independent submission receipts and assistant streams. Idle widget init creates
+  independent saved-user acknowledgements and assistant streams. Accepted user
+  records are projected from authorized canonical history and shared with all tabs
+  on the resolved recipient destination. Idle widget init creates
   no chat. Transport runtimes are constructed by the dynamically registered
   adapter through the existing Bridge lifecycle. This bridge binds the shared
   protocol and ingress sink; transport policy and readiness belong to the adapter.
@@ -36,6 +38,17 @@ defmodule Zaq.Channels.WebBridge do
   alias Zaq.Event
   alias Zaq.Events.Helper
   alias Zaq.NodeRouter
+
+  @widget_events %{
+    user_message: "response.user_message",
+    typing: "response.typing",
+    message_create: "response.message.create",
+    message_edit: "response.message.edit",
+    message_step: "response.message.step",
+    message_complete: "response.message.complete",
+    message_failed: "response.message.failed",
+    error: "response.error"
+  }
 
   @callback infrastructure_child_specs(keyword()) ::
               {:ok, [Supervisor.child_spec()]} | {:error, term()}
@@ -291,10 +304,7 @@ defmodule Zaq.Channels.WebBridge do
     with %Context{consumer: :widget, channel_config_id: ^id} = context <-
            Keyword.get(opts, :context),
          true <- is_struct(payload, WebMessage) or is_struct(payload, Command) do
-      event_opts =
-        if is_nil(context.profile_context),
-          do: [action: :web_ingress],
-          else: [action: :web_ingress, confidential: true]
+      event_opts = [action: :web_ingress, confidential: true]
 
       Event.new(%{payload: payload, context: context}, :channels, opts: event_opts)
       |> NodeRouter.dispatch()
@@ -340,7 +350,12 @@ defmodule Zaq.Channels.WebBridge do
 
   @doc "Receives a normalized web payload through the common bridge ingress hooks."
   @spec from_listener(map(), WebMessage.t() | Command.t(), keyword()) ::
-          Outgoing.t() | Response.t() | {:ok, Response.t()} | :ok | {:error, term()}
+          Outgoing.t()
+          | Response.t()
+          | {:ok, Response.t()}
+          | %{response: Response.t(), delivery_binding: Delivery.t()}
+          | :ok
+          | {:error, term()}
   def from_listener(config, payload, sink_opts) when is_map(config) and is_list(sink_opts) do
     Bridge.route_incoming(__MODULE__, config, payload, sink_opts)
   end
@@ -544,7 +559,10 @@ defmodule Zaq.Channels.WebBridge do
           | routing_context: %{incoming.routing_context | attributes: attributes}
         }
 
-        dispatch_widget_message(scoped, %{context | delivery: destination}, sink_opts, actor)
+        bound_context = %{context | delivery: destination}
+        result = dispatch_widget_message(scoped, bound_context, sink_opts, actor)
+
+        acknowledge_widget_input(result, message, bound_context, sink_opts)
       end
 
       widget_reply(message, delivery, dispatch, sink_opts)
@@ -597,14 +615,56 @@ defmodule Zaq.Channels.WebBridge do
     %{response | payload: Map.put(response.payload, :created, is_nil(message.conversation_id))}
   end
 
-  defp widget_reply(message, delivery, dispatch, _sink_opts) do
-    case dispatch.(delivery) do
-      {:error, _} = error -> error
-      _ -> {:ok, submission_receipt(message, delivery)}
+  defp widget_reply(_message, delivery, dispatch, _sink_opts) do
+    dispatch.(delivery)
+  end
+
+  defp acknowledge_widget_input(result, %WebMessage{mode: :sync}, _context, _opts), do: result
+  defp acknowledge_widget_input({:error, _} = error, _message, _context, _opts), do: error
+
+  defp acknowledge_widget_input(_result, message, context, opts) do
+    request =
+      widget_scope(context)
+      |> Map.merge(%{
+        operation: :accepted_message,
+        conversation_id: context.delivery.conversation_id,
+        external_message_id: message.message_id
+      })
+
+    with {:ok, saved} <- dispatch_channel_conversations(request, context, opts),
+         %Response{} = receipt <-
+           submission_receipt(message, context.delivery, widget_history_message(saved)),
+         :ok <- publish_user_message(context.delivery, receipt) do
+      {:ok, receipt}
+    else
+      _ ->
+        error = error_response(message, :acknowledgement_unavailable, 2)
+
+        %{
+          error
+          | conversation_id: context.delivery.conversation_id,
+            payload: Map.put(error.payload, :outcome, :unknown)
+        }
     end
   end
 
-  defp submission_receipt(message, delivery) do
+  defp publish_user_message(delivery, receipt) do
+    case Delivery.event_name(delivery, :user_message) do
+      {:ok, event} ->
+        Phoenix.PubSub.broadcast(
+          Zaq.PubSub,
+          delivery.topic,
+          {:web_response, event, %{receipt | type: :user_message}}
+        )
+
+      # Legacy trusted descriptors can still use the direct receipt. New bindings
+      # always include the accepted-user event mapping.
+      {:error, :unsupported_event} ->
+        :ok
+    end
+  end
+
+  defp submission_receipt(message, delivery, saved) do
     created = is_nil(message.conversation_id)
 
     {:ok, response} =
@@ -613,22 +673,14 @@ defmodule Zaq.Channels.WebBridge do
         request_id: message.request_id,
         conversation_id: delivery.conversation_id,
         type: if(created, do: :conversation_created, else: :status),
-        payload: %{accepted: true, created: created}
+        payload: %{accepted: true, created: created, user_message: saved}
       })
 
     response
   end
 
   defp validate_widget_events(delivery) do
-    required = [
-      :typing,
-      :message_create,
-      :message_edit,
-      :message_step,
-      :message_complete,
-      :message_failed,
-      :error
-    ]
+    required = Map.keys(@widget_events) -- [:user_message]
 
     if Enum.all?(required, &match?({:ok, _}, Delivery.event_name(delivery, &1))),
       do: :ok,
@@ -728,12 +780,24 @@ defmodule Zaq.Channels.WebBridge do
           command,
           :conversation_history,
           command.conversation_id,
-          %{messages: messages},
+          %{
+            messages: Enum.map(messages, &widget_history_message/1),
+            processing: widget_processing(request, context, sink_opts)
+          },
           2
         )
 
-      {:ok, %{conversation_id: id} = details} ->
-        response(command, :widget_initialized, id, details, 2)
+      {:ok, %{conversation_id: id, person_id: person_id} = details} ->
+        with true <- is_integer(person_id) and person_id > 0,
+             {:ok, binding} <- widget_binding(context, person_id) do
+          %{
+            response:
+              response(command, :widget_initialized, id, Map.drop(details, [:person_id]), 2),
+            delivery_binding: binding
+          }
+        else
+          _ -> error_response(command, :missing_delivery_descriptor, 2)
+        end
 
       {:error, reason} ->
         error_response(command, reason, 2)
@@ -790,6 +854,32 @@ defmodule Zaq.Channels.WebBridge do
     end
   end
 
+  defp widget_binding(context, person_id) do
+    id = widget_scope(context).channel_config_id
+
+    events =
+      if context.delivery,
+        do: Map.merge(@widget_events, context.delivery.events),
+        else: @widget_events
+
+    Delivery.new(%{
+      consumer: :widget,
+      channel_config_id: id,
+      topic: "web_widget:recipient:#{id}:#{person_id}",
+      events: events
+    })
+  end
+
+  defp widget_processing(request, context, sink_opts) do
+    case dispatch_channel_conversations(%{request | operation: :processing}, context, sink_opts) do
+      {:ok, status} when status in [:active, :idle, :unknown] -> status
+      _ -> :unknown
+    end
+  end
+
+  defp widget_history_message(%{role: "external"} = message), do: %{message | role: "user"}
+  defp widget_history_message(message), do: message
+
   defp widget_scope(context) do
     %{
       channel_config_id:
@@ -810,10 +900,7 @@ defmodule Zaq.Channels.WebBridge do
   end
 
   defp dispatch_channel_conversations(request, context, sink_opts) do
-    event_opts =
-      if is_nil(context.profile_context),
-        do: [action: :channel_conversations],
-        else: [action: :channel_conversations, confidential: true]
+    event_opts = [action: :channel_conversations, confidential: true]
 
     event =
       Event.new(request, :engine,

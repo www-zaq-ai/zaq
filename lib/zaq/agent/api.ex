@@ -51,6 +51,9 @@ defmodule Zaq.Agent.Api do
     `Pipeline.run/2` (full RAG path) or `Executor.run/2` (direct agent run) depending
     on whether `event.assigns["agent_selection"]` carries a non-nil `agent_id`.
 
+  - `:processing_status` — confidential, read-only canonical input references
+    and processing states for the current Person, for Engine authorization/projection.
+
   - `:invoke` — generic passthrough to `InternalBoundaries.invoke_request/1`.
 
   - `:mcp_test_list_tools` — proxies `MCP.test_list_tools/2` for the BO endpoint
@@ -95,6 +98,9 @@ defmodule Zaq.Agent.Api do
       when action in [:steer_request, :inject_request] do
     with_history_session(event, &control_input(&1, action))
   end
+
+  def handle_event(%Event{} = event, :processing_status, _context),
+    do: %{event | response: RequestControl.processing_status(event), next_hop: nil}
 
   def handle_event(%Event{} = event, :invoke, _context),
     do: InternalBoundaries.invoke_request(event)

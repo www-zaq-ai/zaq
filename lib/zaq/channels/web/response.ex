@@ -13,6 +13,7 @@ defmodule Zaq.Channels.Web.Response do
     :conversation_initialized,
     :conversation_created,
     :conversation_history,
+    :user_message,
     :typing,
     :message_create,
     :message_edit,
@@ -53,6 +54,7 @@ defmodule Zaq.Channels.Web.Response do
           | :conversation_initialized
           | :conversation_created
           | :conversation_history
+          | :user_message
           | :typing
           | :message_create
           | :message_edit

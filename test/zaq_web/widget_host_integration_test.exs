@@ -232,9 +232,189 @@ defmodule ZaqWeb.WidgetHostIntegrationTest do
                "Another informational message"
              ]
 
+      assert_receive {:web_response, "response.user_message",
+                      %{
+                        type: :user_message,
+                        payload: %{user_message: %{content: "Informational message"}}
+                      }}
+
+      assert_receive {:web_response, "response.user_message",
+                      %{
+                        type: :user_message,
+                        payload: %{user_message: %{content: "Another informational message"}}
+                      }}
+
+      refute second.state.typing
       refute_receive {:web_response, _, _}
     after
       Chat.close(chat)
+    end
+  end
+
+  test "a fresh authenticated widget page receives an answer started before reload", %{
+    widget: widget
+  } do
+    alias WebWidget.Integration.Chat
+    alias Zaq.Engine.IncomingMessageRouting
+    alias Zaq.TestSupport.{MultiAgentOpenAIStub, OpenAIStub}
+    owner = self()
+    assert :ok = Zaq.System.set_global_base_url("https://zaq.example.test")
+
+    {spec, endpoint} =
+      OpenAIStub.server(
+        fn _conn, body ->
+          request = Jason.decode!(body)
+
+          if request["stream"] do
+            send(owner, {:widget_model_waiting, self()})
+
+            receive do
+              :release_widget_answer ->
+                {200, MultiAgentOpenAIStub.text_sse("Reconnected answer", request["model"])}
+            after
+              30_000 -> {500, %{error: "test model was not released"}}
+            end
+          else
+            {200, OpenAIStub.chat_completion("Widget reload")}
+          end
+        end,
+        self()
+      )
+
+    start_supervised!(spec)
+    OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
+
+    credential =
+      Zaq.SystemConfigFixtures.ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "test-key"
+      })
+
+    {:ok, agent} =
+      Zaq.Agent.create_agent(%{
+        name: "Widget reload",
+        job: "Answer simply",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        enabled_tool_keys: [],
+        conversation_enabled: true,
+        active: true,
+        advanced_options: %{"stream" => true}
+      })
+
+    config =
+      %ChannelConfig{id: widget.id}
+      |> ChannelConfig.changeset(
+        Map.take(widget, [:name, :provider, :enabled, :token, :settings])
+        |> Map.put(:kind, "retrieval")
+      )
+      |> Repo.insert!()
+
+    {:ok, _} =
+      IncomingMessageRouting.upsert_rule(
+        %{channel_config_id: config.id},
+        %{routing_mode: :agent, configured_agent_id: agent.id}
+      )
+
+    {:ok, first_proof} = proof(widget)
+
+    assert {:ok, chat} =
+             Chat.open(
+               to_string(widget.id),
+               %{"identity_token" => first_proof},
+               Ecto.UUID.generate()
+             )
+
+    assert {:ok, submitted} = Chat.submit(chat, "Please answer")
+    assert_receive {:widget_model_waiting, model}, 30_000
+    Chat.close(chat)
+    {:ok, fresh_proof} = proof(widget)
+
+    page =
+      Task.async(fn ->
+        assert {:ok, restored} =
+                 Chat.open(
+                   to_string(widget.id),
+                   %{"identity_token" => fresh_proof},
+                   Ecto.UUID.generate(),
+                   submitted.conversation_id
+                 )
+
+        try do
+          send(owner, {:widget_page_restored, restored.session.topic, restored.state.typing})
+
+          receive do
+            {:web_response, event, %{type: :message_complete} = response} ->
+              recovered = Chat.receive_response(restored, event, response)
+              Enum.map(recovered.state.messages, & &1.content)
+          after
+            30_000 -> flunk("original request did not reach the new widget page")
+          end
+        after
+          Chat.close(restored)
+        end
+      end)
+
+    assert_receive {:widget_page_restored, topic, true}, 30_000
+    assert topic == chat.session.topic
+    send(model, :release_widget_answer)
+    assert Enum.count(Task.await(page, 30_000), &(&1 == "Reconnected answer")) == 1
+  end
+
+  test "installed adapter converges a user acknowledgement and its same-conversation broadcast",
+       %{widget: widget} do
+    alias WebWidget.Integration.Chat
+    alias Zaq.Engine.IncomingMessageRouting
+    assert :ok = Zaq.System.set_global_base_url("https://zaq.example.test")
+
+    config =
+      %ChannelConfig{id: widget.id}
+      |> ChannelConfig.changeset(
+        Map.take(widget, [:name, :provider, :enabled, :token, :settings])
+        |> Map.put(:kind, "retrieval")
+      )
+      |> Repo.insert!()
+
+    {:ok, _} =
+      IncomingMessageRouting.upsert_rule(%{channel_config_id: config.id}, %{routing_mode: :none})
+
+    {:ok, token} = proof(widget)
+
+    assert {:ok, first} =
+             Chat.open(to_string(widget.id), %{"identity_token" => token}, Ecto.UUID.generate())
+
+    assert {:ok, first} = Chat.submit(first, "Initial message")
+    assert_receive {:web_response, "response.user_message", initial}
+    first = Chat.receive_response(first, "response.user_message", initial)
+    {:ok, token} = proof(widget)
+
+    assert {:ok, second} =
+             Chat.open(
+               to_string(widget.id),
+               %{"identity_token" => token},
+               Ecto.UUID.generate(),
+               first.conversation_id
+             )
+
+    try do
+      assert {:ok, submitted} = Chat.submit(first, "Visible in both tabs")
+      assert_receive {:web_response, "response.user_message", event}
+      sender = Chat.receive_response(submitted, "response.user_message", event)
+      observer = Chat.receive_response(second, "response.user_message", event)
+      observer = Chat.receive_response(observer, "response.user_message", event)
+      saved = event.payload.user_message
+
+      for chat <- [sender, observer] do
+        assert Enum.count(chat.state.messages, &(&1.content == "Visible in both tabs")) == 1
+        assert Enum.any?(chat.state.messages, &(&1.id == saved.message_id))
+        assert chat.pending_submission == nil
+        refute chat.state.typing
+      end
+    after
+      Chat.close(first)
+      Chat.close(second)
     end
   end
 
@@ -829,11 +1009,16 @@ defmodule ZaqWeb.WidgetHostIntegrationTest do
       })
     end
 
-    response =
-      WidgetRuntime.dispatch(
-        %{type: "widget.init", request_id: "profile-init", conversation_id: nil, params: %{}},
-        session
-      )
+    assert {:ok, response, _bound_session} =
+             WidgetRuntime.initialize(
+               %{
+                 type: "widget.init",
+                 request_id: "profile-init",
+                 conversation_id: nil,
+                 params: %{}
+               },
+               session
+             )
 
     assert response.type == :widget_initialized
     assert {:ok, person} = People.match_by_channel("web_widget", "profile-user", widget.id)
