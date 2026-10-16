@@ -30,11 +30,21 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  docker:
-    name: Build and push release image
+  docker-build:
+    name: Build release image (${{ matrix.arch }})
     needs: release
     if: ${{ needs.release.outputs.release_created == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
@@ -44,8 +54,70 @@ jobs:
         with:
           ref: ${{ needs.release.outputs.sha }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image name
+        id: image
+        run: |
+          IMAGE_REPO="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          echo "name=ghcr.io/${IMAGE_REPO}" >> "${GITHUB_OUTPUT}"
+
+      # Each native runner publishes an immutable image, not the shared tags.
+      # Tags are published only after both architecture builds succeed.
+      - name: Build and push image by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }}
+
+      - name: Export image digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "Invalid image digest: ${DIGEST}" >&2
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/digests"
+          touch "${RUNNER_TEMP}/digests/${DIGEST#sha256:}"
+
+      - name: Upload image digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-digests-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker:
+    name: Publish multi-arch release image
+    needs: [release, docker-build]
+    if: ${{ needs.release.outputs.release_created == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download image digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: image-digests-*
+          merge-multiple: true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -86,14 +158,37 @@ jobs:
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.image_tags.outputs.tags }}
+      - name: Merge image manifests and publish release tags
+        env:
+          TAGS: ${{ steps.image_tags.outputs.tags }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          IMAGE_REPO="$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="ghcr.io/${IMAGE_REPO}"
+          DIGEST_FILES=("${RUNNER_TEMP}"/digests/*)
+          if [[ "${#DIGEST_FILES[@]}" -ne 2 ]]; then
+            echo "Expected exactly two architecture image digests" >&2
+            exit 1
+          fi
+
+          IMAGES=()
+          for FILE in "${DIGEST_FILES[@]}"; do
+            DIGEST="${FILE##*/}"
+            if [[ ! "${DIGEST}" =~ ^[a-f0-9]{64}$ ]]; then
+              echo "Invalid image digest filename: ${DIGEST}" >&2
+              exit 1
+            fi
+            IMAGES+=("${IMAGE}@sha256:${DIGEST}")
+          done
+
+          TAG_ARGS=()
+          while IFS= read -r TAG; do
+            [[ -z "${TAG}" ]] || TAG_ARGS+=(--tag "${TAG}")
+          done <<< "${TAGS}"
+
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${IMAGES[@]}"
 
       - name: Verify multi-arch manifest
         run: |

@@ -6,22 +6,32 @@ on:
 jobs:
   e2e:
     name: E2E ${{ matrix.browser }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
 
-    # One runner per browser. Each leg is its own container with its own Postgres
-    # and its own Phoenix, so POST /e2e/reset stays a whole-node reset within its
+    # One runner per browser. Each leg has its own Postgres and Phoenix, so
+    # POST /e2e/reset stays a whole-node reset within its
     # leg and no test isolation work is needed. fail-fast is off so one browser
     # failing still tells us about the other two.
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, firefox, webkit]
+        include:
+          - browser: chromium
+            runner: ubuntu-24.04
+            postgres-image: pgvector/pgvector:pg18
+          - browser: firefox
+            runner: ubuntu-24.04
+            postgres-image: pgvector/pgvector:pg18
+          - browser: webkit
+            runner: macos-15
+            # An empty image disables the service; macOS runs Postgres natively.
+            postgres-image: ""
 
     services:
       postgres:
-        image: paradedb/paradedb:0.23.0
+        image: ${{ matrix.postgres-image }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -46,7 +56,25 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install inotify-tools
+        if: runner.os == 'Linux'
         run: sudo apt-get install -y --no-install-recommends inotify-tools
+
+      - name: Set up PostgreSQL 18 and pgvector on macOS
+        if: runner.os == 'macOS'
+        env:
+          E2E_PGDATA: ${{ runner.temp }}/zaq-e2e-postgres
+        run: |
+          set -euo pipefail
+
+          brew install postgresql@18 pgvector
+          PG_BIN="$(brew --prefix postgresql@18)/bin"
+          echo "${PG_BIN}" >> "${GITHUB_PATH}"
+
+          # An isolated, loopback-only cluster; trust is confined to this CI VM.
+          "${PG_BIN}/initdb" -D "${E2E_PGDATA}" -U postgres --auth=trust
+          "${PG_BIN}/pg_ctl" -D "${E2E_PGDATA}" \
+            -l "${RUNNER_TEMP}/zaq-e2e-postgres.log" \
+            -o "-h 127.0.0.1 -p 5432" -w -t 60 start
 
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
@@ -68,10 +96,9 @@ jobs:
           path: |
             deps
             _build/test-e2e
-          key: ${{ runner.os }}-mix-e2e-${{ hashFiles('**/mix.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-mix-e2e-${{ hashFiles('**/mix.lock') }}
           restore-keys: |
-            ${{ runner.os }}-mix-e2e-
-            ${{ runner.os }}-mix-
+            ${{ runner.os }}-${{ runner.arch }}-mix-e2e-
 
       # `mix assets.setup` is `tailwind.install --if-missing` + `esbuild.install
       # --if-missing`, which downloads ~83 MB of binaries to _build/{esbuild,tailwind}-*
@@ -84,14 +111,14 @@ jobs:
           path: |
             _build/esbuild-*
             _build/tailwind-*
-          key: ${{ runner.os }}-assets-tooling-${{ hashFiles('config/config.exs') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-assets-tooling-${{ hashFiles('config/config.exs') }}
 
       - name: Restore asset build cache
         id: assets-cache
         uses: actions/cache@v4
         with:
           path: priv/static
-          key: ${{ runner.os }}-assets-${{ hashFiles('assets/**') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-assets-${{ hashFiles('assets/**') }}
 
       - name: Report cache hits
         run: |
@@ -123,14 +150,14 @@ jobs:
         id: pw-cache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ matrix.browser }}-${{ hashFiles('test/e2e/package-lock.json') }}
+          path: ${{ runner.os == 'macOS' && '~/Library/Caches/ms-playwright' || '~/.cache/ms-playwright' }}
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ matrix.browser }}-${{ hashFiles('test/e2e/package-lock.json') }}
 
       - name: Install Playwright browser
         run: npx --prefix test/e2e playwright install --with-deps ${{ matrix.browser }}
 
       - name: Provision E2E database extensions as DBA
-        run: mix run --no-start .github/scripts/provision-test-database.exs paradedb
+        run: mix run --no-start .github/scripts/provision-test-database.exs postgres
 
       # test:ci seeds the DB only — assets are built by the steps above. The
       # developer-facing `test:journeys` still runs the full bootstrap.
@@ -146,6 +173,16 @@ jobs:
             test/e2e/playwright-report
             test/e2e/test-results
           if-no-files-found: ignore
+
+      - name: Stop native PostgreSQL
+        if: always() && runner.os == 'macOS'
+        env:
+          E2E_PGDATA: ${{ runner.temp }}/zaq-e2e-postgres
+        run: |
+          if [[ -f "${E2E_PGDATA}/postmaster.pid" ]]; then
+            "$(brew --prefix postgresql@18)/bin/pg_ctl" \
+              -D "${E2E_PGDATA}" -m fast -w -t 60 stop
+          fi
 
   # The repository ruleset "Bypassable Main Branch" requires a check named
   # exactly "User Journeys QA". The matrix above reports three differently-named
