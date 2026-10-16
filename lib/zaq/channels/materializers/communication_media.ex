@@ -10,6 +10,7 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
 
   alias Zaq.Channels.Events
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.Events, as: EngineEvents
   alias Zaq.Events.TrustedContext
   alias Zaq.Helpers
   alias Zaq.MapUtils
@@ -48,14 +49,34 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
   Reconstructs a lazy Record from trusted, authorized attachment source metadata.
 
   This internal operation never downloads bytes or accepts model-supplied locators.
-  It preserves the original source author and the existing redemption policy.
+  Canonical wrappers come only from Engine's authorized history projection; they
+  preserve author provenance while binding redemption to current transcript access.
   """
   @spec hydrate(map(), map()) :: {:ok, Record.t()} | {:error, term()}
-  def hydrate(descriptor, context) when is_map(descriptor) and is_map(context) do
+  def hydrate(
+        %{descriptor: descriptor, transcript_id: transcript_id, message_id: message_id},
+        context
+      )
+      when is_map(context) do
+    scope = %{"version" => 1, "transcript_id" => transcript_id, "message_id" => message_id}
+
+    with :ok <- validate_canonical_scope(scope) do
+      hydrate_record(descriptor, context, scope)
+    end
+  end
+
+  def hydrate(descriptor, context) when is_map(descriptor) and is_map(context),
+    do: hydrate_record(descriptor, context, nil)
+
+  def hydrate(_descriptor, _context), do: {:error, :invalid_materialization_source}
+
+  defp hydrate_record(descriptor, context, scope) do
     metadata = Record.attachment_metadata(descriptor)
 
     with {:ok, locator} <- hydration_locator(metadata),
-         :ok <- authorize(locator, context),
+         :ok <- authorize_hydration(locator, context, scope),
+         locator =
+           if(is_nil(scope), do: locator, else: Map.put(locator, "canonical_attachment", scope)),
          {:ok, handle} <- Zaq.Materialization.issue(@type_key, locator) do
       {:ok,
        %Record{
@@ -70,7 +91,8 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
     end
   end
 
-  def hydrate(_descriptor, _context), do: {:error, :invalid_materialization_source}
+  defp authorize_hydration(locator, context, nil), do: authorize(locator, context)
+  defp authorize_hydration(_locator, _context, _scope), do: :ok
 
   defp hydration_locator(%{
          "id" => id,
@@ -132,7 +154,7 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
   def do_materialize(locator, context, options)
       when is_map(locator) and is_map(context) and is_map(options) do
     with {:ok, request} <- validate_locator(locator),
-         :ok <- authorize(request, context) do
+         :ok <- authorize_redemption(locator, request, context) do
       request
       |> Events.build_and_dispatch_materialize_record_event(
         TrustedContext.event_builder_opts(context,
@@ -144,6 +166,70 @@ defmodule Zaq.Channels.Materializers.CommunicationMedia do
   end
 
   def do_materialize(_locator, _context, _options), do: {:error, :invalid_materialization_locator}
+
+  defp authorize_redemption(locator, request, context) do
+    case Map.fetch(locator, "canonical_attachment") do
+      :error -> authorize(request, context)
+      {:ok, scope} -> authorize_canonical(scope, request, context)
+    end
+  end
+
+  defp validate_canonical_scope(
+         %{"version" => 1, "transcript_id" => transcript_id, "message_id" => message_id} = scope
+       )
+       when map_size(scope) == 3 do
+    with {:ok, ^transcript_id} <- Ecto.UUID.cast(transcript_id),
+         {:ok, ^message_id} <- Ecto.UUID.cast(message_id) do
+      :ok
+    else
+      _ -> {:error, :unauthorized_materialization_handle}
+    end
+  end
+
+  defp validate_canonical_scope(_scope), do: {:error, :unauthorized_materialization_handle}
+
+  defp authorize_canonical(scope, request, context) do
+    with :ok <- validate_canonical_scope(scope) do
+      scope["transcript_id"]
+      |> EngineEvents.build_and_dispatch_canonical_message_event(
+        scope["message_id"],
+        TrustedContext.event_builder_opts(context)
+      )
+      |> authorize_canonical_response(scope, request)
+    end
+  end
+
+  defp authorize_canonical_response(
+         %{
+           response:
+             {:ok,
+              %{transcript_id: transcript_id, message_id: message_id, attachments: attachments}}
+         },
+         scope,
+         request
+       ) do
+    if transcript_id == scope["transcript_id"] and
+         message_id == scope["message_id"] and
+         matching_canonical_attachment?(attachments, request),
+       do: :ok,
+       else: {:error, :unauthorized_materialization_handle}
+  end
+
+  defp authorize_canonical_response(%{response: {:error, reason}}, _scope, _request)
+       when reason in [:unauthorized, :not_found, :source_scope_mismatch, :invalid_request],
+       do: {:error, :unauthorized_materialization_handle}
+
+  defp authorize_canonical_response(_response, _scope, _request),
+    do: {:error, :canonical_message_unavailable}
+
+  defp matching_canonical_attachment?(attachments, request) when is_list(attachments) do
+    case Enum.filter(attachments, &(is_map(&1) and Map.get(&1, "id") == request["reference"])) do
+      [descriptor] -> hydration_locator(Record.attachment_metadata(descriptor)) == {:ok, request}
+      _ -> false
+    end
+  end
+
+  defp matching_canonical_attachment?(_attachments, _request), do: false
 
   defp validate_locator(locator) do
     provider = string(locator, "provider")

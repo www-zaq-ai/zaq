@@ -54,6 +54,205 @@ defmodule Zaq.Channels.Materializers.CommunicationMediaTest do
   defmodule StubCommunicationBridge do
   end
 
+  test "canonical redemption reads the exact message before fetching and strips runtime scope" do
+    {descriptor, scope, record} = canonical_attachment()
+    actor = %{person: %{id: 9}}
+    context = %{actor: actor, node_router: Zaq.NodeRouterMock}
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+      assert event.next_hop.destination == :engine
+      assert event.opts[:action] == :conversation
+      assert event.opts[:confidential]
+      assert event.actor == actor
+
+      assert event.request == %{
+               action: :canonical_message,
+               transcript_id: scope["transcript_id"],
+               message_id: scope["message_id"]
+             }
+
+      %{
+        event
+        | response:
+            {:ok,
+             %{
+               transcript_id: scope["transcript_id"],
+               message_id: scope["message_id"],
+               attachments: [descriptor]
+             }}
+      }
+    end)
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+      assert event.next_hop.destination == :channels
+      assert event.opts[:action] == :materialize_record
+      refute Map.has_key?(event.request, "canonical_attachment")
+      %{event | response: {:ok, %Record{id: descriptor["id"], kind: :file, content: "bytes"}}}
+    end)
+
+    assert {:ok, %Record{content: "bytes"}} =
+             CommunicationMedia.materialize(
+               verified_locator(record),
+               context
+             )
+  end
+
+  test "canonical denial cannot fall back to author equality or trusted legacy bypass" do
+    {_descriptor, _scope, record} = canonical_attachment()
+
+    expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+      assert event.opts[:action] == :conversation
+      %{event | response: {:error, :unauthorized}}
+    end)
+
+    assert {:error, :unauthorized_materialization_handle} =
+             CommunicationMedia.materialize(verified_locator(record), %{
+               actor: %{id: "author-1"},
+               skip_permissions: true,
+               node_router: Zaq.NodeRouterMock
+             })
+  end
+
+  test "canonical unavailable or malformed message responses fail before fetching" do
+    {_descriptor, _scope, record} = canonical_attachment()
+
+    for response <- [
+          {:error, :history_unavailable},
+          :unexpected,
+          {:ok, %{}},
+          {:ok, %Record{id: "unexpected", kind: :file}}
+        ] do
+      expect(Zaq.NodeRouterMock, :dispatch, fn event -> %{event | response: response} end)
+
+      assert {:error, _} =
+               CommunicationMedia.materialize(verified_locator(record), %{
+                 node_router: Zaq.NodeRouterMock
+               })
+    end
+  end
+
+  property "altered canonical source bindings cannot authorize unrelated attachment bytes" do
+    check all(other <- string(:alphanumeric, min_length: 1, max_length: 30)) do
+      {descriptor, scope, record} = canonical_attachment()
+
+      mismatched =
+        put_in(
+          descriptor,
+          ["attributes", "materialization_source", "locator", "source_channel_id"],
+          "other-" <> other
+        )
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        %{
+          event
+          | response:
+              {:ok,
+               %{
+                 transcript_id: scope["transcript_id"],
+                 message_id: scope["message_id"],
+                 attachments: [mismatched]
+               }}
+        }
+      end)
+
+      assert {:error, :unauthorized_materialization_handle} =
+               CommunicationMedia.materialize(verified_locator(record), %{
+                 node_router: Zaq.NodeRouterMock
+               })
+    end
+  end
+
+  test "canonical placement mismatch, missing descriptors and duplicate identities deny" do
+    {descriptor, scope, record} = canonical_attachment()
+
+    message = %{
+      transcript_id: scope["transcript_id"],
+      message_id: scope["message_id"],
+      attachments: [descriptor]
+    }
+
+    for altered <- [
+          %{message | transcript_id: Ecto.UUID.generate()},
+          %{message | message_id: Ecto.UUID.generate()},
+          %{message | attachments: []},
+          %{message | attachments: [descriptor, descriptor]}
+        ] do
+      expect(Zaq.NodeRouterMock, :dispatch, fn event -> %{event | response: {:ok, altered}} end)
+
+      assert {:error, :unauthorized_materialization_handle} =
+               CommunicationMedia.materialize(verified_locator(record), %{
+                 node_router: Zaq.NodeRouterMock
+               })
+    end
+  end
+
+  test "present invalid canonical scope never downgrades to legacy author authorization" do
+    {_descriptor, scope, record} = canonical_attachment()
+
+    for invalid <- [
+          nil,
+          %{},
+          %{scope | "version" => 2},
+          Map.delete(scope, "message_id"),
+          Map.put(scope, "extra", "value")
+        ] do
+      locator = Map.put(verified_locator(record), "canonical_attachment", invalid)
+      assert {:ok, handle} = Zaq.Materialization.issue("communication_media", locator)
+
+      assert {:error, error} =
+               Zaq.Materialization.materialize(
+                 handle,
+                 %{
+                   actor: %{id: "author-1"},
+                   skip_permissions: true,
+                   node_router: Zaq.NodeRouterMock
+                 },
+                 "Download failed"
+               )
+
+      assert error =~ "unauthorized_materialization_handle"
+    end
+  end
+
+  defp canonical_attachment do
+    source =
+      CommunicationMedia.source_metadata("mattermost", "canonical-file", %{
+        "channel_config_id" => 3,
+        "source_author_id" => "author-1",
+        "source_channel_id" => "room",
+        "source_message_id" => "message"
+      })
+
+    descriptor = %{
+      "id" => "canonical-file",
+      "kind" => "file",
+      "attributes" => %{"materialization_source" => source}
+    }
+
+    scope = %{
+      "version" => 1,
+      "transcript_id" => Ecto.UUID.generate(),
+      "message_id" => Ecto.UUID.generate()
+    }
+
+    assert {:ok, record} =
+             CommunicationMedia.hydrate(
+               %{
+                 descriptor: descriptor,
+                 transcript_id: scope["transcript_id"],
+                 message_id: scope["message_id"]
+               },
+               %{actor: %{person: %{id: 9}}}
+             )
+
+    {descriptor, scope, record}
+  end
+
+  defp verified_locator(record) do
+    assert {:ok, %{locator: locator}} = Handle.verify(record.materialization_handle)
+    locator
+  end
+
   test "hydrates a lazy Record from durable metadata and newly signs the stored source" do
     source =
       CommunicationMedia.source_metadata("telegram", "provider-file-id", %{

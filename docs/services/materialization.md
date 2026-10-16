@@ -84,12 +84,29 @@ still validates the actor and current connector, and IMAP still checks UIDVALIDI
 Locator fields include `provider`, `reference`, optional display metadata
 (`name`, `mime_type`, `media_kind`, `size`), optional config provenance
 (`channel_config_id`), and source provenance (`source_author_id`,
-`source_channel_id`, `source_message_id`). The handler validates the current
-actor against `source_author_id` unless the trusted runtime context sets
-`skip_permissions: true`, then dispatches the generic `:materialize_record`
-Channels action. Signed provenance is available to bridges for exact source
-routing and validation; callers cannot override it with model-supplied
-arguments.
+`source_channel_id`, `source_message_id`). Canonical history hydration adds a
+version-1 `canonical_attachment` claim binding the canonical `transcript_id` and
+`message_id`. This runtime claim is signed but never persisted into source metadata.
+Each redemption reads that exact message through Engine's existing `:conversation`
+event with `action: :canonical_message`, using the trusted event actor. Engine
+reuses the transcript-read policy and returns its sanitized message projection.
+Channels then checks the returned placement and matches the stored attachment's
+identity and complete normalized durable source against the signed locator before
+dispatching `:materialize_record`. Read failures, missing/ambiguous attachments and
+source mismatches fail before provider I/O. The original author remains provenance,
+not the permission decision: any current authorized transcript reader can download.
+Revoking all effective read grants invalidates future canonical downloads, including
+the uploader's, while a surviving manual grant remains effective.
+
+Unscoped handles retain the author-ID check and explicit trusted-internal
+`skip_permissions: true` compatibility. A present invalid/unknown canonical claim
+never falls back to that legacy policy, even with permission bypass. Existing rich
+stored descriptors gain scoped handles through fresh authorized hydration; legacy
+display-only descriptors remain unavailable. Deploy the updated materializer on all
+executing roles before issuing scoped handles; old unscoped handles retain their old
+restrictions until rehydrated. Signed provider provenance still routes the existing
+fetch, and model arguments cannot override it. Authorization cannot retract bytes
+already delivered.
 
 IMAP email attachments use the same `communication_media` materializer. Their
 locator additionally binds `mailbox`, `uid_validity`, `uid`, MIME `section`, and

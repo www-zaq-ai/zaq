@@ -97,7 +97,7 @@ defmodule Zaq.Channels.Events do
     |> node_router(opts).dispatch()
   end
 
-  @doc "Builds and dispatches internal lazy hydration for Engine-authorized stored attachments."
+  @doc "Hydrates Engine-authorized attachment descriptors, optionally wrapped with their canonical message placement."
   @spec build_and_dispatch_hydrate_attachments_event([map()], keyword()) :: Event.t()
   def build_and_dispatch_hydrate_attachments_event(attachments, opts \\ []) do
     Event.new(%{attachments: attachments}, :channels,

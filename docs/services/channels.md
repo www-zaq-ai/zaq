@@ -544,8 +544,10 @@ are excluded. Engine treats the source payload as opaque JSON-safe metadata.
 
 After successful canonical execution admission or history authorization, Engine
 API dispatches confidential `:hydrate_attachments` batches to Channels, outside
-database transactions. `CommunicationMedia.hydrate/2` reconstructs lazy Records
-and issues handles from stored source facts, preserving the original author check.
+database transactions. Each descriptor is wrapped with its message's canonical
+transcript/message UUIDs, including the actual parent placement for thread context.
+`CommunicationMedia.hydrate/2` reconstructs lazy Records and signs those UUIDs in
+a versioned runtime claim alongside the unchanged stored provider source facts.
 Hydration performs no provider I/O. Legacy, malformed or unauthorized attachments
 retain display metadata with `materialization_status: "unavailable"`; transport
 failures return `:attachment_hydration_unavailable`. No URL or connector is guessed.
@@ -553,9 +555,13 @@ failures return `:attachment_hydration_unavailable`. No URL or connector is gues
 Fetch-controlling fields are bound into a signed `materialization_handle` with
 type `communication_media`. `Zaq.Materialization` verifies the handle before the
 trusted materializer dispatches the existing `:materialize_record` Channels event.
-The handle binds the source transport author; fetching requires the normalized
-event actor's matching transport ID unless trusted internal code explicitly sets
-`skip_permissions: true`.
+Canonical handles inherit current transcript-read permissions: the materializer
+reads the exact authorized canonical message through the existing Engine
+`:conversation` event and matches its stored attachment source in Channels before
+fetching. Source-author identity remains provenance, not an access restriction.
+Unscoped handles retain their existing author check; canonical scope errors never
+downgrade to it. See [communication materialization](materialization.md#communication-media)
+for the authorization, revocation and deployment contracts.
 
 The handle also carries signed source provenance such as `channel_config_id`,
 `source_channel_id`, and `source_message_id` when the adapter provides them.

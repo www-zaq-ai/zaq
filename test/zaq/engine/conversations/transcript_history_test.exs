@@ -3,8 +3,11 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
   use ExUnitProperties
 
   alias Zaq.Accounts.People
+  alias Zaq.Accounts.Person
+  alias Zaq.Engine.Api, as: EngineApi
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
+  alias Zaq.Event
 
   alias Zaq.Engine.Conversations.{
     Conversation,
@@ -17,6 +20,125 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
   alias Zaq.Engine.History.Facts
   alias Zaq.Permissions
   alias Zaq.Permissions.ChannelHistoryResource
+
+  property "canonical reads and listing agree across effective grant combinations" do
+    check all(
+            reader_granted <- boolean(),
+            unrelated_granted <- boolean(),
+            readable <- boolean(),
+            max_runs: 20
+          ) do
+      config = config()
+      transcript = transcript(config, "grant-property-#{System.unique_integer([:positive])}")
+      reader = person("Reader")
+      unrelated = person("Unrelated")
+      resource = {transcript.permission_resource_type, transcript.permission_resource_id}
+      assert {:ok, placement} = append(transcript, config, "property-message")
+      rights = if readable, do: ["read"], else: ["write"]
+
+      if reader_granted,
+        do: Permissions.grant(resource, %{person_id: reader.id, access_rights: rights})
+
+      if unrelated_granted,
+        do: Permissions.grant(resource, %{person_id: unrelated.id, access_rights: ["read"]})
+
+      listed = Conversations.list_canonical_messages(reader, transcript.id)
+
+      fetched =
+        Conversations.get_canonical_message(
+          %{person: %{id: reader.id}},
+          transcript.id,
+          placement.message_id
+        )
+
+      if reader_granted and readable do
+        assert {:ok, [_]} = listed
+        assert {:ok, _} = fetched
+      else
+        assert {:error, :unauthorized} = listed
+        assert {:error, :unauthorized} = fetched
+      end
+    end
+  end
+
+  test "canonical-message reads reject inactive actors and ignore listing windows" do
+    config = config()
+    transcript = transcript(config, "exact-old-message")
+    reader = person("Reader")
+    resource = {transcript.permission_resource_type, transcript.permission_resource_id}
+    assert {:ok, old} = append(transcript, config, "old")
+    assert {:ok, newer} = append(transcript, config, "new")
+
+    assert {:ok, _} =
+             Permissions.grant(resource, %{person_id: reader.id, access_rights: ["read"]})
+
+    assert {:ok, [%{message_id: id}]} =
+             Conversations.list_canonical_messages(reader, transcript.id,
+               after_position: old.position
+             )
+
+    assert id == newer.message_id
+    actor = %{person: %{id: reader.id}}
+
+    assert {:ok, %{message_id: old_id}} =
+             Conversations.get_canonical_message(actor, transcript.id, old.message_id)
+
+    assert old_id == old.message_id
+
+    Repo.update_all(from(person in Person, where: person.id == ^reader.id),
+      set: [status: "inactive"]
+    )
+
+    assert {:error, :unauthorized} =
+             Conversations.get_canonical_message(actor, transcript.id, old.message_id)
+  end
+
+  test "canonical-message reads reuse current transcript access and exact placement" do
+    config = config()
+    transcript = transcript(config, "canonical-read")
+    reader = person("Reader")
+    resource = {transcript.permission_resource_type, transcript.permission_resource_id}
+    assert {:ok, placement} = append(transcript, config, "old-message")
+    actor = %{person: %{id: reader.id}}
+
+    assert {:error, :unauthorized} =
+             Conversations.get_canonical_message(actor, transcript.id, placement.message_id)
+
+    assert {:ok, grant} =
+             Permissions.grant(resource, %{person_id: reader.id, access_rights: ["read"]})
+
+    event =
+      Event.new(
+        %{
+          action: :canonical_message,
+          transcript_id: transcript.id,
+          message_id: placement.message_id
+        },
+        :engine,
+        actor: actor,
+        opts: [confidential: true]
+      )
+
+    assert %{response: {:ok, message}} = EngineApi.handle_event(event, :conversation, %{})
+    assert message.message_id == placement.message_id
+    assert message.transcript_id == transcript.id
+    assert message.content == "message old-message"
+    refute Map.has_key?(message, :metadata)
+
+    assert {:error, :not_found} =
+             Conversations.get_canonical_message(actor, transcript.id, Ecto.UUID.generate())
+
+    assert %{response: {:error, :confidential_event_required}} =
+             EngineApi.handle_event(%{event | opts: []}, :conversation, %{})
+
+    assert {:error, :unauthorized} =
+             Conversations.get_canonical_message(nil, transcript.id, placement.message_id)
+
+    assert :ok = Permissions.revoke(resource, grant)
+
+    assert {:error, :unauthorized} =
+             Conversations.get_canonical_message(actor, transcript.id, placement.message_id)
+  end
 
   defp person(name) do
     {:ok, person} = People.create_person(%{"full_name" => name})

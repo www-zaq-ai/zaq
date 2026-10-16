@@ -612,6 +612,41 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
   @spec list(Person.t() | nil, term(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def list(%Person{id: person_id} = person, transcript_id, opts)
       when is_integer(person_id) and person_id > 0 and is_list(opts) do
+    with {:ok, transcript} <- readable_transcript(person, transcript_id, opts),
+         {:ok, cursor, upper, limit} <- page_options(opts) do
+      {:ok,
+       projected_messages(
+         transcript.id,
+         cursor,
+         upper,
+         limit,
+         Keyword.get(opts, :external_message_id)
+       )}
+    end
+  end
+
+  def list(_person, _transcript_id, _opts), do: {:error, :unauthorized}
+
+  @doc "Reads one exact canonical placement using the same access policy and projection as listing."
+  @spec get_message(Person.t(), term(), term()) :: {:ok, map()} | {:error, term()}
+  def get_message(%Person{} = person, transcript_id, message_id) do
+    with {:ok, transcript} <- readable_transcript(person, transcript_id, []),
+         {:ok, id} <- Ecto.UUID.cast(message_id),
+         %{} = message <-
+           transcript.id
+           |> message_projection()
+           |> where([_placement, message], message.id == ^id)
+           |> Repo.one() do
+      [message] = present_messages([message])
+      {:ok, Map.put(message, :transcript_id, transcript.id)}
+    else
+      :error -> {:error, :not_found}
+      nil -> {:error, :not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp readable_transcript(%Person{id: person_id} = person, transcript_id, opts) do
     with {:ok, id} <- Ecto.UUID.cast(transcript_id),
          :ok <- persisted_person?(person_id),
          %Transcript{} = transcript <- Repo.get(Transcript, id),
@@ -623,9 +658,8 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
               person,
               :read,
               {transcript.permission_resource_type, transcript.permission_resource_id}
-            )},
-         {:ok, cursor, upper, limit} <- page_options(opts) do
-      {:ok, projected_messages(id, cursor, upper, limit, Keyword.get(opts, :external_message_id))}
+            )} do
+      {:ok, transcript}
     else
       :error -> {:error, :not_found}
       nil -> {:error, :not_found}
@@ -633,8 +667,6 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
       {:error, reason} -> {:error, reason}
     end
   end
-
-  def list(_person, _transcript_id, _opts), do: {:error, :unauthorized}
 
   defp access_denial(person_id, transcript_id, opts) do
     if Keyword.get(opts, :trusted_access_denial, false),
@@ -680,29 +712,11 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
 
   defp projected_messages(id, cursor, upper, limit, external_id \\ nil) do
     query =
-      from placement in TranscriptMessage,
-        join: message in Message,
-        on: placement.message_id == message.id,
-        where: placement.transcript_id == ^id and placement.position > ^cursor,
-        order_by: [asc: placement.position],
-        limit: ^limit,
-        select: %{
-          message_id: message.id,
-          position: placement.position,
-          role: message.role,
-          content: message.content,
-          author_id: message.author_id,
-          author_name: message.author_name,
-          provider_sent_at: message.provider_sent_at,
-          inserted_at: message.inserted_at,
-          history_context:
-            fragment(
-              "jsonb_build_object('author_person_id', ?->'author_person_id')",
-              message.history_context
-            ),
-          metadata: fragment("jsonb_build_object('agent', ?->'agent')", message.metadata),
-          attachments: message.attachments
-        }
+      id
+      |> message_projection()
+      |> where([placement], placement.position > ^cursor)
+      |> order_by([placement], asc: placement.position)
+      |> limit(^limit)
 
     query = if upper, do: where(query, [p], p.position <= ^upper), else: query
 
@@ -713,8 +727,37 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
 
     query
     |> Repo.all()
+    |> present_messages()
+  end
+
+  defp present_messages(messages) do
+    messages
     |> MessageAuthor.project()
     |> Enum.map(&(&1 |> Map.drop([:history_context, :metadata]) |> sanitize_attachments()))
+  end
+
+  defp message_projection(id) do
+    from placement in TranscriptMessage,
+      join: message in Message,
+      on: placement.message_id == message.id,
+      where: placement.transcript_id == ^id,
+      select: %{
+        message_id: message.id,
+        position: placement.position,
+        role: message.role,
+        content: message.content,
+        author_id: message.author_id,
+        author_name: message.author_name,
+        provider_sent_at: message.provider_sent_at,
+        inserted_at: message.inserted_at,
+        history_context:
+          fragment(
+            "jsonb_build_object('author_person_id', ?->'author_person_id')",
+            message.history_context
+          ),
+        metadata: fragment("jsonb_build_object('agent', ?->'agent')", message.metadata),
+        attachments: message.attachments
+      }
   end
 
   defp persisted_person?(person_id) do

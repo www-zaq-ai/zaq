@@ -9,6 +9,7 @@ defmodule Zaq.Engine.Conversations.ExecutionHistoryTest do
   alias Zaq.Agent.ContextWindow.RequestTransformer
   alias Zaq.Agent.HistorySync
   alias Zaq.Agent.StreamEvents
+  alias Zaq.Agent.Tools.DataSource.DownloadDocument
   alias Zaq.Channels.CommunicationBridge
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Contracts.Record
@@ -27,9 +28,17 @@ defmodule Zaq.Engine.Conversations.ExecutionHistoryTest do
   alias Zaq.Engine.History.Facts
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
+  alias Zaq.Materialization.Handle
   alias Zaq.Permissions
   alias Zaq.Permissions.ChannelHistoryResource
   alias Zaq.QueryRecorder
+
+  defmodule AttachmentBridge do
+    def materialize_record(request, opts) do
+      send(opts[:actor][:observer], {:attachment_fetch, request})
+      {:ok, %Zaq.Contracts.Record{id: request["reference"], kind: :file, content: "file bytes"}}
+    end
+  end
 
   setup do
     config =
@@ -98,6 +107,14 @@ defmodule Zaq.Engine.Conversations.ExecutionHistoryTest do
     assert [%{attachments: [attachment]}] = initial.messages
     assert is_binary(attachment["materialization_handle"])
     assert attachment["id"] == "stored-file"
+    assert {:ok, %{locator: locator}} = Handle.verify(attachment["materialization_handle"])
+
+    assert locator["canonical_attachment"] == %{
+             "version" => 1,
+             "transcript_id" => initial.transcript_id,
+             "message_id" => captured.message_id
+           }
+
     assert [stored] = Repo.get!(Message, captured.message_id).attachments
     refute Map.has_key?(stored, "materialization_handle")
 
@@ -143,6 +160,193 @@ defmodule Zaq.Engine.Conversations.ExecutionHistoryTest do
     refute Map.has_key?(receipt.input, :metadata)
   end
 
+  test "canonical attachment reads share author and timestamp presentation with history", ctx do
+    grant(ctx)
+
+    for {id, sent_at} <- [
+          {"provider-time", ~U[2026-01-02 03:04:05.123456Z]},
+          {"recorded-time", nil}
+        ] do
+      source =
+        CommunicationMedia.source_metadata("mattermost", id, %{
+          "channel_config_id" => ctx.config.id,
+          "source_author_id" => "bob",
+          "source_channel_id" => "room",
+          "source_message_id" => id
+        })
+
+      input = incoming(ctx, ctx.bob, id, nil, "Bob's attachment")
+
+      input = %{
+        input
+        | routing_context: Map.put(input.routing_context, :provider_sent_at, sent_at),
+          attachments: [
+            %Record{id: id, kind: :file, attributes: %{"materialization_source" => source}}
+          ]
+      }
+
+      assert {:ok, captured} = HistoryIngress.capture(input)
+
+      placement =
+        Repo.one!(from p in TranscriptMessage, where: p.message_id == ^captured.message_id)
+
+      stored = Repo.get!(Message, captured.message_id)
+
+      assert {:ok, listed} =
+               Conversations.list_canonical_messages(ctx.alice, placement.transcript_id)
+
+      listed = Enum.find(listed, &(&1.message_id == captured.message_id))
+
+      event =
+        Event.new(
+          %{
+            action: :canonical_message,
+            transcript_id: placement.transcript_id,
+            message_id: captured.message_id
+          },
+          :engine,
+          actor: actor(ctx.alice),
+          opts: [confidential: true]
+        )
+
+      assert %{response: {:ok, exact}} = EngineApi.handle_event(event, :conversation, %{})
+      assert Map.delete(exact, :transcript_id) == listed
+      assert exact.author.person_id == ctx.bob.id
+      assert exact.author.name == ctx.bob.full_name
+
+      expected_time =
+        if sent_at,
+          do: %{value: sent_at, source: :provider},
+          else: %{value: stored.inserted_at, source: :recorded}
+
+      assert exact.timestamp == expected_time
+      refute Map.has_key?(exact, :metadata)
+      refute Map.has_key?(exact, :history_context)
+      assert [attachment] = exact.attachments
+      refute Map.has_key?(attachment, "materialization_handle")
+      assert attachment["attributes"]["materialization_source"] == source
+    end
+  end
+
+  test "another transcript reader downloads a canonical attachment and revocation denies its old handle",
+       ctx do
+    source =
+      CommunicationMedia.source_metadata("mattermost", "shared-file", %{
+        "channel_config_id" => ctx.config.id,
+        "source_author_id" => "bob",
+        "source_channel_id" => "room",
+        "source_message_id" => "shared-media"
+      })
+
+    media = %{
+      incoming(ctx, ctx.bob, "shared-media", nil, "Bob's file")
+      | attachments: [
+          %Record{
+            id: "shared-file",
+            kind: :file,
+            attributes: %{"materialization_source" => source}
+          }
+        ]
+    }
+
+    assert {:ok, captured} = HistoryIngress.capture(media)
+    {binding, _} = admitted(ctx)
+
+    {:ok, permission} =
+      Permissions.grant(resource(ctx), %{
+        person_id: ctx.alice.id,
+        access_rights: ["read"],
+        source_key: "channel_history:provider:mattermost"
+      })
+
+    event = Event.new(binding, :engine, actor: actor(ctx.alice), opts: [confidential: true])
+    assert %{response: {:ok, projection}} = EngineApi.handle_event(event, :execution_history, %{})
+    assert [%{attachments: [attachment]}] = projection.messages
+    params = %{materialization_handle: attachment["materialization_handle"]}
+
+    context = %{
+      actor: Map.put(actor(ctx.alice), :observer, self()),
+      communication_bridge_module: AttachmentBridge
+    }
+
+    assert {:ok, %{record: %Record{content: "file bytes"}}} =
+             Jido.Exec.run(DownloadDocument, params, context)
+
+    assert_received {:attachment_fetch, request}
+    refute Map.has_key?(request, "canonical_attachment")
+    assert request["source_author_id"] == "bob"
+
+    assert {:error, _} =
+             Jido.Exec.run(DownloadDocument, params, %{context | actor: actor(ctx.bob)})
+
+    refute_received {:attachment_fetch, _}
+
+    assert {:ok, manual} =
+             Permissions.grant(resource(ctx), %{
+               person_id: ctx.alice.id,
+               access_rights: ["read"],
+               source_key: "manual"
+             })
+
+    assert :ok = Permissions.revoke(resource(ctx), permission)
+    assert {:ok, _} = Jido.Exec.run(DownloadDocument, params, context)
+    assert_received {:attachment_fetch, _}
+    assert :ok = Permissions.revoke(resource(ctx), manual)
+    assert {:error, _} = Jido.Exec.run(DownloadDocument, params, context)
+    refute_received {:attachment_fetch, _}
+
+    assert {:ok, _} = grant(ctx)
+
+    Repo.delete_all(
+      from placement in TranscriptMessage, where: placement.message_id == ^captured.message_id
+    )
+
+    assert {:error, _} = Jido.Exec.run(DownloadDocument, params, context)
+    refute_received {:attachment_fetch, _}
+  end
+
+  test "thread hydration signs the parent attachment placement rather than the active child",
+       ctx do
+    source =
+      CommunicationMedia.source_metadata("mattermost", "root-file", %{
+        "channel_config_id" => ctx.config.id,
+        "source_author_id" => "bob",
+        "source_channel_id" => "room",
+        "source_message_id" => "root"
+      })
+
+    root = %{
+      incoming(ctx, ctx.bob, "root", nil, "Root")
+      | attachments: [
+          %Record{id: "root-file", kind: :file, attributes: %{"materialization_source" => source}}
+        ]
+    }
+
+    assert {:ok, captured} = HistoryIngress.capture(root)
+    grant(ctx)
+    {binding, _} = admitted(ctx, "root")
+    event = Event.new(binding, :engine, actor: actor(ctx.alice), opts: [confidential: true])
+    assert %{response: {:ok, projection}} = EngineApi.handle_event(event, :execution_history, %{})
+    assert [%{attachments: [attachment]}] = projection.messages
+    assert {:ok, %{locator: locator}} = Handle.verify(attachment["materialization_handle"])
+    assert locator["canonical_attachment"]["transcript_id"] != projection.transcript_id
+    assert locator["canonical_attachment"]["message_id"] == captured.message_id
+
+    context = %{
+      actor: Map.put(actor(ctx.alice), :observer, self()),
+      communication_bridge_module: AttachmentBridge
+    }
+
+    assert {:ok, _} =
+             Jido.Exec.run(
+               DownloadDocument,
+               %{materialization_handle: attachment["materialization_handle"]},
+               context
+             )
+
+    assert_received {:attachment_fetch, _}
+  end
+
   test "unavailable attachments remain readable and hydration transport failures are truthful",
        ctx do
     source =
@@ -154,7 +358,7 @@ defmodule Zaq.Engine.Conversations.ExecutionHistoryTest do
       })
 
     media = %{
-      incoming(ctx, ctx.alice, "unavailable-media", nil, "Stored attachment")
+      incoming(ctx, ctx.bob, "unavailable-media", nil, "Stored attachment")
       | attachments: [
           %Record{
             id: "file",
@@ -173,10 +377,10 @@ defmodule Zaq.Engine.Conversations.ExecutionHistoryTest do
     event = Event.new(binding, :engine, actor: principal, opts: [confidential: true])
     assert %{response: {:ok, projection}} = EngineApi.handle_event(event, :execution_history, %{})
     assert [%{attachments: [other_author, legacy]}] = projection.messages
-    assert other_author["materialization_status"] == "unavailable"
+    assert is_binary(other_author["materialization_handle"])
     assert legacy["materialization_status"] == "unavailable"
     assert other_author["name"] == "bob.png"
-    refute Map.has_key?(other_author, "materialization_handle")
+    refute Map.has_key?(other_author, "materialization_status")
     refute Map.has_key?(legacy, "materialization_handle")
 
     expect(Zaq.NodeRouterMock, :dispatch, fn %Event{

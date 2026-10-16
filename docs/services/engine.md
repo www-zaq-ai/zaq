@@ -1103,6 +1103,17 @@ hydration does not change admission, grants, cursors or stored rows. See
 [communication attachments](channels.md#communication-media-attachments) for
 hydration and unavailable-attachment semantics.
 
+The existing `:conversation` event also supports the confidential
+`%{action: :canonical_message, transcript_id: uuid, message_id: uuid}` read. It
+derives an active literal Person from the trusted event actor, reuses the same
+transcript-read gate as `TranscriptHistory.list/3`, and verifies the exact canonical
+placement independently of history paging or execution ownership. It returns
+`{:ok, message}` with the verified transcript/message IDs and the existing sanitized
+message projection, including bounded stored attachment descriptors but no runtime
+handles, media bytes or private execution metadata. It does not hydrate or call
+Channels. Communication attachment redemption uses this generic read; source
+interpretation and matching remain in Channels, not Engine.
+
 `execution_history/3` accepts `after_cursors:` for cumulative association deltas
 from that same authorized admission. Confidential `:execution_history` dispatch
 forwards a supplied `after_cursors` map. Keys must exactly match the admitted

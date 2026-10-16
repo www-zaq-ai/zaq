@@ -59,6 +59,20 @@ defmodule Zaq.Engine.Conversations do
   def list_canonical_messages(person, transcript_id, opts \\ []),
     do: TranscriptHistory.list(person, transcript_id, opts)
 
+  @doc "Reads an exact canonical message for a freshly resolved, active literal event actor."
+  @spec get_canonical_message(term(), term(), term()) :: {:ok, map()} | {:error, term()}
+  def get_canonical_message(actor, transcript_id, message_id) do
+    with {:ok, %{person: %{id: id}}} <- ExecutionActor.validate(actor),
+         %Person{} = person <- People.get_active_literal_person(id) do
+      TranscriptHistory.get_message(person, transcript_id, message_id)
+    else
+      _ -> {:error, :unauthorized}
+    end
+  rescue
+    _error in [Ecto.ConstraintError, Postgrex.Error, DBConnection.ConnectionError] ->
+      {:error, :history_unavailable}
+  end
+
   @doc "Verifies the execution binding and reads context with fresh permissions; never records admission."
   @spec execution_history(map(), term(), keyword()) :: {:ok, map()} | {:error, term()}
   def execution_history(binding, actor, opts \\ [])

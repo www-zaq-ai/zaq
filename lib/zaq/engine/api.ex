@@ -1093,6 +1093,25 @@ defmodule Zaq.Engine.Api do
     end
   end
 
+  def handle_event(
+        %Event{request: %{action: :canonical_message} = request} = event,
+        :conversation,
+        _context
+      ) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true do
+        Conversations.get_canonical_message(
+          event.actor,
+          request[:transcript_id],
+          request[:message_id]
+        )
+      else
+        {:error, :confidential_event_required}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, :conversation, _context) do
     conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
     response = handle_conversation_request(event.request, conversations_module)
@@ -1268,7 +1287,16 @@ defmodule Zaq.Engine.Api do
   # Both initial admission and incremental reads arrive here after the owning
   # Conversations transaction has completed. Never dispatch while holding its locks.
   defp hydrate_history_result({:ok, %{kind: :canonical} = projection}, event) do
-    attachments = Enum.flat_map(projection.messages, & &1.attachments)
+    attachments =
+      Enum.flat_map(projection.messages, fn message ->
+        Enum.map(message.attachments, fn descriptor ->
+          %{
+            descriptor: descriptor,
+            transcript_id: message.transcript_id,
+            message_id: message.message_id
+          }
+        end)
+      end)
 
     with {:ok, results} <- hydrate_history_attachments(attachments, event) do
       {messages, []} =
@@ -1296,7 +1324,7 @@ defmodule Zaq.Engine.Api do
   end
 
   defp hydrate_attachment_batch(batch, event) do
-    if Enum.any?(batch, &Map.has_key?(&1, "attributes")) do
+    if Enum.any?(batch, &Map.has_key?(&1.descriptor, "attributes")) do
       opts = [
         actor: event.actor,
         node_router: Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
