@@ -334,12 +334,40 @@ when they need option-aware connector behavior.
 An absent callback means no shared infrastructure, not a special provider flag.
 `Channels.Supervisor` forwards startup options unchanged; WebBridge supplies the
 default PubSub when assembling common `host_options` and provider-keyed
-`adapter_options`. Trusted composition supplies these as child startup options. The widget's shared
+`adapter_options`. `Zaq.Application` supplies the application environment's
+`:channels_supervisor_options` (default `[]`) as those child startup options. The widget's shared
 `{WebWidget, opts}` child and stable connector
 children all belong to the dynamic bridge subtree. Connector subtrees rebuild their runtime after
 infrastructure loss, with bounded retry and fresh configuration. ZAQ uses its ordinary
 DynamicSupervisor and existing replacement/disable lifecycle, without package-specific
 recovery coordination. A live connector PID establishes ownership, not readiness.
+
+**Widget replica membership.**
+
+For the `web_widget` provider only, WebBridge defaults omitted
+`authentication.replica_nodes` to `[node()]`, evaluated when infrastructure specs
+are built. This supports one widget-serving node, including named release nodes.
+Other authentication options and explicitly supplied membership are preserved;
+invalid explicit membership is rejected by the adapter, not silently replaced.
+
+Deployments with multiple widget-serving nodes must configure the same intended
+replica list on each one through trusted application configuration, for example:
+
+```elixir
+config :zaq, :channels_supervisor_options,
+  adapter_options: %{
+    web_widget: [
+      authentication: [replica_nodes: [:"channels_a@host-a", :"channels_b@host-b"]]
+    ]
+  }
+```
+
+Use the deployment's actual Erlang node names, including the local node. These are
+widget authentication replicas, not all ZAQ role nodes. Membership is never inferred
+from currently connected peers: discovery cannot define the intended quorum.
+Changing membership requires restarting infrastructure with the new options.
+Provider infrastructure still starts before connector loading, even with no enabled
+widget connectors; this default does not change that lifecycle.
 
 Hooks contain exactly shared Message/Command/Context/Delivery/Response modules and
 `sink_mfa: {Zaq.Channels.WebBridge, :from_adapter, [%{id: config.id}]}`. The upstream

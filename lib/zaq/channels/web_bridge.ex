@@ -135,8 +135,19 @@ defmodule Zaq.Channels.WebBridge do
       |> Keyword.put_new(:pubsub_server, Zaq.PubSub)
       |> Keyword.put_new(:scope, "/channels")
 
-    if Bridge.provider_to_bridge_key(provider) == :web_widget and
-         System.get_env("WIDGET_DEV_MODE") == "true" do
+    if Bridge.provider_to_bridge_key(provider) == :web_widget,
+      do: widget_infrastructure_options(options),
+      else: options
+  end
+
+  defp widget_infrastructure_options(options) do
+    # Membership is deployment policy, not a snapshot of currently connected peers.
+    options =
+      Keyword.update(options, :authentication, [replica_nodes: [node()]], fn authentication ->
+        Keyword.put_new(authentication, :replica_nodes, [node()])
+      end)
+
+    if System.get_env("WIDGET_DEV_MODE") == "true" do
       Keyword.update(
         options,
         :session,

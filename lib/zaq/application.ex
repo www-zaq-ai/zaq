@@ -36,7 +36,11 @@ defmodule Zaq.Application do
       |> maybe_add(roles, :agent, Zaq.Agent.Supervisor)
       |> maybe_add(roles, :ingestion, Zaq.Ingestion.Supervisor)
       |> maybe_add(roles, :storage, Zaq.Storage.Supervisor)
-      |> maybe_add(roles, :channels, Zaq.Channels.Supervisor)
+      |> maybe_add(
+        roles,
+        :channels,
+        {Zaq.Channels.Supervisor, Application.get_env(:zaq, :channels_supervisor_options, [])}
+      )
       |> maybe_add_web_endpoint(roles)
 
     children =
