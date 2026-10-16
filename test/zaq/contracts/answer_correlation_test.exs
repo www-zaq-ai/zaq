@@ -34,7 +34,7 @@ defmodule Zaq.Contracts.AnswerCorrelationTest do
   end
 
   test "unselected and malformed bindings are not canonical answer correlations" do
-    for key <- Map.keys(attributes()), value <- [nil, "", 7, %{}, self()] do
+    for key <- Map.keys(attributes()), value <- [nil, "", 7, %{}, self(), <<255>>] do
       assert {:error, :invalid_answer_correlation} =
                AnswerCorrelation.new(Map.put(attributes(), key, value))
     end

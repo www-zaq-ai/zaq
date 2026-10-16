@@ -6,6 +6,10 @@ defmodule Zaq.Engine.Conversations.ExecutionRecord do
   the capability hash is persisted, never the raw finalization token. Private
   trace entries, tool results, usage and outcome must never enter a transcript
   projection. Existing legacy Message metadata/trace is migrated separately.
+
+  `reserved_answer_message_id` is an Engine-owned root reservation, not a Message
+  foreign key. It can exist before any answer and survives unsuccessful execution.
+  A receipt cannot own a reservation; a persisted public answer must match it.
   """
 
   use Ecto.Schema
@@ -21,6 +25,7 @@ defmodule Zaq.Engine.Conversations.ExecutionRecord do
     field :status, :string, default: "pending"
     field :finalization_token_hash, :string
     field :admitted_at, :utc_datetime_usec
+    field :reserved_answer_message_id, Ecto.UUID
     field :trace_entries, {:array, :map}, default: []
     field :tool_results, {:array, :map}, default: []
     field :usage, :map, default: %{}
@@ -63,6 +68,7 @@ defmodule Zaq.Engine.Conversations.ExecutionRecord do
     |> validate_format(:finalization_token_hash, @hash_pattern)
     |> validate_answer_status()
     |> validate_root_status()
+    |> validate_answer_reservation()
     |> validate_immutable_identity()
     |> unique_constraint(:public_answer_message_id, name: :execution_records_public_answer_index)
     |> unique_constraint(:finalization_token_hash)
@@ -81,6 +87,27 @@ defmodule Zaq.Engine.Conversations.ExecutionRecord do
     |> check_constraint(:public_answer_message_id, name: :execution_records_answer_status_check)
     |> check_constraint(:public_answer_message_id, name: :execution_records_distinct_answer_check)
     |> check_constraint(:finalization_token_hash, name: :execution_records_capability_hash_check)
+  end
+
+  @doc "Sets the Engine-owned reservation once; ordinary attribute casting cannot allocate it."
+  @spec reservation_changeset(t(), Ecto.UUID.t()) :: Ecto.Changeset.t()
+  def reservation_changeset(record, answer_id) do
+    record
+    |> change()
+    |> put_change(:reserved_answer_message_id, answer_id)
+    |> validate_required([:reserved_answer_message_id])
+    |> validate_change(:reserved_answer_message_id, fn field, value ->
+      case Ecto.UUID.cast(value) do
+        {:ok, ^value} -> []
+        _ -> [{field, "must be a canonical UUID"}]
+      end
+    end)
+    |> validate_answer_reservation()
+    |> validate_immutable_identity()
+    |> unique_constraint(:reserved_answer_message_id)
+    |> check_constraint(:reserved_answer_message_id,
+      name: :execution_records_answer_reservation_check
+    )
   end
 
   @doc "Changes only the owner during an explicitly authorized People merge."
@@ -102,6 +129,7 @@ defmodule Zaq.Engine.Conversations.ExecutionRecord do
     ])
     |> immutable_root()
     |> immutable_answer()
+    |> immutable_reservation()
     |> immutable_terminal_status()
   end
 
@@ -115,13 +143,22 @@ defmodule Zaq.Engine.Conversations.ExecutionRecord do
     end)
   end
 
-  defp immutable_root(%{data: %{status: "pending", root_execution_id: nil}} = changeset),
-    do: changeset
+  defp immutable_root(
+         %{data: %{status: "pending", root_execution_id: nil, reserved_answer_message_id: nil}} =
+           changeset
+       ),
+       do: changeset
 
   defp immutable_root(changeset), do: immutable_fields(changeset, [:root_execution_id])
 
   defp immutable_answer(%{data: %{public_answer_message_id: nil}} = changeset), do: changeset
   defp immutable_answer(changeset), do: immutable_fields(changeset, [:public_answer_message_id])
+
+  defp immutable_reservation(%{data: %{reserved_answer_message_id: nil}} = changeset),
+    do: changeset
+
+  defp immutable_reservation(changeset),
+    do: immutable_fields(changeset, [:reserved_answer_message_id])
 
   defp immutable_terminal_status(%{data: %{status: status}} = changeset)
        when status in ["completed", "failed", "consumed", "unconsumed"],
@@ -161,6 +198,28 @@ defmodule Zaq.Engine.Conversations.ExecutionRecord do
 
       not is_nil(root) and status in @root_statuses ->
         add_error(changeset, :status, "requires a root execution")
+
+      true ->
+        changeset
+    end
+  end
+
+  defp validate_answer_reservation(changeset) do
+    reserved = get_field(changeset, :reserved_answer_message_id)
+    answer = get_field(changeset, :public_answer_message_id)
+
+    cond do
+      is_nil(reserved) ->
+        changeset
+
+      not is_nil(get_field(changeset, :root_execution_id)) ->
+        add_error(changeset, :reserved_answer_message_id, "requires an answer root")
+
+      reserved == get_field(changeset, :user_message_id) ->
+        add_error(changeset, :reserved_answer_message_id, "must differ from the input message")
+
+      not is_nil(answer) and answer != reserved ->
+        add_error(changeset, :public_answer_message_id, "must match the reserved answer identity")
 
       true ->
         changeset

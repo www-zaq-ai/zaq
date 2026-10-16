@@ -1136,6 +1136,20 @@ references; no historical repair is performed. The existing token aggregator
 uses completed execution counters in preference to Message counters, with a
 per-counter legacy fallback; retries still recompute totals once per answer.
 
+`Conversations.reserve_answer_identity/3` is the Engine reservation boundary for a
+selected answer root. Under the existing admitted-input lock it verifies the
+finalization capability, active private execution owner and root admission evidence,
+then assigns immutable `ExecutionRecord.reserved_answer_message_id`. This nullable
+UUID is not a Message foreign key: `public_answer_message_id` remains separate proof
+that an answer was actually stored. Receipts cannot reserve identities, and a reserved
+root cannot be converted into a receipt. Legacy Message-only admissions retain their
+existing capability gate and store the reservation in private input metadata instead
+of manufacturing a Person-bound execution. Reservation creates no assistant content
+or transcript placement. The additive `20261016000000_add_reserved_answer_identity`
+migration copies existing completed answer UUIDs, leaves pending roots unreserved,
+and refuses rollback while any reservation lacks a persisted answer. Agent adoption
+and finalization under the reserved UUID are tracked by `zaq-cbc`.
+
 Available runtime timings and turn/model/tool-call measurements are retained in
 the root's private `outcome["measurements"]`, for success and handled failure.
 Token aliases are excluded there: authoritative counters remain in private

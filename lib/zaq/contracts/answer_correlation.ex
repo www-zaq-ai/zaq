@@ -56,5 +56,7 @@ defmodule Zaq.Contracts.AnswerCorrelation do
   end
 
   defp canonical_uuid?(_), do: false
-  defp request_id?(value), do: is_binary(value) and byte_size(value) in 1..256
+
+  defp request_id?(value),
+    do: is_binary(value) and byte_size(value) in 1..256 and String.valid?(value)
 end

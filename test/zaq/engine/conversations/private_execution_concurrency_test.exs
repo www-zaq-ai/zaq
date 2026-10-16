@@ -70,6 +70,99 @@ defmodule Zaq.Engine.Conversations.PrivateExecutionConcurrencyTest do
     fixture
   end
 
+  test "concurrent answer reservation returns one UUID on independent connections", fixture do
+    parent = self()
+
+    tasks =
+      for _ <- 1..4 do
+        Task.async(fn ->
+          Sandbox.unboxed_run(Repo, fn ->
+            send(parent, {:reservation_ready, self()})
+
+            receive do
+              :reserve_answer ->
+                Conversations.reserve_answer_identity(
+                  fixture.root.user_message_id,
+                  fixture.root.finalization_token,
+                  actor: fixture.actor
+                )
+            end
+          end)
+        end)
+      end
+
+    try do
+      for _ <- tasks, do: assert_receive({:reservation_ready, _pid}, 5_000)
+      for task <- tasks, do: send(task.pid, :reserve_answer)
+
+      results = Enum.map(tasks, &Task.await(&1, 5_000))
+      assert [{:ok, binding}] = Enum.uniq(results)
+      assert binding.public_answer_message_id == nil
+
+      Sandbox.unboxed_run(Repo, fn ->
+        root = Repo.get_by!(ExecutionRecord, user_message_id: fixture.root.user_message_id)
+        assert root.reserved_answer_message_id == binding.assistant_message_id
+        assert root.public_answer_message_id == nil
+
+        assert Repo.aggregate(
+                 from(m in Message,
+                   where:
+                     m.conversation_id == ^fixture.root.conversation_id and m.role == "assistant"
+                 ),
+                 :count
+               ) == 0
+      end)
+    after
+      for task <- tasks, do: Task.shutdown(task)
+    end
+  end
+
+  test "reservation lock failure preserves a caller transaction and permits later replay",
+       fixture do
+    parent = self()
+    barrier = make_ref()
+
+    writer =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          handler = {__MODULE__, barrier}
+
+          :telemetry.attach(handler, [:zaq, :repo, :query], &__MODULE__.pause_root/4, %{
+            owner: self(),
+            parent: parent,
+            barrier: barrier
+          })
+
+          try do
+            reserve(fixture)
+          after
+            :telemetry.detach(handler)
+          end
+        end)
+      end)
+
+    try do
+      assert_receive {:root_locked, ^barrier}, 5_000
+
+      Sandbox.unboxed_run(Repo, fn ->
+        assert {:ok, :transaction_usable} =
+                 Repo.transaction(fn ->
+                   Repo.query!("SET LOCAL lock_timeout = '100ms'")
+                   assert {:error, :execution_persistence_failed} = reserve(fixture)
+                   assert %{rows: [[1]]} = Repo.query!("SELECT 1")
+                   :transaction_usable
+                 end)
+      end)
+
+      send(writer.pid, {:resume, barrier})
+      assert {:ok, binding} = Task.await(writer, 5_000)
+      Sandbox.unboxed_run(Repo, fn -> assert {:ok, ^binding} = reserve(fixture) end)
+    after
+      send(writer.pid, {:resume, barrier})
+      Task.shutdown(writer)
+    end
+  end
+
   for contender <- [:finalize, :queue, :consume] do
     test "private root finalization fences #{contender} on an independent database connection",
          fixture do
@@ -400,6 +493,14 @@ defmodule Zaq.Engine.Conversations.PrivateExecutionConcurrencyTest do
         fixture.root.user_message_id,
         fixture.child.user_message_id,
         fixture.actor
+      )
+
+  defp reserve(fixture),
+    do:
+      Conversations.reserve_answer_identity(
+        fixture.root.user_message_id,
+        fixture.root.finalization_token,
+        actor: fixture.actor
       )
 
   defp finalize(fixture),

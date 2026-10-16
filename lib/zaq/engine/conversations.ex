@@ -368,12 +368,16 @@ defmodule Zaq.Engine.Conversations do
   defp complete_input_transaction(result), do: result
 
   defp isolated_input_operation(root_id, child_id, operation) do
+    isolated_execution_operation(fn -> operate_locked_inputs(root_id, child_id, operation) end)
+  end
+
+  defp isolated_execution_operation(operation) do
     # A savepoint must live inside a normal transaction, including for calls on
     # independent connections which have no caller-owned outer transaction.
     Repo.query!("SAVEPOINT zaq_execution_input_operation")
 
     try do
-      result = operate_locked_inputs(root_id, child_id, operation)
+      result = operation.()
       Repo.query!("RELEASE SAVEPOINT zaq_execution_input_operation")
       result
     rescue
@@ -1365,6 +1369,55 @@ defmodule Zaq.Engine.Conversations do
   end
 
   defp normalized_history_source(_incoming, _config), do: :error
+
+  @doc """
+  Reserves the selected root's immutable assistant UUID before assistant-bearing output.
+
+  Uses the existing finalization capability and active root owner checks. A private
+  root must have execution admission evidence. Legacy Message-only bindings retain
+  their capability gate. The returned reservation is not evidence of persisted
+  content: `public_answer_message_id` remains nil until an answer actually exists.
+  """
+  @spec reserve_answer_identity(Ecto.UUID.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def reserve_answer_identity(user_message_id, token, opts \\ [])
+
+  def reserve_answer_identity(user_message_id, token, opts)
+      when is_binary(user_message_id) and is_binary(token) and is_list(opts) do
+    case Ecto.UUID.cast(user_message_id) do
+      {:ok, id} ->
+        operation = fn -> reserve_locked_answer(id, token, opts) end
+
+        Repo.transaction(fn -> isolated_execution_operation(operation) end)
+        |> complete_input_transaction()
+
+      _ ->
+        {:error, :unauthorized}
+    end
+  rescue
+    _error in [Ecto.ConstraintError, Postgrex.Error, DBConnection.ConnectionError] ->
+      {:error, :execution_persistence_failed}
+  end
+
+  def reserve_answer_identity(_user_message_id, _token, _opts),
+    do: {:error, :invalid_answer_reservation}
+
+  defp reserve_locked_answer(id, token, opts) do
+    execution_id = opts[:execution_id]
+
+    with %Message{} = input <- lock_admitted_message(id),
+         {:ok, _execution} <- ExecutionLifecycle.fetch(input, execution_id),
+         true <- valid_finalization_token?(input, token, execution_id),
+         :ok <- ExecutionLifecycle.authorize_finalization(input, opts[:actor], execution_id),
+         {:ok, binding} <- ExecutionLifecycle.reserve_answer(input, execution_id) do
+      binding
+    else
+      nil -> Repo.rollback(:user_message_not_found)
+      false -> Repo.rollback(:invalid_finalization_token)
+      {:error, %Ecto.Changeset{}} -> Repo.rollback(:execution_persistence_failed)
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
 
   @doc """
   Finalizes a handled Agent outcome against its previously admitted user message.

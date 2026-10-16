@@ -37,6 +37,102 @@ defmodule Zaq.Engine.Conversations.ExecutionLifecycle do
   defp select_execution([execution]), do: {:ok, execution}
   defp select_execution(_), do: {:error, :ambiguous_execution}
 
+  @doc "Reserves one root answer UUID under the caller's admitted-input lock, without creating content."
+  def reserve_answer(input, execution_id) do
+    case fetch(input, execution_id) do
+      {:ok, nil} -> reserve_legacy_answer(input)
+      {:ok, execution} -> reserve_root_answer(execution)
+      error -> error
+    end
+  end
+
+  defp reserve_root_answer(%ExecutionRecord{root_execution_id: root}) when not is_nil(root),
+    do: {:error, :input_not_root}
+
+  defp reserve_root_answer(%ExecutionRecord{reserved_answer_message_id: id} = execution)
+       when not is_nil(id),
+       do: {:ok, answer_binding(id, execution.public_answer_message_id)}
+
+  defp reserve_root_answer(%ExecutionRecord{status: "completed"} = execution),
+    do: persist_reservation(execution, execution.public_answer_message_id)
+
+  defp reserve_root_answer(%ExecutionRecord{status: "pending", admitted_at: nil}),
+    do: {:error, :admission_required}
+
+  defp reserve_root_answer(%ExecutionRecord{status: "pending"} = execution),
+    do: persist_reservation(execution, Ecto.UUID.generate())
+
+  defp reserve_root_answer(_execution), do: {:error, :terminal_request}
+
+  defp persist_reservation(execution, id) do
+    with {:ok, execution} <-
+           execution |> ExecutionRecord.reservation_changeset(id) |> Repo.update() do
+      {:ok, answer_binding(id, execution.public_answer_message_id)}
+    end
+  end
+
+  defp reserve_legacy_answer(input) do
+    metadata = input.metadata || %{}
+
+    with {:ok, persisted} <- legacy_answer_id(input, metadata["execution_status"]) do
+      reserve_legacy_answer(input, metadata, persisted)
+    end
+  end
+
+  defp reserve_legacy_answer(input, metadata, persisted) do
+    reserved = metadata["reserved_answer_message_id"]
+
+    cond do
+      not is_nil(reserved) ->
+        validate_legacy_reservation(input, reserved, persisted)
+
+      metadata["execution_status"] == "pending" or not is_nil(persisted) ->
+        id = persisted || Ecto.UUID.generate()
+
+        with {:ok, _input} <-
+               input
+               |> Ecto.Changeset.change(
+                 metadata: Map.put(metadata, "reserved_answer_message_id", id)
+               )
+               |> Repo.update() do
+          {:ok, answer_binding(id, persisted)}
+        end
+
+      true ->
+        {:error, :terminal_request}
+    end
+  end
+
+  defp legacy_answer_id(input, "completed") do
+    query =
+      from answer in Message,
+        where:
+          answer.conversation_id == ^input.conversation_id and answer.role == "assistant" and
+            fragment("?->>'in_reply_to_message_id' = ?", answer.metadata, ^input.id),
+        select: answer.id,
+        limit: 2
+
+    case Repo.all(query) do
+      [id] -> {:ok, id}
+      _ -> {:error, :answer_identity_conflict}
+    end
+  end
+
+  defp legacy_answer_id(_input, _status), do: {:ok, nil}
+
+  defp validate_legacy_reservation(input, id, persisted) do
+    with {:ok, ^id} <- Ecto.UUID.cast(id),
+         true <- id != input.id,
+         true <- is_nil(persisted) or id == persisted do
+      {:ok, answer_binding(id, persisted)}
+    else
+      _ -> {:error, :answer_identity_conflict}
+    end
+  end
+
+  defp answer_binding(id, persisted),
+    do: %{assistant_message_id: id, public_answer_message_id: persisted}
+
   @doc "Prepares a provisional private root; this does not record execution authorization."
   def admit(%{person_id: id}, input, token, {:ok, _provider, _account_key})
       when is_integer(id) and id > 0 and is_binary(token) do
