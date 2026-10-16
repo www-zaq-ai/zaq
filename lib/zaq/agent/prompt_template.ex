@@ -3,12 +3,16 @@ defmodule Zaq.Agent.PromptTemplate do
   Schema and context for DB-stored system prompts.
 
   Prompt templates are editable via the Back Office and fetched by slug
-  at runtime by agent modules (Retrieval, Answering, ChunkTitle).
+  at runtime by chunk-title generation and image ingestion.
+
+  `body` is always the used prompt. `default_body` is the independent baseline;
+  ordinary edits cannot change it. Body edits set `body_customized`; only an
+  explicit restore clears it and opts back into future shipped-default updates.
+  New custom templates snapshot their initial body as their baseline. Legacy
+  custom templates may have no recoverable default.
 
   ## Slugs
 
-    * `"retrieval"` — query rewriting / retrieval agent
-    * `"answering"` — response formulation agent
     * `"chunk_title"` — chunk title generation during ingestion
     * `"image_to_text"` — vision model prompt for image description during PDF ingestion
 
@@ -21,7 +25,7 @@ defmodule Zaq.Agent.PromptTemplate do
 
   Agents call `render/2` to interpolate:
 
-      PromptTemplate.render("answering", %{language: "en"})
+      PromptTemplate.render("chunk_title", %{chunk: "Document content"})
   """
 
   use Ecto.Schema
@@ -34,6 +38,8 @@ defmodule Zaq.Agent.PromptTemplate do
     field :slug, :string
     field :name, :string
     field :body, :string
+    field :default_body, :string
+    field :body_customized, :boolean, default: true
     field :description, :string
     field :active, :boolean, default: true
 
@@ -58,7 +64,7 @@ defmodule Zaq.Agent.PromptTemplate do
 
   ## Example
 
-      body = PromptTemplate.get_active!("retrieval")
+      body = PromptTemplate.get_active!("chunk_title")
   """
   def get_active!(slug) do
     case get_active(slug) do
@@ -72,7 +78,7 @@ defmodule Zaq.Agent.PromptTemplate do
 
   ## Example
 
-      {:ok, body} = PromptTemplate.get_active("retrieval")
+      {:ok, body} = PromptTemplate.get_active("chunk_title")
       {:error, :not_found} = PromptTemplate.get_active("nonexistent")
   """
   def get_active(slug) do
@@ -106,19 +112,69 @@ defmodule Zaq.Agent.PromptTemplate do
   Creates a new prompt template.
   """
   def create(attrs) do
-    %__MODULE__{}
-    |> changeset(attrs)
+    changeset = changeset(%__MODULE__{}, attrs)
+
+    changeset
+    |> put_change(:default_body, get_field(changeset, :body))
+    |> put_change(:body_customized, false)
     |> Repo.insert()
   end
 
   @doc """
-  Updates an existing prompt template.
+  Updates an existing prompt template against its current persisted body.
+
+  Body changes claim customization; metadata-only saves preserve ownership.
+  Returns `{:error, :not_found}` when the record has been deleted.
   """
   def update(%__MODULE__{} = template, attrs) do
-    template
-    |> changeset(attrs)
-    |> Repo.update()
+    with_locked_template(template.id, fn current ->
+      changeset = changeset(current, attrs)
+
+      changeset =
+        if changed?(changeset, :body),
+          do: put_change(changeset, :body_customized, true),
+          else: changeset
+
+      Repo.update(changeset)
+    end)
   end
+
+  @doc """
+  Restores the latest persisted default and opts back into default updates.
+
+  Changes only the body, customization flag, and update timestamp. Returns
+  `{:error, :not_found}` or `{:error, :no_default}` without changing storage.
+  """
+  def restore_default(id) do
+    with_locked_template(id, fn
+      %{default_body: nil} ->
+        {:error, :no_default}
+
+      template ->
+        template
+        |> changeset(%{body: template.default_body})
+        |> put_change(:body_customized, false)
+        |> Repo.update()
+    end)
+  end
+
+  @doc "Deletes a prompt template through its owning context."
+  def delete(%__MODULE__{} = template), do: Repo.delete(template)
+
+  defp with_locked_template(id, operation) do
+    Repo.transaction(fn ->
+      case Repo.one(from(t in __MODULE__, where: t.id == ^id, lock: "FOR UPDATE")) do
+        nil ->
+          Repo.rollback(:not_found)
+
+        template ->
+          template |> operation.() |> transaction_result()
+      end
+    end)
+  end
+
+  defp transaction_result({:ok, updated}), do: updated
+  defp transaction_result({:error, reason}), do: Repo.rollback(reason)
 
   @doc """
   Renders a prompt template body with the given variables.
@@ -127,7 +183,7 @@ defmodule Zaq.Agent.PromptTemplate do
 
   ## Example
 
-      PromptTemplate.render("answering", %{language: "en", retrieved_data: "..."})
+      PromptTemplate.render("chunk_title", %{chunk: "Document content"})
   """
   def render(slug, assigns \\ %{}) do
     body = get_active!(slug)

@@ -141,4 +141,90 @@ defmodule Zaq.Agent.PromptTemplateTest do
       assert result == "You are a helpful assistant."
     end
   end
+
+  describe "default ownership" do
+    test "creation snapshots the validated body and ignores protected parameters" do
+      attrs = Map.merge(@valid_attrs, %{default_body: "forged", body_customized: true})
+      assert {:ok, template} = PromptTemplate.create(attrs)
+      assert template.default_body == template.body
+      refute template.body_customized
+    end
+
+    test "body edits customize; unchanged and metadata saves preserve ownership" do
+      {:ok, original} = PromptTemplate.create(@valid_attrs)
+      {:ok, metadata} = PromptTemplate.update(original, %{name: "Renamed", active: false})
+      refute metadata.body_customized
+
+      {:ok, edited} = PromptTemplate.update(metadata, %{body: "User content"})
+      assert edited.body_customized
+      assert edited.default_body == original.body
+
+      {:ok, unchanged} =
+        PromptTemplate.update(edited, %{
+          body: edited.body,
+          default_body: "forged",
+          body_customized: false
+        })
+
+      assert unchanged.body_customized
+      assert unchanged.default_body == original.body
+
+      {:ok, typed_default} = PromptTemplate.update(unchanged, %{body: original.body})
+      assert typed_default.body_customized
+    end
+
+    test "updates classify changes against current storage rather than a stale struct" do
+      {:ok, stale} = PromptTemplate.create(@valid_attrs)
+      {:ok, _} = PromptTemplate.update(stale, %{body: "Changed elsewhere"})
+      {:ok, updated} = PromptTemplate.update(stale, %{body: stale.body})
+      assert updated.body_customized
+      assert updated.body == stale.body
+    end
+
+    test "restore uses the latest default and preserves metadata and inactive state" do
+      {:ok, original} = PromptTemplate.create(Map.put(@valid_attrs, :active, false))
+      {:ok, _} = PromptTemplate.update(original, %{body: "Custom", description: "Keep"})
+
+      Repo.update_all(from(t in PromptTemplate, where: t.id == ^original.id),
+        set: [default_body: "New shipped default"]
+      )
+
+      assert {:ok, restored} = PromptTemplate.restore_default(original.id)
+      assert restored.body == "New shipped default"
+      refute restored.body_customized
+      refute restored.active
+      assert restored.description == "Keep"
+      assert {:ok, again} = PromptTemplate.restore_default(original.id)
+      assert again.body == restored.body
+    end
+
+    test "restore errors do not destroy the current body" do
+      {:ok, template} = PromptTemplate.create(@valid_attrs)
+
+      Repo.update_all(from(t in PromptTemplate, where: t.id == ^template.id),
+        set: [default_body: nil]
+      )
+
+      assert {:error, :no_default} = PromptTemplate.restore_default(template.id)
+      assert PromptTemplate.get_by_slug(template.slug).body == template.body
+      Repo.delete!(template)
+      assert {:error, :not_found} = PromptTemplate.restore_default(template.id)
+      assert {:error, :not_found} = PromptTemplate.update(template, %{body: "Gone"})
+    end
+
+    test "invalid edits leave ownership and storage unchanged" do
+      {:ok, template} = PromptTemplate.create(@valid_attrs)
+      assert {:error, %Ecto.Changeset{}} = PromptTemplate.update(template, %{body: ""})
+      stored = PromptTemplate.get_by_slug(template.slug)
+      assert stored.body == template.body
+      refute stored.body_customized
+    end
+
+    test "runtime lookup and rendering use the customized body, not the default" do
+      {:ok, template} = PromptTemplate.create(@valid_attrs)
+      {:ok, _} = PromptTemplate.update(template, %{body: "Visible <%= @value %>"})
+      assert {:ok, "Visible <%= @value %>"} = PromptTemplate.get_active(template.slug)
+      assert PromptTemplate.render(template.slug, %{value: "text"}) == "Visible text"
+    end
+  end
 end

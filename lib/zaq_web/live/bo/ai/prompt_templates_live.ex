@@ -3,11 +3,13 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
 
   import ZaqWeb.Components.MarkdownEditor
 
-  alias Zaq.Agent.PromptTemplate
+  alias Zaq.Agent.{Events, PromptTemplate}
+  alias Zaq.NodeRouter
   alias ZaqWeb.ChangesetErrors
+  alias ZaqWeb.Live.BO.AI.BOActor
 
   def mount(_params, _session, socket) do
-    templates = PromptTemplate.list()
+    templates = template_call(socket, :list, [])
     first_tab = if templates == [], do: :new, else: hd(templates).id
 
     {:ok,
@@ -48,7 +50,7 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
     id = String.to_integer(params["id"])
     template = Enum.find(socket.assigns.templates, &(&1.id == id))
 
-    case PromptTemplate.update(template, params) do
+    case template_call(socket, :update, [template, params]) do
       {:ok, updated} ->
         {:noreply,
          socket
@@ -56,18 +58,51 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
          |> assign(form: to_form(PromptTemplate.changeset(updated, %{}), as: :prompt_template))
          |> put_flash(:info, "\"#{updated.name}\" saved.")}
 
-      {:error, changeset} ->
+      {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply,
          socket
          |> assign(form: to_form(changeset, as: :prompt_template))
          |> put_flash(:error, "Save failed: #{format_errors(changeset)}")}
+
+      {:error, _} ->
+        {:noreply,
+         put_flash(socket, :error, "Save failed. Template no longer exists or is unavailable.")}
+    end
+  end
+
+  def handle_event("restore_default", %{"id" => id}, socket) do
+    case template_call(socket, :restore_default, [String.to_integer(id)]) do
+      {:ok, updated} ->
+        # Restore only the body. Keep unrelated unsaved metadata in the form,
+        # without persisting it as a side effect of this action.
+        draft =
+          socket.assigns.form.source
+          |> Ecto.Changeset.apply_changes()
+          |> Map.take([:name, :description])
+
+        form = updated |> PromptTemplate.changeset(draft) |> to_form(as: :prompt_template)
+
+        {:noreply,
+         socket
+         |> apply_update(updated)
+         |> assign(form: form)
+         |> put_flash(:info, "Default restored. Future default updates will apply automatically.")}
+
+      {:error, :no_default} ->
+        {:noreply, put_flash(socket, :error, "No default is available for this template.")}
+
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "Template no longer exists.")}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Restore failed. Your draft has been preserved.")}
     end
   end
 
   def handle_event("create", %{"prompt_template" => params}, socket) do
-    case PromptTemplate.create(params) do
+    case template_call(socket, :create, [params]) do
       {:ok, created} ->
-        templates = PromptTemplate.list()
+        templates = template_call(socket, :list, [])
 
         {:noreply,
          socket
@@ -106,7 +141,7 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
     id = String.to_integer(id)
     template = Enum.find(socket.assigns.templates, &(&1.id == id))
 
-    case Zaq.Repo.delete(template) do
+    case template_call(socket, :delete, [template]) do
       {:ok, _} ->
         templates = Enum.reject(socket.assigns.templates, &(&1.id == id))
         next_tab = if templates == [], do: :new, else: hd(templates).id
@@ -130,13 +165,20 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLive do
     id = String.to_integer(id)
     template = Enum.find(socket.assigns.templates, &(&1.id == id))
 
-    case PromptTemplate.update(template, %{active: !template.active}) do
+    case template_call(socket, :update, [template, %{active: !template.active}]) do
       {:ok, updated} -> {:noreply, apply_update(socket, updated)}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Failed to toggle active state.")}
     end
   end
 
   # --- Private ---
+
+  defp template_call(socket, function, args) do
+    %{module: PromptTemplate, function: function, args: args}
+    |> Events.build_invoke_event(:invoke, actor: BOActor.build(socket.assigns.current_user))
+    |> NodeRouter.dispatch()
+    |> Map.fetch!(:response)
+  end
 
   defp apply_update(socket, updated) do
     templates =

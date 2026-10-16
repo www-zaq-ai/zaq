@@ -4,6 +4,8 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLiveTest do
   import Phoenix.LiveViewTest
   import Zaq.AccountsFixtures
 
+  require Ecto.Query
+
   alias Zaq.Accounts
   alias Zaq.Agent.PromptTemplate
 
@@ -14,6 +16,90 @@ defmodule ZaqWeb.Live.BO.AI.PromptTemplatesLiveTest do
     conn = init_test_session(conn, %{user_id: user.id})
 
     %{conn: conn}
+  end
+
+  test "restore persists the latest default, discards body draft, and keeps metadata draft", %{
+    conn: conn
+  } do
+    {:ok, template} =
+      PromptTemplate.create(%{slug: "restore_test", name: "Saved name", body: "Baseline"})
+
+    {:ok, template} = PromptTemplate.update(template, %{body: "Customized"})
+    {:ok, view, _} = live(conn, ~p"/bo/prompt-templates")
+    view |> element("#prompt-tab-restore_test") |> render_click()
+
+    view
+    |> form("#prompt-template-edit-form-#{template.id}",
+      prompt_template: %{name: "Draft name", description: "Draft description", body: "Draft body"}
+    )
+    |> render_change()
+
+    Zaq.Repo.update_all(
+      Ecto.Query.from(t in PromptTemplate, where: t.id == ^template.id),
+      set: [default_body: "Latest baseline"]
+    )
+
+    view |> element("#restore-template-#{template.id}") |> render_click()
+    restored = PromptTemplate.get_by_slug(template.slug)
+    assert restored.body == "Latest baseline"
+    refute restored.body_customized
+    assert restored.name == "Saved name"
+    assert restored.description == nil
+    assert has_element?(view, "input[name='prompt_template[name]'][value='Draft name']")
+    assert has_element?(view, "textarea[name='prompt_template[body]']", "Latest baseline")
+    refute render(view) =~ "Draft body"
+
+    {:ok, reloaded, _} = live(conn, ~p"/bo/prompt-templates")
+    reloaded |> element("#prompt-tab-restore_test") |> render_click()
+    assert has_element?(reloaded, "textarea[name='prompt_template[body]']", "Latest baseline")
+  end
+
+  test "legacy templates without defaults cannot restore, including forged clicks", %{conn: conn} do
+    {:ok, template} =
+      PromptTemplate.create(%{slug: "legacy_restore", name: "Legacy", body: "Keep"})
+
+    Zaq.Repo.update_all(
+      Ecto.Query.from(t in PromptTemplate, where: t.id == ^template.id),
+      set: [default_body: nil, body_customized: true]
+    )
+
+    {:ok, view, _} = live(conn, ~p"/bo/prompt-templates")
+    view |> element("#prompt-tab-legacy_restore") |> render_click()
+    assert has_element?(view, "#restore-template-#{template.id}[disabled]")
+    render_click(view, "restore_default", %{"id" => to_string(template.id)})
+    assert PromptTemplate.get_by_slug(template.slug).body == "Keep"
+    assert render(view) =~ "No default is available"
+  end
+
+  test "deleted templates fail restore without losing unsaved content", %{conn: conn} do
+    {:ok, template} =
+      PromptTemplate.create(%{slug: "deleted_restore", name: "Deleted", body: "Baseline"})
+
+    {:ok, view, _} = live(conn, ~p"/bo/prompt-templates")
+    view |> element("#prompt-tab-deleted_restore") |> render_click()
+
+    view
+    |> form("#prompt-template-edit-form-#{template.id}", prompt_template: %{body: "Keep draft"})
+    |> render_change()
+
+    Zaq.Repo.delete!(template)
+    view |> element("#restore-template-#{template.id}") |> render_click()
+    assert has_element?(view, "textarea[name='prompt_template[body]']", "Keep draft")
+    assert render(view) =~ "Template no longer exists"
+  end
+
+  test "a customized body equal to the default can still opt back into updates", %{conn: conn} do
+    {:ok, template} =
+      PromptTemplate.create(%{slug: "equal_restore", name: "Equal", body: "Baseline"})
+
+    {:ok, template} = PromptTemplate.update(template, %{body: "Other"})
+    {:ok, template} = PromptTemplate.update(template, %{body: "Baseline"})
+    assert template.body_customized
+    {:ok, view, _} = live(conn, ~p"/bo/prompt-templates")
+    view |> element("#prompt-tab-equal_restore") |> render_click()
+    refute has_element?(view, "#restore-template-#{template.id}[disabled]")
+    view |> element("#restore-template-#{template.id}") |> render_click()
+    refute PromptTemplate.get_by_slug(template.slug).body_customized
   end
 
   test "creates a new template from the new tab", %{conn: conn} do

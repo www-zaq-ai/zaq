@@ -473,7 +473,30 @@ async function getE2EZAQRouterCredential(request, options = {}) {
   return res.json();
 }
 
+async function seedE2EPromptTemplateDefaults(request) {
+  const response = await request.post(`${DEFAULT_BASE_URL}/e2e/prompt-template-defaults`);
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+async function publishE2EPromptTemplateDefaults(request, body) {
+  const response = await request.post(`${DEFAULT_BASE_URL}/e2e/prompt-template-defaults/publish`, {
+    data: { body },
+  });
+  expect(response.ok()).toBeTruthy();
+}
+
+async function openPromptTemplate(page, slug) {
+  await gotoBackOfficeLive(page, "/bo/prompt-templates");
+  await page.locator(`#prompt-tab-${slug}`).click();
+  await waitForLiveViewSettled(page);
+  return page.locator('textarea[name="prompt_template[body]"]');
+}
+
 module.exports = {
+  seedE2EPromptTemplateDefaults,
+  publishE2EPromptTemplateDefaults,
+  openPromptTemplate,
   gotoBackOfficeLive,
   loginToBackOffice,
   waitForLiveViewConnected,

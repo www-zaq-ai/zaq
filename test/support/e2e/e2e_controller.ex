@@ -8,6 +8,7 @@ defmodule ZaqWeb.E2EController do
   alias Zaq.Addons.FeatureStore
   alias Zaq.Agent.MCP
   alias Zaq.E2E.{ChannelHistoryFixture, LogCollector, PortalState, ProcessorState, Reset}
+  alias Zaq.E2E.PromptTemplateFixture
   alias Zaq.E2E.TelemetryFixtures
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
@@ -52,6 +53,14 @@ defmodule ZaqWeb.E2EController do
 
   # POST /e2e/channel-history — seed the approved PR A browser journey.
   def seed_channel_history(conn, _params), do: json(conn, ChannelHistoryFixture.seed!())
+
+  def seed_prompt_template_defaults(conn, _params),
+    do: json(conn, PromptTemplateFixture.seed!())
+
+  def publish_prompt_template_defaults(conn, %{"body" => body}) when is_binary(body) do
+    :ok = PromptTemplateFixture.publish!(body)
+    json(conn, %{ok: true})
+  end
 
   # Describe-local prerequisites for existing People channel journeys. Disabled
   # connectors make administration available without starting provider listeners.

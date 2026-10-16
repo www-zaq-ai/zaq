@@ -233,6 +233,8 @@ defmodule ZaqWeb.Router do
       post "/agents", E2EController, :create_agent
       post "/conversations", E2EController, :create_conversation
       post "/channel-history", E2EController, :seed_channel_history
+      post "/prompt-template-defaults", E2EController, :seed_prompt_template_defaults
+      post "/prompt-template-defaults/publish", E2EController, :publish_prompt_template_defaults
       post "/people-connectors", E2EController, :seed_people_connectors
       post "/ingestion/touch_file", E2EController, :touch_file
       post "/ingestion/write_file", E2EController, :write_file

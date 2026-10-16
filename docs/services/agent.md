@@ -842,14 +842,37 @@ without safe permission mutation support return `:unsupported`.
 ### Prompt Templates (`Zaq.Agent.PromptTemplate`)
 - Ecto schema backed by `prompt_templates` DB table
 - Editable via Back Office (`prompt_templates_live`)
-- Slugs: `"retrieval"`, `"answering"`, `"chunk_title"`
+- Built-in slugs: `"chunk_title"`, `"image_to_text"`. Answering and retrieval no longer use this table.
+- `body` is the prompt used at runtime; `default_body` stores an independent baseline.
+- `body_customized` records user ownership, not text equality. A persisted body change sets it;
+  metadata edits and unchanged saves preserve it. Ordinary form parameters cannot change the
+  default or this flag. Typing the default manually does not opt back into default updates.
+- New custom templates snapshot their initial body as their default. Legacy custom templates
+  have no recoverable default and retain their body, with Restore default disabled.
 - EEx-style placeholders interpolated via `render/2`
 - `get_active!/1` — returns body string, raises if slug not found; agents depend on templates being seeded
 - `get_active/1` — returns `{:ok, body} | {:error, :not_found}` without raising
 - `get_by_slug/1` — returns full record (not just body)
 - `list/0` — returns all templates ordered by slug
-- `create/1`, `update/2` — CRUD used by the Back Office LiveView
-- Default templates are seeded by migration `20260316204749_seed_default_prompt_templates`
+- `create/1`, `update/2`, `delete/1` — context-owned CRUD, dispatched by the BO through Agent events and NodeRouter.
+- `restore_default/1` — atomically copies the latest persisted default into the used body and
+  clears customization. It persists immediately, discards unsaved body content, and leaves
+  unrelated unsaved editor fields unsaved. Returns `:not_found` or `:no_default` errors safely.
+- Initial defaults are seeded by historical migrations. Migration
+  `20261016193000_add_prompt_template_defaults` adds independent baselines and uses original
+  equal creation/update timestamps **once** to adopt the new default for untouched built-ins.
+  Unequal or missing timestamps preserve the active body. This deliberately accepts historical
+  ambiguity from metadata edits or same-second edits; it never compares prompt text.
+- Future default migrations must provide immutable release literals and atomically update
+  `default_body`, replacing `body` only where `body_customized = false`. Never derive built-in
+  defaults from edited database bodies or repeat the timestamp heuristic. Do not recreate
+  intentionally deleted templates.
+- During rollout, quiesce template editing until migration and all flag-aware application
+  writers are deployed. Schema rollback preserves current used bodies; old prompt data is not
+  reconstructible, so prompt reversions require a deliberate forward migration.
+- Image extraction's default limits output to visible content, preserves uncertainty, and
+  prohibits outside knowledge and estimated chart values. Prompt wording reduces risk but does
+  not guarantee hallucination-free model output; representative output review remains necessary.
 
 ---
 

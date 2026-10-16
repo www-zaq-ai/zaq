@@ -72,6 +72,41 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
   # ---------------------------------------------------------------------------
 
   describe "run/1 return shape" do
+    test "forwards only the used prompt until explicit restore adopts a newer default", %{
+      tmp_dir: tmp_dir
+    } do
+      capture_path = Path.join(tmp_dir, "forwarded_prompt.txt")
+
+      with_fake_pipeline_scripts(%{
+        "image_to_text.py" => """
+        import sys
+        if "--ping" in sys.argv:
+            print("pong")
+            sys.exit(0)
+        prompt = sys.argv[sys.argv.index("--prompt") + 1]
+        with open(#{Jason.encode!(capture_path)}, "w", encoding="utf-8") as f:
+            f.write(prompt)
+        """
+      })
+
+      ensure_image_to_text_prompt!("User-selected extraction prompt")
+      template = PromptTemplate.get_by_slug("image_to_text")
+
+      Zaq.Repo.update_all(from(t in PromptTemplate, where: t.id == ^template.id),
+        set: [default_body: "New independently shipped default"]
+      )
+
+      pdf_path = Path.join(tmp_dir, "prompt.pdf")
+      File.write!(pdf_path, "%PDF-1.4")
+      opts = [api_key: "inline-key", endpoint: "https://vision.example.test/v1", model: "vision"]
+      assert {:ok, _} = Pipeline.run(pdf_path, opts)
+      assert File.read!(capture_path) == "User-selected extraction prompt"
+
+      assert {:ok, _} = PromptTemplate.restore_default(template.id)
+      assert {:ok, _} = Pipeline.run(pdf_path, opts)
+      assert File.read!(capture_path) == "New independently shipped default"
+    end
+
     test "always returns a two-element tagged tuple" do
       result = Pipeline.run("/tmp/missing_#{System.unique_integer()}.pdf")
       assert match?({:ok, _}, result) or match?({:error, _}, result)

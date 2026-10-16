@@ -124,7 +124,7 @@
       </div>
 
       <!-- Actions -->
-      <div class="flex items-center justify-between pt-2">
+      <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
         <!-- Delete -->
         <div>
           <button
@@ -137,15 +137,37 @@
           </button>
         </div>
 
-        <!-- Save -->
-        <button
-          id={"save-template-#{tpl.id}"}
-          type="submit"
-          class="font-mono text-[0.75rem] font-bold px-5 py-2 rounded-lg bg-[#03b6d4] text-white hover:bg-[#03b6d4]/80 transition-colors"
-        >
-          Save
-        </button>
+        <div class="flex flex-wrap items-center gap-3">
+          <ZaqWeb.Components.DesignSystem.Button.button
+            id={"restore-template-#{tpl.id}"}
+            variant={:secondary}
+            phx-click="restore_default"
+            phx-value-id={tpl.id}
+            disabled={is_nil(tpl.default_body)}
+            aria-describedby={"restore-help-#{tpl.id}"}
+          >
+            Restore default
+          </ZaqWeb.Components.DesignSystem.Button.button>
+          <ZaqWeb.Components.DesignSystem.Button.button
+            id={"save-template-#{tpl.id}"}
+            type="submit"
+          >
+            Save
+          </ZaqWeb.Components.DesignSystem.Button.button>
+        </div>
       </div>
+      <p
+        id={"restore-help-#{tpl.id}"}
+        class="zaq-text-body-sm"
+        style="color: var(--zaq-text-color-body-secondary);"
+      >
+        <%= if is_nil(tpl.default_body) do %>
+          No original default is available for this template.
+        <% else %>
+          Restore immediately replaces the saved prompt and any unsaved body draft with the latest
+          default, and opts back into future default updates. Other unsaved fields are not saved.
+        <% end %>
+      </p>
     </form>
   </div>
 
