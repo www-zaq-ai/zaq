@@ -519,6 +519,12 @@ without safe permission mutation support return `:unsupported`.
 - Identity is resolved from the trusted actor context (`ctx[:actor].person.id`; chat also
   passes derived `ctx[:person_id]`); the `person_id` parameter is honored only on `skip_permissions` runs
 - Doubles as a workflow action (`use Zaq.Engine.Workflows.Action`)
+- Both `conversations[].messages[]` and flat `messages[]` preserve Conversations'
+  structured `author` and `timestamp` metadata beside unchanged message content.
+  Nested messages also retain `inserted_at`; flat results keep insertion-time
+  chronological ordering. Directory attribution is resolved by the domain, not
+  by this Action. The already-required summary read also supplies the window,
+  avoiding a second directory lookup for the same conversation's messages.
 
 ### Person Notification Action (`Zaq.Agent.Tools.People.NotifyPerson`)
 - Executes through `Jido.Exec.run/3`, including the private People authentication gateway.
@@ -655,10 +661,12 @@ without safe permission mutation support return `:unsupported`.
   other modules do not branch by provider
 
 ### Query Rewriting (`Zaq.Agent.Retrieval`)
+- **Deprecated:** `ask/2` remains for existing Pipeline/diagnostics callers only.
+  Its separate generation path is excluded from configured-agent author/time
+  presentation; deprecation does not change execution or migrate callers.
 - Rewrites user question into structured JSON search queries via LLM
-- Uses DB-managed prompt template (`"retrieval"` slug)
+- Uses its fixed query-rewriting prompt
 - Supports conversation history
-- Broadcasts `:retrieving` via `Status.broadcast/4` at the start of `ask/2` using `status_context:` opt (passed by Pipeline as `%{session_id, request_id}`) and `node_router:` opt (defaults to `Zaq.NodeRouter`)
 - Returns string-keyed map — callers (Pipeline) normalize to atom keys internally
 
 ### Query Filters (`Zaq.Agent.QueryFilters`)
@@ -689,6 +697,28 @@ without safe permission mutation support return `:unsupported`.
 - `entry_key/2` — builds string keys for history map entries in the form `"<iso8601>_<index>_<role>"`
 - `build/1` — converts history map to sorted `[LangChain.Message.t()]` list; handles `:user` and `:bot` roles
 
+### Message presentation (`Zaq.Agent.InputPrompt`)
+
+- `render_message/2` formats normalized message data once when supplying live,
+  queued/steered, or restored text to Jido. Author/time do not enter Jido `refs`;
+  existing UUID/execution references continue to serve identity and deduplication.
+- The compact header is `Author: "<escaped directory name>" [person:<id>]`,
+  followed by `Sent at: <provider time>` or `Recorded at: <insertion time>`, then
+  `Message:` and the unchanged body. Missing Person identifiers are omitted.
+  Names are single-line quoted data, not instructions or authority. Attachment
+  formatting continues to use the exact runtime's opaque aliases.
+- Persisted input uses the authorized stored-message projection, never a fresh
+  clock or later incoming timestamp hint. For non-persisted Engine-resolved input,
+  only an existing trusted source time is shown; otherwise the time header is
+  omitted. See [Engine's attribution contract](engine.md#conversations).
+- Native system/tool payloads and tool-call structure remain intact. Already
+  loaded names are not refreshed on directory edits. RequestTransformer receives
+  formatted text for budgeting; it does not add or update these headers.
+- Factory composes `InputPrompt.system_instruction/0` with the configured job and
+  skill index through `runtime_system_prompt/2`. Existing initial configuration
+  and `ensure_system_prompt/2` → `Jido.AI.set_system_prompt/3` synchronize it without
+  a separate prompt-update mechanism.
+
 ### History Loader (`Zaq.Agent.HistoryLoader`)
 - The [Engine lifecycle gates](engine.md#message-lifecycle-gates) distinguish
   execution authorization from factual capture, context reads and finalization.
@@ -697,6 +727,9 @@ without safe permission mutation support return `:unsupported`.
   `HistorySync.admit/4` still acquire that lease; `execution_admission/4` obtains
   and carries Engine authorization within the live session.
 - Loads initial context for runtime agent cold starts
+- Legacy reads use `Conversations.list_agent_history/1`, retaining completion
+  filtering, scope, ordering and the 500-row fetch cap. Conversations batches
+  directory attribution; HistoryLoader only converts and renders the results.
 - Canonical input authorization runs once before Agent status/guard side effects
   through confidential Engine `:admit_execution`. `HistorySync` carries that result
   only in its owning live completion session, keyed by binding, Person identity and

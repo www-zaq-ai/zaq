@@ -428,19 +428,11 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
   end
 
   defp person_summaries(ids) do
-    ids = ids |> Enum.reject(&is_nil/1) |> Enum.uniq()
-
-    Repo.all(
-      from p in Person,
-        where: p.id in ^ids or fragment("? && ?::bigint[]", p.merged_person_ids, ^ids)
-    )
-    |> Enum.flat_map(fn person ->
-      Enum.map(
-        [person.id | person.merged_person_ids],
-        &{&1, %{person_id: person.id, display_name: person.full_name || "Unnamed person"}}
-      )
+    ids
+    |> People.get_people_by_ids()
+    |> Map.new(fn {id, person} ->
+      {id, %{person_id: person.id, display_name: person.full_name || "Unnamed person"}}
     end)
-    |> Map.new()
   end
 
   defp display_author(%{role: "assistant"} = record, _names, _people),

@@ -8,6 +8,7 @@ defmodule Zaq.Agent.FactoryRuntimeFailureTest do
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
+  alias Zaq.Agent.InputPrompt
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.Skills
   alias Zaq.TestSupport.OpenAIStub
@@ -111,10 +112,11 @@ defmodule Zaq.Agent.FactoryRuntimeFailureTest do
              Factory.ask_with_config(proxy, "hello", agent)
 
     refute_received {:proxy_script_depleted, _}
-    assert_receive {:prompt_update_attempt, ref, "Replacement cached prompt"}
-    assert_receive {:prompt_update_attempt, ^ref, "Replacement cached prompt"}
-    assert_receive {:prompt_update_attempt, ^ref, "Replacement cached prompt"}
-    assert_receive {:prompt_update_attempt, ^ref, "Replacement cached prompt"}
+    expected_prompt = "Replacement cached prompt\n\n" <> InputPrompt.system_instruction()
+    assert_receive {:prompt_update_attempt, ref, ^expected_prompt}
+    assert_receive {:prompt_update_attempt, ^ref, ^expected_prompt}
+    assert_receive {:prompt_update_attempt, ^ref, ^expected_prompt}
+    assert_receive {:prompt_update_attempt, ^ref, ^expected_prompt}
     refute_received {:prompt_update_attempt, ^ref, _}
     refute_received {:unexpected_server_message, ^ref, _}
     refute_received {:openai_request, _, _, _, _}
@@ -129,10 +131,11 @@ defmodule Zaq.Agent.FactoryRuntimeFailureTest do
              Factory.ask_with_config(proxy, "hello", agent)
 
     refute_received {:proxy_script_depleted, _}
-    assert_receive {:prompt_update_attempt, ref, "Recover missing prompt"}
-    assert_receive {:prompt_update_attempt, ^ref, "Recover missing prompt"}
-    assert_receive {:prompt_update_attempt, ^ref, "Recover missing prompt"}
-    assert_receive {:prompt_update_attempt, ^ref, "Recover missing prompt"}
+    expected_prompt = "Recover missing prompt\n\n" <> InputPrompt.system_instruction()
+    assert_receive {:prompt_update_attempt, ref, ^expected_prompt}
+    assert_receive {:prompt_update_attempt, ^ref, ^expected_prompt}
+    assert_receive {:prompt_update_attempt, ^ref, ^expected_prompt}
+    assert_receive {:prompt_update_attempt, ^ref, ^expected_prompt}
     refute_received {:prompt_update_attempt, ^ref, _}
     refute_received {:unexpected_server_message, ^ref, _}
     refute_received {:openai_request, _, _, _, _}

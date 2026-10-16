@@ -8,6 +8,7 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
   alias Zaq.Agent.Tools.Accounts.History
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.Conversation
+  alias Zaq.Engine.Conversations.Message
 
   # Identity is resolved from the trusted execution context:
   # - chat path:     ctx[:person_id] (set by the pipeline from the channel author)
@@ -456,6 +457,42 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
   # ── output shape and limits ──────────────────────────────────────────
 
   describe "run/2 — output shape" do
+    test "both representations preserve each message's directory author and timestamp provenance" do
+      owner = create_person("attribution-owner@example.com")
+      {:ok, alice} = People.create_person(%{full_name: "Alice"})
+      {:ok, bob} = People.create_person(%{full_name: "Bob"})
+      conversation = create_conversation(owner.id, %{title: "Mixed authors"})
+      sent_at = ~U[2026-01-02 03:04:05.000000Z]
+
+      for person <- [alice, bob] do
+        %Message{conversation_id: conversation.id}
+        |> Message.canonical_changeset(%{
+          role: "user",
+          content: "Message from #{person.full_name}",
+          history_context: %{"author_person_id" => person.id},
+          provider_sent_at: sent_at
+        })
+        |> Repo.insert!()
+      end
+
+      add_message(conversation, "user", "Legacy unknown")
+      assert {:ok, result} = History.run(%{}, %{person_id: owner.id})
+      assert [entry] = result.conversations
+      assert Enum.map(entry.messages, &Map.delete(&1, :inserted_at)) == result.messages
+      assert Enum.map(result.messages, & &1.author.name) == ["Alice", "Bob", "Unknown author"]
+
+      assert Enum.map(Enum.take(result.messages, 2), & &1.timestamp) ==
+               List.duplicate(%{value: sent_at, source: :provider}, 2)
+
+      assert List.last(result.messages).timestamp.source == :recorded
+
+      assert Enum.map(result.messages, & &1.content) == [
+               "Message from Alice",
+               "Message from Bob",
+               "Legacy unknown"
+             ]
+    end
+
     test "groups messages under conversations with id, title and updated_at" do
       person = create_person("shape@example.com")
       conv = create_conversation(person.id, %{title: "Quarterly budget"})
@@ -486,9 +523,24 @@ defmodule Zaq.Agent.Tools.Accounts.HistoryTest do
       assert {:ok, %{messages: messages}} = History.run(%{}, %{person_id: person.id})
 
       assert messages == [
-               %{role: "user", content: "first"},
-               %{role: "assistant", content: "second"},
-               %{role: "user", content: "third"}
+               %{
+                 role: "user",
+                 content: "first",
+                 author: %{kind: :unknown, person_id: nil, name: "Unknown author"},
+                 timestamp: %{value: ~U[2026-06-01 09:00:00.000000Z], source: :recorded}
+               },
+               %{
+                 role: "assistant",
+                 content: "second",
+                 author: %{kind: :assistant, person_id: nil, name: "Assistant"},
+                 timestamp: %{value: ~U[2026-06-01 10:00:00.000000Z], source: :recorded}
+               },
+               %{
+                 role: "user",
+                 content: "third",
+                 author: %{kind: :unknown, person_id: nil, name: "Unknown author"},
+                 timestamp: %{value: ~U[2026-06-01 11:00:00.000000Z], source: :recorded}
+               }
              ]
     end
 

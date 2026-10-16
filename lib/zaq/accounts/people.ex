@@ -424,6 +424,36 @@ defmodule Zaq.Accounts.People do
     )
   end
 
+  @doc """
+  Retrieves a finite batch of current People keyed by the requested literal or
+  retained historical IDs. Missing IDs are omitted. This presentation lookup
+  does not authenticate callers or grant permissions; database failures propagate.
+  """
+  @spec get_people_by_ids([integer()]) :: %{integer() => Person.t()}
+  def get_people_by_ids(ids) when is_list(ids) do
+    ids = Enum.filter(ids, &valid_person_id?/1) |> Enum.uniq()
+
+    if ids == [] do
+      %{}
+    else
+      requested = MapSet.new(ids)
+
+      Repo.all(
+        from p in Person,
+          where: p.id in ^ids or fragment("? && ?::bigint[]", p.merged_person_ids, ^ids)
+      )
+      |> Enum.flat_map(fn person ->
+        [person.id | person.merged_person_ids]
+        |> Enum.filter(&MapSet.member?(requested, &1))
+        |> Enum.map(&{&1, person})
+      end)
+      |> Map.new()
+    end
+  end
+
+  defp valid_person_id?(id),
+    do: is_integer(id) and id > 0 and id <= 9_223_372_036_854_775_807
+
   def get_person!(id), do: get_person(id) || raise(Ecto.NoResultsError, queryable: Person)
 
   def get_person_with_channels!(id) do

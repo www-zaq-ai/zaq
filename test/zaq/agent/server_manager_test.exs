@@ -10,6 +10,7 @@ defmodule Zaq.Agent.ServerManagerTest do
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
+  alias Zaq.Agent.InputPrompt
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
   alias Zaq.Engine.Connect
@@ -376,7 +377,8 @@ defmodule Zaq.Agent.ServerManagerTest do
     assert %{provider: :openai, id: "gpt-4.1-mini", base_url: "https://api.openai.com/v1"} =
              status.raw_state.model
 
-    assert status.raw_state.runtime_config.system_prompt == "You are a test agent"
+    assert status.raw_state.runtime_config.system_prompt ==
+             "You are a test agent\n\n" <> InputPrompt.system_instruction()
 
     assert status.raw_state.tool_context.opaque_alias_scope ==
              "configured_agent_#{configured_agent.id}"

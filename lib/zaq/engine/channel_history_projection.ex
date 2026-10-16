@@ -9,7 +9,7 @@ defmodule Zaq.Engine.ChannelHistoryProjection do
 
   import Ecto.Query
 
-  alias Zaq.Accounts.{Person, PersonChannel}
+  alias Zaq.Accounts.{People, Person, PersonChannel}
   alias Zaq.Engine.Conversations.{Message, MessageRating, Transcript, TranscriptMessage}
   alias Zaq.Repo
 
@@ -221,17 +221,12 @@ defmodule Zaq.Engine.ChannelHistoryProjection do
   end
 
   defp person_summaries(ids) do
-    ids = ids |> Enum.reject(&is_nil/1) |> Enum.uniq()
-
-    Repo.all(
-      from person in Person,
-        where: person.id in ^ids or fragment("? && ?::bigint[]", person.merged_person_ids, ^ids)
-    )
-    |> Enum.flat_map(fn person ->
+    ids
+    |> People.get_people_by_ids()
+    |> Map.new(fn {id, person} ->
       summary = %{person_id: person.id, display_name: person.full_name || "Unnamed person"}
-      Enum.map([person.id | person.merged_person_ids], &{&1, summary})
+      {id, summary}
     end)
-    |> Map.new()
   end
 
   defp root_identities(rows, roots) do

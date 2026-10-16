@@ -46,10 +46,12 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   - `conversations` — per-conversation view (`id`, `title`, `updated_at`, `messages`).
   - `metadata`      — message counts and first/last dates.
   - `messages`      — **every** returned conversation's messages flattened into one
-    chronological list, each `%{role, content}` — the unified role/content vocabulary
-    (same as `Zaq.Agent.History` / ReqLLM / Jido.AI). A downstream node can map this
-    field straight into an agent's seed context (e.g. edge `mapping` of
-    `context <- history.messages`) without touching the fuller `conversations` view.
+    chronological list. Both representations preserve raw `role`/`content` plus
+    structured `author` (`kind`, `person_id`, `name`) and `timestamp`
+    (`value`, `source`: `:provider` or `:recorded`) supplied by Conversations.
+    Nested messages additionally retain `inserted_at`. Attribution is metadata,
+    never prepended to the stored content. Consumers projecting messages into
+    model text should use the shared `Zaq.Agent.InputPrompt` formatter.
 
   ## Example
 
@@ -60,7 +62,8 @@ defmodule Zaq.Agent.Tools.Accounts.History do
       History.run(%{person_id: 7, last_n_days: 30}, %{skip_permissions: true})
       # => {:ok, %{conversations: [%{id: ..., title: ..., updated_at: ..., messages: [...]}],
       #           metadata: %{...},
-      #           messages: [%{role: "user", content: "..."}, %{role: "assistant", content: "..."}]}}
+       #           messages: [%{role: "user", content: "...", author: %{name: "Alice", ...},
+       #                        timestamp: %{value: ..., source: :provider}}]}}
 
       # admin run across all people (no person resolved, skip_permissions set)
       History.run(%{query: "Rohitt tweet"}, %{skip_permissions: true})
@@ -138,8 +141,8 @@ defmodule Zaq.Agent.Tools.Accounts.History do
         required: true,
         doc:
           "Every returned conversation's messages flattened into one chronological " <>
-            "list, each %{role, content} — the unified role/content vocabulary " <>
-            "(same as Zaq.Agent.History / ReqLLM / Jido.AI). Ready to seed an agent's context."
+            "list, each with raw role/content, author (kind, person_id, name), and " <>
+            "timestamp (value, source: provider or recorded)."
       ]
     ]
 
@@ -237,12 +240,11 @@ defmodule Zaq.Agent.Tools.Accounts.History do
       list_opts
       |> Conversations.list_conversations()
       |> Enum.map_reduce({[], []}, fn conv, {total_groups, current_window_groups} ->
-        current_window_messages =
-          conv
-          |> Conversations.list_messages(limit: msg_limit)
-          |> Enum.map(&message_output/1)
-
         total_messages = Conversations.list_messages(conv)
+
+        current_window_messages =
+          history_window(conv, total_messages, msg_limit)
+          |> Enum.map(&message_output/1)
 
         conversation = %{
           id: conv.id,
@@ -301,18 +303,23 @@ defmodule Zaq.Agent.Tools.Accounts.History do
   end
 
   defp message_output(message) do
-    %{role: message.role, content: message.content, inserted_at: message.inserted_at}
+    Map.take(message, [:role, :content, :inserted_at, :author, :timestamp])
   end
 
-  # Flatten every returned conversation's window messages into one chronological
-  # list of `%{role, content}` turns — the unified role/content vocabulary shared
-  # by `Zaq.Agent.History`, ReqLLM, and Jido.AI. `inserted_at` is used only to
-  # order across conversations, then dropped so the field is a clean context seed.
+  # The full read is already required for summary counts. Reuse its attributed
+  # rows for the window rather than resolving names again for the same messages.
+  defp history_window(_conversation, messages, limit) when is_integer(limit) and limit >= 0,
+    do: Enum.take(messages, limit)
+
+  defp history_window(conversation, _messages, limit),
+    do: Conversations.list_messages(conversation, limit: limit)
+
+  # Preserve domain attribution while dropping the ordering-only inserted_at field.
   defp flatten_messages(message_groups) do
     message_groups
     |> List.flatten()
     |> Enum.sort_by(& &1.inserted_at, DateTime)
-    |> Enum.map(fn %{role: role, content: content} -> %{role: role, content: content} end)
+    |> Enum.map(&Map.drop(&1, [:inserted_at]))
   end
 
   defp summarize_messages(message_groups) do

@@ -157,6 +157,31 @@ legacy conversation, rating and private metadata references, and rejects a
 mismatched source. New IMAP admissions record a private source coordinate only
 when the enabled connector, mailbox and adapter-stamped sender agree; an
 unscoped email conversation cannot itself prove connector or mailbox identity.
+
+Engine admission also records the resolved message author's Person reference in
+`Message.history_context["author_person_id"]` and the trusted provider timestamp
+in `Message.provider_sent_at`. Ordinary message attributes cannot stamp either
+field. Canonical association retains an admitted message's existing author
+reference and provider time; a different resolved author is rejected unless the
+original reference redirects to that Person through the directory's merge aliases.
+Missing historical references are not inferred from conversation ownership.
+Message presentation must use persisted provider time (sent time), falling back
+to `Message.inserted_at` explicitly as recorded time, never processing time.
+`Conversations.MessageAuthor` owns author presentation for scoped message batches.
+It resolves names through `People.get_people_by_ids/1`, which batches literal and
+retained historical IDs in one query (no query for an empty batch). Existing BO
+history projections reuse that directory lookup while retaining their own display
+fallbacks. Agent-facing attribution uses the current directory name or
+`Unknown author`, never an unverified channel label or conversation owner. Recorded
+author references remain stable across merges; presentation does not grant rights.
+`Message` exposes virtual `author` and `timestamp` fields on `list_messages/2`;
+canonical projections carry the same metadata. `timestamp` is a value plus
+`:provider` or `:recorded` provenance. Authorized execution admission and queue
+responses include the exact persisted input's presentation without private traces
+or execution metadata. `Conversations.list_agent_history/1` is the internal legacy
+runtime read, not a new authorization surface. No historical author backfill or
+runtime rename-invalidation mechanism is introduced.
+
 This reuse path is wired to supported ingress; older unstamped rows and rows
 without an attested audience instead enter restricted legacy snapshots and are
 never automatically granted as fresh channel history. An agent admission can

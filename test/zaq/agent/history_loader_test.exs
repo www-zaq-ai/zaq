@@ -9,6 +9,30 @@ defmodule Zaq.Agent.HistoryLoaderTest do
   alias Zaq.Agent.OpaqueAliases
   alias Zaq.Engine.Conversations.{Conversation, Message}
   alias Zaq.Repo
+  alias Zaq.Utils.DateUtils
+
+  test "restored inputs use their directory author and original persisted source time" do
+    person = insert_person()
+    conversation = insert_conversation(person.id, "bo")
+
+    message =
+      %Message{conversation_id: conversation.id}
+      |> Message.canonical_changeset(%{
+        role: "user",
+        content: "Persisted input",
+        author_name: "Unverified channel name",
+        history_context: %{"author_person_id" => person.id},
+        provider_sent_at: ~U[2026-01-02 03:04:05Z]
+      })
+      |> Repo.insert!()
+
+    [entry] = HistoryLoader.load_for_conversation(conversation.id).entries
+
+    assert entry.content ==
+             "Author: #{Jason.encode!(person.full_name)} [person:#{person.id}]\nSent at: 2026-01-02 03:04:05Z\nMessage:\nPersisted input"
+
+    assert entry.timestamp == message.provider_sent_at
+  end
 
   test "current and historical attachments share formatting without exposing hydration internals" do
     attachment = %{
@@ -35,7 +59,14 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     }
 
     [entry] = HistoryLoader.from_projection([message]).entries
-    assert entry.content == InputPrompt.append_attachments("Alice (alice): ", [attachment], nil)
+
+    assert entry.content ==
+             InputPrompt.append_attachments(
+               "Author: \"Unknown author\"\nMessage:\n",
+               [attachment],
+               nil
+             )
+
     assert entry.content =~ "fresh-handle"
     assert entry.content =~ "media_kind"
     refute entry.content =~ "materialization_source"
@@ -63,7 +94,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       }
 
       [entry] = HistoryLoader.from_projection([message]).entries
-      assert entry.content == "Author (source): #{content}"
+      assert entry.content == "Author: \"Unknown author\"\nMessage:\n#{content}"
       assert entry.refs == %{message_id: message.message_id}
       assert entry.tool_calls == nil
       assert entry.thinking == nil
@@ -92,7 +123,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
 
     [entry] = context.entries
     assert entry.role == :user
-    assert entry.content == "Bob (bob): Factual note"
+    assert entry.content == "Author: \"Unknown author\"\nMessage:\nFactual note"
     assert entry.refs == %{message_id: id, transcript_id: transcript_id, position: 2}
     refute inspect(context) =~ "PRIVATE_TRACE"
   end
@@ -117,8 +148,8 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     [old | exchange] = Enum.reverse(context.entries)
     [^old, a_entry | ^exchange] = Enum.reverse(first.entries)
     [^old, ^a_entry, b_entry | ^exchange] = Enum.reverse(second.entries)
-    assert a_entry.content == "Author (source): A"
-    assert b_entry.content == "Author (source): B"
+    assert a_entry.content == projected_content("A")
+    assert b_entry.content == projected_content("B")
     assert second.system_prompt == context.system_prompt
     assert HistoryLoader.merge_projection(second, [a, b, steering]) == second
 
@@ -127,7 +158,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
              "Result",
              "",
              "Question",
-             "Author (source): Old"
+             projected_content("Old")
            ]
   end
 
@@ -175,12 +206,12 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     merged = HistoryLoader.merge_projection(next, [a, d])
 
     assert Enum.map(Enum.reverse(merged.entries), & &1.content) == [
-             "Author (source): During run",
+             projected_content("During run"),
              "Old question",
              "",
              "Old result",
              "Old answer",
-             "Author (source): After completion",
+             projected_content("After completion"),
              "Next question",
              "",
              "Next result"
@@ -202,6 +233,15 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       provider_sent_at: ~U[2026-10-08 00:00:00Z],
       attachments: []
     }
+
+  defp projected_content(body),
+    do: "Author: \"Unknown author\"\nSent at: 2026-10-08 00:00:00Z\nMessage:\n#{body}"
+
+  defp recorded_assistant_content(body) do
+    message = Repo.get_by!(Message, content: body)
+    time = DateUtils.format_ts(message.inserted_at)
+    "Author: \"Assistant\"\nRecorded at: #{time}\nMessage:\n#{body}"
+  end
 
   defp insert_person do
     Repo.insert!(%Person{
@@ -314,7 +354,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       assert length(messages) == 2
       [m1, m2] = messages
       assert String.ends_with?(m1.content, "first")
-      assert m2.content == "second"
+      assert m2.content == recorded_assistant_content("second")
     end
 
     test "loads all fetched conversation messages without token trimming" do
@@ -559,7 +599,8 @@ defmodule Zaq.Agent.HistoryLoaderTest do
           conversation_id: conversation.id
         })
 
-      assert [%{content: "same participant and room"}] = AIContext.to_messages(result)
+      expected = recorded_assistant_content("same participant and room")
+      assert [%{content: ^expected}] = AIContext.to_messages(result)
     end
 
     test "does not hydrate pending or failed admitted messages" do
@@ -613,7 +654,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       messages = AIContext.to_messages(result)
       assert length(messages) == 1
       assert hd(messages).role == :assistant
-      assert hd(messages).content == "hello from bot"
+      assert hd(messages).content == recorded_assistant_content("hello from bot")
     end
 
     test "to_messages returns entries in chronological order" do
@@ -632,9 +673,9 @@ defmodule Zaq.Agent.HistoryLoaderTest do
 
       assert length(messages) == 3
       [m1, m2, m3] = messages
-      # User messages carry a timestamp prefix; assistant messages do not
+      # Both roles retain message time, with insertion time labeled as recorded time.
       assert String.ends_with?(m1.content, "first")
-      assert m2.content == "second"
+      assert m2.content == recorded_assistant_content("second")
       assert String.ends_with?(m3.content, "third")
     end
 

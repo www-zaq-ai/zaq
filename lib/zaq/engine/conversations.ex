@@ -20,6 +20,7 @@ defmodule Zaq.Engine.Conversations do
     ExecutionLifecycle,
     ExecutionRecord,
     Message,
+    MessageAuthor,
     MessageRating,
     MessageTraceArtifact,
     TitleGenerator,
@@ -120,10 +121,21 @@ defmodule Zaq.Engine.Conversations do
            verified_execution_owner(input, actor, binding[:execution_id]) do
       input
       |> ExecutionHistory.project_admission(conversation, person)
+      |> with_input_presentation(input)
       |> record_admission(input, binding[:execution_id])
     else
       _ -> {:error, :unauthorized}
     end
+  end
+
+  defp with_input_presentation({:ok, projection}, input),
+    do: {:ok, Map.put(projection, :input, input_presentation(input))}
+
+  defp with_input_presentation(error, _input), do: error
+
+  defp input_presentation(input) do
+    [projected] = MessageAuthor.project([input])
+    Map.take(projected, [:id, :role, :content, :author, :timestamp])
   end
 
   # The caller selects/locks the input. Reads normalize their conversation UUID;
@@ -211,7 +223,7 @@ defmodule Zaq.Engine.Conversations do
                root_execution_id: opts[:root_execution_id],
                execution_id: binding[:execution_id]
              ) do
-        receipt
+        Map.put(receipt, :input, input_presentation(child))
       else
         {:closed_before_accept, receipt} -> {:closed_before_accept, receipt}
         {:error, reason} -> Repo.rollback(reason)
@@ -1221,14 +1233,20 @@ defmodule Zaq.Engine.Conversations do
       |> maybe_put_external_message_id(msg.message_id)
       |> maybe_put_history_source(msg)
 
-    conv
-    |> add_message(%{
+    attrs = %{
+      conversation_id: conv.id,
       role: "user",
       content: msg.content || "",
       author_id: msg.author_id,
-      provider_sent_at: msg.routing_context.provider_sent_at,
       metadata: metadata
+    }
+
+    %Message{}
+    |> Message.admission_changeset(attrs, %{
+      person_id: Incoming.person_id(msg),
+      provider_sent_at: msg.routing_context.provider_sent_at
     })
+    |> insert_message(conv)
     |> case do
       {:ok, message} -> {:ok, {message, true, finalization_token}}
       error -> error
@@ -2208,12 +2226,13 @@ defmodule Zaq.Engine.Conversations do
   enqueues a `TokenUsageAggregator` job.
   """
   def add_message(%Conversation{} = conversation, attrs) do
-    result =
-      conversation
-      |> message_changeset(attrs)
-      |> Repo.insert()
+    conversation
+    |> message_changeset(attrs)
+    |> insert_message(conversation)
+  end
 
-    with {:ok, msg} <- result do
+  defp insert_message(changeset, conversation) do
+    with {:ok, msg} <- Repo.insert(changeset) do
       after_message_insert(conversation, msg)
       {:ok, msg}
     end
@@ -2267,7 +2286,63 @@ defmodule Zaq.Engine.Conversations do
     )
     |> maybe_limit(opts[:limit])
     |> Repo.all()
+    |> MessageAuthor.project()
   end
+
+  @doc """
+  Loads bounded legacy agent history for an internally validated runtime binding.
+  Conversation reads exclude incomplete inputs; Person/channel reads retain their
+  legacy cross-conversation scope. This is not a public authorization boundary.
+  """
+  def list_agent_history(%{conversation_id: id}) when is_binary(id) and id != "" do
+    from(m in Message,
+      where:
+        m.conversation_id == ^id and
+          fragment("COALESCE(?->>'execution_status', 'completed') = 'completed'", m.metadata),
+      order_by: [desc: m.inserted_at],
+      limit: 500,
+      select:
+        struct(m, [
+          :id,
+          :role,
+          :content,
+          :metadata,
+          :history_context,
+          :provider_sent_at,
+          :inserted_at,
+          :attachments
+        ])
+    )
+    |> Repo.all()
+    |> MessageAuthor.project()
+  end
+
+  def list_agent_history(%{person_id: id, channel_type: type})
+      when is_integer(id) and is_binary(type) do
+    conversations =
+      from(c in Conversation, where: c.person_id == ^id and c.channel_type == ^type, select: c.id)
+
+    from(m in Message,
+      where: m.conversation_id in subquery(conversations),
+      order_by: [desc: m.inserted_at],
+      limit: 500,
+      select:
+        struct(m, [
+          :id,
+          :role,
+          :content,
+          :metadata,
+          :history_context,
+          :provider_sent_at,
+          :inserted_at,
+          :attachments
+        ])
+    )
+    |> Repo.all()
+    |> MessageAuthor.project()
+  end
+
+  def list_agent_history(_binding), do: []
 
   @doc "Fetches a message only within its supplied conversation parent."
   @spec get_conversation_message(struct(), term(), keyword()) :: struct() | nil

@@ -3,6 +3,8 @@ defmodule Zaq.Engine.Conversations.Message do
   A message with stable identity. Legacy messages belong to one conversation;
   canonical channel messages may belong to several transcripts instead.
   Execution metadata and private traces must not be projected as shared history.
+  Ordinary message attributes cannot stamp directory authorship or provider time;
+  Engine admission and canonical capture supply those facts through trusted paths.
   """
 
   use Ecto.Schema
@@ -39,6 +41,8 @@ defmodule Zaq.Engine.Conversations.Message do
     field :author_name, :string
     field :provider_sent_at, :utc_datetime_usec
     field :attachments, {:array, :map}, default: []
+    field :author, :map, virtual: true
+    field :timestamp, :map, virtual: true
 
     belongs_to :conversation, Conversation
     has_many :ratings, MessageRating
@@ -49,6 +53,18 @@ defmodule Zaq.Engine.Conversations.Message do
   end
 
   @valid_roles ~w[user assistant]
+
+  @doc "Returns persisted message time and its provenance, never processing time."
+  def presentation_timestamp(%{provider_sent_at: %DateTime{} = time}),
+    do: %{value: time, source: :provider}
+
+  def presentation_timestamp(%{inserted_at: %DateTime{} = time}),
+    do: %{value: time, source: :recorded}
+
+  def presentation_timestamp(%{inserted_at: %NaiveDateTime{} = time}),
+    do: %{value: time, source: :recorded}
+
+  def presentation_timestamp(_message), do: nil
 
   @doc "Updates private confirmation/recovery metadata without changing canonical content."
   def confirmation_changeset(message, metadata),
@@ -76,6 +92,19 @@ defmodule Zaq.Engine.Conversations.Message do
     |> validate_inclusion(:role, @valid_roles)
     |> validate_content_or_attachments(["user"])
     |> unique_constraint(:metadata, name: :messages_admitted_external_id_index)
+  end
+
+  @doc "Builds an Engine admission changeset from already-resolved author and source facts."
+  def admission_changeset(message, attrs, %{person_id: person_id, provider_sent_at: sent_at}) do
+    history_context =
+      if is_integer(person_id) and person_id > 0,
+        do: %{"author_person_id" => person_id},
+        else: %{}
+
+    message
+    |> changeset(attrs)
+    |> cast(%{provider_sent_at: sent_at}, [:provider_sent_at])
+    |> put_change(:history_context, history_context)
   end
 
   @doc "Changeset for canonical content, without a single-conversation ownership requirement."

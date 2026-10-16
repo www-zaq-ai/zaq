@@ -13,6 +13,7 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Agent.Answering
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
+  alias Zaq.Agent.InputPrompt
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Skills
@@ -238,7 +239,9 @@ defmodule Zaq.Agent.FactoryTest do
                  node_router_module: RuntimeCredentialRouter
                )
 
-      assert runtime.system_prompt == "Nil credential inspection"
+      assert runtime.system_prompt ==
+               "Nil credential inspection\n\n" <> InputPrompt.system_instruction()
+
       assert runtime.llm_opts[:temperature] == 0.23
       assert runtime.execution_actor == @execution_actor
       assert runtime.tool_context.actor == @execution_actor
@@ -575,7 +578,7 @@ defmodule Zaq.Agent.FactoryTest do
 
     ExUnit.CaptureLog.capture_log(fn ->
       assert {:ok, config} = Factory.runtime_config(agent)
-      assert config.system_prompt == "Job."
+      assert config.system_prompt == "Job.\n\n" <> InputPrompt.system_instruction()
     end)
   end
 
@@ -598,7 +601,7 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert {:ok, config} = Factory.runtime_config(configured_agent)
     assert config.tools == []
-    assert config.system_prompt == "Plain job."
+    assert config.system_prompt == "Plain job.\n\n" <> InputPrompt.system_instruction()
   end
 
   test "runtime_config returns standard config fields when max iterations is unset" do
@@ -606,7 +609,7 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert {:ok, config} = Factory.runtime_config(configured_agent)
     assert is_list(config.llm_opts)
-    assert config.system_prompt == ""
+    assert config.system_prompt == InputPrompt.system_instruction()
 
     assert config.context_window == %{
              max_context_tokens: 5_000,
@@ -735,7 +738,10 @@ defmodule Zaq.Agent.FactoryTest do
              )
 
     assert {:ok, status} = Jido.AgentServer.status(server)
-    assert status.raw_state.runtime_config.system_prompt == configured_agent.job
+
+    assert status.raw_state.runtime_config.system_prompt ==
+             configured_agent.job <> "\n\n" <> InputPrompt.system_instruction()
+
     assert is_list(status.raw_state.runtime_config.llm_opts)
     assert Browsing in status.raw_state.runtime_config.tools
 
@@ -755,7 +761,7 @@ defmodule Zaq.Agent.FactoryTest do
     assert {:ok, status} = Jido.AgentServer.status(server)
 
     assert get_in(status.raw_state, [:__strategy__, :config, :system_prompt]) ==
-             configured_agent.job
+             configured_agent.job <> "\n\n" <> InputPrompt.system_instruction()
 
     assert {:ok, second_request} =
              Factory.ask_with_config(server, incoming.content, configured_agent, timeout: 35_000)
@@ -765,6 +771,12 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert_receive {:openai_request, "POST", "/v1/responses", "", second_body}, 1_000
     assert second_body =~ configured_agent.job
+    assert second_body =~ "ZAQ message headers"
+
+    assert {:ok, status} = Jido.AgentServer.status(server)
+
+    assert get_in(status.raw_state, [:__strategy__, :config, :system_prompt]) ==
+             configured_agent.job <> "\n\n" <> InputPrompt.system_instruction()
   end
 
   test "ask_with_config normalizes an invalid tool context before asking" do

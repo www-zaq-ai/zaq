@@ -50,6 +50,7 @@ defmodule Zaq.Agent.Factory do
   alias Zaq.Agent.{
     ConfiguredAgent,
     HistoryLoader,
+    InputPrompt,
     MediaResultTransformer,
     OpaqueAliases,
     ProviderSpec,
@@ -305,13 +306,9 @@ defmodule Zaq.Agent.Factory do
   end
 
   defp runtime_system_prompt(configured_agent, %{index: index}) when is_binary(index) do
-    job = configured_agent.job || ""
-
-    case index do
-      "" -> job
-      index when job == "" -> index
-      index -> job <> "\n\n" <> index
-    end
+    [configured_agent.job || "", index, InputPrompt.system_instruction()]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n\n")
   end
 
   @doc """

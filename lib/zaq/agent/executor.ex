@@ -44,12 +44,12 @@ defmodule Zaq.Agent.Executor do
     StreamEvents
   }
 
+  alias Zaq.Engine.Conversations.MessageAuthor
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.Identity.ExecutionActor
-  alias Zaq.Utils.DateUtils
 
   @llm_usage_attribution "v1"
 
@@ -206,9 +206,10 @@ defmodule Zaq.Agent.Executor do
            {:ok, execution_opts} <-
              HistorySync.admit(execution_opts, server_id, runtime_pid, actor),
            question <-
-             question
-             |> InputPrompt.append_attachments(incoming.attachments, server_id)
-             |> timestamp_question(),
+             (Keyword.get(execution_opts, :input_presentation) ||
+                MessageAuthor.from_input(incoming))
+             |> Map.merge(%{content: question, attachments: incoming.attachments})
+             |> InputPrompt.render_message(opaque_alias_scope: server_id),
            _ <-
              Event.new(
                %{provider: incoming.provider, channel_id: incoming.channel_id},
@@ -557,14 +558,15 @@ defmodule Zaq.Agent.Executor do
         end
 
       case admitted_projection(opts, binding, actor, content) do
-        {:ok, %{kind: :legacy}} ->
-          {:ok, opts}
+        {:ok, %{kind: :legacy} = projection} ->
+          {:ok, Keyword.put(opts, :input_presentation, projection[:input])}
 
         {:ok, %{kind: :canonical} = projection} ->
           scope = "history:#{projection.transcript_id}:person:#{ActorNormalizer.person_id(actor)}"
 
           {:ok,
            opts
+           |> Keyword.put(:input_presentation, projection[:input])
            |> Keyword.put(:scope, scope)
            |> Keyword.put(:execution_history, %{
              binding: request,
@@ -1080,13 +1082,6 @@ defmodule Zaq.Agent.Executor do
       Application.get_env(:zaq, :pipeline_node_router_module, Zaq.NodeRouter)
     )
   end
-
-  defp timestamp_question(content) when is_binary(content) do
-    ts = DateUtils.format_ts(DateTime.utc_now())
-    "[#{ts}] #{content}"
-  end
-
-  defp timestamp_question(content), do: content
 
   defp status_mod(opts) do
     Keyword.get(opts, :status_module, Zaq.Agent.Status)

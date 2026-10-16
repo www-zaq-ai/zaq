@@ -1123,6 +1123,37 @@ defmodule Zaq.Agent.ExecutorTest do
                        _tool_context}
     end
 
+    test "non-persisted input uses resolved directory data and only its trusted source time" do
+      for source_time <- [nil, ~U[2026-01-02 03:04:05Z]] do
+        incoming =
+          Incoming.new(%{
+            content: "Body",
+            channel_id: "c1",
+            provider: :web,
+            author_name: "Unverified channel name",
+            person: %{id: 15, full_name: "Directory name"},
+            routing_context: %{provider_sent_at: source_time}
+          })
+
+        Executor.run(incoming,
+          agent_id: "stub",
+          agent_module: CoverageStubAgent,
+          server_manager_module: CoverageStubServerManager,
+          factory_module: CoverageStubFactory,
+          status_module: CoverageStubStatus,
+          node_router: StubNodeRouter,
+          scope: "coverage"
+        )
+
+        assert_received {:coverage_ask, question, _configured_agent, _tool_context}
+
+        expected_time = if source_time, do: "Sent at: 2026-01-02 03:04:05Z\n", else: ""
+
+        assert question ==
+                 "Author: \"Directory name\" [person:15]\n" <> expected_time <> "Message:\nBody"
+      end
+    end
+
     test "current attachment descriptors are visible to the model without runtime fields" do
       incoming = %Incoming{
         content: "",

@@ -103,13 +103,17 @@ defmodule Zaq.Agent.RequestControl do
       case input_opts(event, state, content, request_id, binding, followup?) do
         {:ok, input_opts} ->
           payload =
-            InputPrompt.append_attachments(
-              content,
-              Keyword.get(opts, :attachments, []),
-              state.server_id
-            )
+            (input_opts[:input_presentation] || state[:input_presentation] || %{})
+            |> Map.merge(%{content: content, attachments: Keyword.get(opts, :attachments, [])})
+            |> InputPrompt.render_message(opaque_alias_scope: state.server_id)
 
-          invoke_control(factory, runtime, payload, action, input_opts)
+          invoke_control(
+            factory,
+            runtime,
+            payload,
+            action,
+            Keyword.delete(input_opts, :input_presentation)
+          )
           |> retain_rejection(event, state, input_opts)
           |> followup_disposition(
             state,
@@ -131,9 +135,9 @@ defmodule Zaq.Agent.RequestControl do
 
   defp authorize_input(event, request_id, binding, content) do
     with {:ok, state, _identity} <- authorize_target(event, request_id),
-         {:ok, _projection} <-
+         {:ok, projection} <-
            HistorySync.execution_admission(event.opts, binding, event.actor, content),
-         do: {:ok, state}
+         do: {:ok, Map.put(state, :input_presentation, projection[:input])}
   end
 
   defp invoke_control(factory, runtime, content, :steer_request, opts) do
@@ -310,7 +314,12 @@ defmodule Zaq.Agent.RequestControl do
 
     case router.dispatch(request) do
       %{response: {:ok, receipt}} ->
-        {:ok, [expected_request_id: request_id, extra_refs: receipt.refs]}
+        {:ok,
+         [
+           expected_request_id: request_id,
+           extra_refs: receipt.refs,
+           input_presentation: receipt[:input]
+         ]}
 
       %{response: {:error, reason}} ->
         {:error, reason}

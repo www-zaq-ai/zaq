@@ -10,13 +10,10 @@ defmodule Zaq.Agent.HistoryLoader do
   non-Jido retrieval and BO chat paths.
   """
 
-  import Ecto.Query
-
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.InputPrompt
-  alias Zaq.Engine.Conversations.{Conversation, Message}
-  alias Zaq.Repo
-  alias Zaq.Utils.DateUtils
+  alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.Message
 
   @max_db_fetch 500
 
@@ -25,28 +22,12 @@ defmodule Zaq.Agent.HistoryLoader do
   def from_projection(messages, opts \\ []) do
     Enum.reduce(messages, AIContext.new(), fn message, context ->
       role = if message.role == "assistant", do: :assistant, else: :user
-      author = Enum.reject([message[:author_name], message[:author_id]], &is_nil/1)
-
-      label =
-        case author do
-          [name, id] -> "#{name} (#{id})"
-          [value] -> value
-          [] -> "Unknown author"
-        end
-
-      content =
-        history_content(
-          %{
-            content: "#{label}: #{message.content}",
-            metadata: %{attachments: message.attachments}
-          },
-          opts
-        )
+      timestamp = message[:timestamp] || Message.presentation_timestamp(message)
 
       AIContext.append(context, %AIContext.Entry{
         role: role,
-        content: content,
-        timestamp: message.provider_sent_at,
+        content: history_content(message, opts),
+        timestamp: timestamp && timestamp.value,
         refs: Map.take(message, [:message_id, :transcript_id, :position])
       })
     end)
@@ -124,21 +105,6 @@ defmodule Zaq.Agent.HistoryLoader do
     end
   end
 
-  defp fetch_messages_for_conversations(conversation_ids_query) do
-    from(m in Message,
-      where: m.conversation_id in subquery(conversation_ids_query),
-      order_by: [desc: m.inserted_at],
-      limit: @max_db_fetch,
-      select: %{
-        role: m.role,
-        content: m.content,
-        metadata: m.metadata,
-        inserted_at: m.inserted_at
-      }
-    )
-    |> Repo.all()
-  end
-
   @doc """
   Loads the most recent messages for the given `conversation_id` and returns a
   `Jido.AI.Context`.
@@ -151,20 +117,7 @@ defmodule Zaq.Agent.HistoryLoader do
   def load_for_conversation("", _opts), do: AIContext.new()
 
   def load_for_conversation(conversation_id, opts) do
-    from(m in Message,
-      where:
-        m.conversation_id == ^conversation_id and
-          fragment("COALESCE(?->>'execution_status', 'completed') = 'completed'", m.metadata),
-      order_by: [desc: m.inserted_at],
-      limit: @max_db_fetch,
-      select: %{
-        role: m.role,
-        content: m.content,
-        metadata: m.metadata,
-        inserted_at: m.inserted_at
-      }
-    )
-    |> Repo.all()
+    Conversations.list_agent_history(%{conversation_id: conversation_id})
     |> Enum.reverse()
     |> build_context(opts)
   end
@@ -181,37 +134,18 @@ defmodule Zaq.Agent.HistoryLoader do
   def load(_person_id, nil, _opts), do: AIContext.new()
 
   def load(person_id, channel_type, opts) do
-    messages = fetch_recent_messages(person_id, channel_type)
-
-    messages
+    Conversations.list_agent_history(%{person_id: person_id, channel_type: channel_type})
     |> Enum.reverse()
     |> build_context(opts)
   end
 
-  defp fetch_recent_messages(person_id, channel_type) do
-    conv_ids =
-      from(c in Conversation,
-        where: c.person_id == ^person_id and c.channel_type == ^channel_type,
-        select: c.id
-      )
-
-    fetch_messages_for_conversations(conv_ids)
-  end
-
   defp build_context(messages, opts) do
     Enum.reduce(messages, AIContext.new(), fn
-      %{role: "user", inserted_at: ts} = message, ctx ->
+      %{role: role} = message, ctx when role in ["user", "assistant"] ->
         AIContext.append(ctx, %AIContext.Entry{
-          role: :user,
-          content: "[#{DateUtils.format_ts(ts)}] #{history_content(message, opts)}",
-          timestamp: ts
-        })
-
-      %{role: "assistant", content: content, inserted_at: ts}, ctx ->
-        AIContext.append(ctx, %AIContext.Entry{
-          role: :assistant,
-          content: content || "",
-          timestamp: ts
+          role: if(role == "assistant", do: :assistant, else: :user),
+          content: history_content(message, opts),
+          timestamp: message.timestamp && message.timestamp.value
         })
 
       _other, ctx ->
@@ -220,14 +154,20 @@ defmodule Zaq.Agent.HistoryLoader do
   end
 
   defp history_content(message, opts) when is_map(message) do
-    content = Map.get(message, :content) || ""
-    metadata = Map.get(message, :metadata)
+    attachments =
+      case Map.get(message, :attachments) do
+        [_ | _] = attachments -> attachments
+        _ -> safe_attachments(Map.get(message, :metadata))
+      end
 
-    InputPrompt.append_attachments(
-      content,
-      safe_attachments(metadata),
-      Keyword.get(opts, :opaque_alias_scope)
+    message
+    |> Map.put(:content, Map.get(message, :content) || "")
+    |> Map.put(
+      :timestamp,
+      Map.get(message, :timestamp) || Message.presentation_timestamp(message)
     )
+    |> Map.put(:attachments, attachments)
+    |> InputPrompt.render_message(opts)
   end
 
   defp safe_attachments(metadata) when is_map(metadata) do

@@ -114,6 +114,35 @@ defmodule Zaq.Engine.Conversations.ExecutionHistoryTest do
              EngineApi.handle_event(history, :execution_history, %{})
   end
 
+  test "canonical admission and queued receipts carry original input author and recorded time",
+       ctx do
+    {binding, _} = admitted(ctx)
+    grant(ctx)
+
+    assert {:ok, projection} =
+             Conversations.admit_execution(binding, actor(ctx.alice), "Current input")
+
+    stored = Repo.get!(Message, binding.user_message_id)
+    assert projection.input.author.name == ctx.alice.full_name
+    assert projection.input.timestamp == %{value: stored.inserted_at, source: :recorded}
+
+    input = incoming(ctx, ctx.alice, "attributed-correction", nil, "Correction")
+    assert {:ok, _} = HistoryIngress.capture(input)
+    assert {:ok, child} = Conversations.admit_incoming(input)
+    assert {:ok, _} = Conversations.admit_execution(child, actor(ctx.alice), input.content)
+
+    assert {:ok, receipt} =
+             Conversations.queue_execution_input(binding.user_message_id, child, actor(ctx.alice),
+               content: input.content
+             )
+
+    child_message = Repo.get!(Message, child.user_message_id)
+    assert receipt.input.id == child_message.id
+    assert receipt.input.author.name == ctx.alice.full_name
+    assert receipt.input.timestamp == %{value: child_message.inserted_at, source: :recorded}
+    refute Map.has_key?(receipt.input, :metadata)
+  end
+
   test "unavailable attachments remain readable and hydration transport failures are truthful",
        ctx do
     source =

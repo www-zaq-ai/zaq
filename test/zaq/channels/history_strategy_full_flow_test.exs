@@ -38,6 +38,7 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
   alias Zaq.Permissions
   alias Zaq.Permissions.ChannelHistoryResource
   alias Zaq.Repo
+  alias Zaq.Utils.DateUtils
 
   alias Zaq.TestSupport.{
     DeliveryDiagnostics,
@@ -445,7 +446,7 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
       assert tool_result.output == %{"ok" => true, "result" => %{"result" => 5.0}}
 
       if ctx.active_update == :other_author,
-        do: assert(encoded =~ "bob (bob): Active update evidence")
+        do: assert_directory_message(continuation["input"], update_message)
 
       await_committed_delivery()
       completed = Repo.get!(ExecutionRecord, execution.id)
@@ -1287,7 +1288,8 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
     if ctx.strategy == :shared_refreshed do
       encoded = Jason.encode!(initial["input"])
       assert length(Regex.scan(~r/Authorized project root/, encoded)) == 1
-      assert encoded =~ "bob"
+      root = Repo.get_by!(Message, external_message_id: "root-human")
+      assert_directory_message(initial["input"], root)
     end
 
     assert_receive {:llm_tool_call, "add", %{"value" => 2, "amount" => 3}}, 5_000
@@ -1323,6 +1325,24 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
       initial: initial,
       continuation: continuation
     }
+  end
+
+  defp assert_directory_message(input, message) do
+    id = message.history_context["author_person_id"]
+    person = People.get_person!(id)
+
+    time =
+      if message.provider_sent_at,
+        do: "Sent at: #{DateUtils.format_ts(message.provider_sent_at)}",
+        else: "Recorded at: #{DateUtils.format_ts(message.inserted_at)}"
+
+    expected =
+      "Author: #{Jason.encode!(person.full_name)} [person:#{id}]\n#{time}\nMessage:\n#{message.content}"
+
+    assert Enum.any?(input, fn entry ->
+             entry["role"] == "user" and
+               MultiAgentOpenAIStub.latest_user_message(%{"input" => [entry]}) == expected
+           end)
   end
 
   defp owner_transcript(input, person_id) do

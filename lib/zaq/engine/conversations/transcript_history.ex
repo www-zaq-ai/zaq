@@ -9,9 +9,17 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
 
   import Ecto.Query
 
-  alias Zaq.Accounts.Person
+  alias Zaq.Accounts.{People, Person}
   alias Zaq.Engine.ChannelConfig
-  alias Zaq.Engine.Conversations.{Conversation, Message, Transcript, TranscriptMessage}
+
+  alias Zaq.Engine.Conversations.{
+    Conversation,
+    Message,
+    MessageAuthor,
+    Transcript,
+    TranscriptMessage
+  }
+
   alias Zaq.Engine.History.{Facts, Strategy}
   alias Zaq.Engine.Messages.SourceIdentity
   alias Zaq.Permissions
@@ -686,6 +694,13 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
           author_id: message.author_id,
           author_name: message.author_name,
           provider_sent_at: message.provider_sent_at,
+          inserted_at: message.inserted_at,
+          history_context:
+            fragment(
+              "jsonb_build_object('author_person_id', ?->'author_person_id')",
+              message.history_context
+            ),
+          metadata: fragment("jsonb_build_object('agent', ?->'agent')", message.metadata),
           attachments: message.attachments
         }
 
@@ -696,7 +711,10 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
         do: where(query, [_p, message], message.external_message_id == ^external_id),
         else: query
 
-    query |> Repo.all() |> Enum.map(&sanitize_attachments/1)
+    query
+    |> Repo.all()
+    |> MessageAuthor.project()
+    |> Enum.map(&(&1 |> Map.drop([:history_context, :metadata]) |> sanitize_attachments()))
   end
 
   defp persisted_person?(person_id) do
@@ -837,6 +855,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
          %Message{} = existing <-
            cached_message || Repo.one(from m in Message, where: m.id == ^uuid, lock: "FOR UPDATE"),
          true <- existing.id == uuid,
+         true <- source_author_matches?(existing, Ecto.Changeset.apply_changes(changeset)),
          true <-
            matches_admitted_source?(existing, changeset, transcript, context) or
              matches_confirmed_response?(existing, changeset, transcript, context),
@@ -846,6 +865,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
              changeset
              |> Ecto.Changeset.apply_changes()
              |> Map.take(@message_fields ++ [:source_provider, :source_account_key])
+             |> retain_persisted_attribution(existing)
            )
            |> Repo.update() do
       {:ok, message}
@@ -1011,12 +1031,47 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
   end
 
   defp same_message?(message, attrs) do
-    (message.role == attrs.role or
-       (message.role == "user" and attrs.role == "external" and
-          not is_nil(message.conversation_id))) and
+    matching_message_role?(message, attrs) and
       message.content == attrs.content and
       message.author_id == attrs.author_id and
+      source_author_matches?(message, attrs) and
       matching_attachment_replay?(message.attachments || [], attrs.attachments || [])
+  end
+
+  defp matching_message_role?(%Message{role: role}, %Message{role: role}), do: true
+
+  defp matching_message_role?(%Message{role: "user", conversation_id: id}, %Message{
+         role: "external"
+       }),
+       do: not is_nil(id)
+
+  defp matching_message_role?(_message, _candidate), do: false
+
+  defp source_author_matches?(message, candidate) do
+    author_id = (message.history_context || %{})["author_person_id"]
+    candidate_id = (candidate.history_context || %{})["author_person_id"]
+
+    case {author_id, candidate_id} do
+      {id, other} when is_integer(id) and is_integer(other) and id != other ->
+        match?(%Person{id: ^other}, People.get_person(id))
+
+      _ ->
+        true
+    end
+  end
+
+  defp retain_persisted_attribution(attrs, existing) do
+    context =
+      Map.merge(
+        attrs.history_context || %{},
+        Map.take(existing.history_context || %{}, ["author_person_id"])
+      )
+
+    %{
+      attrs
+      | history_context: context,
+        provider_sent_at: existing.provider_sent_at || attrs.provider_sent_at
+    }
   end
 
   defp matching_attachment_replay?(stored, incoming) when length(stored) == length(incoming) do

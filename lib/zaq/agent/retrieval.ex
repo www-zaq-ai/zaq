@@ -1,12 +1,15 @@
 defmodule Zaq.Agent.Retrieval do
   @moduledoc """
-  Query rewriting agent.
+  Deprecated legacy query rewriting agent.
+
+  Retained for existing Pipeline and diagnostics callers. Do not extend this
+  separate generation path for new agent features; configured-agent input and
+  history presentation are owned by Executor, HistoryLoader and InputPrompt.
 
   Takes a user question (plus optional conversation history) and rewrites it
   into one or more search queries via LLM, returning structured JSON.
 
-  Uses DB-managed system prompt (`retrieval` slug) and provider-agnostic
-  LLM configuration from `Zaq.Agent.Factory`.
+  Uses a fixed query-rewriting prompt and provider-agnostic LLM configuration.
   """
 
   require Logger
@@ -18,10 +21,11 @@ defmodule Zaq.Agent.Retrieval do
   @doc """
   Rewrites a user question into structured search queries via LLM.
 
+  **Deprecated:** retained for legacy callers only. This function does not adopt
+  the configured-agent author/time envelope; its execution behavior is unchanged.
+
   ## Options
 
-    * `:system_prompt` — override the DB prompt (useful for tests).
-      Defaults to the active `"retrieval"` prompt template.
     * `:history` — conversation history (map of `{timestamp, %{"role" => ..., "content" => ...}}`).
 
   Returns `{:ok, decoded_json}` on success.

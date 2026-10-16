@@ -31,6 +31,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   alias Zaq.Permissions.ChannelHistoryResource
   alias Zaq.Repo
   alias Zaq.System.AIProviderCredential
+  alias Zaq.Utils.DateUtils
 
   alias Zaq.TestSupport.{
     ConnectOAuthAttemptConfig,
@@ -41,6 +42,62 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   }
 
   setup {Req.Test, :verify_on_exit!}
+
+  test "model input uses persisted message author and time instead of processing-time hints" do
+    {configured, _credential, _endpoint} = credential_agent_fixture(self())
+    on_exit(fn -> _ = ServerManager.stop_server(configured) end)
+    {:ok, person} = People.create_person(%{full_name: "Original name"})
+
+    for source_time <- [~U[2026-01-02 03:04:05Z], nil] do
+      incoming =
+        Incoming.new(%{
+          provider: :web,
+          channel_id: "bo",
+          author_id: "person",
+          person: person,
+          content: "Persisted body",
+          routing_context: %{provider_sent_at: source_time}
+        })
+
+      assert {:ok, binding} = Conversations.admit_incoming(incoming)
+
+      assert {:ok, _} =
+               People.update_person(People.get_person!(person.id), %{full_name: "Current name"})
+
+      stored = Repo.get!(Message, binding.user_message_id)
+
+      later = %{
+        incoming
+        | author_name: "Unverified channel name",
+          routing_context: %{
+            incoming.routing_context
+            | provider_sent_at: ~U[2026-10-15 09:00:00Z]
+          }
+      }
+
+      outgoing =
+        Executor.run(later,
+          agent_id: configured.id,
+          actor: %{person: %{id: person.id}},
+          conversation_binding: binding
+        )
+
+      assert outgoing.metadata.error == false
+      assert_receive {:openai_request, "POST", _path, _authorization, body}, 5_000
+
+      time_header =
+        if source_time,
+          do: "Sent at: 2026-01-02 03:04:05Z",
+          else: "Recorded at: #{DateUtils.format_ts(stored.inserted_at)}"
+
+      expected =
+        "Author: \"Current name\" [person:#{person.id}]\n#{time_header}\nMessage:\nPersisted body"
+
+      assert body =~ Jason.encode!(expected)
+      refute body =~ "2026-10-15 09:00:00Z"
+      assert Repo.get!(Message, stored.id).content == "Persisted body"
+    end
+  end
 
   defmodule StubAgent do
     def get_active_agent(_agent_id), do: {:ok, %{id: 77, name: "Stub Agent"}}
@@ -307,7 +364,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
           Api.handle_event(event, :run_pipeline, nil)
         end)
 
-      assert_receive {:native_control_refused, "Followup input"}, 5_000
+      expected_control = followup_prompt(binding)
+      assert_receive {:native_control_refused, ^expected_control}, 5_000
       send(release, :release_root_llm)
       assert %Outgoing{body: "Root answer", metadata: %{error: false}} = Task.await(root, 10_000)
       assert_receive {:openai_request, "POST", "/v1/responses", "", _}, 5_000
@@ -336,7 +394,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
         Api.handle_event(event, :run_pipeline, nil)
       end)
 
-    assert_receive {:native_control_refused, "Followup input"}, 5_000
+    expected_control = followup_prompt(binding)
+    assert_receive {:native_control_refused, ^expected_control}, 5_000
     send(release, :release_root_llm)
     assert %Outgoing{body: "Root answer", metadata: %{error: false}} = Task.await(root, 10_000)
     assert_receive {:openai_request, "POST", "/v1/responses", "", _}, 5_000
@@ -368,7 +427,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
         Api.handle_event(event, :run_pipeline, nil)
       end)
 
-    assert_receive {:native_control_refused, "Followup input"}, 5_000
+    expected_control = followup_prompt(binding)
+    assert_receive {:native_control_refused, ^expected_control}, 5_000
     result = Task.await(rejected, 10_000)
     assert result.response == {:error, :control_unavailable}
     assert result.next_hop == nil
@@ -644,6 +704,15 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     }
 
     %{event: event, release: release, root: root, binding: second_binding}
+  end
+
+  defp followup_prompt(binding) do
+    message = Repo.get!(Message, binding.user_message_id)
+    author_id = message.history_context["author_person_id"]
+    name = Jason.encode!(People.get_person!(author_id).full_name)
+    time = DateUtils.format_ts(message.inserted_at)
+
+    "Author: #{name} [person:#{author_id}]\nRecorded at: #{time}\nMessage:\nFollowup input"
   end
 
   @tag :actual_request_identity

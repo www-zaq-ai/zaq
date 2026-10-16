@@ -380,7 +380,7 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
       end
 
       assert input =~ "Authorized thread evidence"
-      assert input =~ "#{root.author_name} (#{root.author_id})"
+      assert input =~ "Author: \\\"Bob\\\" [person:#{bob.id}]"
       assert length(Regex.scan(~r/history question/, input)) == 1
       refute input =~ "FORBIDDEN_"
 
@@ -1281,7 +1281,7 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
     assert length(Regex.scan(~r/Cumulative background B/, third_input)) == 1
     assert length(Regex.scan(~r/Late retained root/, third_input)) == 1
     assert length(Regex.scan(~r/history question/, third_input)) == 1
-    assert String.contains?(third_input, "alice")
+    assert third_input =~ "Author: \\\"Alice\\\" [person:#{ctx.person.id}]"
     [system, root_entry, a, b, current, call1, output1, call2, output2] = third["input"]
     assert system == List.first(initial["input"])
     assert current == List.last(initial["input"])
@@ -1289,7 +1289,7 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
     assert a == Enum.at(second["input"], 2)
 
     assert MultiAgentOpenAIStub.latest_user_message(%{"input" => [b]}) ==
-             "alice (alice): Cumulative background B"
+             "Author: \"Alice\" [person:#{ctx.person.id}]\nSent at: 2023-11-14 22:13:20Z\nMessage:\nCumulative background B"
 
     for {call, output, id, arguments, result} <- [
           {call1, output1, "refresh-call-1", %{"value" => 2, "amount" => 3}, 5.0},
@@ -1858,14 +1858,23 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
           [rejected, failed_persistence, passive, current] =
             request["input"] |> Enum.drop(history_length) |> Enum.take(4)
 
-          assert MultiAgentOpenAIStub.latest_user_message(%{"input" => [rejected]}) ==
-                   "alice: @zaq Rejected correction"
+          assert_message_content(
+            MultiAgentOpenAIStub.latest_user_message(%{"input" => [rejected]}),
+            "Alice",
+            "@zaq Rejected correction"
+          )
 
-          assert MultiAgentOpenAIStub.latest_user_message(%{"input" => [failed_persistence]}) ==
-                   "alice: @zaq persistence-failed correction"
+          assert_message_content(
+            MultiAgentOpenAIStub.latest_user_message(%{"input" => [failed_persistence]}),
+            "Alice",
+            "@zaq persistence-failed correction"
+          )
 
-          assert MultiAgentOpenAIStub.latest_user_message(%{"input" => [passive]}) ==
-                   "bob (bob): Passive refresh A"
+          assert_message_content(
+            MultiAgentOpenAIStub.latest_user_message(%{"input" => [passive]}),
+            "Bob",
+            "Passive refresh A"
+          )
 
           assert current == List.last(initial)
           [call, output, correction] = Enum.drop(request["input"], history_length + 4)
@@ -1897,8 +1906,10 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
   end
 
   defp assert_correction_content(content, true) do
-    ["@zaq Retain the arithmetic tool result", metadata] =
+    [message, metadata] =
       String.split(content, "\nAttachments:\n")
+
+    assert_message_content(message, "Alice", "@zaq Retain the arithmetic tool result")
 
     [record] = Jason.decode!(metadata)
     assert record["name"] == "correction.pdf"
@@ -1906,7 +1917,13 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
   end
 
   defp assert_correction_content(content, false),
-    do: assert(content == "@zaq Retain the arithmetic tool result")
+    do: assert_message_content(content, "Alice", "@zaq Retain the arithmetic tool result")
+
+  defp assert_message_content(content, name, body) do
+    assert [header, timestamp, "Message:", ^body] = String.split(content, "\n", parts: 4)
+    assert header =~ ~r/\AAuthor: #{Regex.escape(Jason.encode!(name))} \[person:[1-9]\d*\]\z/
+    assert timestamp =~ ~r/\A(?:Sent|Recorded) at: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z\z/
+  end
 
   defp observe_history_commit(owner) do
     handler = {__MODULE__, owner}

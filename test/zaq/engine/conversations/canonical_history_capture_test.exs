@@ -507,6 +507,92 @@ defmodule Zaq.Engine.Conversations.CanonicalHistoryCaptureTest do
              )
   end
 
+  test "canonical association preserves an admitted author's reference and source time" do
+    author = person("Author")
+    config = connector("mattermost")
+    sent_at = ~U[2026-01-02 03:04:05.123456Z]
+    incoming = admitted_incoming(config)
+
+    incoming = %{
+      incoming
+      | person: %{id: author.id},
+        routing_context: %{incoming.routing_context | provider_sent_at: sent_at}
+    }
+
+    assert {:ok, binding} = Conversations.admit_incoming(incoming)
+    original = Repo.get!(Message, binding.user_message_id)
+
+    assert {:ok, capture} =
+             Conversations.capture_canonical_message(
+               facts(config, author, :channel),
+               %{message("legacy-1") | role: "user"},
+               source(config, %{existing_message_id: original.id})
+             )
+
+    stored = Repo.get!(Message, capture.message_id)
+    assert stored.id == original.id
+    assert stored.history_context["author_person_id"] == author.id
+    assert stored.provider_sent_at == sent_at
+    assert stored.inserted_at == original.inserted_at
+    assert stored.content == original.content
+  end
+
+  test "canonical association rejects replacing a verified admitted author" do
+    author = person("Author")
+    other = person("Other author")
+    config = connector("mattermost")
+    incoming = %{admitted_incoming(config) | person: %{id: author.id}}
+    assert {:ok, binding} = Conversations.admit_incoming(incoming)
+
+    assert {:error, :source_conflict} =
+             Conversations.capture_canonical_message(
+               facts(config, other, :channel),
+               Map.merge(message("legacy-1"), %{
+                 role: "user",
+                 history_context: %{"author_person_id" => other.id}
+               }),
+               source(config, %{existing_message_id: binding.user_message_id})
+             )
+
+    assert Repo.get!(Message, binding.user_message_id).history_context["author_person_id"] ==
+             author.id
+  end
+
+  test "canonical association retains a merged author's recorded reference and source time" do
+    author = person("Original author")
+    survivor = person("Current directory author")
+    config = connector("mattermost")
+    incoming = admitted_incoming(config)
+    sent_at = ~U[2026-01-02 03:04:05.123456Z]
+
+    incoming = %{
+      incoming
+      | person: %{id: author.id},
+        routing_context: %{incoming.routing_context | provider_sent_at: sent_at}
+    }
+
+    assert {:ok, binding} = Conversations.admit_incoming(incoming)
+    assert {:ok, _} = People.merge_persons(survivor, author)
+
+    candidate =
+      Map.merge(message("legacy-1"), %{
+        role: "user",
+        history_context: %{"author_person_id" => survivor.id},
+        provider_sent_at: ~U[2026-10-15 09:00:00.000000Z]
+      })
+
+    assert {:ok, capture} =
+             Conversations.capture_canonical_message(
+               facts(config, survivor, :channel),
+               candidate,
+               source(config, %{existing_message_id: binding.user_message_id})
+             )
+
+    stored = Repo.get!(Message, capture.message_id)
+    assert stored.history_context["author_person_id"] == author.id
+    assert stored.provider_sent_at == sent_at
+  end
+
   test "a finalized chat answer enters the transcript only after a confirmed delivery" do
     reader = person("Reader")
     config = connector("mattermost")
