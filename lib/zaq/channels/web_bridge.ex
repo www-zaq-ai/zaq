@@ -1313,7 +1313,7 @@ defmodule Zaq.Channels.WebBridge do
     %{
       body: outgoing.body,
       error: metadata_value(metadata, :error) == true,
-      assistant_message_id: metadata_value(metadata, :assistant_message_id),
+      assistant_message_id: persisted_answer_id(metadata),
       user_message_id: metadata_value(metadata, :user_message_id)
     }
   end
@@ -1338,6 +1338,30 @@ defmodule Zaq.Channels.WebBridge do
       trace: metadata_value(metadata, :trace) || [],
       tool_calls: metadata_value(metadata, :tool_calls) || []
     }
+    |> project_persisted_answer(metadata)
+  end
+
+  # Older finals do not carry separate evidence; preserve their existing saved
+  # reference contract. New finals can explicitly say that no Message exists.
+  defp persisted_answer_id(metadata) do
+    case persisted_answer_evidence(metadata) do
+      {:ok, id} -> id
+      :error -> metadata_value(metadata, :assistant_message_id)
+    end
+  end
+
+  defp project_persisted_answer(payload, metadata) do
+    case persisted_answer_evidence(metadata) do
+      {:ok, id} -> Map.put(payload, :persisted_assistant_message_id, id)
+      :error -> payload
+    end
+  end
+
+  defp persisted_answer_evidence(metadata) do
+    case Map.fetch(metadata, :persisted_assistant_message_id) do
+      :error -> Map.fetch(metadata, "persisted_assistant_message_id")
+      evidence -> evidence
+    end
   end
 
   defp metadata_value(metadata, key),

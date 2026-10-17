@@ -213,6 +213,26 @@ defmodule Zaq.WebWidgetIdentitySmokeTest do
     Chat.close(opened)
   end
 
+  test "explicitly absent persistence never becomes a saved-answer reference in the pinned consumer" do
+    chat = open_chat()
+    answer = outgoing()
+
+    answer = %{
+      answer
+      | metadata:
+          Map.merge(
+            answer.metadata,
+            %{error: false, suppressed: true, persisted_assistant_message_id: nil}
+          )
+    }
+
+    assert {:ok, %{delivered: true}} = WebBridge.send_reply(answer, %{})
+    chat = drain(chat)
+    assert [%{id: @answer, status: "complete"}] = assistants(chat)
+    assert chat.persisted_refs[@answer][:assistant_message_id] == nil
+    Chat.close(chat)
+  end
+
   defp open_chat do
     assert {:ok, chat} =
              Chat.open("42", %{"identity_token" => :fixture_session}, nil, @conversation)

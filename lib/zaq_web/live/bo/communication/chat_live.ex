@@ -589,8 +589,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       sources: normalized_sources,
       message_info: MessageHelpers.message_info_from_runtime(result.metadata),
       live: true,
-      db_id: if(error, do: nil, else: assistant_id)
+      db_id: if(error, do: nil, else: persisted_answer_id(result.metadata))
     }
+  end
+
+  defp persisted_answer_id(metadata) do
+    if Map.has_key?(metadata, :persisted_assistant_message_id) or
+         Map.has_key?(metadata, "persisted_assistant_message_id") do
+      metadata_get(metadata, :persisted_assistant_message_id)
+    else
+      metadata_get(metadata, :assistant_message_id)
+    end
   end
 
   defp upsert_streaming_bot_message(socket, request_id, body, assistant_id) do

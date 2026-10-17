@@ -1,5 +1,6 @@
 defmodule Zaq.Channels.Web.AnswerIdentityTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.Status
   alias Zaq.Channels.Web.{Delivery, Response}
@@ -113,6 +114,33 @@ defmodule Zaq.Channels.Web.AnswerIdentityTest do
 
     assert_receive {:web_response, "response.message.failed",
                     %Response{message_id: @answer, payload: %{error: true}}}
+  end
+
+  property "presentation keeps optional persisted evidence distinct from canonical envelope identity" do
+    check all(persisted <- member_of([nil, @answer]), string_key? <- boolean(), max_runs: 12) do
+      key =
+        if string_key?,
+          do: "persisted_assistant_message_id",
+          else: :persisted_assistant_message_id
+
+      for consumer <- [:bo, :widget] do
+        delivery = if consumer == :bo, do: Delivery.bo(subscribe()), else: widget_delivery()
+        outgoing = Outgoing.from_pipeline_result(incoming(delivery, :web), %{answer: "Complete"})
+        outgoing = %{outgoing | metadata: Map.put(outgoing.metadata, key, persisted)}
+        assert {:ok, %{delivered: true}} = WebBridge.send_reply(outgoing, %{})
+
+        assert_receive {:web_response, _event,
+                        %Response{type: :message_complete, message_id: @answer, payload: payload}}
+
+        if consumer == :bo do
+          assert payload.assistant_message_id == @answer
+          assert Map.has_key?(payload, :persisted_assistant_message_id)
+          assert payload.persisted_assistant_message_id == persisted
+        else
+          assert payload.assistant_message_id == persisted
+        end
+      end
+    end
   end
 
   test "an older in-flight widget descriptor retains its transport binding and canonical association" do

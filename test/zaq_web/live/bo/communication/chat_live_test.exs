@@ -709,6 +709,47 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     assert failed.id == "message-#{answer_id}"
   end
 
+  test "a suppressed reserved answer with explicit absent persistence is not a rating target", %{
+    conn: conn
+  } do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "suppressed-request")
+    end)
+
+    answer_id = Ecto.UUID.generate()
+
+    response = %Response{
+      protocol_version: 1,
+      request_id: "suppressed-request",
+      message_id: answer_id,
+      type: :message_complete,
+      payload: %{
+        body: "",
+        error: false,
+        suppressed: true,
+        assistant_message_id: answer_id,
+        persisted_assistant_message_id: nil,
+        sources: []
+      }
+    }
+
+    send(view.pid, {:web_response, :pipeline_result, response})
+
+    answer =
+      eventually_value(fn ->
+        Enum.find(
+          :sys.get_state(view.pid).socket.assigns.messages,
+          &(&1.id == "message-#{answer_id}")
+        )
+      end)
+
+    refute answer.error
+    assert answer.db_id == nil
+    assert answer.body == ""
+  end
+
   test "normalized message edits and completion preserve the streaming bubble", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 

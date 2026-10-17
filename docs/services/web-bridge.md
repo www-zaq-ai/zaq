@@ -213,6 +213,15 @@ progress does not create an assistant bubble. Failed reserved answers have no
 persisted rating target. Existing request/stale-conversation filtering remains in
 force, and welcome-message creation remains a separate persistence operation.
 
+Final presentation also preserves explicit persisted-answer evidence independently
+of envelope identity. BO includes `persisted_assistant_message_id` when supplied by
+Engine, including nil for suppressed/no-answer outcomes, and uses it for the saved
+rating target. The widget's existing payload `assistant_message_id` is a persisted
+answer reference: explicit no-answer evidence projects nil there while the envelope
+still uses the reserved UUID. Older finals without separate persistence evidence
+retain their existing reference interpretation. This does not change suppression
+text or terminal event types.
+
 Responses contain the consumer's `protocol_version`, required `request_id`, required semantic
 `type`, optional `conversation_id`/`message_id` and `payload` map (default `%{}`). Public payload
 projection precedes recursive rejection of actor/credential/token/private execution
