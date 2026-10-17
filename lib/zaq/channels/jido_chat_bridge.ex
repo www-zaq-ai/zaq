@@ -1,6 +1,11 @@
 defmodule Zaq.Channels.JidoChatBridge do
   @moduledoc """
-  Bridge for the jido_chat family of adapters (Mattermost, Telegram, etc.).
+  Bridge for the jido_chat family of adapters (Mattermost, Telegram, WhatsApp, etc.).
+
+  Adapter child specs share listener startup, supervision and status handling.
+  Lifecycle actions arrive through the same listener sink and Jido event routing.
+  Adapter authentication uses the common Jido contract. Private synchronous
+  storage requests use a trusted sink before ordinary listener State routing.
 
   `from_listener/3` is the `sink_mfa` target for adapter listeners. It forwards
   raw payloads to the per-bridge state process, where normalization and
@@ -27,8 +32,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Jido.Chat.Media
   alias Jido.Chat.Thread
 
+  alias Zaq.Accounts.BOActor
+
   alias Zaq.Channels.{
     Bridge,
+    CommunicationBridge,
     RetrievalChannel,
     Supervisor,
     WebhookUrl
@@ -46,22 +54,266 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{ConversationIdentity, Incoming, Outgoing}
+  alias Zaq.Event
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
   alias Zaq.NodeRouter
   alias Zaq.Types.EncryptedString
 
+  @listener_retry_interval 25
+  @listener_retries 200
+
+  @doc "Runs optional adapter logout before disablement, preserving linked-device operator permissions."
+  @impl Zaq.Channels.Bridge
+  def before_disable(%{provider: provider} = config, actor, opts) do
+    case logout_adapter(provider, opts) do
+      {:ok, adapter} ->
+        case BOActor.current_user(actor) do
+          {:ok, %{role: %{name: "super_admin"}}} -> logout_listener(config, adapter, opts)
+          _ -> {:error, :unauthorized}
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc "Logs out the selected listener through its configured adapter's optional logout callback."
+  @spec logout(map(), keyword()) :: :ok | {:error, term()}
+  def logout(%{id: id, provider: provider} = config, opts \\ []) when is_integer(id) and id > 0 do
+    with {:ok, adapter} <- logout_adapter(provider, opts) do
+      logout_listener(config, adapter, opts)
+    end
+  end
+
+  defp logout_adapter(provider, opts) do
+    with {:ok, adapter} <- adapter_for(provider, opts),
+         {:module, _} <- Code.ensure_loaded(adapter),
+         true <- function_exported?(adapter, :logout, 1) do
+      {:ok, adapter}
+    else
+      _ -> {:error, :unsupported}
+    end
+  end
+
+  defp logout_listener(config, adapter, opts) do
+    supervisor = Zaq.Config.get(:zaq, :chat_bridge_supervisor_module, Supervisor, opts)
+
+    case supervisor.lookup_runtime(runtime_bridge_id(config)) do
+      {:ok, %{listener_pids: [listener]}} -> adapter.logout(listener)
+      {:error, _} = error -> error
+      _ -> {:error, :unsupported}
+    end
+  catch
+    :exit, _ -> {:error, :logout_unavailable}
+  end
+
+  @doc "Returns the configured adapter's optional authentication capability."
+  @spec authentication_capability(atom() | String.t(), keyword()) ::
+          :native | :unsupported | {:error, term()}
+  def authentication_capability(provider, opts \\ []) do
+    with {:ok, adapter} <- adapter_for(provider, opts) do
+      Adapter.capabilities(adapter).authenticate
+    end
+  end
+
+  @doc "Delegates an authorized account authentication command to the configured adapter."
+  @spec authenticate(atom() | String.t(), map(), term(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def authenticate(provider, request, owner_id, actor, opts \\ []) do
+    with {:ok, adapter} <- adapter_for(provider, opts) do
+      opts =
+        if request.op == :begin do
+          [
+            owner: request[:owner],
+            supervisor: Zaq.Channels.BridgeSupervisor,
+            attempt_id: Ecto.UUID.generate(),
+            context: actor,
+            sink_mfa: storage_sink(%{provider: provider})
+          ]
+        else
+          []
+        end
+
+      Adapter.authenticate(adapter, request, {to_string(provider), owner_id}, opts)
+    end
+  end
+
+  @doc "Atomically saves package-encoded credentials through the Engine Action."
+  @spec persist_authentication(atom() | String.t(), map(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def persist_authentication(provider, actor, request) do
+    response =
+      request
+      |> Map.put(:provider, to_string(provider))
+      |> Event.new(:engine,
+        actor: actor,
+        opts: [action: :confirm_linked_device, confidential: true, linked_device_runtime: true]
+      )
+      |> NodeRouter.dispatch()
+      |> Map.fetch!(:response)
+
+    with {:ok, config} <- response,
+         true <- config.provider == to_string(provider),
+         credential_id when is_integer(credential_id) <- config.settings["credential_document_id"] do
+      {:ok,
+       %{
+         receipt: %{id: config.id, name: config.name},
+         binding: %{channel_config_id: config.id, credential_id: credential_id},
+         runtime: config
+       }}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :invalid_binding}
+    end
+  end
+
+  @doc "Starts the saved connector through the ordinary communication runtime."
+  @spec start_authentication(atom() | String.t(), map(), map()) :: :ok | {:error, term()}
+  def start_authentication(provider, _actor, %{runtime: config, connection_options: options})
+      when is_map(config) and is_map(options) do
+    if config.provider == to_string(provider) do
+      config = if is_struct(config), do: Map.from_struct(config), else: config
+
+      config
+      |> Map.put(:authentication_connection_options, options)
+      |> then(&CommunicationBridge.sync_config_runtime(nil, &1))
+    else
+      {:error, :invalid_connector}
+    end
+  end
+
+  def start_authentication(_, _, _), do: {:error, :invalid_connector}
+
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
   @doc """
-  Sink target for `sink_mfa`. Always routes through the bridge state process.
+  Public listener payloads route through bridge State; private requests are rejected here.
   """
+  def from_listener(_config, %Jido.Chat.WhatsApp.Pairing.Request{}, _opts),
+    do: {:error, :invalid_pairing_request}
+
+  def from_listener(_config, %Jido.Chat.WhatsApp.Storage.Request{}, _opts),
+    do: {:error, :invalid_storage_request}
+
   def from_listener(config, payload, sink_opts) when is_map(payload) do
     bridge_id = sink_opts[:bridge_id] || runtime_bridge_id(config)
 
     with {:ok, normalized_config} <- ensure_provider_atom(config),
-         :ok <- ensure_runtime_started(normalized_config, bridge_id, []),
-         {:ok, state_pid} <- supervisor_module().lookup_state_pid(bridge_id) do
+         {:ok, state_pid} <- listener_state(normalized_config, bridge_id, sink_opts) do
       state_module().process_listener_payload(state_pid, normalized_config, payload, sink_opts)
+    end
+  end
+
+  @doc "Handles trusted adapter requests without entering the serialized bridge State."
+  @spec from_listener(map(), reference(), map(), keyword()) :: term()
+  def from_listener(
+        config,
+        runtime_reference,
+        %Jido.Chat.WhatsApp.Pairing.Request{version: 1} = event,
+        _opts
+      )
+      when is_reference(runtime_reference) do
+    pairing_request(config, event)
+  end
+
+  def from_listener(_config, _runtime_reference, %Jido.Chat.WhatsApp.Pairing.Request{}, _opts),
+    do: {:error, :invalid_pairing_request}
+
+  def from_listener(
+        config,
+        runtime_reference,
+        %Jido.Chat.WhatsApp.Storage.Request{version: 1} = event,
+        _opts
+      )
+      when is_reference(runtime_reference) do
+    storage_request(config, event)
+  end
+
+  def from_listener(_config, _runtime_reference, %Jido.Chat.WhatsApp.Storage.Request{}, _opts),
+    do: {:error, :invalid_storage_request}
+
+  def from_listener(config, runtime_reference, payload, opts)
+      when is_reference(runtime_reference),
+      do: from_listener(config, payload, opts)
+
+  defp pairing_request(%{provider: provider}, %{
+         context: actor,
+         request: %{op: :persist} = request
+       }) do
+    case BOActor.current_user(actor) do
+      {:ok, %{role: %{name: "super_admin"}}} ->
+        persist_authentication(provider, actor, Map.delete(request, :op))
+
+      _ ->
+        {:error, :unauthorized}
+    end
+  end
+
+  defp pairing_request(%{provider: provider}, %{
+         context: actor,
+         request: %{op: :start, runtime: runtime}
+       }) do
+    case BOActor.current_user(actor) do
+      {:ok, %{role: %{name: "super_admin"}}} -> start_authentication(provider, actor, runtime)
+      _ -> {:error, :unauthorized}
+    end
+  end
+
+  defp pairing_request(_, _), do: {:error, :invalid_pairing_request}
+
+  defp storage_request(%{id: id} = config, %{binding: nil, request: %{op: :bind}})
+       when is_integer(id) and id > 0 do
+    dispatch_storage(config, %{op: :bind, channel_config_id: id})
+  end
+
+  defp storage_request(%{provider: _} = config, %{
+         binding: %{channel_config_id: id} = binding,
+         request: request
+       }) do
+    if Map.get(config, :id, id) == id and request[:op] != :bind,
+      do: dispatch_storage(config, Map.put(request, :binding, binding)),
+      else: {:error, :invalid_binding}
+  end
+
+  defp storage_request(_, _), do: {:error, :invalid_storage_request}
+
+  defp dispatch_storage(config, request) do
+    request
+    |> Map.put(:expected_provider, to_string(config.provider))
+    |> Event.new(:engine,
+      opts: [action: :credential_document, confidential: true, credential_document_runtime: true]
+    )
+    |> NodeRouter.dispatch(%{
+      rpc_call_with_timeout_fn: fn node, module, function, args, _ ->
+        :rpc.call(node, module, function, args, 6_000)
+      end
+    })
+    |> Map.fetch!(:response)
+  end
+
+  # Explicit listener bridge IDs belong to a runtime already being started by
+  # the supervisor. Never recursively start it from an early sink callback.
+  defp listener_state(config, bridge_id, opts) do
+    if Keyword.has_key?(opts, :bridge_id) do
+      await_listener_state(bridge_id, @listener_retries)
+    else
+      with :ok <- ensure_runtime_started(config, bridge_id, []) do
+        supervisor_module().lookup_state_pid(bridge_id)
+      end
+    end
+  end
+
+  defp await_listener_state(bridge_id, retries) do
+    case supervisor_module().lookup_state_pid(bridge_id) do
+      {:error, :not_running} when retries > 0 ->
+        Process.sleep(@listener_retry_interval)
+        await_listener_state(bridge_id, retries - 1)
+
+      {:error, :not_running} ->
+        {:error, :runtime_unavailable}
+
+      result ->
+        result
     end
   end
 
@@ -107,6 +359,22 @@ defmodule Zaq.Channels.JidoChatBridge do
       supervisor_module().stop_bridge_runtime(config, bridge_id)
     end
   end
+
+  @impl true
+  def build_runtime_specs({:provider, provider}, opts) do
+    specs =
+      case Bridge.provider_config(provider, opts) do
+        %{ingress_mode: :linked_device, adapter: adapter} ->
+          [adapter.storage_runtime_spec(require_ram_schema: true)]
+
+        _ ->
+          []
+      end
+
+    {:ok, {nil, specs}}
+  end
+
+  def build_runtime_specs(config, opts), do: super(config, opts)
 
   @impl true
   def build_runtime_specs(config) do
@@ -207,8 +475,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   @doc "Tests adapter connectivity by sending a test message."
   @impl true
   def test_connection(config, channel_id) do
-    with {:ok, adapter} <- adapter_for(config.provider) do
-      adapter.send_message(channel_id, @test_message, url: config.url, token: config.token)
+    details = Bridge.fetch_connection_details_for_config(config)
+
+    with {:ok, opts} <- adapter_call_opts(config.provider, details),
+         {:ok, adapter} <- adapter_for(config.provider) do
+      adapter.send_message(channel_id, @test_message, opts)
     end
   end
 
@@ -218,7 +489,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     ingress_mode = ingress_mode_for(provider)
 
     case ingress_mode do
-      mode when mode in [:websocket, :gateway, :polling] ->
+      mode when mode in [:websocket, :gateway, :polling, :linked_device] ->
         listener_runtime_status(config, mode)
 
       :webhook ->
@@ -318,6 +589,9 @@ defmodule Zaq.Channels.JidoChatBridge do
       |> Chat.on_new_message(~r/[\s\S]*/, fn thread, incoming ->
         handle_unaddressed_message(config, thread, incoming)
       end)
+      |> Chat.on_action("connection_update", fn chat, action ->
+        handle_connection_action(chat, action, config)
+      end)
       |> Chat.on_reaction(fn _thread, reaction ->
         handle_reaction_event(config, reaction)
       end)
@@ -327,6 +601,39 @@ defmodule Zaq.Channels.JidoChatBridge do
         handle_channel_message_event(config, thread, incoming)
       end)
     end)
+  end
+
+  # Jido owns action classification. Store only a transient handoff for State,
+  # which owns source fencing and applies the update before acknowledging ingress.
+  defp handle_connection_action(chat, %Chat.ActionEvent{} = action, config) do
+    with %{
+           category: :connection_lifecycle,
+           source: source,
+           profile: profile,
+           attempt_id: attempt,
+           status: status,
+           qr: qr,
+           presentation:
+             %{phase: phase, status: level, summary: summary, mode: mode} = presentation
+         } = lifecycle <- action.metadata,
+         true <- is_pid(source) and is_reference(attempt) and is_atom(status),
+         true <- is_nil(qr) or is_binary(qr),
+         true <-
+           is_atom(phase) and level in [:ok, :pending, :error] and is_binary(summary) and
+             is_binary(mode),
+         {:ok, ^profile} <- connection_profile(config),
+         :linked_device <- ingress_mode_for(config.provider),
+         {:ok, adapter} <- adapter_for(config.provider),
+         true <-
+           action.adapter == adapter and action.adapter_name == provider_to_atom(config.provider) do
+      presentation =
+        Map.take(presentation, [:phase, :status, :summary, :mode, :qr, :attempt_id, :expires_at])
+
+      lifecycle = Map.put(lifecycle, :presentation, presentation)
+      %{chat | metadata: Map.put(chat.metadata, :connection_lifecycle, lifecycle)}
+    else
+      _ -> chat
+    end
   end
 
   defp handle_channel_message_event(config, thread, incoming) do
@@ -429,9 +736,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   # A reaction can be rated without a postable thread handle (the engine still
   # records the rating); only the follow-up message needs one.
   defp post_reaction_follow_up(config, %Thread{} = thread, text) do
-    thread = %{thread | metadata: Map.put(thread.metadata || %{}, :url, config.url)}
+    details = Bridge.fetch_connection_details_for_config(config)
 
-    Thread.post(thread, text, url: config.url, token: config.token)
+    with {:ok, opts} <- adapter_call_opts(config.provider, details) do
+      Thread.post(thread, text, opts)
+    end
   end
 
   defp post_reaction_follow_up(_config, _thread, _text), do: :ok
@@ -485,8 +794,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   """
   @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
-  def send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
-    do_send_reply(outgoing, %{url: url, token: token})
+  def send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = details) do
+    do_send_reply(outgoing, details)
   end
 
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
@@ -498,14 +807,19 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @impl true
-  def upsert_message(%{provider: provider, provider_atom: provider_atom}, request, %{
-        url: url,
-        token: token
-      })
+  def upsert_message(
+        %{provider: provider, provider_atom: provider_atom},
+        request,
+        %{
+          url: _url,
+          token: _token
+        } = details
+      )
       when is_map(request) do
     message_id = Map.get(request, :message_id)
 
-    with {:ok, adapter} <- resolve_adapter_for_provider(provider),
+    with {:ok, opts} <- adapter_call_opts(provider, details),
+         {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- is_atom(provider_atom) || {:error, {:unsupported_provider, provider}},
          true <- supports_message_updates?(adapter) || {:ok, %{action: :noop, message_id: nil}} do
       thread_id = Map.get(request, :thread_id)
@@ -519,8 +833,7 @@ defmodule Zaq.Channels.JidoChatBridge do
           channel_id,
           message_id,
           body,
-          url,
-          token,
+          opts,
           Map.put(request, :metadata, request_metadata)
         )
       else
@@ -530,8 +843,7 @@ defmodule Zaq.Channels.JidoChatBridge do
           channel_id,
           thread_id,
           body,
-          url,
-          token,
+          opts,
           request_metadata
         )
       end
@@ -554,24 +866,47 @@ defmodule Zaq.Channels.JidoChatBridge do
   @doc "Fetches a user's canonical profile from the platform API."
   @spec fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
-  def fetch_profile(author_id, %{url: url, token: token, provider: provider})
+  def fetch_profile(author_id, %{url: _url, token: _token, provider: provider} = details)
       when is_binary(author_id) do
-    with {:ok, adapter} <- resolve_adapter_for_provider(provider),
+    with {:ok, opts} <- adapter_call_opts(provider, details),
+         {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :get_user, 2) || {:error, :unsupported},
-         {:ok, user} <- adapter.get_user(author_id, url: url, token: token) do
-      {:ok,
-       %{
-         "email" => Map.get(user, :email) || Map.get(user, "email"),
-         "display_name" =>
-           Map.get(user, :display_name) || Map.get(user, "display_name") ||
-             Map.get(user, :full_name) || Map.get(user, "full_name"),
-         "username" => Map.get(user, :username) || Map.get(user, "username"),
-         "phone" => Map.get(user, :phone) || Map.get(user, "phone")
-       }}
+         {:ok, user} <- adapter.get_user(author_id, opts) do
+      {:ok, canonical_profile(user)}
     end
   end
 
   def fetch_profile(_author_id, _connection_details), do: {:error, :missing_connection_details}
+
+  # UserInfo's nullish fields mean the adapter has no value. Do not turn those
+  # schema defaults into attributes that overwrite facts from the message.
+  defp canonical_profile(%Jido.Chat.UserInfo{} = user) do
+    %{
+      "email" => user.email,
+      "display_name" => user.display_name,
+      "username" => user.username,
+      "phone" => profile_phone(user)
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp canonical_profile(user) do
+    %{
+      "email" => Map.get(user, :email) || Map.get(user, "email"),
+      "display_name" =>
+        Map.get(user, :display_name) || Map.get(user, "display_name") ||
+          Map.get(user, :full_name) || Map.get(user, "full_name"),
+      "username" => Map.get(user, :username) || Map.get(user, "username"),
+      "phone" => profile_phone(user)
+    }
+  end
+
+  defp profile_phone(user) do
+    metadata = Map.get(user, :metadata) || Map.get(user, "metadata") || %{}
+
+    Map.get(user, :phone) || Map.get(user, "phone") ||
+      Map.get(metadata, :phone) || Map.get(metadata, "phone")
+  end
 
   @spec send_typing(map() | String.t() | atom(), String.t() | integer(), map()) ::
           :ok | {:error, term()}
@@ -579,10 +914,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   def send_typing(%{provider: provider}, channel_id, details),
     do: send_typing(provider, channel_id, details)
 
-  def send_typing(provider, channel_id, %{url: url, token: token}) do
-    with {:ok, adapter} <- resolve_adapter_for_provider(provider),
+  def send_typing(provider, channel_id, %{url: _url, token: _token} = details) do
+    with {:ok, opts} <- adapter_call_opts(provider, details),
+         {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :start_typing, 2) || {:error, :unsupported},
-         result <- adapter.start_typing(channel_id, url: url, token: token) do
+         result <- adapter.start_typing(channel_id, opts) do
       normalize_outbound_result(result)
     end
   end
@@ -603,11 +939,12 @@ defmodule Zaq.Channels.JidoChatBridge do
   def add_reaction(%{provider: provider}, channel_id, message_id, emoji, details),
     do: add_reaction(provider, channel_id, message_id, emoji, details)
 
-  def add_reaction(provider, channel_id, message_id, emoji, %{url: url, token: token})
+  def add_reaction(provider, channel_id, message_id, emoji, %{url: _url, token: _token} = details)
       when is_present_message_id(message_id) and is_binary(emoji) do
-    with {:ok, adapter} <- resolve_adapter_for_provider(provider),
+    with {:ok, opts} <- adapter_call_opts(provider, details),
+         {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :add_reaction, 4) || {:error, :unsupported},
-         result <- adapter.add_reaction(channel_id, message_id, emoji, url: url, token: token) do
+         result <- adapter.add_reaction(channel_id, message_id, emoji, opts) do
       normalize_outbound_result(result)
     end
   end
@@ -633,14 +970,12 @@ defmodule Zaq.Channels.JidoChatBridge do
         channel_id,
         message_id,
         emoji,
-        %{url: url, token: token} = details
+        %{url: _url, token: _token} = details
       )
       when is_present_message_id(message_id) and is_binary(emoji) do
-    opts =
-      [url: url, token: token]
-      |> maybe_put_user_id(details)
-
-    with {:ok, adapter} <- resolve_adapter_for_provider(provider),
+    with {:ok, connection_opts} <- adapter_call_opts(provider, details),
+         opts <- maybe_put_user_id(connection_opts, details),
+         {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :remove_reaction, 4) || {:error, :unsupported},
          result <- adapter.remove_reaction(channel_id, message_id, emoji, opts) do
       normalize_outbound_result(result)
@@ -687,6 +1022,8 @@ defmodule Zaq.Channels.JidoChatBridge do
       channel_id: incoming.external_room_id,
       thread_id: incoming.external_thread_id,
       message_id: incoming.external_message_id,
+      external_reply_to_id: incoming.external_reply_to_id,
+      reply_context: incoming.reply_context,
       author_id: incoming.author && incoming.author.user_id,
       author_name:
         incoming.author && (Map.get(incoming.author, :full_name) || incoming.author.user_name),
@@ -802,6 +1139,15 @@ defmodule Zaq.Channels.JidoChatBridge do
   """
   @spec open_dm_channel(String.t(), map()) :: {:ok, String.t()} | {:error, term()}
   @impl true
+  def open_dm_channel(author_id, %{profile: _, provider: provider} = details)
+      when is_binary(author_id) do
+    with {:ok, opts} <- adapter_call_opts(provider, details),
+         {:ok, adapter} <- resolve_adapter_for_provider(provider),
+         true <- function_exported?(adapter, :open_dm, 2) || {:error, :unsupported} do
+      adapter.open_dm(author_id, opts)
+    end
+  end
+
   def open_dm_channel(author_id, %{url: url, token: token, bot_user_id: bot_user_id} = details)
       when is_binary(author_id) and is_binary(bot_user_id) do
     provider = Map.get(details, :provider, "mattermost")
@@ -849,6 +1195,14 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   defp handle_subscribed_message(config, thread, incoming, normalized \\ nil)
+
+  defp handle_subscribed_message(
+         _config,
+         _thread,
+         %Chat.Incoming{metadata: %{history: true}},
+         _normalized
+       ),
+       do: :ok
 
   defp handle_subscribed_message(config, thread, %Chat.Incoming{} = incoming, normalized) do
     post = %{
@@ -958,6 +1312,25 @@ defmodule Zaq.Channels.JidoChatBridge do
        do: :ok
 
   defp handle_message_event(config, thread, %Chat.Incoming{} = incoming, normalized) do
+    if thread.adapter_name in [:whatsapp, "whatsapp"] and
+         not incoming.channel_meta.is_dm and not incoming.was_mentioned do
+      capture_unaddressed_message(config, thread, incoming, normalized)
+    else
+      route_message_event(config, thread, incoming, normalized)
+    end
+  end
+
+  # History may be delivered even when synchronization was disabled. It must
+  # never enter the live request pipeline and produce unsolicited replies.
+  defp route_message_event(
+         _config,
+         _thread,
+         %Chat.Incoming{metadata: %{history: true}},
+         _normalized
+       ),
+       do: :ok
+
+  defp route_message_event(config, thread, incoming, normalized) do
     msg =
       normalized ||
         to_internal(incoming, %{
@@ -1142,11 +1515,51 @@ defmodule Zaq.Channels.JidoChatBridge do
     with {:ok, adapter} <- adapter_for(config.provider),
          true <- ingress_starts_listener?(ingress_mode_for(config.provider)),
          {:ok, specs} <-
-           adapter.listener_child_specs(bridge_id, listener_opts(config, bridge_id, runtime_opts)) do
-      {:ok, Enum.map(specs, &Map.put(&1, :restart, :temporary))}
+           build_listener_specs(adapter, config, bridge_id, runtime_opts) do
+      # Existing listeners stay stopped after terminal failures such as invalid
+      # credentials. Linked-device adapters own their transport recovery policy.
+      if ingress_mode_for(config.provider) == :linked_device do
+        {:ok, specs}
+      else
+        {:ok, Enum.map(specs, &Elixir.Supervisor.child_spec(&1, restart: :temporary))}
+      end
     else
       false -> {:ok, []}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp build_listener_specs(adapter, config, bridge_id, runtime_opts) do
+    opts = listener_opts(config, bridge_id, runtime_opts)
+
+    with {:ok, opts} <- prepare_listener_opts(config, opts, adapter) do
+      adapter.listener_child_specs(bridge_id, opts)
+    end
+  end
+
+  defp prepare_listener_opts(config, opts, adapter) do
+    if ingress_mode_for(config.provider) == :linked_device do
+      with {:ok, opts} <- linked_device_listener_opts(config, opts, adapter) do
+        {:ok,
+         Keyword.update!(opts, :ingress, fn ingress ->
+           Map.merge(ingress, %{sync_history: false, sync_full_history: false})
+         end)}
+      end
+    else
+      {:ok, opts}
+    end
+  end
+
+  defp linked_device_listener_opts(
+         %{authentication_connection_options: %{} = options},
+         opts,
+         _adapter
+       ),
+       do: {:ok, Keyword.put(opts, :ingress, Map.put(options, :mode, :linked_device))}
+
+  defp linked_device_listener_opts(config, opts, adapter) do
+    with {:ok, ingress} <- saved_connection_options(config, adapter) do
+      {:ok, Keyword.put(opts, :ingress, ingress)}
     end
   end
 
@@ -1177,7 +1590,49 @@ defmodule Zaq.Channels.JidoChatBridge do
     ]
   end
 
-  defp sink_mfa_for(config), do: {__MODULE__, :from_listener, [config]}
+  @doc "Constructs the trusted sink for private adapter pairing and storage requests."
+  @spec storage_sink(map()) :: tuple()
+  def storage_sink(config),
+    do: {__MODULE__, :from_listener, [Map.take(config, [:id, :provider]), make_ref()]}
+
+  defp sink_mfa_for(config) do
+    if ingress_mode_for(config.provider) == :linked_device,
+      do: {__MODULE__, :from_listener, [config, make_ref()]},
+      else: {__MODULE__, :from_listener, [config]}
+  end
+
+  @doc "Delegates saved connection preparation to the adapter through the trusted sink."
+  @spec saved_connection_options(map(), module()) :: {:ok, map()} | {:error, term()}
+  def saved_connection_options(%{id: id} = config, adapter) when is_integer(id) and id > 0 do
+    if Code.ensure_loaded?(adapter) and function_exported?(adapter, :prepare_connection, 1),
+      do: adapter.prepare_connection(sink_mfa: storage_sink(config)),
+      else: {:error, :unsupported}
+  end
+
+  def saved_connection_options(_, _), do: {:error, :invalid_connector}
+
+  @doc "Asks the adapter for its stable profile without putting provider state in ZAQ."
+  @spec connection_profile(map()) :: {:ok, String.t()} | {:error, term()}
+  def connection_profile(%{id: id, provider: provider} = config) when is_integer(id) and id > 0 do
+    with {:ok, adapter} <- adapter_for(provider),
+         true <-
+           (Code.ensure_loaded?(adapter) and function_exported?(adapter, :connection_profile, 1)) ||
+             {:error, :unsupported},
+         {:ok, binding} <- profile_binding(config) do
+      {:ok, adapter.connection_profile(binding)}
+    end
+  end
+
+  def connection_profile(_), do: {:error, :invalid_connector}
+
+  defp profile_binding(config) do
+    settings = Map.get(config, :settings) || %{}
+    credential_id = settings["credential_document_id"] || settings[:credential_document_id]
+
+    if is_integer(credential_id),
+      do: {:ok, %{channel_config_id: config.id, credential_id: credential_id}},
+      else: dispatch_storage(config, %{op: :bind, channel_config_id: config.id})
+  end
 
   defp ingress_mode_for(provider) do
     provider_key = provider_to_atom(provider)
@@ -1187,7 +1642,8 @@ defmodule Zaq.Channels.JidoChatBridge do
     |> Kernel.||(:websocket)
   end
 
-  defp ingress_starts_listener?(mode), do: mode in [:websocket, :gateway, :polling]
+  defp ingress_starts_listener?(mode),
+    do: mode in [:websocket, :gateway, :polling, :linked_device]
 
   defp listener_runtime_status(config, mode) do
     bridge_id = runtime_bridge_id(config)
@@ -1197,7 +1653,11 @@ defmodule Zaq.Channels.JidoChatBridge do
         alive_listener_count = Enum.count(listener_pids, &Process.alive?/1)
         state_alive = is_pid(state_pid) and Process.alive?(state_pid)
         recorded_status = listener_recorded_status(state_pid)
-        auth_status = ListenerStatus.query_listener_pids(listener_pids)
+
+        auth_status =
+          if mode == :linked_device,
+            do: nil,
+            else: ListenerStatus.query_listener_pids(listener_pids)
 
         {:ok,
          listener_status_payload(recorded_status, auth_status, mode, %{
@@ -1207,6 +1667,9 @@ defmodule Zaq.Channels.JidoChatBridge do
            listeners_total: length(listener_pids),
            listeners_alive: alive_listener_count
          })}
+
+      {:error, :not_running} when mode == :linked_device ->
+        {:ok, listener_status_payload(nil, nil, mode, %{})}
 
       {:error, :not_running} ->
         {:ok,
@@ -1222,6 +1685,19 @@ defmodule Zaq.Channels.JidoChatBridge do
         {:error, reason}
     end
   end
+
+  @doc "Reports host-observed runtime loss when no adapter status is available."
+  @spec stopped_listener_status(String.t()) :: map()
+  def stopped_listener_status(mode) do
+    ListenerStatus.from_exit_reason(:not_running)
+    |> Map.merge(%{mode: mode, phase: :disconnected, qr: nil, attempt_id: nil, expires_at: nil})
+  end
+
+  defp listener_status_payload(%{mode: "linked_device"} = recorded, _, :linked_device, _),
+    do: recorded
+
+  defp listener_status_payload(_, _, :linked_device, _),
+    do: stopped_listener_status("linked_device")
 
   defp listener_status_payload(%{status: status} = recorded_status, _auth_status, mode, details)
        when status in [:error, "error"] do
@@ -1849,17 +2325,19 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @doc "Sends a reply outbound via the provider adapter. Called by the bridge state process."
-  def do_send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
+  def do_send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = details) do
     case adapter_for(outgoing.provider) do
       {:ok, adapter_module} ->
-        handle_send_with_adapter(outgoing, adapter_module, url, token)
+        with {:ok, opts} <- adapter_call_opts(outgoing.provider, details) do
+          handle_send_with_adapter(outgoing, adapter_module, opts)
+        end
 
       {:error, _reason} ->
         {:error, {:unsupported_provider, outgoing.provider}}
     end
   end
 
-  defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, url, token) do
+  defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, opts) do
     metadata = outgoing.metadata || %{}
 
     with {:use_update, message_id} <- send_mode(outgoing, adapter_module),
@@ -1869,13 +2347,12 @@ defmodule Zaq.Channels.JidoChatBridge do
              outgoing.channel_id,
              message_id,
              outgoing.body,
-             url,
-             token,
+             opts,
              %{request_id: metadata[:request_id], metadata: metadata}
            ) do
       {:ok, Map.put(receipt, :confirmation, :confirmed)}
     else
-      :create -> create_and_dispatch_reply(outgoing, adapter_module, url, token)
+      :create -> create_and_dispatch_reply(outgoing, adapter_module, opts)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -1890,7 +2367,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, url, token) do
+  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, opts) do
     metadata = outgoing.metadata || %{}
 
     with {:ok, %{message_id: post_id}} <-
@@ -1900,8 +2377,7 @@ defmodule Zaq.Channels.JidoChatBridge do
              outgoing.channel_id,
              outgoing.thread_id,
              outgoing.body,
-             url,
-             token,
+             opts,
              metadata
            ) do
       canonical_id = ConversationIdentity.normalize(post_id)
@@ -1981,8 +2457,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          channel_id,
          thread_id,
          body,
-         url,
-         token,
+         opts,
          metadata
        ) do
     effective_thread_id = thread_id || channel_id
@@ -1994,12 +2469,12 @@ defmodule Zaq.Channels.JidoChatBridge do
         adapter: adapter_module,
         external_room_id: channel_id,
         external_thread_id: thread_id,
-        metadata: %{url: url, token: token}
+        metadata: Map.new(opts)
       })
 
     post_body = build_post_body(body, metadata)
 
-    case Chat.Thread.post(thread, post_body, format_delivery_opts(url, token, metadata)) do
+    case Chat.Thread.post(thread, post_body, format_delivery_opts(opts, metadata)) do
       {:ok, post} ->
         {:ok,
          %{
@@ -2012,11 +2487,12 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp edit_message(adapter_module, channel_id, message_id, body, url, token, request) do
+  defp edit_message(adapter_module, channel_id, message_id, body, connection_opts, request) do
     metadata = Map.get(request, :metadata, %{})
 
     opts =
-      [url: url, token: token, update_intent: Map.get(request, :update_intent)]
+      connection_opts
+      |> Keyword.put(:update_intent, Map.get(request, :update_intent))
       |> maybe_put_format_from_metadata(metadata)
 
     result = adapter_module.edit_message(channel_id, message_id, body, opts)
@@ -2040,8 +2516,16 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp metadata_message_id(_), do: nil
 
-  defp format_delivery_opts(url, token, metadata) do
-    [url: url, token: token]
+  defp adapter_call_opts(provider, details) do
+    opts = details |> Map.take([:url, :token, :profile]) |> Map.to_list()
+
+    if ingress_mode_for(provider) == :linked_device and not is_binary(opts[:profile]),
+      do: {:error, :missing_linked_device_profile},
+      else: {:ok, opts}
+  end
+
+  defp format_delivery_opts(opts, metadata) do
+    opts
     |> maybe_put_format_from_metadata(metadata)
   end
 

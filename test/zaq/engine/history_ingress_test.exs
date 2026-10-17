@@ -5,6 +5,7 @@ defmodule Zaq.Engine.HistoryIngressTest do
 
   alias Jido.Chat.Telegram.Adapter, as: TelegramAdapter
   alias Zaq.Accounts.People
+  alias Zaq.Agent.HistoryLoader
   alias Zaq.Channels.{CommunicationBridge, JidoChatBridge}
   alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.EmailBridge.ImapAdapter.Parser
@@ -13,7 +14,7 @@ defmodule Zaq.Engine.HistoryIngressTest do
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryAdmin
   alias Zaq.Engine.{Conversations, HistoryDeliveryWorker, HistoryIngress, IncomingMessageRouter}
-  alias Zaq.Engine.Conversations.{Message, Transcript, TranscriptMessage}
+  alias Zaq.Engine.Conversations.{Message, Transcript, TranscriptHistory, TranscriptMessage}
   alias Zaq.Engine.History.CommunicationPolicy
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Outgoing
@@ -52,6 +53,38 @@ defmodule Zaq.Engine.HistoryIngressTest do
 
       {:ok, %{message_id: id, transcript_ids: targets}}
     end
+  end
+
+  test "inline quote survives capture and authorized history projection without original lookup" do
+    config = connector("telegram")
+    person = author("Reply author", "telegram", "reply-author", config.id)
+
+    incoming =
+      Incoming.new(%{
+        content: "Explain this",
+        channel_id: "quote-room",
+        provider: :telegram,
+        author_id: "reply-author",
+        message_id: "reply",
+        external_reply_to_id: "uncaptured",
+        reply_context: %{text: "Launch Friday", author_name: "Alice"},
+        routing_context: %{channel_config_id: config.id, conversation_type: :one_to_one}
+      })
+
+    assert {:ok, captured} = HistoryIngress.capture(incoming)
+
+    assert {:ok, [projected]} =
+             TranscriptHistory.list(person, captured.transcript_id, [])
+
+    assert projected.content == "Explain this"
+    assert projected.reply_context == incoming.reply_context
+    [entry] = HistoryLoader.from_projection([projected]).entries
+    assert entry.content =~ "Launch Friday"
+    assert entry.content =~ ~s("author_name":"Alice")
+    assert entry.content =~ ~s("external_message_id":"uncaptured")
+
+    assert {:error, :unauthorized} =
+             TranscriptHistory.list(nil, captured.transcript_id, [])
   end
 
   test "admission reuses source validation and confirmation reuses its locked response" do

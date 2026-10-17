@@ -11,6 +11,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   alias Zaq.Repo
   alias ZaqWeb.Components.DesignSystem.CardShell
   alias ZaqWeb.Components.DesignSystem.Table
+  alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.IngressStatusUI
 
   import Ecto.Query
@@ -18,7 +19,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
   @pending_ingress_status_retry_ms 200
   @pending_ingress_status_max_attempts 25
 
-  @retrieval_providers ~w(slack teams mattermost discord telegram webhook email web_widget)
+  @retrieval_providers ~w(slack teams mattermost discord telegram whatsapp webhook email web_widget)
   @data_source_providers ~w(disk google_drive sharepoint)
   @notification_providers ~w(email:smtp)
 
@@ -66,6 +67,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
       color: "#26A5E4",
       desc:
         "Send and receive messages via Telegram Bot API. Ideal for ops alerts and lightweight bots."
+    },
+    %{
+      id: "whatsapp",
+      label: "WhatsApp",
+      color: "#128C7E",
+      desc: "Connect a WhatsApp account by scanning a QR code. History sync stays disabled."
     },
     %{
       id: "webhook",
@@ -369,14 +376,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     end)
   end
 
-  defp compute_ingress_statuses(configured_providers)
+  defp compute_ingress_statuses(configured_providers, actor)
        when is_struct(configured_providers, MapSet) do
     providers = ingress_status_providers(configured_providers)
 
     Enum.reduce(providers, %{}, fn provider, acc ->
       configs = provider |> ChannelConfig.list_by_provider() |> Enum.filter(& &1.enabled)
 
-      statuses = IngressStatusUI.collect(configs, &fetch_ingress_status/1)
+      statuses = IngressStatusUI.collect(configs, &fetch_ingress_status(&1, actor))
 
       Map.put(acc, provider, IngressStatusUI.aggregate(statuses))
     end)
@@ -398,18 +405,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
 
   defp schedule_ingress_status_refresh(socket, configured_providers)
        when is_struct(configured_providers, MapSet) do
+    actor = BOActor.build(socket.assigns.current_user)
+
     socket
     |> assign(:ingress_statuses, %{})
     |> assign(:ingress_status_loading, ingress_status_loading(configured_providers))
     |> assign(:ingress_status_refresh_attempts, 0)
-    |> start_async(:ingress_statuses, fn -> compute_ingress_statuses(configured_providers) end)
+    |> start_async(:ingress_statuses, fn ->
+      compute_ingress_statuses(configured_providers, actor)
+    end)
   end
 
   defp retry_ingress_status_refresh(socket) do
     configured_providers = socket.assigns.configured_ingress_providers
+    actor = BOActor.build(socket.assigns.current_user)
 
     start_async(socket, :ingress_statuses, fn ->
-      compute_ingress_statuses(configured_providers)
+      compute_ingress_statuses(configured_providers, actor)
     end)
   end
 
@@ -440,12 +452,17 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLive do
     |> MapSet.new()
   end
 
-  defp fetch_ingress_status(config) do
+  defp fetch_ingress_status(config, actor) do
     event =
       Event.new(%{provider: config.provider, channel_config_id: config.id}, :channels,
-        opts: [action: :channel_ingress_status]
+        actor: actor,
+        opts: [action: :channel_ingress_status, confidential: true]
       )
 
-    event |> NodeRouter.dispatch() |> Map.get(:response) |> IngressStatusUI.normalize_response()
+    event
+    |> NodeRouter.dispatch()
+    |> Map.get(:response)
+    |> IngressStatusUI.normalize_response()
+    |> Map.drop([:qr])
   end
 end

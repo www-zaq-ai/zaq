@@ -20,6 +20,13 @@ defmodule Zaq.Agent.RequestControlTest do
     def inject(_runtime, _content, _opts), do: exit(:runtime_gone)
   end
 
+  defmodule QuoteFactory do
+    def steer(_runtime, content, _opts) do
+      send(self(), {:quoted_control, content})
+      {:ok, :accepted}
+    end
+  end
+
   defmodule ControlledFactory do
     def steer(runtime, _content, opts), do: respond(runtime, opts)
     def inject(runtime, _content, opts), do: respond(runtime, opts)
@@ -66,6 +73,39 @@ defmodule Zaq.Agent.RequestControlTest do
     on_exit(fn -> ServerManager.stop_server(agent, scope) end)
 
     %{agent: agent, actor: actor, scope: scope, server: server, pid: GenServer.whereis(server)}
+  end
+
+  test "incoming steering includes the quote after original-content admission", ctx do
+    {person_ctx, _id} = canonical_active(ctx)
+    input = incoming(person_ctx.info, "quoted-child", "Explain this")
+
+    input =
+      Incoming.new(
+        Map.merge(Map.from_struct(input), %{
+          external_reply_to_id: "original",
+          reply_context: %{text: "Launch Friday", author_name: "Alice"}
+        })
+      )
+
+    assert {:ok, _} = HistoryIngress.capture(input)
+    assert {:ok, binding} = Conversations.admit_incoming(input)
+
+    event =
+      Event.new(input, :agent, actor: person_ctx.actor, opts: [factory_module: QuoteFactory])
+
+    assert {:queued, _} =
+             RequestControl.queue_incoming(
+               event,
+               input,
+               %{kind: :canonical, transcript_id: person_ctx.transcript_id},
+               binding,
+               ctx.agent.id
+             )
+
+    assert_receive {:quoted_control, content}
+    assert content =~ "Explain this"
+    assert content =~ "Launch Friday"
+    assert content =~ ~s("author_name":"Alice")
   end
 
   test "native control reports stale runtime when either Jido operation exits", ctx do

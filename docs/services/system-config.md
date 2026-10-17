@@ -593,3 +593,23 @@ When adding a new key/token/password field:
 - Keep encryption key in secret storage (Kubernetes Secret, Vault, cloud secret manager, etc.)
 - Do not commit raw key values in repository files
 - For local development, prefer env vars loaded via untracked local secret files
+
+## Connector session state
+
+Linked-device pairing credentials and supporting protocol records use canonical
+encrypted org `api_key` grants as opaque state, not HTTP bearer tokens or OAuth2
+device tokens. Retain the database and its encryption key across application/container
+restarts. The credential reference in connector settings contains no session secrets.
+Runtime access follows the [Engine document contract](engine.md#connector-credential-documents).
+
+Messaging sessions and group sender keys use package-owned RAM-only Mnesia on the
+Channels node, initialized by the explicitly configured WhatsApp storage runtime.
+ZAQ supplies authorized encrypted-database callbacks; the package owns namespace
+routing, temporary pairing sessions and volatile state handoff.
+They reset on Mnesia/node restart, which can interrupt message decryption while
+pairing remains saved. No Mnesia disk volume is required or used. Namespace routing,
+legacy-record cleanup and recovery behavior are owned by the
+[linked-device storage contract](channels.md#linked-device-integration).
+
+Pairing provisions its credential document through the existing Connect tables.
+There are no dedicated linked-device tables or data-conversion migrations.

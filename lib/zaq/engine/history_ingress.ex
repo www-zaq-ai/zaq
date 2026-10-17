@@ -166,6 +166,11 @@ defmodule Zaq.Engine.HistoryIngress do
         ),
       "subject" => context.display_subject
     }
+    |> then(fn context ->
+      if incoming.reply_context,
+        do: Map.put(context, "reply_context", incoming.reply_context),
+        else: context
+    end)
   end
 
   @doc "Durably records confirmed delivery before attempting its idempotent history association."

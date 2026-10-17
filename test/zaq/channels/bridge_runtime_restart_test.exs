@@ -1,8 +1,15 @@
 defmodule Zaq.Channels.BridgeRuntimeRestartTest do
-  use ExUnit.Case, async: false
+  use Zaq.DataCase, async: false
 
   alias Zaq.Channels.BridgeSupervisor
   alias Zaq.Channels.Supervisor, as: ChannelsSupervisor
+
+  setup do
+    # Crash scenarios must not spend another test's shared restart budget.
+    :ok = Supervisor.terminate_child(Zaq.Supervisor, ChannelsSupervisor)
+    {:ok, _} = Supervisor.restart_child(Zaq.Supervisor, ChannelsSupervisor)
+    :ok
+  end
 
   defmodule RuntimeState do
     def start_link(test_pid) do

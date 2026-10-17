@@ -118,6 +118,15 @@ defmodule Zaq.Agent.PipelineTest do
     end
   end
 
+  defmodule QuotedRetrieval do
+    alias Zaq.Agent.PipelineTest.StubRetrieval
+
+    def ask(content, opts) do
+      send(self(), {:retrieval_input, content})
+      StubRetrieval.ask(content, opts)
+    end
+  end
+
   # Simulates retrieval returning no query — triggers the no_results else branch
   # before do_query_extraction is ever called.
   defmodule StubNoResultsRetrieval do
@@ -288,6 +297,22 @@ defmodule Zaq.Agent.PipelineTest do
   # ---------------------------------------------------------------------------
 
   @incoming %Incoming{content: "What is the answer?", channel_id: "test", provider: :test}
+
+  test "retrieval sees the inline quote while execution keeps the original incoming content" do
+    incoming =
+      Incoming.new(%{
+        content: "Explain this",
+        channel_id: "room",
+        provider: :whatsapp,
+        reply_context: %{text: "Launch Friday", author_name: "Alice"}
+      })
+
+    Pipeline.run(incoming, Keyword.put(@base_opts, :retrieval, QuotedRetrieval))
+    assert_receive {:retrieval_input, content}
+    assert content =~ "Explain this"
+    assert content =~ "Launch Friday"
+    assert content =~ ~s("author_name":"Alice")
+  end
 
   describe ":pipeline_complete chunks in hook payload" do
     test "includes retrieved chunks on a successful run" do

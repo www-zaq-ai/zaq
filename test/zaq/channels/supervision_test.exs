@@ -1,12 +1,19 @@
 defmodule Zaq.Channels.SupervisionTest do
   use Zaq.DataCase, async: false
 
+  alias Jido.Chat.WhatsApp.{Adapter, ConnectionWorker}
+  alias Jido.Chat.WhatsApp.Storage.Mnesia
+  alias Jido.Chat.WhatsApp.Storage.Runtime, as: SessionStorage
   alias Zaq.Channels.BridgeSupervisor
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.PeopleAuthRateLimiter, as: Ingress
   alias Zaq.Channels.Supervisor, as: Channels
   alias Zaq.Engine.ChannelConfig
   alias Zaq.TestSupport.Channels.RuntimeAdapterStub, as: StubAdapter
+
+  defmodule TelegramAdapter do
+    def ensure_ingress_subscription(_bridge_id, _opts), do: {:ok, %{}}
+  end
 
   defmodule InvalidInfrastructure do
     def infrastructure_child_specs(_), do: raise("private configuration must not escape")
@@ -63,7 +70,7 @@ defmodule Zaq.Channels.SupervisionTest do
 
   setup do
     previous = Application.get_env(:zaq, :channels)
-    Application.put_env(:zaq, :channels, Map.take(previous, [:web_widget]))
+    Application.put_env(:zaq, :channels, Map.take(previous, [:web_widget, :whatsapp]))
     # Each crash scenario gets its own restart budget and resource ownership.
     :ok = Supervisor.terminate_child(Zaq.Supervisor, Channels)
     {:ok, _} = Supervisor.restart_child(Zaq.Supervisor, Channels)
@@ -72,9 +79,13 @@ defmodule Zaq.Channels.SupervisionTest do
     :ok
   end
 
-  test "static parent stays generic and widget infrastructure belongs to bridge subtree" do
+  test "static parent starts limiter before dynamic bridge owner and retains role discovery" do
     assert {:ok, {%{strategy: :one_for_one}, specs}} = Channels.init([])
-    assert Enum.map(specs, & &1.id) == [Ingress, BridgeSupervisor]
+
+    assert Enum.map(specs, & &1.id) == [
+             Ingress,
+             BridgeSupervisor
+           ]
 
     children = Supervisor.which_children(Channels)
     assert length(children) == 2
@@ -85,6 +96,20 @@ defmodule Zaq.Channels.SupervisionTest do
              end)
 
     assert widget == Process.whereis(WebWidget.Supervisor)
+
+    assert {_, store, :supervisor, [SessionStorage]} =
+             Enum.find(DynamicSupervisor.which_children(BridgeSupervisor), fn
+               {_, _, _, modules} -> modules == [SessionStorage]
+             end)
+
+    assert {:ok, %{state_pid: nil, listener_pids: [^store]}} =
+             Channels.lookup_runtime("provider:whatsapp")
+
+    assert :ok = JidoChatBridge.sync_provider_runtime({:provider, :whatsapp}, [])
+    assert Process.whereis(SessionStorage) == store
+
+    assert Process.alive?(store)
+    assert :mnesia.table_info(:jido_chat_whatsapp_sessions, :storage_type) == :ram_copies
 
     for module <- [Ingress, BridgeSupervisor] do
       assert {^module, pid, :supervisor, [^module]} = List.keyfind(children, module, 0)
@@ -104,12 +129,24 @@ defmodule Zaq.Channels.SupervisionTest do
     table = :ets.whereis(:zaq_channels_listeners)
     ip = exhaust_identification_budget()
     old_bridge = Process.whereis(BridgeSupervisor)
+    old_storage = Process.whereis(SessionStorage)
+    scope = make_ref()
+    storage = Mnesia.new(scope: scope)
+    assert :ok = Mnesia.put(storage, "retained", :session, "peer", "ratchet")
+    on_exit(fn -> Mnesia.clear(Mnesia.new(scope: scope), "retained") end)
     {:ok, specs} = StubAdapter.listener_child_specs("ephemeral", [])
     assert {:ok, ephemeral} = Channels.start_runtime("ephemeral", nil, specs)
 
-    crash_child(Channels, BridgeSupervisor, runtime_pids(old_runtime) ++ ephemeral.listener_pids)
+    crash_child(
+      Channels,
+      BridgeSupervisor,
+      runtime_pids(old_runtime) ++ ephemeral.listener_pids
+    )
 
     refute Process.whereis(BridgeSupervisor) == old_bridge
+    refute Process.whereis(SessionStorage) == old_storage
+    assert {:error, :storage_unavailable} = Mnesia.get(storage, "retained", :session, "peer")
+    assert {:ok, "ratchet"} = Mnesia.get(Mnesia.new(scope: scope), "retained", :session, "peer")
     assert Process.whereis(Ingress) == ingress
     assert Process.whereis(Ingress.Config) == cache
     assert :ets.whereis(:zaq_channels_listeners) == table
@@ -117,6 +154,23 @@ defmodule Zaq.Channels.SupervisionTest do
     assert {:error, :not_running} = Channels.lookup_runtime("ephemeral")
     assert {:error, {:rate_limited, _}} = Ingress.check_identification(ip)
     assert_reloaded(bridge_id, old_runtime)
+  end
+
+  test "unconfigured WhatsApp starts no shared storage runtime" do
+    previous = Application.fetch_env!(:zaq, :channels)
+    assert :ok = Supervisor.terminate_child(Channels, BridgeSupervisor)
+
+    try do
+      Application.put_env(:zaq, :channels, Map.delete(previous, :whatsapp))
+      assert {:ok, _} = Supervisor.restart_child(Channels, BridgeSupervisor)
+      assert Process.whereis(SessionStorage) == nil
+      assert {:error, :not_running} = Channels.lookup_runtime("provider:whatsapp")
+      assert Process.alive?(Process.whereis(WebWidget.Supervisor))
+    after
+      assert :ok = Supervisor.terminate_child(Channels, BridgeSupervisor)
+      Application.put_env(:zaq, :channels, previous)
+      assert {:ok, _} = Supervisor.restart_child(Channels, BridgeSupervisor)
+    end
   end
 
   test "infrastructure startup failure rolls back the dynamic subtree" do
@@ -207,7 +261,7 @@ defmodule Zaq.Channels.SupervisionTest do
     end
   end
 
-  test "limiter supervisor crash resets its local resources without restarting bridge runtimes" do
+  test "limiter supervisor crash preserves bridges while replacing limiter resources" do
     bridge_id = configured_runtime()
     assert {:ok, runtime} = Channels.lookup_runtime(bridge_id)
     bridge = Process.whereis(BridgeSupervisor)
@@ -221,10 +275,112 @@ defmodule Zaq.Channels.SupervisionTest do
     refute Process.whereis(Ingress.Config) == cache
     assert Process.whereis(BridgeSupervisor) == bridge
     assert Channels.lookup_runtime(bridge_id) == {:ok, runtime}
-    _ = :sys.get_state(runtime.state_pid)
+    assert Enum.all?(runtime_pids(runtime), &Process.alive?/1)
     refresh_config()
     assert :ok = Ingress.check_identification(ip)
-    assert :ok = Channels.stop_bridge_runtime(%{}, bridge_id)
+  end
+
+  test "session store failure preserves unrelated bridges and limiter counters" do
+    bridge_id = configured_runtime()
+    assert {:ok, runtime} = Channels.lookup_runtime(bridge_id)
+    ingress = Process.whereis(Ingress)
+
+    store = Process.whereis(SessionStorage)
+
+    ip = exhaust_identification_budget()
+    bridge = Process.whereis(BridgeSupervisor)
+
+    :ok = GenServer.stop(store, :storage_failure)
+    DynamicSupervisor.which_children(BridgeSupervisor)
+    assert {:ok, %{listener_pids: [replacement]}} = Channels.lookup_runtime("provider:whatsapp")
+
+    refute replacement == store
+    assert Process.whereis(BridgeSupervisor) == bridge
+    assert Channels.lookup_runtime(bridge_id) == {:ok, runtime}
+    assert Enum.all?(runtime_pids(runtime), &Process.alive?/1)
+    assert Process.whereis(Ingress) == ingress
+    assert {:error, {:rate_limited, _}} = Ingress.check_identification(ip)
+  end
+
+  for child <- [SessionStorage, Mnesia] do
+    @storage_child child
+    test "#{inspect(child)} outage pauses WhatsApp without restarting other channels" do
+      bridge_id = configured_runtime()
+      assert {:ok, unrelated} = Channels.lookup_runtime(bridge_id)
+      telegram_id = configured_runtime("telegram")
+      assert {:ok, telegram} = Channels.lookup_runtime(telegram_id)
+      bridge = Process.whereis(BridgeSupervisor)
+      store = Mnesia
+      transport = Zaq.TestSupport.LinkedDeviceConnectionStub
+
+      # More listeners than the shared supervisor restart budget.
+      workers =
+        for index <- 1..5 do
+          profile = "storage_recovery_#{System.unique_integer([:positive])}_#{index}"
+
+          {:ok, specs} =
+            Adapter.listener_child_specs(profile,
+              ingress: %{
+                mode: :linked_device,
+                profile: profile,
+                transport: transport,
+                config: %{profile: profile, observer: self(), storage: {store, scope: profile}}
+              },
+              sink_mfa: {transport, :deliver, [self()]}
+            )
+
+          assert {:ok, %{listener_pids: [worker]}} = Channels.start_runtime(profile, nil, specs)
+          on_exit(fn -> Channels.stop_bridge_runtime(%{}, profile) end)
+          assert_receive {:connection, ^profile, connection, _}
+          {profile, worker, connection}
+        end
+
+      if @storage_child == SessionStorage do
+        assert :ok = Channels.stop_bridge_runtime(%{}, "provider:whatsapp")
+      else
+        assert :ok = Supervisor.terminate_child(SessionStorage, @storage_child)
+      end
+
+      try do
+        for {profile, worker, connection} <- workers do
+          assert_receive {:lifecycle, %{profile: ^profile, status: :failed, qr: nil}}, 1_000
+          refute Process.alive?(connection)
+          assert %{status: :failed} = ConnectionWorker.status(worker)
+
+          assert {:error, :storage_unavailable} =
+                   ConnectionWorker.reconnect(worker)
+        end
+
+        # Let several readiness retries run while the dependency stays absent.
+        refute_receive {:connection, _, _, _}, 350
+        assert Process.whereis(BridgeSupervisor) == bridge
+        assert Channels.lookup_runtime(bridge_id) == {:ok, unrelated}
+        assert Enum.all?(runtime_pids(unrelated) ++ runtime_pids(telegram), &Process.alive?/1)
+        assert Channels.lookup_runtime(telegram_id) == {:ok, telegram}
+      after
+        if @storage_child == SessionStorage do
+          assert :ok = JidoChatBridge.sync_provider_runtime({:provider, :whatsapp}, [])
+        else
+          assert {:ok, _} = Supervisor.restart_child(SessionStorage, @storage_child)
+        end
+      end
+
+      for {profile, worker, old_connection} <- workers do
+        assert_receive {:connection, ^profile, connection, relay}, 2_000
+        refute connection == old_connection
+
+        assert Channels.lookup_runtime(profile) ==
+                 {:ok, %{state_pid: nil, listener_pids: [worker]}}
+
+        send(relay, {:amarula, :connection_update, %{qr: "recovered-qr"}})
+
+        assert_receive {:lifecycle, %{profile: ^profile, status: :pairing, qr: "recovered-qr"}},
+                       1_000
+      end
+
+      assert Process.whereis(BridgeSupervisor) == bridge
+      assert Enum.all?(runtime_pids(unrelated) ++ runtime_pids(telegram), &Process.alive?/1)
+    end
   end
 
   test "parent crash stops all subtrees and recreates ETS before bootstrapping" do
@@ -301,7 +457,7 @@ defmodule Zaq.Channels.SupervisionTest do
     assert_reloaded(bridge_id, runtime)
   end
 
-  test "OTP abnormal termination restarts each child independently without pausing its parent" do
+  test "OTP abnormal termination isolates sibling recovery while retaining the parent" do
     bridge_id = configured_runtime()
     assert {:ok, old_runtime} = Channels.lookup_runtime(bridge_id)
     parent = Process.whereis(Channels)
@@ -330,9 +486,9 @@ defmodule Zaq.Channels.SupervisionTest do
     assert Process.whereis(Channels) == parent
     assert Process.whereis(BridgeSupervisor) == new_bridge
     assert Channels.lookup_runtime(bridge_id) == {:ok, runtime}
+    assert Enum.all?(runtime_pids(runtime), &Process.alive?/1)
     refresh_config()
     assert :ok = Ingress.check_identification(ip)
-    assert :ok = Channels.stop_bridge_runtime(%{}, bridge_id)
   end
 
   test "a stopped state is not returned even when a listener remains alive" do
@@ -364,16 +520,28 @@ defmodule Zaq.Channels.SupervisionTest do
     assert :ok = Channels.stop_bridge_runtime(%{}, "empty")
   end
 
-  defp configured_runtime do
-    Application.put_env(:zaq, :channels, %{
-      mattermost: %{bridge: JidoChatBridge, adapter: StubAdapter, ingress_mode: :websocket}
-    })
+  defp configured_runtime(provider \\ "mattermost") do
+    provider_config = %{
+      bridge: JidoChatBridge,
+      adapter: if(provider == "telegram", do: TelegramAdapter, else: StubAdapter),
+      ingress_mode: if(provider == "telegram", do: :webhook, else: :websocket)
+    }
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      Map.put(
+        Application.get_env(:zaq, :channels),
+        String.to_existing_atom(provider),
+        provider_config
+      )
+    )
 
     {:ok, config} =
-      ChannelConfig.upsert_by_provider("mattermost", %{
+      ChannelConfig.upsert_by_provider(provider, %{
         name: "Supervision lifecycle",
         kind: "retrieval",
-        provider: "mattermost",
+        provider: provider,
         enabled: true,
         url: "https://mm.example.com",
         token: "test-token",
@@ -381,7 +549,7 @@ defmodule Zaq.Channels.SupervisionTest do
       })
 
     assert {:ok, _} = Channels.start_listener(config)
-    "mattermost_#{config.id}"
+    "#{provider}_#{config.id}"
   end
 
   defp assert_reloaded(bridge_id, old) do

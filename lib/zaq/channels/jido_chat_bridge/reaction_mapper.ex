@@ -7,7 +7,8 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionMapper do
 
   Mattermost thumb shortcodes accept optional paired colons and one standard
   skin-tone suffix. Only the existing thumb aliases are normalized; custom
-  names, malformed shortcodes and other providers' representations are unchanged.
+  names and malformed shortcodes are ignored. Unicode thumbs accept exactly one
+  standard skin-tone modifier across providers, including WhatsApp.
   """
 
   @mattermost_shortcode ~r/\A(:?)(\+1|-1|thumbsup|thumbs_up|thumbsdown|thumbs_down)(?:_(?:light|medium_light|medium|medium_dark|dark)_skin_tone)?\1\z/
@@ -35,9 +36,17 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionMapper do
 
   def to_rating(_provider, _emoji), do: :ignored
 
-  # Unicode forms (Telegram sends these)
+  # Unicode forms (including Telegram and WhatsApp)
   defp emoji_to_rating(_provider, "\u{1F44D}"), do: {:ok, 5}
   defp emoji_to_rating(_provider, "\u{1F525}"), do: {:ok, 5}
+
+  defp emoji_to_rating(_provider, <<0x1F44D::utf8, tone::utf8>>)
+       when tone in 0x1F3FB..0x1F3FF,
+       do: {:ok, 5}
+
+  defp emoji_to_rating(_provider, <<0x1F44E::utf8, tone::utf8>>)
+       when tone in 0x1F3FB..0x1F3FF,
+       do: {:ok, 1}
 
   # Mattermost / Slack short names
   defp emoji_to_rating(:mattermost, "thumbsup"), do: {:ok, 5}

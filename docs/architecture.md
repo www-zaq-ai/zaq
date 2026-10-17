@@ -204,11 +204,20 @@ no request-time database or Engine call. Public login uses one confidential Engi
 resolve/issue/notify request after that precheck;
 see [People authentication](services/people-access.md#rate-topology-and-retry-behavior).
 
-`Zaq.Channels.Supervisor` is a static `:one_for_one` parent: it starts
-`Zaq.Channels.PeopleAuthRateLimiter` first, then the dynamic
-`Zaq.Channels.BridgeSupervisor`. The children restart independently. The parent
-retains the Channels role-discovery name and delegates the existing runtime API;
-the dynamic child reloads enabled bridge configs on every startup.
+`Zaq.Channels.Supervisor` is a static `:rest_for_one` parent: it starts
+`Zaq.Channels.PeopleAuthRateLimiter`, the linked-device RAM session store, then the
+dynamic `Zaq.Channels.BridgeSupervisor`. Adapter packages own shared transport
+infrastructure; `jido_chat_whatsapp` starts its runtime as an OTP application.
+Failure restarts later children. The parent retains the Channels role-discovery
+name and delegates the existing runtime API; the dynamic child reloads enabled
+bridge configs on every startup.
+
+Channels owns node-local Mnesia messaging sessions; Engine retains encrypted pairing
+credentials. Mnesia uses a RAM-only schema and `ram_copies`, so sessions survive
+listener restarts but reset on Mnesia/node restart. The current credential binding
+is still checked through Engine for each storage callback. See the
+[linked-device contract](services/channels.md#linked-device-integration) for namespace
+ownership, confirmation handoff, cleanup and message-recovery limitations.
 
 Engine is the largest service. It owns several internal subsystems:
 

@@ -9,7 +9,7 @@ defmodule Zaq.Channels.IdentityScope do
   """
 
   @spec authority(String.t(), map() | nil) :: String.t()
-  def authority(platform, _config) when platform in ["email", "telegram", "discord"],
+  def authority(platform, _config) when platform in ["email", "telegram", "discord", "whatsapp"],
     do: "global"
 
   def authority("mattermost", %{url: url} = config) when is_binary(url) do

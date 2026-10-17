@@ -1,12 +1,13 @@
 defmodule Zaq.Engine.ConnectorLifecycle do
   @moduledoc """
-  Coordinates the complete connector archive command across service boundaries.
+  Coordinates connector archive and confirmed disable commands across service boundaries.
 
   Engine owns connector scope, revision validation, archive persistence and
   data-source watch ordering/cleanup. Channels consumes resolved configurations
   for provider ingress teardown and runtime sync, without database access.
-  Pre-archive failures stop the command; post-archive cleanup failures are
-  returned as bounded pending warnings for safe retry.
+  Archival follows adapter disable preparation, persisted disablement and
+  successful runtime shutdown. A shutdown failure leaves the disabled connector
+  unarchived for retry; post-archive watch cleanup may remain pending.
   """
 
   alias Zaq.Engine.{ChannelConfig, DataSources}
@@ -56,12 +57,14 @@ defmodule Zaq.Engine.ConnectorLifecycle do
          :ok <- validate_revision(before, expected),
          {:ok, watches} <- stop_watches(context, data_sources),
          {:ok, ingress} <- teardown_ingress(before, router, actor, opts),
-         {:ok, status, after_config} <- persist_archive(before, expected) do
+         {:ok, disabled} <- disable_before_archive(before, expected, router, actor, opts),
+         :ok <- stop_before_archive(before, disabled, router, actor, opts),
+         {:ok, status, _archived} <- persist_archive(disabled, revision(disabled)) do
       archived = %{
         channel_config_id: id,
         status: status,
         ingress: ingress,
-        runtime: sync_runtime(before, after_config, router, actor, opts)
+        runtime: :synced
       }
 
       {:ok,
@@ -76,6 +79,106 @@ defmodule Zaq.Engine.ConnectorLifecycle do
   end
 
   def archive(_request, _actor, _opts), do: {:error, :invalid_request}
+
+  defp disable_before_archive(%{enabled: false} = config, _expected, _router, _actor, _opts),
+    do: {:ok, config}
+
+  defp disable_before_archive(config, expected, router, actor, opts) do
+    case channels_call(
+           router,
+           :connector_prepare_disable,
+           %{config: runtime_config(config)},
+           actor,
+           opts
+         ) do
+      :ok -> persist_disable(config.id, expected)
+      {:error, reason} -> {:error, {:disable_failed, reason}}
+      other -> {:error, {:disable_failed, {:unexpected_response, other}}}
+    end
+  end
+
+  defp stop_before_archive(before, disabled, router, actor, opts) do
+    case sync_runtime(before, disabled, router, actor, opts) do
+      :synced -> :ok
+      {:pending, reason} -> {:error, {:runtime_stop_failed, reason}}
+    end
+  end
+
+  @doc "Logs out and disables exactly the connector revision confirmed by the operator."
+  @spec disable(map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def disable(request, actor, opts \\ [])
+
+  def disable(
+        %{channel_config_id: id, provider: provider, kind: kind, revision: expected},
+        actor,
+        opts
+      )
+      when is_binary(expected) do
+    router = Keyword.get(opts, :router, NodeRouter)
+
+    with {:ok, id} <- cast_id(id),
+         %ChannelConfig{archived_at: nil} = before <- ChannelConfig.get(id),
+         :ok <- validate_scope(before, provider, kind) do
+      disable_current(before, expected, router, actor, opts)
+    else
+      _ -> {:error, :connector_not_found}
+    end
+  end
+
+  def disable(_, _, _), do: {:error, :invalid_request}
+
+  defp disable_current(%{enabled: false} = config, _expected, router, actor, opts) do
+    {:ok,
+     %{
+       channel_config_id: config.id,
+       status: :already_disabled,
+       runtime: sync_runtime(%{config | enabled: true}, config, router, actor, opts)
+     }}
+  end
+
+  defp disable_current(before, expected, router, actor, opts) do
+    with :ok <- validate_revision(before, expected),
+         :ok <- logout(before, router, actor, opts),
+         {:ok, disabled} <- persist_disable(before.id, expected) do
+      {:ok,
+       %{
+         channel_config_id: before.id,
+         status: :disabled,
+         runtime: sync_runtime(before, disabled, router, actor, opts)
+       }}
+    end
+  end
+
+  defp logout(config, router, actor, opts) do
+    case channels_call(router, :connector_logout, %{config: runtime_config(config)}, actor, opts) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:logout_failed, reason}}
+      _ -> {:error, {:logout_failed, :unexpected_response}}
+    end
+  end
+
+  # Adapter logout can write credential storage through Engine. Never hold the row
+  # lock across that service call; recheck the confirmed revision before persistence.
+  defp persist_disable(id, expected) do
+    Repo.transaction(fn ->
+      case Repo.get(ChannelConfig, id, lock: "FOR UPDATE") do
+        %ChannelConfig{} = current ->
+          persist_disabled_current(current, expected)
+
+        _ ->
+          Repo.rollback(:connector_not_found)
+      end
+    end)
+  end
+
+  defp persist_disabled_current(current, expected) do
+    with :ok <- validate_revision(current, expected),
+         {:ok, disabled} <- current |> Ecto.Changeset.change(enabled: false) |> Repo.update() do
+      disabled
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
 
   defp stop_watches(%{kind: "data_source", archived?: false, channel_config_id: id}, module) do
     case module.stop_config_watch_channels(id) do
@@ -122,6 +225,9 @@ defmodule Zaq.Engine.ConnectorLifecycle do
 
   defp teardown_ingress(%ChannelConfig{archived_at: %DateTime{}}, _router, _actor, _opts),
     do: {:ok, :already_archived}
+
+  defp teardown_ingress(%ChannelConfig{enabled: false}, _router, _actor, _opts),
+    do: {:ok, :already_disabled}
 
   defp teardown_ingress(config, router, actor, opts) do
     case channels_call(

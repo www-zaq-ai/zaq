@@ -208,11 +208,19 @@ defmodule Zaq.Agent.Executor do
            question <-
              (Keyword.get(execution_opts, :input_presentation) ||
                 MessageAuthor.from_input(incoming))
-             |> Map.merge(%{content: question, attachments: incoming.attachments})
+             |> Map.merge(%{
+               content: question,
+               attachments: incoming.attachments,
+               reply_context: incoming.reply_context
+             })
              |> InputPrompt.render_message(opaque_alias_scope: server_id),
            _ <-
              Event.new(
-               %{provider: incoming.provider, channel_id: incoming.channel_id},
+               %{
+                 provider: incoming.provider,
+                 channel_id: incoming.channel_id,
+                 channel_config_id: incoming.routing_context.channel_config_id
+               },
                :channels,
                opts: [action: :send_typing],
                type: :async

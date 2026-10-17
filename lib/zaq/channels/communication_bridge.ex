@@ -27,6 +27,50 @@ defmodule Zaq.Channels.CommunicationBridge do
   alias Zaq.Event
   alias Zaq.NodeRouter
 
+  @doc "Runs the provider's optional pre-disable hook while its connection is still available."
+  @spec before_disable(map(), map(), keyword()) :: :ok | {:error, term()}
+  def before_disable(%{provider: provider} = config, actor, opts \\ []) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
+         {:module, _} <- Code.ensure_loaded(bridge) do
+      if function_exported?(bridge, :before_disable, 3),
+        do: bridge.before_disable(config, actor, opts),
+        else: :ok
+    end
+  end
+
+  @doc "Delegates explicit logout to the configured bridge without stopping other connectors."
+  @spec logout(map(), keyword()) :: :ok | {:error, term()}
+  def logout(%{provider: provider} = config, opts \\ []) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
+         true <- function_exported?(bridge, :logout, 2) || {:error, :unsupported} do
+      bridge.logout(config, opts)
+    end
+  end
+
+  @doc "Delegates an authorized authentication command to the configured provider bridge."
+  @spec authenticate(atom() | String.t(), map(), term(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def authenticate(provider, request, owner_id, actor, opts \\ []) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
+         true <- function_exported?(bridge, :authenticate, 4) || {:error, :unsupported} do
+      if function_exported?(bridge, :authenticate, 5),
+        do: bridge.authenticate(provider, request, owner_id, actor, opts),
+        else: bridge.authenticate(provider, request, owner_id, actor)
+    end
+  end
+
+  @doc "Discovers adapter authentication through the provider bridge."
+  @spec authentication_capability(atom() | String.t(), keyword()) :: term()
+  def authentication_capability(provider, opts \\ []) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
+         true <-
+           function_exported?(bridge, :authentication_capability, 1) || {:error, :unsupported} do
+      if function_exported?(bridge, :authentication_capability, 2),
+        do: bridge.authentication_capability(provider, opts),
+        else: bridge.authentication_capability(provider)
+    end
+  end
+
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
 
   # `{:ok, receipt}` carries channel-assigned threading pointers (the delivered

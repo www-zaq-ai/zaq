@@ -160,7 +160,14 @@ defmodule Zaq.Agent.HistoryLoader do
         _ -> safe_attachments(Map.get(message, :metadata))
       end
 
+    metadata = Map.get(message, :metadata) || %{}
+
+    reply_context =
+      Map.get(message, :reply_context) ||
+        Map.get(metadata, "reply_context", Map.get(metadata, :reply_context))
+
     message
+    |> Map.put(:reply_context, reply_context)
     |> Map.put(:content, Map.get(message, :content) || "")
     |> Map.put(
       :timestamp,

@@ -1212,7 +1212,7 @@ defmodule Zaq.Engine.Conversations do
 
     metadata =
       (message.metadata || %{})
-      |> Map.merge(incoming_attachment_metadata(msg))
+      |> Map.merge(incoming_input_metadata(msg))
       |> Map.put("execution_status", "pending")
       |> Map.put("finalization_token_hash", finalization_token_hash(token))
       |> maybe_put_external_message_id(msg.message_id)
@@ -1241,7 +1241,7 @@ defmodule Zaq.Engine.Conversations do
 
     metadata =
       msg
-      |> incoming_attachment_metadata()
+      |> incoming_input_metadata()
       |> Map.put("execution_status", "pending")
       |> Map.put("finalization_token_hash", finalization_token_hash(finalization_token))
       |> maybe_put_external_message_id(msg.message_id)
@@ -2010,7 +2010,7 @@ defmodule Zaq.Engine.Conversations do
       attrs
       |> map_get("metadata")
       |> then(&if(is_map(&1), do: &1, else: %{}))
-      |> merge_incoming_attachments(incoming)
+      |> Map.merge(incoming_input_metadata(incoming))
 
     %{
       role: map_get(attrs, "role") || "assistant",
@@ -2029,18 +2029,19 @@ defmodule Zaq.Engine.Conversations do
     |> Map.new()
   end
 
-  defp incoming_attachment_metadata(%Incoming{attachments: attachments})
-       when is_list(attachments) and attachments != [] do
-    %{"attachments" => Enum.map(attachments, &Zaq.Contracts.Record.attachment_metadata/1)}
-  end
+  defp incoming_input_metadata(%Incoming{} = incoming) do
+    metadata =
+      case incoming.attachments do
+        [_ | _] = attachments ->
+          %{"attachments" => Enum.map(attachments, &Zaq.Contracts.Record.attachment_metadata/1)}
 
-  defp incoming_attachment_metadata(%Incoming{}), do: %{}
+        _ ->
+          %{}
+      end
 
-  defp merge_incoming_attachments(metadata, %Incoming{} = incoming) do
-    case incoming_attachment_metadata(incoming) do
-      %{"attachments" => attachments} -> Map.put(metadata, "attachments", attachments)
-      %{} -> metadata
-    end
+    if incoming.reply_context,
+      do: Map.put(metadata, "reply_context", incoming.reply_context),
+      else: metadata
   end
 
   defp message_history_title(attrs, %Incoming{} = incoming) do

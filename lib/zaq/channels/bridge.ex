@@ -15,6 +15,7 @@ defmodule Zaq.Channels.Bridge do
   """
 
   alias Zaq.Channels.{CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.JidoChatBridge
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -30,6 +31,7 @@ defmodule Zaq.Channels.Bridge do
   @callback start_runtime(runtime_target()) :: :ok | {:error, term()}
   @callback start_runtime(runtime_target(), keyword()) :: :ok | {:error, term()}
   @callback stop_runtime(map()) :: :ok | {:error, term()}
+  @callback before_disable(map(), map(), keyword()) :: :ok | {:error, term()}
   @callback sync_runtime(map() | nil, map()) :: :ok | {:error, term()}
   @callback sync_provider_runtime(runtime_target()) :: :ok | {:error, term()}
   @callback sync_provider_runtime(runtime_target(), keyword()) :: :ok | {:error, term()}
@@ -47,6 +49,7 @@ defmodule Zaq.Channels.Bridge do
   @optional_callbacks start_runtime: 1,
                       start_runtime: 2,
                       stop_runtime: 1,
+                      before_disable: 3,
                       sync_runtime: 2,
                       sync_provider_runtime: 1,
                       sync_provider_runtime: 2,
@@ -370,7 +373,7 @@ defmodule Zaq.Channels.Bridge do
   def fetch_connection_details(provider) do
     case ChannelConfig.get_by_provider(to_string(provider)) do
       nil -> %{}
-      config -> %{url: config.url, token: config.token}
+      config -> fetch_connection_details_for_config(config)
     end
   end
 
@@ -381,10 +384,23 @@ defmodule Zaq.Channels.Bridge do
   def fetch_connection_details_for_config(config) when is_map(config) do
     runtime_config = ChannelConfig.to_runtime_config(config)
 
-    %{
+    details = %{
       url: Map.get(runtime_config, :url) || Map.get(runtime_config, "url"),
       token: Map.get(runtime_config, :token) || Map.get(runtime_config, "token")
     }
+
+    case provider_config(
+           Map.get(runtime_config, :provider) || Map.get(runtime_config, "provider")
+         ) do
+      %{ingress_mode: :linked_device} ->
+        case JidoChatBridge.connection_profile(runtime_config) do
+          {:ok, profile} -> Map.put(details, :profile, profile)
+          {:error, _} -> details
+        end
+
+      _ ->
+        details
+    end
   end
 
   @doc "Fetches an enabled connector by provider; supply its ID if the provider is ambiguous."

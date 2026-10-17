@@ -100,6 +100,74 @@ defmodule Zaq.Engine.Conversations.CanonicalHistoryCaptureTest do
     |> CommunicationBridge.put_conversation_identity()
   end
 
+  test "a captured WhatsApp direct message is admitted for agent execution" do
+    sender = person("WhatsApp sender")
+    config = connector("whatsapp")
+    chat_jid = "123456789@lid"
+    external_id = "whatsapp-direct-admission"
+
+    assert {:ok, captured} =
+             Conversations.capture_canonical_message(
+               facts(config, sender, :direct, %{channel_id: chat_jid}),
+               %{message(external_id) | author_id: chat_jid},
+               source(config, %{source_scope: chat_jid})
+             )
+
+    assert Repo.get!(Message, captured.message_id).conversation_id == nil
+
+    incoming =
+      %{
+        content: "hello",
+        channel_id: chat_jid,
+        author_id: chat_jid,
+        message_id: external_id,
+        provider: :whatsapp,
+        person: %{id: sender.id},
+        routing_context: %{
+          channel_config_id: config.id,
+          conversation_type: :one_to_one,
+          source_scope: chat_jid
+        }
+      }
+      |> Incoming.new()
+      |> CommunicationBridge.put_conversation_identity()
+
+    assert {:ok, admitted} = Conversations.admit_incoming(incoming)
+    assert admitted.admitted?
+    assert admitted.user_message_id == captured.message_id
+    assert is_binary(admitted.finalization_token)
+    assert Repo.get!(Message, captured.message_id).conversation_id == admitted.conversation_id
+    assert Repo.get!(Message, captured.message_id).role == "user"
+    assert Repo.aggregate(Message, :count) == 1
+  end
+
+  test "WhatsApp replay persists across callers and isolates both accounts and rooms" do
+    reader = person("WhatsApp reader")
+    first = connector("whatsapp")
+    second = connector("whatsapp")
+
+    ids =
+      for {config, room} <- [{first, "one@g.us"}, {first, "two@g.us"}, {second, "one@g.us"}] do
+        scope = facts(config, reader, :channel, %{channel_id: room})
+        origin = source(config, %{source_scope: room})
+
+        assert {:ok, captured} =
+                 Conversations.capture_canonical_message(scope, message("same-id"), origin)
+
+        assert {:ok, replay} =
+                 Task.async(fn ->
+                   Conversations.capture_canonical_message(scope, message("same-id"), origin)
+                 end)
+                 |> Task.await()
+
+        assert replay.message_id == captured.message_id
+        captured.message_id
+      end
+
+    assert length(Enum.uniq(ids)) == 3
+    assert Repo.aggregate(Message, :count) == 3
+  end
+
   test "a shared channel stores the root and thread separately and replays at one position" do
     owner = person("Owner")
     stranger = person("Stranger")

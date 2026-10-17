@@ -6,6 +6,7 @@ defmodule Zaq.Agent.ExecutorTest do
 
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.{Executor, Factory, OpaqueAliases}
+  alias Zaq.Channels.JidoChatBridge
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Materialization.Handle
@@ -212,6 +213,13 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
+  defmodule TypingNodeRouter do
+    def dispatch(%Zaq.Event{} = event) do
+      if event.opts[:action] == :send_typing, do: send(self(), {:typing_event, event})
+      %{event | response: :ok}
+    end
+  end
+
   defmodule NativeFailureFactory do
     def ask_with_config(_server, _content, _agent, _opts) do
       {:ok,
@@ -260,6 +268,34 @@ defmodule Zaq.Agent.ExecutorTest do
   ]
 
   @base_incoming %Incoming{content: "q", channel_id: "c", provider: :web}
+
+  test "typing events carry the originating connector for the same provider and room" do
+    for config_id <- [41, 42] do
+      incoming =
+        %{@incoming | provider: :whatsapp, channel_id: "room@g.us"}
+        |> put_in([Access.key(:routing_context), Access.key(:channel_config_id)], config_id)
+
+      outgoing =
+        Executor.run(
+          incoming,
+          Keyword.merge(@base_opts,
+            node_router: TypingNodeRouter,
+            status_module: NativeStartStatus
+          )
+        )
+
+      refute outgoing.metadata[:error]
+
+      assert_receive {:typing_event,
+                      %Zaq.Event{
+                        request: %{
+                          provider: :whatsapp,
+                          channel_id: "room@g.us",
+                          channel_config_id: ^config_id
+                        }
+                      }}
+    end
+  end
 
   test "native failure retains the started assistant identity from the partial stream" do
     outgoing =
@@ -1152,6 +1188,43 @@ defmodule Zaq.Agent.ExecutorTest do
         assert question ==
                  "Author: \"Directory name\" [person:15]\n" <> expected_time <> "Message:\nBody"
       end
+    end
+
+    test "inline WhatsApp quote reaches the model without a captured original" do
+      incoming =
+        JidoChatBridge.to_internal(
+          %Jido.Chat.Incoming{
+            text: "@bot Explain this",
+            external_room_id: "group@g.us",
+            external_reply_to_id: "original",
+            reply_context: %Jido.Chat.ReplyContext{
+              external_message_id: "original",
+              text: "The launch is Friday",
+              author: %Jido.Chat.Author{user_id: "alice", user_name: "Alice"}
+            }
+          },
+          %{provider: :whatsapp, id: 42}
+        )
+
+      incoming = %{incoming | person: %{id: 15}}
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        scope: "coverage"
+      )
+
+      assert_received {:coverage_ask, question, _configured_agent, context}
+      assert question =~ "@bot Explain this"
+      assert question =~ "The launch is Friday"
+      assert question =~ ~s("author_id":"alice")
+      assert question =~ ~s("external_message_id":"original")
+      assert context.incoming.content == "@bot Explain this"
+      assert context.incoming.thread_id == nil
     end
 
     test "current attachment descriptors are visible to the model without runtime fields" do

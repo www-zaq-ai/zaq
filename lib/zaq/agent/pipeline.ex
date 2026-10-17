@@ -42,6 +42,7 @@ defmodule Zaq.Agent.Pipeline do
   require Logger
   alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
+  alias Zaq.Agent.InputPrompt
   alias Zaq.Agent.StreamEvents
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -107,7 +108,12 @@ defmodule Zaq.Agent.Pipeline do
          {:ok, retrieval_payload} <-
            hooks.dispatch_sync(:retrieval, %{content: content}, ctx),
          {:ok, retrieval_result} <-
-           do_retrieval(retrieval_payload.content, history, opts, incoming),
+           do_retrieval(
+             InputPrompt.append_reply_context(retrieval_payload.content, incoming.reply_context),
+             history,
+             opts,
+             incoming
+           ),
          :ok <- hooks.dispatch_async(:retrieval_complete, retrieval_result, ctx),
          {:ok, answering_payload} <-
            hooks.dispatch_sync(:answering, retrieval_result, ctx),

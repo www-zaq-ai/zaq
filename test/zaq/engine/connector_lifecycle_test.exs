@@ -1,5 +1,6 @@
 defmodule Zaq.Engine.ConnectorLifecycleTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ConnectorLifecycle
@@ -8,6 +9,11 @@ defmodule Zaq.Engine.ConnectorLifecycleTest do
   defmodule Router do
     def dispatch(%Event{opts: opts} = event) do
       send(self(), {:channels_call, opts[:action], event.request})
+
+      supplied = event.request[:config] || event.request[:after_config]
+      config = Zaq.Repo.get!(ChannelConfig, supplied.id)
+      state = {opts[:action], config.enabled, config.archived_at}
+      Process.put(:lifecycle_states, Process.get(:lifecycle_states, []) ++ [state])
 
       response =
         case {opts[:action], Process.get(:router_mode)} do
@@ -20,7 +26,11 @@ defmodule Zaq.Engine.ConnectorLifecycleTest do
           {:connector_teardown_ingress, _} ->
             Process.get(:teardown_response, {:ok, :not_required})
 
+          {:connector_prepare_disable, _} ->
+            Process.get(:disable_response, :ok)
+
           {:connector_sync_runtime, _} ->
+            if callback = Process.get(:on_runtime_stop), do: callback.()
             Process.get(:runtime_response, :ok)
         end
 
@@ -118,6 +128,7 @@ defmodule Zaq.Engine.ConnectorLifecycleTest do
     assert id == config.id
     refute Repo.get!(ChannelConfig, id).enabled
     assert_received {:channels_call, :connector_teardown_ingress, _}
+    assert_received {:channels_call, :connector_prepare_disable, _}
     assert_received {:channels_call, :connector_sync_runtime, _}
     assert {:error, :invalid_request} = ConnectorLifecycle.archive(:not_a_map, %{user_id: 1}, [])
 
@@ -185,16 +196,94 @@ defmodule Zaq.Engine.ConnectorLifecycleTest do
     end
   end
 
-  test "unexpected runtime response is pending after committed archive" do
+  test "unexpected runtime response leaves the connector disabled without archiving" do
     config = Repo.get!(ChannelConfig, Process.get(:config_id))
     config |> Ecto.Changeset.change(kind: "retrieval") |> Repo.update!()
     Process.put(:runtime_response, :unexpected)
     request = %{channel_config_id: config.id, provider: "disk", kind: "retrieval"}
 
-    assert {:ok, %{runtime: {:pending, {:unexpected_response, :unexpected}}}} =
+    assert {:error, {:runtime_stop_failed, {:unexpected_response, :unexpected}}} =
              ConnectorLifecycle.archive(request, %{user_id: 1}, router: Router)
 
+    refute Repo.get!(ChannelConfig, config.id).archived_at
+    refute Repo.get!(ChannelConfig, config.id).enabled
+  end
+
+  property "every adapter is disabled and stopped before archive persistence" do
+    check all(
+            provider <-
+              member_of(
+                ~w(whatsapp mattermost telegram slack disk web_widget email:smtp email:imap)
+              )
+          ) do
+      config =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "ordered",
+          enabled: false,
+          provider: provider,
+          kind: "retrieval",
+          url: "https://example.test",
+          token: "test-token",
+          settings: %{"imap" => %{"selected_mailboxes" => ["INBOX"]}}
+        })
+        |> Repo.insert!()
+        |> Ecto.Changeset.change(enabled: true)
+        |> Repo.update!()
+
+      Process.put(:lifecycle_states, [])
+
+      assert {:ok, %{status: :archived, runtime: :synced}} =
+               ConnectorLifecycle.archive(
+                 %{channel_config_id: config.id, provider: provider, kind: "retrieval"},
+                 %{user_id: 1},
+                 router: Router
+               )
+
+      assert Process.get(:lifecycle_states) == [
+               {:connector_teardown_ingress, true, nil},
+               {:connector_prepare_disable, true, nil},
+               {:connector_sync_runtime, false, nil}
+             ]
+
+      assert Repo.get!(ChannelConfig, config.id).archived_at
+      refute Repo.get!(ChannelConfig, config.id).enabled
+    end
+  end
+
+  test "adapter disable failure preserves enablement and prevents runtime stop", %{config: config} do
+    Process.put(:disable_response, {:error, :logout_failed})
+    assert {:error, {:disable_failed, :logout_failed}} = archive()
+    assert Repo.get!(ChannelConfig, config.id).enabled
+    refute Repo.get!(ChannelConfig, config.id).archived_at
+    refute_received {:channels_call, :connector_sync_runtime, _}
+  end
+
+  test "runtime stop failure can retry deletion without repeating adapter logout", %{
+    config: config
+  } do
+    Process.put(:runtime_response, {:error, :unavailable})
+    assert {:error, {:runtime_stop_failed, :unavailable}} = archive()
+    assert_received {:channels_call, :connector_prepare_disable, _}
+    refute Repo.get!(ChannelConfig, config.id).enabled
+    refute Repo.get!(ChannelConfig, config.id).archived_at
+
+    Process.put(:runtime_response, :ok)
+    assert {:ok, %{status: :archived}} = archive()
+    refute_received {:channels_call, :connector_prepare_disable, _}
     assert Repo.get!(ChannelConfig, config.id).archived_at
+  end
+
+  test "re-enabling during runtime shutdown prevents archival", %{config: config} do
+    Process.put(:on_runtime_stop, fn ->
+      Repo.get!(ChannelConfig, config.id)
+      |> Ecto.Changeset.change(enabled: true)
+      |> Repo.update!()
+    end)
+
+    assert {:error, :stale_connector} = archive()
+    assert Repo.get!(ChannelConfig, config.id).enabled
+    refute Repo.get!(ChannelConfig, config.id).archived_at
   end
 
   test "router non-event, raise, and exit at ingress fail closed" do

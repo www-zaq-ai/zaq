@@ -179,18 +179,12 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     config = Enum.find(socket.assigns.configs, &(to_string(&1.id) == id))
 
     case archive_configuration(socket, config) do
-      {:ok, result} ->
+      {:ok, _result} ->
         socket = socket |> reload(nil) |> assign(:modal_open, false)
-
-        message =
-          if match?({:pending, _}, result.runtime),
-            do: "Configuration archived; runtime cleanup is pending.",
-            else: "Configuration archived."
-
-        {:noreply, put_flash(socket, :info, message)}
+        {:noreply, put_flash(socket, :info, "Configuration archived.")}
 
       {:error, reason} ->
-        {:noreply, failure(socket, reason)}
+        {:noreply, socket |> reload(selected_id(socket)) |> failure(reason)}
     end
   end
 
@@ -507,6 +501,13 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   defp error_message(:invalid_request), do: "Invalid configuration request."
   defp error_message(:invalid_agent), do: "Choose a conversation-enabled agent."
   defp error_message(:connector_not_found), do: "Configuration not found or archived."
+
+  defp error_message({:runtime_stop_failed, _}),
+    do:
+      "The configuration is disabled, but its connection could not be stopped. Retry Delete to finish."
+
+  defp error_message({:disable_failed, _}),
+    do: "Could not disable the configuration. It was not deleted."
 
   defp error_message(:key_already_exists),
     do: "A key already exists. Use Rotate authentication key."

@@ -84,6 +84,65 @@ Stored `jido_chat` fields include bot name/user ID, message patterns and ingress
 overrides. SMTP and IMAP lookup helpers live in `Zaq.ConnectorConfig`; bridge/listener
 normalization remains provider-local in Channels.
 
+Confirmed logout and disable use the confidential `:disable_channel_connector`
+event and `Actions.DisableChannelConnector`. Both confirmation context and execution
+revalidate the current super-admin actor. `ConnectorLifecycle` validates exact
+provider/kind and a secret-free revision before requesting Channels logout. It holds
+no database row lock during logout, since adapter storage callbacks return to Engine.
+It locks and rechecks the revision before persisting `enabled: false`, then reconciles
+runtime shutdown. Logout failure leaves enablement unchanged; post-save runtime
+failure returns a pending stage. A persistence failure after successful provider
+logout cannot restore the remote session. Repeated already-disabled requests skip
+logout and retry runtime cleanup.
+
+### Connector credential documents
+
+[`Connect.CredentialDocuments`](../../lib/zaq/engine/connect/credential_documents.ex)
+provides atomic namespaced record operations over an encrypted canonical org
+`api_key` grant. Engine's synchronous `:credential_document` event requires both
+`confidential: true` and explicit trusted `credential_document_runtime: true`.
+It executes the runtime-only `CredentialDocument` Action through `Jido.Exec`.
+These flags are an internal caller contract, not authentication for arbitrary
+NodeRouter callers; BO, agent tools and workflows must not expose this primitive.
+
+The request carries `binding: %{channel_config_id: id, credential_id: id}` and
+`op: :get | :put | :put_many | :delete | :delete_namespace | :clear | :list_keys`, with `namespace`, `key` and binary
+`value` where applicable. The connector's `settings["credential_document_id"]`
+must match a grant-bound API-key credential of the same provider, with disabled
+personal policy and metadata `auth_profile_id: "credential_document_v1"`,
+`subject: "channel_config:<id>"`. The operation checks both sides on every call. Runtime sinks may also supply an
+`expected_provider`; Engine rejects a mismatch before provisioning or accessing records.
+Only the reference is stored in connector settings; document values remain encrypted.
+
+One transaction locks the connector, credential and canonical grant before reading
+and merging. Disabled/archived connectors and revoked, expired, absent or unusable
+grants fail closed. Writes reuse canonical grant replacement and preserve grant
+expiry. Changes enqueue the existing secret-free mutation notification in the same
+transaction; identical puts and absent deletes do not enqueue jobs. Routed success
+follows commit. In-process callers composing an outer transaction own its commit.
+`put_many` accepts `records: %{{namespace, key} => binary_value}` and merges the
+entire batch with one grant replacement and notification. Every record and the
+resulting document must satisfy the same limits as single writes; invalid batches
+are atomic and identical batches are silent. Pairing confirmation uses this operation
+after Channels obtains encoded records from the adapter package. Engine does not
+serialize provider protocol terms.
+`delete_namespace` atomically removes all records in one namespace, leaving other
+namespaces intact; removing an absent namespace is a silent no-op. Linked-device
+startup uses it to discard legacy database copies of now-volatile messaging state.
+
+Missing records return `:error`; unusable credentials, malformed documents and
+storage failures return sanitized `{:error, reason}` results. Versioned JSON stores
+Base64 binary values, bounded to 1 MiB per value and 16 MiB per document, with
+512-byte UTF-8 namespace/key limits. Consumers must treat the document as private
+runtime state, never as outbound HTTP authentication. See the module contract for
+return shapes and limits.
+
+`op: :bind` with `channel_config_id` provisions the association under the connector
+lock through canonical Connect configuration/grant persistence. Existing bindings
+are revalidated without replacing state or reactivating revoked grants. Linked-device
+pairing uses these existing Connect tables directly; see
+[Channels](channels.md#linked-device-integration).
+
 ### Conversations
 
 Channel history grant foundation: `Zaq.Permissions.ChannelHistoryResource` identifies
@@ -1312,11 +1371,13 @@ constant as the page grows to its 50-row bound.
 
 `ConnectorLifecycle.context/3` produces an exactly scoped, revisioned descriptor in
 Engine. `archive/2,3` validates scope/revision, stops data-source watches, requests
-confidential supplied-config provider teardown, then locks/rechecks the row and
-persists archival in Engine. It requests Channels runtime reconciliation and
-reconciles late watch cleanup afterward. Pre-archive failures
-leave the connector live. Runtime or cleanup failures after commit are returned as explicit
-pending stages, and retries resume the idempotent remaining work. BO callers and the
+confidential supplied-config provider teardown, and runs the optional adapter
+disable hook. It locks/rechecks the row to persist disablement, requires successful
+Channels runtime shutdown, then locks/rechecks again before archiving. Hook failures
+leave enablement unchanged; shutdown failures leave the connector disabled and
+unarchived. Retrying a disabled connector skips the hook and retries shutdown.
+Late watch cleanup is reconciled afterward and can return an explicit pending
+stage. No database row lock is held during adapter logout or runtime shutdown. BO callers and the
 `ArchiveChannelConnector` Action send only connector ID, provider, and kind with a current
 trusted actor.
 
@@ -1587,6 +1648,15 @@ the [Person email normalization runbook](../operations/person-email-normalizatio
 - All channel adapters must map their transport payload to this struct before passing to any
   ZAQ component.
 - When crossing nodes, this payload is carried in `%Zaq.Event.request`.
+
+Optional `external_reply_to_id` and `reply_context` preserve shallow quoted replies
+independently of native threads. `Incoming.new/1` normalizes quote text and author
+within the enclosing ingress scope. Quote text is limited to 8,000 characters,
+author fields to 255 characters, and reference IDs to 1,024 bytes (oversized IDs
+are rejected rather than truncated). Inline quotes persist in the replying
+message's `history_context` and are included in authorized canonical projections;
+they do not authorize original-message lookup. Agent input formatting leaves the
+admitted message content unchanged and explicitly marks quoted content as untrusted.
 
 ### Incoming Message Routing
 

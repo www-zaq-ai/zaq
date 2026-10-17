@@ -2,8 +2,10 @@ defmodule Zaq.People.IdentityResolverTest do
   use Zaq.DataCase, async: true
   import Zaq.CommunicationFixtures
 
+  alias Jido.Chat.WhatsApp.Adapter
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
+  alias Zaq.Channels.JidoChatBridge
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Incoming.RoutingContext
@@ -11,6 +13,65 @@ defmodule Zaq.People.IdentityResolverTest do
 
   alias Zaq.People.IdentityResolverTest.ErrorRouter
   alias Zaq.People.IdentityResolverTest.RaiseRouter
+
+  test "WhatsApp group authors share one identity across connector links" do
+    for sender <- ["15550001234@s.whatsapp.net", "1234567890@lid"] do
+      resolved =
+        for _ <- 1..2 do
+          config =
+            %ChannelConfig{}
+            |> ChannelConfig.changeset(%{
+              name: Ecto.UUID.generate(),
+              provider: "whatsapp",
+              kind: "retrieval"
+            })
+            |> Repo.insert!()
+
+          assert {:ok, chat} =
+                   Adapter.transform_incoming(%{
+                     id: Ecto.UUID.generate(),
+                     channel_jid: "120363000000000@g.us",
+                     from_jid: sender,
+                     from_me: false,
+                     pushname: "Test Sender",
+                     text: "hello"
+                   })
+
+          incoming = JidoChatBridge.to_internal(chat, config)
+          assert incoming.author_id == sender
+          assert {:ok, person} = IdentityResolver.resolve(incoming, channels_router: ErrorRouter)
+
+          assert {:ok, repeated} =
+                   IdentityResolver.resolve(incoming, channels_router: ErrorRouter)
+
+          assert repeated.id == person.id
+          assert is_nil(person.phone)
+          {incoming, person}
+        end
+
+      [{_, first}, {second_incoming, second}] = resolved
+      assert first.id == second.id
+      assert length(second.channels) == 2
+
+      assert MapSet.new(Enum.map(second.channels, & &1.channel_config_id)) ==
+               MapSet.new(
+                 Enum.map(resolved, fn {incoming, _} ->
+                   incoming.routing_context.channel_config_id
+                 end)
+               )
+
+      assert second.channels |> Enum.map(& &1.person_identity_id) |> Enum.uniq() |> length() == 1
+
+      for {_, person} <- resolved do
+        assert {:ok, _} = People.update_person(person, %{phone: sender})
+      end
+
+      assert {:ok, existing} =
+               IdentityResolver.resolve(second_incoming, channels_router: ErrorRouter)
+
+      assert existing.id == second.id
+    end
+  end
 
   defp incoming(overrides) do
     message =

@@ -8,6 +8,28 @@ defmodule Zaq.Engine.ChannelConfigTest do
   alias Zaq.System.SecretConfig
   alias Zaq.SystemConfigFixtures
 
+  test "multiple WhatsApp configurations do not require token or URL" do
+    configs =
+      for name <- ["WhatsApp Sales", "WhatsApp Support"] do
+        assert {:ok, config} =
+                 %ChannelConfig{}
+                 |> ChannelConfig.changeset(%{
+                   name: name,
+                   provider: "whatsapp",
+                   kind: "retrieval",
+                   enabled: false
+                 })
+                 |> Repo.insert()
+
+        assert config.token == ""
+        assert config.url == ""
+        config
+      end
+
+    assert [first, second] = configs
+    refute first.id == second.id
+  end
+
   # ── Token encryption ────────────────────────────────────────────────────
 
   test "token is stored encrypted in DB on insert" do

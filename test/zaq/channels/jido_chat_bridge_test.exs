@@ -310,6 +310,14 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   defmodule StubAdapterGetUser do
+    alias Jido.Chat.UserInfo
+
+    def get_user("phone-only", _opts),
+      do: {:ok, UserInfo.new(%{id: "phone-only", metadata: %{phone: "+15550001"}})}
+
+    def get_user("explicit-empty-name", _opts),
+      do: {:ok, UserInfo.new(%{id: "explicit-empty-name", display_name: ""})}
+
     def get_user(author_id, opts) do
       send(self(), {:adapter_get_user, author_id, opts})
 
@@ -1096,6 +1104,21 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   describe "handle_from_listener/3" do
     @config %{url: "https://mm.example.com", token: "tok", bot_name: "zaq", bot_user_id: "bot-1"}
+
+    test "historical replies do not notify waiting reply hooks" do
+      incoming = %ChatIncoming{
+        text: "Old reply",
+        external_room_id: "chan-1",
+        external_thread_id: "root-post-id",
+        external_message_id: "historical-reply",
+        author: %Author{user_id: "sme-1", user_name: "alice"},
+        metadata: %{history: true}
+      }
+
+      assert :ok = JidoChatBridge.handle_from_listener(@config, incoming, [])
+      refute_received {:reply_received, _}
+      refute_received {:pipeline_run, _, _}
+    end
 
     test "thread reply dispatches :reply_received hook and returns :ok" do
       incoming = %ChatIncoming{
@@ -3360,6 +3383,20 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       end)
 
       :ok
+    end
+
+    test "omits unknown UserInfo fields while preserving supplied values" do
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{bridge: Zaq.Channels.JidoChatBridge, adapter: StubAdapterGetUser}
+      })
+
+      details = %{provider: "mattermost", url: "https://mm.example.com", token: "tok"}
+
+      assert {:ok, profile} = JidoChatBridge.fetch_profile("phone-only", details)
+      assert profile == %{"phone" => "+15550001"}
+
+      assert {:ok, profile} = JidoChatBridge.fetch_profile("explicit-empty-name", details)
+      assert profile == %{"display_name" => ""}
     end
 
     test "returns mapped canonical profile when adapter supports get_user/2" do

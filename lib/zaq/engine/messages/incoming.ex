@@ -15,6 +15,7 @@ defmodule Zaq.Engine.Messages.Incoming do
 
   alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.ConversationIdentity
+  alias Zaq.Engine.Messages.Incoming.ReplyContext
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Identity.ActorNormalizer
 
@@ -27,6 +28,8 @@ defmodule Zaq.Engine.Messages.Incoming do
     :author_name,
     :thread_id,
     :message_id,
+    :external_reply_to_id,
+    :reply_context,
     :provider,
     :person,
     attachments: [],
@@ -43,6 +46,8 @@ defmodule Zaq.Engine.Messages.Incoming do
           author_name: String.t() | nil,
           thread_id: String.t() | nil,
           message_id: String.t() | nil,
+          external_reply_to_id: String.t() | nil,
+          reply_context: map() | nil,
           provider: atom() | String.t(),
           person: map() | nil,
           attachments: [Record.t()],
@@ -67,6 +72,8 @@ defmodule Zaq.Engine.Messages.Incoming do
       author_name: fetch_optional(attrs, :author_name),
       thread_id: attrs |> fetch_optional(:thread_id) |> ConversationIdentity.normalize(),
       message_id: attrs |> fetch_optional(:message_id) |> ConversationIdentity.normalize(),
+      external_reply_to_id:
+        attrs |> fetch_optional(:external_reply_to_id) |> ReplyContext.normalize_reference(),
       person: normalize_person(fetch_optional(attrs, :person)),
       routing_context: routing_context,
       is_dm: fetch_optional(attrs, :is_dm) == true,
@@ -74,6 +81,14 @@ defmodule Zaq.Engine.Messages.Incoming do
       metadata: metadata
     }
 
+    reply_context =
+      ReplyContext.normalize(
+        fetch_optional(attrs, :reply_context),
+        incoming,
+        incoming.external_reply_to_id
+      )
+
+    incoming = %{incoming | reply_context: reply_context}
     put_telemetry_dimensions(incoming, attrs)
   end
 
