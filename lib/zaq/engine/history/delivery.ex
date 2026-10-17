@@ -14,6 +14,15 @@ defmodule Zaq.Engine.History.Delivery do
   @doc "Records a confirmed delivery when its original history scope is available."
   def capture(response, outgoing, opts \\ [])
 
+  # A reserved UUID is not a stored Message. Unknown legacy evidence still
+  # follows the existing canonical lookup/association path below.
+  def capture(
+        {:ok, %{confirmation: :confirmed} = receipt},
+        %Outgoing{metadata: %{persisted_assistant_message_id: nil}},
+        _opts
+      ),
+      do: {:ok, receipt}
+
   def capture(
         {:ok, %{confirmation: :confirmed} = receipt},
         %Outgoing{routing_context: %{channel_config_id: id}} = outgoing,

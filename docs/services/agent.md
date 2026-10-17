@@ -266,6 +266,8 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
   A contradictory outgoing or persisted UUID blocks delivery; persistence must not
   silently replace live identity. `assistant_message_id` remains the reservation,
   while `persisted_assistant_message_id` records an actual persisted answer UUID.
+  An explicit no-answer finalization result retains that evidence key with nil;
+  older acknowledgements lacking an answer-identity field leave it absent.
   A legacy acknowledgement without that UUID does not manufacture persistence
   evidence. Queue acknowledgements carry the active root's assistant UUID but do
   not finalize another answer. Provider edit handles and request/input IDs remain

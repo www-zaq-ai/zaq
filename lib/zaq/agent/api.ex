@@ -870,16 +870,26 @@ defmodule Zaq.Agent.Api do
         :conversation_id,
         Map.get(persisted, :conversation_id) || Map.get(persisted, "conversation_id")
       )
-      |> maybe_put_persisted(
-        :persisted_assistant_message_id,
-        Map.get(persisted, :assistant_message_id) || Map.get(persisted, "assistant_message_id")
-      )
+      |> put_persisted_answer_identity(persisted)
       |> maybe_put_persisted(
         :user_message_id,
         Map.get(persisted, :user_message_id) || Map.get(persisted, "user_message_id")
       )
 
     %{outgoing | metadata: metadata}
+  end
+
+  defp put_persisted_answer_identity(metadata, persisted) do
+    if Map.has_key?(persisted, :assistant_message_id) or
+         Map.has_key?(persisted, "assistant_message_id") do
+      Map.put(
+        metadata,
+        :persisted_assistant_message_id,
+        Map.get(persisted, :assistant_message_id) || Map.get(persisted, "assistant_message_id")
+      )
+    else
+      metadata
+    end
   end
 
   defp maybe_put_persisted(metadata, _key, nil), do: metadata

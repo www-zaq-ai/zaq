@@ -4,10 +4,64 @@ defmodule Zaq.Engine.History.DeliveryTest do
   use ExUnitProperties
 
   alias Zaq.Accounts.People
+  alias Zaq.Channels.DeliveryConfirmation
   alias Zaq.Engine.{ChannelConfig, Conversations, HistoryDeliveryWorker}
   alias Zaq.Engine.Conversations.{Message, Transcript}
   alias Zaq.Engine.History.Delivery
   alias Zaq.Engine.Messages.Outgoing
+
+  defmodule ConfirmationRouter do
+    alias Zaq.Engine.Api
+
+    def dispatch(event), do: Api.handle_event(event, :record_delivery_confirmation, nil)
+  end
+
+  test "confirmed transport for a reserved failed answer does not look up or place an absent Message" do
+    config = connector()
+    {:ok, conversation} = Conversations.create_conversation(%{channel_type: "api"})
+    token = Ecto.UUID.generate()
+
+    input =
+      %Message{}
+      |> Message.changeset(%{
+        conversation_id: conversation.id,
+        role: "user",
+        content: "Question",
+        metadata: %{
+          "execution_status" => "pending",
+          "finalization_token_hash" => :crypto.hash(:sha256, token) |> Base.encode64()
+        }
+      })
+      |> Repo.insert!()
+
+    assert {:ok, reservation} = Conversations.reserve_answer_identity(input.id, token)
+    assert {:ok, failed} = Conversations.finalize_incoming(input.id, token, %{error: true})
+    assert failed.assistant_message_id == nil
+
+    outgoing = %{
+      outgoing(config.id, :room)
+      | metadata: %{
+          user_message_id: input.id,
+          assistant_message_id: reservation.assistant_message_id,
+          persisted_assistant_message_id: failed.assistant_message_id
+        }
+    }
+
+    receipt = %{confirmation: :confirmed, message_id: "provider-post"}
+
+    {result, queries} =
+      Zaq.QueryRecorder.capture(fn ->
+        DeliveryConfirmation.record({:ok, receipt}, outgoing,
+          delivery_node_router: ConfirmationRouter
+        )
+      end)
+
+    assert result == {:ok, receipt}
+    assert queries == []
+    assert Repo.aggregate(Message, :count) == 1
+    assert Repo.aggregate(Transcript, :count) == 0
+    refute_enqueued(worker: HistoryDeliveryWorker)
+  end
 
   test "unsupported conversation type preserves a confirmed receipt without attempting history capture" do
     config = connector()

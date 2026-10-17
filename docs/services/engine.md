@@ -1153,6 +1153,11 @@ before reducing assistant-bearing events; native rejection does not reserve the
 provisional input. Queued-input receipts carry their root's assistant UUID separately
 from input/execution references. Successful finalization uses an existing reservation
 as the inserted Message UUID, including for Message-only legacy admissions.
+Delivery confirmation forwards the existing persisted-answer evidence separately
+from reservation. Engine history policy preserves transport success but skips
+association when `persisted_assistant_message_id` is explicitly nil; an absent
+legacy evidence field still follows the existing canonical validation path.
+This does not change standalone message creation or finalization replay behavior.
 
 Available runtime timings and turn/model/tool-call measurements are retained in
 the root's private `outcome["measurements"]`, for success and handled failure.

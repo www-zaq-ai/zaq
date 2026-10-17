@@ -15,7 +15,12 @@ defmodule Zaq.Channels.DeliveryConfirmation do
 
     outgoing = %{
       outgoing
-      | metadata: Map.take(outgoing.metadata || %{}, [:user_message_id, :assistant_message_id])
+      | metadata:
+          Map.take(outgoing.metadata || %{}, [
+            :user_message_id,
+            :assistant_message_id,
+            :persisted_assistant_message_id
+          ])
     }
 
     event =

@@ -155,12 +155,40 @@ defmodule Zaq.Agent.ApiTest do
           {:reserve_answer_identity, "refused"} -> {:error, :unavailable}
           {:reserve_answer_identity, _} -> {:ok, %{assistant_message_id: @answer}}
           {:finalize_incoming, "conflict"} -> {:ok, %{assistant_message_id: @other}}
+          {:finalize_incoming, "no-answer"} -> {:ok, %{assistant_message_id: nil}}
           {:finalize_incoming, _} -> {:ok, %{assistant_message_id: @answer}}
           _ -> :ok
         end
 
       %{event | response: response}
     end
+  end
+
+  defmodule NoAnswerPipeline do
+    def run(%Incoming{} = incoming, _opts) do
+      Outgoing.from_pipeline_result(incoming, %{answer: "Unable to answer", error: true})
+    end
+  end
+
+  test "an explicit no-answer persistence result keeps reservation but marks absent stored identity" do
+    incoming = %Incoming{content: "Question", channel_id: "channel", provider: :web}
+
+    event =
+      pipeline_event(incoming,
+        trace_id: "no-answer",
+        opts: [
+          pipeline_module: NoAnswerPipeline,
+          node_router: CorrelationRouter,
+          status_module: NoopStatus,
+          prompt_guard: PassthroughPromptGuard
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+    assert %Outgoing{} = result.response
+    assert result.response.metadata.assistant_message_id == "11111111-1111-4111-8111-111111111111"
+    assert Map.has_key?(result.response.metadata, :persisted_assistant_message_id)
+    assert result.response.metadata.persisted_assistant_message_id == nil
   end
 
   test "nonstreaming answers reserve before finalization and preserve persistence evidence" do
