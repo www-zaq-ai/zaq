@@ -71,7 +71,7 @@ Use this to decide where new code belongs. When a function would violate the "Do
 | `ProviderSpec.Registry` and provider implementations | Static provider selection and pure provider-specific ReqLLM translation | Credential lookup/selection, authorization, OAuth protocol, HTTP, persistence |
 | `Factory` | Model spec assembly (`build_model_spec/0,1`), `ask/ask_with_config`, generation opts | Provider/URL logic (delegated to `ProviderSpec`), credential resolution, pipeline orchestration |
 | `Executor` | Configured-agent lifecycle, config loading, factory delegation, `:answering` status broadcast | LLM call details, response struct construction |
-| `StreamEvents` | Request-local stream reduction, realtime buffered updates, trace/tool capture, model/measurement extraction | Server lifecycle, provider config, persistence |
+| `StreamEvents` | Request-local stream reduction, accepted-answer correlation and native-input evidence dispatch, buffered updates, trace/tool capture, model/measurement extraction | Server lifecycle, provider config, database persistence or outcome finalization |
 | `ServerManager` | `AgentServer` start/stop/lookup per configured agent id | Provider logic, URL handling, answer building, branching by agent type |
 | `Pipeline` | Orchestration of retrieval → answering steps, hook dispatch | LLM calls, response struct construction, agent-type branches, status broadcasts |
 | `Answering` | Answer extraction, `Result` struct, telemetry | Agent lifecycle, provider/credential details |
