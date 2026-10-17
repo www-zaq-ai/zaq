@@ -48,7 +48,7 @@ defmodule Zaq.Agent.StreamEvents do
       Enum.reduce_while(events, state, fn event, state ->
         state = handle_event(event, state)
 
-        if terminal_kind?(kind(event)),
+        if state.answer_binding_failed or terminal_kind?(kind(event)),
           do: {:halt, flush(state, force?: true, now: field(event, :at_ms))},
           else: {:cont, state}
       end)
@@ -72,6 +72,9 @@ defmodule Zaq.Agent.StreamEvents do
       status_module: Keyword.get(opts, :status_module, Status),
       notify_execution_lifecycle: Keyword.get(opts, :notify_execution_lifecycle, false),
       execution_started: false,
+      conversation_binding: Keyword.get(opts, :conversation_binding),
+      answer_binding_ready: false,
+      answer_binding_failed: false,
       request_id: actual_request_id(Keyword.get(opts, :request), incoming),
       actor: Keyword.get(opts, :actor),
       execution_scope: Keyword.get(opts, :execution_scope),
@@ -102,7 +105,66 @@ defmodule Zaq.Agent.StreamEvents do
     }
   end
 
-  defp handle_event(event, state), do: handle_event(kind(event), event, state)
+  defp handle_event(event, state) do
+    state = bind_selected_answer(kind(event), state)
+
+    if state.answer_binding_failed,
+      do: state,
+      else: handle_event(kind(event), event, state)
+  end
+
+  defp bind_selected_answer(
+         kind,
+         %{answer_binding_ready: false, conversation_binding: binding} = state
+       )
+       when is_map(binding) and
+              kind in [
+                :request_started,
+                :llm_started,
+                :llm_delta,
+                :llm_completed,
+                :tool_started,
+                :tool_completed,
+                :request_completed
+              ] do
+    request = %{
+      user_message_id: Map.get(binding, :user_message_id, binding["user_message_id"]),
+      execution_id: Map.get(binding, :execution_id, binding["execution_id"]),
+      finalization_token: Map.get(binding, :finalization_token, binding["finalization_token"])
+    }
+
+    if is_binary(request.finalization_token) do
+      reserve_selected_answer(state, request)
+    else
+      state
+    end
+  end
+
+  defp bind_selected_answer(_kind, state), do: state
+
+  defp reserve_selected_answer(state, request) do
+    event =
+      Event.new(request, :engine,
+        actor: state.actor,
+        opts: [action: :reserve_answer_identity, confidential: true]
+      )
+
+    case state.node_router.dispatch(event) do
+      %{response: {:ok, %{assistant_message_id: id}}} when is_binary(id) ->
+        incoming = %{
+          state.incoming
+          | metadata: Map.put(state.incoming.metadata, :assistant_message_id, id)
+        }
+
+        %{state | incoming: incoming, answer_binding_ready: true}
+
+      %{response: {:error, reason}} ->
+        %{state | error: {:answer_identity_failed, reason}, answer_binding_failed: true}
+
+      _ ->
+        %{state | error: {:answer_identity_failed, :unavailable}, answer_binding_failed: true}
+    end
+  end
 
   defp handle_event(
          :request_started,

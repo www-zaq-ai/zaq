@@ -286,7 +286,8 @@ defmodule Zaq.Engine.Conversations.ExecutionLifecycle do
         do: {"queued", child.outcome},
         else: {"unconsumed", Map.put(child.outcome, "reason", "terminal_request")}
 
-    with {:ok, child} <-
+    with {:ok, _binding} <- reserve_queued_answer(root),
+         {:ok, child} <-
            child
            |> ExecutionRecord.changeset(%{
              root_execution_id: root.id,
@@ -303,16 +304,28 @@ defmodule Zaq.Engine.Conversations.ExecutionLifecycle do
   end
 
   defp input_receipt(child) do
+    root = Repo.get!(ExecutionRecord, child.root_execution_id)
+    answer_id = root.reserved_answer_message_id || root.public_answer_message_id
+
     %{
+      assistant_message_id: answer_id,
       execution_id: child.id,
       root_execution_id: child.root_execution_id,
       refs: %{
+        assistant_message_id: answer_id,
         message_id: child.user_message_id,
         execution_id: child.id,
         root_execution_id: child.root_execution_id
       }
     }
   end
+
+  defp reserve_queued_answer(
+         %ExecutionRecord{status: "pending", reserved_answer_message_id: nil} = root
+       ),
+       do: persist_reservation(root, Ecto.UUID.generate())
+
+  defp reserve_queued_answer(_root), do: {:ok, nil}
 
   @doc "Marks only this root's queued receipt as consumed, idempotently."
   def consume(root_input, child_input, opts \\ []) do

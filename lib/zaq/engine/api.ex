@@ -334,6 +334,21 @@ defmodule Zaq.Engine.Api do
     %{event | response: response}
   end
 
+  def handle_event(%Event{} = event, :reserve_answer_identity, _context) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           %{user_message_id: id, finalization_token: token} <- event.request do
+        Conversations.reserve_answer_identity(id, token,
+          actor: event.actor,
+          execution_id: event.request[:execution_id]
+        )
+      else
+        _ -> {:error, :confidential_event_required}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, :finalize_incoming, _context) do
     response =
       with {:ok, _actor} <- ExecutionActor.validate(event.actor),

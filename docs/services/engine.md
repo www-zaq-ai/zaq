@@ -1147,8 +1147,12 @@ existing capability gate and store the reservation in private input metadata ins
 of manufacturing a Person-bound execution. Reservation creates no assistant content
 or transcript placement. The additive `20261016000000_add_reserved_answer_identity`
 migration copies existing completed answer UUIDs, leaves pending roots unreserved,
-and refuses rollback while any reservation lacks a persisted answer. Agent adoption
-and finalization under the reserved UUID are tracked by `zaq-cbc`.
+and refuses rollback while any reservation lacks a persisted answer. Accepted Agent
+streams request this identity through confidential `:reserve_answer_identity` dispatch
+before reducing assistant-bearing events; native rejection does not reserve the
+provisional input. Queued-input receipts carry their root's assistant UUID separately
+from input/execution references. Successful finalization uses an existing reservation
+as the inserted Message UUID, including for Message-only legacy admissions.
 
 Available runtime timings and turn/model/tool-call measurements are retained in
 the root's private `outcome["measurements"]`, for success and handled failure.

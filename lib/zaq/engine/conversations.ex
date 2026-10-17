@@ -1540,7 +1540,11 @@ defmodule Zaq.Engine.Conversations do
            ),
          {:ok, assistant_message} <-
            Repo.insert(
-             message_changeset(%Conversation{id: user_message.conversation_id}, assistant_attrs)
+             message_changeset(
+               %Conversation{id: user_message.conversation_id},
+               assistant_attrs,
+               reserved_answer_id(user_message, opts[:execution_id])
+             )
            ),
          {:ok, _artifacts} <-
            insert_trace_artifacts(Repo, assistant_message, artifacts, artifact_max_bytes(opts)),
@@ -2305,9 +2309,16 @@ defmodule Zaq.Engine.Conversations do
     end
   end
 
-  defp message_changeset(%Conversation{} = conversation, attrs) do
+  defp reserved_answer_id(input, execution_id) do
+    case ExecutionLifecycle.fetch(input, execution_id) do
+      {:ok, nil} -> input.metadata["reserved_answer_message_id"]
+      {:ok, execution} -> execution.reserved_answer_message_id
+    end
+  end
+
+  defp message_changeset(%Conversation{} = conversation, attrs, message_id \\ nil) do
     attrs_with_id = Map.put(attrs, :conversation_id, conversation.id)
-    Message.changeset(%Message{}, attrs_with_id)
+    Message.changeset(%Message{id: message_id}, attrs_with_id)
   end
 
   defp after_message_insert(%Conversation{} = conversation, %Message{} = message) do

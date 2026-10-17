@@ -2,8 +2,89 @@ defmodule Zaq.Engine.Conversations.AnswerReservationTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Accounts.People
+  alias Zaq.Agent.StreamEvents
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{Conversation, ExecutionRecord, Message}
+  alias Zaq.Engine.Messages.Incoming
+
+  defmodule EngineRouter do
+    alias Zaq.Engine.Api
+
+    def dispatch(event), do: Api.handle_event(event, event.opts[:action], %{})
+  end
+
+  defmodule CapturedStatus do
+    def broadcast(incoming, stage, _message, _router, _opts) do
+      send(self(), {:assistant_event, stage, incoming.metadata[:assistant_message_id]})
+      incoming
+    end
+  end
+
+  test "native acceptance binds the Engine UUID before any assistant stream event" do
+    {input, execution, token, opts} = fixture()
+
+    incoming =
+      Incoming.new(%{content: "Question", channel_id: "test", provider: :web})
+
+    binding = %{user_message_id: input.id, execution_id: execution.id, finalization_token: token}
+
+    events = [
+      %{kind: :request_started, at_ms: 0, data: %{}},
+      %{kind: :request_started, at_ms: 1, data: %{}},
+      %{kind: :llm_delta, at_ms: 10, data: %{chunk_type: :content, delta: "hello"}},
+      %{kind: :request_completed, at_ms: 20, data: %{result: "hello"}}
+    ]
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, incoming,
+               conversation_binding: binding,
+               actor: opts[:actor],
+               node_router: EngineRouter,
+               status_module: CapturedStatus,
+               notify_execution_lifecycle: true
+             )
+
+    id = Repo.get!(ExecutionRecord, execution.id).reserved_answer_message_id
+    assert is_binary(id)
+    assert result.incoming.metadata.assistant_message_id == id
+    assert_receive {:assistant_event, :execution_started, ^id}
+    assert_receive {:assistant_event, :answering, ^id}
+    refute_received {:assistant_event, :execution_started, _}
+  end
+
+  test "reservation refusal stops output and native rejection leaves a provisional input unreserved" do
+    {input, execution, token, opts} = fixture(admitted: false)
+
+    incoming =
+      Incoming.new(%{content: "Question", channel_id: "test", provider: :web})
+
+    binding = %{user_message_id: input.id, execution_id: execution.id, finalization_token: token}
+
+    stream_opts = [
+      conversation_binding: binding,
+      actor: opts[:actor],
+      node_router: EngineRouter,
+      status_module: CapturedStatus,
+      notify_execution_lifecycle: true
+    ]
+
+    assert {:error, {:answer_identity_failed, :admission_required}, _} =
+             StreamEvents.consume(
+               [%{kind: :request_started, at_ms: 0, data: %{}}],
+               incoming,
+               stream_opts
+             )
+
+    assert {:error, :busy, _} =
+             StreamEvents.consume(
+               [%{kind: :request_failed, at_ms: 0, data: %{error: :busy}}],
+               incoming,
+               stream_opts
+             )
+
+    refute_received {:assistant_event, _, _}
+    assert Repo.get!(ExecutionRecord, execution.id).reserved_answer_message_id == nil
+  end
 
   test "reservation is stable without creating a Message or a persisted-answer link" do
     {input, execution, token, opts} = fixture()
@@ -44,6 +125,18 @@ defmodule Zaq.Engine.Conversations.AnswerReservationTest do
 
     assert id == answer.id
     assert Repo.get!(ExecutionRecord, execution.id).reserved_answer_message_id == id
+  end
+
+  test "legacy successful finalization persists under its earlier reservation" do
+    {input, _execution, token, _opts} = fixture(legacy: true)
+    assert {:ok, binding} = Conversations.reserve_answer_identity(input.id, token)
+
+    assert {:ok, %{assistant_message_id: id}} =
+             Conversations.finalize_incoming(input.id, token, %{answer: "Answer"})
+
+    assert id == binding.assistant_message_id
+    assert Repo.get!(Message, id).role == "assistant"
+    assert Repo.aggregate(ExecutionRecord, :count) == 0
   end
 
   test "legacy completed answers retain their canonical UUID and conflicting metadata fails closed" do

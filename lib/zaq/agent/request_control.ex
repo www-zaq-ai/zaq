@@ -121,6 +121,7 @@ defmodule Zaq.Agent.RequestControl do
             Keyword.get(input_opts, :extra_refs),
             followup?
           )
+          |> include_answer_binding(input_opts, opts)
 
         {:error, {:closed_before_accept, receipt}} when followup? ->
           {:followup, followup_binding(state, request_id, receipt.refs)}
@@ -130,6 +131,17 @@ defmodule Zaq.Agent.RequestControl do
       end
     end
   end
+
+  defp include_answer_binding({:ok, result}, input_opts, opts) do
+    if opts[:include_answer_binding] do
+      refs = Keyword.get(input_opts, :extra_refs, %{})
+      {:ok, %{result: result, assistant_message_id: refs[:assistant_message_id]}}
+    else
+      {:ok, result}
+    end
+  end
+
+  defp include_answer_binding(result, _input_opts, _opts), do: result
 
   defp authorize_input(event, request_id, nil, _content), do: authorize(event, request_id)
 
@@ -201,14 +213,16 @@ defmodule Zaq.Agent.RequestControl do
       {:ok, {request_id, _state}} ->
         case control(event, request_id, incoming.content, :steer_request, binding,
                followup?: true,
+               include_answer_binding: true,
                attachments: incoming.attachments
              ) do
-          {:ok, _} ->
+          {:ok, accepted} ->
             {:queued,
              Outgoing.from_pipeline_result(incoming, %{
                answer: "",
                error: false,
                execution_disposition: "queued",
+               assistant_message_id: accepted.assistant_message_id,
                root_request_id: request_id
              })}
 

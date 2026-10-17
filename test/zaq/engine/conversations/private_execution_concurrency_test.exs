@@ -163,6 +163,61 @@ defmodule Zaq.Engine.Conversations.PrivateExecutionConcurrencyTest do
     end
   end
 
+  test "queued input shares the root answer and a recovered root gets its own UUID", fixture do
+    Sandbox.unboxed_run(Repo, fn ->
+      assert {:ok, receipt} =
+               Conversations.queue_execution_input(
+                 fixture.root.user_message_id,
+                 fixture.child,
+                 fixture.actor
+               )
+
+      assert {:ok, root_binding} = reserve(fixture)
+      assert receipt.assistant_message_id == root_binding.assistant_message_id
+      assert receipt.refs.assistant_message_id == root_binding.assistant_message_id
+
+      child = Repo.get!(ExecutionRecord, receipt.execution_id)
+      assert child.reserved_answer_message_id == nil
+      assert child.status == "queued"
+
+      assert :ok =
+               Conversations.reject_execution_input(
+                 fixture.root.user_message_id,
+                 fixture.child.user_message_id,
+                 fixture.actor,
+                 :closed_before_accept
+               )
+
+      assert {:ok, finalized} = finalize(fixture)
+      assert finalized.assistant_message_id == root_binding.assistant_message_id
+
+      request = %{
+        root_user_message_id: fixture.root.user_message_id,
+        root_execution_id: receipt.root_execution_id,
+        receipt_execution_id: receipt.execution_id,
+        binding: fixture.child,
+        content: "Correction",
+        disposition: :closed_before_accept
+      }
+
+      assert {:ok, recovered} = Conversations.prepare_execution_followup(request, fixture.actor)
+
+      assert {:ok, recovered_binding} =
+               Conversations.reserve_answer_identity(
+                 recovered.user_message_id,
+                 recovered.finalization_token,
+                 execution_id: recovered.execution_id,
+                 actor: fixture.actor
+               )
+
+      assert recovered_binding.assistant_message_id != root_binding.assistant_message_id
+      assert recovered_binding.public_answer_message_id == nil
+
+      assert {:ok, :already_prepared} =
+               Conversations.prepare_execution_followup(request, fixture.actor)
+    end)
+  end
+
   for contender <- [:finalize, :queue, :consume] do
     test "private root finalization fences #{contender} on an independent database connection",
          fixture do

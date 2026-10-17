@@ -252,6 +252,7 @@ defmodule Zaq.Agent.Executor do
                execution_scope: Keyword.get(execution_opts, :scope),
                execution_user_message_id: execution_input_id(execution_opts),
                execution_id: execution_record_id(execution_opts),
+               conversation_binding: Keyword.get(execution_opts, :conversation_binding),
                started_at: started_at,
                server_id: server_ref,
                runtime_pid: runtime_pid,
@@ -630,10 +631,15 @@ defmodule Zaq.Agent.Executor do
     {context, stream_opts} = Keyword.pop(opts, :busy_context)
 
     case StreamEvents.consume(events, incoming, stream_opts) do
-      {:error, reason, _partial} = error ->
-        if reusable_runtime_rejection?(reason) and Keyword.get(context.opts, :canonical_execution),
-          do: queue_busy_input(Keyword.get(stream_opts, :runtime_pid), context),
-          else: error
+      {:error, reason, partial} = error ->
+        # Once the native request selected an answer root, its input cannot be
+        # rebound to another root even if a later error resembles a busy refusal.
+        selected_answer = partial.incoming.metadata[:assistant_message_id]
+
+        if is_nil(selected_answer) and reusable_runtime_rejection?(reason) and
+             Keyword.get(context.opts, :canonical_execution),
+           do: queue_busy_input(Keyword.get(stream_opts, :runtime_pid), context),
+           else: error
 
       result ->
         result
@@ -651,7 +657,7 @@ defmodule Zaq.Agent.Executor do
                factory_module: Keyword.get(opts, :factory_module, Factory)
              ]
            ),
-         {:ok, _} <-
+         {:ok, accepted} <-
            RequestControl.control(
              event,
              request_id,
@@ -659,6 +665,7 @@ defmodule Zaq.Agent.Executor do
              :steer_request,
              Keyword.get(opts, :conversation_binding),
              followup?: Keyword.get(opts, :live_followup, false),
+             include_answer_binding: true,
              attachments: incoming.attachments
            ) do
       {:queued,
@@ -666,6 +673,7 @@ defmodule Zaq.Agent.Executor do
          answer: "",
          error: false,
          execution_disposition: "queued",
+         assistant_message_id: accepted.assistant_message_id,
          root_request_id: request_id
        })}
     end
