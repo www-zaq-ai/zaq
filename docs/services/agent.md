@@ -260,6 +260,16 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - Both `prompt_guard:` and `status_module:` are injectable via event opts for testing
 - `Zaq.Agent.Executor` loads the configured agent (or default answering agent), ensures server presence, broadcasts `:answering`, delegates dispatch to `Factory`, then consumes stream events through `StreamEvents`
 - **Auditability rule (mandatory):** Engine admits and persists the incoming user message before Agent dispatch. `Zaq.Agent.Api` then finalizes the returned success or handled failure against that user-message ID before scheduling `:deliver_outgoing`. If finalization fails, the API returns `{:error, {:persist_failed, reason}}`, logs a sanitized reason, and does not deliver the generated answer. Agent keeps trace collection request-local; handled failures retain the trace at finalization, while process/node crashes are a separate durability guarantee.
+- **Assistant identity:** accepted streams obtain their selected root's Engine UUID
+  before assistant-bearing output. API rechecks that reservation before finalizing
+  channel-bound responses, including nonstreaming and pre-stream handled failures.
+  A contradictory outgoing or persisted UUID blocks delivery; persistence must not
+  silently replace live identity. `assistant_message_id` remains the reservation,
+  while `persisted_assistant_message_id` records an actual persisted answer UUID.
+  A legacy acknowledgement without that UUID does not manufacture persistence
+  evidence. Queue acknowledgements carry the active root's assistant UUID but do
+  not finalize another answer. Provider edit handles and request/input IDs remain
+  separate; internal provider-less calls keep their existing non-persisting path.
 - Runtime sync actions also enter through `Zaq.Agent.Api` and call `Zaq.Agent.RuntimeSync`:
   - `:configured_agent_updated`
   - `:configured_agent_deleted`

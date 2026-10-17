@@ -131,7 +131,101 @@ defmodule Zaq.Agent.ApiTest do
 
     def dispatch(event) do
       send(self(), {:node_router_dispatch, Keyword.get(event.opts, :action), event})
-      %{event | response: :ok}
+
+      response =
+        if event.opts[:action] == :reserve_answer_identity,
+          do: {:ok, %{assistant_message_id: "11111111-1111-4111-8111-111111111111"}},
+          else: :ok
+
+      %{event | response: response}
+    end
+  end
+
+  defmodule CorrelationRouter do
+    @answer "11111111-1111-4111-8111-111111111111"
+    @other "22222222-2222-4222-8222-222222222222"
+
+    def dispatch(event) do
+      action = event.opts[:action]
+      send(self(), {:correlation_dispatch, action, event})
+
+      response =
+        case {action, event.trace_id} do
+          {:admit_execution, _} -> {:ok, %{kind: :legacy}}
+          {:reserve_answer_identity, "refused"} -> {:error, :unavailable}
+          {:reserve_answer_identity, _} -> {:ok, %{assistant_message_id: @answer}}
+          {:finalize_incoming, "conflict"} -> {:ok, %{assistant_message_id: @other}}
+          {:finalize_incoming, _} -> {:ok, %{assistant_message_id: @answer}}
+          _ -> :ok
+        end
+
+      %{event | response: response}
+    end
+  end
+
+  test "nonstreaming answers reserve before finalization and preserve persistence evidence" do
+    incoming = %Incoming{content: "Question", channel_id: "channel", provider: :web}
+
+    event =
+      pipeline_event(incoming,
+        opts: [
+          pipeline_module: StubPipeline,
+          node_router: CorrelationRouter,
+          status_module: NoopStatus,
+          prompt_guard: PassthroughPromptGuard
+        ]
+      )
+
+    result = Api.handle_event(event, :run_pipeline, nil)
+    assert %Outgoing{} = result.response
+    assert result.response.metadata.assistant_message_id == "11111111-1111-4111-8111-111111111111"
+
+    assert result.response.metadata.persisted_assistant_message_id ==
+             result.response.metadata.assistant_message_id
+
+    assert_receive {:correlation_dispatch, :admit_execution, _}
+    assert_receive {:correlation_dispatch, :reserve_answer_identity, reservation}
+    assert_receive {:correlation_dispatch, :finalize_incoming, finalization}
+    assert reservation.opts[:confidential]
+
+    assert finalization.request.outcome.assistant_message_id ==
+             result.response.metadata.assistant_message_id
+
+    assert result.next_hop.destination == :channels
+  end
+
+  test "reservation refusal and conflicting persistence identity prevent delivery" do
+    for trace <- ["refused", "conflict"] do
+      incoming = %Incoming{content: "Question", channel_id: "channel", provider: :web}
+
+      event =
+        pipeline_event(incoming,
+          trace_id: trace,
+          opts: [
+            pipeline_module: StubPipeline,
+            node_router: CorrelationRouter,
+            status_module: NoopStatus,
+            prompt_guard: PassthroughPromptGuard
+          ]
+        )
+
+      capture_log(fn ->
+        result = Api.handle_event(event, :run_pipeline, nil)
+        reason = if trace == "refused", do: :unavailable, else: :answer_identity_conflict
+        assert result.response == {:error, {:persist_failed, reason}}
+        assert result.next_hop == nil
+      end)
+
+      if trace == "refused", do: refute_received({:correlation_dispatch, :finalize_incoming, _})
+      flush_correlation_dispatches()
+    end
+  end
+
+  defp flush_correlation_dispatches do
+    receive do
+      {:correlation_dispatch, _, _} -> flush_correlation_dispatches()
+    after
+      0 -> :ok
     end
   end
 
@@ -159,8 +253,14 @@ defmodule Zaq.Agent.ApiTest do
     def dispatch(event) do
       response =
         case Keyword.get(event.opts, :action) do
-          :get_person -> nil
-          _ -> :ok
+          :get_person ->
+            nil
+
+          :reserve_answer_identity ->
+            {:ok, %{assistant_message_id: "11111111-1111-4111-8111-111111111111"}}
+
+          _ ->
+            :ok
         end
 
       %{event | response: response}
@@ -173,8 +273,14 @@ defmodule Zaq.Agent.ApiTest do
 
       response =
         case Keyword.get(event.opts, :action) do
-          :finalize_incoming -> {:error, :db_down}
-          _ -> {:ok, %{message_id: "status-message"}}
+          :finalize_incoming ->
+            {:error, :db_down}
+
+          :reserve_answer_identity ->
+            {:ok, %{assistant_message_id: "11111111-1111-4111-8111-111111111111"}}
+
+          _ ->
+            {:ok, %{message_id: "status-message"}}
         end
 
       %{event | response: response}
@@ -191,6 +297,9 @@ defmodule Zaq.Agent.ApiTest do
 
       response =
         case {event.trace_id, action} do
+          {_, :reserve_answer_identity} ->
+            {:ok, %{assistant_message_id: "11111111-1111-4111-8111-111111111111"}}
+
           {"changeset", :finalize_incoming} ->
             changeset =
               Ecto.Changeset.change({%{}, %{field: :string}}, %{})
@@ -219,8 +328,14 @@ defmodule Zaq.Agent.ApiTest do
     def dispatch(event) do
       response =
         case Keyword.get(event.opts, :action) do
-          :finalize_incoming -> :unexpected
-          _ -> :ok
+          :finalize_incoming ->
+            :unexpected
+
+          :reserve_answer_identity ->
+            {:ok, %{assistant_message_id: "11111111-1111-4111-8111-111111111111"}}
+
+          _ ->
+            :ok
         end
 
       %{event | response: response}
@@ -234,8 +349,14 @@ defmodule Zaq.Agent.ApiTest do
     def dispatch(event) do
       response =
         case Keyword.get(event.opts, :action) do
-          :finalize_incoming -> {:ok, %{persisted: true}}
-          _ -> :ok
+          :finalize_incoming ->
+            {:ok, %{persisted: true}}
+
+          :reserve_answer_identity ->
+            {:ok, %{assistant_message_id: "11111111-1111-4111-8111-111111111111"}}
+
+          _ ->
+            :ok
         end
 
       %{event | response: response}
@@ -249,8 +370,14 @@ defmodule Zaq.Agent.ApiTest do
     def dispatch(event) do
       response =
         case Keyword.get(event.opts, :action) do
-          :finalize_incoming -> {:ok, :persisted}
-          _ -> :ok
+          :finalize_incoming ->
+            {:ok, :persisted}
+
+          :reserve_answer_identity ->
+            {:ok, %{assistant_message_id: "11111111-1111-4111-8111-111111111111"}}
+
+          _ ->
+            :ok
         end
 
       %{event | response: response}
@@ -760,7 +887,13 @@ defmodule Zaq.Agent.ApiTest do
     assert log =~ "{:changeset, [:field]}"
     refute log =~ "sensitive validation text"
     assert_received {:configurable_persist_dispatch, :finalize_incoming, _}
-    assert_received {:status_broadcast, ^incoming, :failed, _}
+
+    bound = %{
+      incoming
+      | metadata: %{assistant_message_id: "11111111-1111-4111-8111-111111111111"}
+    }
+
+    assert_received {:status_broadcast, ^bound, :failed, _}
     refute_received {:configurable_persist_dispatch, :deliver_outgoing, _}
   end
 
@@ -1266,9 +1399,9 @@ defmodule Zaq.Agent.ApiTest do
     assert_receive {:node_router_dispatch, first_action, first_event}
     refute_receive {:node_router_dispatch, :deliver_outgoing, _}, 50
 
-    assert first_action == :finalize_incoming
-
-    persist_event = first_event
+    assert first_action == :reserve_answer_identity
+    assert first_event.opts[:confidential]
+    assert_receive {:node_router_dispatch, :finalize_incoming, persist_event}
 
     assert persist_event.next_hop.destination == :engine
     assert persist_event.request.user_message_id == "user-message-1"
@@ -1360,7 +1493,7 @@ defmodule Zaq.Agent.ApiTest do
     refute result.opts[:action] == :deliver_outgoing
   end
 
-  test "run_pipeline accepts non-map persist response and keeps outgoing metadata unchanged" do
+  test "legacy non-map persistence response preserves reservation without claiming a stored UUID" do
     incoming = %Incoming{content: "hi", channel_id: "c1", provider: :mattermost}
 
     event =
@@ -1378,7 +1511,11 @@ defmodule Zaq.Agent.ApiTest do
     result = Api.handle_event(event, :run_pipeline, nil)
 
     assert %Outgoing{} = result.response
-    assert result.response.metadata == %{}
+
+    assert result.response.metadata == %{
+             assistant_message_id: "11111111-1111-4111-8111-111111111111"
+           }
+
     assert result.next_hop.destination == :channels
     assert result.opts[:action] == :deliver_outgoing
   end

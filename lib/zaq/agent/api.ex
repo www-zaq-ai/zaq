@@ -660,8 +660,8 @@ defmodule Zaq.Agent.Api do
     if delivery_through_channels?(outgoing.provider) do
       node_router_mod = Keyword.get(event.opts, :node_router, Zaq.NodeRouter)
 
-      case persist_response_context(node_router_mod, event, outgoing) do
-        {:ok, persisted} ->
+      case prepare_response_context(node_router_mod, event, outgoing) do
+        {:ok, outgoing, persisted} ->
           HistorySync.complete(
             Keyword.get(event.opts, :history_session),
             persisted,
@@ -670,13 +670,16 @@ defmodule Zaq.Agent.Api do
 
           schedule_persisted_outgoing(event, outgoing, persisted)
 
-        {:error, reason} ->
+        {:error, reason, outgoing} ->
           log_persist_failure(event, reason)
 
           incoming = %{
             incoming
             | metadata:
-                Map.merge(incoming.metadata, Map.take(outgoing.metadata, [:status_message_id]))
+                Map.merge(
+                  incoming.metadata,
+                  Map.take(outgoing.metadata, [:status_message_id, :assistant_message_id])
+                )
           }
 
           broadcast_persist_failure(event, incoming, reason, node_router_mod)
@@ -689,6 +692,64 @@ defmodule Zaq.Agent.Api do
 
   defp maybe_dispatch_return_hop(%Event{} = event, _incoming, other),
     do: %{event | response: other}
+
+  defp prepare_response_context(router, event, outgoing) do
+    case reserve_bound_response(router, event, outgoing, conversation_binding(event.assigns)) do
+      {:ok, outgoing} ->
+        case persist_response_context(router, event, outgoing) do
+          {:ok, persisted} -> {:ok, outgoing, persisted}
+          {:error, reason} -> {:error, reason, outgoing}
+        end
+
+      {:error, reason} ->
+        {:error, reason, outgoing}
+    end
+  end
+
+  defp reserve_bound_response(_router, _event, _outgoing, nil),
+    do: {:error, :invalid_conversation_binding}
+
+  defp reserve_bound_response(router, event, outgoing, binding) do
+    request = Map.take(binding, [:user_message_id, :execution_id, :finalization_token])
+
+    reservation =
+      Event.new(request, :engine,
+        actor: event.actor,
+        trace_id: event.trace_id,
+        opts: [action: :reserve_answer_identity, confidential: true]
+      )
+
+    case router.dispatch(reservation) do
+      %{response: {:ok, %{assistant_message_id: id}}} when is_binary(id) ->
+        bind_response_identity(outgoing, id)
+
+      %{response: {:error, reason}} ->
+        {:error, reason}
+
+      _ ->
+        {:error, :invalid_answer_reservation}
+    end
+  end
+
+  defp bind_response_identity(outgoing, id) do
+    existing = [
+      outgoing.metadata[:assistant_message_id],
+      outgoing.metadata["assistant_message_id"]
+    ]
+
+    with {:ok, ^id} <- Ecto.UUID.cast(id),
+         true <- Enum.all?(existing, &(is_nil(&1) or &1 == id)) do
+      metadata =
+        outgoing.metadata
+        |> Map.delete("assistant_message_id")
+        |> Map.put(:assistant_message_id, id)
+
+      {:ok, %{outgoing | metadata: metadata}}
+    else
+      false -> {:error, :answer_identity_conflict}
+      _ -> {:error, :invalid_answer_reservation}
+    end
+  end
 
   defp schedule_persisted_outgoing(event, outgoing, persisted),
     do: schedule_return_hop(event, enrich_outgoing_with_persistence(outgoing, persisted))
@@ -748,11 +809,23 @@ defmodule Zaq.Agent.Api do
          %Event{} = event,
          %Outgoing{} = outgoing
        ) do
-    with {:ok, persist_event} <- finalization_event(event, outgoing) do
-      normalize_persistence_response(
-        node_router_mod.dispatch(%{persist_event | assigns: event.assigns}).response
-      )
+    with {:ok, persist_event} <- finalization_event(event, outgoing),
+         {:ok, persisted} <-
+           normalize_persistence_response(
+             node_router_mod.dispatch(%{persist_event | assigns: event.assigns}).response
+           ),
+         :ok <- matching_persisted_identity(outgoing, persisted) do
+      {:ok, persisted}
     end
+  end
+
+  defp matching_persisted_identity(outgoing, persisted) do
+    reserved = outgoing.metadata[:assistant_message_id]
+    stored = persisted[:assistant_message_id] || persisted["assistant_message_id"]
+
+    if is_nil(stored) or is_nil(reserved) or stored == reserved,
+      do: :ok,
+      else: {:error, :answer_identity_conflict}
   end
 
   defp normalize_persistence_response(response) do
@@ -798,7 +871,7 @@ defmodule Zaq.Agent.Api do
         Map.get(persisted, :conversation_id) || Map.get(persisted, "conversation_id")
       )
       |> maybe_put_persisted(
-        :assistant_message_id,
+        :persisted_assistant_message_id,
         Map.get(persisted, :assistant_message_id) || Map.get(persisted, "assistant_message_id")
       )
       |> maybe_put_persisted(
