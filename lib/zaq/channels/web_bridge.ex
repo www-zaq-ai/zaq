@@ -554,7 +554,7 @@ defmodule Zaq.Channels.WebBridge do
       delivery = %{
         delivery
         | conversation_id: incoming.routing_context.conversation_id,
-          message_id: Ecto.UUID.generate()
+          message_id: nil
       }
 
       dispatch = fn destination ->
@@ -1069,6 +1069,7 @@ defmodule Zaq.Channels.WebBridge do
 
   defp deliver_final(%Outgoing{} = outgoing, %Delivery{consumer: :widget} = delivery) do
     metadata = if is_map(outgoing.metadata), do: outgoing.metadata, else: %{}
+    delivery = bind_answer_delivery(delivery, metadata)
     started = Helper.present?(metadata_value(metadata, :status_message_id))
     failed = metadata_value(metadata, :error) == true
 
@@ -1087,7 +1088,9 @@ defmodule Zaq.Channels.WebBridge do
     with {:ok, response} <-
            Response.new(%{
              request_id: metadata_value(metadata, :request_id),
-             message_id: outgoing.in_reply_to || metadata_value(metadata, :message_id),
+             message_id:
+               metadata_value(metadata, :assistant_message_id) ||
+                 metadata_value(metadata, :message_id),
              conversation_id: metadata_value(metadata, :conversation_id),
              type: type,
              payload: final_payload(outgoing, metadata, delivery.consumer)
@@ -1105,6 +1108,9 @@ defmodule Zaq.Channels.WebBridge do
       {:ok, receipt}
     end
   end
+
+  defp deliver_widget_answer(_outgoing, %Delivery{message_id: nil}, _started, _failed),
+    do: {:error, :missing_assistant_identity}
 
   defp deliver_widget_answer(outgoing, delivery, started, failed) do
     request_id = metadata_value(outgoing.metadata, :request_id)
@@ -1137,12 +1143,18 @@ defmodule Zaq.Channels.WebBridge do
   end
 
   defp deliver_status(request, %Delivery{consumer: :widget} = delivery) do
+    delivery = bind_answer_delivery(delivery, request)
     stage = status_stage(Map.get(request, :intent_meta))
     request_id = Map.get(request, :request_id)
     started = Helper.present?(Map.get(request, :message_id))
 
     with :ok <- widget_status(request, delivery, request_id, stage, started) do
-      message_id = if stage == :execution_started or started, do: delivery.message_id
+      bound = Helper.present?(metadata_value(request, :assistant_message_id))
+
+      message_id =
+        if stage not in [:submission_accepted, :submission_rejected] and
+             (stage == :execution_started or started or bound),
+           do: delivery.message_id
 
       {:ok,
        %{
@@ -1164,6 +1176,15 @@ defmodule Zaq.Channels.WebBridge do
     end
   end
 
+  defp widget_status(
+         _request,
+         %Delivery{message_id: nil},
+         _request_id,
+         :execution_started,
+         _started
+       ),
+       do: :ok
+
   defp widget_status(_request, delivery, request_id, :execution_started, _started),
     do: ensure_widget_message(delivery, request_id, false)
 
@@ -1179,6 +1200,13 @@ defmodule Zaq.Channels.WebBridge do
         body: "Unable to save the response",
         error: true
       })
+    end
+  end
+
+  defp widget_status(%{assistant_message_id: id} = request, delivery, request_id, stage, false)
+       when is_binary(id) and id != "" do
+    with :ok <- ensure_widget_message(delivery, request_id, false) do
+      widget_status(request, delivery, request_id, stage, true)
     end
   end
 
@@ -1228,8 +1256,12 @@ defmodule Zaq.Channels.WebBridge do
 
   defp do_deliver_status(request, request_id, body, delivery) do
     update_intent = Map.get(request, :update_intent)
-    type = if update_intent == :stream_delta, do: :message_edit, else: :status
-    message_id = Map.get(request, :message_id) || request_id
+    message_id = metadata_value(request, :assistant_message_id) || Map.get(request, :message_id)
+
+    type =
+      if update_intent == :stream_delta and Helper.present?(message_id),
+        do: :message_edit,
+        else: :status
 
     with {:ok, response} <-
            Response.new(%{
@@ -1247,6 +1279,13 @@ defmodule Zaq.Channels.WebBridge do
       {:ok, %{action: action, message_id: message_id, update_intent: update_intent}}
     end
   end
+
+  # New ingress leaves answer identity unbound until Engine selects its root.
+  # A nonnil descriptor preserves an older in-flight stream's transport binding.
+  defp bind_answer_delivery(%Delivery{message_id: nil} = delivery, metadata),
+    do: %{delivery | message_id: metadata_value(metadata, :assistant_message_id)}
+
+  defp bind_answer_delivery(delivery, _metadata), do: delivery
 
   defp broadcast_response(%Delivery{} = delivery, %Response{} = response) do
     with {:ok, event_name} <- response_event(delivery, response) do

@@ -191,10 +191,20 @@ and must also be encoded by the adapter; they do not depend on PubSub subscripti
 New initialization bindings also include `user_message: "response.user_message"`
 for accepted-user synchronization across authenticated tabs. Older explicit trusted
 descriptors without that mapping still receive the enriched direct receipt.
-The bridge binds optional trusted `conversation_id` and `message_id` to the descriptor
-after preparation. Only Channels interprets these correlation fields; generic role
-code carries the serialized reference opaquely. A reserved transport ID does not
-promise that an assistant message will be produced.
+The bridge binds the trusted `conversation_id` after preparation, but new widget
+ingress leaves descriptor `message_id` nil instead of allocating a competing answer
+UUID. Assistant-bearing events bind to the selected Engine `assistant_message_id`;
+live and final envelopes use that same UUID. Existing nonnil descriptor message IDs
+remain stable for older in-flight streams, retaining canonical association through
+the final payload. Only Channels interprets the descriptor; generic role code
+carries the serialized reference opaquely. A reserved assistant UUID does not
+promise that a persisted answer will be produced.
+
+BO assistant envelopes likewise use canonical assistant identity, never the
+incoming message ID or request ID as an answer substitute. Before root selection,
+progress remains a request-scoped status without an assistant message ID. Explicit
+legacy transport bindings remain readable during compatibility handling. Provider
+post/edit IDs outside WebBridge retain their existing transport semantics.
 
 Responses contain the consumer's `protocol_version`, required `request_id`, required semantic
 `type`, optional `conversation_id`/`message_id` and `payload` map (default `%{}`). Public payload

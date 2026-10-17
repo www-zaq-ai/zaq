@@ -126,18 +126,22 @@ defmodule Zaq.Channels.Web.WidgetConformanceTest do
         api_key: "test-key"
       })
 
+    agent_attrs = %{
+      name: "Widget conformance",
+      job: "Answer simply",
+      model: "gpt-4.1-mini",
+      credential_id: credential.id,
+      strategy: "react",
+      enabled_tool_keys: [],
+      conversation_enabled: true,
+      active: true,
+      advanced_options: %{"stream" => true}
+    }
+
     {:ok, agent} =
-      Zaq.Agent.create_agent(%{
-        name: "Widget conformance",
-        job: "Answer simply",
-        model: "gpt-4.1-mini",
-        credential_id: credential.id,
-        strategy: "react",
-        enabled_tool_keys: [],
-        conversation_enabled: true,
-        active: true,
-        advanced_options: %{"stream" => true}
-      })
+      Zaq.Agent.create_agent(
+        Map.merge(agent_attrs, Map.take(context, [:model_max_context_tokens]))
+      )
 
     {:ok, config} =
       %ChannelConfig{}
@@ -488,6 +492,7 @@ defmodule Zaq.Channels.Web.WidgetConformanceTest do
   end
 
   @tag hold_response: true
+  @tag model_max_context_tokens: 100_000
   test "a busy same-Person submission acknowledges steering without a separate answer", %{
     config: config,
     topic: topic

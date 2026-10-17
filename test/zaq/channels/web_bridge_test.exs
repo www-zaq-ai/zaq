@@ -105,20 +105,24 @@ defmodule Zaq.Channels.WebBridgeTest do
   end
 
   test "streaming upsert preserves atom stage and replacement intent", %{routing_context: context} do
+    answer_id = "11111111-1111-4111-8111-111111111111"
+
     request = %{
       request_id: "r1",
+      assistant_message_id: answer_id,
       body: "Full response",
       intent_meta: %{stage: :retrieving},
       update_intent: :stream_delta,
       routing_context: context
     }
 
-    assert {:ok, %{action: :created, message_id: "r1", update_intent: :stream_delta}} =
+    assert {:ok, %{action: :created, message_id: ^answer_id, update_intent: :stream_delta}} =
              WebBridge.upsert_message(%{}, request, %{})
 
     assert_receive {:web_response, :status_update,
                     %Response{
                       type: :message_edit,
+                      message_id: ^answer_id,
                       payload: %{
                         stage: :retrieving,
                         body: "Full response",

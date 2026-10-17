@@ -10,6 +10,8 @@ defmodule Zaq.Channels.WebBridgeIngressTest do
   alias Zaq.Event
   alias ZaqWeb.Chat.BridgeClient
 
+  @assistant_id "11111111-1111-4111-8111-111111111111"
+
   defmodule LocalNodeRouter do
     alias Zaq.Engine.Api, as: EngineApi
     alias Zaq.Engine.Messages.Outgoing
@@ -31,7 +33,12 @@ defmodule Zaq.Channels.WebBridgeIngressTest do
                 provider: :web,
                 in_reply_to: event.request.message_id,
                 routing_context: event.request.routing_context,
-                metadata: event.request.metadata
+                metadata:
+                  Map.put(
+                    event.request.metadata,
+                    :assistant_message_id,
+                    "11111111-1111-4111-8111-111111111111"
+                  )
               }
           }
 
@@ -300,7 +307,7 @@ defmodule Zaq.Channels.WebBridgeIngressTest do
                       %Response{
                         type: :message_complete,
                         request_id: "request-roundtrip",
-                        message_id: "message-roundtrip",
+                        message_id: @assistant_id,
                         payload: %{body: "answer"}
                       }}
 
@@ -316,13 +323,14 @@ defmodule Zaq.Channels.WebBridgeIngressTest do
 
       status_event = Event.new(status_outgoing, :channels, opts: [action: :upsert_message])
 
-      assert {:ok, %{action: :created, message_id: "request-roundtrip"}} =
+      assert {:ok, %{action: :created, message_id: @assistant_id}} =
                Api.handle_event(status_event, :upsert_message, nil).response
 
       assert_receive {:web_response, :status_update,
                       %Response{
                         type: :message_edit,
                         request_id: "request-roundtrip",
+                        message_id: @assistant_id,
                         payload: %{body: "Current full answer", update_intent: :stream_delta}
                       }}
     end
