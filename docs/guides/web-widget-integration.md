@@ -427,6 +427,15 @@ Executable host references:
   bounded synchronous waits, no duplicate live terminal and timeout without cancellation.
 - [`private_channel_boundary_test.exs`](../../test/zaq/engine/conversations/private_channel_boundary_test.exs):
   identity/privacy, lazy creation, context seeding, rollback, deletion and resume.
+- [`web_widget_identity_smoke.exs`](../../test/support/web_widget_identity_smoke.exs):
+  the pinned package's actual `WebWidget.Integration.Chat` consumes host WebBridge
+  events through real runtime/session checks with a fixture external identity
+  verifier. Covers unified IDs, separate additional-submission receipts, history
+  overlap/reopen, older split-ID events and accepted prestream failure. Run
+  `MIX_ENV=test mix run --no-start test/support/web_widget_identity_smoke.exs`.
+  It starts isolated singleton widget infrastructure and temporary Mnesia storage,
+  not the ZAQ application or a browser endpoint; it does not establish endpoint
+  authentication security or production replay reachability.
 
 The external widget developer owns installation and endpoint acceptance:
 
