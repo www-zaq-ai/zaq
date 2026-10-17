@@ -206,6 +206,13 @@ progress remains a request-scoped status without an assistant message ID. Explic
 legacy transport bindings remain readable during compatibility handling. Provider
 post/edit IDs outside WebBridge retain their existing transport semantics.
 
+BO ChatLive derives assistant display keys from canonical message UUIDs for live,
+final and restored rows, while retaining request correlation separately. A legacy
+request-keyed stream can be reconciled into its canonical final row; request-only
+progress does not create an assistant bubble. Failed reserved answers have no
+persisted rating target. Existing request/stale-conversation filtering remains in
+force, and welcome-message creation remains a separate persistence operation.
+
 Responses contain the consumer's `protocol_version`, required `request_id`, required semantic
 `type`, optional `conversation_id`/`message_id` and `payload` map (default `%{}`). Public payload
 projection precedes recursive rejection of actor/credential/token/private execution

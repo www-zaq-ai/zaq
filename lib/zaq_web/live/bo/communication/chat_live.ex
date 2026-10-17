@@ -453,11 +453,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     {:noreply, assign(socket, :conversations, conversations)}
   end
 
-  defp apply_status_update(socket, request_id, status, message, update_intent) do
+  defp apply_status_update(socket, request_id, status, message, update_intent, assistant_id) do
     case normalize_update_intent(update_intent) do
       :stream_delta ->
         socket
-        |> upsert_streaming_bot_message(request_id, message)
+        |> upsert_streaming_bot_message(request_id, message, assistant_id)
         |> assign(:status, status)
         |> assign(:status_message, "")
         |> assign(:streaming_response_active, true)
@@ -499,14 +499,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     |> assign(:current_request_id, nil)
   end
 
-  defp apply_web_response(socket, %Response{type: type, payload: payload, request_id: request_id})
+  defp apply_web_response(
+         socket,
+         %Response{type: type, payload: payload, request_id: request_id} = response
+       )
        when type in [:status, :message_edit] do
+    intent =
+      if type == :status and is_nil(response.message_id),
+        do: nil,
+        else: Map.get(payload, :update_intent)
+
     apply_status_update(
       socket,
       request_id,
       Map.get(payload, :stage, :answering),
       Map.get(payload, :body, ""),
-      Map.get(payload, :update_intent)
+      intent,
+      response.message_id
     )
   end
 
@@ -546,10 +555,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       body: Map.get(payload, :body),
       channel_id: "bo",
       provider: :web,
-      in_reply_to: response.message_id,
+      in_reply_to: Map.get(payload, :user_message_id),
       metadata:
         payload
         |> Map.delete(:body)
+        |> Map.put(:assistant_envelope_id, response.message_id)
         |> Map.put(:conversation_id, response.conversation_id)
     }
   end
@@ -562,28 +572,34 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   end
 
   defp build_bot_message(result, normalized_body, normalized_sources, request_id) do
+    assistant_id = metadata_get(result.metadata, :assistant_message_id)
+    envelope_id = metadata_get(result.metadata, :assistant_envelope_id)
+    error = metadata_get(result.metadata, :error) == true
+
     %{
-      id: streaming_message_id(request_id),
+      id: display_message_id(assistant_id || envelope_id, request_id),
+      request_id: request_id,
       role: :bot,
       body: normalized_body,
       confidence: Map.get(result.metadata, :confidence_score),
       timestamp: DateTime.utc_now(),
-      error: result.metadata[:error] || false,
+      error: error,
       error_type: result.metadata[:error_type],
       feedback: nil,
       sources: normalized_sources,
       message_info: MessageHelpers.message_info_from_runtime(result.metadata),
       live: true,
-      db_id: metadata_get(result.metadata, :assistant_message_id)
+      db_id: if(error, do: nil, else: assistant_id)
     }
   end
 
-  defp upsert_streaming_bot_message(socket, request_id, body) do
-    message_id = streaming_message_id(request_id)
+  defp upsert_streaming_bot_message(socket, request_id, body, assistant_id) do
+    message_id = display_message_id(assistant_id, request_id)
     body = to_string(body || "")
 
     message = %{
       id: message_id,
+      request_id: request_id,
       role: :bot,
       body: body,
       confidence: nil,
@@ -600,8 +616,11 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   end
 
   defp upsert_streaming_bot_messages(messages, message_id, message) do
-    if Enum.any?(messages, &(Map.get(&1, :id) == message_id)) do
-      Enum.map(messages, &merge_streaming_bot_message(&1, message_id, message))
+    legacy_id = streaming_message_id(message.request_id)
+    existing = Enum.find(messages, &(Map.get(&1, :id) in [message_id, legacy_id]))
+
+    if existing do
+      Enum.map(messages, &merge_streaming_bot_message(&1, existing.id, message))
     else
       messages ++ [message]
     end
@@ -616,22 +635,28 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   defp merge_streaming_bot_message(existing, _message_id, _message), do: existing
 
   defp upsert_final_bot_message(messages, request_id, bot_msg) do
-    message_id = streaming_message_id(request_id)
+    legacy_id = streaming_message_id(request_id)
+    existing = Enum.find(messages, &(Map.get(&1, :id) in [bot_msg.id, legacy_id]))
 
-    if Enum.any?(messages, &(Map.get(&1, :id) == message_id)) do
-      Enum.map(messages, fn
-        %{id: ^message_id} = existing ->
-          bot_msg
-          |> Map.put(:timestamp, Map.get(existing, :timestamp, bot_msg.timestamp))
-          |> Map.put(:streaming, false)
-
-        existing ->
-          existing
-      end)
+    if existing do
+      Enum.map(messages, &merge_final_bot_message(&1, existing.id, bot_msg))
     else
       messages ++ [Map.put(bot_msg, :streaming, false)]
     end
   end
+
+  defp merge_final_bot_message(%{id: id} = existing, id, bot_msg) do
+    bot_msg
+    |> Map.put(:timestamp, Map.get(existing, :timestamp, bot_msg.timestamp))
+    |> Map.put(:streaming, false)
+  end
+
+  defp merge_final_bot_message(existing, _id, _bot_msg), do: existing
+
+  defp display_message_id(id, request_id) when is_binary(id) and id != "" and id != request_id,
+    do: "message-#{id}"
+
+  defp display_message_id(_id, request_id), do: streaming_message_id(request_id)
 
   defp streaming_message_id(request_id) when is_binary(request_id), do: "stream-#{request_id}"
   defp streaming_message_id(_request_id), do: generate_id()
@@ -813,7 +838,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
 
   defp welcome_message_from_db(%{role: "assistant", inserted_at: ts} = msg) do
     %{
-      id: generate_id(),
+      id: display_message_id(msg.id, nil),
       db_id: msg.id,
       role: :bot,
       body: msg.content || @welcome_body,
@@ -871,7 +896,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     message_info = MessageHelpers.message_info_from_message(msg)
 
     %{
-      id: generate_id(),
+      id: display_message_id(msg.id, nil),
       db_id: msg.id,
       role: :bot,
       body: trim_body(content),

@@ -560,6 +560,155 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     refute html =~ "generating response"
   end
 
+  test "canonical assistant display identity survives live completion and a history reload", %{
+    conn: conn,
+    user: user
+  } do
+    {:ok, conversation} =
+      Conversations.create_conversation(%{
+        user_id: user.id,
+        channel_user_id: "bo_user_#{user.id}",
+        channel_type: "bo"
+      })
+
+    {:ok, input} = Conversations.add_message(conversation, %{role: "user", content: "Question"})
+    answer_id = Ecto.UUID.generate()
+    request_id = "canonical-request"
+    display_id = "message-#{answer_id}"
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, request_id)
+    end)
+
+    edit = %Response{
+      protocol_version: 1,
+      request_id: request_id,
+      message_id: answer_id,
+      conversation_id: conversation.id,
+      type: :message_edit,
+      payload: %{body: "Partial", stage: :answering, update_intent: :stream_delta}
+    }
+
+    send(view.pid, {:web_response, :status_update, edit})
+
+    streaming =
+      eventually_value(fn ->
+        Enum.find(:sys.get_state(view.pid).socket.assigns.messages, &(&1.id == display_id))
+      end)
+
+    assert streaming.streaming
+    assert streaming[:db_id] == nil
+
+    %Message{id: answer_id}
+    |> Message.changeset(%{
+      conversation_id: conversation.id,
+      role: "assistant",
+      content: "Complete"
+    })
+    |> Repo.insert!()
+
+    complete = %{
+      edit
+      | type: :message_complete,
+        payload: %{
+          body: "Complete",
+          error: false,
+          assistant_message_id: answer_id,
+          user_message_id: input.id,
+          sources: []
+        }
+    }
+
+    send(view.pid, {:web_response, :pipeline_result, complete})
+
+    final =
+      eventually_value(fn ->
+        Enum.find(
+          :sys.get_state(view.pid).socket.assigns.messages,
+          &(&1.id == display_id and &1[:streaming] == false)
+        )
+      end)
+
+    assert final.db_id == answer_id
+    assert final.timestamp == streaming.timestamp
+    assert final.body == "Complete"
+
+    render_hook(view, "load_conversation", %{"id" => conversation.id})
+
+    restored =
+      Enum.find(:sys.get_state(view.pid).socket.assigns.messages, &(&1[:db_id] == answer_id))
+
+    assert restored.id == display_id
+    render_hook(view, "load_conversation", %{"id" => conversation.id})
+
+    assert Enum.count(:sys.get_state(view.pid).socket.assigns.messages, &(&1.id == display_id)) ==
+             1
+  end
+
+  test "request-scoped progress without assistant identity does not create an assistant bubble",
+       %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "unselected-request")
+    end)
+
+    before_messages = :sys.get_state(view.pid).socket.assigns.messages
+
+    response = %Response{
+      protocol_version: 1,
+      request_id: "unselected-request",
+      type: :status,
+      payload: %{body: "Checking", stage: :answering, update_intent: :stream_delta}
+    }
+
+    send(view.pid, {:web_response, :status_update, response})
+
+    assert_eventually(fn ->
+      :sys.get_state(view.pid).socket.assigns.status_message == "Checking"
+    end)
+
+    assert :sys.get_state(view.pid).socket.assigns.messages == before_messages
+  end
+
+  test "an unsuccessful reserved answer is not a persisted rating target", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns.current_request_id, "failed-request")
+    end)
+
+    answer_id = Ecto.UUID.generate()
+
+    response = %Response{
+      protocol_version: 1,
+      request_id: "failed-request",
+      message_id: answer_id,
+      type: :message_failed,
+      payload: %{
+        body: "Unable to answer",
+        error: true,
+        assistant_message_id: answer_id,
+        sources: []
+      }
+    }
+
+    send(view.pid, {:web_response, :pipeline_result, response})
+
+    failed =
+      eventually_value(fn ->
+        Enum.find(
+          :sys.get_state(view.pid).socket.assigns.messages,
+          &(&1.body == "Unable to answer")
+        )
+      end)
+
+    assert failed.error
+    assert failed.db_id == nil
+    assert failed.id == "message-#{answer_id}"
+  end
+
   test "normalized message edits and completion preserve the streaming bubble", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
 
