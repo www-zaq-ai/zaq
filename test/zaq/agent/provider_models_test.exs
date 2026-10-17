@@ -3,7 +3,6 @@ defmodule Zaq.Agent.ProviderModelsTest do
   use ExUnitProperties
 
   alias Zaq.Agent.ProviderModels
-  alias Zaq.Agent.ZAQRouter
   alias Zaq.System.AIProviderCredential
 
   defmodule FailingAvailabilityAdapter do
@@ -141,6 +140,17 @@ defmodule Zaq.Agent.ProviderModelsTest do
         }
       ]
 
+    def models(:openai),
+      do: [
+        %LLMDB.Model{id: "gpt-4o", provider: :openai, deprecated: false, retired: false},
+        %LLMDB.Model{
+          id: "text-embedding-3-small",
+          provider: :openai,
+          deprecated: false,
+          retired: false
+        }
+      ]
+
     def models(_), do: []
     def parse_provider("zaq_router"), do: {:ok, :zaq_router}
     def parse_provider(_), do: :error
@@ -158,6 +168,17 @@ defmodule Zaq.Agent.ProviderModelsTest do
            deprecated: false,
            retired: false
          }}
+
+    def model("openai_codex:" <> id)
+        when id in ["gpt-4o", "text-embedding-3-small", "gpt-5.3-codex-spark"] do
+      {:ok,
+       %LLMDB.Model{
+         id: id,
+         provider: :openai_codex,
+         deprecated: false,
+         retired: false
+       }}
+    end
 
     def model(_), do: {:error, :unknown_model}
   end
@@ -223,16 +244,11 @@ defmodule Zaq.Agent.ProviderModelsTest do
   end
 
   describe "models_for_credential/1 auth gating" do
-    setup do
-      on_exit(fn -> LLMDB.load(ZAQRouter.llmdb_opts()) end)
-      {:ok, _} = ZAQRouter.reload(["openai/gpt-oss-120b", "deepseek/deepseek-v4-pro"])
-      :ok
-    end
-
     test "returns no models when the credential has no api key" do
       credential = %{provider: "zaq_router", endpoint: "https://llm.test/v1"}
 
-      assert ProviderModels.models_for_credential(credential) == []
+      assert ProviderModels.models_for_credential(credential, adapter_opts(ZAQRouterAuthAdapter)) ==
+               []
     end
 
     test "returns no models when the api key is blank" do
@@ -242,7 +258,8 @@ defmodule Zaq.Agent.ProviderModelsTest do
         api_key: ""
       }
 
-      assert ProviderModels.models_for_credential(credential) == []
+      assert ProviderModels.models_for_credential(credential, adapter_opts(ZAQRouterAuthAdapter)) ==
+               []
     end
 
     test "returns the injected ZAQ Router model only when endpoint and api key are present" do
@@ -257,23 +274,11 @@ defmodule Zaq.Agent.ProviderModelsTest do
                ProviderModels.models_for_credential(credential, opts)
     end
 
-    test "returns the catalog once an api key is present" do
-      credential = %{
-        provider: "zaq_router",
-        endpoint: "https://llm.test/v1",
-        api_key: "sk-test-123"
-      }
-
-      model_ids = credential |> ProviderModels.models_for_credential() |> Enum.map(& &1.id)
-
-      assert "openai/gpt-oss-120b" in model_ids
-      assert "deepseek/deepseek-v4-pro" in model_ids
-    end
-
     test "gating is scoped to zaq_router — other providers keep the fallback" do
       openai = %AIProviderCredential{provider: "openai"}
 
-      refute ProviderModels.models_for_credential(openai) == []
+      assert [%LLMDB.Model{id: "gpt-4o"}, %LLMDB.Model{id: "text-embedding-3-small"}] =
+               ProviderModels.models_for_credential(openai, adapter_opts(ZAQRouterAuthAdapter))
     end
 
     test "gating does not strip models from OAuth credentials without an api key" do
@@ -283,7 +288,12 @@ defmodule Zaq.Agent.ProviderModelsTest do
         metadata: %{"auth_kind" => "oauth2"}
       }
 
-      refute ProviderModels.models_for_credential(codex) == []
+      models = ProviderModels.models_for_credential(codex, adapter_opts(ZAQRouterAuthAdapter))
+      model_ids = Enum.map(models, & &1.id)
+
+      assert "gpt-5.3-codex-spark" in model_ids
+      assert "text-embedding-3-small" in model_ids
+      assert Enum.all?(models, &(&1.provider == :openai_codex))
     end
   end
 

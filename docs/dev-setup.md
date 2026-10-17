@@ -93,6 +93,20 @@ mix q                     # issue quality check
 mix precommit             # final gate
 ```
 
+For a faster local full-suite run, use the two-process runner:
+
+```bash
+mix test.fast --seed 12345
+```
+
+It compiles the test environment once, then runs both Mix test partitions with
+separate databases via `MIX_TEST_PARTITION`. ExUnit progress appears as it runs;
+the final pass or failure is reported after both processes finish. Set
+`TEST_MAX_CASES` to change per-process ExUnit concurrency, or
+`TEST_PARTITIONS=1` to compare with a single process. Explicit test paths run
+in one process. This runs the normal test selection; it does not combine
+coverage reports, so use the existing coverage commands for coverage checks.
+
 Follow [the validation lifecycle](WORKFLOW_AGENT.md#phase-4--validate) for timing,
 isolated tests, failure handling and final approval; commands here are setup references only.
 
