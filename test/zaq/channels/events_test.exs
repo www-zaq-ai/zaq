@@ -144,6 +144,24 @@ defmodule Zaq.Channels.EventsTest do
     assert event.request.metadata.message_id == "m1"
   end
 
+  test "map-based upserts retain canonical assistant correlation separately from transport identity" do
+    answer_id = "11111111-1111-4111-8111-111111111111"
+
+    event =
+      Events.build_upsert_message_event(%{
+        "provider" => :web,
+        "channel_id" => "room",
+        "body" => "Partial",
+        "request_id" => "submission",
+        "assistant_message_id" => answer_id,
+        "status_message_id" => 52
+      })
+
+    assert event.request.metadata.assistant_message_id == answer_id
+    assert event.request.metadata.request_id == "submission"
+    assert event.request.metadata.status_message_id == 52
+  end
+
   test "build_upsert_message_event keeps missing optional map keys nil and sync" do
     params = %{
       "channel_id" => "c1",

@@ -159,19 +159,27 @@ defmodule Zaq.Channels.Events do
   defp resolve_upsert_event_type(_params, type), do: type
 
   defp map_to_outgoing(params) do
+    metadata = %{
+      request_id: fetch(params, :request_id),
+      status_message_id: fetch(params, :status_message_id),
+      update_intent: fetch(params, :update_intent),
+      intent_meta: fetch(params, :intent_meta),
+      session_id: fetch(params, :session_id),
+      message_id: fetch(params, :message_id)
+    }
+
+    metadata =
+      case fetch(params, :assistant_message_id) do
+        nil -> metadata
+        id -> Map.put(metadata, :assistant_message_id, id)
+      end
+
     %Outgoing{
       provider: fetch(params, :provider),
       channel_id: fetch(params, :channel_id),
       thread_id: fetch(params, :thread_id),
       body: fetch(params, :body),
-      metadata: %{
-        request_id: fetch(params, :request_id),
-        status_message_id: fetch(params, :status_message_id),
-        update_intent: fetch(params, :update_intent),
-        intent_meta: fetch(params, :intent_meta),
-        session_id: fetch(params, :session_id),
-        message_id: fetch(params, :message_id)
-      }
+      metadata: metadata
     }
   end
 

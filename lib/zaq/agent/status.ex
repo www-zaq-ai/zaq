@@ -74,6 +74,7 @@ defmodule Zaq.Agent.Status do
           channel_id: incoming.channel_id,
           thread_id: incoming.thread_id,
           status_message_id: incoming.metadata[:status_message_id],
+          assistant_message_id: incoming.metadata[:assistant_message_id],
           update_intent: Keyword.get(opts, :update_intent)
         },
         stage,
@@ -135,6 +136,7 @@ defmodule Zaq.Agent.Status do
         metadata: %{
           request_id: request_id,
           status_message_id: Map.get(context, :status_message_id),
+          assistant_message_id: Map.get(context, :assistant_message_id),
           update_intent: Map.get(context, :update_intent) || :status,
           session_id: Map.get(context, :session_id),
           intent_meta: %{stage: stage}

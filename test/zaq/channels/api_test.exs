@@ -1,11 +1,13 @@
 defmodule Zaq.Channels.ApiTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Agent.Status
   alias Zaq.Channels.Api
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.Web.{Delivery, Response}
   alias Zaq.Contracts.Record
   alias Zaq.Engine.ChannelConfig
+  alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Incoming.RoutingContext
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
@@ -801,6 +803,45 @@ defmodule Zaq.Channels.ApiTest do
 
     assert %Outgoing{metadata: %{format: :markdown}} = delivered_outgoing
     assert %{delivered_outgoing | metadata: %{}} == outgoing
+  end
+
+  defmodule StatusToBridgeRouter do
+    alias Zaq.Channels.Api
+    alias Zaq.Channels.ApiTest.StubCommunicationBridge
+
+    def dispatch(event) do
+      event = %{event | opts: Keyword.put(event.opts, :bridge_module, StubCommunicationBridge)}
+      Api.handle_event(event, :upsert_message, nil)
+    end
+  end
+
+  test "selected answer identity reaches the adapter without replacing request or provider edit handles" do
+    answer_id = "11111111-1111-4111-8111-111111111111"
+
+    for handle <- ["provider-post", 52] do
+      incoming = %Incoming{
+        content: "Question",
+        provider: :web,
+        channel_id: "room",
+        metadata: %{
+          request_id: "submission-1",
+          assistant_message_id: answer_id,
+          status_message_id: handle
+        }
+      }
+
+      updated =
+        Status.broadcast(incoming, :answering, "Partial answer", StatusToBridgeRouter,
+          update_intent: :stream_delta
+        )
+
+      assert_receive {:bridge_upsert_message, _config, bridged, _details}
+      assert bridged.assistant_message_id == answer_id
+      assert bridged.request_id == "submission-1"
+      assert bridged.message_id == handle
+      assert updated.metadata.assistant_message_id == answer_id
+      assert updated.metadata.status_message_id == "m-1"
+    end
   end
 
   test "handles upsert_message action" do

@@ -1207,6 +1207,8 @@ defmodule Zaq.Channels.Api do
       thread_id: outgoing.thread_id,
       body: outgoing.body,
       request_id: Map.get(metadata, :request_id) || Map.get(metadata, "request_id"),
+      assistant_message_id:
+        Map.get(metadata, :assistant_message_id) || Map.get(metadata, "assistant_message_id"),
       session_id: Map.get(metadata, :session_id) || Map.get(metadata, "session_id"),
       intent_meta: Map.get(metadata, :intent_meta) || Map.get(metadata, "intent_meta"),
       update_intent: Map.get(metadata, :update_intent) || Map.get(metadata, "update_intent"),
@@ -1221,6 +1223,7 @@ defmodule Zaq.Channels.Api do
       request_id: fetch(request, :request_id),
       session_id: fetch(request, :session_id),
       status_message_id: fetch(request, :status_message_id),
+      assistant_message_id: fetch(request, :assistant_message_id),
       update_intent: fetch(request, :update_intent),
       intent_meta: fetch(request, :intent_meta),
       message_id: fetch(request, :message_id)

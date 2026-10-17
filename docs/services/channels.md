@@ -789,6 +789,14 @@ boundary before transport delegation to bridge callbacks.
 - Delivery path: `:deliver_outgoing` -> `MessageFormatter.format_outgoing/1` -> `bridge.send_reply/2`
 - Upsert/edit path: `:upsert_message` -> `MessageFormatter.format_outgoing/1` -> `bridge.upsert_message/3`
 
+Status upserts carry canonical `assistant_message_id` separately from request
+correlation and provider edit handles. Agent.Status and Channels.Events preserve
+the selected Engine UUID, and the Channels API includes it in the adapter-facing
+request. `status_message_id` still supplies the existing provider `message_id`
+used for edits; integer and string provider handles remain opaque. A canonical
+assistant UUID must not replace a provider post ID. Before an answer root is
+selected, progress may remain request-scoped without assistant correlation.
+
 Formatting is configured per provider in `config :zaq, :channels` through
 `message_format`, and optionally `message_formatter`:
 
