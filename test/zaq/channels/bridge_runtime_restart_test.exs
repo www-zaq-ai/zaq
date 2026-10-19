@@ -4,6 +4,17 @@ defmodule Zaq.Channels.BridgeRuntimeRestartTest do
   alias Zaq.Channels.BridgeSupervisor
   alias Zaq.Channels.Supervisor, as: ChannelsSupervisor
 
+  setup tags do
+    Zaq.DataCase.setup_sandbox(tags)
+
+    # Each crash scenario needs fresh restart budgets, including when another
+    # module has just exercised the application's shared supervision tree.
+    # Registered after sandbox setup so teardown still has database ownership.
+    on_exit(fn -> reset_channels_supervisor() end)
+    reset_channels_supervisor()
+    :ok
+  end
+
   defmodule RuntimeState do
     def start_link(test_pid) do
       Agent.start_link(fn ->
@@ -53,15 +64,11 @@ defmodule Zaq.Channels.BridgeRuntimeRestartTest do
     id = "listener-fixture:#{Ecto.UUID.generate()}"
     spec = %{id: id, start: {RuntimeState, :start_link, [self()]}, restart: :permanent}
     assert {:ok, %{listener_pids: [initial]}} = ChannelsSupervisor.start_runtime(id, nil, [spec])
+    on_exit(fn -> ChannelsSupervisor.stop_bridge_runtime(%{}, id) end)
     assert_receive {:runtime_started, ^initial}
     Process.exit(initial, :kill)
     assert_receive {:runtime_started, replacement}, 1_000
     DynamicSupervisor.which_children(BridgeSupervisor)
-
-    on_exit(fn ->
-      ChannelsSupervisor.stop_bridge_runtime(%{}, id)
-      DynamicSupervisor.terminate_child(BridgeSupervisor, replacement)
-    end)
 
     assert {:ok, %{listener_pids: [^replacement]}} = ChannelsSupervisor.lookup_runtime(id)
     assert :ok = ChannelsSupervisor.stop_bridge_runtime(%{}, id)
@@ -100,6 +107,7 @@ defmodule Zaq.Channels.BridgeRuntimeRestartTest do
     }
 
     assert {:ok, %{state_pid: initial}} = ChannelsSupervisor.start_runtime(id, spec, [])
+    on_exit(fn -> ChannelsSupervisor.stop_bridge_runtime(%{}, id) end)
     assert_receive {:runtime_started, ^initial}
     monitor = Process.monitor(initial)
     Process.exit(initial, :kill)
@@ -109,11 +117,11 @@ defmodule Zaq.Channels.BridgeRuntimeRestartTest do
     # complete before lookup/teardown assertions, without a timing sleep.
     DynamicSupervisor.which_children(BridgeSupervisor)
 
-    on_exit(fn ->
-      ChannelsSupervisor.stop_bridge_runtime(%{}, id)
-      DynamicSupervisor.terminate_child(BridgeSupervisor, replacement)
-    end)
-
     {id, initial, replacement}
+  end
+
+  defp reset_channels_supervisor do
+    :ok = Supervisor.terminate_child(Zaq.Supervisor, ChannelsSupervisor)
+    assert {:ok, _pid} = Supervisor.restart_child(Zaq.Supervisor, ChannelsSupervisor)
   end
 end
