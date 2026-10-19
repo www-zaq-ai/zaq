@@ -7,10 +7,13 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   import Mox
   import Ecto.Query
 
+  alias Zaq.Accounts.People
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
+  alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob, IngestWorker}
   alias Zaq.Ingestion.RecordSource
+  alias Zaq.Permissions
   alias Zaq.Repo
   alias Zaq.SystemConfigFixtures
 
@@ -526,6 +529,79 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
                })
 
       assert %Document{} = Document.get_by_source(source)
+    end
+
+    test "imports pre-existing public sharing from a persisted source record" do
+      original_bridge = Application.get_env(:zaq, :ingestion_data_source_bridge_module)
+
+      Application.put_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        __MODULE__.ExternalDataSourceBridgeStub
+      )
+
+      on_exit(fn ->
+        case original_bridge do
+          nil -> Application.delete_env(:zaq, :ingestion_data_source_bridge_module)
+          module -> Application.put_env(:zaq, :ingestion_data_source_bridge_module, module)
+        end
+      end)
+
+      {:ok, person} = People.create_person(%{full_name: "Public Storage Reader"})
+      everyone_id = Permissions.everyone_team_id()
+      source = "data_source/disk/cfg-public/public-file"
+
+      record = %Record{
+        id: "public-file",
+        kind: :file,
+        name: "Public.pdf",
+        mime_type: "application/pdf",
+        attributes: %{"provider" => "disk", "config_id" => "cfg-public"},
+        permissions: [
+          %Record{
+            id: "public-grant",
+            kind: :permission,
+            name: "Public",
+            attributes: %{
+              "type" => "public",
+              "target_id" => to_string(everyone_id),
+              "access_rights" => ["read"]
+            }
+          }
+        ]
+      }
+
+      source_record = record |> signed_record() |> RecordSource.to_storage_map()
+      job = create_job(%{source_record: source_record})
+
+      expect(Zaq.DocumentProcessorMock, :process_single_file, fn _path, opts ->
+        assert opts[:source_override] == source
+        doc = create_document(%{source: source})
+
+        {:ok, _chunk} =
+          Chunk.create(%{document_id: doc.id, content: "Public content", chunk_index: 1})
+
+        refute Permissions.can?(person, :read, doc)
+        {:ok, doc}
+      end)
+
+      assert :ok =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      doc = Document.get_by_source(source)
+      assert Repo.get!(IngestJob, job.id).status == "completed"
+      [permission] = Ingestion.list_document_permissions(doc.id)
+      assert permission.team_id == everyone_id
+      assert permission.access_rights == ["read"]
+      assert Permissions.can?(person, :read, doc)
+
+      assert Ingestion.can_access_file?(source, %{person_id: person.id, role: %{name: "user"}})
+
+      assert Repo.exists?(from c in Chunk, where: c.document_id == ^doc.id)
     end
 
     test "cancels immediately for structural string errors" do

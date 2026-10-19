@@ -7,6 +7,7 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
   alias Zaq.Ingestion
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.ExternalPermissions
+  alias Zaq.Permissions
   alias Zaq.Repo
 
   import Ecto.Query
@@ -229,10 +230,68 @@ defmodule Zaq.Ingestion.ExternalPermissionsTest do
     assert permissions_for(doc) == []
   end
 
+  test "imports public permissions as Everyone grants without trusting the supplied target" do
+    doc = create_document()
+    {:ok, person} = People.create_person(%{full_name: "Public Reader"})
+    everyone_id = Permissions.everyone_team_id()
+
+    refute Permissions.can?(person, :read, doc)
+
+    for target_id <- [nil, "", "not-the-everyone-team"] do
+      record = %Record{
+        id: "public-storage-entry",
+        kind: :file,
+        permissions: [
+          %Record{
+            id: "public-permission",
+            kind: :permission,
+            attributes: %{
+              "type" => "public",
+              "target_id" => target_id,
+              "access_rights" => ["read"]
+            }
+          }
+        ]
+      }
+
+      assert :ok = ExternalPermissions.apply(record, [doc])
+      [permission] = permissions_for(doc)
+      assert permission.team_id == everyone_id
+      assert permission.person_id == nil
+      assert permission.access_rights == ["read"]
+      assert Permissions.can?(person, :read, doc)
+      refute Permissions.can?(person, :write, doc)
+    end
+
+    assert :ok =
+             ExternalPermissions.apply(
+               %Record{id: "public-storage-entry", kind: :file, permissions: []},
+               [doc]
+             )
+
+    assert permissions_for(doc) == []
+    refute Permissions.can?(person, :read, doc)
+  end
+
+  test "does not grant public access for explicit empty rights" do
+    doc = create_document()
+
+    record = %Record{
+      id: "public-no-rights",
+      kind: :file,
+      permissions: [%{"type" => "public", "access_rights" => []}]
+    }
+
+    log = capture_log(fn -> assert :ok = ExternalPermissions.apply(record, [doc]) end)
+
+    assert log =~ ":no_rights"
+    assert permissions_for(doc) == []
+  end
+
   property "skips unsupported direct target types" do
     check all(
             type <- string(:alphanumeric, min_length: 1),
-            type not in ["person", "team"]
+            type not in ["person", "team", "public"]
           ) do
       doc = create_document()
       record_id = "unsupported-target-#{System.unique_integer([:positive])}"

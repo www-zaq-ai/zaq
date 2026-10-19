@@ -6,6 +6,7 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   alias Zaq.Accounts.People
   alias Zaq.Contracts.Record
   alias Zaq.Ingestion
+  alias Zaq.Permissions
 
   require Logger
 
@@ -90,6 +91,10 @@ defmodule Zaq.Ingestion.ExternalPermissions do
   end
 
   defp permission_principal(permission), do: normalize_map(permission)
+
+  defp ensure_target(%Record{} = _record, %{"type" => "public"}) do
+    {:ok, :team, Permissions.everyone_team_id()}
+  end
 
   defp ensure_target(%Record{} = _record, %{"type" => "person", "target_id" => target_id})
        when is_binary(target_id) and target_id != "" do
