@@ -169,7 +169,7 @@ defmodule Zaq.Channels.Web.WidgetUserMessageTest do
              EngineApi.handle_event(event, :channel_conversations, nil)
 
     assert {:ok, receipt} = result
-    assert %{row | role: "user"} == receipt.payload.user_message
+    assert %{row | role: "user", timestamp: row.timestamp.value} == receipt.payload.user_message
 
     assert %{response: {:error, :message_not_found}} =
              EngineApi.handle_event(

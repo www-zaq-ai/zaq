@@ -200,6 +200,56 @@ defmodule Zaq.Channels.Web.WidgetConformanceTest do
              AdapterFixture.ingress(command, config.id, topic)
   end
 
+  test "widget adapter encodes provider and recorded history timestamps", %{
+    config: config,
+    topic: topic
+  } do
+    provider_time = ~U[2026-01-02 03:04:05.000000Z]
+
+    {:ok, message} =
+      Message.new(%{
+        request_id: "timestamp-question",
+        message_id: Ecto.UUID.generate(),
+        timestamp: provider_time,
+        content: "Say hello",
+        channel: "default",
+        mode: :sync
+      })
+
+    assert %Response{type: :message_complete, conversation_id: id} =
+             AdapterFixture.ingress(message, config.id, topic)
+
+    scope = %{channel_config_id: config.id, sender_id: "verified-parent-user"}
+    assert {:ok, [user, assistant]} = ChannelConversations.history(scope, id)
+    assert user.timestamp == %{value: provider_time, source: :provider}
+    assert %{value: %DateTime{} = recorded_time, source: :recorded} = assistant.timestamp
+    assert is_nil(assistant.provider_sent_at)
+
+    {:ok, command} =
+      Command.new(%{
+        request_id: "timestamp-history",
+        type: :conversation_history,
+        conversation_id: id
+      })
+
+    assert %Response{
+             type: :conversation_history,
+             payload: %{messages: [widget_user, widget_assistant]}
+           } =
+             response = AdapterFixture.ingress(command, config.id, topic)
+
+    assert widget_user.role == "user"
+    assert widget_user.timestamp == provider_time
+    assert widget_assistant.timestamp == recorded_time
+
+    assert {:ok, %{payload: %{messages: [encoded_user, encoded_assistant]}}, positions} =
+             WebWidget.Integration.Response.history(response, "timestamp-widget")
+
+    assert encoded_user.timestamp == DateTime.to_iso8601(provider_time)
+    assert encoded_assistant.timestamp == DateTime.to_iso8601(recorded_time)
+    assert positions == [user.position, assistant.position]
+  end
+
   test "async fixture returns creation receipt and delivers a correlated final once", %{
     config: config,
     topic: topic

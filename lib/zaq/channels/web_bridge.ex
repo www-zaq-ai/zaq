@@ -888,6 +888,12 @@ defmodule Zaq.Channels.WebBridge do
     end
   end
 
+  defp widget_history_message(%{timestamp: %{value: time}} = message) do
+    message
+    |> Map.put(:timestamp, time)
+    |> widget_history_message()
+  end
+
   defp widget_history_message(%{role: "external"} = message), do: %{message | role: "user"}
   defp widget_history_message(message), do: message
 
