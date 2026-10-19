@@ -4,6 +4,7 @@ defmodule Zaq.Agent.RequestControlTest do
   import Zaq.SystemConfigFixtures
 
   alias Zaq.Accounts.People
+  alias Zaq.Agent.Api
   alias Zaq.Agent.{Factory, RequestControl, ServerManager}
   alias Zaq.Channels.CommunicationBridge
   alias Zaq.Engine.{ChannelConfig, Conversations, HistoryIngress}
@@ -213,6 +214,32 @@ defmodule Zaq.Agent.RequestControlTest do
     refute_receive {:controlled, _, _}
   end
 
+  test "processing status does not treat a history lease without a native request as active",
+       ctx do
+    person_ctx = canonical_person(ctx)
+
+    assert {:ok, lease} =
+             ServerManager.begin_history_request(ctx.scope, person_ctx.pid, person_ctx.actor)
+
+    assert :ok =
+             ServerManager.bind_history_request(ctx.scope, lease.token, %{
+               session: make_ref(),
+               actor: person_ctx.actor,
+               history: %{binding: person_ctx.root}
+             })
+
+    event =
+      Event.new(%{}, :agent,
+        actor: person_ctx.actor,
+        opts: [confidential: true]
+      )
+
+    root_message_id = person_ctx.root.user_message_id
+
+    assert %Event{response: {:ok, [%{user_message_id: ^root_message_id, status: :unknown}]}} =
+             Api.handle_event(event, :processing_status, nil)
+  end
+
   test "closed-before-accept returns exact followup binding only when requested", ctx do
     {person_ctx, id} = canonical_active(ctx)
     Process.put(:request_control_test_owner, self())
@@ -299,6 +326,119 @@ defmodule Zaq.Agent.RequestControlTest do
     assert_receive {:routed, queued}
     assert queued.opts[:action] == :queue_execution_input
     assert queued.request.closed_disposition == true
+    refute_receive {:controlled, _, _}
+  end
+
+  test "incoming canonical control is not active while its history scope is retiring", ctx do
+    {person_ctx, _id} = canonical_active(ctx)
+    Process.put(:request_control_test_owner, self())
+
+    child_input = incoming(person_ctx.info, "retiring-#{Ecto.UUID.generate()}", "Retiring input")
+    assert {:ok, _} = HistoryIngress.capture(child_input)
+    assert {:ok, binding} = Conversations.admit_incoming(child_input)
+
+    assert :ok =
+             ServerManager.retire_history_scope(%{
+               transcript_id: person_ctx.transcript_id,
+               person_id: person_ctx.person.id
+             })
+
+    event =
+      Event.new(%{}, :agent,
+        actor: person_ctx.actor,
+        opts: [node_router: ControlledRouter, factory_module: ControlledFactory]
+      )
+
+    assert :not_active =
+             RequestControl.queue_incoming(
+               event,
+               child_input,
+               %{kind: :canonical, transcript_id: person_ctx.transcript_id},
+               binding,
+               ctx.agent.id
+             )
+
+    assert_receive {:routed, admitted}
+    assert admitted.opts[:action] == :admit_execution
+    assert admitted.opts[:confidential] == true
+    refute_receive {:routed, _}
+    refute_receive {:controlled, _, _}
+  end
+
+  test "incoming canonical control is ambiguous across two same-agent runtimes", ctx do
+    {person_ctx, _id} = canonical_active(ctx)
+    Process.put(:request_control_test_owner, self())
+
+    second_server_id = "request-control-second:#{Ecto.UUID.generate()}"
+
+    assert {:ok, projection} =
+             Conversations.admit_execution(
+               person_ctx.root,
+               person_ctx.actor,
+               "Root question"
+             )
+
+    assert {:ok, second_server} =
+             ServerManager.ensure_server(ctx.agent, second_server_id, nil,
+               actor: person_ctx.actor,
+               execution_scope: person_ctx.scope,
+               canonical_execution: true,
+               history_binding: person_ctx.root,
+               history_cursors: projection.cursors
+             )
+
+    on_exit(fn -> ServerManager.stop_server(ctx.agent, second_server_id) end)
+    refute GenServer.whereis(second_server) == person_ctx.pid
+
+    assert {:ok, second_lease} =
+             ServerManager.begin_history_request(
+               second_server_id,
+               GenServer.whereis(second_server),
+               person_ctx.actor
+             )
+
+    assert :ok =
+             ServerManager.bind_history_request(second_server_id, second_lease.token, %{
+               session: make_ref(),
+               actor: person_ctx.actor,
+               history: %{binding: person_ctx.root}
+             })
+
+    assert {:ok, %{request: second_request}} =
+             Factory.ask_with_config(second_server, "Second root question", ctx.agent)
+
+    assert :ok =
+             ServerManager.bind_native_history_request(
+               second_server_id,
+               second_lease.token,
+               second_request.id
+             )
+
+    assert_receive {:request_control_model_request, _, second_worker}, 5_000
+    on_exit(fn -> send(second_worker, :release_request_control_model) end)
+
+    child_input =
+      incoming(person_ctx.info, "ambiguous-#{Ecto.UUID.generate()}", "Ambiguous input")
+
+    assert {:ok, _} = HistoryIngress.capture(child_input)
+    assert {:ok, binding} = Conversations.admit_incoming(child_input)
+
+    event =
+      Event.new(%{}, :agent,
+        actor: person_ctx.actor,
+        opts: [node_router: ControlledRouter, factory_module: ControlledFactory]
+      )
+
+    assert {:error, :ambiguous_request} =
+             RequestControl.queue_incoming(
+               event,
+               child_input,
+               %{kind: :canonical, transcript_id: person_ctx.transcript_id},
+               binding,
+               ctx.agent.id
+             )
+
+    refute_receive {:routed, _}
     refute_receive {:controlled, _, _}
   end
 
