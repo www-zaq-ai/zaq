@@ -35,6 +35,14 @@ RUN mix zaq.python.fetch
 
 RUN mix release
 
+# Check the release itself, which is the only application tree copied to runtime.
+RUN set -- /app/_build/prod/rel/zaq/lib/web_widget-*/priv/static/assets; \
+    test "$#" -eq 1 && \
+    for asset in embed.js app.js app.css web-widget.js web-widget.css widget-client.js; do \
+      test -s "$1/$asset" || \
+        { echo "Missing web_widget release asset: $asset" >&2; exit 1; }; \
+    done
+
 # Keep a stable path to the release-bundled Python requirements
 RUN cp /app/_build/prod/rel/zaq/lib/zaq-*/priv/python/crawler-ingest/requirements.txt /app/release-requirements.txt
 
