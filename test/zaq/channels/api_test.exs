@@ -6,6 +6,7 @@ defmodule Zaq.Channels.ApiTest do
   alias Zaq.Channels.Bridge
   alias Zaq.Channels.Web.{Delivery, Response}
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Incoming.RoutingContext
@@ -667,6 +668,70 @@ defmodule Zaq.Channels.ApiTest do
 
     assert %Outgoing{metadata: %{format: :markdown}} = delivered_outgoing
     assert %{delivered_outgoing | metadata: %{}} == outgoing
+  end
+
+  test "final publication derives tool steps without replacing internal invocation evidence" do
+    calls = [
+      %{
+        "id" => "a",
+        "invocation_id" => "a",
+        "name" => "search",
+        "sequence" => 1,
+        "outcome" => "failed",
+        "arguments" => %{secret: "private"},
+        "response" => ["error", "private"]
+      },
+      %{"id" => "legacy-event", "name" => "legacy", "sequence" => 2, "outcome" => "succeeded"}
+    ]
+
+    outgoing = %Outgoing{
+      body: "failed",
+      provider: :web,
+      channel_id: "c1",
+      metadata: %{
+        tool_calls: calls,
+        trace: [%{"private" => "evidence"}],
+        request_id: "root",
+        assistant_message_id: "answer"
+      }
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+      )
+
+    result = Api.handle_event(event, :deliver_outgoing, nil)
+
+    assert result.response == {:ok, %{}}
+    assert_received {:bridge_send_reply, delivered, _details}
+    assert delivered.metadata.tool_steps == ToolStep.project(calls)
+    assert [%{"id" => "a", "state" => "failed"}] = delivered.metadata.tool_steps
+    refute Jason.encode!(delivered.metadata.tool_steps) =~ "private"
+    assert result.request == outgoing
+    assert result.request.metadata.tool_calls == calls
+    assert result.request.metadata.trace == [%{"private" => "evidence"}]
+    refute Map.has_key?(result.request.metadata, :tool_steps)
+    assert delivered.metadata.request_id == "root"
+    assert delivered.metadata.assistant_message_id == "answer"
+  end
+
+  test "no-tool Agent delivery publishes an empty projection without changing legacy delivery" do
+    outgoing = %Outgoing{
+      body: "done",
+      provider: :web,
+      channel_id: "c1",
+      metadata: %{tool_calls: []}
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+      )
+
+    assert Api.handle_event(event, :deliver_outgoing, nil).response == {:ok, %{}}
+    assert_received {:bridge_send_reply, delivered, _details}
+    assert delivered.metadata.tool_steps == []
   end
 
   test "deliver_outgoing rejects an invalid connector id before bridge delivery" do

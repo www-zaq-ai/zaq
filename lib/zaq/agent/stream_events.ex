@@ -4,14 +4,24 @@ defmodule Zaq.Agent.StreamEvents do
 
   This module owns request-local stream concerns: realtime buffered broadcasts,
   per-turn trace capture, tool-call capture, and final usage/result extraction.
+  Canonical `tool_calls` own private evidence, sequence and normalized outcome.
+  Public tool steps are an allowlisted projection, ordered by first observation
+  of invocation identity. Only starts without observed completions become unknown
+  at request termination; request failure never overwrites a known tool outcome.
+  Tagged error completions fail; tagged success and legacy bare completions succeed.
+  Public snapshots are projected synchronously for Status; Executor receives only
+  canonical invocation facts, which also drive final delivery's public projection.
   """
 
   alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
   alias Zaq.Agent.Status
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
+
+  @tool_trace_fields ~w(id type turn_id content name arguments response duration_ms started_at started_at_ms ended_at ended_at_ms status)
 
   @flush_chars 20
   @flush_interval_ms 100
@@ -96,6 +106,7 @@ defmodule Zaq.Agent.StreamEvents do
       trace: [],
       trace_artifacts: [],
       tool_calls: %{},
+      published_tool_steps: nil,
       answer: nil,
       usage: %{},
       llm_calls: %{},
@@ -186,18 +197,25 @@ defmodule Zaq.Agent.StreamEvents do
   defp handle_event(:llm_started, event, state), do: upsert_llm_call(state, event, nil)
   defp handle_event(:llm_delta, event, state), do: handle_llm_delta(event, state)
   defp handle_event(:llm_completed, event, state), do: handle_llm_completed(event, state)
+
   defp handle_event(:tool_started, event, state), do: handle_tool_started(event, state)
   defp handle_event(:tool_completed, event, state), do: handle_tool_completed(event, state)
+
   defp handle_event(:input_injected, event, state), do: record_input_consumption(event, state)
 
   defp handle_event(:request_completed, event, state),
-    do: state |> flush_trace_segment(event) |> handle_request_completed(event)
+    do:
+      state
+      |> settle_tool_calls()
+      |> flush_trace_segment(event)
+      |> handle_request_completed(event)
 
   defp handle_event(:request_failed, event, state),
-    do: state |> flush_trace_segment(event) |> handle_request_failed(event)
+    do: state |> settle_tool_calls() |> flush_trace_segment(event) |> handle_request_failed(event)
 
   defp handle_event(:request_cancelled, event, state) do
     state
+    |> settle_tool_calls()
     |> flush_trace_segment(event)
     |> Map.put(:termination_reason, :cancelled)
     |> Map.put(:error, :cancelled)
@@ -289,11 +307,15 @@ defmodule Zaq.Agent.StreamEvents do
   defp handle_tool_started(event, state) do
     data = data(event)
 
-    tool_call_id =
-      field(event, :tool_call_id) || data_get(data, :tool_call_id) || field(event, :id)
+    invocation_id = field(event, :tool_call_id) || data_get(data, :tool_call_id)
+    tool_call_id = invocation_id || field(event, :id)
+    existing = Map.get(state.tool_calls, tool_call_id, %{})
 
     tool_call = %{
       "id" => tool_call_id,
+      "invocation_id" => invocation_id,
+      "sequence" => Map.get(existing, "sequence", map_size(state.tool_calls) + 1),
+      "outcome" => "running",
       "type" => "tool_call",
       "turn_id" => to_string(field(event, :iteration) || 0),
       "content" => field(event, :tool_name) || data_get(data, :tool_name) || "tool",
@@ -306,7 +328,6 @@ defmodule Zaq.Agent.StreamEvents do
 
     tool_call = normalize_tool_arguments(tool_call)
 
-    existing = Map.get(state.tool_calls, tool_call_id, %{})
     # Duplicate/late starts may carry less evidence than an earlier event. They
     # must not erase arguments or downgrade an already completed native call.
     tool_call = Map.merge(tool_call, existing)
@@ -327,21 +348,34 @@ defmodule Zaq.Agent.StreamEvents do
   defp handle_tool_completed(event, state) do
     data = data(event)
 
-    tool_call_id =
-      field(event, :tool_call_id) || data_get(data, :tool_call_id) || field(event, :id)
+    invocation_id = field(event, :tool_call_id) || data_get(data, :tool_call_id)
+    tool_call_id = invocation_id || field(event, :id)
+    existing = Map.get(state.tool_calls, tool_call_id, %{})
 
-    tool_name = field(event, :tool_name) || data_get(data, :tool_name)
+    if existing["status"] == "completed" do
+      state
+    else
+      complete_tool_call(event, state, tool_call_id, invocation_id, existing)
+    end
+  end
+
+  defp complete_tool_call(event, state, tool_call_id, invocation_id, existing) do
+    data = data(event)
+    tool_name = field(event, :tool_name) || data_get(data, :tool_name) || existing["name"]
 
     {trace_result, trace_artifacts} =
       externalize_trace_artifacts(data_get(data, :result), tool_call_id, tool_name)
 
     tool_call =
-      state.tool_calls
-      |> Map.get(tool_call_id, %{"id" => tool_call_id})
+      existing
       |> Map.merge(%{
+        "id" => tool_call_id,
+        "invocation_id" => invocation_id,
+        "sequence" => Map.get(existing, "sequence", map_size(state.tool_calls) + 1),
+        "outcome" => tool_outcome(data_get(data, :result)),
         "type" => "tool_call",
         "turn_id" => to_string(field(event, :iteration) || 0),
-        "content" => field(event, :tool_name) || data_get(data, :tool_name) || "tool",
+        "content" => tool_name || "tool",
         "name" => tool_name,
         "response" => json_safe(trace_result),
         "duration_ms" => data_get(data, :duration_ms),
@@ -363,6 +397,7 @@ defmodule Zaq.Agent.StreamEvents do
   end
 
   defp put_tool_trace(trace, tool_call) do
+    tool_call = Map.take(tool_call, @tool_trace_fields)
     same_call? = fn entry -> entry["type"] == "tool_call" and entry["id"] == tool_call["id"] end
 
     updated = Enum.map(trace, fn entry -> if same_call?.(entry), do: tool_call, else: entry end)
@@ -546,23 +581,67 @@ defmodule Zaq.Agent.StreamEvents do
         state.current_stage,
         state.current_full,
         state.node_router,
-        update_intent: state.current_intent
+        update_intent: state.current_intent,
+        tool_steps: public_tool_steps(state)
       )
 
     %{state | incoming: incoming, buffer: "", last_flush_ms: now}
   end
 
   defp broadcast_tool(state, tool_call, status) do
+    steps = public_tool_steps(state)
+    projected? = Enum.any?(steps, &(&1["id"] == tool_call["invocation_id"]))
+
+    if projected? and steps == state.published_tool_steps do
+      state
+    else
+      do_broadcast_tool(state, tool_call, status, steps)
+    end
+  end
+
+  defp do_broadcast_tool(state, tool_call, status, steps) do
     name = Map.get(tool_call, "name") || "tool"
-    message = if status == :completed, do: "Finished #{name}", else: "Using #{name}"
+
+    message =
+      case status do
+        :completed -> "Finished #{name}"
+        :unknown -> "Tool outcome unavailable"
+        :started -> "Using #{name}"
+      end
 
     incoming =
       state.status_module.broadcast(state.incoming, :tool_call, message, state.node_router,
-        update_intent: :tool_call
+        update_intent: :tool_call,
+        tool_steps: steps
       )
 
-    %{state | incoming: incoming}
+    %{state | incoming: incoming, published_tool_steps: steps}
   end
+
+  # Classify the native envelope before json_safe turns tuples into trace arrays.
+  defp tool_outcome({:ok, _value}), do: "succeeded"
+  defp tool_outcome({:ok, _value, _effects}), do: "succeeded"
+  defp tool_outcome({:error, _reason}), do: "failed"
+  defp tool_outcome({:error, _reason, _effects}), do: "failed"
+  defp tool_outcome(_bare_completion), do: "succeeded"
+
+  defp settle_tool_calls(state) do
+    calls =
+      Map.new(state.tool_calls, fn
+        {id, %{"outcome" => "running"} = call} -> {id, Map.put(call, "outcome", "unknown")}
+        pair -> pair
+      end)
+
+    if calls == state.tool_calls do
+      state
+    else
+      state
+      |> Map.put(:tool_calls, calls)
+      |> broadcast_tool(%{}, :unknown)
+    end
+  end
+
+  defp public_tool_steps(state), do: ToolStep.project(Map.values(state.tool_calls))
 
   defp result(state) do
     %{
@@ -571,7 +650,7 @@ defmodule Zaq.Agent.StreamEvents do
       llm_calls: public_llm_calls(state),
       trace: Enum.reverse(state.trace),
       trace_artifacts: state.trace_artifacts,
-      tool_calls: state.tool_calls |> Map.values(),
+      tool_calls: state.tool_calls |> Map.values() |> Enum.sort_by(& &1["sequence"]),
       termination_reason: state.termination_reason,
       measurements: measurements(state),
       model: model(state),

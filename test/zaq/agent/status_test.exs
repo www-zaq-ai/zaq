@@ -73,6 +73,65 @@ defmodule Zaq.Agent.StatusTest do
   end
 
   describe "broadcast/4 with %Incoming{}" do
+    test "publishes explicit allowlisted snapshots without retaining them in Incoming" do
+      incoming = %Incoming{
+        content: "hello",
+        provider: :web,
+        channel_id: "bo",
+        metadata: %{request_id: "root", assistant_message_id: "answer"}
+      }
+
+      step = %{
+        id: "call",
+        kind: "tool",
+        name: "search",
+        sequence: 1,
+        state: "running",
+        arguments: "private"
+      }
+
+      updated =
+        Status.broadcast(incoming, :tool_call, "Using search", RecordingNodeRouter,
+          tool_steps: [step],
+          update_intent: :tool_call
+        )
+
+      assert_receive {:upsert_event, %Event{request: outgoing, next_hop: %{type: :sync}}}
+      assert [%{"id" => "call", "state" => "running"} = public] = outgoing.metadata.tool_steps
+      refute Map.has_key?(public, "arguments")
+      assert outgoing.metadata.assistant_message_id == "answer"
+      assert outgoing.metadata.request_id == "root"
+      refute Map.has_key?(updated.metadata, :tool_steps)
+
+      Status.broadcast(updated, :answering, "answer text", RecordingNodeRouter,
+        tool_steps: [public]
+      )
+
+      assert_receive {:upsert_event, %Event{request: next}}
+      assert next.metadata.tool_steps == [public]
+      assert next.body == "answer text"
+
+      Status.broadcast(updated, :answering, "legacy text", RecordingNodeRouter)
+      assert_receive {:upsert_event, %Event{request: legacy}}
+      refute Map.has_key?(legacy.metadata, :tool_steps)
+    end
+
+    test "invalid public steps cannot enter the outgoing snapshot" do
+      incoming = %Incoming{
+        content: "hello",
+        channel_id: "bo",
+        provider: :web,
+        metadata: %{request_id: "root"}
+      }
+
+      Status.broadcast(incoming, :tool_call, "Working", RecordingNodeRouter,
+        tool_steps: [%{arguments: "private"}]
+      )
+
+      assert_receive {:upsert_event, %Event{request: outgoing}}
+      assert outgoing.metadata.tool_steps == []
+    end
+
     test "status upserts use the ingress-stamped connector rather than metadata" do
       context = %Zaq.Engine.Messages.Incoming.RoutingContext{channel_config_id: 42}
 

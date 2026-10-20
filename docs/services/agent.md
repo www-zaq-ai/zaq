@@ -182,6 +182,11 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - `broadcast/4,5` — ordered synchronous Channels upsert for intermediate stage and
   streaming edits; awaiting partial edits prevents a delayed edit from replacing
   the complete final answer delivered through the synchronous return hop.
+- `broadcast/5` accepts an optional `tool_steps:` snapshot. It validates each
+  entry through `Zaq.Contracts.ToolStep`, places the public list in
+  `Outgoing.metadata[:tool_steps]`, and never retains it in Incoming metadata.
+  StreamEvents explicitly supplies the current projection on subsequent edits.
+  Omitting the option preserves the existing no-snapshot message shape.
 - Accepts `%Incoming{}` or `nil`; a non-Incoming context map raises. The caller
   supplies the fourth-argument `node_router` module.
 - Routes the PubSub broadcast via `NodeRouter.dispatch/1` to BO so the broadcast executes on the BO node where `ChatLive` is subscribed — safe for multi-node deployments where the agent node and BO node are separate
@@ -620,6 +625,48 @@ without safe permission mutation support return `:unsupported`.
 
 ### Stream Events (`Zaq.Agent.StreamEvents`)
 - Reduces `Jido.AI.Agent.ask_stream/3` events into one request result consumed by `Executor`.
+- `tool_calls` is the sole request-local invocation collection. Its records keep
+  private arguments/results/timestamps alongside explicit native `invocation_id`,
+  first-observed `sequence` and normalized `outcome`. Legacy private `id` fallback
+  does not establish public invocation identity. Replay handling, late-start
+  protection and terminal settlement all operate on these same records. Private
+  trace rows use an explicit field allowlist, excluding the new bookkeeping.
+- Derives ordered public `tool_steps` through the shared pure
+  `Zaq.Contracts.ToolStep.project/1`, never a second invocation map. The same
+  projector serves live Status updates and final Channels delivery. Native event
+  interpretation remains in Agent; Contracts validates and projects normalized facts.
+  Each public step is a string-keyed JSON-safe
+  map with `id`, `kind: "tool"`, `name`, `label`, `sequence`, `state`, and optional
+  nonnegative integer `duration_ms`. Strings are bounded to 256 UTF-8 bytes;
+  invalid/overlong invocation IDs are omitted, never truncated or replaced by
+  event IDs or tool names. Display strings are shortened safely. Sequence is
+  positive, assigned at first observation within one request and stable on replay;
+  completion-only events also receive an entry. Correlation stays in the envelope.
+- Public states are `running`, `succeeded`, `failed`, and `unknown`. Tagged native
+  `{:ok, value}` / `{:ok, value, effects}` completions succeed; tagged
+  `{:error, reason}` / `{:error, reason, effects}` completions fail. Bare completion
+  results are treated as successful for compatibility; the payload is not searched
+  for incidental error-like keys. Known terminal tool facts never regress on a late
+  start or replayed completion.
+- `unknown` means only that a started invocation had no observed completion before
+  an explicit request-terminal event. The native runner emits batch starts before
+  executing tools concurrently and publishes completions after collecting the batch:
+  an active worker exit can therefore leave even an actually successful tool with
+  no observed completion. Request failure preserves known tool outcomes, never
+  infers tool failure, and never triggers retry/cancellation from a step state.
+  There is no separate interrupted state or request-exhaustion protocol here.
+- Settled snapshots are published through the existing synchronous Status upsert
+  before stream consumption returns. Only the last published snapshot is retained
+  for emission deduplication. StreamEvents, Executor and default answering Pipeline
+  carry canonical `tool_calls`, not parallel public snapshots, through success,
+  handled-error and suppressed partial results. No-tool/pre-stream canonical
+  results use `[]`. Agent API preserves private evidence for Engine finalization;
+  Channels API then derives `Outgoing.metadata[:tool_steps]` on the final delivery
+  copy, leaving the original internal result unchanged. Legacy messages without
+  canonical tool calls keep their existing metadata shape.
+  Arguments, output values, error details, credentials and artifacts are excluded
+  from the step value. Adapter translation/rendering and persisted/history snapshots
+  (including legacy projection) are separate downstream increments.
 - Native ReAct event order relies on upstream `jido_ai` PR #370's dedicated worker
   directive, included in the current lock. Do not substitute generic per-event
   Emit tasks or add a ZAQ lifecycle/reorder workaround. See the

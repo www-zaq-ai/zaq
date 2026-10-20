@@ -7,9 +7,12 @@ defmodule Zaq.Agent.Status do
   `broadcast/5`. A non-Incoming map raises `ArgumentError` by design,
   preventing status context drift. A `nil` or missing request id is silently
   ignored — missing context must never crash the pipeline.
+  The optional `:tool_steps` snapshot is validated with `Zaq.Contracts.ToolStep`,
+  carried only in outgoing metadata, and never retained as invocation state.
   """
 
   alias Zaq.Channels.Events, as: ChannelEvents
+  alias Zaq.Contracts.ToolStep
 
   import Zaq.Engine.Messages,
     only: [is_present_message_id: 1, present_message_id?: 1, request_key: 2]
@@ -75,6 +78,7 @@ defmodule Zaq.Agent.Status do
           thread_id: incoming.thread_id,
           status_message_id: incoming.metadata[:status_message_id],
           assistant_message_id: incoming.metadata[:assistant_message_id],
+          tool_steps: public_snapshot(Keyword.get(opts, :tool_steps)),
           update_intent: Keyword.get(opts, :update_intent)
         },
         stage,
@@ -93,6 +97,22 @@ defmodule Zaq.Agent.Status do
   end
 
   def broadcast(nil, _stage, _message, _node_router, _opts), do: nil
+
+  defp public_snapshot(steps) when is_list(steps) do
+    steps |> Enum.flat_map(&public_step/1) |> Enum.sort_by(& &1["sequence"])
+  end
+
+  defp public_snapshot(_steps), do: nil
+
+  defp public_step(step) do
+    case ToolStep.new(step) do
+      {:ok, value} -> [value]
+      {:error, _reason} -> []
+    end
+  end
+
+  defp snapshot_metadata(%{tool_steps: steps}) when is_list(steps), do: %{tool_steps: steps}
+  defp snapshot_metadata(_context), do: %{}
 
   defp dispatch_upsert(nil, _node_router), do: :ok
 
@@ -133,14 +153,18 @@ defmodule Zaq.Agent.Status do
         channel_id: channel_id,
         thread_id: Map.get(context, :thread_id),
         body: message,
-        metadata: %{
-          request_id: request_id,
-          status_message_id: Map.get(context, :status_message_id),
-          assistant_message_id: Map.get(context, :assistant_message_id),
-          update_intent: Map.get(context, :update_intent) || :status,
-          session_id: Map.get(context, :session_id),
-          intent_meta: %{stage: stage}
-        }
+        metadata:
+          Map.merge(
+            %{
+              request_id: request_id,
+              status_message_id: Map.get(context, :status_message_id),
+              assistant_message_id: Map.get(context, :assistant_message_id),
+              update_intent: Map.get(context, :update_intent) || :status,
+              session_id: Map.get(context, :session_id),
+              intent_meta: %{stage: stage}
+            },
+            snapshot_metadata(context)
+          )
       }
     else
       nil

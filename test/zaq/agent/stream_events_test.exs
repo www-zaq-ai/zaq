@@ -6,6 +6,7 @@ defmodule Zaq.Agent.StreamEventsTest do
   alias ReqLLM.ToolResult
   alias Zaq.Agent.StreamEvents
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Incoming
 
   defmodule FakeStatus do
@@ -25,6 +26,181 @@ defmodule Zaq.Agent.StreamEventsTest do
 
   defmodule JsonStruct do
     defstruct [:name]
+  end
+
+  defmodule SnapshotStatus do
+    def broadcast(incoming, stage, message, _router, opts) do
+      send(self(), {:snapshot, stage, message, Keyword.get(opts, :tool_steps)})
+      incoming
+    end
+  end
+
+  test "publishes settled snapshots before returning and suppresses public step replay" do
+    start = event(:tool_started, 1, %{tool_name: "search"}, tool_call_id: "a")
+    events = [start, start, event(:request_failed, 2, %{error: {:react_worker_exit, :killed}})]
+
+    assert {:error, _, result} =
+             StreamEvents.consume(events, incoming(), status_module: SnapshotStatus)
+
+    assert_receive {:snapshot, :tool_call, "Using search", [%{"state" => "running"}]}
+    assert_receive {:snapshot, :tool_call, _, steps}
+    assert steps == public_steps(result)
+    assert [%{"state" => "unknown"}] = steps
+    refute_receive {:snapshot, _, _, _}
+  end
+
+  test "public snapshots order invocations rather than names and classify native completions" do
+    events = [
+      event(:tool_started, 1, %{tool_name: "search", arguments: %{secret: "private"}},
+        tool_call_id: "a"
+      ),
+      event(:tool_started, 2, %{tool_name: "search"}, tool_call_id: "b"),
+      event(
+        :tool_completed,
+        3,
+        %{tool_name: "search", result: {:error, :denied, []}, duration_ms: 2},
+        tool_call_id: "b"
+      ),
+      event(:tool_completed, 4, %{tool_name: "search", result: {:ok, %{secret: "private"}, []}},
+        tool_call_id: "a"
+      ),
+      event(:request_completed, 5, %{result: "done"})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert [
+             %{"id" => "a", "sequence" => 1, "state" => "succeeded"},
+             %{"id" => "b", "sequence" => 2, "state" => "failed", "duration_ms" => 2}
+           ] = public_steps(result)
+
+    refute Jason.encode!(public_steps(result)) =~ "private"
+    assert Enum.any?(result.tool_calls, &(&1["arguments"] == %{"secret" => "private"}))
+
+    for entry <- result.trace do
+      refute Map.has_key?(entry, "sequence")
+      refute Map.has_key?(entry, "outcome")
+      refute Map.has_key?(entry, "invocation_id")
+    end
+  end
+
+  test "request failure preserves completions and settles only outstanding starts to unknown" do
+    events = [
+      event(:tool_started, 1, %{tool_name: "search"}, tool_call_id: "pending"),
+      event(:tool_completed, 2, %{tool_name: "search", result: {:ok, "done"}},
+        tool_call_id: "ok"
+      ),
+      event(:tool_completed, 3, %{tool_name: "search", result: {:error, :denied}},
+        tool_call_id: "error"
+      ),
+      event(:request_failed, 4, %{error: {:react_worker_exit, :killed}})
+    ]
+
+    assert {:error, {:react_worker_exit, :killed}, result} =
+             StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert Enum.map(public_steps(result), & &1["state"]) == ["unknown", "succeeded", "failed"]
+  end
+
+  test "public identity never falls back to event IDs or malformed invocation IDs" do
+    events =
+      Enum.map([nil, "", 42, String.duplicate("a", 257)], fn id ->
+        event(:tool_started, 1, %{tool_name: "search"}, tool_call_id: id)
+      end) ++ [event(:request_completed, 2, %{result: "done"})]
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert public_steps(result) == []
+    refute result.tool_calls == []
+  end
+
+  test "cancellation settles pending steps without inventing tool failures" do
+    events = [
+      event(:tool_started, 1, %{tool_name: "search"}, tool_call_id: "a"),
+      event(:request_cancelled, 2, %{})
+    ]
+
+    assert {:error, :cancelled, result} =
+             StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert [%{"state" => "unknown"}] = public_steps(result)
+  end
+
+  test "legacy bare completions succeed without interpreting their arbitrary payload" do
+    events = [
+      event(
+        :tool_completed,
+        1,
+        %{tool_name: "search", result: %{error: "an application field, not an error envelope"}},
+        tool_call_id: "bare"
+      ),
+      event(:request_failed, 2, %{error: :cancelled})
+    ]
+
+    assert {:error, :cancelled, result} =
+             StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert [%{"state" => "succeeded"}] = public_steps(result)
+  end
+
+  test "uncorrelated legacy tool text is not suppressed by another invocation's snapshot" do
+    events = [
+      event(:tool_completed, 1, %{tool_name: "search", result: {:ok, "done"}},
+        tool_call_id: "known"
+      ),
+      event(:tool_started, 2, %{tool_name: "legacy"}),
+      event(:tool_completed, 3, %{tool_name: "legacy", result: "done"}),
+      event(:request_completed, 4, %{result: "done"})
+    ]
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert [%{"id" => "known"}] = public_steps(result)
+
+    assert_receive {:broadcast, :tool_call, "Using legacy", :tool_call}
+    assert_receive {:broadcast, :tool_call, "Finished legacy", :tool_call}
+  end
+
+  test "late events without a name cannot erase an observed public name" do
+    events = [
+      event(:tool_started, 1, %{tool_name: "search"}, tool_call_id: "a"),
+      event(:tool_started, 2, %{}, tool_call_id: "a"),
+      event(:tool_completed, 3, %{result: {:ok, "done"}}, tool_call_id: "a"),
+      event(:request_completed, 4, %{result: "done"})
+    ]
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+    assert [%{"name" => "search", "label" => "search"}] = public_steps(result)
+  end
+
+  property "replayed starts and completions preserve public identity and first-observed sequence" do
+    check all(repetitions <- integer(1..10)) do
+      start = event(:tool_started, 1, %{tool_name: "search"}, tool_call_id: "a")
+
+      completed =
+        event(:tool_completed, 2, %{tool_name: "search", result: {:ok, "done", []}},
+          tool_call_id: "a"
+        )
+
+      events =
+        List.duplicate(start, repetitions) ++
+          List.duplicate(completed, repetitions) ++
+          [start, event(:request_completed, 3, %{result: "done"})]
+
+      assert {:ok, result} =
+               StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+
+      assert [%{"id" => "a", "sequence" => 1, "state" => "succeeded"}] = public_steps(result)
+    end
+  end
+
+  defp public_steps(result) do
+    refute Map.has_key?(result, :tool_steps)
+    ToolStep.project(result.tool_calls)
   end
 
   test "opted-in lifecycle starts only on native request_started and before streamed content" do

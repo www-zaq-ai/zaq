@@ -786,6 +786,15 @@ The string `"email:smtp"` is mapped to the `:email` key before lookup. For `:web
 Outbound formatting is owned by Channels and applied at the `Zaq.Channels.Api`
 boundary before transport delegation to bridge callbacks.
 
+For final Agent messages carrying canonical `metadata[:tool_calls]`, this boundary
+also derives public `metadata[:tool_steps]` on the bridge-facing delivery copy via
+`Zaq.Contracts.ToolStep.project/1` — the same projector used by live Agent Status
+updates. Engine finalization has already received the original private invocation
+evidence; the internal message/event is not destructively sanitized or replaced.
+Channels does not interpret native tool results or maintain invocation state.
+Messages without canonical tool calls retain their previous metadata shape.
+Adapter-specific step translation/rendering remains downstream work.
+
 - Delivery path: `:deliver_outgoing` -> `MessageFormatter.format_outgoing/1` -> `bridge.send_reply/2`
 - Upsert/edit path: `:upsert_message` -> `MessageFormatter.format_outgoing/1` -> `bridge.upsert_message/3`
 

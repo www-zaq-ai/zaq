@@ -6,6 +6,7 @@ defmodule Zaq.Agent.PipelineTest do
   alias Zaq.Agent.Pipeline
   alias Zaq.Agent.PipelineTest.StubDocumentProcessor
   alias Zaq.Agent.Tools.SearchKnowledgeBase
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Telemetry.Buffer
@@ -288,6 +289,60 @@ defmodule Zaq.Agent.PipelineTest do
   # ---------------------------------------------------------------------------
 
   @incoming %Incoming{content: "What is the answer?", channel_id: "test", provider: :test}
+
+  defmodule PublicStepsExecutor do
+    alias Zaq.Agent.PipelineTest.StubExecutor
+
+    def run(incoming, opts) do
+      outgoing = StubExecutor.run(incoming, opts)
+
+      call = %{
+        "id" => "call",
+        "invocation_id" => "call",
+        "name" => "search",
+        "sequence" => 1,
+        "outcome" => "unknown",
+        "arguments" => %{private: "evidence"}
+      }
+
+      %{
+        outgoing
+        | metadata:
+            Map.merge(outgoing.metadata, %{
+              tool_calls: [call],
+              error: incoming.content == "failed",
+              status_message_id: "status",
+              root_request_id: "root"
+            })
+      }
+    end
+  end
+
+  test "default answering preserves canonical facts without copying a public snapshot" do
+    for content <- ["answer", "failed"] do
+      result =
+        Pipeline.run(
+          %{@incoming | content: content},
+          Keyword.put(@base_opts, :executor_module, PublicStepsExecutor)
+        )
+
+      assert [%{"id" => "call", "state" => "unknown"}] =
+               ToolStep.project(result.metadata.tool_calls)
+
+      assert [%{"arguments" => %{private: "evidence"}}] = result.metadata.tool_calls
+      refute Map.has_key?(result.metadata, :tool_steps)
+      assert result.metadata.error == (content == "failed")
+      assert result.metadata.root_request_id == "root"
+      assert result.metadata.status_message_id == "status"
+    end
+  end
+
+  test "legacy answering and pre-answer no-results use an empty canonical collection" do
+    assert Pipeline.run(@incoming, @base_opts).metadata.tool_calls == []
+
+    assert Pipeline.run(@incoming, Keyword.put(@base_opts, :retrieval, StubNoResultsRetrieval)).metadata.tool_calls ==
+             []
+  end
 
   describe ":pipeline_complete chunks in hook payload" do
     test "includes retrieved chunks on a successful run" do

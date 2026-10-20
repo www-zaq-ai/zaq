@@ -21,6 +21,8 @@ defmodule Zaq.Agent.Executor do
     normalized error classification through `Zaq.Engine.Telemetry`.
   - Output normalization into `Zaq.Engine.Messages.Outgoing` so downstream
     channel adapters receive a consistent payload shape.
+  - Canonical tool invocation evidence on successful, partial and handled-error
+    results; public step snapshots are derived only at publication boundaries.
 
   In short, `Executor` is the workflow coordinator; it does not build provider
   specs or runtime tool config itself. Those responsibilities stay in
@@ -770,6 +772,7 @@ defmodule Zaq.Agent.Executor do
       total_tokens: nil,
       error: false,
       suppressed: true,
+      tool_calls: [],
       sources: []
     }
     |> Map.merge(partial_execution_data(partial))
@@ -794,6 +797,7 @@ defmodule Zaq.Agent.Executor do
       total_tokens: nil,
       error: true,
       reason: inspect(public_reason),
+      tool_calls: [],
       sources: []
     }
     |> Map.merge(partial_execution_data(partial))

@@ -15,6 +15,8 @@ defmodule Zaq.Channels.Api do
     credential themselves.
   - Resolve provider bridge modules through `Zaq.Channels.Bridge`.
   - Delegate transport-specific behavior to bridge callbacks.
+  - Derive public tool-step snapshots from canonical invocation facts on final
+    delivery copies, after Engine finalization has consumed private evidence.
 
   Does not own provider runtime orchestration logic; that lives in
   `Zaq.Channels.CommunicationBridge` and bridge modules.
@@ -37,6 +39,7 @@ defmodule Zaq.Channels.Api do
   alias Zaq.Channels.Web.{Command, Context, Message}
   alias Zaq.ConnectorConfig.Settings
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Messages.Incoming.RoutingContext
@@ -197,7 +200,10 @@ defmodule Zaq.Channels.Api do
          {:ok, bridge} <- resolve_bridge(bridge_module, outgoing.provider),
          {:ok, connection_details} <- delivery_connection(bridge_module, outgoing, event.opts) do
       formatted_outgoing =
-        outgoing |> maybe_attach_status_message_id() |> MessageFormatter.format_outgoing()
+        outgoing
+        |> publish_tool_steps()
+        |> maybe_attach_status_message_id()
+        |> MessageFormatter.format_outgoing()
 
       response =
         formatted_outgoing
@@ -1245,6 +1251,12 @@ defmodule Zaq.Channels.Api do
   end
 
   defp fetch(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp publish_tool_steps(%Outgoing{metadata: %{tool_calls: calls}} = outgoing) do
+    put_in(outgoing.metadata[:tool_steps], ToolStep.project(calls))
+  end
+
+  defp publish_tool_steps(outgoing), do: outgoing
 
   # Uniform deliver_outgoing contract: success is always `{:ok, receipt}`, where the
   # receipt carries channel-assigned threading pointers (empty for bridges that

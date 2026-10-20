@@ -37,6 +37,7 @@ defmodule Zaq.Agent.Pipeline do
     * `:completion_tokens`
     * `:total_tokens`
     * `:error`
+    * `:tool_calls` — canonical invocation evidence from Executor, or `[]` before tools run
   """
 
   require Logger
@@ -350,6 +351,7 @@ defmodule Zaq.Agent.Pipeline do
       prompt_tokens: nil,
       completion_tokens: nil,
       total_tokens: nil,
+      tool_calls: [],
       error: false
     }
   end
@@ -366,6 +368,7 @@ defmodule Zaq.Agent.Pipeline do
       prompt_tokens: nil,
       completion_tokens: nil,
       total_tokens: nil,
+      tool_calls: [],
       error: true
     }
   end

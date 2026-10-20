@@ -7,6 +7,7 @@ defmodule Zaq.Agent.ExecutorTest do
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.{Executor, Factory, OpaqueAliases}
   alias Zaq.Contracts.Record
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Materialization.Handle
 
@@ -260,6 +261,92 @@ defmodule Zaq.Agent.ExecutorTest do
   ]
 
   @base_incoming %Incoming{content: "q", channel_id: "c", provider: :web}
+
+  defmodule ToolStepFactory do
+    def ask_with_config(_server, _content, _agent, opts) do
+      mode = opts[:tool_context].incoming.content
+
+      start = %{
+        kind: :tool_started,
+        at_ms: 1,
+        tool_call_id: "pending",
+        data: %{tool_name: "search"}
+      }
+
+      completed = %{
+        kind: :tool_completed,
+        at_ms: 2,
+        tool_call_id: "finished",
+        data: %{tool_name: "search", result: {:error, :denied}}
+      }
+
+      tail =
+        case mode do
+          "success" ->
+            [%{kind: :request_completed, at_ms: 4, data: %{result: "done"}}]
+
+          "cancelled" ->
+            [%{kind: :request_cancelled, at_ms: 4, data: %{}}]
+
+          "suppressed" ->
+            [
+              %{
+                kind: :llm_delta,
+                at_ms: 3,
+                data: %{delta: "Some answer already delivered", chunk_type: :content}
+              },
+              %{
+                kind: :request_failed,
+                at_ms: 4,
+                data: %{error: ReqLLM.Error.API.Stream.exception(reason: "closed", cause: nil)}
+              }
+            ]
+
+          "failure" ->
+            [%{kind: :request_failed, at_ms: 4, data: %{error: {:react_worker_exit, :killed}}}]
+        end
+
+      {:ok, %{request: :request, events: [start, completed] ++ tail}}
+    end
+  end
+
+  defmodule ToolStepStatus do
+    def broadcast(incoming, _stage, _text, _router), do: incoming
+
+    def broadcast(incoming, _stage, _text, _router, opts) do
+      send(self(), {:public_tool_snapshot, opts[:tool_steps]})
+      put_in(incoming.metadata[:status_message_id], "status")
+    end
+  end
+
+  test "all Executor terminal paths retain canonical facts for the same public projection" do
+    for mode <- ~w(success failure cancelled suppressed) do
+      outgoing =
+        Executor.run(
+          %{@incoming | content: mode},
+          Keyword.merge(@base_opts,
+            factory_module: ToolStepFactory,
+            status_module: ToolStepStatus
+          )
+        )
+
+      assert [
+               %{"id" => "pending", "state" => "unknown"},
+               %{"id" => "finished", "state" => "failed"}
+             ] = ToolStep.project(outgoing.metadata.tool_calls)
+
+      refute Map.has_key?(outgoing.metadata, :tool_steps)
+
+      assert_receive {:public_tool_snapshot, [%{"state" => "unknown"}, %{"state" => "failed"}]}
+      if mode == "suppressed", do: assert(outgoing.metadata.suppressed)
+    end
+  end
+
+  test "no-tool and pre-stream error results carry an empty canonical collection" do
+    assert Executor.run(@incoming, @base_opts).metadata.tool_calls == []
+    opts = Keyword.put(@base_opts, :server_manager_module, MissingRuntimeServerManager)
+    assert Executor.run(@incoming, opts).metadata.tool_calls == []
+  end
 
   test "native failure retains the started assistant identity from the partial stream" do
     outgoing =
