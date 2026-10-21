@@ -236,7 +236,7 @@ test.describe("People", () => {
       "FocusAndSelect", "FocusInput", "FolderDrop", "JsonTree",
       "LoadingActionButton", "MarkdownHighlight", "OAuthPopupListener", "OntologyTree",
       "PeopleAuthForm", "PeopleBulkDeleteDialog", "PeopleOTP", "PeoplePermissions", "ScrollBottom", "ScrollToFirstError", "SearchableSelect",
-      "WorkflowExport", "ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure",
+      "ToolStepTimer", "WorkflowExport", "ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure",
       "ZaqWeb.Components.DesignSystem.ChannelPriorityList.PriorityDrag",
       "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox",
       "ZaqWeb.Components.DesignSystem.PersonProfile.ProfileFocus", "liveViewHooks",
