@@ -211,6 +211,40 @@ Screenshots are written under `test/e2e/test-results/history-*.png`.
 No E2E bootstrap, port-4002 demo restart, database reset or real provider credentials
 are needed. Install the same Playwright dependencies/engines as other browser tests.
 
+### Real embedded widget lifecycle (isolated, no reset)
+
+```sh
+mix test test/zaq_web/widget_lifecycle_browser_test.exs --include real_browser --timeout 180000
+```
+
+Requires the installed widget package's bundled assets and the Playwright engines
+described below; no separate widget checkout, E2E server or database reset is used.
+The journey serves the real host Endpoint and a local parent application on
+ephemeral ports inside SQL Sandbox. The parent backend signs fresh connector-scoped
+JWTs; the real embed SDK, iframe, scoped cookie/CSRF bootstrap, LiveView socket,
+adapter, WebBridge, NodeRouter, Engine, native configured Agent and arithmetic tool
+all run unchanged. Only the LLM HTTP boundary uses the existing OpenAI fixture.
+Tool-call requests alone are insufficient: the fixture checks the actual arithmetic
+result returned by native execution before permitting the final answer.
+
+Chromium, Firefox and WebKit cover desktop success and mobile reload while native
+execution remains pending, followed by authenticated canonical-history restoration
+with identical invocation IDs, states and durations. Each engine also covers provider
+failure, native cancellation and actual worker death, before and after partial text.
+Private process checkpoints hold/release the LLM stream and initiate native fault
+injection, never fabricate widget events or final responses. Cancel/crash cases hold
+the provider until the real terminal reaches the browser, then release a late answer
+and verify it cannot replace the failure. Persisted execution state and absence of
+fabricated public answers are checked independently of browser presentation.
+
+Additional Chromium cases exercise simultaneous connector-isolated requests and
+foreign-history denial, NONE routing without an assistant, and an inactive sender's
+pre-Agent rejection with draft retention. The embedding origins are different ports
+on the same loopback site, using explicit unpartitioned Lax development cookies;
+this is not proof of cross-site third-party-cookie or external HTTPS acceptance.
+Failure screenshots are written to `test/e2e/test-results/widget-lifecycle-*.png`.
+Synchronous waiting remains covered by the separate `Web.SyncReply` integration tests.
+
 ### BO tool activity continuity (isolated, no reset)
 
 After building assets and installing the Playwright engines from `test/e2e`:
