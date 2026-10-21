@@ -1189,6 +1189,29 @@ stored-map projections; none of these shared helpers accesses Repo or credential
 
 `Zaq.Channels.WebBridge` serves the ChatLive web channel.
 
+BO history retrieval dispatches the Engine-owned authorized `:display_history`
+operation; it does not enrich the older unscoped message reader with private
+execution evidence. The existing response `trace` carries public projected tool
+values for ordinary readers and full persisted traces for current `admin` and
+`super_admin` readers authorized by Engine. BO history ingress and its nested Engine
+read are confidential; missing confidentiality is rejected at both role boundaries.
+The projection is server-derived, never enabled by request flags. BO history no
+longer carries obsolete metadata `tool_calls`; live runtime tool calls remain intact.
+Live/final BO delivery preserves optional validated `tool_steps` snapshots
+through the existing upsert and completion hops; omission retains the legacy
+no-snapshot shape. Widget live step/edit and terminal events now relay the same
+validated public snapshots, and widget canonical display history restores them.
+The widget package owns conversion into UI steps and browser presentation; other
+adapters retain their current presentation.
+
+BO renders ordered tool activity above the answer with inline recorded durations.
+While a step is running, a message-scoped browser hook shows approximate elapsed
+time since first observation on that page, using a monotonic local clock. Normal
+patches/reconnection preserve that observation origin; a genuine remount starts a
+new estimate. Terminal snapshots stop the clock and show recorded duration only
+when available; unmeasured `unknown` outcomes do not retain an estimated duration.
+No browser timer or timestamp is persisted or used to determine execution outcome.
+
 - `to_internal/2` — translates a normalized `Web.Message` and trusted `Web.Context` into canonical Incoming (`:web` for BO, `:web_widget` for widgets).
 - `send_reply/2` and `upsert_message/3` — publish `{:web_response, adapter_event_name, %Web.Response{}}` using the trusted delivery descriptor, never a metadata-selected topic.
 - ChatLive uses `ZaqWeb.Chat.BridgeClient` to dispatch normalized messages and commands to Channels through `:web_ingress`. WebBridge owns canonical Engine routing. BO agent selection remains transient `event.assigns["agent_selection"]` (`source: "bo_explicit"`) and is resolved by Engine before the event continues to Agent.

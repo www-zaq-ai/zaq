@@ -1461,6 +1461,40 @@ a.zaq-chat-source-row:focus-visible {
   border-right: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
 }
 
+/* Keep chat controls usable beside the collapsed BO rail on small screens. */
+@media (max-width: 767px) {
+  #bo-main:has(.zaq-chat-page-shell) {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  #bo-main:has(.zaq-chat-page-shell) > #bo-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .zaq-chat-page-shell {
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+
+  .zaq-chat-conversations-sidebar {
+    width: 100%;
+    max-height: calc(10 * var(--zaq-scale-16));
+    border-right: 0;
+    border-bottom: var(--zaq-border-thickness-default) solid var(--zaq-border-color-default);
+  }
+
+  .zaq-chat-header-bar {
+    flex-wrap: wrap;
+  }
+}
+
 .zaq-chat-conversations-sidebar__empty {
   padding: var(--zaq-scale-24) var(--zaq-scale-16);
   text-align: center;

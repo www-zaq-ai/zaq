@@ -12,6 +12,9 @@ defmodule Zaq.Contracts.ToolStep do
   before request termination. It is not an ambiguous response or inferred failure.
   Correlation belongs in the enclosing message, never in a step. Native result
   interpretation, state transitions, persistence and delivery are not owned here.
+  `from_trace/1` normalizes already-authorized display evidence: identifiable
+  legacy calls without a recorded outcome display as unknown, never inferred
+  success. It does not change the evidence retained for private inspection.
   """
 
   @states ~w(running succeeded failed unknown)
@@ -64,6 +67,55 @@ defmodule Zaq.Contracts.ToolStep do
   end
 
   def project(_calls), do: []
+
+  @doc """
+  Projects authorized raw trace entries or already-public steps for display.
+
+  Only raw `tool_call` entries with explicit native invocation identity and a
+  positive sequence qualify. A missing legacy outcome becomes `unknown`; an
+  explicit invalid outcome remains invalid. Status and response payloads never
+  establish outcome or identity. The same allowlist and ordering serve both
+  privileged raw traces and ordinary public history without copying private data.
+  Normalized runtime calls without a trace type retain their existing projection
+  only when they already carry an explicit outcome.
+  """
+  @spec from_trace(term()) :: [t()]
+  def from_trace(trace) when is_list(trace) do
+    trace
+    |> Enum.flat_map(fn
+      %{"type" => "tool_call"} = call ->
+        call |> Map.put_new("outcome", "unknown") |> project_invocation()
+
+      %{"type" => _other} ->
+        []
+
+      %{"invocation_id" => _, "outcome" => _} = call ->
+        project_invocation(call)
+
+      step ->
+        public_step(step)
+    end)
+    |> Enum.sort_by(& &1["sequence"])
+  end
+
+  def from_trace(_trace), do: []
+
+  @doc "Validates an already-public snapshot, discarding invalid entries and private extra fields."
+  @spec snapshot(term()) :: [t()]
+  def snapshot(steps) when is_list(steps) do
+    steps
+    |> Enum.flat_map(&public_step/1)
+    |> Enum.sort_by(& &1["sequence"])
+  end
+
+  def snapshot(_steps), do: []
+
+  defp public_step(step) do
+    case new(step) do
+      {:ok, public} -> [public]
+      {:error, _} -> []
+    end
+  end
 
   defp project_invocation(call) when is_map(call) do
     attrs = %{

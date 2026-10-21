@@ -25,6 +25,7 @@ defmodule Zaq.Engine.Conversations do
     MessageTraceArtifact,
     TitleGenerator,
     TokenUsageAggregator,
+    ToolHistory,
     Transcript,
     TranscriptHistory,
     TranscriptMessage
@@ -517,6 +518,43 @@ defmodule Zaq.Engine.Conversations do
   @doc "Fetches a conversation by id, returns nil if not found."
   def get_conversation(id), do: Repo.get(Conversation, id)
 
+  @doc "Resolves current BO read access without loading messages, ratings or execution evidence."
+  def resolve_display_conversation(id, user) do
+    with {:ok, conversation, _user} <- authorize_display_conversation(id, user) do
+      {:ok, conversation}
+    end
+  end
+
+  @doc """
+  Reads BO display history with fresh conversation and trace authorization.
+
+  Current admin/super_admin readers retain full traces; other readers receive
+  public tool steps. The projection is derived here, never from request flags.
+  """
+  def display_history(id, user) do
+    with {:ok, conversation, user} <- authorize_display_conversation(id, user) do
+      {:ok,
+       %{
+         conversation: conversation,
+         messages: conversation |> list_messages() |> ToolHistory.present(trace_projection(user))
+       }}
+    end
+  end
+
+  defp authorize_display_conversation(id, %User{id: user_id})
+       when is_integer(user_id) and user_id > 0 do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %User{} = user <- Zaq.Accounts.get_user(user_id),
+         %Conversation{} = conversation <-
+           Repo.one(readable_conversations(user) |> where(id: ^id)) do
+      {:ok, conversation, user}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp authorize_display_conversation(_id, _user), do: {:error, :not_found}
+
   @doc "Fetches by UUID and literal Person owner, without identity inference or alias fallback."
   @spec get_person_conversation(term(), term(), keyword()) :: struct() | nil
   def get_person_conversation(id, person_id, opts \\ [])
@@ -553,7 +591,12 @@ defmodule Zaq.Engine.Conversations do
              external_channel_id: conversation.external_channel_id,
              strategy: "direct"
            ),
-         {:ok, messages} <- list_canonical_messages(person, transcript.id, page) do
+         {:ok, messages} <-
+           list_canonical_messages(
+             person,
+             transcript.id,
+             Keyword.put(page, :presentation, :display)
+           ) do
       {:ok, %{conversation: conversation, messages: messages}}
     else
       {:error, :unauthorized} -> {:error, :conversation_not_found}
@@ -2485,9 +2528,7 @@ defmodule Zaq.Engine.Conversations do
 
   def get_authorized_trace_artifact(_artifact_id, _user), do: {:error, :not_found}
 
-  defp authorized_trace_artifact_query(artifact_id, %{id: user_id} = user) do
-    now = DateTime.utc_now() |> DateTime.truncate(:second)
-
+  defp authorized_trace_artifact_query(artifact_id, user) do
     base_query =
       from artifact in MessageTraceArtifact,
         join: message in Message,
@@ -2496,21 +2537,36 @@ defmodule Zaq.Engine.Conversations do
         on: conversation.id == message.conversation_id,
         where: artifact.id == ^artifact_id
 
+    readable = readable_conversations(user)
+
+    from [artifact, _message, conversation] in base_query,
+      where: conversation.id in subquery(from c in readable, select: c.id),
+      select: artifact
+  end
+
+  defp readable_conversations(%{id: user_id} = user) do
     if super_admin?(user) do
-      base_query
+      Conversation
     else
-      from [artifact, _message, conversation] in base_query,
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      from conversation in Conversation,
         left_join: share in ConversationShare,
         on:
           share.conversation_id == conversation.id and share.shared_with_user_id == ^user_id and
             share.permission == "read" and (is_nil(share.expires_at) or share.expires_at > ^now),
         where: conversation.user_id == ^user_id or not is_nil(share.id),
-        select: artifact
+        distinct: true
     end
   end
 
   defp super_admin?(%{role: %{name: "super_admin"}}), do: true
   defp super_admin?(_user), do: false
+
+  defp trace_projection(%{role: %{name: role}}) when role in ["admin", "super_admin"],
+    do: :full
+
+  defp trace_projection(_user), do: :public
 
   defp maybe_limit(query, nil), do: query
   defp maybe_limit(query, n) when is_integer(n), do: limit(query, ^n)

@@ -233,6 +233,67 @@ defmodule Zaq.WebWidgetIdentitySmokeTest do
     Chat.close(chat)
   end
 
+  test "pinned widget receives streamed tools and restores their terminal snapshot" do
+    chat = open_chat()
+    assert {:ok, _} = status(:execution_started)
+    chat = drain(chat)
+
+    running = %{
+      "id" => "lookup",
+      "kind" => "tool",
+      "name" => "lookup",
+      "label" => "Lookup",
+      "sequence" => 1,
+      "state" => "running"
+    }
+
+    assert {:ok, _} =
+             WebBridge.upsert_message(
+               %{},
+               %{
+                 request_id: "root-submission",
+                 assistant_message_id: @answer,
+                 message_id: @answer,
+                 body: "Working",
+                 intent_meta: %{stage: :tool_call},
+                 update_intent: :tool_call,
+                 routing_context: routing(delivery()),
+                 tool_steps: [Map.put(running, "params", "private")]
+               },
+               %{}
+             )
+
+    chat = drain(chat)
+    assert [%{steps: [%{id: "lookup", state: "started", sequence: 1}]}] = assistants(chat)
+    refute inspect(assistants(chat)) =~ "private"
+
+    settled = Map.merge(running, %{"state" => "succeeded", "duration_ms" => 21})
+    final = outgoing()
+    final = %{final | metadata: Map.put(final.metadata, :tool_steps, [settled])}
+    assert {:ok, _} = WebBridge.send_reply(final, %{})
+    chat = drain(chat)
+    assert [%{steps: [%{state: "completed", duration_ms: 21}]}] = assistants(chat)
+    expected = hd(assistants(chat)).steps
+    Chat.close(chat)
+
+    Process.put(:identity_history, [
+      %{
+        message_id: @answer,
+        position: 1,
+        role: "assistant",
+        content: "Complete",
+        tool_steps: [settled]
+      }
+    ])
+
+    restored = open_chat()
+    assert hd(assistants(restored)).steps == expected
+    assert {:ok, _} = status(:answering, @answer, :stream_delta)
+    restored = drain(restored)
+    assert hd(assistants(restored)).steps == expected
+    Chat.close(restored)
+  end
+
   defp open_chat do
     assert {:ok, chat} =
              Chat.open("42", %{"identity_token" => :fixture_session}, nil, @conversation)

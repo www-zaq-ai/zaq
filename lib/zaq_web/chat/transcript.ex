@@ -79,6 +79,8 @@ defmodule ZaqWeb.Chat.Transcript do
                 msg_id={if Map.get(item, :live, false), do: item.id, else: nil}
                 confidence={item.confidence}
                 sources={Map.get(item, :sources, [])}
+                tool_steps={Map.get(item, :tool_steps, [])}
+                tool_steps_id={item.id}
                 is_error={Map.get(item, :error, false)}
                 error_type={Map.get(item, :error_type)}
                 source_click_event="open_preview_modal"

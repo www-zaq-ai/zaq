@@ -32,6 +32,7 @@ defmodule Zaq.Channels.WebBridge do
   alias Zaq.Channels.Web.{Command, Context, Delivery, Response}
   alias Zaq.Channels.Web.Message, as: WebMessage
   alias Zaq.Channels.Web.SyncReply
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Conversations.{Conversation, MessageRating}
   alias Zaq.Engine.Conversations.Message, as: ConversationMessage
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
@@ -842,26 +843,26 @@ defmodule Zaq.Channels.WebBridge do
          sink_opts,
          actor
        ) do
-    with %{id: _id} = conversation <-
-           dispatch_conversation(
-             %{action: :get, conversation_id: conversation_id},
-             sink_opts,
-             actor
-           ),
-         messages when is_list(messages) <-
-           dispatch_conversation(
-             %{action: :messages, conversation: conversation},
-             sink_opts,
-             actor
-           ) do
-      response(command, :conversation_history, conversation.id, %{
-        conversation: conversation_projection(conversation),
-        messages: Enum.map(messages, &message_projection/1)
-      })
-    else
-      nil -> error_response(command, :conversation_not_found)
-      {:error, reason} -> error_response(command, reason)
-      _ -> error_response(command, :history_unavailable)
+    case dispatch_conversation(
+           %{action: :display_history, conversation_id: conversation_id},
+           sink_opts,
+           actor
+         ) do
+      {:ok, %{conversation: %Conversation{id: id} = conversation, messages: messages}}
+      when is_binary(id) and is_list(messages) ->
+        response(command, :conversation_history, conversation.id, %{
+          conversation: conversation_projection(conversation),
+          messages: Enum.map(messages, &message_projection/1)
+        })
+
+      nil ->
+        error_response(command, :conversation_not_found)
+
+      {:error, reason} ->
+        error_response(command, reason)
+
+      _ ->
+        error_response(command, :history_unavailable)
     end
   end
 
@@ -938,20 +939,17 @@ defmodule Zaq.Channels.WebBridge do
 
   defp resolve_conversation(
          %Command{conversation_id: conversation_id},
-         context,
+         _context,
          sink_opts,
          actor
        ) do
     case dispatch_conversation(
-           %{action: :get, conversation_id: conversation_id},
+           %{action: :resolve_display_conversation, conversation_id: conversation_id},
            sink_opts,
            actor
          ) do
-      %{id: _id} = conversation ->
+      {:ok, %Conversation{} = conversation} ->
         {:ok, conversation, %{created: false}}
-
-      nil ->
-        create_conversation(context, sink_opts, actor, %{replaced_missing_id: conversation_id})
 
       {:error, reason} ->
         {:error, reason}
@@ -984,7 +982,14 @@ defmodule Zaq.Channels.WebBridge do
   end
 
   defp dispatch_conversation(request, sink_opts, actor) do
-    event = Event.new(request, :engine, actor: actor, opts: [action: :conversation])
+    opts = [action: :conversation]
+
+    opts =
+      if request.action in [:display_history, :resolve_display_conversation],
+        do: Keyword.put(opts, :confidential, true),
+        else: opts
+
+    event = Event.new(request, :engine, actor: actor, opts: opts)
     node_router = Keyword.get(sink_opts, :node_router, NodeRouter)
 
     case node_router.dispatch(event) do
@@ -1194,12 +1199,20 @@ defmodule Zaq.Channels.WebBridge do
   defp widget_status(_request, delivery, request_id, :submission_rejected, _started),
     do: widget_event(delivery, request_id, :error, %{code: :submission_rejected}, nil)
 
-  defp widget_status(_request, delivery, request_id, :failed, true) do
+  defp widget_status(request, delivery, request_id, :failed, true) do
     with :ok <- widget_event(delivery, request_id, :typing, %{active: false}) do
-      widget_event(delivery, request_id, :message_failed, %{
-        body: "Unable to save the response",
-        error: true
-      })
+      widget_event(
+        delivery,
+        request_id,
+        :message_failed,
+        put_tool_steps(
+          %{
+            body: "Unable to save the response",
+            error: true
+          },
+          request
+        )
+      )
     end
   end
 
@@ -1214,21 +1227,30 @@ defmodule Zaq.Channels.WebBridge do
     do: widget_event(delivery, request_id, :error, %{code: :persistence_failed}, nil)
 
   defp widget_status(
-         %{update_intent: :stream_delta, body: body},
+         %{update_intent: :stream_delta, body: body} = request,
          delivery,
          request_id,
          _stage,
          true
        ),
-       do: widget_event(delivery, request_id, :message_edit, %{body: body})
+       do:
+         widget_event(delivery, request_id, :message_edit, put_tool_steps(%{body: body}, request))
 
-  defp widget_status(_request, delivery, request_id, stage, true) do
-    widget_event(delivery, request_id, :message_step, %{
-      kind: :activity,
-      state: :running,
-      step_id: "activity:#{stage}",
-      label: activity_label(stage)
-    })
+  defp widget_status(request, delivery, request_id, stage, true) do
+    widget_event(
+      delivery,
+      request_id,
+      :message_step,
+      put_tool_steps(
+        %{
+          kind: :activity,
+          state: :running,
+          step_id: "activity:#{stage}",
+          label: activity_label(stage)
+        },
+        request
+      )
+    )
   end
 
   defp widget_status(_request, _delivery, _request_id, _stage, false), do: :ok
@@ -1268,11 +1290,15 @@ defmodule Zaq.Channels.WebBridge do
              request_id: request_id,
              message_id: message_id,
              type: type,
-             payload: %{
-               body: body,
-               stage: status_stage(Map.get(request, :intent_meta)),
-               update_intent: update_intent
-             }
+             payload:
+               put_tool_steps(
+                 %{
+                   body: body,
+                   stage: status_stage(Map.get(request, :intent_meta)),
+                   update_intent: update_intent
+                 },
+                 request
+               )
            }),
          :ok <- broadcast_response(delivery, response) do
       action = if Helper.present?(Map.get(request, :message_id)), do: :updated, else: :created
@@ -1316,6 +1342,7 @@ defmodule Zaq.Channels.WebBridge do
       assistant_message_id: persisted_answer_id(metadata),
       user_message_id: metadata_value(metadata, :user_message_id)
     }
+    |> put_tool_steps(metadata)
   end
 
   defp final_payload(outgoing, metadata, :bo) do
@@ -1338,7 +1365,15 @@ defmodule Zaq.Channels.WebBridge do
       trace: metadata_value(metadata, :trace) || [],
       tool_calls: metadata_value(metadata, :tool_calls) || []
     }
+    |> put_tool_steps(metadata)
     |> project_persisted_answer(metadata)
+  end
+
+  defp put_tool_steps(payload, metadata) do
+    case metadata_value(metadata, :tool_steps) do
+      steps when is_list(steps) -> Map.put(payload, :tool_steps, ToolStep.snapshot(steps))
+      _ -> payload
+    end
   end
 
   # Older finals do not carry separate evidence; preserve their existing saved

@@ -45,6 +45,7 @@ defmodule ZaqWeb.Chat.BridgeClient do
       [action: :web_ingress, node_router: node_router]
       |> maybe_put(:web_bridge_module, Keyword.get(opts, :web_bridge_module))
       |> maybe_put(:web_config, Keyword.get(opts, :web_config))
+      |> maybe_put(:confidential, confidential_history?(payload, context))
 
     %{payload: payload, context: context}
     |> Event.new(:channels, actor: actor, opts: event_opts)
@@ -54,6 +55,11 @@ defmodule ZaqWeb.Chat.BridgeClient do
       _ -> {:error, :channels_unavailable}
     end
   end
+
+  defp confidential_history?(%Command{type: :conversation_history}, %Context{consumer: :bo}),
+    do: true
+
+  defp confidential_history?(_payload, _context), do: nil
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)

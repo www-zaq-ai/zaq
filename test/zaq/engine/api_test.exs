@@ -38,8 +38,6 @@ defmodule Zaq.Engine.ApiTest do
     def list_conversations(opts), do: {:listed, opts}
     def get_conversation("message-conversation"), do: %{id: "message-conversation"}
     def get_conversation(id), do: {:conversation, id}
-    def get_conversation!(id), do: {:conversation!, id}
-    def list_messages(conversation), do: {:messages, conversation}
     def create_conversation(attrs), do: {:created, attrs}
     def add_message(conversation, attrs), do: {:message_added, conversation, attrs}
     def delete_conversation_by_id(id), do: {:deleted, id}
@@ -160,9 +158,6 @@ defmodule Zaq.Engine.ApiTest do
     test "routes supported conversation operations" do
       cases = [
         {%{action: :list, opts: [limit: 5]}, {:listed, [limit: 5]}},
-        {%{action: :get, conversation_id: "c1"}, {:conversation, "c1"}},
-        {%{action: :get!, conversation_id: "c1"}, {:conversation!, "c1"}},
-        {%{action: :messages, conversation: :conversation}, {:messages, :conversation}},
         {%{action: :create, attrs: %{channel_type: "bo"}}, {:created, %{channel_type: "bo"}}},
         {%{action: :add_message, conversation: :conversation, attrs: %{role: "assistant"}},
          {:message_added, :conversation, %{role: "assistant"}}},
@@ -185,6 +180,15 @@ defmodule Zaq.Engine.ApiTest do
 
       assert Api.handle_event(conversation_event(request), :conversation, nil).response ==
                {:error, {:invalid_request, request}}
+    end
+
+    test "rejects superseded unscoped conversation read actions" do
+      for action <- [:get, :get!, :messages] do
+        request = %{action: action, conversation_id: "c1", conversation: :conversation}
+
+        assert Api.handle_event(conversation_event(request), :conversation, nil).response ==
+                 {:error, {:invalid_request, request}}
+      end
     end
   end
 

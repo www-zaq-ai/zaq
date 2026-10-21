@@ -630,7 +630,11 @@ without safe permission mutation support return `:unsupported`.
   first-observed `sequence` and normalized `outcome`. Legacy private `id` fallback
   does not establish public invocation identity. Replay handling, late-start
   protection and terminal settlement all operate on these same records. Private
-  trace rows use an explicit field allowlist, excluding the new bookkeeping.
+  trace rows use an explicit field allowlist retaining `invocation_id`, `sequence`
+  and `outcome` alongside existing evidence. Starts are traced at first observation;
+  terminal settlement updates those same rows, including unfinished `unknown` calls.
+  Existing finalization persists this evidence; public reload presentation reuses
+  `ToolStep.project/1` rather than storing another snapshot.
 - Derives ordered public `tool_steps` through the shared pure
   `Zaq.Contracts.ToolStep.project/1`, never a second invocation map. The same
   projector serves live Status updates and final Channels delivery. Native event

@@ -75,7 +75,7 @@ defmodule Zaq.MixProject do
       {:phoenix_live_view, "~> 1.2"},
       # Supervised-host candidate; switch to main after upstream merge and host acceptance.
       {:web_widget,
-       github: "www-zaq-ai/web_widget", ref: "ecdb65db21932cbcedbb9b45498f360e1b1f65fc"},
+       github: "www-zaq-ai/web_widget", ref: "42b7ef71fd43bb62562c05e9f29581e8152a89cb"},
       {:lazy_html, ">= 0.1.0"},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},

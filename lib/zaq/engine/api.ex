@@ -1127,6 +1127,33 @@ defmodule Zaq.Engine.Api do
     %{event | response: response}
   end
 
+  def handle_event(
+        %Event{request: %{action: action} = request} = event,
+        :conversation,
+        _context
+      )
+      when action in [:display_history, :resolve_display_conversation] do
+    response =
+      with true <-
+             Keyword.get(event.opts, :confidential) == true ||
+               {:error, :confidential_event_required},
+           {:ok, id} when is_integer(id) and id > 0 <- authenticated_user_id(event.actor),
+           %Accounts.User{} = user <- Accounts.get_user(id) do
+        case action do
+          :display_history ->
+            Conversations.display_history(request[:conversation_id], user)
+
+          :resolve_display_conversation ->
+            Conversations.resolve_display_conversation(request[:conversation_id], user)
+        end
+      else
+        {:error, :confidential_event_required} = error -> error
+        _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, :conversation, _context) do
     conversations_module = Keyword.get(event.opts, :conversations_module, Conversations)
     response = handle_conversation_request(event.request, conversations_module)
@@ -1250,15 +1277,6 @@ defmodule Zaq.Engine.Api do
 
   defp handle_conversation_request(%{action: :list, opts: opts}, module) when is_list(opts),
     do: module.list_conversations(opts)
-
-  defp handle_conversation_request(%{action: :get, conversation_id: id}, module),
-    do: module.get_conversation(id)
-
-  defp handle_conversation_request(%{action: :get!, conversation_id: id}, module),
-    do: module.get_conversation!(id)
-
-  defp handle_conversation_request(%{action: :messages, conversation: conversation}, module),
-    do: module.list_messages(conversation)
 
   defp handle_conversation_request(%{action: :create, attrs: attrs}, module)
        when is_map(attrs),

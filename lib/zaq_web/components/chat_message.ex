@@ -11,6 +11,11 @@ defmodule ZaqWeb.Components.ChatMessage do
   Channel history opts into reversed alignment with `align`. Person names enable
   initials avatars; assistants retain the ZAQ icon alongside an optional name.
   Bubble footers follow the selected side; interactive chat defaults remain as above.
+  Tool activity precedes the answer. Recorded durations are inline; running steps
+  use a viewer-local elapsed estimate, never a fabricated persisted measurement.
+  Tool-bearing bubbles reserve their available width even before answer text arrives.
+  Status colors use semantic success/danger/neutral tokens; only running status
+  gently pulses, respecting the viewer's reduced-motion preference.
 
   Usage:
 
@@ -150,6 +155,15 @@ defmodule ZaqWeb.Components.ChatMessage do
   attr :source_preview_path, :any, default: nil
   attr :saved_feedback_reasons, :string, default: nil
   attr :saved_feedback_user_comment, :string, default: nil
+
+  attr :tool_steps, :list,
+    default: [],
+    doc: "Validated public tool activity, ordered by sequence."
+
+  attr :tool_steps_id, :string,
+    default: nil,
+    doc: "Stable message-scoped prefix for live timer hook IDs."
+
   attr :align, :atom, values: [:left, :right], default: :left
   attr :author_name, :string, default: nil
   attr :person_id, :integer, default: nil
@@ -173,13 +187,18 @@ defmodule ZaqWeb.Components.ChatMessage do
     <div
       class={[
         "min-w-0",
+        @tool_steps != [] && "w-full",
         if(@align == :right, do: "animate-slide-in-right", else: "animate-slide-in-left")
       ]}
       data-testid="chat-assistant-bubble"
       data-align={@align}
     >
       <div class={["flex min-w-0", if(@align == :right, do: "justify-end", else: "justify-start")]}>
-        <div class={["flex min-w-0 max-w-[82%] gap-4", @align == :right && "flex-row-reverse"]}>
+        <div class={[
+          "flex min-w-0 max-w-[82%] gap-4",
+          @tool_steps != [] && "w-full",
+          @align == :right && "flex-row-reverse"
+        ]}>
           <div class="shrink-0 mt-0.5">
             <img
               src={~p"/images/zaq.png"}
@@ -190,6 +209,31 @@ defmodule ZaqWeb.Components.ChatMessage do
 
           <div class="flex-1 min-w-0">
             <p :if={@author_name} class="zaq-text-caption mb-1">{@author_name}</p>
+            <ol :if={@tool_steps != []} aria-label="Tool activity" class="zaq-layout-stack-tight mb-2">
+              <li
+                :for={step <- @tool_steps}
+                id={@tool_steps_id && "#{@tool_steps_id}-tool-#{step["sequence"]}"}
+                phx-hook={@tool_steps_id && "ToolStepTimer"}
+                class="zaq-text-caption"
+                data-tool-step-id={step["id"]}
+                data-tool-state={step["state"]}
+              >
+                <span class="break-words">{step["label"]}</span>
+                <span aria-hidden="true"> · </span>
+                <span
+                  class={step["state"] == "running" && "motion-safe:animate-pulse"}
+                  style={"color: var(#{tool_status_color(step["state"])}); animation-duration: 3s; animation-timing-function: ease-in-out;"}
+                >{step["state"]}</span><span :if={
+                  step["state"] == "running" or is_integer(step["duration_ms"])
+                }> · <span
+                  data-tool-duration
+                  title={
+                    step["state"] == "running" &&
+                      "Approximate elapsed time since first observed on this page"
+                  }
+                >{tool_duration(step)}</span></span>
+              </li>
+            </ol>
             <%= if @is_error && (@error_detail || @error_type != nil) do %>
               <%= if @error_type == :budget_exceeded do %>
                 <p
@@ -337,6 +381,14 @@ defmodule ZaqWeb.Components.ChatMessage do
     </div>
     """
   end
+
+  defp tool_status_color("succeeded"), do: "--zaq-text-color-body-success"
+  defp tool_status_color("failed"), do: "--zaq-text-color-body-danger"
+  defp tool_status_color(_state), do: "--zaq-text-color-body-tertiary"
+
+  defp tool_duration(%{"state" => "running"}), do: "~0 s"
+  defp tool_duration(%{"duration_ms" => ms}) when ms < 1000, do: "#{ms} ms"
+  defp tool_duration(%{"duration_ms" => ms}), do: "#{Float.round(ms / 1000, 1)} s"
 
   attr :available, :boolean, default: false
   attr :message_id, :string, required: true

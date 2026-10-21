@@ -24,7 +24,10 @@ defmodule Zaq.TestSupport.HistoryBrowser do
         :binary,
         :exit_status,
         :stderr_to_stdout,
-        args: ["test/e2e/support/channel-history-browser.cjs", "http://localhost:#{port}"]
+        args: [
+          Map.get(opts, :runner, "test/e2e/support/channel-history-browser.cjs"),
+          "http://localhost:#{port}"
+        ]
       ])
 
     Port.command(browser, Jason.encode!(opts) <> "\n")

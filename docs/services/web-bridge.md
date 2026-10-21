@@ -86,7 +86,7 @@ on HTTPS pages. Both constructors and ingress validate manually constructed comm
 
 | Consumer / operation | Response |
 | --- | --- |
-| BO init | `:conversation_initialized`; conversation ID and `created`, optionally `replaced_missing_id` |
+| BO init | `:conversation_initialized`; explicit new chat (`created: true`) or authorized existing chat (`created: false`); missing/inaccessible supplied IDs fail without replacement creation |
 | Widget idle init | `:widget_initialized`; `created: false`, readiness, no new conversation ID |
 | Widget resume init | Same initialized type with an authorized existing conversation ID; never replacement creation |
 | Widget history | `:conversation_history`, public ordered `messages` and `processing` indication |
@@ -254,6 +254,32 @@ and `updated_at`. BO history messages project `id`, `role`, `content`, `sources`
 `confidence_score`, `model`, token counts, `latency_ms`, `metadata`, `trace`, `ratings`
 and `inserted_at`; rating fields are `id`, `rating`, `reason` and `comment`.
 These BO information fields are not the widget's public projection.
+
+BO history uses the existing single authorized Engine `:display_history` read.
+BO initialization with an existing ID uses the confidential
+`:resolve_display_conversation` read, sharing history's fresh access check without
+loading messages, ratings or execution traces. ChatLive stops submission if
+initialization fails, preserving the draft and filters rather than submitting
+with a missing conversation ID. Explicit new chats still use creation. The superseded
+Engine conversation actions `:get`, `:get!` and `:messages` are no longer routed;
+Engine-internal domain readers remain available.
+Engine derives `trace` visibility from the current persisted user role after
+checking conversation access: `admin`/`super_admin` receive full traces, while
+other readers receive public tool steps. Both routed history hops must be
+confidential. Request flags do not choose visibility. Obsolete `metadata.tool_calls`
+is omitted for all history readers and is not a fallback for modal traces; runtime
+`tool_calls` in live/final delivery remains supported. No separate trace fetch or
+new stored snapshot is needed.
+
+Widget step/edit events and terminal responses relay optional, validated public
+`tool_steps` snapshots. Canonical widget history selects the internal display
+projection after Person/transcript authorization and pagination; its messages
+carry the same public facts without private traces. Each snapshot replaces a
+message's tool activity; omission retains prior activity and `[]` clears it.
+Transport IDs and persisted message references retain their existing meanings.
+Generic activity events are not tool invocations. Consumers must preserve the
+four tool outcomes, sequence and optional recorded duration, including on history
+restoration; answer completion alone never proves tool success.
 
 Submission and assistant-message lifecycles are independent. Async returns a
 creation/status receipt with `accepted: true`, the request/conversation IDs, canonical

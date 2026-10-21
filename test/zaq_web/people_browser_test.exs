@@ -4,9 +4,10 @@ defmodule ZaqWeb.PeopleBrowserTest do
 
   import Mox
   alias Zaq.Accounts.{People, PeoplePermissions, PersonLoginChallenge}
-  alias Zaq.Channels.PeopleAuthDeliveryMock
+  alias Zaq.Channels.{EmailBridge, PeopleAuthDeliveryMock}
   alias Zaq.Channels.PeopleAuthRateLimiter.Config
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.System, as: ZaqSystem
@@ -34,6 +35,24 @@ defmodule ZaqWeb.PeopleBrowserTest do
 
       set_mox_global()
 
+      stub(
+        PeopleAuthDeliveryMock,
+        :incoming_routing,
+        &EmailBridge.incoming_routing/1
+      )
+
+      slack =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Browser Slack #{suffix}",
+          provider: "slack",
+          kind: "retrieval",
+          url: "https://slack.example.test",
+          token: "browser-test-token",
+          enabled: true
+        })
+        |> Zaq.Repo.insert!()
+
       for width <- [390, 1280] do
         {:ok, person} =
           People.create_person(%{
@@ -44,6 +63,7 @@ defmodule ZaqWeb.PeopleBrowserTest do
         {:ok, _} =
           People.add_channel(%{
             person_id: person.id,
+            channel_config_id: slack.id,
             platform: "slack",
             channel_identifier: "browser-slack-#{width}"
           })

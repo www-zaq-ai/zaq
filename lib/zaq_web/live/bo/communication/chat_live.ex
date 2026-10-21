@@ -99,54 +99,23 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     if trimmed == "" do
       {:noreply, socket}
     else
-      active_filters = socket.assigns.active_filters
+      case resolve_or_create_conversation(socket) do
+        {:ok, conversation_id} ->
+          submit_message(socket, trimmed, conversation_id)
 
-      user_msg = %{
-        id: generate_id(),
-        role: :user,
-        body: trimmed,
-        timestamp: DateTime.utc_now(),
-        filters:
-          Enum.map(active_filters, fn f ->
-            %{label: f.label, source_prefix: f.source_prefix, type: f.type}
-          end)
-      }
-
-      socket =
-        socket
-        |> update(:messages, &(&1 ++ [user_msg]))
-        |> assign(:input_value, "")
-        |> assign(:status, :thinking)
-        |> assign(:status_message, "ZAQ is analyzing your question…")
-        |> assign(:streaming_response_active, false)
-        |> assign(:current_request_id, user_msg.id)
-        |> assign(:active_filters, [])
-        |> assign(:filter_suggestions, [])
-        |> assign(:filter_query, "")
-
-      session_id = socket.assigns.session_id
-      request_id = user_msg.id
-
-      {conversation_id, socket} =
-        case resolve_or_create_conversation(socket) do
-          {:ok, conv_id} -> {conv_id, assign(socket, :current_conversation_id, conv_id)}
-          _err -> {nil, socket}
-        end
-
-      Task.start(fn ->
-        run_pipeline_async(
-          session_id,
-          request_id,
-          trimmed,
-          socket.assigns.history,
-          socket.assigns.current_user,
-          socket.assigns.selected_agent_id,
-          active_filters,
-          conversation_id
-        )
-      end)
-
-      {:noreply, socket}
+        {:error, _reason} ->
+          {:noreply,
+           socket
+           |> assign(:input_value, msg)
+           |> assign(:status, :idle)
+           |> assign(:status_message, "")
+           |> assign(:streaming_response_active, false)
+           |> assign(:current_request_id, nil)
+           |> put_flash(
+             :error,
+             "Unable to open this conversation. Start a new chat or try again."
+           )}
+      end
     end
   end
 
@@ -453,6 +422,49 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
     {:noreply, assign(socket, :conversations, conversations)}
   end
 
+  defp submit_message(socket, trimmed, conversation_id) do
+    active_filters = socket.assigns.active_filters
+
+    user_msg = %{
+      id: generate_id(),
+      role: :user,
+      body: trimmed,
+      timestamp: DateTime.utc_now(),
+      filters:
+        Enum.map(active_filters, fn f ->
+          %{label: f.label, source_prefix: f.source_prefix, type: f.type}
+        end)
+    }
+
+    socket =
+      socket
+      |> update(:messages, &(&1 ++ [user_msg]))
+      |> assign(:input_value, "")
+      |> assign(:status, :thinking)
+      |> assign(:status_message, "ZAQ is analyzing your question…")
+      |> assign(:streaming_response_active, false)
+      |> assign(:current_request_id, user_msg.id)
+      |> assign(:active_filters, [])
+      |> assign(:filter_suggestions, [])
+      |> assign(:filter_query, "")
+      |> assign(:current_conversation_id, conversation_id)
+
+    Task.start(fn ->
+      run_pipeline_async(
+        socket.assigns.session_id,
+        user_msg.id,
+        trimmed,
+        socket.assigns.history,
+        socket.assigns.current_user,
+        socket.assigns.selected_agent_id,
+        active_filters,
+        conversation_id
+      )
+    end)
+
+    {:noreply, socket}
+  end
+
   defp apply_status_update(socket, request_id, status, message, update_intent, assistant_id) do
     case normalize_update_intent(update_intent) do
       :stream_delta ->
@@ -509,6 +521,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
         do: nil,
         else: Map.get(payload, :update_intent)
 
+    socket = apply_tool_steps(socket, payload, request_id, response.message_id)
+
     apply_status_update(
       socket,
       request_id,
@@ -547,6 +561,30 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
   end
 
   defp apply_web_response(socket, _response), do: socket
+
+  defp apply_tool_steps(socket, payload, request_id, assistant_id) do
+    if is_list(Map.get(payload, :tool_steps)) do
+      message_id = display_message_id(assistant_id, request_id)
+      legacy_id = streaming_message_id(request_id)
+
+      socket =
+        if Enum.any?(socket.assigns.messages, &(&1.id in [message_id, legacy_id])),
+          do: socket,
+          else: upsert_streaming_bot_message(socket, request_id, "", assistant_id)
+
+      update(socket, :messages, &put_message_steps(&1, [message_id, legacy_id], payload))
+    else
+      socket
+    end
+  end
+
+  defp put_message_steps(messages, ids, payload) do
+    steps = MessageHelpers.tool_steps(payload)
+
+    Enum.map(messages, fn message ->
+      if message.id in ids, do: Map.put(message, :tool_steps, steps), else: message
+    end)
+  end
 
   defp outgoing_from_response(%Response{} = response) do
     payload = response.payload
@@ -588,6 +626,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       feedback: nil,
       sources: normalized_sources,
       message_info: MessageHelpers.message_info_from_runtime(result.metadata),
+      tool_steps: MessageHelpers.tool_steps(result.metadata),
       live: true,
       db_id: if(error, do: nil, else: persisted_answer_id(result.metadata))
     }
@@ -914,7 +953,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLive do
       error: false,
       feedback: infer_feedback_from_ratings(ratings),
       sources: normalize_sources(msg.sources || []),
-      message_info: message_info
+      message_info: message_info,
+      tool_steps: MessageHelpers.tool_steps(msg)
     }
   end
 

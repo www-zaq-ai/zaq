@@ -74,6 +74,43 @@ defmodule Zaq.Channels.Web.WidgetDeliveryTest do
                      %Response{message_id: "assistant", payload: %{body: "Snapshot"}}}
   end
 
+  test "widget receives allowlisted streamed and terminal tool snapshots", %{incoming: incoming} do
+    running = %{
+      "id" => "lookup",
+      "kind" => "tool",
+      "name" => "lookup",
+      "label" => "lookup",
+      "sequence" => 1,
+      "state" => "running"
+    }
+
+    status(incoming, :execution_started, "Preparing")
+
+    assert {:ok, _} =
+             WebBridge.upsert_message(
+               nil,
+               %{
+                 routing_context: incoming.routing_context,
+                 request_id: "request",
+                 message_id: "assistant",
+                 body: "Working",
+                 update_intent: :tool_call,
+                 intent_meta: %{stage: :tool_call},
+                 tool_steps: [Map.put(running, "params", "private")]
+               },
+               %{}
+             )
+
+    assert_receive {:web_response, "message_step", %Response{payload: %{tool_steps: [^running]}}}
+
+    settled = Map.merge(running, %{"state" => "unknown", "duration_ms" => 12})
+    outgoing = Outgoing.from_pipeline_result(incoming, %{answer: "done", tool_steps: [settled]})
+    assert {:ok, _} = WebBridge.send_reply(outgoing, %{})
+
+    assert_receive {:web_response, "message_complete",
+                    %Response{payload: %{tool_steps: [^settled]}}}
+  end
+
   test "queued input settles submission without any assistant answer", %{incoming: incoming} do
     status(incoming, :submission_accepted, "Accepted")
 

@@ -4,11 +4,13 @@ defmodule ZaqWeb.PersonConversationSourceIntegrationTest do
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions}
   alias Zaq.Agent.Tools.DataSource.GetDocument
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.MessageTraceArtifact
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.Ingestion.Document
   alias Zaq.Permissions
+  alias Zaq.Repo
   alias Zaq.TestSupport.{PeopleSourceFixture, PersonResourceConfig}
   alias ZaqWeb.PersonConversationResourceController
 
@@ -134,6 +136,39 @@ defmodule ZaqWeb.PersonConversationSourceIntegrationTest do
 
     assert response(PersonConversationResourceController.show(ctx.conn, params), 200) ==
              "Historical trace bytes"
+  end
+
+  test "source fixtures own their connector and volume despite unrelated disk settings", ctx do
+    unrelated_settings = %{"volumes" => [%{"name" => "archive", "path" => "archive"}]}
+
+    ctx.config
+    |> ChannelConfig.changeset(%{settings: unrelated_settings})
+    |> Repo.update!()
+
+    fixtures =
+      for name <- ["first.md", "second.txt"] do
+        document = PeopleSourceFixture.create(ctx.person, "Fixture bytes #{name}", name)
+        refute document.config.id == ctx.config.id
+
+        {:ok, message} =
+          Conversations.add_message(ctx.conversation, %{
+            role: "assistant",
+            content: "Fixture source",
+            sources: [%{"path" => document.source}]
+          })
+
+        expect_hops(ctx, [:people_conversations, :data_source_get_file, :materialize_document])
+        params = %{ctx.params | "message_id" => message.id, "source" => document.source}
+
+        assert response(PersonConversationResourceController.show(ctx.conn, params), 200) ==
+                 "Fixture bytes #{name}"
+
+        document
+      end
+
+    assert fixtures |> Enum.map(& &1.config.id) |> Enum.uniq() |> length() == 2
+    assert fixtures |> Enum.map(& &1.entry.volume) |> Enum.uniq() |> length() == 2
+    assert Repo.reload!(ctx.config).settings == unrelated_settings
   end
 
   test "parent membership and revoked session deny before any resource lookup", ctx do

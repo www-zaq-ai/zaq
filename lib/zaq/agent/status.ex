@@ -99,17 +99,10 @@ defmodule Zaq.Agent.Status do
   def broadcast(nil, _stage, _message, _node_router, _opts), do: nil
 
   defp public_snapshot(steps) when is_list(steps) do
-    steps |> Enum.flat_map(&public_step/1) |> Enum.sort_by(& &1["sequence"])
+    ToolStep.snapshot(steps)
   end
 
   defp public_snapshot(_steps), do: nil
-
-  defp public_step(step) do
-    case ToolStep.new(step) do
-      {:ok, value} -> [value]
-      {:error, _reason} -> []
-    end
-  end
 
   defp snapshot_metadata(%{tool_steps: steps}) when is_list(steps), do: %{tool_steps: steps}
   defp snapshot_metadata(_context), do: %{}

@@ -73,6 +73,7 @@ defmodule Zaq.Channels.Api do
 
     response =
       with true <- event.actor == web_context.actor || {:error, :unauthorized},
+           :ok <- authorize_history_transport(payload, web_context, event.opts),
            true <-
              (Code.ensure_loaded?(web_bridge) and
                 function_exported?(web_bridge, :from_listener, 3)) ||
@@ -1130,6 +1131,18 @@ defmodule Zaq.Channels.Api do
     Code.ensure_loaded?(bridge) and function_exported?(bridge, fun, arity)
   end
 
+  defp authorize_history_transport(
+         %Command{type: :conversation_history},
+         %Context{consumer: :bo},
+         opts
+       ) do
+    if Keyword.get(opts, :confidential) == true,
+      do: :ok,
+      else: {:error, :confidential_event_required}
+  end
+
+  defp authorize_history_transport(_payload, _context, _opts), do: :ok
+
   defp bridge_module(%Event{opts: opts}) when is_list(opts) do
     Keyword.get(opts, :bridge_module) || Keyword.get(opts, :communication_bridge_module, Bridge)
   end
@@ -1222,18 +1235,21 @@ defmodule Zaq.Channels.Api do
       routing_context: outgoing.routing_context,
       format: Map.get(metadata, :format)
     }
+    |> maybe_put_tool_steps(metadata)
   end
 
   defp map_to_upsert_outgoing(request) when is_map(request) do
-    metadata = %{
-      request_id: fetch(request, :request_id),
-      session_id: fetch(request, :session_id),
-      status_message_id: fetch(request, :status_message_id),
-      assistant_message_id: fetch(request, :assistant_message_id),
-      update_intent: fetch(request, :update_intent),
-      intent_meta: fetch(request, :intent_meta),
-      message_id: fetch(request, :message_id)
-    }
+    metadata =
+      %{
+        request_id: fetch(request, :request_id),
+        session_id: fetch(request, :session_id),
+        status_message_id: fetch(request, :status_message_id),
+        assistant_message_id: fetch(request, :assistant_message_id),
+        update_intent: fetch(request, :update_intent),
+        intent_meta: fetch(request, :intent_meta),
+        message_id: fetch(request, :message_id)
+      }
+      |> maybe_put_tool_steps(request)
 
     %Outgoing{
       provider: fetch(request, :provider),
@@ -1251,6 +1267,13 @@ defmodule Zaq.Channels.Api do
   end
 
   defp fetch(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp maybe_put_tool_steps(target, source) do
+    case fetch(source, :tool_steps) do
+      steps when is_list(steps) -> Map.put(target, :tool_steps, ToolStep.snapshot(steps))
+      _ -> target
+    end
+  end
 
   defp publish_tool_steps(%Outgoing{metadata: %{tool_calls: calls}} = outgoing) do
     put_in(outgoing.metadata[:tool_steps], ToolStep.project(calls))

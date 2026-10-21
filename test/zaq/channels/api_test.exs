@@ -930,6 +930,40 @@ defmodule Zaq.Channels.ApiTest do
     assert Map.take(bridged_request, Map.keys(request)) == request
   end
 
+  test "upsert translation preserves public snapshots for maps and canonical outgoing values" do
+    [step] =
+      ToolStep.project([
+        %{"invocation_id" => "a", "sequence" => 1, "name" => "search", "outcome" => "unknown"}
+      ])
+
+    unsafe = Map.put(step, "arguments", "private")
+
+    map = %{
+      provider: :web,
+      channel_id: "c1",
+      request_id: "snapshot",
+      body: "partial",
+      tool_steps: [unsafe]
+    }
+
+    outgoing = %Outgoing{
+      provider: :web,
+      channel_id: "c1",
+      body: "partial",
+      metadata: %{request_id: "snapshot", tool_steps: [unsafe]}
+    }
+
+    for request <- [map, outgoing] do
+      event =
+        Event.new(request, :channels,
+          opts: [action: :upsert_message, bridge_module: StubCommunicationBridge]
+        )
+
+      assert {:ok, _} = Api.handle_event(event, :upsert_message, nil).response
+      assert_received {:bridge_upsert_message, _, %{tool_steps: [^step], body: "partial"}, _}
+    end
+  end
+
   test "upsert_message rejects an invalid connector id before bridge upsert" do
     outgoing = %Outgoing{
       body: "partial",

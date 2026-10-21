@@ -75,4 +75,18 @@ defmodule ZaqWeb.Chat.BridgeClientTest do
     refute Map.has_key?(context, :web_bridge_module)
     refute Map.has_key?(context, :web_config)
   end
+
+  test "BO history always uses confidential transport even if caller opts request otherwise" do
+    assert {:ok, :accepted} =
+             BridgeClient.dispatch_command(
+               %{request_id: "history", type: :conversation_history, conversation_id: "c"},
+               %{user_id: 42},
+               consumer: :bo,
+               node_router: ReplyRouter,
+               confidential: false
+             )
+
+    assert_receive {:dispatched, %Event{opts: opts}}
+    assert opts[:confidential] == true
+  end
 end

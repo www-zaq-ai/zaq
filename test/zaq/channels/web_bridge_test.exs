@@ -3,6 +3,7 @@ defmodule Zaq.Channels.WebBridgeTest do
 
   alias Zaq.Channels.Web.{Context, Delivery, Message, Response}
   alias Zaq.Channels.WebBridge
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Messages.Incoming.RoutingContext
 
@@ -55,6 +56,48 @@ defmodule Zaq.Channels.WebBridgeTest do
                       type: :message_complete,
                       payload: %{body: "answer", user_content: "question"}
                     }}
+  end
+
+  test "BO upserts and final delivery preserve validated public tool snapshots", %{
+    routing_context: context
+  } do
+    {:ok, step} =
+      ToolStep.new(%{
+        id: "a",
+        kind: "tool",
+        name: "search",
+        sequence: 1,
+        state: "unknown"
+      })
+
+    unsafe = Map.put(step, "arguments", "private")
+
+    assert {:ok, _} =
+             WebBridge.upsert_message(
+               %{},
+               %{
+                 request_id: "steps",
+                 assistant_message_id: "answer",
+                 body: "Tool outcome unavailable",
+                 update_intent: :tool_call,
+                 routing_context: context,
+                 tool_steps: [unsafe]
+               },
+               %{}
+             )
+
+    assert_receive {:web_response, :status_update, %Response{payload: %{tool_steps: [^step]}}}
+
+    outgoing = %Outgoing{
+      body: "done",
+      provider: :web,
+      channel_id: "bo",
+      routing_context: context,
+      metadata: %{request_id: "steps", tool_steps: [unsafe]}
+    }
+
+    assert {:ok, _} = WebBridge.send_reply(outgoing, %{})
+    assert_receive {:web_response, :pipeline_result, %Response{payload: %{tool_steps: [^step]}}}
   end
 
   test "BO completion preserves the message information available after reload", %{

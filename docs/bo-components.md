@@ -24,6 +24,12 @@ Every BO LiveView template **must** open with `<ZaqWeb.Components.BOLayout.bo_la
 
 The LiveView must assign `current_path` (the request path string, e.g. `"/bo/my-page"`) so the sidebar highlights the active nav item correctly.
 
+The content slot is `#bo-content`. Sidebar collapse is client-owned state, retained
+by the main app's LiveView DOM callback across server patches. Viewport-filling
+screens must account for a wrapping BO header rather than assume it stays 56px
+high. Mobile chat uses the remaining flex height, stacks its compact scrollable
+conversation list above the chat, and allows chat header controls to wrap.
+
 ---
 
 ## Card pattern

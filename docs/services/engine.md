@@ -1043,6 +1043,43 @@ Distributed server invalidation remains a later consumer integration.
 
 ### Conversations Context (`Zaq.Engine.Conversations`)
 
+BO chat refresh uses `Conversations.display_history/2` via the existing
+`:conversation` event's `:display_history` action. It reloads the trusted BO user
+and applies the existing owner, unexpired read-share or current super-admin
+policy before selecting messages. It derives an internal trace projection from the
+fresh persisted role: `admin` and `super_admin` retain full traces for conversations
+they may read; other readers receive only `ToolStep.project/1` public values in the
+existing `trace` field. Admin trace access does not widen conversation access.
+Client projection flags and actor-supplied role claims cannot enable private data.
+`ToolHistory` batches exact persisted `public_answer_message_id` root lookups with
+input/answer owner checks once for either projection. Private evidence is not copied
+to Message and does not require a second fetch. Obsolete metadata `tool_calls` is
+omitted from all BO display responses, without changing stored rows; metadata-only
+tool history is no longer rendered. Runtime invocation data remains supported.
+Initialization uses `Conversations.resolve_display_conversation/2` through the
+same event's `:resolve_display_conversation` action. Both reads share a fresh-user
+authorization helper; resolution returns only the conversation and never loads
+messages, ratings or execution evidence. Both routed operations require a
+confidential event. Existing
+privileged channel-history information reads keep their separate access gates.
+Canonical `TranscriptHistory` defaults and agent-context response shapes remain
+unchanged. The internal `presentation: :display` read mode adds public `tool_steps`
+only after transcript authorization and page selection. It batches exact persisted
+answer/input associations within that transcript, including canonical messages
+without a legacy conversation ID. Private traces never enter its response.
+Widget restoration selects this display mode server-side, not through browser
+projection flags; BO display history retains its separately authorized trace mode.
+
+New trace entries preserve explicit invocation identity, first-observed sequence
+and settled outcome, including unfinished `unknown` calls. Older entries are
+projected through the shared pure `ToolStep.from_trace/1` normalizer in both
+Engine history and BO presentation, so privileged raw traces and public display
+steps produce the same activity. Private traces remain unchanged. Raw calls qualify
+only with explicit invocation identity and positive sequence; missing
+outcomes remain `unknown`, never inferred from legacy completion status or payload.
+Unusable evidence produces an empty activity list. There is no backfill or second
+stored snapshot.
+
 List-time resolution of a missing `person_id` matches stored channel/author
 identifiers only within the conversation's `channel_config_id`. Equal identifiers
 on another connector cannot supply ownership; conversations without connector

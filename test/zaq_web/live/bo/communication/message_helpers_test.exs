@@ -1,7 +1,32 @@
 defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
   use ExUnit.Case, async: true
 
+  alias Zaq.Contracts.ToolStep
   alias ZaqWeb.Live.BO.Communication.MessageHelpers
+
+  test "live and refreshed tool facts produce the same ordered public presentation" do
+    calls = [
+      %{"invocation_id" => "b", "sequence" => 2, "name" => "search", "outcome" => "unknown"},
+      %{
+        "invocation_id" => "a",
+        "sequence" => 1,
+        "name" => "search",
+        "outcome" => "failed",
+        "response" => "private"
+      }
+    ]
+
+    steps = ToolStep.project(calls)
+    assert MessageHelpers.tool_steps(%{trace: calls}) == steps
+    assert MessageHelpers.tool_steps(%{trace: steps}) == steps
+    assert MessageHelpers.tool_steps(%{tool_steps: steps}) == steps
+    assert MessageHelpers.tool_steps(%{tool_steps: [], trace: calls}) == []
+
+    assert MessageHelpers.tool_steps(%{trace: [%{"id" => "event", "status" => "completed"}]}) ==
+             []
+
+    refute Jason.encode!(MessageHelpers.tool_steps(%{trace: calls})) =~ "private"
+  end
 
   describe "attachments_from_message/1" do
     test "returns only safe attachment descriptor maps" do
@@ -134,7 +159,7 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
              }
     end
 
-    test "ignores invalid trace and legacy tool calls" do
+    test "ignores invalid runtime trace and tool calls" do
       info =
         MessageHelpers.message_info_from_runtime(%{
           trace: :not_a_trace,
@@ -142,6 +167,13 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
         })
 
       assert info.traces == []
+    end
+
+    test "retains active runtime tool calls when trace is empty" do
+      calls = [%{"tool_call_id" => "runtime", "tool_name" => "lookup"}]
+
+      assert MessageHelpers.message_info_from_runtime(%{trace: [], tool_calls: calls}).traces ==
+               calls
     end
   end
 
@@ -218,7 +250,7 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
       assert MessageHelpers.message_info_available?(info)
     end
 
-    test "falls back to legacy metadata tool calls when trace is empty" do
+    test "ignores obsolete metadata tool calls when trace is empty" do
       legacy = %{"tool_call_id" => "legacy", "tool_name" => "lookup"}
 
       info =
@@ -227,7 +259,7 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpersTest do
           metadata: %{"tool_calls" => [legacy]}
         })
 
-      assert info.traces == [legacy]
+      assert info.traces == []
       assert MessageHelpers.message_info_available?(info)
     end
 

@@ -211,6 +211,32 @@ Screenshots are written under `test/e2e/test-results/history-*.png`.
 No E2E bootstrap, port-4002 demo restart, database reset or real provider credentials
 are needed. Install the same Playwright dependencies/engines as other browser tests.
 
+### BO tool activity continuity (isolated, no reset)
+
+After building assets and installing the Playwright engines from `test/e2e`:
+
+```sh
+mix assets.build
+mix test test/zaq_web/tool_activity_browser_test.exs --include real_browser --timeout 180000
+node --test test/e2e/support/tool-step-timer.test.cjs test/e2e/support/layout-state.test.cjs
+```
+
+The browser journey reuses the sandboxed ephemeral Endpoint and private process
+checkpoints in `Zaq.TestSupport.HistoryBrowser`. Chromium, Firefox and WebKit run
+at 1280px and 390px against real BO authentication, configured-agent execution,
+native tool events, finalization, delivery and authorized conversation refresh.
+Only the external OpenAI endpoint is replaced; a response barrier makes terminal
+tool activity observable before the final answer without timing sleeps. Repeated
+arithmetic tools include one invalid-input failure. The journey compares live,
+final and persisted IDs, ordering, outcomes and durations, then checks partial
+unknown evidence, unusable legacy traces, forbidden history and revoked ownership.
+
+Mobile checks exercise the stacked conversation list and header controls, and
+catch sidebar collapse loss during LiveView patches. Screenshots are written to
+`Path.join(System.tmp_dir!(), "opencode")` as `tool-activity-<engine>-<width>.png`.
+Set `TOOL_ACTIVITY_SCREENSHOTS` to retain these in a chosen artifact directory.
+The Node commands are clock-controlled hook/layout unit tests, not browser journeys.
+
 ### People authentication journey (isolated, no reset)
 
 After `mix assets.build` and installing `test/e2e` Playwright dependencies plus

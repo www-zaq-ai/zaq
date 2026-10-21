@@ -11,6 +11,8 @@ defmodule Zaq.Agent.StreamEvents do
   Tagged error completions fail; tagged success and legacy bare completions succeed.
   Public snapshots are projected synchronously for Status; Executor receives only
   canonical invocation facts, which also drive final delivery's public projection.
+  Existing private trace entries retain these normalized facts, including starts
+  settled to unknown, so authorized presentation can use the same projector on reload.
   """
 
   alias ReqLLM.Message.ContentPart
@@ -21,7 +23,7 @@ defmodule Zaq.Agent.StreamEvents do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
 
-  @tool_trace_fields ~w(id type turn_id content name arguments response duration_ms started_at started_at_ms ended_at ended_at_ms status)
+  @tool_trace_fields ~w(id type turn_id content name arguments response duration_ms started_at started_at_ms ended_at ended_at_ms status invocation_id sequence outcome)
 
   @flush_chars 20
   @flush_interval_ms 100
@@ -331,7 +333,12 @@ defmodule Zaq.Agent.StreamEvents do
     # Duplicate/late starts may carry less evidence than an earlier event. They
     # must not erase arguments or downgrade an already completed native call.
     tool_call = Map.merge(tool_call, existing)
-    state = %{state | tool_calls: Map.put(state.tool_calls, tool_call_id, tool_call)}
+
+    state = %{
+      state
+      | tool_calls: Map.put(state.tool_calls, tool_call_id, tool_call),
+        trace: put_tool_trace(state.trace, tool_call)
+    }
 
     if existing["status"] == "completed" do
       %{state | trace: put_tool_trace(state.trace, tool_call)}
@@ -637,6 +644,7 @@ defmodule Zaq.Agent.StreamEvents do
     else
       state
       |> Map.put(:tool_calls, calls)
+      |> Map.put(:trace, Enum.reduce(Map.values(calls), state.trace, &put_tool_trace(&2, &1)))
       |> broadcast_tool(%{}, :unknown)
     end
   end

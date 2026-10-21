@@ -4,6 +4,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.Person
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Api, as: EngineApi
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Conversations
@@ -11,6 +12,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
 
   alias Zaq.Engine.Conversations.{
     Conversation,
+    ExecutionRecord,
     Message,
     Transcript,
     TranscriptHistory,
@@ -20,6 +22,108 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
   alias Zaq.Engine.History.Facts
   alias Zaq.Permissions
   alias Zaq.Permissions.ChannelHistoryResource
+
+  test "display reads project exact answer evidence after paging without changing context reads" do
+    config = config()
+    room = transcript(config, "tool-display")
+    reader = person_for(config)
+    {:ok, input} = append(room, config, "input", %{role: "user"})
+    {:ok, answer} = append(room, config, "answer", %{role: "assistant"})
+
+    trace = [
+      %{
+        "type" => "tool_call",
+        "invocation_id" => "lookup-1",
+        "name" => "lookup",
+        "sequence" => 1,
+        "outcome" => "failed",
+        "duration_ms" => 18,
+        "params" => %{"secret" => "private"}
+      }
+    ]
+
+    Repo.insert!(%ExecutionRecord{
+      person_id: reader.id,
+      user_message_id: input.message_id,
+      public_answer_message_id: answer.message_id,
+      reserved_answer_message_id: answer.message_id,
+      status: "completed",
+      finalization_token_hash: Base.encode64(:crypto.strong_rand_bytes(32)),
+      trace_entries: trace
+    })
+
+    assert Repo.get!(Message, answer.message_id).conversation_id == nil
+
+    assert {:ok, [shown]} =
+             Conversations.list_canonical_messages(reader, room.id,
+               presentation: :display,
+               after_position: input.position,
+               limit: 1
+             )
+
+    assert shown.message_id == answer.message_id
+    assert shown.tool_steps == ToolStep.project(trace)
+    refute Map.has_key?(shown, :trace)
+    refute inspect(shown) =~ "private"
+    assert {:ok, context} = Conversations.list_canonical_messages(reader, room.id)
+    assert Enum.all?(context, &(not Map.has_key?(&1, :tool_steps)))
+
+    assert {:ok, [user]} =
+             Conversations.list_canonical_messages(reader, room.id,
+               presentation: :display,
+               limit: 1
+             )
+
+    assert user.tool_steps == []
+    {:ok, stranger} = People.create_person(%{full_name: "No grant"})
+
+    assert {:error, :unauthorized} =
+             Conversations.list_canonical_messages(stranger, room.id, presentation: :display)
+  end
+
+  test "display evidence cannot cross transcript input membership and legacy unknown remains conservative" do
+    config = config()
+    room = transcript(config, "tool-scope")
+    other = transcript(config, "other-tool-scope")
+    reader = person_for(config)
+    {:ok, input} = append(other, config, "foreign-input", %{role: "user"})
+
+    trace = [
+      %{"type" => "tool_call", "invocation_id" => "legacy", "name" => "read", "sequence" => 1}
+    ]
+
+    {:ok, answer} = append(room, config, "legacy-answer", %{role: "assistant", trace: trace})
+    Repo.get!(Message, answer.message_id) |> Ecto.Changeset.change(trace: trace) |> Repo.update!()
+
+    Repo.insert!(%ExecutionRecord{
+      person_id: reader.id,
+      user_message_id: input.message_id,
+      public_answer_message_id: answer.message_id,
+      reserved_answer_message_id: answer.message_id,
+      status: "completed",
+      finalization_token_hash: Base.encode64(:crypto.strong_rand_bytes(32)),
+      trace_entries: [
+        %{
+          "type" => "tool_call",
+          "invocation_id" => "wrong",
+          "name" => "secret",
+          "sequence" => 1,
+          "outcome" => "succeeded"
+        }
+      ]
+    })
+
+    assert {:ok, [shown]} =
+             Conversations.list_canonical_messages(reader, room.id, presentation: :display)
+
+    assert [%{"id" => "legacy", "state" => "unknown"}] = shown.tool_steps
+
+    assert {:ok, [plain]} =
+             Conversations.list_canonical_messages(reader, room.id, presentation: :full)
+
+    refute Map.has_key?(plain, :tool_steps)
+    refute Map.has_key?(plain, :trace)
+  end
 
   property "canonical reads and listing agree across effective grant combinations" do
     check all(
@@ -44,6 +148,9 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
 
       listed = Conversations.list_canonical_messages(reader, transcript.id)
 
+      displayed =
+        Conversations.list_canonical_messages(reader, transcript.id, presentation: :display)
+
       fetched =
         Conversations.get_canonical_message(
           %{person: %{id: reader.id}},
@@ -53,9 +160,11 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
 
       if reader_granted and readable do
         assert {:ok, [_]} = listed
+        assert {:ok, [%{tool_steps: []}]} = displayed
         assert {:ok, _} = fetched
       else
         assert {:error, :unauthorized} = listed
+        assert {:error, :unauthorized} = displayed
         assert {:error, :unauthorized} = fetched
       end
     end
@@ -135,6 +244,9 @@ defmodule Zaq.Engine.Conversations.TranscriptHistoryTest do
              Conversations.get_canonical_message(nil, transcript.id, placement.message_id)
 
     assert :ok = Permissions.revoke(resource, grant)
+
+    assert {:error, :unauthorized} =
+             Conversations.list_canonical_messages(reader, transcript.id, presentation: :display)
 
     assert {:error, :unauthorized} =
              Conversations.get_canonical_message(actor, transcript.id, placement.message_id)

@@ -16,6 +16,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     Conversation,
     Message,
     MessageAuthor,
+    ToolHistory,
     Transcript,
     TranscriptMessage
   }
@@ -608,7 +609,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     end
   end
 
-  @doc "Returns only the bounded, authorized transcript content after a local position."
+  @doc "Returns authorized content; internal presentation: :display adds only public tool facts."
   @spec list(Person.t() | nil, term(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def list(%Person{id: person_id} = person, transcript_id, opts)
       when is_integer(person_id) and person_id > 0 and is_list(opts) do
@@ -620,7 +621,8 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
          cursor,
          upper,
          limit,
-         Keyword.get(opts, :external_message_id)
+         Keyword.get(opts, :external_message_id),
+         Keyword.get(opts, :presentation)
        )}
     end
   end
@@ -710,7 +712,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
 
   defp valid_admin_scope?(transcript), do: valid_scope?(transcript, %{}, :read)
 
-  defp projected_messages(id, cursor, upper, limit, external_id \\ nil) do
+  defp projected_messages(id, cursor, upper, limit, external_id \\ nil, presentation \\ nil) do
     query =
       id
       |> message_projection()
@@ -725,9 +727,15 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
         do: where(query, [_p, message], message.external_message_id == ^external_id),
         else: query
 
-    query
-    |> Repo.all()
-    |> present_messages()
+    if presentation == :display do
+      query
+      |> select_merge([_placement, message], %{trace: message.trace})
+      |> Repo.all()
+      |> present_messages()
+      |> ToolHistory.present_canonical(id)
+    else
+      query |> Repo.all() |> present_messages()
+    end
   end
 
   defp present_messages(messages) do

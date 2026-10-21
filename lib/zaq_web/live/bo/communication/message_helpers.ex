@@ -12,6 +12,7 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
   - Modal state management helpers
   """
 
+  alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Measurements
   alias Zaq.Engine.Telemetry.FeedbackReasons
 
@@ -90,13 +91,13 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
 
   def message_info_from_runtime(metadata) when is_map(metadata) do
     trace = get_any(metadata, [:trace, "trace"]) || []
-    legacy_tool_calls = get_any(metadata, [:tool_calls, "tool_calls"]) || []
+    tool_calls = get_any(metadata, [:tool_calls, "tool_calls"]) || []
 
     %{
       agent: get_any(metadata, [:agent, "agent"]) || runtime_agent(metadata),
       model: get_any(metadata, [:model, "model"]),
       measurements: Measurements.message_info_measurements(metadata),
-      traces: normalize_traces(trace, legacy_tool_calls)
+      traces: normalize_traces(trace, tool_calls)
     }
   end
 
@@ -107,15 +108,29 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
   def message_info_from_message(message) when is_map(message) do
     metadata = get_any(message, [:metadata, "metadata"]) || %{}
     trace = get_any(message, [:trace, "trace"]) || []
-    legacy_tool_calls = get_any(metadata, ["tool_calls", :tool_calls]) || []
 
     %{
       agent: get_any(metadata, ["agent", :agent]),
       model: get_any(message, [:model, "model"]) || get_any(metadata, ["model", :model]),
       measurements: Measurements.message_info_measurements(message),
-      traces: normalize_traces(trace, legacy_tool_calls)
+      traces: normalize_traces(trace, [])
     }
   end
+
+  @doc "Derives public display steps from live snapshots or authorized history trace facts."
+  def tool_steps(message) when is_map(message) do
+    case get_any(message, [:tool_steps, "tool_steps"]) do
+      steps when is_list(steps) ->
+        ToolStep.snapshot(steps)
+
+      _ ->
+        trace = get_any(message, [:trace, "trace"]) || []
+
+        ToolStep.from_trace(trace)
+    end
+  end
+
+  def tool_steps(_message), do: []
 
   def empty_message_info, do: %{agent: nil, model: nil, measurements: %{}, traces: []}
 
@@ -212,15 +227,15 @@ defmodule ZaqWeb.Live.BO.Communication.MessageHelpers do
     end
   end
 
-  defp normalize_traces(trace, _legacy_tool_calls) when is_list(trace) and trace != [] do
+  defp normalize_traces(trace, _tool_calls) when is_list(trace) and trace != [] do
     Enum.filter(trace, &is_map/1)
   end
 
-  defp normalize_traces(_trace, legacy_tool_calls) when is_list(legacy_tool_calls) do
-    Enum.filter(legacy_tool_calls, &is_map/1)
+  defp normalize_traces(_trace, tool_calls) when is_list(tool_calls) do
+    Enum.filter(tool_calls, &is_map/1)
   end
 
-  defp normalize_traces(_trace, _legacy_tool_calls), do: []
+  defp normalize_traces(_trace, _tool_calls), do: []
 
   defp runtime_agent(metadata) do
     case get_any(metadata, [:configured_agent_name, "configured_agent_name"]) do

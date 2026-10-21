@@ -24,8 +24,8 @@ defmodule Zaq.Channels.WebBridgeCommandFailuresTest do
 
           response =
             case request.action do
-              :get -> Process.get(:get_reply, nil)
-              :messages -> Process.get(:messages_reply, [])
+              :display_history -> Process.get(:history_reply, nil)
+              :resolve_display_conversation -> Process.get(:resolve_reply, nil)
               :create -> Process.get(:create_reply, {:ok, %{id: "created"}})
             end
 
@@ -96,7 +96,7 @@ defmodule Zaq.Channels.WebBridgeCommandFailuresTest do
                node_router: Router
              )
 
-    Process.put(:get_reply, nil)
+    Process.put(:history_reply, nil)
 
     assert %Response{payload: %{code: :conversation_not_found}} =
              WebBridge.handle_from_listener(
@@ -106,12 +106,14 @@ defmodule Zaq.Channels.WebBridgeCommandFailuresTest do
                node_router: Router
              )
   after
-    Process.delete(:get_reply)
+    Process.delete(:history_reply)
   end
 
   test "history rejects malformed engine replies" do
-    Process.put(:get_reply, %Conversation{id: "c"})
-    Process.put(:messages_reply, :malformed)
+    Process.put(
+      :history_reply,
+      {:ok, %{conversation: %Conversation{id: "c"}, messages: :malformed}}
+    )
 
     assert %Response{request_id: "request", payload: %{code: :history_unavailable}} =
              WebBridge.handle_from_listener(
@@ -121,15 +123,37 @@ defmodule Zaq.Channels.WebBridgeCommandFailuresTest do
                node_router: Router
              )
 
-    assert_receive {:dispatched, :conversation,
-                    %{action: :messages, conversation: %Conversation{id: "c"}}}
+    assert_receive {:dispatched, :conversation, %{action: :display_history, conversation_id: "c"}}
   after
-    Process.delete(:get_reply)
-    Process.delete(:messages_reply)
+    Process.delete(:history_reply)
+  end
+
+  test "history rejects malformed success envelopes before projection" do
+    for reply <- [
+          {:ok, %{}},
+          {:ok, %{conversation: nil, messages: []}},
+          {:ok, %{conversation: %{id: "c"}, messages: []}},
+          {:ok, %{conversation: %Conversation{}, messages: []}},
+          {:ok, %{conversation: %Conversation{id: 42}, messages: []}},
+          {:ok, %{conversation: %Conversation{id: "c"}, messages: nil}},
+          {:ok, %{conversation: %Conversation{id: "c"}, messages: %{}}}
+        ] do
+      Process.put(:history_reply, reply)
+
+      assert %Response{request_id: "request", payload: %{code: :history_unavailable}} =
+               WebBridge.handle_from_listener(
+                 %{},
+                 command(:conversation_history, %{conversation_id: "c"}),
+                 context: context(),
+                 node_router: Router
+               )
+    end
+  after
+    Process.delete(:history_reply)
   end
 
   test "history distinguishes forbidden, sanitized private data, and opaque engine errors" do
-    Process.put(:get_reply, {:error, :forbidden})
+    Process.put(:history_reply, {:error, :forbidden})
 
     assert %Response{payload: %{code: :forbidden}} =
              WebBridge.handle_from_listener(
@@ -139,20 +163,14 @@ defmodule Zaq.Channels.WebBridgeCommandFailuresTest do
                node_router: Router
              )
 
-    Process.put(:get_reply, %Conversation{id: "c"})
-    Process.put(:messages_reply, {:error, :forbidden})
-
-    assert %Response{payload: %{code: :forbidden}} =
-             WebBridge.handle_from_listener(
-               %{},
-               command(:conversation_history, %{conversation_id: "c"}),
-               context: context(),
-               node_router: Router
-             )
-
-    Process.put(:messages_reply, [
-      %ConversationMessage{ratings: [], metadata: %{"token" => "private"}}
-    ])
+    Process.put(
+      :history_reply,
+      {:ok,
+       %{
+         conversation: %Conversation{id: "c"},
+         messages: [%ConversationMessage{ratings: [], metadata: %{"token" => "private"}}]
+       }}
+    )
 
     assert %Response{payload: %{code: :invalid_response_payload} = payload} =
              WebBridge.handle_from_listener(
@@ -163,7 +181,7 @@ defmodule Zaq.Channels.WebBridgeCommandFailuresTest do
              )
 
     refute inspect(payload) =~ "private"
-    Process.put(:get_reply, {:error, "private reason"})
+    Process.put(:history_reply, {:error, "private reason"})
 
     assert %Response{payload: %{code: :operation_failed} = payload} =
              WebBridge.handle_from_listener(
@@ -175,11 +193,11 @@ defmodule Zaq.Channels.WebBridgeCommandFailuresTest do
 
     refute inspect(payload) =~ "private reason"
   after
-    [:get_reply, :messages_reply] |> Enum.each(&Process.delete/1)
+    Process.delete(:history_reply)
   end
 
   test "initialization maps forbidden and unavailable replies" do
-    Process.put(:get_reply, {:error, :forbidden})
+    Process.put(:resolve_reply, {:error, :forbidden})
 
     assert %Response{payload: %{code: :forbidden}} =
              WebBridge.handle_from_listener(
@@ -197,11 +215,11 @@ defmodule Zaq.Channels.WebBridgeCommandFailuresTest do
                node_router: Router
              )
   after
-    [:get_reply, :router_mode] |> Enum.each(&Process.delete/1)
+    [:resolve_reply, :router_mode] |> Enum.each(&Process.delete/1)
   end
 
-  test "initialization maps malformed get and create event responses" do
-    Process.put(:get_reply, {:unexpected, :response})
+  test "initialization maps malformed resolution and create event responses" do
+    Process.put(:resolve_reply, {:unexpected, :response})
 
     assert %Response{payload: %{code: :conversation_unavailable}} =
              WebBridge.handle_from_listener(
@@ -219,7 +237,7 @@ defmodule Zaq.Channels.WebBridgeCommandFailuresTest do
                node_router: Router
              )
   after
-    [:get_reply, :create_reply] |> Enum.each(&Process.delete/1)
+    [:resolve_reply, :create_reply] |> Enum.each(&Process.delete/1)
   end
 
   test "create dispatch scopes the BO user and rejects missing identity" do

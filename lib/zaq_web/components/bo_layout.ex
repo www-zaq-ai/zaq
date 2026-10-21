@@ -645,7 +645,7 @@ defmodule ZaqWeb.Components.BOLayout do
           </:actions>
         </PageHeader.page_header>
         <!-- Content -->
-        <div class="p-8">
+        <div id="bo-content" class="p-8">
           <FeedbackBanner.feedback_banner
             :if={message = Phoenix.Flash.get(@flash, :info)}
             kind={:info}

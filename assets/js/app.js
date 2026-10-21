@@ -34,11 +34,13 @@ import MarkdownHighlight from "./hooks/markdown_highlight"
 import { SearchableSelectHook } from "./hooks/searchable_select_hook"
 import PeoplePermissions from "./hooks/people_permissions"
 import { PeopleAuthForm, PeopleOTP } from "./hooks/people_auth"
+import { preserveSidebarState } from "./layout"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
+  dom: { onBeforeElUpdated: preserveSidebarState },
   hooks: {
     OntologyTree,
     ChartTooltip,
@@ -56,6 +58,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
     PeoplePermissions,
     PeopleAuthForm,
     PeopleOTP,
+    ToolStepTimer: liveViewHooks.ToolStepTimer,
     ContentFilter,
     FolderDrop,
     WorkflowExport,

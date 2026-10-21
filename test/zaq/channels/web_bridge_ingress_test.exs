@@ -229,8 +229,15 @@ defmodule Zaq.Channels.WebBridgeIngressTest do
       history_event =
         Event.new(%{payload: history, context: context}, :channels,
           actor: actor,
-          opts: [action: :web_ingress, node_router: LocalNodeRouter]
+          opts: [action: :web_ingress, node_router: LocalNodeRouter, confidential: true]
         )
+
+      assert %{response: {:error, :confidential_event_required}} =
+               Api.handle_event(
+                 %{history_event | opts: Keyword.delete(history_event.opts, :confidential)},
+                 :web_ingress,
+                 nil
+               )
 
       assert %Response{
                type: :conversation_history,
@@ -239,10 +246,15 @@ defmodule Zaq.Channels.WebBridgeIngressTest do
              } = Api.handle_event(history_event, :web_ingress, nil).response
 
       assert message_id == persisted.id
+
+      assert_received {:engine_conversation_event,
+                       %Event{request: %{action: :display_history}, opts: opts}}
+
+      assert opts[:confidential] == true
       refute_received {:engine_routing_event, _}
     end
 
-    test "BO initialization falls back to a fresh conversation for a missing id" do
+    test "BO initialization rejects missing and inaccessible ids without replacement creation" do
       user = user_fixture()
       actor = %{user_id: user.id}
       assert {:ok, context} = Context.new(actor, consumer: :bo)
@@ -261,12 +273,86 @@ defmodule Zaq.Channels.WebBridgeIngressTest do
           opts: [action: :web_ingress, node_router: LocalNodeRouter]
         )
 
-      assert %Response{
-               conversation_id: created_id,
-               payload: %{created: true, replaced_missing_id: ^missing_id}
-             } = Api.handle_event(event, :web_ingress, nil).response
+      assert %Response{type: :error, payload: %{code: :not_found}} =
+               Api.handle_event(event, :web_ingress, nil).response
 
-      refute created_id == missing_id
+      other = user_fixture()
+
+      {:ok, conversation} =
+        Conversations.create_conversation(%{user_id: other.id, channel_type: "bo"})
+
+      inaccessible = %{init | conversation_id: conversation.id}
+
+      assert %Response{type: :error, payload: %{code: :not_found}} =
+               Api.handle_event(
+                 %{event | request: %{payload: inaccessible, context: context}},
+                 :web_ingress,
+                 nil
+               ).response
+
+      refute_received {:engine_conversation_event, %Event{request: %{action: :create}}}
+    end
+
+    test "BO resume resolves access without querying messages, ratings or execution evidence" do
+      user = user_fixture()
+
+      {:ok, conversation} =
+        Conversations.create_conversation(%{user_id: user.id, channel_type: "bo"})
+
+      {:ok, _} =
+        Conversations.add_message(conversation, %{
+          role: "assistant",
+          content: "answer",
+          trace: [%{"private" => "secret"}]
+        })
+
+      actor = %{user_id: user.id}
+      {:ok, context} = Context.new(actor, consumer: :bo)
+
+      {:ok, command} =
+        Command.new(%{
+          request_id: "resume",
+          type: :conversation_init,
+          conversation_id: conversation.id
+        })
+
+      event =
+        Event.new(%{payload: command, context: context}, :channels,
+          actor: actor,
+          opts: [action: :web_ingress, node_router: LocalNodeRouter]
+        )
+
+      handler_id = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:zaq, :repo, :query],
+          &__MODULE__.capture_resume_query/4,
+          self()
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert %Response{type: :conversation_initialized, payload: %{created: false} = payload} =
+               Api.handle_event(event, :web_ingress, nil).response
+
+      assert payload == %{created: false}
+      queries = resume_queries()
+      assert Enum.any?(queries, &String.contains?(&1, ~s(FROM "conversations")))
+
+      refute Enum.any?(queries, fn query ->
+               Enum.any?(
+                 ~w(messages message_ratings execution_records message_trace_artifacts),
+                 &String.contains?(query, ~s("#{&1}"))
+               )
+             end)
+
+      assert_receive {:engine_conversation_event,
+                      %Event{request: %{action: :resolve_display_conversation}, opts: opts}}
+
+      assert opts[:confidential]
+      refute_received {:engine_conversation_event, _}
     end
 
     test "returns a structured response when Engine conversation dispatch fails" do
@@ -287,6 +373,18 @@ defmodule Zaq.Channels.WebBridgeIngressTest do
                request_id: "init-failed",
                payload: %{code: :engine_unavailable}
              } = Api.handle_event(event, :web_ingress, nil).response
+    end
+  end
+
+  def capture_resume_query(_event, _measurements, metadata, owner) do
+    if self() == owner, do: send(owner, {:resume_query, metadata.query})
+  end
+
+  defp resume_queries do
+    receive do
+      {:resume_query, query} -> [query | resume_queries()]
+    after
+      0 -> []
     end
   end
 

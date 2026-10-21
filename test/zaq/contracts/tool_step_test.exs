@@ -4,6 +4,92 @@ defmodule Zaq.Contracts.ToolStepTest do
 
   alias Zaq.Contracts.ToolStep
 
+  test "trace projection shares conservative legacy normalization with public snapshots" do
+    legacy = %{
+      "type" => "tool_call",
+      "invocation_id" => "legacy",
+      "name" => "search",
+      "sequence" => 2,
+      "status" => "completed",
+      "response" => "PRIVATE"
+    }
+
+    current =
+      Map.merge(legacy, %{"invocation_id" => "current", "sequence" => 1, "outcome" => "failed"})
+
+    {:ok, public} = ToolStep.new(attrs(%{id: "public", sequence: 3, state: "succeeded"}))
+
+    steps =
+      ToolStep.from_trace([
+        legacy,
+        nil,
+        current,
+        Map.put(public, "credentials", "PRIVATE"),
+        Map.delete(legacy, "invocation_id"),
+        Map.put(legacy, "sequence", 0),
+        Map.put(legacy, "outcome", "invalid"),
+        Map.put(legacy, "type", "llm")
+      ])
+
+    assert Enum.map(steps, &{&1["id"], &1["state"]}) ==
+             [{"current", "failed"}, {"legacy", "unknown"}, {"public", "succeeded"}]
+
+    refute Jason.encode!(steps) =~ "PRIVATE"
+    assert ToolStep.from_trace(steps) == steps
+    assert ToolStep.from_trace(nil) == []
+    assert ToolStep.from_trace([]) == []
+  end
+
+  property "legacy trace projection cannot infer success or leak private facts" do
+    check all(
+            id <- string(:alphanumeric, min_length: 1, max_length: 256),
+            sequence <- positive_integer(),
+            secret <- string(:utf8)
+          ) do
+      call = %{
+        "type" => "tool_call",
+        "invocation_id" => id,
+        "sequence" => sequence,
+        "name" => "search",
+        "status" => "completed",
+        "response" => secret,
+        "arguments" => %{secret: secret}
+      }
+
+      assert [%{"id" => ^id, "sequence" => ^sequence, "state" => "unknown"} = step] =
+               ToolStep.from_trace([call])
+
+      assert Enum.sort(Map.keys(step)) == ~w(id kind label name sequence state)
+      assert ToolStep.from_trace([Map.delete(call, "invocation_id")]) == []
+    end
+  end
+
+  test "normalized runtime invocation facts retain their existing presentation contract" do
+    call = %{
+      "invocation_id" => "runtime",
+      "name" => "search",
+      "sequence" => 1,
+      "outcome" => "failed"
+    }
+
+    assert ToolStep.from_trace([call]) == ToolStep.project([call])
+    assert ToolStep.from_trace([Map.delete(call, "outcome")]) == []
+    assert ToolStep.from_trace([Map.put(call, "type", "llm")]) == []
+  end
+
+  property "public snapshot validation is idempotent and rejects private additions" do
+    check all(
+            state <- member_of(~w(running succeeded failed unknown)),
+            sequence <- positive_integer(),
+            max_runs: 25
+          ) do
+      {:ok, step} = ToolStep.new(attrs(%{state: state, sequence: sequence}))
+      assert ToolStep.snapshot([nil, %{}, Map.put(step, "response", "private")]) == [step]
+      assert ToolStep.snapshot(ToolStep.snapshot([step])) == [step]
+      assert ToolStep.snapshot(nil) == []
+    end
+  end
+
   test "one public projector orders canonical facts and excludes private bookkeeping" do
     calls = [
       %{

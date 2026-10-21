@@ -15,9 +15,9 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.ChannelHistoryProjection
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.ToolHistory
 
   alias Zaq.Engine.Conversations.{
-    Conversation,
     ExecutionRecord,
     Message,
     MessageRating,
@@ -196,35 +196,20 @@ defmodule Zaq.Engine.ChannelHistoryAdmin do
         :confidence_score
       ])
 
-    query =
-      from e in ExecutionRecord,
-        where: e.public_answer_message_id == ^message.id and is_nil(e.root_execution_id),
-        limit: 2
+    query = ToolHistory.answer_roots_query([message.id]) |> limit(2)
 
     case Repo.all(query) do
       [] ->
         {:ok, public}
 
       [%ExecutionRecord{status: "completed"} = execution] ->
-        if valid_execution_owner?(execution, message),
+        if ToolHistory.valid_execution_owner?(execution, message),
           do: {:ok, project_private_information(public, execution)},
           else: {:error, :not_found}
 
       _ ->
         {:error, :not_found}
     end
-  end
-
-  defp valid_execution_owner?(execution, message) do
-    Repo.exists?(
-      from input in Message,
-        join: conversation in Conversation,
-        on: conversation.id == input.conversation_id,
-        where:
-          input.id == ^execution.user_message_id and input.role == "user" and
-            input.conversation_id == ^message.conversation_id and
-            conversation.person_id == ^execution.person_id
-    )
   end
 
   defp project_private_information(public, execution) do

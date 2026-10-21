@@ -7,6 +7,7 @@ import ContentFilter from "./hooks/content_filter"
 import FolderDrop from "./hooks/folder_drop"
 import DialogOverlay from "./hooks/dialog_overlay"
 import { SearchableSelectHook } from "./hooks/searchable_select_hook"
+import { ToolStepTimer } from "./hooks/tool_step_timer"
 
 export const liveViewHooks = {
   ...colocatedHooks,
@@ -15,6 +16,7 @@ export const liveViewHooks = {
   ContentFilter,
   FolderDrop,
   DialogOverlay,
+  ToolStepTimer,
   DownloadFile: {
     mounted() {
       this.handleEvent("download_file", ({ filename, content, content_type }) => {

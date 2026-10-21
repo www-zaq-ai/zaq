@@ -77,11 +77,8 @@ defmodule Zaq.Agent.StreamEventsTest do
     refute Jason.encode!(public_steps(result)) =~ "private"
     assert Enum.any?(result.tool_calls, &(&1["arguments"] == %{"secret" => "private"}))
 
-    for entry <- result.trace do
-      refute Map.has_key?(entry, "sequence")
-      refute Map.has_key?(entry, "outcome")
-      refute Map.has_key?(entry, "invocation_id")
-    end
+    assert ToolStep.project(result.trace) == public_steps(result)
+    assert ToolStep.project(Jason.decode!(Jason.encode!(result.trace))) == public_steps(result)
   end
 
   test "request failure preserves completions and settles only outstanding starts to unknown" do
@@ -100,6 +97,7 @@ defmodule Zaq.Agent.StreamEventsTest do
              StreamEvents.consume(events, incoming(), status_module: FakeStatus)
 
     assert Enum.map(public_steps(result), & &1["state"]) == ["unknown", "succeeded", "failed"]
+    assert ToolStep.project(result.trace) == public_steps(result)
   end
 
   test "public identity never falls back to event IDs or malformed invocation IDs" do
@@ -125,6 +123,7 @@ defmodule Zaq.Agent.StreamEventsTest do
              StreamEvents.consume(events, incoming(), status_module: FakeStatus)
 
     assert [%{"state" => "unknown"}] = public_steps(result)
+    assert ToolStep.project(result.trace) == public_steps(result)
   end
 
   test "legacy bare completions succeed without interpreting their arbitrary payload" do
@@ -195,6 +194,8 @@ defmodule Zaq.Agent.StreamEventsTest do
                StreamEvents.consume(events, incoming(), status_module: FakeStatus)
 
       assert [%{"id" => "a", "sequence" => 1, "state" => "succeeded"}] = public_steps(result)
+      assert ToolStep.project(result.trace) == public_steps(result)
+      assert Enum.count(result.trace, &(&1["type"] == "tool_call")) == 1
     end
   end
 

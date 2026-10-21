@@ -107,15 +107,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     defp legacy_call(%{module: mod, function: fun, args: args}, _role, :invoke),
       do: {mod, fun, args}
 
-    defp legacy_call(%{action: :get, conversation_id: id}, :engine, :conversation),
-      do: {Zaq.Engine.Conversations, :get_conversation, [id]}
-
-    defp legacy_call(%{action: :get!, conversation_id: id}, :engine, :conversation),
-      do: {Zaq.Engine.Conversations, :get_conversation!, [id]}
-
-    defp legacy_call(%{action: :messages, conversation: conversation}, :engine, :conversation),
-      do: {Zaq.Engine.Conversations, :list_messages, [conversation]}
-
     defp legacy_call(%{action: :create, attrs: attrs}, :engine, :conversation),
       do: {Zaq.Engine.Conversations, :create_conversation, [attrs]}
 
@@ -1114,7 +1105,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     render_hook(view, "feedback", %{"id" => bot_ui_id.id, "type" => "positive"})
 
     assert_eventually(fn ->
-      msgs = Conversations.list_messages(Conversations.get_conversation!(conv.id))
+      msgs =
+        Conversations.list_messages(Conversations.get_conversation!(conv.id))
+
       assistant = Enum.find(msgs, &(&1.id == assistant_msg.id))
       Enum.any?(assistant.ratings, &(&1.user_id == user.id and &1.rating == 5))
     end)
@@ -1151,7 +1144,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     render_hook(view, "submit_feedback", %{"comment" => "Needs more detail"})
 
     assert_eventually(fn ->
-      msgs = Conversations.list_messages(Conversations.get_conversation!(conv.id))
+      msgs =
+        Conversations.list_messages(Conversations.get_conversation!(conv.id))
+
       assistant = Enum.find(msgs, &(&1.id == assistant_msg.id))
 
       Enum.any?(assistant.ratings, fn r ->
@@ -1909,10 +1904,13 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
-  test "load_conversation normalizes atom and legacy persisted source forms", %{conn: conn} do
+  test "load_conversation normalizes atom and legacy persisted source forms", %{
+    conn: conn,
+    user: user
+  } do
     {:ok, conversation} =
       Conversations.create_conversation(%{
-        user_id: nil,
+        user_id: user.id,
         channel_user_id: "memory-source-test",
         channel_type: "bo"
       })
@@ -2024,7 +2022,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
-  test "message info popin opens legacy tools as traces in chat", %{conn: conn, user: user} do
+  test "message info popin ignores obsolete metadata-only tools", %{conn: conn, user: user} do
     {:ok, conv} =
       Conversations.create_conversation(%{
         user_id: user.id,
@@ -2088,21 +2086,14 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
 
     assert has_element?(view, ~s([data-testid="message-info-popin"]))
 
-    html = render(view)
-    {read_idx, _} = :binary.match(html, "Read File")
-    {search_idx, _} = :binary.match(html, "Search Code")
-    assert search_idx < read_idx
+    refute has_element?(view, ~s([data-testid="trace-row-slow"]))
+    refute has_element?(view, ~s([data-testid="trace-row-fast"]))
+    refute render(view) =~ "Read File"
+    refute render(view) =~ "Search Code"
 
-    view
-    |> element(~s([data-testid="trace-row-slow"]))
-    |> render_click()
-
-    details = render(view)
-    assert details =~ "Full JSON"
-    assert details =~ "read_file"
-    assert details =~ "phx-click=\"copy_message\""
-    assert details =~ "response_time_ms"
-    assert details =~ "90 ms"
+    assert state.socket.assigns.messages
+           |> Enum.filter(&(&1[:db_id] != nil))
+           |> Enum.all?(&(&1.message_info.traces == []))
   end
 
   # ── Content filter event tests ───────────────────────────────────────────────
@@ -2954,7 +2945,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
-  test "send_message with existing conversation reuses resolve_conversation get_conversation", %{
+  test "send_message with existing conversation uses authorized display_history", %{
     conn: conn,
     user: user
   } do
@@ -2964,8 +2955,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
         channel_user_id: "bo_user_#{user.id}",
         channel_type: "bo"
       })
-
-    NodeRouterFake.put(:engine, Conversations, :get_conversation, fn [id] -> %{id: id} end)
 
     NodeRouterFake.put(:engine, Conversations, :add_message, fn [_conv, attrs] ->
       case attrs.role do
@@ -3033,9 +3022,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
           %Event{
             next_hop: %{destination: :engine},
             opts: opts,
-            request: %{action: :get, conversation_id: ^conv_id}
+            request: %{action: :resolve_display_conversation, conversation_id: ^conv_id}
           } ->
-            Keyword.get(opts, :action) == :conversation
+            Keyword.get(opts, :action) == :conversation and opts[:confidential] == true
 
           _ ->
             false
@@ -3048,68 +3037,30 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
     end)
   end
 
-  test "send_message with missing conversation falls back to create_conversation", %{
-    conn: conn,
-    user: user
-  } do
-    {:ok, conv} =
-      Conversations.create_conversation(%{
-        user_id: user.id,
-        channel_user_id: "bo_user_#{user.id}",
-        channel_type: "bo"
-      })
-
-    fresh_conv_id = Ecto.UUID.generate()
-
-    NodeRouterFake.put(:engine, Conversations, :get_conversation, fn [_id] -> nil end)
-
-    NodeRouterFake.put(:engine, Conversations, :create_conversation, fn [_attrs] ->
-      {:ok, %{id: fresh_conv_id, user_id: user.id}}
-    end)
-
-    NodeRouterFake.put(:engine, Conversations, :add_message, fn [_conv, attrs] ->
-      case attrs.role do
-        "assistant" -> {:ok, %{id: "bot-fresh"}}
-        "user" -> {:ok, %{id: "user-fresh"}}
-        _ -> {:ok, %{id: "welcome-fresh"}}
-      end
-    end)
-
-    NodeRouterFake.put(:engine, Conversations, :list_conversations, fn _ ->
-      Conversations.list_conversations(user_id: user.id, limit: 50)
-    end)
-
-    NodeRouterFake.put_dispatch(fn event ->
-      %{event | response: %Outgoing{body: "ok", channel_id: "bo", provider: :web}}
-    end)
-
-    NodeRouterFake.put(:agent, Retrieval, :ask, {
-      :ok,
-      %{
-        "query" => "fresh conversation question",
-        "lexical_terms" => ["fresh conversation"],
-        "language" => "en",
-        "positive_answer" => "Searching...",
-        "negative_answer" => "No answer"
-      }
-    })
-
-    NodeRouterFake.put(:ingestion, DocumentProcessor, :query_extraction, {:ok, []})
-
-    NodeRouterFake.put(:agent, Answering, :ask, {
-      :ok,
-      %{answer: "fresh conversation answer", confidence: %{score: 0.9}}
-    })
-
+  test "send_message with missing conversation fails without replacement creation", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/chat")
-
-    conv_id = conv.id
+    conv_id = Ecto.UUID.generate()
 
     :sys.replace_state(view.pid, fn state ->
       put_in(state.socket.assigns.current_conversation_id, conv_id)
     end)
 
-    view |> element("#chat-form") |> render_submit(%{"message" => "Question"})
+    NodeRouterFake.reset_calls()
+    html = view |> element("#chat-form") |> render_submit(%{"message" => "Question"})
+
+    assert html =~ "Unable to open this conversation"
+    assigns = :sys.get_state(view.pid).socket.assigns
+    assert assigns.input_value == "Question"
+    assert assigns.status == :idle
+    assert assigns.current_request_id == nil
+    assert assigns.current_conversation_id == conv_id
+    refute Enum.any?(assigns.messages, &(&1.role == :user))
+
+    refute Enum.any?(NodeRouterFake.dispatches(), fn
+             %Event{request: %{payload: %WebMessage{}}} -> true
+             %Event{next_hop: %{destination: :agent}} -> true
+             _ -> false
+           end)
 
     assert_eventually(fn ->
       state = :sys.get_state(view.pid)
@@ -3117,15 +3068,66 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       assigns = state.socket.assigns
 
       Enum.any?(dispatches, fn
-        %Event{request: %{action: :get, conversation_id: ^conv_id}} -> true
-        _ -> false
+        %Event{request: %{action: :resolve_display_conversation, conversation_id: ^conv_id}} ->
+          true
+
+        _ ->
+          false
       end) and
-        Enum.any?(dispatches, fn
+        not Enum.any?(dispatches, fn
           %Event{request: %{action: :create}} -> true
           _ -> false
         end) and
-        assigns.current_conversation_id == fresh_conv_id
+        assigns.current_conversation_id == conv_id
     end)
+  end
+
+  test "send_message after share revocation preserves the draft and filters without dispatch", %{
+    conn: conn,
+    user: user
+  } do
+    owner = user_fixture()
+
+    {:ok, conversation} =
+      Conversations.create_conversation(%{channel_type: "bo", user_id: owner.id})
+
+    {:ok, share} =
+      Conversations.share_conversation(conversation, %{
+        shared_with_user_id: user.id,
+        permission: "read"
+      })
+
+    {:ok, _} = Conversations.revoke_share(share)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/chat")
+    filter = %{label: "Knowledge", source_prefix: "knowledge", type: "folder"}
+
+    :sys.replace_state(view.pid, fn state ->
+      state
+      |> put_in(
+        [Access.key(:socket), Access.key(:assigns), :current_conversation_id],
+        conversation.id
+      )
+      |> put_in([Access.key(:socket), Access.key(:assigns), :active_filters], [filter])
+    end)
+
+    NodeRouterFake.reset_calls()
+    html = view |> element("#chat-form") |> render_submit(%{"message" => "My draft"})
+
+    assert html =~ "Unable to open this conversation"
+    assigns = :sys.get_state(view.pid).socket.assigns
+    assert assigns.input_value == "My draft"
+    assert assigns.active_filters == [filter]
+    assert assigns.current_conversation_id == conversation.id
+    assert assigns.status == :idle
+    refute assigns.streaming_response_active
+
+    refute Enum.any?(NodeRouterFake.dispatches(), fn
+             %Event{request: %{payload: %WebMessage{}}} -> true
+             %Event{request: %{action: :create}} -> true
+             %Event{next_hop: %{destination: :agent}} -> true
+             _ -> false
+           end)
   end
 
   test "pipeline_result when bot message persist fails still updates UI with nil db_id", %{
