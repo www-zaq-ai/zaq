@@ -888,10 +888,6 @@ defmodule Zaq.Agent.StreamEvents do
 
   defp timestamp(%{at_ms: at_ms}), do: timestamp(at_ms)
   defp timestamp(%{"at_ms" => at_ms}), do: timestamp(at_ms)
-  defp timestamp(%_{} = event), do: timestamp(Map.get(event, :at_ms))
-
-  defp timestamp(event) when is_map(event),
-    do: timestamp(Map.get(event, :at_ms) || Map.get(event, "at_ms"))
 
   defp timestamp(at_ms) when is_integer(at_ms) do
     at_ms

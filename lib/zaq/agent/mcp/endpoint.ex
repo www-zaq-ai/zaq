@@ -59,6 +59,13 @@ defmodule Zaq.Agent.MCP.Endpoint do
     |> unique_constraint(:predefined_id)
   end
 
+  @doc "Validates endpoint mutation against the editability policy resolved by MCP."
+  @spec validate_editable(Ecto.Changeset.t(), boolean()) :: Ecto.Changeset.t()
+  def validate_editable(changeset, true), do: changeset
+
+  def validate_editable(changeset, false),
+    do: add_error(changeset, :base, "predefined MCP is not editable")
+
   defp validate_conditional_fields(changeset) do
     case get_field(changeset, :type) do
       "local" -> validate_required(changeset, [:command])

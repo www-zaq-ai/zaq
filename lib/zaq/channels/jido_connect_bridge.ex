@@ -437,8 +437,6 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp map_spreadsheet_ref(payload, _), do: map_spreadsheet_ref(payload)
-
   defp map_sheet_tab_ref(payload) when is_map(payload) do
     source = read_any(payload, [:sheet, "sheet", :tab, "tab"]) || payload
 
@@ -471,8 +469,6 @@ defmodule Zaq.Channels.JidoConnectBridge do
         []
     end
   end
-
-  defp map_sheet_tabs(_), do: []
 
   defp maybe_retry_sheet_add_with_suffix(config, params, reason, original_error) do
     if truthy?(
@@ -1528,8 +1524,6 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp credential_id_from_settings(_), do: nil
-
   defp log_missing_credential_id(provider, config_id) do
     Logger.debug(
       "runtime_ctx missing credential_id for provider=#{provider} config_id=#{config_id}"
@@ -2499,7 +2493,7 @@ defmodule Zaq.Channels.JidoConnectBridge do
     handler = map_get_atom(trigger, [:handler, "handler"])
 
     cond do
-      is_atom(handler) and not is_nil(handler) ->
+      not is_nil(handler) ->
         {:ok, handler}
 
       integration = map_get_atom(trigger, [:integration_module, "integration_module"]) ->
@@ -2582,8 +2576,6 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
     signal_state == "sync" or delivery_event == "sync"
   end
-
-  defp sync_webhook_delivery?(_), do: false
 
   defp enqueue_webhook_job(config, payload, trigger, delivery_map) do
     args = %{
@@ -2832,8 +2824,6 @@ defmodule Zaq.Channels.JidoConnectBridge do
 
   defp delivery_to_map(delivery) when is_map(delivery), do: {:ok, delivery}
 
-  defp delivery_to_map(_), do: {:error, :invalid_delivery}
-
   defp load_changed_record(config, delivery_map) do
     signal =
       Map.get(delivery_map, :normalized_signal) || Map.get(delivery_map, "normalized_signal") ||
@@ -2911,8 +2901,6 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp signal_change_type(_), do: :updated
-
   defp lifecycle_state_for_change(:deleted), do: :deleted
   defp lifecycle_state_for_change(_), do: :active
 
@@ -2923,16 +2911,12 @@ defmodule Zaq.Channels.JidoConnectBridge do
     end
   end
 
-  defp signal_deleted_at(_), do: nil
-
   defp parse_iso_datetime(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, datetime, _offset} -> datetime
       _ -> nil
     end
   end
-
-  defp parse_iso_datetime(_), do: nil
 
   defp resolve_action(provider, capability) do
     with {:ok, tools} <- provider_tools(provider, capability) do
@@ -3289,12 +3273,8 @@ defmodule Zaq.Channels.JidoConnectBridge do
   defp owner_type_profile_candidates(_), do: [:user]
 
   defp provider_required_scopes(provider) do
-    with {:ok, snapshot} <- capability_snapshot(%{provider: provider}),
-         scopes <- collect_required_scopes(snapshot, provider) do
-      scopes
-    else
-      _ -> nil
-    end
+    {:ok, snapshot} = capability_snapshot(%{provider: provider})
+    collect_required_scopes(snapshot, provider)
   end
 
   defp collect_required_scopes(%{resolved: resolved}, provider) when is_map(resolved) do

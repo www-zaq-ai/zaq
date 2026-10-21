@@ -240,7 +240,6 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelHistoryLive do
     end)
   end
 
-  defp next_cursor([]), do: 0
   defp next_cursor(messages), do: List.last(messages).position
 
   defp page_params(nil, offset), do: %{offset: offset}

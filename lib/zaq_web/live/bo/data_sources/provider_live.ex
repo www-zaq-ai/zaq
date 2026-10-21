@@ -328,7 +328,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
       |> Ecto.Changeset.get_field(:settings, %{})
       |> VolumeConfig.normalize_settings()
 
-    volumes = settings |> Map.get("volumes", []) |> List.delete_at(index || -1)
+    volumes = settings |> Map.get("volumes", []) |> List.delete_at(index)
     settings = default_disk_volume_settings(%{settings | "volumes" => volumes})
 
     changeset = Ecto.Changeset.put_change(changeset, :settings, settings)
@@ -352,7 +352,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
     default_volume =
       settings
       |> Map.get("volumes", [])
-      |> Enum.at(index || -1, %{})
+      |> Enum.at(index, %{})
       |> Map.get("name")
 
     settings =
@@ -1105,7 +1105,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
       case Map.get(settings, "volumes") do
         volumes when is_map(volumes) ->
           volumes
-          |> Enum.sort_by(fn {index, _volume} -> parse_int(index) || 0 end)
+          |> Enum.sort_by(fn {index, _volume} -> parse_int(index) end)
           |> Enum.map(fn {_index, volume} -> volume end)
 
         volumes when is_list(volumes) ->

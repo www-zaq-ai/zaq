@@ -12,7 +12,7 @@ customer-provided LLM endpoint.
 
 | Layer | Technology |
 |---|---|
-| Language | Elixir 1.19 / Erlang OTP 28; exact development pins in [`.tool-versions`](../.tool-versions) |
+| Language | Elixir 1.20 / Erlang OTP 28; exact development pins in [`.tool-versions`](../.tool-versions) |
 | Web | Phoenix 1.8, LiveView 1.2; constraints in [`mix.exs`](../mix.exs), resolved dependencies in [`mix.lock`](../mix.lock) |
 | Database | PostgreSQL 16+ with pgvector `>= 0.7.0` (`halfvec` support) |
 | Jobs | Oban |

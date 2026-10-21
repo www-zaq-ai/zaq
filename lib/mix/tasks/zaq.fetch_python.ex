@@ -15,8 +15,6 @@ defmodule Mix.Tasks.Zaq.Python.Fetch do
   """
   use Mix.Task
 
-  require Logger
-
   @default_repo "www-zaq-ai/crawler-ingest"
   @default_dest "priv/python/crawler-ingest"
   @revision_file "priv/python/crawler-ingest.revision"

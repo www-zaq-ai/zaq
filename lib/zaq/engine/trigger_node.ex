@@ -125,6 +125,4 @@ defmodule Zaq.Engine.TriggerNode do
     is_map(assigns) and
       (Map.get(assigns, :machine) == true or Map.get(assigns, "machine") == true)
   end
-
-  defp machine_marked?(_incoming_event), do: false
 end

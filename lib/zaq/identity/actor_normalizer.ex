@@ -74,7 +74,6 @@ defmodule Zaq.Identity.ActorNormalizer do
   def team_ids(actor) do
     case person(actor) do
       %{team_ids: ids} when is_list(ids) -> ids
-      %{"team_ids" => ids} when is_list(ids) -> ids
       _ -> []
     end
   end

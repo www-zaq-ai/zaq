@@ -426,7 +426,7 @@ defmodule Zaq.Ingestion do
 
     case Document.get_by_source(source) do
       %Document{watch_status: status} = doc when status in ["pending", "watched"] ->
-        %{status: status || "watched", error: doc.watch_error}
+        %{status: status, error: doc.watch_error}
 
       _ ->
         nil
@@ -982,7 +982,6 @@ defmodule Zaq.Ingestion do
   end
 
   defp record_error_ref(%{id: id, name: name}), do: %{id: id, name: name}
-  defp record_error_ref(record), do: inspect(record)
 
   defp materialization_context(params) do
     %{}

@@ -13,8 +13,6 @@ defmodule Zaq.Ingestion.DocumentChunker do
         chunk_max_tokens: 900
   """
 
-  require Logger
-
   alias Zaq.Agent.TokenEstimator
 
   defmodule Section do

@@ -263,10 +263,6 @@ defmodule Zaq.Ingestion.IngestWorker do
     %{"job_id" => job_id, "chunk_job_id" => chunk_job.id}
   end
 
-  defp resolve_file_path(%IngestJob{source_record: source_record}) when is_map(source_record) do
-    source_record["path"] || source_record["file_path"]
-  end
-
   defp resolve_file_path(%IngestJob{file_path: path}), do: path
 
   defp structural_error?(reason) when is_binary(reason) do

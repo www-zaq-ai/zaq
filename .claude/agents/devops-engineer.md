@@ -50,7 +50,7 @@ config :zaq, :llm,
 ## Docker
 
 ```dockerfile
-FROM elixir:1.19-otp-28-alpine AS builder
+FROM elixir:1.20.4-otp-28-alpine AS builder
 
 RUN apk add --no-cache build-base git nodejs npm
 
@@ -65,7 +65,7 @@ RUN cd assets && npm ci && npm run deploy
 COPY . .
 RUN MIX_ENV=prod mix assets.deploy && MIX_ENV=prod mix release
 
-FROM elixir:1.19-otp-28-alpine
+FROM elixir:1.20.4-otp-28-alpine
 
 RUN apk add --no-cache libstdc++ openssl ncurses-libs
 

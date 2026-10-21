@@ -660,8 +660,6 @@ defmodule Zaq.Channels.EmailBridge do
 
   defp references_list(_), do: []
 
-  defp append_once(values, nil), do: values
-
   defp append_once(values, value) when is_list(values) do
     if value in values, do: values, else: values ++ [value]
   end

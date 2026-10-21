@@ -1101,16 +1101,7 @@ defmodule Zaq.Channels.WebBridge do
              payload: final_payload(outgoing, metadata, delivery.consumer)
            }),
          :ok <- broadcast_response(delivery, response) do
-      receipt =
-        if delivery.consumer == :widget,
-          do: %{
-            delivered: true,
-            confirmation: :confirmed,
-            message_id: metadata_value(metadata, :assistant_message_id)
-          },
-          else: %{delivered: true}
-
-      {:ok, receipt}
+      {:ok, %{delivered: true}}
     end
   end
 

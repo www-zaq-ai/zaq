@@ -21,7 +21,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: "28.1"
-          elixir-version: "1.19.5"
+          elixir-version: "1.20.4"
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
@@ -29,8 +29,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
-          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-
 
       - name: Install dependencies
         run: mix deps.get
@@ -55,7 +55,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: "28.1"
-          elixir-version: "1.19.5"
+          elixir-version: "1.20.4"
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
@@ -63,8 +63,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
-          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-
 
       - name: Install dependencies
         run: mix deps.get
@@ -104,7 +104,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: "28.1"
-          elixir-version: "1.19.5"
+          elixir-version: "1.20.4"
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
@@ -112,8 +112,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
-          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-
 
       - name: Install dependencies
         run: mix deps.get
@@ -215,7 +215,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: "28.1"
-          elixir-version: "1.19.5"
+          elixir-version: "1.20.4"
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
@@ -223,8 +223,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
-          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-test-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-
 
       - name: Install dependencies
         run: mix deps.get
@@ -273,84 +273,6 @@ jobs:
           mix test test/zaq/agent/tools/search_knowledge_base_retrieval_evaluation_test.exs --include integration
 
   # Early-warning signal for the next Elixir version — failures never block the PR.
-  test-elixir-1-20:
-    name: Test (Elixir 1.20, optional)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-
-    services:
-      postgres:
-        image: pgvector/pgvector:pg18
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: zaq_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      MIX_ENV: test
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zaq_test
-      PYTHON_VERSION: "3.13"
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Elixir
-        uses: erlef/setup-beam@v1
-        with:
-          otp-version: "28.1"
-          elixir-version: "1.20"
-
-      - name: Restore dependencies cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
-          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-test-
-
-      - name: Install dependencies
-        run: mix deps.get
-
-      - name: Fetch reviewed crawler revision
-        run: mix zaq.python.fetch
-
-      - name: Set up CPython
-        uses: actions/setup-python@v7
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Restore pip downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-${{ runner.arch }}-py${{ env.PYTHON_VERSION }}-pip-${{ hashFiles('priv/python/crawler-ingest/requirements.txt', 'priv/python/crawler-ingest.revision') }}
-
-      - name: Build and validate a fresh Python environment
-        run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install -r priv/python/crawler-ingest/requirements.txt
-          .venv/bin/python -m pip check
-
-      - name: Recompile LiveView with current logging policy
-        run: |
-          mix deps.compile
-          mix deps.compile phoenix_live_view --force
-
-      - name: Provision PostgreSQL extensions as DBA
-        run: mix run --no-start .github/scripts/provision-test-database.exs postgres
-
-      - name: Run tests
-        run: mix test
-
   docs:
     name: Build docs
     if: ${{ github.event_name == 'pull_request' }}
@@ -367,7 +289,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: "28.1"
-          elixir-version: "1.19.5"
+          elixir-version: "1.20.4"
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
@@ -375,8 +297,8 @@ jobs:
           path: |
             deps
             _build
-          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-docs-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
-          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-19-5-docs-
+          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-docs-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
+          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-docs-
 
       - name: Install dependencies
         run: mix deps.get

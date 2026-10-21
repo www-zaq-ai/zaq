@@ -7,8 +7,6 @@ defmodule Zaq.Agent.MCP.SignalAdapter do
   No direct Jido.MCP API calls are made from ZAQ orchestration.
   """
 
-  require Logger
-
   @default_timeout 15_000
 
   @doc """

@@ -327,8 +327,6 @@ defmodule Zaq.Agent.Api do
     end
   end
 
-  defp content_request(_), do: {:error, :missing_content}
-
   defp normalize_action_error({:error, {:invalid_request, _} = reason}), do: {:error, reason}
   defp normalize_action_error({:error, reason}), do: {:error, {:action_failed, reason}}
   defp normalize_action_error(other), do: other
@@ -392,9 +390,7 @@ defmodule Zaq.Agent.Api do
 
       %{event | response: sanitize_admission_response(response)}
     else
-      {:ok, state} when is_map(state) -> %{event | response: {:error, :missing_server_id}}
       {:error, reason} -> %{event | response: {:error, reason}}
-      other -> %{event | response: {:error, other}}
     end
   end
 

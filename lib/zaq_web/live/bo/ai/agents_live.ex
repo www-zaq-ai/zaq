@@ -873,8 +873,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     end
   end
 
-  defp maybe_put_runtime_warnings(socket, _), do: socket
-
   defp runtime_warnings(payload) when is_map(payload) do
     payload
     |> Map.get(:runtime, %{})
@@ -897,8 +895,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     end
   end
 
-  defp update_notice(_), do: "Agent updated"
-
   defp stopped_server_count(payload) when is_map(payload) do
     payload
     |> Map.get(:runtime, %{})
@@ -908,8 +904,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       _ -> 0
     end
   end
-
-  defp stopped_server_count(_), do: 0
 
   defp map_get(map, key, default) when is_map(map) do
     Map.get(map, key, Map.get(map, to_string(key), default))

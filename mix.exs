@@ -12,7 +12,7 @@ defmodule Zaq.MixProject do
         "GitHub" => "https://github.com/www-zaq-ai/zaq",
         "Commercial License" => "mailto:license@zaq.ai"
       },
-      elixir: "~> 1.15",
+      elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),

@@ -1080,9 +1080,6 @@ defmodule Zaq.Channels.Api do
               (platform == to_string(provider) or config.provider == to_string(provider))) ||
              {:error, :connector_mismatch} do
       {:ok, bridge_module.fetch_connection_details_for_config(config)}
-    else
-      nil -> {:error, :connector_mismatch}
-      error -> error
     end
   end
 

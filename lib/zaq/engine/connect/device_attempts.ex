@@ -211,9 +211,6 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
         {:exchange, approval} ->
           exchange(attempt, credential, behaviour.exchange_request(credential, approval), opts)
 
-        {:approved, payload} ->
-          complete(attempt, credential, payload, opts)
-
         {:terminal, status} when status in [:denied, :expired, :failed] ->
           terminal(id, Atom.to_string(status), opts)
 

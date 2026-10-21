@@ -80,7 +80,7 @@ jobs:
         uses: erlef/setup-beam@v1
         with:
           otp-version: "28.1"
-          elixir-version: "1.19.5"
+          elixir-version: "1.20.4"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -96,9 +96,9 @@ jobs:
           path: |
             deps
             _build/test-e2e
-          key: ${{ runner.os }}-${{ runner.arch }}-mix-e2e-${{ hashFiles('**/mix.lock') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-mix-otp28.1-elixir1.20.4-e2e-${{ hashFiles('**/mix.lock') }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-mix-e2e-
+            ${{ runner.os }}-${{ runner.arch }}-mix-otp28.1-elixir1.20.4-e2e-
 
       # `mix assets.setup` is `tailwind.install --if-missing` + `esbuild.install
       # --if-missing`, which downloads ~83 MB of binaries to _build/{esbuild,tailwind}-*

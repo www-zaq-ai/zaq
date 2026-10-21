@@ -3,6 +3,9 @@ defmodule Zaq.Engine.Connect.OAuth.Device.Behaviour do
   Pure provider protocol for device sign-in. Connect owns HTTP, scheduling,
   authorization and persistence. Timing is supplied by provider responses/defaults,
   not inferred by the worker. No implementation may execute HTTP or write grants.
+
+  Successful polling returns `{:exchange, approval}` for a final token exchange;
+  providers do not return completed token grants directly from the polling step.
   """
 
   alias Zaq.Engine.Connect.Credential
@@ -18,7 +21,6 @@ defmodule Zaq.Engine.Connect.OAuth.Device.Behaviour do
   @callback poll_response(integer(), term(), pos_integer()) ::
               {:pending, pos_integer()}
               | {:exchange, map()}
-              | {:approved, map()}
               | {:terminal, :denied | :expired | :failed}
   @callback exchange_request(Credential.t(), map()) :: request()
 end

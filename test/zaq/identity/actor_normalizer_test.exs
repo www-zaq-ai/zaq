@@ -1,9 +1,27 @@
 defmodule Zaq.Identity.ActorNormalizerTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
+
+  property "team normalization agrees for atom-keyed and persisted string-keyed actors" do
+    check all(id <- positive_integer(), team_ids <- list_of(positive_integer())) do
+      atom_actor = %{person: %{id: id, team_ids: team_ids}}
+
+      string_actor = %{
+        "person" => %{
+          "id" => Integer.to_string(id),
+          "team_ids" => Enum.map(team_ids, &Integer.to_string/1)
+        }
+      }
+
+      assert ActorNormalizer.team_ids(atom_actor) == team_ids
+      assert ActorNormalizer.team_ids(string_actor) == ActorNormalizer.team_ids(atom_actor)
+      assert ActorNormalizer.person_id(string_actor) == id
+    end
+  end
 
   test "from_incoming enriches actor with incoming person" do
     incoming = incoming(%{id: 42, full_name: "Alice", team_ids: [1, "2", "bad"]})

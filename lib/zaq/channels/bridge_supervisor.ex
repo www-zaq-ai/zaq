@@ -289,9 +289,6 @@ defmodule Zaq.Channels.BridgeSupervisor do
         if function_exported?(module, :monitor_listeners, 2),
           do: module.monitor_listeners(state_pid, listener_pids),
           else: :ok
-
-      nil ->
-        :ok
     end
   rescue
     _ -> :ok

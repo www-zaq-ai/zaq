@@ -758,12 +758,6 @@ defmodule ZaqWeb.Live.BO.AI.SkillsLive do
 
       {:error, :skill_resource_location_not_configured} ->
         []
-
-      {:error, reason} when reason in [:enoent, :not_found, :not_a_directory] ->
-        []
-
-      _ ->
-        [{:error, :resource_cleanup_failed}]
     end
   end
 

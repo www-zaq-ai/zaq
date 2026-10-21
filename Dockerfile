@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM elixir:1.19.5-otp-28 AS build
+FROM elixir:1.20.4-otp-28 AS build
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends build-essential git curl ca-certificates && \

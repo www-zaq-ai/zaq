@@ -498,12 +498,7 @@ defmodule Zaq.Agent.MCP do
 
   defp validate_editable_predefined(%Changeset{} = changeset) do
     predefined_id = Changeset.get_field(changeset, :predefined_id)
-
-    if endpoint_editable?(predefined_id) do
-      changeset
-    else
-      Changeset.add_error(changeset, :base, "predefined MCP is not editable")
-    end
+    Endpoint.validate_editable(changeset, endpoint_editable?(predefined_id))
   end
 
   defp validate_not_assigned_to_agents(%Changeset{} = changeset) do

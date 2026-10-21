@@ -34,14 +34,14 @@ jobs:
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "28.1"
-          elixir-version: "1.19.5"
+          elixir-version: "1.20.4"
 
       - uses: actions/cache@v4
         with:
           path: |
             deps
             _build/test
-          key: ${{ runner.os }}-browser-tool-otp28.1-elixir1.19.5-${{ hashFiles('mix.lock') }}
+          key: ${{ runner.os }}-browser-tool-otp28.1-elixir1.20.4-${{ hashFiles('mix.lock') }}
 
       - uses: docker/setup-buildx-action@v3
 

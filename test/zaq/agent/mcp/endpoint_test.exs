@@ -1,7 +1,37 @@
 defmodule Zaq.Agent.MCP.EndpointTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.MCP.Endpoint
+
+  test "editability validation rejects mutations of a protected predefined endpoint" do
+    changeset = Ecto.Changeset.change(%Endpoint{predefined_id: "protected"})
+
+    result = Endpoint.validate_editable(changeset, false)
+
+    refute result.valid?
+    assert errors_on(result).base == ["predefined MCP is not editable"]
+  end
+
+  test "editability validation preserves existing errors for editable endpoints" do
+    changeset =
+      %Endpoint{}
+      |> Ecto.Changeset.change()
+      |> Ecto.Changeset.add_error(:name, "is invalid")
+
+    assert Endpoint.validate_editable(changeset, true) == changeset
+  end
+
+  property "only editable endpoints retain a valid mutation changeset" do
+    check all(editable <- boolean(), name <- string(:alphanumeric, min_length: 1)) do
+      changeset = Ecto.Changeset.change(%Endpoint{}, name: name)
+      result = Endpoint.validate_editable(changeset, editable)
+
+      assert result.valid? == editable
+      assert result.changes == changeset.changes
+      assert Keyword.has_key?(result.errors, :base) == not editable
+    end
+  end
 
   defp valid_attrs(overrides \\ %{}) do
     Map.merge(
