@@ -39,42 +39,62 @@ defmodule Zaq.Agent.ZAQRouter do
   }
 
   @default_models %{
+    # Context limits are token counts from OpenRouter's model catalog (chat),
+    # NVIDIA's model cards (Nemotron), and OpenAI/Google's embedding model docs.
+    # The multimodal Nemotron embedding limit includes image and text tokens.
     # ── LLM / Chat models ──────────────────────────────────────────────
     # Free
     "openai/gpt-oss-120b" => %{
+      limits: %{context: 131_072},
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
     },
     "qwen/qwen3-235b-a22b-2507" => %{
+      limits: %{context: 262_144},
       capabilities: %{chat: true, tools: %{enabled: true}}
     },
     "mistralai/mistral-small-2603" => %{
+      limits: %{context: 262_144},
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
       modalities: @vision_modalities
     },
     "deepseek/deepseek-v4-pro" => %{
+      limits: %{context: 1_048_576},
+      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
+    },
+    "moonshotai/kimi-k3" => %{
+      limits: %{context: 1_048_576},
+      capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
+    },
+    "deepseek/deepseek-v4.1-flash" => %{
+      limits: %{context: 1_048_576},
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}}
     },
 
     # ── Vision models (image-to-text) ──────────────────────────────────
     "nvidia/nemotron-nano-12b-v2-vl" => %{
+      limits: %{context: 131_072},
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
       modalities: @vision_modalities
     },
     "google/gemma-3-27b-it" => %{
+      limits: %{context: 131_072},
       capabilities: %{chat: true, tools: %{enabled: true}},
       modalities: @vision_modalities
     },
     "google/gemini-2.5-flash-lite" => %{
+      limits: %{context: 1_048_576},
       capabilities: %{chat: true, tools: %{enabled: true}, reasoning: %{enabled: true}},
       modalities: @vision_modalities
     },
     "qwen/qwen3-vl-235b-a22b-instruct" => %{
+      limits: %{context: 262_144},
       capabilities: %{chat: true, tools: %{enabled: true}},
       modalities: @vision_modalities
     },
 
     # ── Embedding models ───────────────────────────────────────────────
     "nvidia/llama-nemotron-embed-vl-1b-v2" => %{
+      limits: %{context: 10_240},
       capabilities: %{
         chat: false,
         embeddings: %{default_dimensions: 2048, max_dimensions: 2048},
@@ -85,6 +105,7 @@ defmodule Zaq.Agent.ZAQRouter do
       }
     },
     "openai/text-embedding-3-small" => %{
+      limits: %{context: 8192},
       capabilities: %{
         chat: false,
         embeddings: %{default_dimensions: 1536, max_dimensions: 1536},
@@ -94,8 +115,14 @@ defmodule Zaq.Agent.ZAQRouter do
         tools: %{enabled: false}
       }
     },
-    "google/gemini-embedding-001" => %{capabilities: @embedding_caps_3072},
-    "openai/text-embedding-3-large" => %{capabilities: @embedding_caps_3072}
+    "google/gemini-embedding-001" => %{
+      limits: %{context: 2048},
+      capabilities: @embedding_caps_3072
+    },
+    "openai/text-embedding-3-large" => %{
+      limits: %{context: 8192},
+      capabilities: @embedding_caps_3072
+    }
   }
 
   # Compile-time guard: the bootstrap default models must be real catalog entries.
@@ -135,13 +162,19 @@ defmodule Zaq.Agent.ZAQRouter do
   @doc """
   Re-loads LLMDB with an updated model list for ZAQ Provider.
 
-  Pass a list of model ID strings returned by the User Portal. Each model gets
-  full chat + tools capabilities since the LiteLLM gateway handles capability
-  negotiation at runtime.
+  Pass a list of model ID strings returned by the User Portal. Known models keep
+  their default catalog metadata, including context limits and capabilities.
+  Unknown models retain the chat + tools fallback since the LiteLLM gateway
+  handles capability negotiation at runtime; their context limit is unknown.
   """
   @spec reload([String.t()]) :: {:ok, map()} | {:error, term()}
   def reload(model_ids) when is_list(model_ids) do
-    models = Map.new(model_ids, &{&1, %{capabilities: %{chat: true, tools: %{enabled: true}}}})
+    models =
+      Map.new(model_ids, fn id ->
+        {id,
+         Map.get(@default_models, id, %{capabilities: %{chat: true, tools: %{enabled: true}}})}
+      end)
+
     LLMDB.load(build_opts(models))
   end
 
