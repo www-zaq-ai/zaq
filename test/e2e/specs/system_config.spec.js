@@ -297,10 +297,14 @@ test.describe("System Config", () => {
     })
 
     test("flash auto-dismisses without user interaction", async ({ page }) => {
+      await page.clock.install()
+      await page.clock.pauseAt(new Date(Date.now() + 1_000))
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
       await page.getByRole("button", { name: "Save LLM Settings" }).click()
       await expect(page.getByText("LLM settings saved.")).toBeVisible()
-      // Must disappear on its own — do not click dismiss
+      // Run the real auto-dismiss timer without relying on CI wall-clock scheduling.
+      // Must disappear on its own — do not click dismiss.
+      await page.clock.runFor(5_000)
       await expect(page.getByText("LLM settings saved.")).not.toBeVisible({ timeout: 10_000 })
     })
 
