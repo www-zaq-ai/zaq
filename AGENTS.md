@@ -15,6 +15,7 @@ ZAQ is an AI-powered company brain built with Elixir/Phoenix. This file is the d
 
 ## Essential constraints
 
+- Prefer the smallest coherent change that fully satisfies the request; follow [minimal change surface](docs/code-quality.md#minimal-change-surface) and established patterns.
 - Never push directly to `main`; changes go through a PR. Commit/push/merge only when authorized.
 - All cross-service BO calls use `NodeRouter.dispatch/1` with `%Zaq.Event{}`, not direct module calls.
 - Read a module's `@moduledoc` before adding a function; respect its responsibility.

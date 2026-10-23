@@ -1,5 +1,12 @@
 # Code Quality
 
+## Minimal Change Surface
+
+- Prefer the smallest coherent change that fully satisfies the request and preserves architectural boundaries. Minimize unnecessary scope, not merely changed lines or file count.
+- Limit changes to the code, tests, configuration, and documentation needed for the requested outcome. Avoid unrelated cleanup, renaming, formatting churn, and speculative abstractions.
+- Reuse established patterns and operations under the rules below. Minimality never justifies duplicated operations, bypassed boundaries, or omitted required validation.
+- Broaden the change when correctness or existing contracts require it, and explain why. Record unrelated improvements as follow-up work rather than folding them into the change.
+
 ## Separation of Concerns & Architecture Boundaries
 
 - Keep domain and business rules in `lib/zaq/` contexts/domain modules.

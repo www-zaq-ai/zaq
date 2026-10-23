@@ -95,7 +95,7 @@ Work through the planned Beadwork issues one at a time:
 1. After each issue, run `mix q` through Context Mode. It includes formatting; do not run `mix format` separately. Keep logs in Context Mode and return only concise results.
 2. Run specific isolated tests confirming the developed feature and relevant failure/regression cases. `mix q` does not replace these tests. Fix failures before completing the issue; documentation-only work needs no application tests.
 3. Reserve `mix precommit` for the [final gate](#phase-6--coverage-and-merge), not each issue. Numerical coverage targets remain in that dedicated coverage phase.
-4. Review your own diff — check for dead code, debug statements, and convention violations.
+4. Review your own diff — check for dead code, debug statements, and convention violations. Apply [minimal change surface](code-quality.md#minimal-change-surface): justify each changed file and meaningful diff section against the requested outcome, and check for unnecessary public APIs, dependencies, or abstractions.
 5. Apply the review gate in `docs/action-reuse.md`: verify reuse evidence and shared implementations, missing Action prerequisites, justified local-only decisions, and deliberate tool exposure. Resolve unjustified duplication or bypassed boundaries before approval.
 
 ### E2E validation
