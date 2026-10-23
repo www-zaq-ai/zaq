@@ -172,15 +172,26 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformerTest do
 
     recent_assistant = %{role: "assistant", content: "recent assistant answer"}
     current_user = %{role: "user", content: "current question"}
+    system = %{role: :system, content: "System instructions"}
+    tool_system = %{role: "system", content: "Instructions between tool call and result"}
+    later_system = %{role: "system", content: "Additional instructions"}
 
     request = %{
-      messages: [old_tool_call, old_tool_result, recent_assistant, current_user],
+      messages: [
+        system,
+        old_tool_call,
+        tool_system,
+        old_tool_result,
+        recent_assistant,
+        later_system,
+        current_user
+      ],
       llm_opts: [],
       tools: [],
       model: :test
     }
 
-    desired_messages = [recent_assistant, current_user]
+    desired_messages = [system, tool_system, recent_assistant, later_system, current_user]
 
     desired_budget =
       RequestEstimator.estimate(%{request | messages: desired_messages}, window(1))
@@ -317,26 +328,51 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformerTest do
     end
   end
 
-  property "projected messages preserve order and keep the latest user turn" do
+  property "projection preserves original order, system messages and the latest user turn" do
     check all(
             prior <- list_of(string(:alphanumeric, min_length: 1, max_length: 12), max_length: 8),
             current <- string(:alphanumeric, min_length: 1, max_length: 12),
+            system_role <- member_of([:system, "system"]),
+            retained_count <- integer(0..2),
             max_runs: 25
           ) do
+      system = %{role: system_role, content: "System"}
+      current_user = %{role: "user", content: current}
+
+      units =
+        Enum.map(prior ++ prior, fn text ->
+          [%{role: "assistant", content: text}, %{role: system_role, content: "Context"}]
+        end)
+
       messages =
-        Enum.map(prior, &%{role: "assistant", content: &1}) ++
-          [%{role: "user", content: current}]
+        [system] ++ List.flatten(units) ++ [current_user]
 
       request = %{messages: messages, llm_opts: [], tools: [], model: :test}
+      keep_from = max(length(units) - retained_count, 0)
+
+      expected =
+        [system] ++
+          (units
+           |> Enum.with_index()
+           |> Enum.flat_map(fn
+             {[assistant, context], index} when index >= keep_from -> [assistant, context]
+             {[_assistant, context], _index} -> [context]
+           end)) ++ [current_user]
+
+      budget = RequestEstimator.estimate(%{request | messages: expected}, window(1))
 
       assert {:ok, %{messages: projected}} =
                RequestTransformer.transform_request(request, nil, config(1), %{
-                 context_window: window(200)
+                 context_window: window(budget + 1)
                })
 
-      assert List.last(projected) == %{role: "user", content: current}
-      assert projected == Enum.filter(messages, &(&1 in projected))
-      assert RequestEstimator.estimate(%{request | messages: projected}, window(200)) <= 199
+      assert projected == expected
+      assert List.last(projected) == current_user
+
+      assert Enum.filter(projected, &(&1.role == system_role)) ==
+               Enum.filter(messages, &(&1.role == system_role))
+
+      assert RequestEstimator.estimate(%{request | messages: projected}, window(1)) <= budget
     end
   end
 end

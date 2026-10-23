@@ -1389,11 +1389,11 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
 
     time =
       if message.provider_sent_at,
-        do: "Sent at: #{DateUtils.format_ts(message.provider_sent_at)}",
-        else: "Recorded at: #{DateUtils.format_ts(message.inserted_at)}"
+        do: "sent #{DateUtils.format_ts(message.provider_sent_at)}",
+        else: "recorded #{DateUtils.format_ts(message.inserted_at)}"
 
     expected =
-      "Author: #{Jason.encode!(person.full_name)} [person:#{id}]\n#{time}\nMessage:\n#{message.content}"
+      "#{message.content}\n\n[Input context: #{Jason.encode!(person.full_name)}; person #{id}; #{time}]"
 
     assert Enum.any?(input, fn entry ->
              entry["role"] == "user" and

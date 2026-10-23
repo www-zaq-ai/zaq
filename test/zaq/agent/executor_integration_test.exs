@@ -85,13 +85,13 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       assert outgoing.metadata.error == false
       assert_receive {:openai_request, "POST", _path, _authorization, body}, 5_000
 
-      time_header =
+      time_annotation =
         if source_time,
-          do: "Sent at: 2026-01-02 03:04:05Z",
-          else: "Recorded at: #{DateUtils.format_ts(stored.inserted_at)}"
+          do: "sent 2026-01-02 03:04:05Z",
+          else: "recorded #{DateUtils.format_ts(stored.inserted_at)}"
 
       expected =
-        "Author: \"Current name\" [person:#{person.id}]\n#{time_header}\nMessage:\nPersisted body"
+        "Persisted body\n\n[Input context: \"Current name\"; person #{person.id}; #{time_annotation}]"
 
       assert body =~ Jason.encode!(expected)
       refute body =~ "2026-10-15 09:00:00Z"
@@ -712,7 +712,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     name = Jason.encode!(People.get_person!(author_id).full_name)
     time = DateUtils.format_ts(message.inserted_at)
 
-    "Author: #{name} [person:#{author_id}]\nRecorded at: #{time}\nMessage:\nFollowup input"
+    "Followup input\n\n[Input context: #{name}; person #{author_id}; recorded #{time}]"
   end
 
   @tag :actual_request_identity
@@ -2520,7 +2520,8 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       assert outgoing.metadata.error == false
       assert_receive {:executor_question, question}
       [_prompt, encoded] = String.split(question, "Attachments:\n", parts: 2)
-      [metadata] = Jason.decode!(encoded)
+      [attachment_json, _annotation] = String.split(encoded, "\n\n[Input context:", parts: 2)
+      [metadata] = Jason.decode!(attachment_json)
       assert metadata["id"] == "record-123"
       assert metadata["name"] == "report.pdf"
       assert metadata["mime_type"] == "application/pdf"

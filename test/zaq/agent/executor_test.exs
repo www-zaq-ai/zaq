@@ -1234,10 +1234,10 @@ defmodule Zaq.Agent.ExecutorTest do
 
         assert_received {:coverage_ask, question, _configured_agent, _tool_context}
 
-        expected_time = if source_time, do: "Sent at: 2026-01-02 03:04:05Z\n", else: ""
+        expected_time = if source_time, do: "; sent 2026-01-02 03:04:05Z", else: ""
 
         assert question ==
-                 "Author: \"Directory name\" [person:15]\n" <> expected_time <> "Message:\nBody"
+                 "Body\n\n[Input context: \"Directory name\"; person 15#{expected_time}]"
       end
     end
 

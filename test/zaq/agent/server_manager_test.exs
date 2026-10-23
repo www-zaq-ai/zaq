@@ -2369,7 +2369,7 @@ defmodule Zaq.Agent.ServerManagerTest do
       messages = AIContext.to_messages(status.raw_state.context)
 
       assert Enum.any?(messages, fn m ->
-               String.ends_with?(m.content, "hello from this conversation")
+               String.starts_with?(m.content, "hello from this conversation\n\n[Input context:")
              end)
     end
 
@@ -2413,7 +2413,11 @@ defmodule Zaq.Agent.ServerManagerTest do
       assert {:ok, status} = Jido.AgentServer.status(server_ref)
       messages = AIContext.to_messages(status.raw_state.context)
 
-      assert Enum.any?(messages, &String.ends_with?(&1.content, "old email user turn"))
+      assert Enum.any?(
+               messages,
+               &String.starts_with?(&1.content, "old email user turn\n\n[Input context:")
+             )
+
       assert Enum.any?(messages, &String.ends_with?(&1.content, "old email assistant turn"))
       refute Enum.any?(messages, &String.contains?(&1.content, "wrong provider turn"))
     end

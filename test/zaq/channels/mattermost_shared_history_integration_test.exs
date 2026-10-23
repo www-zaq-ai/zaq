@@ -380,7 +380,7 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
       end
 
       assert input =~ "Authorized thread evidence"
-      assert input =~ "Author: \\\"Bob\\\" [person:#{bob.id}]"
+      assert input =~ "[Input context: \\\"Bob\\\"; person #{bob.id};"
       assert length(Regex.scan(~r/history question/, input)) == 1
       refute input =~ "FORBIDDEN_"
 
@@ -1281,7 +1281,7 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
     assert length(Regex.scan(~r/Cumulative background B/, third_input)) == 1
     assert length(Regex.scan(~r/Late retained root/, third_input)) == 1
     assert length(Regex.scan(~r/history question/, third_input)) == 1
-    assert third_input =~ "Author: \\\"Alice\\\" [person:#{ctx.person.id}]"
+    assert third_input =~ "[Input context: \\\"Alice\\\"; person #{ctx.person.id};"
     [system, root_entry, a, b, current, call1, output1, call2, output2] = third["input"]
     assert system == List.first(initial["input"])
     assert current == List.last(initial["input"])
@@ -1289,7 +1289,7 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
     assert a == Enum.at(second["input"], 2)
 
     assert MultiAgentOpenAIStub.latest_user_message(%{"input" => [b]}) ==
-             "Author: \"Alice\" [person:#{ctx.person.id}]\nSent at: 2023-11-14 22:13:20Z\nMessage:\nCumulative background B"
+             "Cumulative background B\n\n[Input context: \"Alice\"; person #{ctx.person.id}; sent 2023-11-14 22:13:20Z]"
 
     for {call, output, id, arguments, result} <- [
           {call1, output1, "refresh-call-1", %{"value" => 2, "amount" => 3}, 5.0},
@@ -1906,10 +1906,14 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
   end
 
   defp assert_correction_content(content, true) do
-    [message, metadata] =
-      String.split(content, "\nAttachments:\n")
+    [message, metadata_and_annotation] = String.split(content, "\nAttachments:\n", parts: 2)
+    [metadata, annotation] = String.split(metadata_and_annotation, "\n\n", parts: 2)
 
-    assert_message_content(message, "Alice", "@zaq Retain the arithmetic tool result")
+    assert_message_content(
+      message <> "\n\n" <> annotation,
+      "Alice",
+      "@zaq Retain the arithmetic tool result"
+    )
 
     [record] = Jason.decode!(metadata)
     assert record["name"] == "correction.pdf"
@@ -1920,9 +1924,10 @@ defmodule Zaq.Channels.MattermostSharedHistoryIntegrationTest do
     do: assert_message_content(content, "Alice", "@zaq Retain the arithmetic tool result")
 
   defp assert_message_content(content, name, body) do
-    assert [header, timestamp, "Message:", ^body] = String.split(content, "\n", parts: 4)
-    assert header =~ ~r/\AAuthor: #{Regex.escape(Jason.encode!(name))} \[person:[1-9]\d*\]\z/
-    assert timestamp =~ ~r/\A(?:Sent|Recorded) at: \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z\z/
+    assert [^body, annotation] = String.split(content, "\n\n", parts: 2)
+
+    assert annotation =~
+             ~r/\A\[Input context: #{Regex.escape(Jason.encode!(name))}; person [1-9]\d*; (?:sent|recorded) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z\]\z/
   end
 
   defp observe_history_commit(owner) do

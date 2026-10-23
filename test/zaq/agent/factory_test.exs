@@ -771,7 +771,7 @@ defmodule Zaq.Agent.FactoryTest do
 
     assert_receive {:openai_request, "POST", "/v1/responses", "", second_body}, 1_000
     assert second_body =~ configured_agent.job
-    assert second_body =~ "ZAQ message headers"
+    assert second_body =~ "Input context annotations describe user messages only"
 
     assert {:ok, status} = Jido.AgentServer.status(server)
 

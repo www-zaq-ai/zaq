@@ -5,9 +5,10 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformer do
   This module projects the outgoing provider request without mutating the Jido
   agent's retained state. Older historical messages may be removed from the
   request, but the system prompt, current turn, active ReAct/tool interaction,
-   tools, and output schema remain mandatory. A per-request root reference fences
-   the entire execution, including later steering messages, rather than just the
-   latest user turn.
+  tools, and output schema remain mandatory. A per-request root reference fences
+  the entire execution, including later steering messages, rather than just the
+  latest user turn. Eviction preserves the original order of every retained message,
+  including system messages interleaved with history.
   """
 
   @behaviour Jido.AI.Reasoning.ReAct.RequestTransformer
@@ -112,16 +113,17 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformer do
     if RequestEstimator.estimate(request, window) <= budget do
       {:ok, messages}
     else
-      {mandatory, evictable_units} = split_messages(messages, active_start)
-      fit_units(request, mandatory, evictable_units, window, budget)
+      indexed = Enum.with_index(messages)
+      evictable_units = eviction_units(indexed, active_start)
+      fit_units(request, indexed, evictable_units, window, budget)
     end
   end
 
   defp fit_messages(_request, _config, _window, _budget, _active_start),
     do: {:error, {:context_window_exceeded, :invalid_messages}}
 
-  defp fit_units(request, mandatory, [], window, budget) do
-    messages = List.flatten(mandatory)
+  defp fit_units(request, indexed, [], window, budget) do
+    messages = Enum.map(indexed, &elem(&1, 0))
 
     if RequestEstimator.estimate(%{request | messages: messages}, window) <= budget do
       {:ok, messages}
@@ -130,30 +132,30 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformer do
     end
   end
 
-  defp fit_units(request, mandatory, [_drop | remaining], window, budget) do
-    messages = List.flatten(remaining ++ mandatory)
+  defp fit_units(request, indexed, [drop | remaining], window, budget) do
+    dropped_indices = MapSet.new(drop, &elem(&1, 1))
+    indexed = Enum.reject(indexed, &MapSet.member?(dropped_indices, elem(&1, 1)))
+    messages = Enum.map(indexed, &elem(&1, 0))
 
     if RequestEstimator.estimate(%{request | messages: messages}, window) <= budget do
       {:ok, messages}
     else
-      fit_units(request, mandatory, remaining, window, budget)
+      fit_units(request, indexed, remaining, window, budget)
     end
   end
 
-  defp split_messages(messages, active_start) do
+  defp eviction_units(indexed, active_start) do
+    messages = Enum.map(indexed, &elem(&1, 0))
+
     latest_user_index =
       active_start || latest_user_index(messages) || max(length(messages) - 1, 0)
 
-    {evictable, mandatory} = Enum.split(messages, latest_user_index)
-
-    mandatory =
-      evictable
-      |> Enum.filter(&(message_role(&1) == "system"))
-      |> Kernel.++(mandatory)
-
-    evictable = Enum.reject(evictable, &(message_role(&1) == "system"))
-
-    {Enum.map(mandatory, &[&1]), logical_units(evictable)}
+    indexed
+    |> Enum.reject(fn {message, _index} -> message_role(message) == "system" end)
+    |> logical_units()
+    |> Enum.reject(fn unit ->
+      Enum.any?(unit, fn {_message, index} -> index >= latest_user_index end)
+    end)
   end
 
   defp active_start(%AIContext{} = context, %{execution_root: root}) when is_binary(root) do
@@ -170,12 +172,12 @@ defmodule Zaq.Agent.ContextWindow.RequestTransformer do
 
   defp do_logical_units([], units), do: units
 
-  defp do_logical_units([message | rest], units) do
+  defp do_logical_units([{message, _index} = indexed | rest], units) do
     if message_role(message) == "assistant" and has_tool_calls?(message) do
-      {tool_messages, rest} = Enum.split_while(rest, &(message_role(&1) == "tool"))
-      do_logical_units(rest, [[message | tool_messages] | units])
+      {tool_messages, rest} = Enum.split_while(rest, &(message_role(elem(&1, 0)) == "tool"))
+      do_logical_units(rest, [[indexed | tool_messages] | units])
     else
-      do_logical_units(rest, [[message] | units])
+      do_logical_units(rest, [[indexed] | units])
     end
   end
 

@@ -765,22 +765,28 @@ without safe permission mutation support return `:unsupported`.
 - `render_message/2` formats normalized message data once when supplying live,
   queued/steered, or restored text to Jido. Author/time do not enter Jido `refs`;
   existing UUID/execution references continue to serve identity and deduplication.
-- The compact header is `Author: "<escaped directory name>" [person:<id>]`,
-  followed by `Sent at: <provider time>` or `Recorded at: <insertion time>`, then
-  `Message:` and the unchanged body. Missing Person identifiers are omitted.
-  Names are single-line quoted data, not instructions or authority. Attachment
-  formatting continues to use the exact runtime's opaque aliases.
+- User messages keep their unchanged body and attachment presentation, followed by
+  `[Input context: "<escaped directory name>"; person <id>; sent <provider time>]`.
+  Insertion-time fallback is labelled `recorded`, not `sent`; missing identifiers
+  and timestamps are omitted. Names are single-line JSON-quoted data with bracket
+  delimiters escaped, not instructions or authority.
+- Assistant messages use their original response body without added attribution.
+  Legitimate body text and attachment functionality are preserved. Attachment
+  formatting continues to use the exact runtime's opaque aliases for both roles.
 - Persisted input uses the authorized stored-message projection, never a fresh
   clock or later incoming timestamp hint. For non-persisted Engine-resolved input,
-  only an existing trusted source time is shown; otherwise the time header is
+  only an existing trusted source time is shown; otherwise the time annotation is
   omitted. See [Engine's attribution contract](engine.md#conversations).
 - Native system/tool payloads and tool-call structure remain intact. Already
-  loaded names are not refreshed on directory edits. RequestTransformer receives
-  formatted text for budgeting; it does not add or update these headers.
+  retained entries are not rerendered, and loaded names are not refreshed on
+  directory edits. RequestTransformer receives
+  formatted text for budgeting; it does not add or update these annotations.
 - Factory composes `InputPrompt.system_instruction/0` with the configured job and
   skill index through `runtime_system_prompt/2`. Existing initial configuration
   and `ensure_system_prompt/2` → `Jido.AI.set_system_prompt/3` synchronize it without
-  a separate prompt-update mechanism.
+  a separate prompt-update mechanism. The instruction remains static: input
+  annotations are reference-only, and responses use the configured output format
+  without added attribution or message wrappers.
 
 ### History Loader (`Zaq.Agent.HistoryLoader`)
 - The [Engine lifecycle gates](engine.md#message-lifecycle-gates) distinguish
@@ -869,6 +875,10 @@ without safe permission mutation support return `:unsupported`.
 - Binary content-part data (including skill PDFs and images) is counted using its base64 representation, matching ReqLLM's JSON encoding without modifying model-bound bytes. This is a textual size heuristic, not a provider-specific media token count.
 - `RequestTransformer` is registered as the Jido ReAct `request_transformer` and runs before every model turn.
 - Enforcement is non-destructive: it may omit older history from a provider request, but it does not truncate Jido's retained context/state.
+- Eviction removes oldest eligible logical history units without reordering retained
+  messages. A leading system prompt stays leading; multiple or interleaved system
+  messages preserve their original relative positions. Tool-call/result units are
+  kept or removed together, including when a unit intersects the active boundary.
 - Mandatory request material is preserved: system messages, the latest user turn, active ReAct/tool interaction, tools, and output schema. If mandatory material cannot fit after reserving output tokens and safety margin, the transformer returns `context_window_exceeded` instead of sending an invalid provider request.
 - `Zaq.Agent.ErrorMessage` maps `context_window_exceeded` failures to safe, actionable user-facing messages and metadata `error_type: :context_window_exceeded`.
 

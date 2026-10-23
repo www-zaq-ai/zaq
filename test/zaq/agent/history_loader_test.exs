@@ -9,7 +9,6 @@ defmodule Zaq.Agent.HistoryLoaderTest do
   alias Zaq.Agent.OpaqueAliases
   alias Zaq.Engine.Conversations.{Conversation, Message}
   alias Zaq.Repo
-  alias Zaq.Utils.DateUtils
 
   test "restored inputs use their directory author and original persisted source time" do
     person = insert_person()
@@ -29,7 +28,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     [entry] = HistoryLoader.load_for_conversation(conversation.id).entries
 
     assert entry.content ==
-             "Author: #{Jason.encode!(person.full_name)} [person:#{person.id}]\nSent at: 2026-01-02 03:04:05Z\nMessage:\nPersisted input"
+             "Persisted input\n\n[Input context: #{Jason.encode!(person.full_name)}; person #{person.id}; sent 2026-01-02 03:04:05Z]"
 
     assert entry.timestamp == message.provider_sent_at
   end
@@ -62,10 +61,10 @@ defmodule Zaq.Agent.HistoryLoaderTest do
 
     assert entry.content ==
              InputPrompt.append_attachments(
-               "Author: \"Unknown author\"\nMessage:\n",
+               "",
                [attachment],
                nil
-             )
+             ) <> "\n\n[Input context: \"Unknown author\"]"
 
     assert entry.content =~ "fresh-handle"
     assert entry.content =~ "media_kind"
@@ -94,7 +93,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       }
 
       [entry] = HistoryLoader.from_projection([message]).entries
-      assert entry.content == "Author: \"Unknown author\"\nMessage:\n#{content}"
+      assert entry.content == "#{content}\n\n[Input context: \"Unknown author\"]"
       assert entry.refs == %{message_id: message.message_id}
       assert entry.tool_calls == nil
       assert entry.thinking == nil
@@ -123,7 +122,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
 
     [entry] = context.entries
     assert entry.role == :user
-    assert entry.content == "Author: \"Unknown author\"\nMessage:\nFactual note"
+    assert entry.content == "Factual note\n\n[Input context: \"Unknown author\"]"
     assert entry.refs == %{message_id: id, transcript_id: transcript_id, position: 2}
     refute inspect(context) =~ "PRIVATE_TRACE"
   end
@@ -235,13 +234,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
     }
 
   defp projected_content(body),
-    do: "Author: \"Unknown author\"\nSent at: 2026-10-08 00:00:00Z\nMessage:\n#{body}"
-
-  defp recorded_assistant_content(body) do
-    message = Repo.get_by!(Message, content: body)
-    time = DateUtils.format_ts(message.inserted_at)
-    "Author: \"Assistant\"\nRecorded at: #{time}\nMessage:\n#{body}"
-  end
+    do: "#{body}\n\n[Input context: \"Unknown author\"; sent 2026-10-08 00:00:00Z]"
 
   defp insert_person do
     Repo.insert!(%Person{
@@ -280,7 +273,8 @@ defmodule Zaq.Agent.HistoryLoaderTest do
 
   defp rendered_attachments(message) do
     [_content, encoded] = String.split(message.content, "Attachments:\n", parts: 2)
-    Jason.decode!(encoded)
+    [metadata | _annotation] = String.split(encoded, "\n\n[Input context:", parts: 2)
+    Jason.decode!(metadata)
   end
 
   defp restore_runtime_store(name, pid) do
@@ -327,7 +321,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       messages = AIContext.to_messages(result)
 
       assert length(messages) == 1
-      assert String.ends_with?(hd(messages).content, "from conv A")
+      assert String.starts_with?(hd(messages).content, "from conv A\n\n[Input context:")
     end
 
     test "does not include messages from other conversations" do
@@ -353,8 +347,8 @@ defmodule Zaq.Agent.HistoryLoaderTest do
 
       assert length(messages) == 2
       [m1, m2] = messages
-      assert String.ends_with?(m1.content, "first")
-      assert m2.content == recorded_assistant_content("second")
+      assert String.starts_with?(m1.content, "first\n\n[Input context:")
+      assert m2.content == "second"
     end
 
     test "loads all fetched conversation messages without token trimming" do
@@ -422,7 +416,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       messages = conv.id |> HistoryLoader.load_for_conversation() |> AIContext.to_messages()
 
       assert length(messages) == 1
-      assert String.ends_with?(hd(messages).content, "valid context")
+      assert String.starts_with?(hd(messages).content, "valid context\n\n[Input context:")
     end
 
     test "ignores a non-list attachments value" do
@@ -581,7 +575,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
         })
 
       assert [message] = AIContext.to_messages(result)
-      assert String.ends_with?(message.content, "matching thread")
+      assert String.starts_with?(message.content, "matching thread\n\n[Input context:")
     end
 
     test "loads an explicitly bound conversation without a Person" do
@@ -599,7 +593,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
           conversation_id: conversation.id
         })
 
-      expected = recorded_assistant_content("same participant and room")
+      expected = "same participant and room"
       assert [%{content: ^expected}] = AIContext.to_messages(result)
     end
 
@@ -612,7 +606,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       result = HistoryLoader.load_context(%{conversation_id: conversation.id})
 
       assert [message] = AIContext.to_messages(result)
-      assert String.ends_with?(message.content, "completed")
+      assert String.starts_with?(message.content, "completed\n\n[Input context:")
     end
   end
 
@@ -640,8 +634,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       messages = AIContext.to_messages(result)
       assert length(messages) == 1
       assert hd(messages).role == :user
-      # User messages are prefixed with a timestamp so the LLM can answer timing questions
-      assert String.ends_with?(hd(messages).content, "hello from user")
+      assert String.starts_with?(hd(messages).content, "hello from user\n\n[Input context:")
     end
 
     test "maps assistant DB role to assistant entry" do
@@ -654,7 +647,7 @@ defmodule Zaq.Agent.HistoryLoaderTest do
       messages = AIContext.to_messages(result)
       assert length(messages) == 1
       assert hd(messages).role == :assistant
-      assert hd(messages).content == recorded_assistant_content("hello from bot")
+      assert hd(messages).content == "hello from bot"
     end
 
     test "to_messages returns entries in chronological order" do
@@ -673,10 +666,9 @@ defmodule Zaq.Agent.HistoryLoaderTest do
 
       assert length(messages) == 3
       [m1, m2, m3] = messages
-      # Both roles retain message time, with insertion time labeled as recorded time.
-      assert String.ends_with?(m1.content, "first")
-      assert m2.content == recorded_assistant_content("second")
-      assert String.ends_with?(m3.content, "third")
+      assert String.starts_with?(m1.content, "first\n\n[Input context:")
+      assert m2.content == "second"
+      assert String.starts_with?(m3.content, "third\n\n[Input context:")
     end
 
     test "loads all fetched person/provider messages without token trimming" do
