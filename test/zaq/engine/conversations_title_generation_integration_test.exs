@@ -68,7 +68,8 @@ defmodule Zaq.Engine.ConversationsTitleGenerationIntegrationTest do
     # Provider errors must never leave a conversation untitled: TitleGenerator
     # derives a deterministic fallback from the user's own message and the
     # caller applies + broadcasts it like any other title.
-    assert_receive {:title_updated, ^conv_id, "Need A Title"}, 5_000
+    # ReqLLM retries 503 responses with ~1s + 2s + 4s backoff before falling back.
+    assert_receive {:title_updated, ^conv_id, "Need A Title"}, 15_000
 
     assert Conversations.get_conversation!(conv_id).title == "Need A Title"
   end

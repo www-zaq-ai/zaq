@@ -383,6 +383,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLiveTest do
   test "shows unsupported-tools indication and disables controls for confirmed metadata", %{
     conn: conn
   } do
+    Zaq.UnsupportedModelFixture.install()
+
     credential =
       ai_credential_fixture(%{
         name: "Unsupported Model Credential #{System.unique_integer([:positive, :monotonic])}",

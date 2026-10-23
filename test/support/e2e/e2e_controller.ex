@@ -611,6 +611,45 @@ defmodule ZaqWeb.E2EController do
     })
   end
 
+  def llm_pending(conn, %{"token" => token}) do
+    json(conn, %{pending: is_pid(:global.whereis_name({__MODULE__, :held_llm, token}))})
+  end
+
+  def llm_release(conn, %{"token" => token}) do
+    case :global.whereis_name({__MODULE__, :held_llm, token}) do
+      pid when is_pid(pid) ->
+        send(pid, :release_e2e_llm)
+        json(conn, %{ok: true})
+
+      :undefined ->
+        conn |> put_status(:not_found) |> json(%{error: "no pending request"})
+    end
+  end
+
+  defp hold_llm(token) do
+    name = {__MODULE__, :held_llm, token}
+    :yes = :global.register_name(name, self())
+
+    try do
+      receive do
+        :release_e2e_llm -> :ok
+      after
+        60_000 -> raise "E2E LLM release timed out"
+      end
+    after
+      :global.unregister_name(name)
+    end
+  end
+
+  defp held_llm_token(%{"role" => "user", "content" => content}) when is_binary(content) do
+    case Regex.run(~r/E2E_DELAYED_WEBBRIDGE \d+/, content) do
+      [token] -> token
+      _ -> nil
+    end
+  end
+
+  defp held_llm_token(_message), do: nil
+
   # POST /e2e/llm/v1/chat/completions — fake OpenAI-compatible LLM endpoint.
   # Replaces the old LLMRunnerFake behaviour now that the agent pipeline uses
   # ReqLLM directly (Jido AI + ReqLLM) rather than the LLMRunnerBehaviour.
@@ -630,14 +669,11 @@ defmodule ZaqWeb.E2EController do
 
     content = fake_llm_content(messages, system_content)
 
-    # Test-only latency keeps the pending-request/new-chat journey reproducible.
-    # Delay retrieval only; completion is observed through persisted BO history.
-    if retrieval_call?(system_content) and
-         Enum.any?(messages, fn message ->
-           Map.get(message, "role") == "user" and
-             String.contains?(Map.get(message, "content", ""), "E2E_DELAYED_WEBBRIDGE")
-         end) do
-      Process.sleep(2_000)
+    # Retrieval must finish to publish the pending conversation to BO. Hold the
+    # answer until the browser switches chats, regardless of runner speed.
+    if streaming? and not retrieval_call?(system_content) do
+      token = Enum.find_value(messages, &held_llm_token/1)
+      if token, do: hold_llm(token)
     end
 
     if streaming? do

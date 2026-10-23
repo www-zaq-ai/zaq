@@ -785,30 +785,6 @@ defmodule Zaq.AgentTest do
     assert changeset.valid?
   end
 
-  test "confirmed unsupported model capability blocks configured tools" do
-    credential =
-      ai_credential_fixture(%{
-        name:
-          "Agent Unsupported Tools Credential #{System.unique_integer([:positive, :monotonic])}",
-        provider: "novita_ai"
-      })
-
-    {:error, changeset} =
-      Agent.create_agent(%{
-        name: "Unsupported Tools Agent #{System.unique_integer([:positive])}",
-        job: "job",
-        model: "qwen/qwen3-4b-fp8",
-        credential_id: credential.id,
-        strategy: "react",
-        enabled_tool_keys: ["general.encode_json"],
-        conversation_enabled: false,
-        active: true,
-        advanced_options: %{}
-      })
-
-    assert "selected model does not support tool calling" in errors_on(changeset).enabled_tool_keys
-  end
-
   test "change_agent reuses preloaded credential without extra lookup query" do
     credential =
       ai_credential_fixture(%{

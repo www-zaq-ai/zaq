@@ -81,16 +81,34 @@ test.describe("Shared WebBridge BO chat", () => {
     await startNewChat(page);
     const question = `E2E_DELAYED_WEBBRIDGE ${Date.now()}`;
     await page.locator("#chat-input").fill(question);
-    await page.locator("#chat-form button[type='submit']").click();
-    await expect(page.locator("#chat-messages")).toContainText(question);
-    await expect(page.locator('[data-testid="source-chip"]')).toHaveCount(0);
-    const conversationId = await page.locator('button[phx-click="load_conversation"][aria-current="page"]').getAttribute("phx-value-id");
-    await startNewChat(page);
+    let conversationId;
+    const history = await context.newPage();
+    try {
+      await page.locator("#chat-form button[type='submit']").click();
+      await expect.poll(async () => {
+        const response = await page.request.get("/e2e/llm/pending", { params: { token: question } });
+        expect(response.ok()).toBeTruthy();
+        return (await response.json()).pending;
+      }).toBe(true);
+      await expect(page.locator("#chat-messages")).toContainText(question);
+      await expect(page.locator('[data-testid="source-chip"]')).toHaveCount(0);
+      await startNewChat(page);
+      // The sending view refreshes its sidebar on completion. A fresh view can
+      // already see the persisted pending conversation; verify its unique question.
+      await loginToBackOffice(history, { returnTo: "/bo/chat" });
+      const pendingConversation = history.locator('button[phx-click="load_conversation"]').first();
+      conversationId = await pendingConversation.getAttribute("phx-value-id");
+      await pendingConversation.click();
+      await expect(history.locator("#chat-messages")).toContainText(question);
+      const released = await page.request.post("/e2e/llm/release", { data: { token: question } });
+      expect(released.ok()).toBeTruthy();
+    } finally {
+      // Also release on assertion failure; the fixture has a bounded timeout as a backstop.
+      await page.request.post("/e2e/llm/release", { data: { token: question } });
+    }
 
     // Observe actual finalization from another LiveView, rather than sleeping
     // and allowing a negative assertion to pass before the late result arrives.
-    const history = await context.newPage();
-    await loginToBackOffice(history, { returnTo: "/bo/chat" });
     await expect(async () => {
       await history.reload();
       await waitForLiveViewSettled(history);
