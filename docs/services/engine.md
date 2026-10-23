@@ -129,8 +129,8 @@ permission-resource coordinate. Direct and Shared transcripts use explicit
 participant history grants; only Replicated transcripts require a Person owner.
 `TranscriptMessage` associates one message with one or more transcripts at a
 transcript-local position. The Engine-only capture path resolves or creates
-strategy targets atomically: Direct threads reuse their parent transcript;
-Shared threads use a child with the same grant resource. Replicated copies
+strategy targets atomically: Direct and Shared threads use a child transcript
+with the same grant resource as their parent. Replicated copies
 belong only to this message's
 resolved People. Their scope uses Channels' normalized conversation identity,
 independently of the latest sender or outbound destination, and remains
@@ -294,8 +294,9 @@ trusted connector ID, external conversation ID, resolved actor and an explicit
 conversation kind. Strategy selection is provider-independent: `:direct`,
 `:channel`, and `:replicated` select Direct, Shared, and Replicated respectively.
 Channels owns the verified transport-to-kind mapping. BO/API histories remain on their legacy route until an
-explicit policy is defined. Shared threads require a matching persisted parent;
-Direct threads reuse the one-to-one transcript; Replicated mail targets only
+explicit policy is defined. Direct and Shared threads require a matching persisted
+parent and resolve a separate child; Direct retains participant grants without
+provider membership synchronization. Replicated mail targets only
 this message's sender and independently evidenced recipients. The strategy
 returns target coordinates, required grant/owner hints and context-source
 priority, **not** permission or proof of recipient identity. An arbitrary
@@ -1117,8 +1118,9 @@ recovery root inherits admission without changing its rejected receipt.
 `execution_history/2` verifies the admission token, conversation-backed input and
 literal active Person owner, then composes a sanitized canonical projection through
 `TranscriptHistory.list/3`. Engine API exposes it only as confidential
-`:execution_history` dispatch. Direct reads the shared parent; Shared combines the
-retained root, up to 50 parent messages and up to 100 local messages; Replicated
+`:execution_history` dispatch. Direct and Shared threads combine the retained
+root, up to 50 parent messages and up to 100 local messages; main transcripts read
+their own messages without child replies. Replicated
 selects the admitted Person's exact placement. Canonical UUIDs deduplicate the root
 and current input is excluded. Every source uses fresh history grants. A missing
 root is not synthesized or fetched from a provider. Reads never record admission.

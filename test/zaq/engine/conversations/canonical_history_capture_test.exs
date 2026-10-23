@@ -882,33 +882,80 @@ defmodule Zaq.Engine.Conversations.CanonicalHistoryCaptureTest do
     assert Repo.aggregate(Message, :count) == 1
   end
 
-  test "an addressed replay cannot adopt a different history strategy or sibling thread" do
-    reader = person("Reader")
-    config = connector("mattermost")
-    shared = facts(config, reader, :channel, %{thread_id: "thread-1"})
+  for {kind, conversation_type, other_type} <- [
+        {:channel, :room, :one_to_one},
+        {:direct, :one_to_one, :room}
+      ] do
+    @tag capture_kind: kind, conversation_type: conversation_type, other_type: other_type
+    test "#{kind} addressed replay cannot adopt a different history strategy or sibling thread",
+         ctx do
+      reader = person("Reader")
+      config = connector("mattermost")
+      scoped = facts(config, reader, ctx.capture_kind, %{thread_id: "thread-1"})
 
-    assert {:ok, passive} =
-             Conversations.capture_canonical_message(shared, message("legacy-1"), source(config))
+      assert {:ok, passive} =
+               Conversations.capture_canonical_message(
+                 scoped,
+                 message("legacy-1"),
+                 source(config)
+               )
 
-    first_thread =
-      admitted_incoming(config)
-      |> Map.put(:thread_id, "thread-1")
-      |> CommunicationBridge.put_conversation_identity()
+      first_thread =
+        admitted_incoming(config)
+        |> Map.update!(:routing_context, &%{&1 | conversation_type: ctx.conversation_type})
+        |> Map.put(:thread_id, "thread-1")
+        |> CommunicationBridge.put_conversation_identity()
 
-    other_thread =
-      first_thread
-      |> Map.put(:thread_id, "thread-2")
-      |> CommunicationBridge.put_conversation_identity()
+      other_thread =
+        first_thread
+        |> Map.put(:thread_id, "thread-2")
+        |> CommunicationBridge.put_conversation_identity()
 
-    wrong_strategy = %{
-      first_thread
-      | routing_context: %{first_thread.routing_context | conversation_type: :one_to_one}
-    }
+      wrong_strategy = %{
+        first_thread
+        | routing_context: %{first_thread.routing_context | conversation_type: ctx.other_type}
+      }
 
-    assert {:error, :source_conflict} = Conversations.admit_incoming(other_thread)
-    assert {:error, :source_conflict} = Conversations.admit_incoming(wrong_strategy)
-    assert Repo.aggregate(Message, :count) == 1
-    assert Repo.get!(Message, passive.message_id).conversation_id == nil
+      assert {:error, :source_conflict} = Conversations.admit_incoming(other_thread)
+      assert {:error, :source_conflict} = Conversations.admit_incoming(wrong_strategy)
+      assert Repo.aggregate(Message, :count) == 1
+      assert Repo.get!(Message, passive.message_id).conversation_id == nil
+
+      assert {:ok, binding} = Conversations.admit_incoming(first_thread)
+      assert binding.user_message_id == passive.message_id
+    end
+  end
+
+  for {kind, conversation_type} <- [{:channel, :room}, {:direct, :one_to_one}] do
+    @tag capture_kind: kind, conversation_type: conversation_type
+    test "#{kind} legacy adoption selects the exact thread conversation", ctx do
+      reader = person("Reader")
+      config = connector("mattermost")
+
+      main = admitted_incoming(config)
+
+      main = %{
+        main
+        | routing_context: %{main.routing_context | conversation_type: ctx.conversation_type}
+      }
+
+      thread = %{main | thread_id: "thread-1"} |> CommunicationBridge.put_conversation_identity()
+
+      assert {:ok, main_binding} = Conversations.admit_incoming(main)
+      assert {:ok, thread_binding} = Conversations.admit_incoming(thread)
+      assert main_binding.conversation_id != thread_binding.conversation_id
+
+      assert {:ok, capture} =
+               Conversations.capture_canonical_message(
+                 facts(config, reader, ctx.capture_kind, %{thread_id: "thread-1"}),
+                 message("legacy-1"),
+                 source(config)
+               )
+
+      assert capture.message_id == thread_binding.user_message_id
+      assert Repo.get!(Message, main_binding.user_message_id).source_provider == nil
+      assert Repo.aggregate(Message, :count) == 2
+    end
   end
 
   test "a mismatched admitted UUID or source does not create a placement" do
@@ -1135,7 +1182,7 @@ defmodule Zaq.Engine.Conversations.CanonicalHistoryCaptureTest do
              Conversations.list_canonical_messages(peer, capture.transcript_id)
   end
 
-  test "direct thread reuses the same parent transcript without re-granting" do
+  test "direct thread uses a child transcript without re-granting" do
     sender = person("Sender")
     peer = person("Peer")
     config = connector("mattermost")
@@ -1144,6 +1191,8 @@ defmodule Zaq.Engine.Conversations.CanonicalHistoryCaptureTest do
     assert {:ok, root} =
              Conversations.capture_canonical_message(facts, message("dm-root"), source(config))
 
+    grants = Repo.all(ResourcePermission)
+
     assert {:ok, thread} =
              Conversations.capture_canonical_message(
                %{facts | thread_id: "thread-1"},
@@ -1151,11 +1200,16 @@ defmodule Zaq.Engine.Conversations.CanonicalHistoryCaptureTest do
                source(config)
              )
 
-    assert thread.transcript_id == root.transcript_id
-    assert Repo.aggregate(Transcript, :count) == 1
+    assert thread.transcript_id != root.transcript_id
+    assert Repo.get!(Transcript, thread.transcript_id).parent_id == root.transcript_id
+    assert Repo.aggregate(Transcript, :count) == 2
+    assert Repo.all(ResourcePermission) == grants
 
-    assert {:ok, [%{position: 1}, %{position: 2}]} =
+    assert {:ok, [%{position: 1}]} =
              Conversations.list_canonical_messages(peer, thread.transcript_id)
+
+    assert {:ok, [%{position: 1}]} =
+             Conversations.list_canonical_messages(peer, root.transcript_id)
   end
 
   test "direct participants get source-specific grants and a manual grant survives revocation" do

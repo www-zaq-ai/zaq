@@ -78,43 +78,57 @@ defmodule Zaq.Engine.ChannelHistoryProjectionTest do
              ])
   end
 
-  test "thread root resolves its connector-scoped PersonChannel identity", %{config: config} do
-    {:ok, person} = People.create_person(%{full_name: "Mapped root author"})
+  for kind <- [:channel, :direct] do
+    @tag history_kind: kind
+    test "#{kind} thread root resolves its connector-scoped PersonChannel identity", %{
+      config: config,
+      history_kind: kind
+    } do
+      {:ok, person} = People.create_person(%{full_name: "Mapped root author"})
 
-    {:ok, _identity} =
-      People.add_channel(%{
-        person_id: person.id,
-        platform: "mattermost",
-        channel_identifier: "root-author",
-        channel_config_id: config.id
-      })
+      {:ok, _identity} =
+        People.add_channel(%{
+          person_id: person.id,
+          platform: "mattermost",
+          channel_identifier: "root-author",
+          channel_config_id: config.id
+        })
 
-    {:ok, root} = capture(config, "root-room", "thread-root", "external", %{}, "Root label")
+      {:ok, root} =
+        capture(config, "root-room", "thread-root", "external", %{}, "Root label", kind: kind)
 
-    {:ok, reply} =
-      capture(config, "root-room", "thread-reply", "external", %{}, "Reply author",
-        thread_id: "thread-root"
-      )
+      {:ok, reply} =
+        capture(config, "root-room", "thread-reply", "external", %{}, "Reply author",
+          thread_id: "thread-root",
+          kind: kind
+        )
 
-    Repo.get!(Message, root.message_id)
-    |> Ecto.Changeset.change(author_id: "root-author", history_context: %{})
-    |> Repo.update!()
+      Repo.get!(Message, root.message_id)
+      |> Ecto.Changeset.change(author_id: "root-author", history_context: %{})
+      |> Repo.update!()
 
-    assert [
-             %{
-               root_message: %{
-                 message_id: root_id,
-                 display_name: "Mapped root author",
-                 person_id: person_id
+      assert [
+               %{
+                 root_message: %{
+                   message_id: root_id,
+                   display_name: "Mapped root author",
+                   person_id: person_id
+                 }
                }
-             }
-           ] =
-             ChannelHistoryProjection.project([
-               project_row(reply.transcript_id, config, "Connector fallback")
-             ])
+             ] =
+               ChannelHistoryProjection.project([
+                 project_row(reply.transcript_id, config, "Connector fallback")
+               ])
 
-    assert root_id == root.message_id
-    assert person_id == person.id
+      assert root_id == root.message_id
+      assert person_id == person.id
+      assert Repo.get!(Transcript, reply.transcript_id).parent_id == root.transcript_id
+
+      assert [%{thread_count: 1}] =
+               ChannelHistoryProjection.project([
+                 project_row(root.transcript_id, config, "Connector fallback")
+               ])
+    end
   end
 
   test "unlinked thread root retains author label and has no Person", %{config: config} do
@@ -219,7 +233,7 @@ defmodule Zaq.Engine.ChannelHistoryProjectionTest do
         provider: "mattermost",
         channel_config_id: config.id,
         channel_id: channel,
-        kind: :channel,
+        kind: Keyword.get(opts, :kind, :channel),
         actor_person_id: actor.id,
         thread_id: Keyword.get(opts, :thread_id)
       })

@@ -1,12 +1,12 @@
 defmodule Zaq.Engine.History.Direct do
-  @moduledoc "One one-to-one history with explicit participant grants and no membership synchronization."
+  @moduledoc "One-to-one main and thread histories sharing explicit participant grants, without membership synchronization."
   @behaviour Zaq.Engine.History.Strategy
 
   alias Zaq.Engine.History.Strategy
   alias Zaq.Permissions.ChannelHistoryResource
 
   @impl true
-  def association_targets(facts), do: [Strategy.grant_target(facts, "direct")]
+  def association_targets(facts), do: [Strategy.grant_target(facts, "direct", facts.thread_id)]
 
   @impl true
   def resolve_transcripts(facts), do: association_targets(facts)
@@ -26,7 +26,9 @@ defmodule Zaq.Engine.History.Direct do
   end
 
   @impl true
-  def context_sources(_facts), do: [:direct]
+  def context_sources(%{thread_id: nil}), do: [:direct]
+
+  def context_sources(_thread), do: [:thread_root, :thread_local, :bounded_parent]
 
   @impl true
   def membership_lifecycle, do: :participant_grants

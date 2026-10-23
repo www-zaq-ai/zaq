@@ -216,7 +216,7 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
               conversation.external_channel_id == ^root.channel_id
           )
 
-        if strategy == :shared,
+        if strategy in [:direct, :shared],
           do: scope_legacy_thread(query, thread_id),
           else: query
     end

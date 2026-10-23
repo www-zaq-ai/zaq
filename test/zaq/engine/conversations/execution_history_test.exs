@@ -1092,7 +1092,7 @@ defmodule Zaq.Engine.Conversations.ExecutionHistoryTest do
     assert {:error, :unauthorized} = Conversations.execution_history(forged, actor(ctx.alice))
   end
 
-  test "Direct thread execution hydrates its shared parent transcript", ctx do
+  test "Direct thread execution includes its parent root in the child context", ctx do
     root = incoming(ctx, ctx.alice, "direct-root", nil, "Direct note", :one_to_one)
     assert {:ok, _} = HistoryIngress.capture(root)
     input = incoming(ctx, ctx.alice, "direct-question", "direct-root", "Question", :one_to_one)

@@ -132,7 +132,7 @@ defmodule Zaq.Engine.History.StrategyTest do
     )
   end
 
-  test "Direct uses one conversation transcript and participant grants, even in a thread" do
+  test "Direct threads use child transcripts with the same participant grants" do
     assert {:ok, direct} = facts(%{kind: :direct})
     assert {:ok, [{:participant_grants, resource, [5]}]} = Strategy.access_policy(direct)
     assert resource == ChannelHistoryResource.for("mattermost", 12, "room-1")
@@ -150,12 +150,18 @@ defmodule Zaq.Engine.History.StrategyTest do
     assert {:ok, [{:participant_grants, ^resource, [5, 8, 9]}]} =
              Strategy.access_policy(participants)
 
-    assert {:ok, threaded} =
-             facts(%{kind: :direct, thread_id: "reply-1", parent: parent("direct")})
+    root = parent("direct")
+    assert {:ok, threaded} = facts(%{kind: :direct, thread_id: "reply-1", parent: root})
 
     assert {:ok, [thread_target]} = Strategy.association_targets(threaded)
-    assert thread_target.scope_key == target.scope_key
-    assert thread_target.external_thread_id == nil
+    assert thread_target.scope_key != target.scope_key
+    assert thread_target.external_thread_id == "reply-1"
+    assert thread_target.parent_id == root.id
+    assert thread_target.permission_resource_id == target.permission_resource_id
+    assert {:ok, [{:participant_grants, ^resource, [5]}]} = Strategy.access_policy(threaded)
+
+    assert {:ok, [:thread_root, :thread_local, :bounded_parent]} =
+             Strategy.context_sources(threaded)
   end
 
   test "Shared main and thread transcripts inherit channel grants but not each other's history" do
@@ -183,6 +189,26 @@ defmodule Zaq.Engine.History.StrategyTest do
 
     assert {:error, :missing_parent} = facts(%{thread_id: "thread-1"})
     assert {:error, :unexpected_parent} = facts(%{parent: root})
+  end
+
+  property "Direct and Shared thread scopes are stable and distinct from their parent" do
+    check all(thread_id <- string(:alphanumeric, min_length: 1, max_length: 64)) do
+      for {kind, strategy} <- [{:direct, "direct"}, {:channel, "shared"}] do
+        root = parent(strategy)
+        assert {:ok, main} = facts(%{kind: kind})
+        assert {:ok, [main_target]} = Strategy.association_targets(main)
+
+        assert {:ok, threaded} =
+                 facts(%{kind: kind, thread_id: thread_id, parent: root})
+
+        assert {:ok, [target]} = Strategy.association_targets(threaded)
+        assert {:ok, [^target]} = Strategy.resolve_transcripts(threaded)
+        assert target.scope_key != main_target.scope_key
+        assert target.parent_id == root.id
+        assert target.external_thread_id == thread_id
+        assert target.permission_resource_id == main_target.permission_resource_id
+      end
+    end
   end
 
   test "thread parent must be same provider, connector, channel and inherited strategy" do

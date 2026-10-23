@@ -1216,9 +1216,8 @@ defmodule Zaq.Engine.Conversations do
 
         thread_scope =
           case kind do
-            :shared -> msg.thread_id
+            kind when kind in [:direct, :shared] -> msg.thread_id
             :replicated -> msg.routing_context.conversation_id
-            _ -> nil
           end
 
         message_id

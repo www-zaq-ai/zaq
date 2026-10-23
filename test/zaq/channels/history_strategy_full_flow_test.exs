@@ -91,6 +91,12 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
 
     llm =
       cond do
+        tags[:dm_thread] ->
+          fn _conn, body ->
+            request = Jason.decode!(body)
+            {200, MultiAgentOpenAIStub.text_sse("History answer", request["model"])}
+          end
+
         tags[:steering_phase] ->
           steering_llm_handler(owner, tags.steering_phase)
 
@@ -190,6 +196,56 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
   end
 
   defp unique_post_receipt(response, _conn), do: response
+
+  @tag strategy: :direct
+  @tag :dm_thread
+  test "DM thread has its own runtime and returning to the DM reuses the main runtime", ctx do
+    turns =
+      for {external_id, thread_id} <- [
+            {"dm-main", ""},
+            {"dm-thread", "dm-main"},
+            {"dm-return", ""}
+          ] do
+        assert {{:ok, _}, _} =
+                 MattermostHistoryFixture.direct_post(ctx.config, %{
+                   "id" => external_id,
+                   "root_id" => thread_id,
+                   "message" => "history question #{external_id}"
+                 })
+
+        await_committed_delivery()
+        input = Repo.get_by!(Message, external_message_id: external_id)
+        execution = Repo.get_by!(ExecutionRecord, user_message_id: input.id)
+        assert execution.status == "completed"
+        answer = Repo.get!(Message, execution.public_answer_message_id)
+        assert answer.content == "History answer"
+
+        transcript = owner_transcript(input, execution.person_id)
+        assert transcript.strategy == "direct"
+        assert owner_transcript(answer, execution.person_id).id == transcript.id
+
+        server_id = "#{ctx.agent.name}:history:#{transcript.id}:person:#{execution.person_id}"
+        pid = Jido.AgentServer.whereis(Jido.registry_name(Zaq.Agent.Jido), server_id)
+        assert is_pid(pid)
+        assert {:ok, %{raw_state: raw}} = Jido.AgentServer.status(pid)
+        assert raw.history_binding == %{conversation_id: input.conversation_id}
+
+        %{input: input, transcript: transcript, pid: pid, person_id: execution.person_id}
+      end
+
+    [main, thread, returned] = turns
+    assert main.person_id == thread.person_id
+    assert thread.person_id == returned.person_id
+    assert main.transcript.parent_id == nil
+    assert thread.transcript.parent_id == main.transcript.id
+    assert thread.transcript.external_thread_id == "dm-main"
+    assert thread.input.conversation_id != main.input.conversation_id
+    assert thread.pid != main.pid
+    assert returned.input.conversation_id == main.input.conversation_id
+    assert returned.transcript.id == main.transcript.id
+    assert returned.pid == main.pid
+    refute_received {:unexpected_history_http, _}
+  end
 
   for strategy <- [:shared_refreshed, :replicated] do
     @tag strategy: strategy
