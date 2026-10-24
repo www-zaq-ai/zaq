@@ -211,5 +211,10 @@ defmodule Zaq.Agent.DiskDocumentFlowIntegrationTest do
     )
   end
 
-  defp after_marker(message, marker), do: message |> String.split(marker, parts: 2) |> List.last()
+  defp after_marker(message, marker) do
+    message
+    |> String.replace(~r/\n\n\[Input context: [^\n]*\]\z/, "")
+    |> String.split(marker, parts: 2)
+    |> List.last()
+  end
 end
