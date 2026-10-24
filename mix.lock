@@ -58,7 +58,7 @@
   "jido_ai": {:git, "https://github.com/agentjido/jido_ai.git", "970575a89631d9be0cc0fa22d380ff1d211fa286", [branch: "main"]},
   "jido_chat": {:hex, :jido_chat, "1.1.0", "10a7f246eb02b997ad4de5ae3e468200a40a834303ae6799e2ace1fe4aef1004", [:mix], [{:jason, "~> 1.4", [hex: :jason, repo: "hexpm", optional: false]}, {:splode, "~> 0.3.0", [hex: :splode, repo: "hexpm", optional: false]}, {:zoi, "~> 0.17", [hex: :zoi, repo: "hexpm", optional: false]}], "hexpm", "10836ed69333035359e7f8790e29197db52249f24a91799fd89225eef4906be5"},
   "jido_chat_discord": {:hex, :jido_chat_discord, "1.1.0", "1a97cd54dcee9ff649c79449a0eef1250bad78737470b37bf86cdd72d6519e8b", [:mix], [{:jido_chat, "~> 1.1", [hex: :jido_chat, repo: "hexpm", optional: false]}, {:nostrum, "~> 0.10", [hex: :nostrum, repo: "hexpm", optional: false]}, {:req, "~> 0.6", [hex: :req, repo: "hexpm", optional: false]}], "hexpm", "8e22a97d70dab2c6eb1c441375ff54cf2bd7f64d80adbf018a0f4b0a3df7d9b0"},
-  "jido_chat_mattermost": {:git, "https://github.com/www-zaq-ai/jido_chat_mattermost.git", "3a230ef9cb9fcc7ff031acb8e85bcbd1d6ed9630", [branch: "main"]},
+  "jido_chat_mattermost": {:git, "https://github.com/www-zaq-ai/jido_chat_mattermost.git", "9a8380b8681b7a24b5cf64484f252af640b32c65", [branch: "main"]},
   "jido_chat_telegram": {:git, "https://github.com/agentjido/jido_chat_telegram.git", "1e69e21722437f5a383d8a6f1d9667bb0d1693c1", [branch: "main"]},
   "jido_connect": {:git, "https://github.com/agentjido/jido_connect.git", "e37095a5014dac7dcfe81ccf52a2c3462c7baf66", [branch: "main", sparse: "apps/jido_connect"]},
   "jido_connect_google": {:git, "https://github.com/agentjido/jido_connect.git", "e37095a5014dac7dcfe81ccf52a2c3462c7baf66", [branch: "main", sparse: "apps/jido_connect_google"]},
