@@ -1,14 +1,20 @@
 defmodule Zaq.Engine.ConnectorLifecycle do
   @moduledoc """
-  Coordinates the complete connector archive command across service boundaries.
+  Owns connector configuration persistence and archive commands across service boundaries.
 
   Engine owns connector scope, revision validation, archive persistence and
   data-source watch ordering/cleanup. Channels consumes resolved configurations
   for provider ingress teardown and runtime sync, without database access.
-  Pre-archive failures stop the command; post-archive cleanup failures are
-  returned as bounded pending warnings for safe retry.
+  Archival follows adapter disable preparation, successful runtime shutdown and
+  persisted disablement. A shutdown failure leaves the disabled connector
+  unarchived for retry; post-archive watch cleanup may remain pending.
+
+  Startup rechecks current eligibility through a confidential Engine runtime event.
+  No database row lock is held across Channels or credential-storage callbacks.
   """
 
+  alias Zaq.Accounts.BOActor
+  alias Zaq.ConnectorConfig.Settings
   alias Zaq.Engine.{ChannelConfig, DataSources}
   alias Zaq.Event
   alias Zaq.NodeRouter
@@ -43,7 +49,96 @@ defmodule Zaq.Engine.ConnectorLifecycle do
   @doc "Archives one exactly scoped connector and returns an ID-only staged result."
   def archive(request, actor, opts \\ [])
 
-  def archive(request, actor, opts) when is_map(request) and is_list(opts) do
+  def archive(request, actor, opts) when is_map(request) and is_list(opts),
+    do: do_archive(request, actor, opts)
+
+  def archive(_request, _actor, _opts), do: {:error, :invalid_request}
+
+  @doc "Executes a trusted Engine lifecycle command."
+  def execute(%{operation: :context, request: request}, actor, _opts) do
+    with {:ok, _} <- BOActor.current_user(actor) do
+      context(request[:channel_config_id], request[:provider], request[:kind])
+    end
+  end
+
+  def execute(%{operation: :set_enabled, request: request}, actor, opts),
+    do: set_enabled(request, actor, opts)
+
+  def execute(_, _, _), do: {:error, :invalid_request}
+
+  defp set_enabled(
+         %{
+           channel_config_id: id,
+           provider: provider,
+           kind: kind,
+           enabled: enabled,
+           revision: expected
+         },
+         actor,
+         opts
+       )
+       when is_boolean(enabled) and is_binary(expected) and is_binary(provider) and
+              is_binary(kind) do
+    with {:ok, user} <- BOActor.current_user(actor),
+         {:ok, id} <- cast_id(id),
+         %ChannelConfig{archived_at: nil} = config <- ChannelConfig.get(id),
+         :ok <- validate_scope(config, provider, kind),
+         :ok <- validate_revision(config, expected),
+         :ok <- authorize_enable(config, enabled, user) do
+      set_enabled_current(config, enabled, expected, actor, opts)
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :connector_not_found}
+    end
+  end
+
+  defp set_enabled(_, _, _), do: {:error, :invalid_request}
+
+  defp authorize_enable(config, true, user) do
+    if is_nil(Settings.enable_disabled_reason(%{config | enabled: false}, user)),
+      do: :ok,
+      else: {:error, :unauthorized}
+  end
+
+  defp authorize_enable(_, false, _), do: :ok
+
+  defp set_enabled_current(config, true, expected, actor, opts) do
+    with {:ok, saved} <- persist_enabled(config.id, expected, true) do
+      {:ok, enabled_result(saved, sync_enabled_runtime(config, saved, actor, opts))}
+    end
+  end
+
+  defp set_enabled_current(config, false, expected, actor, opts) do
+    runtime = sync_enabled_runtime(config, %{config | enabled: false}, actor, opts)
+
+    case runtime do
+      {:error, {:disable_failed, _}} = error ->
+        error
+
+      _ ->
+        with {:ok, saved} <- persist_enabled(config.id, expected, false) do
+          {:ok, enabled_result(saved, runtime)}
+        end
+    end
+  end
+
+  defp enabled_result(config, runtime),
+    do: %{channel_config_id: config.id, enabled: config.enabled, runtime: runtime}
+
+  defp sync_enabled_runtime(before, after_config, actor, opts) do
+    action =
+      if before.kind == "data_source", do: :sync_data_source_runtime, else: :sync_channel_runtime
+
+    channels_call(
+      Keyword.get(opts, :router, NodeRouter),
+      action,
+      %{before_config: runtime_config(before), after_config: runtime_config(after_config)},
+      actor,
+      opts
+    )
+  end
+
+  defp do_archive(request, actor, opts) do
     router = Keyword.get(opts, :router, NodeRouter)
     data_sources = Keyword.get(opts, :data_sources_module, DataSources)
 
@@ -56,12 +151,15 @@ defmodule Zaq.Engine.ConnectorLifecycle do
          :ok <- validate_revision(before, expected),
          {:ok, watches} <- stop_watches(context, data_sources),
          {:ok, ingress} <- teardown_ingress(before, router, actor, opts),
-         {:ok, status, after_config} <- persist_archive(before, expected) do
+         %ChannelConfig{} = before <- ChannelConfig.get(id),
+         :ok <- validate_revision(before, expected),
+         {:ok, disabled} <- disable_before_archive(before, expected, router, actor, opts),
+         {:ok, status, _archived} <- persist_archive(disabled, revision(disabled)) do
       archived = %{
         channel_config_id: id,
         status: status,
         ingress: ingress,
-        runtime: sync_runtime(before, after_config, router, actor, opts)
+        runtime: :synced
       }
 
       {:ok,
@@ -75,7 +173,64 @@ defmodule Zaq.Engine.ConnectorLifecycle do
     end
   end
 
-  def archive(_request, _actor, _opts), do: {:error, :invalid_request}
+  defp disable_before_archive(%{archived_at: %DateTime{}} = config, _, router, actor, opts) do
+    case sync_runtime(config, config, router, actor, opts) do
+      :synced -> {:ok, config}
+      {:pending, reason} -> {:error, {:runtime_stop_failed, reason}}
+    end
+  end
+
+  defp disable_before_archive(config, expected, router, actor, opts) do
+    result = sync_runtime(config, %{config | enabled: false}, router, actor, opts)
+
+    case result do
+      {:pending, {:disable_failed, _} = reason} ->
+        {:error, reason}
+
+      :synced ->
+        persist_enabled(config.id, expected, false)
+
+      {:pending, reason} ->
+        with {:ok, _disabled} <- persist_enabled(config.id, expected, false) do
+          {:error, {:runtime_stop_failed, reason}}
+        end
+    end
+  end
+
+  @doc "Resolves a fresh enabled connector for explicitly trusted runtime startup."
+  @spec runtime_context(map()) :: {:ok, map()} | {:error, atom()}
+  def runtime_context(%{channel_config_id: id, provider: provider, kind: kind}) do
+    with {:ok, id} <- cast_id(id),
+         %ChannelConfig{enabled: true, archived_at: nil} = config <- ChannelConfig.get(id),
+         :ok <- validate_scope(config, provider, kind) do
+      {:ok, runtime_config(config)}
+    else
+      _ -> {:error, :connector_unavailable}
+    end
+  end
+
+  def runtime_context(_), do: {:error, :invalid_request}
+
+  defp persist_enabled(id, expected, enabled?) do
+    Repo.transaction(fn ->
+      case Repo.get(ChannelConfig, id, lock: "FOR UPDATE") do
+        %ChannelConfig{} = current ->
+          persist_enabled_current(current, expected, enabled?)
+
+        _ ->
+          Repo.rollback(:connector_not_found)
+      end
+    end)
+  end
+
+  defp persist_enabled_current(current, expected, enabled?) do
+    with :ok <- validate_revision(current, expected),
+         {:ok, saved} <- current |> Ecto.Changeset.change(enabled: enabled?) |> Repo.update() do
+      saved
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
 
   defp stop_watches(%{kind: "data_source", archived?: false, channel_config_id: id}, module) do
     case module.stop_config_watch_channels(id) do
@@ -122,6 +277,9 @@ defmodule Zaq.Engine.ConnectorLifecycle do
 
   defp teardown_ingress(%ChannelConfig{archived_at: %DateTime{}}, _router, _actor, _opts),
     do: {:ok, :already_archived}
+
+  defp teardown_ingress(%ChannelConfig{enabled: false}, _router, _actor, _opts),
+    do: {:ok, :already_disabled}
 
   defp teardown_ingress(config, router, actor, opts) do
     case channels_call(

@@ -6,6 +6,8 @@ defmodule Zaq.Accounts.People do
   survivor within one outer transaction; explicit edits override merge precedence.
   Permanent single/bulk deletion orchestrates Connect secret cleanup before removing
   People, in the same identity transaction. Connect owns all secret and event queries.
+
+  Phone and email participate in discovery and native identity conflict checks.
   """
 
   import Ecto.Query
@@ -193,6 +195,11 @@ defmodule Zaq.Accounts.People do
   Finds or creates a person from an incoming channel message.
   On match: back-fills canonical fields if they were missing.
   On miss: creates a partial entry with incomplete: true.
+  `phone` participates in identity matching and conflict checks, including phones
+  returned by provider profile lookups.
+  Connector authority remains keyed
+  by the native channel identifier. A generated name equal to that identifier may
+  be replaced while the person is incomplete; other stored names are preserved.
   Returns `{:ok, person}` or a controlled error; failed links roll back all writes.
   """
   @spec find_or_create_from_channel(atom() | String.t(), map()) ::
@@ -1101,18 +1108,16 @@ defmodule Zaq.Accounts.People do
   end
 
   defp backfill_person(person, attrs) do
-    # If full_name looks like an email address it was seeded from a channel identifier.
-    # Treat it as absent so an incoming display_name can replace it.
-    effective_name =
-      if is_binary(person.full_name) and String.contains?(person.full_name, "@"),
-        do: nil,
-        else: person.full_name
-
     updates =
       %{}
       |> maybe_put_if_nil(:email, person.email, attrs)
       |> maybe_put_if_nil(:phone, person.phone, attrs)
-      |> maybe_put_if_nil(:full_name, effective_name, attrs, "display_name")
+      |> maybe_put_if_nil(
+        :full_name,
+        profile_name(person, attrs),
+        attrs,
+        "display_name"
+      )
 
     if map_size(updates) > 0 do
       update_person(person, updates)
@@ -1120,6 +1125,14 @@ defmodule Zaq.Accounts.People do
       {:ok, person}
     end
   end
+
+  defp profile_name(%Person{incomplete: true, full_name: id}, %{"channel_id" => id}),
+    do: nil
+
+  defp profile_name(%Person{full_name: name, email: name}, _attrs) when is_binary(name),
+    do: nil
+
+  defp profile_name(%Person{full_name: name}, _attrs), do: name
 
   defp maybe_put_if_nil(acc, field, current_val, attrs, attr_key \\ nil) do
     key = if attr_key, do: attr_key, else: to_string(field)

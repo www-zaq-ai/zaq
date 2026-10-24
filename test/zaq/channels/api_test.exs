@@ -41,6 +41,21 @@ defmodule Zaq.Channels.ApiTest do
     def request(_request, _opts), do: {:ok, :bypassed}
   end
 
+  defmodule OrderedDisableRuntime do
+    def before_disable(_config, actor, _opts) do
+      send(actor.observer, {:logout_started, self()})
+
+      receive do
+        {:finish_logout, result} -> result
+      end
+    end
+
+    def sync_config_runtime(_before, _after) do
+      send(self(), :runtime_stopped)
+      :ok
+    end
+  end
+
   defmodule StubCommunicationBridge do
     alias Zaq.Channels.Bridge
 
@@ -1199,6 +1214,57 @@ defmodule Zaq.Channels.ApiTest do
     end
   end
 
+  test "original runtime sync waits for logout and aborts teardown on logout failure" do
+    for result <- [:ok, {:error, :logout_failed}] do
+      event =
+        Event.new(
+          %{
+            before_config: %{id: 1, enabled: true},
+            after_config: %{id: 1, enabled: false}
+          },
+          :channels,
+          actor: %{observer: self()},
+          opts: [action: :sync_channel_runtime, runtime_module: OrderedDisableRuntime]
+        )
+
+      task =
+        Task.async(fn ->
+          response = Api.handle_event(event, :sync_channel_runtime, nil).response
+
+          stopped =
+            receive do
+              :runtime_stopped -> true
+            after
+              0 -> false
+            end
+
+          {response, stopped}
+        end)
+
+      assert_receive {:logout_started, executor}
+      assert Task.yield(task, 0) == nil
+      send(executor, {:finish_logout, result})
+
+      case result do
+        :ok ->
+          assert {:ok, true} = Task.await(task)
+
+        {:error, reason} ->
+          assert {{:error, {:disable_failed, ^reason}}, false} = Task.await(task)
+      end
+    end
+  end
+
+  test "runtime sync rejects the removed ID-based disable request" do
+    event =
+      Event.new(%{channel_config_id: 1, enabled: false}, :channels,
+        opts: [action: :sync_channel_runtime, confidential: true]
+      )
+
+    assert %{response: {:error, {:unsupported_action, :sync_channel_runtime}}} =
+             Api.handle_event(event, :sync_channel_runtime, nil)
+  end
+
   test "handles sync_channel_runtime action" do
     before_config = %{id: 1, enabled: true}
     after_config = %{id: 1, enabled: false}
@@ -1264,6 +1330,29 @@ defmodule Zaq.Channels.ApiTest do
 
     assert result.response == :ok
     assert_received {:bridge_sync_provider_runtime, :mattermost}
+  end
+
+  test "config-based runtime sync retains its confidential internal contract" do
+    config = %{id: 42, provider: "email:smtp", enabled: true}
+
+    event =
+      Event.new(%{config: config}, :channels,
+        opts: [
+          action: :sync_provider_runtime,
+          confidential: true,
+          runtime_module: StubCommunicationBridge
+        ]
+      )
+
+    assert Api.handle_event(event, :sync_provider_runtime, nil).response == :ok
+    assert_received {:bridge_sync_provider_runtime, ^config}
+
+    event = %{event | opts: Keyword.delete(event.opts, :confidential)}
+
+    assert Api.handle_event(event, :sync_provider_runtime, nil).response ==
+             {:error, :confidential_event_required}
+
+    refute_received {:bridge_sync_provider_runtime, _}
   end
 
   describe "channel ingress runtime actions" do

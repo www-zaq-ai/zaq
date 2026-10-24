@@ -14,7 +14,7 @@ defmodule Zaq.Channels.Bridge do
   bridge modules own transport-specific behavior.
   """
 
-  alias Zaq.Channels.{CommunicationBridge, DataSourceBridge}
+  alias Zaq.Channels.{CommunicationBridge, ConnectorRuntime, DataSourceBridge}
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -30,6 +30,8 @@ defmodule Zaq.Channels.Bridge do
   @callback start_runtime(runtime_target()) :: :ok | {:error, term()}
   @callback start_runtime(runtime_target(), keyword()) :: :ok | {:error, term()}
   @callback stop_runtime(map()) :: :ok | {:error, term()}
+  @callback resolve_connection_details(map(), map()) :: map()
+  @callback before_disable(map(), map(), keyword()) :: :ok | {:error, term()}
   @callback sync_runtime(map() | nil, map()) :: :ok | {:error, term()}
   @callback sync_provider_runtime(runtime_target()) :: :ok | {:error, term()}
   @callback sync_provider_runtime(runtime_target(), keyword()) :: :ok | {:error, term()}
@@ -44,9 +46,11 @@ defmodule Zaq.Channels.Bridge do
               {:ok, {map(), map(), keyword()}} | {:error, term()}
   @callback after_incoming(map(), map(), keyword(), term(), module()) :: term()
 
-  @optional_callbacks start_runtime: 1,
+  @optional_callbacks resolve_connection_details: 2,
+                      start_runtime: 1,
                       start_runtime: 2,
                       stop_runtime: 1,
+                      before_disable: 3,
                       sync_runtime: 2,
                       sync_provider_runtime: 1,
                       sync_provider_runtime: 2,
@@ -159,13 +163,16 @@ defmodule Zaq.Channels.Bridge do
       def sync_provider_runtime(config, _opts) when is_map(config),
         do: sync_provider_runtime(config)
 
+      def resolve_connection_details(_config, details), do: details
+
       def runtime_update_enabled_enabled(_before, _after), do: :ok
 
       def runtime_supervisor_module, do: Zaq.Channels.Supervisor
 
       def runtime_bridge_id(config), do: ChannelBridge.default_bridge_id(config)
 
-      defoverridable start_runtime: 1,
+      defoverridable resolve_connection_details: 2,
+                     start_runtime: 1,
                      start_runtime: 2,
                      stop_runtime: 1,
                      sync_runtime: 2,
@@ -185,9 +192,14 @@ defmodule Zaq.Channels.Bridge do
     do:
       "#{Map.get(config, :provider) || Map.get(config, "provider")}_#{Map.get(config, :id) || Map.get(config, "id")}"
 
-  @doc false
+  @doc "Routes runtime startup through Channels, rechecking eligibility for saved credential bindings."
   @spec start_runtime(module(), runtime_target(), keyword()) :: :ok | {:error, term()}
   def start_runtime(bridge, target, opts) do
+    ConnectorRuntime.start(target, {:start, bridge, opts})
+  end
+
+  @doc "Builds and starts runtime specs for the resolved configuration inside a routed command."
+  def execute_start(bridge, target, opts) do
     with {:ok, specs} <- runtime_specs(bridge, target, opts) do
       start_runtime_specs(bridge, target, specs)
     end
@@ -238,6 +250,11 @@ defmodule Zaq.Channels.Bridge do
 
   @spec restart_runtime(module(), map()) :: :ok | {:error, term()}
   def restart_runtime(bridge_module, config) when is_atom(bridge_module) and is_map(config) do
+    ConnectorRuntime.start(config, {:restart, bridge_module})
+  end
+
+  @doc "Restarts the resolved connector runtime inside a routed lifecycle command."
+  def execute_restart(bridge_module, config) do
     with true <-
            function_exported?(bridge_module, :build_runtime_specs, 1) || {:error, :unsupported},
          :ok <- stop_runtime_normalized(bridge_module, config),
@@ -370,7 +387,7 @@ defmodule Zaq.Channels.Bridge do
   def fetch_connection_details(provider) do
     case ChannelConfig.get_by_provider(to_string(provider)) do
       nil -> %{}
-      config -> %{url: config.url, token: config.token}
+      config -> fetch_connection_details_for_config(config)
     end
   end
 
@@ -381,10 +398,17 @@ defmodule Zaq.Channels.Bridge do
   def fetch_connection_details_for_config(config) when is_map(config) do
     runtime_config = ChannelConfig.to_runtime_config(config)
 
-    %{
+    details = %{
       url: Map.get(runtime_config, :url) || Map.get(runtime_config, "url"),
       token: Map.get(runtime_config, :token) || Map.get(runtime_config, "token")
     }
+
+    provider = Map.get(runtime_config, :provider) || Map.get(runtime_config, "provider")
+    bridge = bridge_for(provider)
+
+    if bridge_supports?(bridge, :resolve_connection_details, 2),
+      do: bridge.resolve_connection_details(runtime_config, details),
+      else: details
   end
 
   @doc "Fetches an enabled connector by provider; supply its ID if the provider is ambiguous."

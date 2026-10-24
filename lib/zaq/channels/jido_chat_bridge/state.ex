@@ -115,6 +115,10 @@ defmodule Zaq.Channels.JidoChatBridge.State do
        config: config,
        chat: build_chat(config, provider, handler_opts),
        ingress_status: nil,
+       lifecycle_source: nil,
+       lifecycle_monitor: nil,
+       lifecycle_attempt: nil,
+       lifecycle_profile: nil,
        # Most jido_chat adapters have a single listener today. Keep the monitor
        # map because the adapter contract returns a list of listener child specs;
        # this can be collapsed to one monitor if that contract is narrowed later.
@@ -128,20 +132,17 @@ defmodule Zaq.Channels.JidoChatBridge.State do
         _from,
         state
       ) do
-    # Adapters emit a normalized `%EventEnvelope{}` for every inbound event that
-    # `transform_incoming/1` has no representation for (reactions today, more
-    # event types later). `Jido.Chat` owns envelope routing: it classifies the
-    # `event_type` and fires the handlers registered in
-    # `JidoChatBridge.register_handlers/3` — the same path webhook-mode ingress
-    # already takes. ZAQ must not classify or normalize these itself.
-    #
-    # The routed chat is discarded to match the message branch below, which also
-    # drops `Chat.process_message/5`'s result.
     adapter_name = envelope.adapter_name || JidoChatBridge.provider_to_atom(config.provider)
 
-    chat_module().route_event(state.chat, adapter_name, envelope, [])
-
-    {:reply, :ok, state}
+    with :ok <- validate_envelope_adapter(state, adapter_name, envelope.payload),
+         {:ok, %{chat: chat}} <- chat_module().route_event(state.chat, adapter_name, envelope, []) do
+      {lifecycle, metadata} = Map.pop(chat.metadata, :connection_lifecycle)
+      state = %{state | chat: %{chat | metadata: metadata}}
+      {:reply, :ok, apply_lifecycle(state, lifecycle)}
+    else
+      {:error, _} = error ->
+        {:reply, error, state}
+    end
   end
 
   def handle_call({:process_listener_payload, config, payload, sink_opts}, _from, state) do
@@ -164,7 +165,8 @@ defmodule Zaq.Channels.JidoChatBridge.State do
         []
       )
 
-      {:reply, :ok, %{state | ingress_status: ok_ingress_status()}}
+      status = if state.lifecycle_source, do: state.ingress_status, else: ok_ingress_status()
+      {:reply, :ok, %{state | ingress_status: status}}
     else
       _ ->
         {:reply, :ok, state}
@@ -259,7 +261,8 @@ defmodule Zaq.Channels.JidoChatBridge.State do
             channel_state: state.chat.channel_state
         }
 
-        {:reply, :ok, %{state | config: config, chat: chat, ingress_status: nil}}
+        status = if state.lifecycle_source, do: state.ingress_status
+        {:reply, :ok, %{state | config: config, chat: chat, ingress_status: status}}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -287,6 +290,15 @@ defmodule Zaq.Channels.JidoChatBridge.State do
   end
 
   @impl GenServer
+  def handle_info(
+        {:DOWN, ref, :process, source, _reason},
+        %{lifecycle_monitor: ref, lifecycle_source: source} = state
+      ) do
+    status = JidoChatBridge.stopped_listener_status(state.ingress_status.mode)
+
+    {:noreply, %{state | lifecycle_monitor: nil, ingress_status: put_status_timestamp(status)}}
+  end
+
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case Map.pop(state.listener_monitors, ref) do
       {nil, _monitors} ->
@@ -295,16 +307,82 @@ defmodule Zaq.Channels.JidoChatBridge.State do
       {_listener_pid, monitors} ->
         next_state = %{state | listener_monitors: monitors}
 
-        case ListenerStatus.from_exit_reason(reason) do
+        status =
+          if state.lifecycle_source,
+            do: nil,
+            else: ListenerStatus.from_exit_reason(reason)
+
+        case status do
           nil -> {:noreply, next_state}
           status -> {:noreply, %{next_state | ingress_status: put_status_timestamp(status)}}
         end
     end
   end
 
-  defp ok_ingress_status do
-    %{status: :ok, summary: "Ingress listener received a usable Mattermost event"}
+  # Jido normalizes payload identity to the routing target. Reject mismatched
+  # provenance before that normalization can erase it.
+  defp validate_envelope_adapter(state, adapter_name, payload) do
+    expected = JidoChatBridge.provider_to_atom(state.config.provider)
+
+    payload_matches =
+      not is_map(payload) or Map.get(payload, :adapter_name) in [nil, expected]
+
+    if adapter_name == expected and payload_matches,
+      do: :ok,
+      else: {:error, :invalid_adapter}
   end
+
+  defp apply_lifecycle(state, nil), do: state
+
+  defp apply_lifecycle(state, %{source: source} = payload) do
+    current = state.lifecycle_source
+
+    accepted =
+      is_pid(source) and Process.alive?(source) and
+        (is_nil(state.lifecycle_profile) or payload.profile == state.lifecycle_profile) and
+        current_lifecycle?(current, source, state.lifecycle_attempt, payload)
+
+    if accepted do
+      monitor = monitor_lifecycle_source(state, source)
+
+      %{
+        state
+        | lifecycle_source: source,
+          lifecycle_monitor: monitor,
+          lifecycle_profile: payload.profile,
+          lifecycle_attempt: payload.attempt_id,
+          ingress_status: payload.presentation
+      }
+    else
+      state
+    end
+  end
+
+  # Linked-device adapters own their connection generations. Their source PID
+  # is the worker and changes on restart, unlike the original listener
+  # PID list supplied by the generic supervisor. Older listener exits must not
+  # overwrite a newer generation's lifecycle status.
+  defp monitor_lifecycle_source(%{lifecycle_source: source, lifecycle_monitor: ref}, source),
+    do: ref
+
+  defp monitor_lifecycle_source(state, source) do
+    if state.lifecycle_monitor, do: Process.demonitor(state.lifecycle_monitor, [:flush])
+    Process.monitor(source)
+  end
+
+  defp ok_ingress_status do
+    %{status: :ok, summary: "Ingress listener received a usable event"}
+  end
+
+  defp current_lifecycle?(nil, _, _, _), do: true
+
+  defp current_lifecycle?(source, source, attempt, payload),
+    do: attempt == payload.attempt_id or payload[:event] == :connecting
+
+  defp current_lifecycle?(previous, _, _, _), do: not Process.alive?(previous)
+
+  @impl GenServer
+  def format_status(status), do: Map.update!(status, :state, &Map.take(&1, [:bridge_id]))
 
   defp put_status_timestamp(status), do: Map.put(status, :updated_at, DateTime.utc_now())
 

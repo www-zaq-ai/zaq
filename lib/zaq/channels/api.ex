@@ -32,6 +32,7 @@ defmodule Zaq.Channels.Api do
     WebBridge
   }
 
+  alias Zaq.Accounts.BOActor
   alias Zaq.Channels.DeliveryConfirmation
   alias Zaq.Channels.HttpClient
   alias Zaq.Channels.Materializers.CommunicationMedia
@@ -219,21 +220,16 @@ defmodule Zaq.Channels.Api do
   end
 
   def handle_event(
-        %Event{request: %{provider: provider, channel_id: channel_id}} = event,
+        %Event{request: %{provider: provider, channel_id: channel_id} = request} = event,
         :send_typing,
         _context
       ) do
     bridge_module = bridge_module(event)
 
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
-         true <- supports_callback?(bridge, :send_typing, 3) || {:error, :unsupported} do
-      config = bridge_module.fetch_channel_config(provider)
-      details = bridge_module.fetch_connection_details(provider)
-
-      case config do
-        {:ok, cfg} -> %{event | response: bridge.send_typing(cfg, channel_id, details)}
-        {:error, reason} -> %{event | response: {:error, reason}}
-      end
+         true <- supports_callback?(bridge, :send_typing, 3) || {:error, :unsupported},
+         {:ok, config, details} <- identity_connection(bridge_module, provider, request) do
+      %{event | response: bridge.send_typing(config, channel_id, details)}
     else
       {:error, reason} -> %{event | response: {:error, reason}}
     end
@@ -333,10 +329,34 @@ defmodule Zaq.Channels.Api do
     runtime_module = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
 
     response =
-      runtime_module.sync_config_runtime(
-        ChannelConfig.to_runtime_config(before_config),
-        ChannelConfig.to_runtime_config(after_config)
-      )
+      with :ok <- prepare_runtime_disable(before_config, after_config, event) do
+        runtime_module.sync_config_runtime(
+          ChannelConfig.to_runtime_config(before_config),
+          ChannelConfig.to_runtime_config(after_config)
+        )
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(
+        %Event{request: %{provider: provider, channel_config_id: id}} = event,
+        :sync_provider_runtime,
+        _context
+      ) do
+    bridge_module = bridge_module(event)
+
+    response =
+      with :ok <- authorize_pairing_operator(event),
+           true <- is_integer(id) and id > 0,
+           %{ingress_mode: :linked_device} <- Bridge.provider_config(provider),
+           {:ok, config} <- bridge_module.fetch_channel_config(provider, id),
+           {:ok, bridge} <- resolve_bridge(bridge_module, provider) do
+        bridge.sync_provider_runtime(config)
+      else
+        {:error, _} = error -> error
+        _ -> {:error, :unsupported}
+      end
 
     %{event | response: response}
   end
@@ -366,6 +386,15 @@ defmodule Zaq.Channels.Api do
     %{event | response: runtime_module.sync_provider_runtime(provider)}
   end
 
+  def handle_event(%Event{} = event, :connector_start_runtime, _context) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true,
+        do: ConnectorRuntime.execute_start(event.request),
+        else: {:error, :confidential_event_required}
+
+    %{event | response: response}
+  end
+
   def handle_event(
         %Event{request: %{config: config}} = event,
         :connector_teardown_ingress,
@@ -385,9 +414,13 @@ defmodule Zaq.Channels.Api do
         _context
       ) do
     response =
-      if Keyword.get(event.opts, :confidential) == true,
-        do: ConnectorRuntime.sync_runtime(before_config, after_config, event.opts),
-        else: {:error, :confidential_event_required}
+      if Keyword.get(event.opts, :confidential) == true do
+        with :ok <- prepare_runtime_disable(before_config, after_config, event) do
+          ConnectorRuntime.sync_runtime(before_config, after_config, event.opts)
+        end
+      else
+        {:error, :confidential_event_required}
+      end
 
     %{event | response: response}
   end
@@ -897,6 +930,20 @@ defmodule Zaq.Channels.Api do
     %{event | response: response}
   end
 
+  def handle_event(%Event{} = event, :pair_linked_device, _context) do
+    response =
+      case Jido.Exec.run(Zaq.Channels.Actions.PairLinkedDevice, %{request: event.request}, %{
+             actor: event.actor,
+             confidential: event.opts[:confidential] == true,
+             bridge_opts: event.opts
+           }) do
+        {:ok, %{result: result}} -> result
+        {:error, _} = error -> error
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(
         %Event{request: %{provider: provider} = request} = event,
         :channel_ingress_status,
@@ -906,7 +953,8 @@ defmodule Zaq.Channels.Api do
 
     with {:ok, bridge} <- resolve_bridge(bridge_module, provider),
          true <- supports_callback?(bridge, :channel_ingress_status, 1) || {:error, :unsupported},
-         {:ok, config} <- ingress_status_config(bridge_module, provider, request) do
+         :ok <- authorize_pairing_status(provider, event),
+         {:ok, config} <- selected_ingress_status_config(bridge_module, provider, request) do
       response =
         if supports_callback?(bridge, :channel_ingress_status, 2),
           do: bridge.channel_ingress_status(config, event.opts),
@@ -1151,6 +1199,38 @@ defmodule Zaq.Channels.Api do
 
   defp communication_bridge_module(_event), do: CommunicationBridge
 
+  defp selected_ingress_status_config(bridge, provider, request) do
+    case Bridge.provider_config(provider) do
+      %{ingress_mode: :linked_device} ->
+        id = request[:channel_config_id] || get_in(request, [:config, Access.key(:id)])
+
+        if is_integer(id) and id > 0,
+          do: bridge.fetch_channel_config(provider, id),
+          else: {:error, :invalid_connector_id}
+
+      _ ->
+        ingress_status_config(bridge, provider, request)
+    end
+  end
+
+  defp authorize_pairing_status(provider, event) do
+    case Bridge.provider_config(provider) do
+      %{ingress_mode: :linked_device} -> authorize_pairing_operator(event)
+      _ -> :ok
+    end
+  end
+
+  defp authorize_pairing_operator(%Event{actor: actor, opts: opts}) do
+    with true <- Keyword.get(opts, :confidential) == true,
+         {:ok, _user} <- BOActor.current_super_admin(actor) do
+      :ok
+    else
+      _ -> {:error, :unauthorized}
+    end
+  end
+
+  defp authorize_pairing_operator(_), do: {:error, :unauthorized}
+
   defp ingress_status_config(_bridge_module, _provider, %{config: %ChannelConfig{} = config}),
     do: {:ok, config}
 
@@ -1289,4 +1369,32 @@ defmodule Zaq.Channels.Api do
     do: {:ok, %{provider: "web"}}
 
   defp normalize_upsert_config(_provider, config), do: config
+
+  defp prepare_runtime_disable(%{enabled: true} = before, %{enabled: false}, event) do
+    runtime = Keyword.get(event.opts, :runtime_module, CommunicationBridge)
+
+    result =
+      with {:module, _} <- Code.ensure_loaded(runtime) do
+        if function_exported?(runtime, :before_disable, 3),
+          do:
+            runtime.before_disable(
+              ChannelConfig.to_runtime_config(before),
+              event.actor,
+              event.opts
+            ),
+          else: :ok
+      end
+
+    case result do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:disable_failed, reason}}
+      other -> {:error, {:disable_failed, {:unexpected_response, other}}}
+    end
+  rescue
+    _ -> {:error, {:disable_failed, :preparation_unavailable}}
+  catch
+    :exit, _ -> {:error, {:disable_failed, :logout_unavailable}}
+  end
+
+  defp prepare_runtime_disable(_, _, _), do: :ok
 end

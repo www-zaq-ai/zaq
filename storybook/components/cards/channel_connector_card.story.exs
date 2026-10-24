@@ -84,6 +84,18 @@ defmodule Storybook.Components.Cards.ChannelConnectorCard do
           >Unknown</ZaqWeb.Components.DesignSystem.Table.table_badge>
         </:status>
       </.channel_connector_card>
+      <.channel_connector_card
+        id="config-card-105"
+        name="Customer support"
+        provider="WhatsApp - +96170123456"
+        enabled
+        connector_id={105}
+        toggle_event="toggle_enabled"
+        edit_event="open_modal"
+        edit_action="edit"
+      >
+        <:status><span class="status status-success" title="Ingress connected" /></:status>
+      </.channel_connector_card>
     </div>
     """
   end

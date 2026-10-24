@@ -3,6 +3,24 @@ defmodule ZaqWeb.Live.DeviceSignInPollingTest do
   use ExUnitProperties
   alias ZaqWeb.Live.DeviceSignInPolling
 
+  test "timer ownership stays private and explicit stop cancels the default observation" do
+    socket =
+      DeviceSignInPolling.schedule(
+        %Phoenix.LiveView.Socket{},
+        %{attempt_id: "first", status: "pending"},
+        :device_status
+      )
+
+    timer = socket.private.device_sign_in_polling
+    refute Map.has_key?(socket.assigns, :device_sign_in_polling)
+    stopped = DeviceSignInPolling.stop(socket)
+    assert stopped.private.device_sign_in_polling == nil
+    assert Process.read_timer(timer.timer_ref) == false
+    assert :stale = DeviceSignInPolling.consume(stopped, "first", timer.generation)
+    assert DeviceSignInPolling.stop(stopped) == stopped
+    refute Map.has_key?(stopped.assigns, :device_sign_in_polling)
+  end
+
   test "reopening an observed attempt keeps one timer; switching cancels and invalidates it" do
     socket = %Phoenix.LiveView.Socket{}
     attempt = %{attempt_id: "first", status: "pending"}
@@ -64,5 +82,23 @@ defmodule ZaqWeb.Live.DeviceSignInPollingTest do
       DeviceSignInPolling.schedule(socket, nil, :device_status)
       assert Enum.all?(refs, &(Process.read_timer(&1) == false))
     end
+  end
+
+  test "observation slots preserve their own interval and stop independently" do
+    socket = %Phoenix.LiveView.Socket{}
+    socket = DeviceSignInPolling.schedule(socket, :first, :account, :poll, 2_000, true)
+    socket = DeviceSignInPolling.schedule(socket, :second, :attempt, :device_status, 1_000, true)
+    first = socket.private.first
+    second = socket.private.second
+    assert first.interval_ms == 2_000
+    assert second.interval_ms == 1_000
+
+    reopened = DeviceSignInPolling.schedule(socket, :first, :account, :poll, 2_000, true)
+    assert reopened.private.first == first
+    stopped = DeviceSignInPolling.stop(reopened, :first)
+    assert Process.read_timer(first.timer_ref) == false
+    assert stopped.private.second == second
+    assert :stale = DeviceSignInPolling.consume(stopped, :first, :account, first.generation)
+    DeviceSignInPolling.stop(stopped, :second)
   end
 end

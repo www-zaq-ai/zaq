@@ -53,6 +53,13 @@ defmodule Zaq.Engine.Connect do
           | :not_found
           | :canonical_grant_requires_owner
 
+  @doc "Privileged connector document operation; cross-role access requires the confidential runtime Action."
+  @spec credential_document(map()) ::
+          :ok | :error | {:ok, map() | binary() | [String.t()]} | {:error, atom()}
+  defdelegate credential_document(request),
+    to: Zaq.Engine.Connect.CredentialDocuments,
+    as: :execute
+
   @doc "Privileged runtime-only resolution; expose cross-role only through the confidential Engine action."
   @spec resolve_credential(
           Zaq.Engine.Connect.CredentialResolver.credential_ref(),

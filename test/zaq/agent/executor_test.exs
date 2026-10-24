@@ -6,6 +6,7 @@ defmodule Zaq.Agent.ExecutorTest do
 
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.{Executor, Factory, OpaqueAliases}
+  alias Zaq.Channels.JidoChatBridge
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Incoming
@@ -1239,6 +1240,36 @@ defmodule Zaq.Agent.ExecutorTest do
         assert question ==
                  "Body\n\n[Input context: \"Directory name\"; person 15#{expected_time}]"
       end
+    end
+
+    test "WhatsApp thread identity and message body reach the executor" do
+      incoming =
+        JidoChatBridge.to_internal(
+          %Jido.Chat.Incoming{
+            text: "@bot Explain this",
+            external_room_id: "group@g.us",
+            external_thread_id: "original",
+            external_reply_to_id: "original"
+          },
+          %{provider: :whatsapp, id: 42}
+        )
+
+      incoming = %{incoming | person: %{id: 15}}
+
+      Executor.run(incoming,
+        agent_id: "stub",
+        agent_module: CoverageStubAgent,
+        server_manager_module: CoverageStubServerManager,
+        factory_module: CoverageStubFactory,
+        status_module: CoverageStubStatus,
+        node_router: StubNodeRouter,
+        scope: "coverage"
+      )
+
+      assert_received {:coverage_ask, question, _configured_agent, context}
+      assert [_header, "@bot Explain this"] = String.split(question, "\nMessage:\n", parts: 2)
+      assert context.incoming.content == "@bot Explain this"
+      assert context.incoming.thread_id == "original"
     end
 
     test "current attachment descriptors are visible to the model without runtime fields" do

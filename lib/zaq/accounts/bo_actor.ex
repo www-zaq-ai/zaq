@@ -20,4 +20,13 @@ defmodule Zaq.Accounts.BOActor do
   end
 
   def current_user(_actor, _opts), do: {:error, :unauthorized}
+
+  @doc "Returns the current super-admin user, rejecting stale or insufficient privileges."
+  @spec current_super_admin(term()) :: {:ok, Zaq.Accounts.User.t()} | {:error, :unauthorized}
+  def current_super_admin(actor) do
+    case current_user(actor) do
+      {:ok, %{role: %{name: "super_admin"}}} = result -> result
+      _ -> {:error, :unauthorized}
+    end
+  end
 end

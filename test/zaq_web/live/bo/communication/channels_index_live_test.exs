@@ -12,6 +12,42 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
 
   setup :verify_on_exit!
 
+  defmodule HealthyWhatsAppBridge do
+    def channel_ingress_status(_),
+      do:
+        {:ok,
+         %{
+           status: :ok,
+           summary: "Linked device connected",
+           mode: "linked_device",
+           qr: "private-qr"
+         }}
+  end
+
+  test "WhatsApp overview authorizes status checks and discards pairing material", %{conn: conn} do
+    user = super_admin_fixture(%{must_change_password: false})
+    insert_channel_config(%{provider: "whatsapp"})
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(:zaq, :channels, %{
+      whatsapp: %{bridge: HealthyWhatsAppBridge, ingress_mode: :linked_device}
+    })
+
+    on_exit(fn -> Application.put_env(:zaq, :channels, channels) end)
+
+    {:ok, view, _} =
+      live(init_test_session(conn, %{user_id: user.id}), ~p"/bo/channels/retrieval")
+
+    render_async(view)
+    assert has_element?(view, "#ingress-status-dot-whatsapp .status-success")
+    send(view.pid, :refresh_pending_ingress_statuses)
+    render_async(view)
+    assert has_element?(view, "#ingress-status-dot-whatsapp .status-success")
+    view |> element("#ingress-status-dot-whatsapp") |> render_click()
+    assert has_element?(view, "#ingress-status-modal", "Linked device connected")
+    refute inspect(:sys.get_state(view.pid)) =~ "private-qr"
+  end
+
   setup %{conn: conn} do
     user = user_fixture(%{username: "testadmin"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})

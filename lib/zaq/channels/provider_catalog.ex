@@ -42,6 +42,7 @@ defmodule Zaq.Channels.ProviderCatalog do
     "mattermost" => "Mattermost",
     "discord" => "Discord",
     "telegram" => "Telegram",
+    "whatsapp" => "WhatsApp",
     "webhook" => "Webhook",
     "email" => "Email",
     "email:imap" => "Email IMAP",

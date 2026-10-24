@@ -3,6 +3,11 @@ defmodule Zaq.Engine.ChannelConfig do
   Engine-owned schema and persistence for channel connector configurations.
   Single-tenant: multiple named connector configs may share a provider.
 
+  Provider defaults are applied on creation and resolved at runtime for older
+  connectors. Settings edits preserve configured startup options unless explicitly
+  replaced. Saved pairing identity and credential bindings are protected from
+  ordinary edits; user-owned settings retain their replacement semantics.
+
   ## Kinds
   - `:data_source` — document source adapters (Google Drive, SharePoint, ...)
   - `:retrieval` — messaging platform adapters (Mattermost, Slack, Email, ...)
@@ -24,10 +29,12 @@ defmodule Zaq.Engine.ChannelConfig do
   alias Zaq.Types.EncryptedString
   alias Zaq.Utils.ParseUtils
 
+  @pairing_metadata_fields ~w(credential_document_id owner_id pairing_attempt account)a
+
   @smtp_provider "email:smtp"
   @imap_provider "email:imap"
   @valid_kinds ~w(data_source retrieval)
-  @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp email:imap telegram discord disk web_widget)
+  @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp email:imap telegram discord whatsapp disk web_widget)
 
   schema "channel_configs" do
     field :name, :string
@@ -47,21 +54,141 @@ defmodule Zaq.Engine.ChannelConfig do
     timestamps(type: :utc_datetime)
   end
 
-  def changeset(config, attrs) do
+  @type t :: %__MODULE__{}
+
+  @doc "Validates connector fields; adapter_authentication is a trusted server option, never an input attribute."
+  def changeset(config, attrs, opts \\ []) do
     config
     |> cast(attrs, [:name, :provider, :kind, :url, :token, :enabled, :settings])
+    |> merge_saved_settings()
     |> validate_required([:name, :provider, :kind])
     |> validate_inclusion(:provider, @valid_providers)
     |> validate_inclusion(:kind, @valid_kinds)
-    |> maybe_require_connection_fields()
+    |> maybe_require_connection_fields(opts)
     |> maybe_validate_imap_settings()
     |> maybe_validate_disk_settings()
     |> maybe_validate_widget_settings()
     |> maybe_require_widget_base_url_on_persist()
     |> maybe_validate_imap_smtp_dependency_on_persist()
+    |> put_room_reply_policy()
     |> maybe_encrypt_token()
     |> reject_archived_reactivation()
   end
+
+  @doc "Creates a connector with provider startup defaults applied before validation and persistence."
+  @spec create(map(), keyword()) :: {:ok, %__MODULE__{}} | {:error, Ecto.Changeset.t()}
+  def create(attrs, opts \\ []) do
+    defaults = Settings.defaults(attrs[:provider] || attrs["provider"])
+    key = if Map.has_key?(attrs, :provider), do: :settings, else: "settings"
+    attrs = Map.update(attrs, key, defaults, &Settings.merge(defaults, &1))
+
+    %__MODULE__{} |> changeset(attrs, opts) |> Zaq.Repo.insert()
+  end
+
+  defp merge_saved_settings(changeset) do
+    case fetch_change(changeset, :settings) do
+      {:ok, settings} when is_map(settings) or is_nil(settings) ->
+        config = Map.put(changeset.data, :provider, get_field(changeset, :provider))
+
+        changeset
+        |> put_change(:settings, Settings.preserve(config, settings || %{}))
+        |> preserve_pairing_metadata()
+
+      _ ->
+        changeset
+    end
+  end
+
+  # These values are written by confirmation/binding operations, never by ordinary edits.
+  defp preserve_pairing_metadata(%{data: %{id: id, settings: saved}} = changeset)
+       when not is_nil(id) and is_map(saved) do
+    Enum.reduce(@pairing_metadata_fields, changeset, fn field, acc ->
+      key = Atom.to_string(field)
+      settings = get_field(acc, :settings)
+      previous = fetch_metadata(saved, field)
+
+      changed? =
+        Enum.any?([field, key], fn candidate ->
+          supplied = Map.fetch(settings, candidate)
+          supplied != :error and supplied != previous
+        end)
+
+      acc =
+        if changed?,
+          do:
+            add_error(acc, :settings, "Connection identity cannot be changed through settings."),
+          else: acc
+
+      settings = Map.drop(settings, [field, key])
+
+      settings =
+        case previous do
+          {:ok, value} -> Map.put(settings, key, value)
+          :error -> settings
+        end
+
+      put_change(acc, :settings, settings)
+    end)
+  end
+
+  defp preserve_pairing_metadata(changeset), do: changeset
+
+  defp fetch_metadata(settings, field) do
+    case Map.fetch(settings, Atom.to_string(field)) do
+      :error -> Map.fetch(settings, field)
+      value -> value
+    end
+  end
+
+  # Reply admission remains validated independently of provider transport options.
+  defp put_room_reply_policy(changeset) do
+    case get_field(changeset, :settings) do
+      nil -> put_room_reply_policy(changeset, %{})
+      settings when is_map(settings) -> put_room_reply_policy(changeset, settings)
+      _ -> changeset
+    end
+  end
+
+  defp put_room_reply_policy(changeset, settings) do
+    chat =
+      case Map.get(settings, "jido_chat") do
+        nil -> %{}
+        value -> value
+      end
+
+    fallback = saved_room_reply_policy(changeset)
+
+    cond do
+      is_map(chat) ->
+        policy = Map.get(chat, "room_reply_policy", fallback)
+        policy = if is_nil(policy), do: fallback, else: policy
+
+        put_valid_room_reply_policy(changeset, settings, chat, policy)
+
+      not is_nil(fallback) ->
+        add_error(changeset, :settings, "jido_chat must be a map")
+
+      true ->
+        changeset
+    end
+  end
+
+  defp saved_room_reply_policy(changeset) do
+    changeset.data
+    |> Map.put(:provider, get_field(changeset, :provider))
+    |> Settings.jido_chat_setting("room_reply_policy")
+  end
+
+  defp put_valid_room_reply_policy(changeset, _settings, _chat, nil), do: changeset
+
+  defp put_valid_room_reply_policy(changeset, settings, chat, policy)
+       when policy in ["default", "mention_required"] do
+    chat = Map.put(chat, "room_reply_policy", policy)
+    put_change(changeset, :settings, Map.put(settings, "jido_chat", chat))
+  end
+
+  defp put_valid_room_reply_policy(changeset, _settings, _chat, _policy),
+    do: add_error(changeset, :settings, "room_reply_policy must be default or mention_required")
 
   defp reject_archived_reactivation(changeset) do
     if get_field(changeset, :archived_at) && get_field(changeset, :enabled) do
@@ -124,27 +251,33 @@ defmodule Zaq.Engine.ChannelConfig do
     |> maybe_put_runtime_token("token")
   end
 
-  defp maybe_require_connection_fields(changeset) do
+  defp maybe_require_connection_fields(changeset, opts) do
     kind = get_field(changeset, :kind)
 
-    case {kind, get_field(changeset, :provider)} do
-      {"data_source", _provider} ->
+    case {kind, get_field(changeset, :provider),
+          Keyword.get(opts, :adapter_authentication, false)} do
+      {"retrieval", _provider, true} ->
         changeset
         |> maybe_put_placeholder(:url)
         |> maybe_put_placeholder(:token)
 
-      {"retrieval", "web_widget"} ->
+      {"data_source", _provider, _} ->
         changeset
         |> maybe_put_placeholder(:url)
         |> maybe_put_placeholder(:token)
 
-      {_kind, @smtp_provider} ->
+      {"retrieval", "web_widget", _} ->
+        changeset
+        |> maybe_put_placeholder(:url)
+        |> maybe_put_placeholder(:token)
+
+      {_kind, @smtp_provider, _} ->
         validate_required(changeset, [:settings])
 
-      {_kind, @imap_provider} ->
+      {_kind, @imap_provider, _} ->
         validate_required(changeset, [:settings, :token])
 
-      {_kind, _provider} ->
+      {_kind, _provider, _} ->
         validate_required(changeset, [:url, :token])
     end
   end
@@ -588,7 +721,8 @@ defmodule Zaq.Engine.ChannelConfig do
   `attrs` can include any ChannelConfig fields; provider is always forced to the
   function argument.
   """
-  def upsert_by_provider(provider, attrs) when is_binary(provider) and is_map(attrs) do
+  def upsert_by_provider(provider, attrs, opts \\ [])
+      when is_binary(provider) and is_map(attrs) do
     attrs = Map.put(attrs, :provider, provider)
 
     case __MODULE__
@@ -596,13 +730,11 @@ defmodule Zaq.Engine.ChannelConfig do
          |> limit(2)
          |> Zaq.Repo.all() do
       [] ->
-        %__MODULE__{}
-        |> changeset(attrs)
-        |> Zaq.Repo.insert()
+        create(attrs, opts)
 
       [%__MODULE__{} = config] ->
         config
-        |> changeset(attrs)
+        |> changeset(attrs, opts)
         |> Zaq.Repo.update()
 
       _ ->

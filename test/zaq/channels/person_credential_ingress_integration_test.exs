@@ -574,6 +574,8 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
   end
 
   defp send_posted_frame(fixture, person_fixture, message) do
+    assert :ok = JidoChatBridge.start_runtime(fixture.channel_config)
+
     post = %{
       "id" => "post-#{System.unique_integer([:positive, :monotonic])}",
       "user_id" => person_fixture.mattermost_user_id,

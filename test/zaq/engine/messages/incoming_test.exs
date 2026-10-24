@@ -5,6 +5,21 @@ defmodule Zaq.Engine.Messages.IncomingTest do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Incoming.RoutingContext
 
+  test "thread identity is preserved" do
+    incoming =
+      Incoming.new(%{
+        content: "Explain this",
+        provider: :whatsapp,
+        channel_id: "group@g.us",
+        message_id: "reply",
+        thread_id: "original"
+      })
+
+    assert incoming.content == "Explain this"
+    assert incoming.message_id == "reply"
+    assert incoming.thread_id == "original"
+  end
+
   test "builds with required fields only" do
     msg = %Incoming{content: "hello", channel_id: "ch1", provider: :mattermost}
     assert msg.content == "hello"

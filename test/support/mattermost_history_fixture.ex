@@ -24,6 +24,10 @@ defmodule Zaq.TestSupport.MattermostHistoryFixture do
   end
 
   defp post_frame(config, root_author, mention?, attrs, channel_type) do
+    # A real listener starts inside an existing bridge runtime. Explicit sink
+    # bridge IDs wait for that runtime instead of starting listeners recursively.
+    :ok = JidoChatBridge.start_runtime(config)
+
     root = if root_author, do: "root-#{root_author}", else: ""
 
     post =

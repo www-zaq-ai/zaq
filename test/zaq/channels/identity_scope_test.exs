@@ -4,6 +4,18 @@ defmodule Zaq.Channels.IdentityScopeTest do
 
   alias Zaq.Channels.IdentityScope
 
+  property "global user identities keep the same authority across connectors" do
+    check all(
+            platform <- member_of(["email", "telegram", "discord", "whatsapp"]),
+            first_id <- integer(1..10_000),
+            second_id <- integer(10_001..20_000),
+            max_runs: 50
+          ) do
+      assert IdentityScope.authority(platform, %{id: first_id}) == "global"
+      assert IdentityScope.authority(platform, %{id: second_id}) == "global"
+    end
+  end
+
   describe "Mattermost authority" do
     test "invalid endpoint schemes fall back to connector-local authority" do
       assert IdentityScope.authority("mattermost", %{id: 41, url: "ftp://chat.example.test/team"}) ==

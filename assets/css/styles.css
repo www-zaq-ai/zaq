@@ -1571,6 +1571,15 @@ a.zaq-chat-source-row:focus-visible {
 }
 
 /* Storybook modal preview — contain overlay inside bounded frames */
+/* QR data graphics keep fixed contrast and a four-module quiet zone in every theme. */
+.zaq-linked-device-qr {
+  width: 100%;
+  max-width: 320px;
+  align-self: center;
+}
+.zaq-linked-device-qr-background { fill: white; }
+.zaq-linked-device-qr-module { fill: black; }
+
 .zaq-modal-preview .zaq-bo-modal-overlay {
   position: absolute !important;
 }

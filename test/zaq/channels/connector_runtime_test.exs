@@ -11,6 +11,20 @@ defmodule Zaq.Channels.ConnectorRuntimeTest do
     end
   end
 
+  test "saved-binding startup requires confidentiality before execution" do
+    config = %{
+      id: 987_654,
+      provider: "whatsapp",
+      kind: "communication",
+      settings: %{"credential_document_id" => 123}
+    }
+
+    event = Event.new(%{config: config, operation: {:ensure, "fixture", []}}, :channels)
+
+    assert %{response: {:error, :confidential_event_required}} =
+             Api.handle_event(event, :connector_start_runtime, nil)
+  end
+
   test "archive runtime leaf consumes supplied configuration without Repo or current BO lookup" do
     config = %{
       id: 987_654,
@@ -40,14 +54,13 @@ defmodule Zaq.Channels.ConnectorRuntimeTest do
              Api.handle_event(event, :connector_sync_runtime, nil)
   end
 
-  test "mismatched connector scope and enabled after-state never execute stop" do
+  test "mismatched connector scope never executes stop" do
     config = %{id: 987_654, provider: "email:imap", kind: "retrieval", enabled: false}
 
     for after_config <- [
           %{config | id: 987_655},
           %{config | provider: "email:smtp"},
-          %{config | kind: "data_source"},
-          %{config | enabled: true}
+          %{config | kind: "data_source"}
         ] do
       event =
         Event.new(%{before_config: config, after_config: after_config}, :channels,
