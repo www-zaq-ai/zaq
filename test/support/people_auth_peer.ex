@@ -3,11 +3,14 @@ defmodule Zaq.TestSupport.PeopleAuthPeer do
   alias Zaq.Channels.PeopleAuthRateLimiter, as: Ingress
   alias Zaq.People.AuthRateLimiter
 
-  def start_application(config, roles) do
+  def start_application(config, roles, swoosh_config) do
     {:ok, _} = Application.ensure_all_started(:logger)
     Logger.configure(level: :warning)
     System.delete_env("ROLES")
     Application.put_all_env([{:zaq, config}])
+    # Bare BEAM peers do not inherit dependency configuration. Preserve it when
+    # loading Swoosh so its packaged defaults cannot overwrite the test settings.
+    Application.put_all_env([{:swoosh, swoosh_config}], persistent: true)
     Application.put_env(:zaq, :roles, roles)
     Application.put_env(:zaq, :channels, %{})
     Application.put_env(:zaq, :e2e, false)

@@ -16,7 +16,7 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
                  control,
                  PeopleAuthPeer,
                  :start_application,
-                 [Application.get_all_env(:zaq), roles],
+                 [Application.get_all_env(:zaq), roles, Application.get_all_env(:swoosh)],
                  120_000
                )
 
