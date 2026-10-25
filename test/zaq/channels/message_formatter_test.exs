@@ -181,10 +181,14 @@ defmodule Zaq.Channels.MessageFormatterTest do
 
       formatted = MessageFormatter.format_outgoing(outgoing)
 
-      assert {:ok, expected_html, _messages} =
-               Earmark.as_html(markdown, escape: true, breaks: true)
+      assert formatted.body =~ "line1<br"
+      assert formatted.body =~ "line2"
+      assert formatted.body =~ "<li>one</li>"
+      assert formatted.body =~ "<li>two</li>"
 
-      assert formatted.body == expected_html
+      assert formatted.body =~
+               ~s(<a href="https://example.com" rel="noopener noreferrer">link</a>)
+
       assert formatted.metadata[:format] == :html
     after
       Application.put_env(:zaq, :channels, original)
@@ -473,7 +477,7 @@ defmodule Zaq.Channels.MessageFormatterTest do
       end
     end
 
-    test "H: Earmark error tuple keeps source markdown" do
+    test "H: unfinished code fences render as code blocks" do
       original = Application.get_env(:zaq, :channels)
 
       try do
@@ -492,7 +496,9 @@ defmodule Zaq.Channels.MessageFormatterTest do
           metadata: %{request_id: "r1"}
         }
 
-        assert_raise CaseClauseError, fn -> MessageFormatter.format_outgoing(outgoing) end
+        formatted = MessageFormatter.format_outgoing(outgoing)
+        assert formatted.body == ~s(<pre><code class="language-elixir">foo</code></pre>)
+        assert formatted.metadata[:format] == :html
       after
         Application.put_env(:zaq, :channels, original)
       end
@@ -565,8 +571,8 @@ defmodule Zaq.Channels.MessageFormatterTest do
       end
     end
 
-    test "I: invalid Earmark output falls back to the original body" do
-      with_mocked_earmark_as_html(fn ->
+    test "I: invalid MDEx output falls back to the original body" do
+      with_mocked_mdex_to_html(fn ->
         original = Application.get_env(:zaq, :channels)
 
         try do
@@ -607,15 +613,15 @@ defmodule Zaq.Channels.MessageFormatterTest do
     end
   end
 
-  defp with_mocked_earmark_as_html(fun) when is_function(fun, 0) do
-    :code.purge(Earmark)
-    :code.delete(Earmark)
+  defp with_mocked_mdex_to_html(fun) when is_function(fun, 0) do
+    :code.purge(MDEx)
+    :code.delete(MDEx)
 
     Code.compiler_options(ignore_module_conflict: true)
 
     Code.compile_string("""
-    defmodule Earmark do
-      def as_html(_text, _opts), do: :weird
+    defmodule MDEx do
+      def to_html(_text, _opts), do: :weird
     end
     """)
 
@@ -624,9 +630,9 @@ defmodule Zaq.Channels.MessageFormatterTest do
     try do
       fun.()
     after
-      :code.purge(Earmark)
-      :code.delete(Earmark)
-      :code.load_file(Earmark)
+      :code.purge(MDEx)
+      :code.delete(MDEx)
+      :code.load_file(MDEx)
       Code.compiler_options(ignore_module_conflict: false)
     end
   end

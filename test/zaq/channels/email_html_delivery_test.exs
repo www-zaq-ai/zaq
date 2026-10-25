@@ -107,19 +107,23 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
       refute email.text_body =~ "**"
     end
 
-    test "html special characters in the agent reply are escaped, not injected" do
+    test "agent reply preserves supported HTML and styles while sanitizing unsafe markup" do
       upsert_smtp_channel()
 
-      body = "Compare `a < b` and <script>alert('xss')</script> in **prod**."
+      body =
+        "Compare `a < b` and <script>alert('xss')</script> in **prod**. " <>
+          ~s|<span style="color: red" onclick="evil()">status</span>|
 
       assert {:ok, _} = deliver(body, %{"subject" => "Escaping"})
 
       assert_receive {:email, email}
 
       assert email.html_body =~ "<strong>prod</strong>"
-      # The raw tag must arrive escaped, never as a live element.
+      assert email.html_body =~ "<code>a &lt; b</code>"
+      assert email.html_body =~ ~s|<span style="color: red">status</span>|
       refute email.html_body =~ "<script>"
-      assert email.html_body =~ "&lt;script&gt;"
+      refute email.html_body =~ "alert("
+      refute email.html_body =~ "onclick="
     end
 
     test "formatter stamps the html format so EmailNotification picks the html branch" do

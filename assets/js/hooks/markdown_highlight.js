@@ -3,7 +3,7 @@
 // mounts this hook on a `.markdown-preview` container).
 //
 // The server renders fenced code blocks as `<pre><code class="language-xxx">`
-// (Earmark). highlight.js reads that class, tokenizes the source, and wraps
+// (MDEx). highlight.js reads that class, tokenizes the source, and wraps
 // tokens in `<span class="hljs-*">` which the scoped theme in
 // `assets/css/highlight.css` colors. Languages outside the bundled set fall
 // back to the plain monochrome block.
@@ -18,8 +18,7 @@ function highlightWithin(el) {
     // Fresh server markup is never pre-highlighted; guard is belt-and-suspenders.
     if (block.dataset.highlighted === "yes") return
 
-    // Earmark emits a bare language class (e.g. `class="elixir"`), not the
-    // `language-xxx` form highlight.js auto-detects, so read it explicitly.
+    // Accept both MDEx's language-xxx classes and legacy bare language classes.
     const cls = (block.className || "").trim()
     const lang = cls.replace(/^(language|lang)-/, "").split(/\s+/)[0]
 

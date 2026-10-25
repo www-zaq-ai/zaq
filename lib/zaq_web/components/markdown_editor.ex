@@ -4,7 +4,7 @@ defmodule ZaqWeb.Components.MarkdownEditor do
 
   Renders a bordered box with two tabs: **Write** exposes a plain textarea,
   **Preview** server-renders the current markdown through
-  `ZaqWeb.Helpers.Markdown` (Earmark + sanitization) so authors can see how the
+  `ZaqWeb.Helpers.Markdown` (MDEx with default HTML sanitization) so authors can see how the
   instructions will look before saving.
 
   The textarea stays mounted in both modes (hidden via CSS in preview) so its

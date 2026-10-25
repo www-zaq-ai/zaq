@@ -838,8 +838,23 @@ config :zaq, :channels, %{
 Supported values:
 
 - `nil` / unset / `:none` -> keep body unchanged
-- `:plain_text` -> markdown source rendered through `Earmark` then converted to text
-- `:html` -> markdown source rendered through `Earmark` and delivered as HTML
+- `:plain_text` -> markdown source rendered through `MDEx` then converted to text
+- `:html` -> markdown source rendered through `MDEx` and delivered as HTML
+
+`Zaq.Markdown` preserves supported embedded HTML and applies
+`MDEx.Document.default_sanitize_options()` to the rendered result. The complete
+default policy is retained, including allowed style attributes; code examples
+remain escaped within code elements.
+
+Authored links may use `target="_blank"` with the default
+`rel="noopener noreferrer"`; links without a target are not changed to open a
+new tab, and named targets are removed. Image `src` and parsed `srcset` candidates
+also support `data:image/...` and `blob:` URLs. This extension is image-scoped:
+hyperlink URL schemes retain the default policy. Ammonia does not validate
+`srcset` candidates, so the shared renderer uses LazyHTML and a candidate
+tokenizer before sanitization, retaining only validated image values. Blob URLs
+must still exist in the viewing browser's origin/storage context and remain
+unrevoked; the renderer does not transfer or host their contents.
 - `:markdown` -> body kept as markdown and stamped in `metadata.format` so the
   provider adapter can render it
 

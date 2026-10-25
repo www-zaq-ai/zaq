@@ -951,10 +951,8 @@
                     </span>
                   </div>
                   <% html =
-                    Earmark.as_html!(String.trim(post["message"] || ""),
-                      breaks: true,
-                      escape: false,
-                      smartypants: false
+                    ZaqWeb.Helpers.Markdown.render(String.trim(post["message"] || ""),
+                      smart: false
                     ) %>
                   <div class="text-[0.78rem] text-black/65 leading-relaxed break-words [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ul]:list-disc [&>ul]:pl-4 [&>ul]:mb-1.5 [&>ol]:list-decimal [&>ol]:pl-4 [&>ol]:mb-1.5 [&>blockquote]:border-l-2 [&>blockquote]:border-black/15 [&>blockquote]:pl-3 [&>blockquote]:text-black/40 [&>blockquote]:italic [&>blockquote]:my-1 [&>pre]:bg-black/5 [&>pre]:rounded-lg [&>pre]:px-3 [&>pre]:py-2 [&>pre]:my-1.5 [&>pre]:overflow-x-auto [&_code]:bg-black/5 [&_code]:px-1 [&_code]:rounded [&_code]:text-[0.72rem] [&>pre_code]:bg-transparent [&>pre_code]:p-0 [&_strong]:font-semibold [&_a]:text-[#0058CC] [&_a]:underline">
                     {Phoenix.HTML.raw(html)}
@@ -1010,10 +1008,8 @@
                           </span>
                         </div>
                         <% reply_html =
-                          Earmark.as_html!(String.trim(reply["message"] || ""),
-                            breaks: true,
-                            escape: false,
-                            smartypants: false
+                          ZaqWeb.Helpers.Markdown.render(String.trim(reply["message"] || ""),
+                            smart: false
                           ) %>
                         <div class="text-[0.75rem] text-black/60 leading-relaxed break-words [&>p]:mb-1 [&>p:last-child]:mb-0 [&_strong]:font-semibold [&_code]:bg-black/5 [&_code]:px-1 [&_code]:rounded [&_code]:text-[0.68rem]">
                           {Phoenix.HTML.raw(reply_html)}

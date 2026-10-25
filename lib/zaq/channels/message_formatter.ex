@@ -18,8 +18,8 @@ defmodule Zaq.Channels.MessageFormatter do
 
   - `nil` / unset / `:markdown`: source markdown is passed through and stamped
   - `:none`: no transformation and no format stamp
-  - `:plain_text`: markdown -> html (`Earmark`) -> plain text
-  - `:html`: markdown -> html (`Earmark`)
+  - `:plain_text`: markdown -> html (`MDEx`) -> plain text
+  - `:html`: markdown -> html (`MDEx`)
 
   Notes:
 
@@ -173,12 +173,6 @@ defmodule Zaq.Channels.MessageFormatter do
   end
 
   defp markdown_to_html(text) when is_binary(text) do
-    case Earmark.as_html(text, escape: true, breaks: true) do
-      {:ok, html, _messages} when is_binary(html) -> {:ok, html}
-      {:error, _html, _messages} = error -> error
-      other -> {:error, {:invalid_earmark_output, other}}
-    end
-  rescue
-    error -> {:error, error}
+    Zaq.Markdown.to_html(text)
   end
 end

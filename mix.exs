@@ -108,7 +108,7 @@ defmodule Zaq.MixProject do
       {:hammer, "~> 7.5.0"},
       {:pgvector, "~> 0.3.1"},
       {:oban, "~> 2.20.3"},
-      {:earmark, "~> 1.4.48"},
+      {:mdex, "~> 0.13.5"},
       {:nimble_csv, "~> 1.2"},
       {:mailroom, "~> 0.7.1"},
       {:lingua, "~> 0.3.6"},
