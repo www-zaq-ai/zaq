@@ -123,7 +123,7 @@ defmodule Zaq.MixProject do
       # {:jido_chat, "~> 1.0"},
       # {:jido_chat,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat", override: true},
-      {:jido_chat, "~> 1.1.0"},
+      {:jido_chat, "~> 1.2.0"},
       {:jido_chat_discord, "~> 1.0"},
       # {:jido_chat_mattermost,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat_mattermost",
