@@ -20,6 +20,7 @@ defmodule Zaq.Channels.EmailBridge do
   require Logger
 
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.DeliveryFiles
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Channels.EmailBridge.SelfAddresses
   alias Zaq.Contracts.Record
@@ -211,16 +212,18 @@ defmodule Zaq.Channels.EmailBridge do
 
   Reads subject and html_body from `outgoing.metadata` (keys `:subject` / `"subject"`
   and `:html_body` / `"html_body"`). Falls back to a default subject if missing.
+  Prepares all attachments with the connection's trusted context before delivery,
+  retaining their bytes until the synchronous SMTP sender returns.
   """
   @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
-  def send_reply(%Outgoing{} = outgoing, _connection_details) do
+  def send_reply(%Outgoing{} = outgoing, connection_details) do
     with {:ok, smtp_config_id} <- reply_smtp_config_id(outgoing) do
-      send_reply_with_smtp(outgoing, smtp_config_id)
+      send_reply_with_smtp(outgoing, smtp_config_id, connection_details)
     end
   end
 
-  defp send_reply_with_smtp(outgoing, smtp_config_id) do
+  defp send_reply_with_smtp(outgoing, smtp_config_id, connection_details) do
     # Two independent predicates. `inbound_reply?` is about *provenance* (are we
     # answering an email someone sent us) and drives the `Re:` prefix. Continuity
     # (do we have a parent to point at) comes from `thread_anchor`/`in_reply_to`
@@ -251,7 +254,17 @@ defmodule Zaq.Channels.EmailBridge do
       |> maybe_put("from_email", from_email)
       |> maybe_put("from_name", from_name)
 
-    case deliver_email_reply(outgoing, payload, smtp_config_id) do
+    result =
+      DeliveryFiles.with_prepared(
+        outgoing.attachments,
+        Map.get(connection_details, :trusted_context, %{}),
+        fn files ->
+          deliver_email_reply(outgoing, Map.put(payload, "attachments", files), smtp_config_id)
+        end,
+        connection_details |> Map.take([:node_router]) |> Map.to_list()
+      )
+
+    case result do
       :ok ->
         {:ok, delivery_receipt(threading)}
 
