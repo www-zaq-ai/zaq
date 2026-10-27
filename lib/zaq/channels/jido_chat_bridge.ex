@@ -7,7 +7,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   Jido.Chat event handling happen atomically.
 
   `send_reply/2` is called by Channels API for outbound delivery to any
-  jido_chat-backed platform.
+  jido_chat-backed platform. Explicit file Records use shared preparation and
+  existing adapter uploads as documents. File deliveries create a final post;
+  receipts and reply callbacks use its provider ID. Placeholder updates are
+  best effort and never change the provider delivery result.
 
   `register_handlers/3` is called to attach function handlers per events
 
@@ -24,11 +27,13 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Jido.Chat
   alias Jido.Chat.Adapter
   alias Jido.Chat.Capabilities
+  alias Jido.Chat.FileUpload
   alias Jido.Chat.Media
   alias Jido.Chat.Thread
 
   alias Zaq.Channels.{
     Bridge,
+    DeliveryFiles,
     RetrievalChannel,
     Supervisor,
     WebhookUrl
@@ -490,8 +495,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   """
   @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
-  def send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
-    do_send_reply(outgoing, %{url: url, token: token})
+  def send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection_details) do
+    do_send_reply(outgoing, connection_details)
   end
 
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
@@ -1855,14 +1860,91 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @doc "Sends a reply outbound via the provider adapter. Called by the bridge state process."
-  def do_send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection) do
+  def do_send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection_details) do
     case adapter_for(outgoing.provider) do
       {:ok, adapter_module} ->
-        handle_send_with_adapter(outgoing, adapter_module, connection)
+        if outgoing.attachments == [] do
+          handle_send_with_adapter(outgoing, adapter_module, connection_details)
+        else
+          send_files_with_adapter(outgoing, adapter_module, connection_details)
+        end
 
       {:error, _reason} ->
         {:error, {:unsupported_provider, outgoing.provider}}
     end
+  end
+
+  defp send_files_with_adapter(outgoing, adapter, details) do
+    result =
+      DeliveryFiles.with_prepared(
+        outgoing.attachments,
+        Map.get(details, :trusted_context, %{}),
+        fn prepared ->
+          files =
+            Enum.map(prepared, fn file ->
+              %FileUpload{
+                kind: :file,
+                data: file.content,
+                filename: file.name,
+                media_type: file.mime_type,
+                size_bytes: file.size
+              }
+            end)
+
+          opts = [files: files] ++ local_transport_opts(details)
+          create_and_dispatch_reply(outgoing, adapter, details, opts)
+        end
+      )
+
+    update_file_status(outgoing, adapter, details, result)
+    result
+  end
+
+  defp update_file_status(outgoing, adapter, details, result) do
+    message_id = metadata_message_id(outgoing.metadata)
+
+    if is_present_message_id(message_id) and supports_message_updates?(adapter) do
+      edit_message(
+        outgoing.provider,
+        adapter,
+        outgoing.channel_id,
+        message_id,
+        file_status_text(result),
+        details,
+        %{metadata: %{}},
+        local_transport_opts(details)
+      )
+    end
+  rescue
+    _ -> Logger.warning("[JidoChatBridge] file delivery status update failed")
+  catch
+    _, _ -> Logger.warning("[JidoChatBridge] file delivery status update failed")
+  end
+
+  defp file_status_text({:ok, _}), do: "Files sent."
+
+  defp file_status_text({:error, :multiple_attachments_unsupported}),
+    do:
+      "These files could not be sent together. The provider does not support multiple attachments."
+
+  defp file_status_text({:error, {413, _}}),
+    do: "The provider rejected the files as too large."
+
+  defp file_status_text({:error, reason}) do
+    if unconfirmed_file_delivery?(reason),
+      do: "File delivery could not be confirmed. Check the conversation before sending again.",
+      else: "Files could not be sent."
+  end
+
+  defp unconfirmed_file_delivery?(reason) when reason in [:timeout, :unconfirmed_delivery],
+    do: true
+
+  defp unconfirmed_file_delivery?({:timeout, _}), do: true
+  defp unconfirmed_file_delivery?(%{reason: :timeout}), do: true
+  defp unconfirmed_file_delivery?(_reason), do: false
+
+  defp local_transport_opts(details) do
+    details |> Map.take([:transport]) |> Map.to_list()
   end
 
   defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, connection) do
@@ -1896,7 +1978,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, connection) do
+  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, connection, opts \\ []) do
     metadata = outgoing.metadata || %{}
 
     with {:ok, %{message_id: post_id}} <-
@@ -1907,7 +1989,8 @@ defmodule Zaq.Channels.JidoChatBridge do
              outgoing.thread_id,
              outgoing.body,
              connection,
-             metadata
+             metadata,
+             opts
            ) do
       canonical_id = ConversationIdentity.normalize(post_id)
       dispatch_on_reply(outgoing.metadata, canonical_id)
@@ -1976,6 +2059,8 @@ defmodule Zaq.Channels.JidoChatBridge do
       Logger.warning(
         "[JidoChatBridge] on_reply dispatch failed for #{inspect(mod_str)}: #{Exception.message(e)}"
       )
+  catch
+    _, _ -> Logger.warning("[JidoChatBridge] on_reply dispatch failed")
   end
 
   defp dispatch_on_reply(_metadata, _post_id), do: :ok
@@ -1987,7 +2072,8 @@ defmodule Zaq.Channels.JidoChatBridge do
          thread_id,
          body,
          %{url: url, token: token} = connection,
-         metadata
+         metadata,
+         opts \\ []
        ) do
     effective_thread_id = thread_id || channel_id
 
@@ -2001,28 +2087,55 @@ defmodule Zaq.Channels.JidoChatBridge do
         metadata: %{url: url, token: token}
       })
 
-    post_body = build_post_body(body, metadata)
+    with {:ok, post_body} <- file_post_body(body, metadata, Keyword.get(opts, :files, [])),
+         {:ok, post} <-
+           Chat.Thread.post(
+             thread,
+             post_body,
+             format_delivery_opts(provider, connection, metadata) ++
+               Keyword.take(opts, [:transport])
+           ) do
+      message_id =
+        if Keyword.get(opts, :files, []) == [],
+          do: post.id,
+          else: post.response.external_message_id
 
-    case Chat.Thread.post(thread, post_body, format_delivery_opts(provider, connection, metadata)) do
-      {:ok, post} ->
+      if is_present_message_id(message_id) do
         {:ok,
          %{
            action: :created,
-           message_id: post.id
+           message_id: message_id
          }}
-
-      {:error, reason} ->
-        {:error, reason}
+      else
+        {:error, :unconfirmed_delivery}
+      end
     end
   end
 
-  defp edit_message(provider, adapter_module, channel_id, message_id, body, connection, request) do
+  defp file_post_body(body, metadata, []), do: {:ok, build_post_body(body, metadata)}
+
+  defp file_post_body(body, metadata, files) when is_binary(body),
+    do: {:ok, Map.put(build_post_body(body, metadata), :files, files)}
+
+  defp file_post_body(_body, _metadata, _files), do: {:error, :invalid_postable}
+
+  defp edit_message(
+         provider,
+         adapter_module,
+         channel_id,
+         message_id,
+         body,
+         connection,
+         request,
+         extra_opts \\ []
+       ) do
     metadata = Map.get(request, :metadata, %{})
 
     opts =
       (AdapterOptions.build(provider, connection) ++
          [update_intent: Map.get(request, :update_intent)])
       |> maybe_put_format_from_metadata(metadata)
+      |> Keyword.merge(Keyword.take(extra_opts, [:transport]))
 
     result = adapter_module.edit_message(channel_id, message_id, body, opts)
 

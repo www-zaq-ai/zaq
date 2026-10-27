@@ -9,12 +9,64 @@ defmodule Zaq.Channels.TelegramHistoryDeliveryTest do
   alias Zaq.Agent.Status
   alias Zaq.Channels.{Api, CommunicationBridge, JidoChatBridge}
   alias Zaq.Channels.JidoChatBridge.DeliveryResult
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.{ChannelConfig, Conversations, HistoryIngress}
   alias Zaq.Engine.Conversations.{Message, TranscriptMessage}
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.TestSupport.OpenAIStub
+
+  defmodule DocumentTransport do
+    def call(_token, method, payload, _opts) do
+      send(self(), {:document_call, method, payload})
+
+      {:ok,
+       %{
+         "message_id" => 101,
+         "date" => 1,
+         "chat" => %{"id" => 123},
+         "document" => %{
+           "file_id" => "upload-id",
+           "file_name" => "image.png",
+           "mime_type" => "image/png"
+         }
+       }}
+    end
+  end
+
+  test "an image attachment uses the real adapter document operation with exact file bytes", %{
+    config: config
+  } do
+    bytes = <<255, 0, 128>>
+
+    outgoing = %Outgoing{
+      provider: :telegram,
+      channel_id: "123",
+      body: "Image as a file",
+      attachments: [
+        %Record{
+          id: "image",
+          kind: :file,
+          name: "image.png",
+          mime_type: "image/png",
+          content: bytes
+        }
+      ]
+    }
+
+    assert {:ok, %{confirmation: :confirmed, message_id: "101"}} =
+             JidoChatBridge.send_reply(outgoing, %{
+               url: config.url,
+               token: config.token,
+               transport: DocumentTransport
+             })
+
+    assert_received {:document_call, "sendDocument", payload}
+    assert payload["document"] == {:file_content, bytes, "image.png"}
+    assert payload["caption"] == "Image as a file"
+    refute_received {:document_call, _, _}
+  end
 
   setup context do
     previous = Application.get_env(:zaq, :channels)
