@@ -670,6 +670,55 @@ defmodule Zaq.Channels.ApiTest do
     assert %{delivered_outgoing | metadata: %{}} == outgoing
   end
 
+  test "file delivery passes only envelope identity through the existing connection map" do
+    actor = %{person_id: 123}
+    record = %Record{id: "explicit-file", kind: :file, content: <<255, 0>>}
+
+    outgoing = %Outgoing{
+      body: "file",
+      channel_id: "c1",
+      provider: :web,
+      attachments: [record],
+      metadata: %{actor: %{person_id: 999}, skip_permissions: true}
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        actor: actor,
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+      )
+
+    assert Api.handle_event(event, :deliver_outgoing, nil).response == {:ok, %{}}
+    assert_received {:bridge_send_reply, delivered, details}
+    assert delivered.attachments == [record]
+    assert details.trusted_context == %TrustedContext{actor: actor, skip_permissions: false}
+    assert details.token == "token"
+  end
+
+  test "file delivery carries explicit trusted bypass without inferring it from missing identity" do
+    outgoing = %Outgoing{
+      body: "file",
+      channel_id: "c1",
+      provider: :web,
+      attachments: [%Record{id: "file", kind: :file, content: "bytes"}]
+    }
+
+    for bypass <- [false, true] do
+      event =
+        Event.new(outgoing, :channels,
+          opts: [
+            action: :deliver_outgoing,
+            bridge_module: StubCommunicationBridge,
+            skip_permissions: bypass
+          ]
+        )
+
+      assert Api.handle_event(event, :deliver_outgoing, nil).response == {:ok, %{}}
+      assert_received {:bridge_send_reply, _, details}
+      assert details.trusted_context == %TrustedContext{actor: nil, skip_permissions: bypass}
+    end
+  end
+
   test "final publication derives tool steps without replacing internal invocation evidence" do
     calls = [
       %{

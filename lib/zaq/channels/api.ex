@@ -208,7 +208,7 @@ defmodule Zaq.Channels.Api do
 
       response =
         formatted_outgoing
-        |> bridge.send_reply(connection_details)
+        |> bridge.send_reply(delivery_context(connection_details, outgoing, event))
         |> normalize_delivery_response()
         |> DeliveryConfirmation.record(outgoing, event.opts)
 
@@ -1062,6 +1062,11 @@ defmodule Zaq.Channels.Api do
       {:ok, config, bridge_module.fetch_connection_details(provider)}
     end
   end
+
+  defp delivery_context(details, %Outgoing{attachments: []}, _event), do: details
+
+  defp delivery_context(details, %Outgoing{}, event),
+    do: Map.put(details, :trusted_context, TrustedContext.from_event(event))
 
   defp delivery_connection(bridge_module, %Outgoing{provider: provider}, _opts)
        when provider in [:web, "web"],
