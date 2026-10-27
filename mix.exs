@@ -35,7 +35,7 @@ defmodule Zaq.MixProject do
   def application do
     [
       mod: {Zaq.Application, []},
-      extra_applications: [:logger, :runtime_tools, :crypto]
+      extra_applications: [:logger, :runtime_tools, :crypto, :mnesia]
     ]
   end
 
@@ -123,7 +123,7 @@ defmodule Zaq.MixProject do
       # {:jido_chat, "~> 1.0"},
       # {:jido_chat,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat", override: true},
-      {:jido_chat, "~> 1.2.0"},
+      {:jido_chat, github: "agentjido/jido_chat", branch: "main", override: true},
       {:jido_chat_discord, "~> 1.0"},
       # {:jido_chat_mattermost,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat_mattermost",
@@ -134,6 +134,8 @@ defmodule Zaq.MixProject do
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat_telegram",
       #  override: true},
       {:jido_chat_telegram, github: "agentjido/jido_chat_telegram", branch: "main"},
+      {:jido_chat_whatsapp, github: "agentjido/jido_chat_whatsapp", branch: "main"},
+      {:qr_code, "~> 3.2.0"},
       {:jido_ai, github: "agentjido/jido_ai", branch: "main", override: true},
       # {:jido_ai, path: "/Users/julien/Documents/Repos/Github/OSS/jido/jido_ai", override: true},
       # Bump zoi to avoid conflicts with deps using the old 0.17.1 (jido_connect)

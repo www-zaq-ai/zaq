@@ -593,3 +593,19 @@ When adding a new key/token/password field:
 - Keep encryption key in secret storage (Kubernetes Secret, Vault, cloud secret manager, etc.)
 - Do not commit raw key values in repository files
 - For local development, prefer env vars loaded via untracked local secret files
+
+## Connector session state
+
+Connector credential documents use canonical encrypted org `api_key` grants as
+opaque runtime state, not outbound HTTP bearer tokens or OAuth device tokens.
+Connector settings hold references, never protocol secrets. Retain the database
+and its encryption key across application/container restarts. Authorization,
+binding checks and record operations follow the
+[Engine document contract](engine.md#connector-credential-documents).
+
+Adapter packages own the division between durable and volatile state, storage
+backends and recovery semantics. The host passes private storage requests through
+a trusted sink; Engine owns authorized encrypted persistence. Transport-specific
+namespaces, retention, cleanup and deployment requirements follow the adapter's
+contract. Ordinary runtime shutdown and explicit credential cleanup are
+separate operations; follow the [connector lifecycle](engine.md#connector-configuration-persistence).

@@ -81,7 +81,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
       })
     end)
 
-    assert {:ok, dto} = DeviceAttempts.start_global_configuration(nil, attrs(), @opts)
+    assert {:ok, dto} =
+             DeviceAttempts.sign_in({:begin, %{credential_id: nil, attrs: attrs()}}, :org, @opts)
+
     attempt = Repo.get!(DeviceAttempt, dto.attempt_id)
     pid = :erlang.binary_to_term(attempt.worker_pid, [:safe])
     Req.Test.allow(ConnectOAuthAttemptHTTP, self(), pid)
@@ -92,12 +94,12 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
   test "initiation encrypts all transient material and rejects cross-owner status" do
     {dto, attempt, _} = start()
     assert dto.status == "pending"
-    assert dto.user_code == "ABCD-EFGH"
+    assert dto.challenge.code == "ABCD-EFGH"
     refute inspect(dto) =~ "PRIVATE_DEVICE"
     refute inspect(attempt) =~ "PRIVATE_DEVICE"
 
     assert {:error, :not_found} =
-             DeviceAttempts.status(dto.attempt_id, {"person", 1, "wrong"}, @opts)
+             DeviceAttempts.sign_in({:observe, dto.attempt_id}, {"person", 1, "wrong"}, @opts)
 
     assert %{rows: [[material, candidate, code]]} =
              Repo.query!(
@@ -106,17 +108,44 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
              )
 
     assert Enum.all?([material, candidate, code], &String.starts_with?(&1, "enc:"))
-    assert {:ok, %{status: "pending"}} = DeviceAttempts.status(attempt.id, :org, @opts)
+
+    assert {:ok, %{status: "pending"}} =
+             DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
+  end
+
+  test "shared sign-in observation and cancellation preserve OAuth ownership and erase the challenge" do
+    {dto, _attempt, _} = start()
+
+    assert {:ok,
+            %{
+              ref: ref,
+              status: "pending",
+              challenge: %{type: :verification_code, code: "ABCD-EFGH"},
+              dismiss: :detach
+            }} =
+             DeviceAttempts.sign_in({:observe, dto.attempt_id}, :org, @opts)
+
+    assert ref == dto.attempt_id
+
+    assert {:error, :not_found} =
+             DeviceAttempts.sign_in({:observe, ref}, {"person", 1, "other"}, @opts)
+
+    assert {:error, :unsupported} =
+             DeviceAttempts.sign_in({:confirm, ref, "not an OAuth operation"}, :org, @opts)
+
+    assert {:ok, %{status: "cancelled", challenge: nil, observe: false}} =
+             DeviceAttempts.sign_in({:cancel, ref}, :org, @opts)
   end
 
   test "current status during provider initiation does not interrupt the starting attempt" do
     {:ok, dto} = Connect.save_credential_configuration(nil, attrs())
 
     Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
-      assert {:ok, starting} = DeviceAttempts.current(dto.credential_id, :org, @opts)
+      assert {:ok, starting} =
+               DeviceAttempts.sign_in({:observe, {:current, dto.credential_id}}, :org, @opts)
+
       assert starting.status == "initializing"
-      refute Map.has_key?(starting, :user_code)
-      refute Map.has_key?(starting, :verification_uri)
+      assert starting.challenge == nil
       assert Repo.get!(DeviceAttempt, starting.attempt_id).candidate_config != nil
 
       Req.Test.json(conn, %{
@@ -127,7 +156,11 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     end)
 
     assert {:ok, %{status: "pending", attempt_id: id}} =
-             DeviceAttempts.start_global_configuration(dto.credential_id, %{}, @opts)
+             DeviceAttempts.sign_in(
+               {:begin, %{credential_id: dto.credential_id, attrs: %{}}},
+               :org,
+               @opts
+             )
 
     pid = :erlang.binary_to_term(Repo.get!(DeviceAttempt, id).worker_pid, [:safe])
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
@@ -136,7 +169,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
   test "cancellation while initiating prevents late instructions and worker attachment" do
     Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
       attempt = Repo.one!(DeviceAttempt)
-      assert {:ok, %{status: "cancelled"}} = DeviceAttempts.cancel(attempt.id, :org, @opts)
+
+      assert {:ok, %{status: "cancelled"}} =
+               DeviceAttempts.sign_in({:cancel, attempt.id}, :org, @opts)
 
       Req.Test.json(conn, %{
         "device_auth_id" => "PRIVATE",
@@ -146,7 +181,7 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     end)
 
     assert {:error, :oauth_failed} =
-             DeviceAttempts.start_global_configuration(nil, attrs(), @opts)
+             DeviceAttempts.sign_in({:begin, %{credential_id: nil, attrs: attrs()}}, :org, @opts)
 
     assert %{
              status: "cancelled",
@@ -165,8 +200,8 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
       assert DateTime.diff(attempt.initialization_expires_at, attempt.inserted_at) in 29..30
 
       assert {:ok, %{status: "expired"}} =
-               DeviceAttempts.status(
-                 attempt.id,
+               DeviceAttempts.sign_in(
+                 {:observe, attempt.id},
                  :org,
                  Keyword.put(@opts, :now, attempt.initialization_expires_at)
                )
@@ -179,7 +214,11 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     end)
 
     assert {:error, :oauth_failed} =
-             DeviceAttempts.start_global_configuration(dto.credential_id, %{}, @opts)
+             DeviceAttempts.sign_in(
+               {:begin, %{credential_id: dto.credential_id, attrs: %{}}},
+               :org,
+               @opts
+             )
 
     assert %{status: "expired", worker_pid: nil, candidate_config: nil} = Repo.one!(DeviceAttempt)
   end
@@ -198,11 +237,14 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
       end
 
       assert {:ok, status} =
-               DeviceAttempts.status(attempt.id, :org, Keyword.put(@opts, :now, clock))
+               DeviceAttempts.sign_in(
+                 {:observe, attempt.id},
+                 :org,
+                 Keyword.put(@opts, :now, clock)
+               )
 
       assert status.status == "expired"
-      refute Map.has_key?(status, :user_code)
-      refute Map.has_key?(status, :verification_uri)
+      assert status.challenge == nil
       assert Agent.get(calls, & &1) == 3
 
       Req.Test.json(conn, %{
@@ -213,7 +255,11 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     end)
 
     assert {:error, :oauth_failed} =
-             DeviceAttempts.start_global_configuration(dto.credential_id, %{}, @opts)
+             DeviceAttempts.sign_in(
+               {:begin, %{credential_id: dto.credential_id, attrs: %{}}},
+               :org,
+               @opts
+             )
 
     attempt = Repo.one!(DeviceAttempt)
     assert attempt.status == "expired"
@@ -253,10 +299,11 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     assert Repo.get_by!(Grant, credential_id: id, owner_type: "org").access_token == "ACCESS"
     Process.exit(pid, :kill)
 
-    assert {:ok, %{status: "active", credential_id: ^id}} =
-             DeviceAttempts.status(attempt.id, :org, @opts)
+    assert {:ok,
+            %{status: "active", credential_id: ^id, completion: %{kind: :credential, id: ^id}}} =
+             DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
 
-    assert {:ok, %{status: "active"}} = DeviceAttempts.cancel(attempt.id, :org, @opts)
+    assert {:ok, %{status: "active"}} = DeviceAttempts.sign_in({:cancel, attempt.id}, :org, @opts)
     assert Repo.get!(DeviceAttempt, attempt.id).device_material == nil
   end
 
@@ -270,7 +317,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     assert {:ok, %{status: "pending", interval: 905}} =
              DeviceAttempts.poll(attempt.id, pid, @opts)
 
-    assert {:ok, %{status: "cancelled"}} = DeviceAttempts.cancel(attempt.id, :org, @opts)
+    assert {:ok, %{status: "cancelled"}} =
+             DeviceAttempts.sign_in({:cancel, attempt.id}, :org, @opts)
+
     assert {:ok, %{status: "cancelled"}} = DeviceAttempts.poll(attempt.id, pid, @opts)
 
     assert %{device_material: nil, candidate_config: nil, user_code: nil} =
@@ -293,9 +342,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
         ids_before = Repo.all(from a in DeviceAttempt, select: a.id) |> MapSet.new()
 
         assert {:error, :oauth_failed} =
-                 DeviceAttempts.start_global_configuration(
-                   nil,
-                   attrs(),
+                 DeviceAttempts.sign_in(
+                   {:begin, %{credential_id: nil, attrs: attrs()}},
+                   :org,
                    Keyword.put(@opts, :device_http_client, client)
                  )
 
@@ -385,7 +434,11 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     end)
 
     assert {:ok, started} =
-             DeviceAttempts.start_global_configuration(dto.credential_id, %{}, @opts)
+             DeviceAttempts.sign_in(
+               {:begin, %{credential_id: dto.credential_id, attrs: %{}}},
+               :org,
+               @opts
+             )
 
     attempt = Repo.get!(DeviceAttempt, started.attempt_id)
     pid = :erlang.binary_to_term(attempt.worker_pid, [:safe])
@@ -429,7 +482,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     {_dto, attempt, pid} = start()
 
     Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
-      assert {:ok, %{status: "cancelled"}} = DeviceAttempts.cancel(attempt.id, :org, @opts)
+      assert {:ok, %{status: "cancelled"}} =
+               DeviceAttempts.sign_in({:cancel, attempt.id}, :org, @opts)
+
       conn |> Plug.Conn.put_status(429) |> Req.Test.json(%{"error" => "slow_down"})
     end)
 
@@ -441,11 +496,17 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
 
   test "status rejects invalid identities and expires exactly at the deadline" do
     {_dto, attempt, _pid} = start()
-    assert {:error, :not_found} = DeviceAttempts.status(17, :org, @opts)
-    assert {:error, :not_found} = DeviceAttempts.status(attempt.id, {:person, 17}, @opts)
+    assert {:error, :not_found} = DeviceAttempts.sign_in({:observe, 17}, :org, @opts)
+
+    assert {:error, :not_found} =
+             DeviceAttempts.sign_in({:observe, attempt.id}, {:person, 17}, @opts)
 
     assert {:ok, %{status: "expired"}} =
-             DeviceAttempts.status(attempt.id, :org, Keyword.put(@opts, :now, attempt.expires_at))
+             DeviceAttempts.sign_in(
+               {:observe, attempt.id},
+               :org,
+               Keyword.put(@opts, :now, attempt.expires_at)
+             )
 
     assert %{device_material: nil, candidate_config: nil, user_code: nil} =
              Repo.get!(DeviceAttempt, attempt.id)
@@ -462,7 +523,7 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     end
 
     assert {:ok, %{status: "expired"}} =
-             DeviceAttempts.status(attempt.id, :org, Keyword.put(@opts, :now, clock))
+             DeviceAttempts.sign_in({:observe, attempt.id}, :org, Keyword.put(@opts, :now, clock))
 
     assert Repo.get!(DeviceAttempt, attempt.id).device_material == nil
   end
@@ -470,7 +531,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
   test "a pending attempt without an attached worker becomes interrupted" do
     {_dto, attempt, pid} = start()
     Repo.update!(Ecto.Changeset.change(attempt, worker_pid: nil))
-    assert {:ok, %{status: "interrupted"}} = DeviceAttempts.status(attempt.id, :org, @opts)
+
+    assert {:ok, %{status: "interrupted"}} =
+             DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
 
     assert %{device_material: nil, candidate_config: nil, user_code: nil} =
              Repo.get!(DeviceAttempt, attempt.id)
@@ -484,14 +547,18 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     opts = [config: Zaq.TestSupport.ConnectEncryptionConfig, encryption_config: []]
 
     assert {:error, :encryption_failed} =
-             DeviceAttempts.start_global_configuration(nil, attrs(), opts)
+             DeviceAttempts.sign_in({:begin, %{credential_id: nil, attrs: attrs()}}, :org, opts)
 
     assert Repo.aggregate(DeviceAttempt, :count) == before_count
 
     invalid_attrs = Map.put(attrs(), :metadata, %{})
 
     assert {:error, :invalid_attempt} =
-             DeviceAttempts.start_global_configuration(nil, invalid_attrs, @opts)
+             DeviceAttempts.sign_in(
+               {:begin, %{credential_id: nil, attrs: invalid_attrs}},
+               :org,
+               @opts
+             )
 
     assert Repo.aggregate(DeviceAttempt, :count) == before_count
   end
@@ -505,7 +572,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
 
     assert Repo.get!(DeviceAttempt, attempt.id).worker_pid == original_worker_pid
 
-    assert {:ok, %{status: "pending"}} = DeviceAttempts.status(attempt.id, :org, @opts)
+    assert {:ok, %{status: "pending"}} =
+             DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
+
     assert Process.alive?(pid)
   end
 
@@ -528,7 +597,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     assert updated.interval == 6
     assert updated.worker_pid == attempt.worker_pid
 
-    assert {:ok, %{status: "cancelled"}} = DeviceAttempts.cancel(attempt.id, :org, @opts)
+    assert {:ok, %{status: "cancelled"}} =
+             DeviceAttempts.sign_in({:cancel, attempt.id}, :org, @opts)
+
     send(pid, :poll)
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 3_000
     assert Repo.get!(DeviceAttempt, attempt.id).device_material == nil
@@ -540,7 +611,10 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
     assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
-    assert {:ok, %{status: "interrupted"}} = DeviceAttempts.status(attempt.id, :org, @opts)
+
+    assert {:ok, %{status: "interrupted"}} =
+             DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
+
     assert {:error, :invalid_attempt} = DeviceAttempts.attach_worker(attempt.id, self())
     assert Repo.get!(DeviceAttempt, attempt.id).device_material == nil
   end
@@ -556,7 +630,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     {_dto, attempt, pid} = start()
 
     Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
-      assert {:ok, %{status: "cancelled"}} = DeviceAttempts.cancel(attempt.id, :org, @opts)
+      assert {:ok, %{status: "cancelled"}} =
+               DeviceAttempts.sign_in({:cancel, attempt.id}, :org, @opts)
+
       Req.Test.json(conn, %{"authorization_code" => "CODE", "code_verifier" => "VERIFIER"})
     end)
 
@@ -596,7 +672,7 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     pid = :erlang.binary_to_term(attempt.worker_pid, [:safe])
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
     assert attempt.owner_id == person.id
-    assert {:error, :not_found} = DeviceAttempts.status(attempt.id, :org, @opts)
+    assert {:error, :not_found} = DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
 
     assert {:ok, %{attempt_id: id}} =
              PeopleAuthGateway.dispatch(
@@ -630,7 +706,7 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
     {_dto, attempt, pid} = start()
     assert {:ok, 1} = DeviceAttempts.reconcile(now: attempt.expires_at)
     assert Repo.get(DeviceAttempt, attempt.id) == nil
-    assert {:error, :not_found} = DeviceAttempts.status(attempt.id, :org, @opts)
+    assert {:error, :not_found} = DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
     assert {:error, :invalid_attempt} = DeviceAttempts.poll(attempt.id, pid, @opts)
   end
 
@@ -653,7 +729,9 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
 
     assert_receive :worker_polled, 3_000
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 3_000
-    assert {:ok, %{status: "denied"}} = DeviceAttempts.status(attempt.id, :org, @opts)
+
+    assert {:ok, %{status: "denied"}} =
+             DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
   end
 
   test "configuration edits invalidate pending reauthorization and preserve the old grant" do
@@ -670,13 +748,21 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
       })
     end)
 
-    assert {:ok, start} = DeviceAttempts.start_global_configuration(dto.credential_id, %{}, @opts)
+    assert {:ok, start} =
+             DeviceAttempts.sign_in(
+               {:begin, %{credential_id: dto.credential_id, attrs: %{}}},
+               :org,
+               @opts
+             )
+
     attempt = Repo.get!(DeviceAttempt, start.attempt_id)
     pid = :erlang.binary_to_term(attempt.worker_pid, [:safe])
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)
     credential = Repo.get!(Credential, dto.credential_id)
     Repo.update!(Ecto.Changeset.change(credential, scopes: ["changed"]))
-    assert {:ok, %{status: "failed"}} = DeviceAttempts.status(attempt.id, :org, @opts)
+
+    assert {:ok, %{status: "failed"}} =
+             DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
 
     assert Repo.get_by!(Grant, credential_id: credential.id, owner_type: "org").access_token ==
              "OLD_ACCESS"
@@ -688,12 +774,17 @@ defmodule Zaq.Engine.Connect.DeviceAttemptsTest do
       ref = Process.monitor(pid)
       Process.exit(pid, :kill)
       assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
-      if cancel_first, do: DeviceAttempts.cancel(attempt.id, :org, @opts)
-      assert {:ok, %{status: status}} = DeviceAttempts.status(attempt.id, :org, @opts)
+      if cancel_first, do: DeviceAttempts.sign_in({:cancel, attempt.id}, :org, @opts)
+
+      assert {:ok, %{status: status}} =
+               DeviceAttempts.sign_in({:observe, attempt.id}, :org, @opts)
+
       assert status in ["cancelled", "interrupted"]
 
       for _ <- 1..repetitions do
-        assert {:ok, %{status: ^status}} = DeviceAttempts.cancel(attempt.id, :org, @opts)
+        assert {:ok, %{status: ^status}} =
+                 DeviceAttempts.sign_in({:cancel, attempt.id}, :org, @opts)
+
         assert {:ok, %{status: ^status}} = DeviceAttempts.poll(attempt.id, pid, @opts)
       end
     end

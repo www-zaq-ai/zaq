@@ -155,7 +155,7 @@ defmodule Zaq.Channels.SupervisorTest do
   end
 
   defp with_stopped_bridge_supervisor(fun) do
-    :ok = Elixir.Supervisor.terminate_child(Supervisor, BridgeSupervisor)
+    :ok = Elixir.Supervisor.terminate_child(Zaq.Channels.Supervisor, BridgeSupervisor)
 
     try do
       fun.()
@@ -164,7 +164,7 @@ defmodule Zaq.Channels.SupervisorTest do
         Elixir.Supervisor.stop(pid)
       end
 
-      {:ok, _} = Elixir.Supervisor.restart_child(Supervisor, BridgeSupervisor)
+      {:ok, _} = Elixir.Supervisor.restart_child(Zaq.Channels.Supervisor, BridgeSupervisor)
     end
   end
 
@@ -482,6 +482,37 @@ defmodule Zaq.Channels.SupervisorTest do
     end)
 
     refute_received {:bootstrap_sync, _, "email:imap", _}
+  end
+
+  test "adapter restart policy replaces only its own listener PID and stop cleans up replacements" do
+    bridge_id = "direct_restart_#{System.unique_integer([:positive])}"
+
+    specs =
+      for id <- [:first, :second],
+          do: %{id: id, start: {Agent, :start_link, [fn -> id end]}, restart: :permanent}
+
+    assert {:ok, %{listener_pids: [first, second]}} =
+             Supervisor.start_runtime(bridge_id, nil, specs)
+
+    on_exit(fn -> Supervisor.stop_bridge_runtime(%{}, bridge_id) end)
+    Agent.stop(first, :listener_failure)
+    children = DynamicSupervisor.which_children(BridgeSupervisor)
+    assert {:ok, %{listener_pids: [replacement, ^second]}} = Supervisor.lookup_runtime(bridge_id)
+    refute replacement == first
+    assert {_, ^replacement, :worker, [Agent]} = List.keyfind(children, replacement, 1)
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
+    refute Process.alive?(replacement)
+    refute Process.alive?(second)
+  end
+
+  test "adapter temporary policy is retained without a listener wrapper" do
+    bridge_id = "direct_temporary_#{System.unique_integer([:positive])}"
+    spec = %{id: :temporary, start: {Agent, :start_link, [fn -> :ok end]}, restart: :temporary}
+    assert {:ok, %{listener_pids: [listener]}} = Supervisor.start_runtime(bridge_id, nil, [spec])
+    Agent.stop(listener, :listener_failure)
+    refute List.keymember?(DynamicSupervisor.which_children(BridgeSupervisor), listener, 1)
+    assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
+    assert :ok = Supervisor.stop_bridge_runtime(%{}, bridge_id)
   end
 
   test "stop_bridge_runtime/2 returns not_running when missing", %{config: config} do

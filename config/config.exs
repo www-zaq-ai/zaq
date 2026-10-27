@@ -7,6 +7,9 @@
 # General application configuration
 import Config
 
+# Linked-device messaging sessions are intentionally volatile, including the schema.
+config :mnesia, schema_location: :ram
+
 # OAuth callback query values are credentials, including opaque one-use state.
 config :phoenix, :filter_parameters, ["password", "token", "secret", "code", "state"]
 
@@ -35,6 +38,11 @@ config :zaq, :channels, %{
     bridge: Zaq.Channels.JidoChatBridge,
     adapter: Jido.Chat.Telegram.Adapter,
     ingress_mode: :webhook
+  },
+  whatsapp: %{
+    bridge: Zaq.Channels.JidoChatBridge,
+    adapter: Jido.Chat.WhatsApp.Adapter,
+    ingress_mode: :linked_device
   },
   google_drive: %{
     bridge: Zaq.Channels.JidoConnectBridge,

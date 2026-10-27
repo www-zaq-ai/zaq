@@ -1,5 +1,7 @@
 defmodule Zaq.People.AuthRateLimiterPeerTest do
   use ExUnit.Case, async: false
+  alias Jido.Chat.WhatsApp.Storage.Runtime, as: SessionStorage
+  alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.PeopleAuthRateLimiter, as: Ingress
   alias Zaq.People.AuthRateLimiter
   alias Zaq.TestSupport.PeopleAuthPeer
@@ -21,6 +23,8 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
                )
 
       root = :peer.call(control, Supervisor, :which_children, [Zaq.Supervisor])
+      applications = :peer.call(control, Application, :started_applications, [])
+      assert List.keymember?(applications, :jido_chat_whatsapp, 0)
       refute List.keymember?(root, Ingress, 0)
       refute List.keymember?(root, Zaq.People.AuthRateLimiter, 0)
 
@@ -31,7 +35,53 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
         children = :peer.call(control, Supervisor, :which_children, [Zaq.Channels.Supervisor])
 
         assert Enum.sort(Enum.map(children, &elem(&1, 0))) ==
-                 Enum.sort([Ingress, Zaq.Channels.BridgeSupervisor])
+                 Enum.sort([
+                   Ingress,
+                   Zaq.Channels.BridgeSupervisor
+                 ])
+
+        # This fixture starts with no providers configured. Storage belongs to
+        # provider bootstrap, not to the static Channels role supervisor.
+        assert nil == :peer.call(control, Process, :whereis, [SessionStorage])
+
+        refute :jido_chat_whatsapp_sessions in :peer.call(control, :mnesia, :system_info, [
+                 :tables
+               ])
+
+        whatsapp = %{
+          whatsapp: %{
+            bridge: JidoChatBridge,
+            adapter: Jido.Chat.WhatsApp.Adapter,
+            ingress_mode: :linked_device
+          }
+        }
+
+        assert :ok = :peer.call(control, Application, :put_env, [:zaq, :channels, whatsapp])
+
+        assert :ok =
+                 :peer.call(control, JidoChatBridge, :sync_provider_runtime, [
+                   {:provider, :whatsapp},
+                   []
+                 ])
+
+        children =
+          :peer.call(control, DynamicSupervisor, :which_children, [Zaq.Channels.BridgeSupervisor])
+
+        assert {_, store, :supervisor, [SessionStorage]} =
+                 Enum.find(children, fn {_, _, _, modules} -> modules == [SessionStorage] end)
+
+        assert {:ok, %{state_pid: nil, listener_pids: [^store]}} =
+                 :peer.call(control, Zaq.Channels.Supervisor, :lookup_runtime, [
+                   "provider:whatsapp"
+                 ])
+
+        assert :ram_copies ==
+                 :peer.call(control, :mnesia, :table_info, [
+                   :jido_chat_whatsapp_sessions,
+                   :storage_type
+                 ])
+
+        refute :peer.call(control, :mnesia, :system_info, [:use_dir])
 
         assert peer_node ==
                  :peer.call(control, Zaq.NodeRouter, :find_node, [Zaq.Channels.Supervisor])
@@ -39,6 +89,10 @@ defmodule Zaq.People.AuthRateLimiterPeerTest do
         assert nil == :peer.call(control, Process, :whereis, [Zaq.Channels.Supervisor])
         assert nil == :peer.call(control, Process, :whereis, [Zaq.Channels.BridgeSupervisor])
         assert nil == :peer.call(control, Process, :whereis, [Ingress])
+
+        refute :jido_chat_whatsapp_sessions in :peer.call(control, :mnesia, :system_info, [
+                 :tables
+               ])
       end
 
       if :engine in roles do

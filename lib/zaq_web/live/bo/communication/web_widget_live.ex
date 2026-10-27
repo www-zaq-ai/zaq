@@ -179,18 +179,12 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     config = Enum.find(socket.assigns.configs, &(to_string(&1.id) == id))
 
     case archive_configuration(socket, config) do
-      {:ok, result} ->
+      {:ok, _result} ->
         socket = socket |> reload(nil) |> assign(:modal_open, false)
-
-        message =
-          if match?({:pending, _}, result.runtime),
-            do: "Configuration archived; runtime cleanup is pending.",
-            else: "Configuration archived."
-
-        {:noreply, put_flash(socket, :info, message)}
+        {:noreply, put_flash(socket, :info, "Configuration archived.")}
 
       {:error, reason} ->
-        {:noreply, failure(socket, reason)}
+        {:noreply, socket |> reload(selected_id(socket)) |> failure(reason)}
     end
   end
 

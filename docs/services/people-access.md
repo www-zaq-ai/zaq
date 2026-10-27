@@ -441,9 +441,9 @@ per owner: Engine keeps its existing name; Channels uses
 listeners use the corresponding `.Listener` names. PubSub topics are
 `zaq:people_auth:issuance:v1` and `zaq:people_auth:identification:v1`.
 Combined-role nodes start both once, without sharing counters or adapter lifecycle.
-The Channels parent uses `:one_for_one`: bridge runtime restarts preserve the
-limiter; restarting the whole limiter resets its local counters and config cache
-without restarting bridges. Parent shutdown stops both subtrees.
+The Channels parent uses `:one_for_one`. Bridge restarts preserve limiter counters
+and cache; restarting the limiter resets only its own local resources. Parent
+shutdown stops both subtrees. See [Channels supervision](channels.md#supervisor).
 
 Dependency **Hammer 7.5.0** provides built-in `Hammer.ETS` fixed windows. Its local
 counter and application-owned listener follow the official

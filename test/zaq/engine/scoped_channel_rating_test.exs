@@ -2,6 +2,7 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
   use Zaq.DataCase, async: false
   use ExUnitProperties
 
+  alias Amarula.Protocol.Signal.LidMappingFileStore
   alias Jido.Chat.ReactionEvent
   alias Zaq.Accounts.People
   alias Zaq.Channels.{CommunicationBridge, JidoChatBridge}
@@ -14,6 +15,7 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
   alias Zaq.Event
   alias Zaq.Permissions
   alias Zaq.Permissions.ChannelHistoryResource
+  alias Zaq.TestSupport.WhatsAppOfflineTransport
 
   defmodule Router do
     alias Zaq.Engine.Api
@@ -47,6 +49,116 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
     :ok
   end
 
+  @tag :tmp_dir
+  test "WhatsApp phone-number reactions rate the same person as their LID messages", %{
+    tmp_dir: tmp_dir
+  } do
+    alias Amarula.Protocol.Proto
+    alias Jido.Chat.WhatsApp.{Adapter, ConnectionWorker}
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: "WhatsApp reaction identity",
+        provider: "whatsapp",
+        kind: "retrieval",
+        url: "https://example.invalid",
+        token: "token"
+      })
+      |> Repo.insert!()
+
+    profile = "zaq_reaction_#{config.id}"
+
+    start_supervised!(
+      {ConnectionWorker,
+       bridge_id: profile,
+       config: %{profile: profile, test_pid: self(), storage_root: tmp_dir},
+       transport: WhatsAppOfflineTransport,
+       sink_mfa: {__MODULE__, :capture_whatsapp, [self()]}}
+    )
+
+    assert_receive {:offline_connection, {:ok, conn}}
+    phone = "15550001111@s.whatsapp.net"
+    lid = "987654@lid"
+    room = "120363@g.us"
+
+    assert {1, _} =
+             LidMappingFileStore.store_mappings(
+               Amarula.Connection.get_conn(conn),
+               [{lid, phone}]
+             )
+
+    :ok =
+      Amarula.Testing.deliver_text(conn, from: room, participant: lid, text: "Hello", id: "hello")
+
+    assert_receive {:whatsapp_ingress, %{type: :text} = payload}, 1_000
+    assert {:ok, incoming} = Adapter.transform_incoming(payload)
+    assert incoming.external_user_id == lid
+
+    {:ok, person} =
+      People.find_or_create_from_channel("whatsapp", %{
+        channel_id: incoming.external_user_id,
+        channel_config_id: config.id,
+        display_name: "Group member"
+      })
+
+    # No phone-identity registration or People fallback is involved.
+    assert {:error, :not_found} = People.match_by_channel("whatsapp", phone, config.id)
+
+    {:ok, facts} =
+      Facts.new(%{
+        provider: "whatsapp",
+        channel_config_id: config.id,
+        channel_id: room,
+        kind: :channel,
+        actor_person_id: person.id
+      })
+
+    {:ok, captured} =
+      Conversations.capture_canonical_message(
+        facts,
+        %{role: "assistant", content: "Answer", external_message_id: "answer"},
+        %{
+          provider: "whatsapp",
+          channel_config_id: config.id,
+          provenance: "provider_delivery",
+          source_scope: room
+        }
+      )
+
+    for sender <- [phone, lid] do
+      proto = %Proto.Message{
+        reactionMessage: %Proto.Message.ReactionMessage{
+          key: %Proto.MessageKey{remoteJid: room, id: "answer", fromMe: false},
+          text: "👍"
+        }
+      }
+
+      :ok = Amarula.Testing.deliver(conn, proto, from: room, participant: sender)
+      assert_receive {:whatsapp_ingress, %{event_type: :reaction, payload: reaction}}, 1_000
+      assert reaction.user.user_id == lid
+      assert reaction.message_id == "answer"
+      assert :ok = JidoChatBridge.handle_reaction_event(config, reaction)
+    end
+
+    message = Repo.get!(Message, captured.message_id)
+    rating = Conversations.get_rating(message, %{person_id: person.id})
+    assert rating.person_id == person.id
+    assert rating.rating == 5
+    assert rating.message_id == message.id
+
+    assert {:ok, detail} =
+             ChannelHistoryAdmin.dispatch(%{op: :detail, id: captured.transcript_id})
+
+    assert [display] = detail.messages
+    assert display.rating_summary == %{positive: 1, negative: 0}
+  end
+
+  def capture_whatsapp(test_pid, payload, _opts) do
+    send(test_pid, {:whatsapp_ingress, payload})
+    :ok
+  end
+
   test "finalized and confirmed responses retain their UUID and can be rated in direct, shared and threaded history" do
     for provider <- bridge_providers(),
         {kind, thread} <- [{:direct, nil}, {:channel, nil}, {:channel, "root"}] do
@@ -61,20 +173,22 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
         })
         |> Repo.insert!()
 
+      rater = "rater-#{config.id}"
+
       {:ok, person} =
         People.find_or_create_from_channel(provider, %{
-          channel_id: "rater",
+          channel_id: rater,
           channel_config_id: config.id,
           display_name: "Rater"
         })
 
-      scope = if provider == "telegram", do: "room"
+      scope = if provider in ["telegram", "whatsapp"], do: "room"
 
       incoming =
         Incoming.new(%{
           content: "hello",
           channel_id: "room",
-          author_id: "rater",
+          author_id: rater,
           message_id: "root",
           provider: provider,
           routing_context: %{
@@ -166,7 +280,7 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
           message_id: external_id,
           channel_id: "room",
           emoji: if(provider == "mattermost", do: "+1_medium_skin_tone", else: "👍"),
-          user: %{user_id: "rater", user_name: "Rater"}
+          user: %{user_id: rater, user_name: "Rater"}
         })
 
       assert :ok = JidoChatBridge.handle_reaction_event(config, reaction)
@@ -242,7 +356,7 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
           actor_person_id: person.id
         })
 
-      scope = if provider == "telegram", do: "room"
+      scope = if provider in ["telegram", "whatsapp"], do: "room"
 
       {:ok, captured} =
         Conversations.capture_canonical_message(

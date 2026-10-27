@@ -10,6 +10,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Accounts.People
   alias Zaq.Channels.Events, as: ChannelsEvents
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.Actions.CredentialDocument
   alias Zaq.Engine.Actions.ManageWidgetConnector
   alias Zaq.Engine.Actions.SaveEmailConnector
   alias Zaq.Engine.ChannelConfig
@@ -37,6 +38,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Workflows
   alias Zaq.Event
+  alias Zaq.Events.TrustedContext
   alias Zaq.Identity.ExecutionActor
   alias Zaq.InternalBoundaries
   alias Zaq.People.IdentityResolver
@@ -56,6 +58,43 @@ defmodule Zaq.Engine.Api do
         result
       else
         _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :confirm_linked_device, _context) do
+    response =
+      if event.opts[:confidential] == true and event.opts[:linked_device_runtime] == true do
+        case Jido.Exec.run(Zaq.Engine.Actions.ConfirmLinkedDevice, %{request: event.request}, %{
+               actor: event.actor,
+               linked_device_runtime: true,
+               skip_permissions: TrustedContext.from_event(event).skip_permissions
+             }) do
+          {:ok, %{result: result}} -> result
+          {:error, _} = error -> error
+        end
+      else
+        {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :credential_document, _context) do
+    hop = event.next_hop || List.last(event.hops)
+
+    response =
+      if event.opts[:confidential] == true and event.opts[:credential_document_runtime] == true and
+           match?(%{destination: :engine, type: :sync}, hop) do
+        case Jido.Exec.run(CredentialDocument, %{request: event.request}, %{
+               credential_document_runtime: true
+             }) do
+          {:ok, %{result: result}} -> result
+          {:error, _} -> {:error, :invalid_request}
+        end
+      else
+        {:error, :unauthorized}
       end
 
     %{event | response: response}
@@ -114,6 +153,24 @@ defmodule Zaq.Engine.Api do
   def handle_event(%Event{} = event, :telemetry_load_llm_performance, _context) do
     filters = if is_map(event.request), do: event.request, else: %{}
     %{event | response: Telemetry.load_llm_performance(filters)}
+  end
+
+  def handle_event(%Event{} = event, :connector_lifecycle, _context) do
+    response =
+      if event.opts[:confidential] == true and event.opts[:connector_lifecycle] == true,
+        do: ConnectorLifecycle.execute(event.request, event.actor, event.opts),
+        else: {:error, :unauthorized}
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :connector_runtime_context, _context) do
+    response =
+      if event.opts[:confidential] == true and event.opts[:connector_runtime] == true,
+        do: ConnectorLifecycle.runtime_context(event.request),
+        else: {:error, :unauthorized}
+
+    %{event | response: response}
   end
 
   def handle_event(%Event{} = event, :archive_channel_connector, _context) do
@@ -1486,16 +1543,16 @@ defmodule Zaq.Engine.Api do
 
   defp device_request(%{op: :start, credential_id: id, attrs: attrs}, opts)
        when (is_integer(id) or is_nil(id)) and is_map(attrs),
-       do: DeviceAttempts.start_global_configuration(id, attrs, opts)
+       do: DeviceAttempts.sign_in({:begin, %{credential_id: id, attrs: attrs}}, :org, opts)
 
   defp device_request(%{op: :status, attempt_id: id}, opts),
-    do: DeviceAttempts.status(id, :org, opts)
+    do: DeviceAttempts.sign_in({:observe, id}, :org, opts)
 
   defp device_request(%{op: :current, credential_id: id}, opts) when is_integer(id),
-    do: DeviceAttempts.current(id, :org, opts)
+    do: DeviceAttempts.sign_in({:observe, {:current, id}}, :org, opts)
 
   defp device_request(%{op: :cancel, attempt_id: id}, opts),
-    do: DeviceAttempts.cancel(id, :org, opts)
+    do: DeviceAttempts.sign_in({:cancel, id}, :org, opts)
 
   defp device_request(_, _), do: {:error, :invalid_request}
 

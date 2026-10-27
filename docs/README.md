@@ -31,6 +31,7 @@ Coding agents start at [AGENTS.md](../AGENTS.md).
 - [Tool routing and memory boundaries](agent-tools.md)
 - [Conventions](conventions.md), [code quality](code-quality.md), [Elixir](elixir.md), [Phoenix](phoenix.md)
 - [Action discovery and reuse](action-reuse.md)
+- [Communication channel integration: implementation and acceptance checklist](guides/communication-channel-integration.md)
 - [Testing handbook](testing-approach.md) and [E2E execution/fixtures](e2e-testing.md)
 - [Offline multilingual retrieval evaluation fixtures](guides/retrieval-evaluation.md)
 - [Design system](../DESIGN.md), [BO component mechanics](bo-components.md), [list selection](list-selection.md)

@@ -1,21 +1,69 @@
 defmodule Zaq.Engine.Connect.DeviceAttempts do
   @moduledoc """
   Connect's device-attempt storage and HTTP boundary. Person preparation requires
-  the caller's authenticated transaction; admin start is explicitly trusted. Provider
+  the caller's authenticated transaction; org `sign_in/3` commands are explicitly trusted. Provider
   IO happens only outside transactions. A temporary DeviceWorker owns polling and
   never resumes a prior attempt. Terminal writes erase transient secrets. Success
   and canonical grant replacement commit together; cancellation wins if committed first.
   """
+  @behaviour Zaq.SignIn
   import Ecto.Query
   alias Zaq.Accounts.People
   alias Zaq.Engine.Connect.{Credential, DeviceAttempt, DeviceWorker, Mutations, OAuth}
   alias Zaq.Engine.Connect.OAuth.Binding
   alias Zaq.Engine.Connect.OAuth.Device.Registry
   alias Zaq.Repo
+  alias Zaq.SignIn
   alias Zaq.System.SecretConfig
   alias Zaq.Utils.DateUtils
 
   @initialization_seconds 30
+
+  @impl true
+  def sign_in(command, owner, opts) do
+    case device_command(command, owner, opts) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, attempt} ->
+        challenge =
+          if attempt.status == "pending",
+            do: %{
+              type: :verification_code,
+              uri: attempt.verification_uri,
+              code: attempt.user_code,
+              expires_at: attempt.expires_at
+            }
+
+        completion =
+          if attempt.status == "active", do: %{kind: :credential, id: attempt.credential_id}
+
+        SignIn.view(
+          attempt.attempt_id,
+          attempt
+          |> Map.take([:attempt_id, :status, :expires_at, :credential_id])
+          |> Map.merge(%{
+            challenge: challenge,
+            completion: completion,
+            observe: attempt.status in ["initializing", "pending"]
+          })
+        )
+
+      error ->
+        error
+    end
+  end
+
+  defp device_command({:begin, %{credential_id: id, attrs: attrs}}, :org, opts),
+    do: start_global_configuration(id, attrs, opts)
+
+  defp device_command({:begin, %{}}, {:prepared, %DeviceAttempt{} = attempt}, opts),
+    do: authorize_prepared(attempt, opts)
+
+  defp device_command({:observe, {:current, id}}, owner, opts), do: current(id, owner, opts)
+  defp device_command({:observe, id}, owner, opts), do: status(id, owner, opts)
+  defp device_command({:cancel, id}, owner, opts), do: cancel(id, owner, opts)
+  defp device_command(_, _, _), do: {:error, :unsupported}
 
   def prepare_person(person, session_id, credential_id, opts \\ []) do
     if Repo.in_transaction?() do
@@ -27,7 +75,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
     end
   end
 
-  def start_global_configuration(ref, attrs, opts \\ []) do
+  defp start_global_configuration(ref, attrs, opts) do
     with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, prepared} <-
            Repo.transaction(fn ->
@@ -48,7 +96,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
     end
   end
 
-  def authorize_prepared(%DeviceAttempt{} = attempt, opts) do
+  defp authorize_prepared(%DeviceAttempt{} = attempt, opts) do
     attempt = Repo.get!(DeviceAttempt, attempt.id)
     opts = Keyword.put(opts, :device_http_client, http_client(opts))
 
@@ -75,7 +123,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
       {:error, :oauth_failed}
   end
 
-  def status(id, owner, opts \\ []) do
+  defp status(id, owner, opts) do
     with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, attempt} <- owned(id, owner),
          {:ok, current} <- validated_status(attempt, opts) do
@@ -83,7 +131,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
     end
   end
 
-  def cancel(id, owner, opts \\ []) do
+  defp cancel(id, owner, opts) do
     with :ok <- OAuth.ensure_outside_transaction(),
          {:ok, _} <- owned(id, owner),
          {:ok, attempt} <- terminal(id, "cancelled", opts) do
@@ -91,8 +139,7 @@ defmodule Zaq.Engine.Connect.DeviceAttempts do
     end
   end
 
-  @doc "Finds the latest attempt for one authenticated owner/configuration, without resuming it."
-  def current(credential_id, owner, opts \\ []) do
+  defp current(credential_id, owner, opts) do
     query =
       from a in DeviceAttempt,
         where: a.credential_id == ^credential_id,

@@ -109,6 +109,43 @@ defmodule Zaq.Accounts.ConnectorPersonDiscoveryTest do
     assert Enum.uniq_by(people, & &1.id) |> length() == 1
   end
 
+  test "matching phones link native identities across connectors to the same person", %{
+    configs: [first_config, second_config]
+  } do
+    attrs = %{channel_id: "native", phone: "+15551234567"}
+
+    assert {:ok, first} =
+             People.find_or_create_from_channel(
+               "mattermost",
+               Map.put(attrs, :channel_config_id, first_config.id)
+             )
+
+    assert {:ok, second} =
+             People.find_or_create_from_channel(
+               "mattermost",
+               Map.put(attrs, :channel_config_id, second_config.id)
+             )
+
+    assert first.id == second.id
+    assert first.phone == second.phone
+    assert [first_channel] = first.channels
+    assert length(second.channels) == 2
+    second_channel = Enum.find(second.channels, &(&1.channel_config_id == second_config.id))
+    assert first_channel.phone == attrs.phone
+    assert second_channel.phone == attrs.phone
+
+    assert {:ok, edited} = People.update_person(first, %{phone: "+15550000000"})
+
+    assert {:ok, rediscovered} =
+             People.find_or_create_from_channel(
+               "mattermost",
+               Map.put(attrs, :channel_config_id, first_config.id)
+             )
+
+    assert rediscovered.id == edited.id
+    assert rediscovered.phone == edited.phone
+  end
+
   test "retargeting a server connector does not reinterpret a stored identity" do
     config = config("original")
     attrs = %{channel_id: "native", channel_config_id: config.id}

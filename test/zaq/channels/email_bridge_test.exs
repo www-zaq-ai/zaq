@@ -83,7 +83,8 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
   defmodule RuntimeInvalidSpecAdapterStub do
     def runtime_specs(_config, _bridge_id, _opts) do
-      {:ok, {nil, [%{id: :invalid_listener}]}}
+      # Let the tracking wrapper read :start; the supervisor rejects the missing :id.
+      {:ok, {nil, [%{start: {Agent, :start_link, [fn -> %{} end]}}]}}
     end
   end
 
@@ -1866,7 +1867,7 @@ defmodule Zaq.Channels.EmailBridgeTest do
 
       log =
         capture_log(fn ->
-          assert {:error, _reason} =
+          assert {:error, {:invalid_child_spec, _spec}} =
                    EmailBridge.start_runtime(%{
                      id: 100,
                      provider: "email:imap",

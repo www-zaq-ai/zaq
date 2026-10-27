@@ -148,7 +148,7 @@ opt out of observation. People bearer operations and OTP delivery events use it.
 Hop type controls response timing:
 
 - `:sync` hop: `dispatch/1` waits for role API completion and returns the updated event.
-- `:async` hop: `dispatch/1` starts background work and returns immediately with the event that was dispatched.
+- `:async` hop: `dispatch/1` starts background work and returns the dispatched event. Coordinated hops wait for ownership acknowledgement before returning; ordinary hops return immediately.
 
 Multi-hop behavior is recursive:
 
@@ -180,6 +180,12 @@ Role mapping:
 
 ---
 
+### Connector lifecycle ownership
+
+NodeRouter transports events; it does not own locks, resource scopes or async
+ownership handoffs. Engine owns connector configuration persistence and Channels
+owns runtime startup and shutdown. See [Engine lifecycle ownership](services/engine.md#connector-configuration-persistence).
+
 ## Service Responsibilities
 
 | Service     | Supervisor                 | Responsibility                                                                                                     |
@@ -204,11 +210,25 @@ no request-time database or Engine call. Public login uses one confidential Engi
 resolve/issue/notify request after that precheck;
 see [People authentication](services/people-access.md#rate-topology-and-retry-behavior).
 
-`Zaq.Channels.Supervisor` is a static `:one_for_one` parent: it starts
-`Zaq.Channels.PeopleAuthRateLimiter` first, then the dynamic
-`Zaq.Channels.BridgeSupervisor`. The children restart independently. The parent
-retains the Channels role-discovery name and delegates the existing runtime API;
-the dynamic child reloads enabled bridge configs on every startup.
+`Zaq.Channels.Supervisor` is a static `:one_for_one` parent with two children:
+`Zaq.Channels.PeopleAuthRateLimiter` and the
+dynamic `Zaq.Channels.BridgeSupervisor`.
+Each child restarts independently. During provider bootstrap, `JidoChatBridge`
+supplies adapter-owned provider runtimes as dynamic children of `BridgeSupervisor`
+before connector startup. Adapter packages own shared transport infrastructure
+and storage recovery. Dynamic children share the bridge supervisor's restart
+budget; bridge restarts preserve the independent limiter's state.
+The parent retains the Channels role-discovery name and delegates the runtime API;
+the dynamic child recreates provider infrastructure and reloads enabled bridge
+configs on startup. See [Channels supervision](services/channels.md#supervisor)
+for runtime ownership and restart isolation details.
+
+Adapter packages own volatile session storage and recovery; Engine owns encrypted
+credential persistence and validates the current binding on storage requests.
+See the [linked-device contract](services/channels.md#linked-device-integration)
+for authentication and confirmation boundaries, and
+[connector session state](services/system-config.md#connector-session-state)
+for shared secret-persistence requirements.
 
 Engine is the largest service. It owns several internal subsystems:
 

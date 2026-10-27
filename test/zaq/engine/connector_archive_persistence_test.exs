@@ -24,6 +24,8 @@ defmodule Zaq.Engine.ConnectorArchivePersistenceTest do
   end
 
   defmodule IngressStub do
+    def before_disable(_config, _actor, _opts), do: :ok
+
     def delete_ingress_subscription(config, params) do
       send(self(), {:ingress_teardown, config.provider, params})
       Process.get(:ingress_result, {:ok, %{deleted: true}})
@@ -34,8 +36,8 @@ defmodule Zaq.Engine.ConnectorArchivePersistenceTest do
     previous = Application.get_env(:zaq, :channels)
 
     Application.put_env(:zaq, :channels, %{
-      mattermost: %{ingress_mode: :webhook},
-      disk: %{ingress_mode: :polling}
+      mattermost: %{bridge: IngressStub, ingress_mode: :webhook},
+      disk: %{bridge: IngressStub, ingress_mode: :polling}
     })
 
     on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
@@ -134,7 +136,7 @@ defmodule Zaq.Engine.ConnectorArchivePersistenceTest do
     refute_received {:ingress_teardown, _, _}
   end
 
-  test "archive retries skip destructive teardown and report pending runtime" do
+  test "archive retries skip destructive teardown and report runtime failure" do
     config = insert_config("mattermost", "retrieval")
     {:ok, descriptor} = ConnectorLifecycle.context(config.id, config.provider, config.kind)
 
@@ -149,12 +151,7 @@ defmodule Zaq.Engine.ConnectorArchivePersistenceTest do
     {:ok, retry_descriptor} = ConnectorLifecycle.context(config.id, config.provider, config.kind)
     Process.put(:runtime_result, {:error, :runtime_down})
 
-    assert {:ok,
-            %{
-              status: :already_archived,
-              ingress: :already_archived,
-              runtime: {:pending, :runtime_down}
-            }} =
+    assert {:error, {:runtime_pending, :failed}} =
              archive(descriptor_request(retry_descriptor),
                communication_bridge_module: IngressStub,
                communication_runtime_module: RuntimeStub
@@ -166,18 +163,18 @@ defmodule Zaq.Engine.ConnectorArchivePersistenceTest do
     assert Repo.get!(ChannelConfig, config.id).archived_at
   end
 
-  test "runtime unexpected response is pending after the archive commits" do
+  test "unexpected runtime response leaves the connector disabled and unarchived" do
     config = insert_config("mattermost", "retrieval")
     {:ok, descriptor} = ConnectorLifecycle.context(config.id, config.provider, config.kind)
     Process.put(:runtime_result, :unexpected)
 
-    assert {:ok, %{status: :archived, runtime: {:pending, {:unexpected_response, :unexpected}}}} =
+    assert {:error, {:runtime_pending, :invalid_response}} =
              archive(descriptor_request(descriptor),
                communication_bridge_module: IngressStub,
                communication_runtime_module: RuntimeStub
              )
 
-    assert Repo.get!(ChannelConfig, config.id).archived_at
+    assert %ChannelConfig{enabled: false, archived_at: nil} = Repo.get!(ChannelConfig, config.id)
     assert_received {:ingress_teardown, _, _}
   end
 

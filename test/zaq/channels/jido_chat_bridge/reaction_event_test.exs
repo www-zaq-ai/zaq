@@ -99,6 +99,40 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionEventTest do
     assert event.request.rater_attrs.rating == 1
   end
 
+  test "dispatches WhatsApp toned thumbs with unchanged sender and message context" do
+    config = %{provider: "whatsapp", id: 731}
+
+    for {thumb, rating} <- [{"👍", 5}, {"👎", 1}], tone <- 0x1F3FB..0x1F3FF do
+      reaction =
+        reaction(%{
+          adapter_name: :whatsapp,
+          thread_id: "whatsapp:room-1",
+          channel_id: "room-1",
+          message_id: "wa-msg-1",
+          user: %{user_id: "sender-1", user_name: "Sender"},
+          emoji: thumb <> <<tone::utf8>>
+        })
+
+      assert :ok = JidoChatBridge.handle_reaction_event(config, reaction)
+
+      assert_received {:reaction_event_dispatched, %Zaq.Event{} = event}
+      assert event.opts[:action] == :rate_message
+
+      assert event.request == %{
+               message_ref:
+                 {:source,
+                  %{
+                    provider: "whatsapp",
+                    channel_config_id: 731,
+                    channel_id: "room-1",
+                    source_scope: "room-1",
+                    message_id: "wa-msg-1"
+                  }},
+               rater_attrs: %{channel_user_id: "sender-1", rating: rating}
+             }
+    end
+  end
+
   test "ignores reaction removals", %{config: config} do
     assert :ok = JidoChatBridge.handle_reaction_event(config, reaction(%{added: false}))
 

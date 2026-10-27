@@ -51,6 +51,10 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveCoverageTest do
     def installation(config, base_url, opts), do: Adapter.installation(config, base_url, opts)
   end
 
+  defmodule FailingArchiveBridge do
+    def stop_runtime(_config), do: {:error, :offline}
+  end
+
   setup %{conn: conn} do
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :channels@localhost end)
     user = admin_fixture(%{must_change_password: false})
@@ -103,6 +107,42 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLiveCoverageTest do
     render_click(view, "archive", %{"id" => to_string(config.id)})
     assert has_element?(view, "#widget-recovery-error", "changed elsewhere")
     assert is_nil(Repo.get!(ChannelConfig, config.id).archived_at)
+  end
+
+  test "archive failure refreshes persisted state and another click completes deletion", %{
+    conn: conn
+  } do
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    view |> element("#new-widget-config") |> render_click()
+    create(view, "Archive failure")
+    config = Repo.get_by!(ChannelConfig, name: "Archive failure")
+    view |> element("#close-widget-modal") |> render_click()
+    config |> Ecto.Changeset.change(enabled: true) |> Repo.update!()
+
+    channels = Application.fetch_env!(:zaq, :channels)
+
+    Application.put_env(
+      :zaq,
+      :channels,
+      put_in(channels, [:web_widget, :bridge], FailingArchiveBridge)
+    )
+
+    # Refresh the displayed revision after enabling the connector.
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/web_widget")
+    view |> element("#archive-widget-#{config.id}") |> render_click()
+
+    assert %ChannelConfig{enabled: false, archived_at: nil} = Repo.get!(ChannelConfig, config.id)
+    assert has_element?(view, "#widget-connector-#{config.id}", "Disabled")
+    assert render(view) =~ "The operation is unavailable."
+    refute render(view) =~ "Retry Delete"
+    refute render(view) =~ "runtime_pending"
+
+    Application.put_env(:zaq, :channels, channels)
+    view |> element("#archive-widget-#{config.id}") |> render_click()
+
+    assert Repo.get!(ChannelConfig, config.id).archived_at
+    refute has_element?(view, "#widget-connector-#{config.id}")
+    assert render(view) =~ "Configuration archived."
   end
 
   test "non-string allowed domains are rejected without persistence", %{conn: conn} do

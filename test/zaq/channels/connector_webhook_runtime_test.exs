@@ -47,12 +47,18 @@ defmodule Zaq.Channels.ConnectorWebhookRuntimeTest do
     assert {:ok, _} = Supervisor.start_runtime(bridge_id, nil, [listener])
 
     event =
-      Event.new(%{before_config: config, after_config: config}, :channels,
+      Event.new(
+        %{before_config: config, after_config: config, phase: :before_persist, intent: :archive},
+        :channels,
         opts: [action: :connector_sync_runtime, confidential: true]
       )
 
-    assert %{response: :ok} = Api.handle_event(event, :connector_sync_runtime, nil)
+    assert %{response: {:ok, %{runtime: :complete}}} =
+             Api.handle_event(event, :connector_sync_runtime, nil)
+
     assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
-    assert %{response: :ok} = Api.handle_event(event, :connector_sync_runtime, nil)
+
+    assert %{response: {:ok, %{runtime: :complete}}} =
+             Api.handle_event(event, :connector_sync_runtime, nil)
   end
 end

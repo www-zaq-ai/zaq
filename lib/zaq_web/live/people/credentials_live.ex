@@ -44,8 +44,8 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
 
       {:noreply,
        socket
-       |> assign(credential_modal: credential, confirm_action: nil, device_attempt: attempt)
-       |> schedule_device_status(attempt)}
+       |> assign(credential_modal: credential, confirm_action: nil)
+       |> observe_device(attempt)}
     else
       _ -> denied(socket)
     end
@@ -58,30 +58,20 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
     with true <- socket.assigns.manageable,
          false <- DeviceSignIn.in_progress?(socket.assigns.device_attempt),
          {:ok, credential_id, credential} <- credential(socket, id),
-         true <- Map.get(credential, :device_code_supported, false),
-         {:ok, attempt} <-
-           command(socket, :start_self_credential_device, %{credential_id: credential_id}) do
-      {:noreply, socket |> assign(device_attempt: attempt) |> schedule_device_status(attempt)}
+         true <- Map.get(credential, :device_code_supported, false) do
+      {:noreply,
+       socket
+       |> observe_device(%{ref: nil, status: "initializing", observe: false})
+       |> DeviceSignInPolling.request({:begin, %{credential_id: credential_id}})}
     else
       _ -> failed(socket, "Unable to start device sign-in. Please try again.")
     end
   end
 
   def handle_event("cancel_device", _, socket) do
-    case socket.assigns.device_attempt do
-      %{attempt_id: id} ->
-        case command(socket, :cancel_self_credential_device, %{attempt_id: id}) do
-          {:ok, attempt} ->
-            {:noreply,
-             socket |> assign(device_attempt: attempt) |> schedule_device_status(attempt)}
-
-          _ ->
-            failed(socket, "Unable to cancel device sign-in. Please try again.")
-        end
-
-      _ ->
-        denied(socket)
-    end
+    if socket.assigns.device_attempt,
+      do: {:noreply, DeviceSignInPolling.request(socket, :cancel)},
+      else: denied(socket)
   end
 
   def handle_event("open_credential_action", %{"id" => id, "action" => action}, socket)
@@ -162,39 +152,49 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
   def handle_event(_, _, socket), do: denied(socket)
 
   @impl true
-  def handle_info({:device_status, id, generation}, socket) do
-    case DeviceSignInPolling.consume(socket, id, generation) do
-      {:ok, socket} -> refresh_device_status(socket, socket.assigns.device_attempt)
-      :stale -> {:noreply, socket}
-    end
+  def handle_info({:sign_in_tick, generation, tick}, socket),
+    do: {:noreply, DeviceSignInPolling.tick(socket, generation, tick)}
+
+  @impl true
+  def handle_async({:sign_in, generation, id}, result, socket),
+    do: {:noreply, DeviceSignInPolling.result(socket, generation, id, result)}
+
+  defp observe_device(socket, attempt) do
+    token = socket.private.person_credentials_token
+
+    DeviceSignInPolling.open(socket, attempt,
+      view_key: :device_attempt,
+      dispatch: &device_command(token, &1),
+      retry_errors: true,
+      on_complete: fn socket, _ -> load_credentials(socket) end,
+      on_error: &device_error/3
+    )
   end
 
-  def handle_info({:device_status, _id}, socket), do: {:noreply, socket}
+  defp device_command(token, {:begin, params}),
+    do: command_token(token, :start_self_credential_device, params)
 
-  defp refresh_device_status(socket, previous) do
-    case command(socket, :self_credential_device_status, %{attempt_id: previous.attempt_id}) do
-      {:ok, attempt} ->
-        socket = socket |> assign(device_attempt: attempt) |> schedule_device_status(attempt)
-        socket = if attempt.status == "active", do: load_credentials(socket), else: socket
-        {:noreply, socket}
+  defp device_command(token, {:observe, id}),
+    do: command_token(token, :self_credential_device_status, %{attempt_id: id})
 
-      {:error, :invalid_session} ->
-        {:noreply, redirect(socket, to: "/people/login")}
+  defp device_command(token, {:cancel, id}),
+    do: command_token(token, :cancel_self_credential_device, %{attempt_id: id})
 
-      {:error, :not_found} ->
-        attempt = %{attempt_id: previous.attempt_id, status: "unavailable"}
-        {:noreply, socket |> assign(device_attempt: attempt) |> schedule_device_status(attempt)}
+  defp device_error(socket, :observe, :invalid_session),
+    do: socket |> DeviceSignInPolling.dismiss() |> redirect(to: "/people/login")
 
-      {:error, :forbidden} ->
-        denied(socket)
-
-      _ ->
-        {:noreply, schedule_device_status(socket, previous)}
-    end
+  defp device_error(socket, :observe, :forbidden) do
+    {:noreply, socket} = denied(DeviceSignInPolling.dismiss(socket))
+    socket
   end
 
-  defp schedule_device_status(socket, attempt),
-    do: DeviceSignInPolling.schedule(socket, attempt, :device_status)
+  defp device_error(socket, op, _) when op in [:begin, :cancel] do
+    verb = if op == :begin, do: "start", else: "cancel"
+    {:noreply, socket} = failed(socket, "Unable to #{verb} device sign-in. Please try again.")
+    socket
+  end
+
+  defp device_error(socket, _, _), do: socket
 
   defp current_device_attempt(socket, credential) do
     if Map.get(credential, :device_code_supported, false) do
@@ -214,7 +214,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
       {:noreply,
        socket
        |> assign(credential_modal: nil, confirm_action: nil)
-       |> schedule_device_status(nil)
+       |> DeviceSignInPolling.dismiss()
        |> load_credentials()
        |> put_flash(:info, message)}
     else
@@ -228,7 +228,7 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
     {:noreply,
      socket
      |> assign(credential_modal: nil, confirm_action: nil)
-     |> schedule_device_status(nil)
+     |> DeviceSignInPolling.dismiss()
      |> load_credentials()
      |> put_flash(:error, "You do not have permission to manage credentials.")}
   end
@@ -272,8 +272,12 @@ defmodule ZaqWeb.Live.People.CredentialsLive do
   defp manageable?(_), do: false
 
   defp command(socket, op, params \\ %{}) do
+    command_token(socket.private.person_credentials_token, op, params)
+  end
+
+  defp command_token(token, op, params) do
     Events.build_and_dispatch_invoke_event(
-      Map.merge(params, %{op: op, token: socket.private.person_credentials_token}),
+      Map.merge(params, %{op: op, token: token}),
       :people_auth,
       event_opts: [confidential: true]
     ).response

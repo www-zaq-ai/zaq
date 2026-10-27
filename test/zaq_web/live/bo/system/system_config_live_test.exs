@@ -2685,7 +2685,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert has_element?(view, "button[phx-click='cancel_ai_device']")
       render_click(view, "connect_ai_device", %{})
       assert has_element?(view, "#ai-device-sign-in-code", "ABCD-EFGH")
-      html = render_click(view, "cancel_ai_device", %{})
+      render_click(view, "cancel_ai_device", %{})
+      html = render_async(view, 2_000)
       assert html =~ "Device sign-in cancelled."
       refute has_element?(view, "button[phx-click='cancel_ai_device']")
     end
@@ -2705,7 +2706,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
       render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
-      html = render_click(view, "cancel_ai_device", %{})
+      render_click(view, "cancel_ai_device", %{})
+      html = render_async(view, 2_000)
       assert html =~ "Unable to cancel device sign-in."
       assert has_element?(view, "button[phx-click='cancel_ai_device']")
       assert has_element?(view, "#ai-device-sign-in-code", "ABCD-EFGH")
@@ -2755,8 +2757,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
             {:ok,
              %{
-               attempt_id: "attempt-pending",
+               ref: "attempt-pending",
                status: "active",
+               observe: false,
+               completion: %{kind: :credential, id: credential.connect_credential_id},
                credential_id: credential.connect_credential_id
              }}
         end,
@@ -2787,6 +2791,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
       render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
       assert_receive :device_status_completed, 2_000
+      render_async(view, 2_000)
       assert has_element?(view, "#ai-credential-modal")
       assert has_element?(view, "#ai-device-sign-in", "Device sign-in completed")
       refute has_element?(view, "button[phx-click='cancel_ai_device']")
@@ -2814,7 +2819,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
         {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
         render_click(view, "edit_ai_credential", %{"id" => to_string(credential.id)})
-        html = render_click(view, "connect_ai_device", %{})
+        render_click(view, "connect_ai_device", %{})
+        html = render_async(view, 2_000)
         assert html =~ "Unable to start device sign-in. Please try again."
       end
     end
@@ -2889,7 +2895,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
       render_click(view, "new_ai_credential", %{})
 
-      html =
+      _initial_html =
         render_submit(view, "save_ai_credential", %{
           "oauth_flow" => "device_code",
           "ai_credential" => %{
@@ -2903,6 +2909,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
+      html = render_async(view, 2_000)
+
       assert_received {:device_definition_created, credential}
       assert credential.metadata["oauth_setup_pending"]
       assert_received {:device_request, %{op: :start, credential_id: credential_id, attrs: attrs}}
@@ -2915,6 +2923,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       refute html =~ "refresh_token"
 
       render_click(view, "connect_ai_device", %{})
+      render_async(view, 2_000)
 
       assert_received {:device_request,
                        %{op: :start, credential_id: ^credential_id, attrs: ^attrs}}
@@ -2934,17 +2943,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       refute has_element?(view, "#ai-device-sign-in")
     end
 
-    test "legacy device status message is ignored", %{conn: conn} do
+    test "stale sign-in tick without an observation is ignored", %{conn: conn} do
       conn = put_session(conn, :system_config_node_router_module, Zaq.NodeRouterMock)
 
       Mox.stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
         if event.opts[:action] == :connect_device,
-          do: flunk("legacy status message must not dispatch device status"),
+          do: flunk("stale sign-in tick must not dispatch device status"),
           else: build_stub_response(event)
       end)
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
-      send(view.pid, {:ai_device_status, 123})
+      send(view.pid, {:sign_in_tick, make_ref(), make_ref()})
       refute has_element?(view, "#ai-device-sign-in")
     end
 
@@ -7850,11 +7859,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
   defp pending_device_attempt do
     %{
-      attempt_id: "attempt-pending",
+      ref: "attempt-pending",
       status: "pending",
-      expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
-      verification_uri: "https://chatgpt.com/device",
-      user_code: "ABCD-EFGH"
+      observe: true,
+      challenge: %{
+        type: :verification_code,
+        expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+        uri: "https://chatgpt.com/device",
+        code: "ABCD-EFGH"
+      }
     }
   end
 

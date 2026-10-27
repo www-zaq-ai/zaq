@@ -84,19 +84,72 @@ defmodule Zaq.Channels.JidoChatBridge.ReactionMapperTest do
       end
     end
 
-    test "does not extend other providers' shortcode mappings or Unicode forms" do
+    test "does not extend other providers' shortcode mappings" do
       for provider <- [:slack, :discord, :unknown], {base, _rating} <- @mattermost_aliases do
         assert :ignored = ReactionMapper.to_rating(provider, ":#{base}:")
         assert :ignored = ReactionMapper.to_rating(provider, base <> "_medium_skin_tone")
         assert :ignored = ReactionMapper.to_rating(provider, ":#{base}_medium_skin_tone:")
       end
 
-      assert :ignored = ReactionMapper.to_rating(:mattermost, "\u{1F44D}\u{1F3FD}")
-      assert :ignored = ReactionMapper.to_rating(:mattermost, "\u{1F44E}\u{1F3FD}")
+      assert {:ok, 5} = ReactionMapper.to_rating(:mattermost, "\u{1F44D}\u{1F3FD}")
+      assert {:ok, 1} = ReactionMapper.to_rating(:mattermost, "\u{1F44E}\u{1F3FD}")
     end
   end
 
   describe "to_rating/2 unicode emoji" do
+    test "maps all five Unicode skin tones on thumbs across providers" do
+      for provider <- [:whatsapp, :mattermost, :slack, :discord, :telegram, :unknown],
+          {thumb, rating} <- [{"👍", 5}, {"👎", 1}],
+          tone <- 0x1F3FB..0x1F3FF do
+        assert ReactionMapper.to_rating(provider, thumb <> <<tone::utf8>>) == {:ok, rating}
+      end
+    end
+
+    property "one standard skin tone preserves a Unicode thumb's rating" do
+      check all(
+              provider <-
+                member_of([:whatsapp, :mattermost, :slack, :discord, :telegram, :unknown]),
+              {thumb, rating} <- member_of([{"👍", 5}, {"👎", 1}]),
+              tone <- integer(0x1F3FB..0x1F3FF)
+            ) do
+        assert ReactionMapper.to_rating(provider, thumb <> <<tone::utf8>>) == {:ok, rating}
+      end
+    end
+
+    property "repeated tones and surrounding junk never become ratings" do
+      check all(
+              provider <-
+                member_of([:whatsapp, :mattermost, :slack, :discord, :telegram, :unknown]),
+              thumb <- member_of(["👍", "👎"]),
+              first <- integer(0x1F3FB..0x1F3FF),
+              second <- integer(0x1F3FB..0x1F3FF),
+              junk <- binary(min_length: 1, max_length: 16)
+            ) do
+        toned = thumb <> <<first::utf8>>
+        assert :ignored = ReactionMapper.to_rating(provider, toned <> <<second::utf8>>)
+        assert :ignored = ReactionMapper.to_rating(provider, junk <> toned)
+        assert :ignored = ReactionMapper.to_rating(provider, toned <> junk)
+      end
+    end
+
+    test "ignores malformed Unicode tone sequences" do
+      for provider <- [:whatsapp, :mattermost],
+          emoji <- [
+            "👍" <> <<0x1F3FA::utf8>>,
+            "👎" <> <<0x1F400::utf8>>,
+            "🏽👍",
+            "🏽",
+            "🔥🏽",
+            "👍️🏽",
+            "👎🏽️",
+            "👍🏽\n",
+            " 👎🏽",
+            <<0x1F44D::utf8, 255>>
+          ] do
+        assert :ignored = ReactionMapper.to_rating(provider, emoji)
+      end
+    end
+
     test "maps positive unicode emoji to the top rating for any provider" do
       for provider <- [:mattermost, :slack, :discord, :telegram, :unknown],
           emoji <- ["\u{1F44D}", "\u{1F525}"] do

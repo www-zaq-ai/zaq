@@ -80,7 +80,7 @@ defmodule Zaq.Engine.PeopleCredentials do
            authenticated(token, opts, :write, fn auth ->
              PersonCredentials.prepare_device(auth.person, auth.session.id, id, person_opts(opts))
            end) do
-      DeviceAttempts.authorize_prepared(prepared, opts)
+      DeviceAttempts.sign_in({:begin, %{}}, {:prepared, prepared}, opts)
     end
   end
 
@@ -88,8 +88,8 @@ defmodule Zaq.Engine.PeopleCredentials do
       when op in [:self_credential_device_status, :cancel_self_credential_device] do
     with {:ok, owner} <- device_owner(token, opts) do
       case op do
-        :self_credential_device_status -> DeviceAttempts.status(id, owner, opts)
-        :cancel_self_credential_device -> DeviceAttempts.cancel(id, owner, opts)
+        :self_credential_device_status -> DeviceAttempts.sign_in({:observe, id}, owner, opts)
+        :cancel_self_credential_device -> DeviceAttempts.sign_in({:cancel, id}, owner, opts)
       end
     end
   end
@@ -97,7 +97,7 @@ defmodule Zaq.Engine.PeopleCredentials do
   def dispatch(%{op: :self_credential_device_current, token: token, credential_id: id}, opts) do
     with {:ok, owner} <- device_owner(token, opts),
          true <- id in System.list_ai_provider_connect_credential_ids() do
-      DeviceAttempts.current(id, owner, opts)
+      DeviceAttempts.sign_in({:observe, {:current, id}}, owner, opts)
     else
       false -> {:error, :not_found}
       error -> error

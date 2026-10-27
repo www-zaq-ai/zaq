@@ -19,6 +19,7 @@ defmodule Zaq.Channels.CommunicationBridge do
   This module is stateless and does not own bridge runtime process internals;
   runtime process construction and transport behavior belong to each bridge.
   """
+  @behaviour Zaq.SignIn
 
   alias Zaq.Channels.Bridge
   alias Zaq.Engine.Messages.{ConversationIdentity, Incoming}
@@ -26,6 +27,140 @@ defmodule Zaq.Channels.CommunicationBridge do
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.NodeRouter
+  alias Zaq.SignIn
+
+  @impl true
+  def sign_in(command, %{provider: provider, owner_id: owner, actor: actor}, opts) do
+    with {:ok, request} <- authentication_request(command),
+         {:ok, status} <- authenticate(provider, request, owner, actor, opts) do
+      authentication_view(status)
+    else
+      {:error, :pairing_expired} ->
+        SignIn.view(command_ref(command), %{
+          status: "expired",
+          observe: false,
+          retry: :restart,
+          dismiss: :cancel,
+          summary: "Connection window ended; retry to continue"
+        })
+
+      {:error, :save_failed} ->
+        save_failed_view(command)
+
+      {:error, :identity_changed} ->
+        SignIn.view(command_ref(command), %{
+          status: "failed",
+          observe: false,
+          retry: :resume,
+          dismiss: :cancel,
+          summary: "The linked account changed. Retry and confirm the account again."
+        })
+
+      error ->
+        error
+    end
+  end
+
+  defp authentication_request({:begin, %{resume: ref}}), do: {:ok, %{op: :retry, session: ref}}
+
+  defp authentication_request({:begin, params}) when is_map(params),
+    do: {:ok, %{op: :begin, owner: params[:owner]}}
+
+  defp authentication_request({:observe, ref}), do: {:ok, %{op: :status, session: ref}}
+
+  defp authentication_request({:confirm, ref, account}),
+    do: {:ok, %{op: :confirm, session: ref, account_id: account}}
+
+  defp authentication_request({:cancel, ref}), do: {:ok, %{op: :cancel, session: ref}}
+  defp authentication_request(_), do: {:error, :unsupported}
+
+  defp save_failed_view({:confirm, ref, account_id}),
+    do:
+      SignIn.view(ref, %{
+        status: "confirm",
+        confirmation: %{external_id: account_id},
+        observe: false,
+        retry: :resume,
+        dismiss: :cancel,
+        summary: "Could not save this account. Confirm to retry."
+      })
+
+  defp save_failed_view(_), do: {:error, :save_failed}
+
+  defp command_ref({:begin, params}) when is_map(params), do: params[:resume]
+  defp command_ref({_, ref}), do: ref
+  defp command_ref({_, ref, _}), do: ref
+
+  defp authentication_view(%{phase: phase, session: ref} = status) do
+    state = %{
+      pending: "pending",
+      challenge: "pending",
+      authenticated: "confirm",
+      saved: "active",
+      failed: "failed",
+      cancelled: "cancelled"
+    }
+
+    completion =
+      if phase == :saved,
+        do:
+          Map.merge(status.receipt, %{
+            kind: :connector,
+            runtime_pending: status[:runtime_pending] == true
+          })
+
+    SignIn.view(ref, %{
+      status: Map.get(state, phase, "failed"),
+      challenge: status[:challenge],
+      confirmation: status[:account],
+      completion: completion,
+      observe: phase in [:pending, :challenge, :failed],
+      interval_ms: 2_000,
+      retry: :resume,
+      dismiss: :cancel,
+      summary: status[:summary]
+    })
+  end
+
+  defp authentication_view(_), do: {:error, :invalid_response}
+
+  @doc "Projects an already-authorized saved connector observation into the shared sign-in view."
+  def connection_sign_in(id, {:ok, %{phase: phase} = status}) do
+    challenge =
+      if phase == :pairing and is_binary(status[:qr]), do: %{type: :qr, value: status.qr}
+
+    SignIn.view({:connector, id}, %{
+      status: if(phase == :pairing, do: "pending", else: to_string(phase)),
+      challenge: challenge,
+      summary: status[:summary],
+      observe: phase in [:pending, :pairing, :expired, :failed, :disconnected],
+      interval_ms: 2_000,
+      retry: :resume,
+      dismiss: :detach
+    })
+  end
+
+  def connection_sign_in(_, error), do: error
+
+  @doc "Runs the provider's optional pre-disable hook while its connection is still available."
+  @spec before_disable(map(), map(), keyword()) :: :ok | {:error, term()}
+  def before_disable(%{provider: provider} = config, actor, opts \\ []) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
+         {:module, _} <- Code.ensure_loaded(bridge) do
+      if function_exported?(bridge, :before_disable, 3),
+        do: bridge.before_disable(config, actor, opts),
+        else: :ok
+    end
+  end
+
+  @spec authenticate(atom() | String.t(), map(), term(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  defp authenticate(provider, request, owner_id, actor, opts) do
+    with {:ok, bridge} <- Bridge.resolve_bridge(provider, opts),
+         true <- function_exported?(bridge, :authenticate, 5) || {:error, :unsupported} do
+      bridge.authenticate(provider, request, owner_id, actor, opts)
+    end
+  end
 
   import Zaq.Engine.Messages, only: [is_present_message_id: 1]
 

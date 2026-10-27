@@ -70,6 +70,17 @@ establish Repo-free Channels bootstrap or delivery.
 
 `Zaq.Engine.ChannelConfig` owns the existing `channel_configs` Ecto schema, queries,
 mutations, SMTP defaults, validation and token encryption/runtime resolution.
+Its canonical changeset also supplies and validates Jido connector reply policy;
+see [connector reply policy](channels.md#connector-reply-policy) for settings,
+compatibility, and rollout details.
+Provider startup defaults are defined in `Zaq.ConnectorConfig.Settings.defaults/1`.
+`ChannelConfig.create/2` applies them before insertion. The canonical changeset
+also selects an initial reply policy for direct form validation/insertion, without
+inserting transport history options. It retains saved choices for configured default
+keys during edits. Shared projections read stored settings without reconstructing
+provider defaults; adapters validate transport options and handle their own omissions.
+Linked-device confirmation and upsert creation share this API; see
+[listener settings](channels.md#connector-listener-settings).
 Multiple named connectors may share a provider; explicit ID resolution checks
 scope and enablement, and ambiguous provider-only calls fail closed. No table,
 ID, foreign-key or credential encoding migration accompanies this namespace move.
@@ -78,11 +89,143 @@ Fields: `name`, `provider`, `kind` (`data_source` or `retrieval`), `url`, encryp
 `token`, `enabled`, `archived_at`, `notification_default`, and provider `settings`.
 `get_by_provider/1`, `get_any_by_provider/1`, `upsert_by_provider/2`,
 `list_enabled_by_kind/2` and `get_by_channel_id/2` retain their selection contracts.
-Pure `jido_chat` and IMAP projections delegate to `Zaq.ConnectorConfig.Settings`;
+Shared `jido_chat` and IMAP projections delegate to `Zaq.ConnectorConfig.Settings`;
 runtime transport consumers can use that shared module without Ecto dependency.
 Stored `jido_chat` fields include bot name/user ID, message patterns and ingress
 overrides. SMTP and IMAP lookup helpers live in `Zaq.ConnectorConfig`; bridge/listener
 normalization remains provider-local in Channels.
+
+Toggle and Archive reuse confidential `:connector_sync_runtime` with exact before/desired
+configuration, revision, `phase: :before_persist | :after_persist` and generic command
+intent (`:set_enabled | :archive`). Channels alone decides provider transition semantics.
+It returns matching target scope with `transition: :confirmed`, runtime complete/pending
+and continuation none/after-persist, or `{:error, bounded_reason}`. Engine
+validates the envelope and target, not logout/cleanup stages or protocol reasons.
+
+Delete retains Engine's existing archive flow and `:connector_sync_runtime` call.
+Engine persists only confirmed transitions with a fresh revision check. Confirmed
+runtime-pending leaves disabled/unarchived state available for another caller invocation;
+pre-persistence errors preserve enablement so Archive cannot skip cleanup.
+After confirmed persistence, an unavailable/malformed continuation reply leaves the
+saved configuration with runtime pending, not a fictitious rollback. No database
+row lock spans callbacks or RPC.
+A successful provider logout cannot be undone if subsequent persistence fails.
+
+Saved-binding startup resolves a fresh enabled, nonarchived snapshot through
+confidential `:connector_runtime_context` with the explicit runtime capability.
+Bridge startup/restart and Jido's private ensure path share this resolver directly;
+they do not self-dispatch another Channels startup command.
+Disable confirmation reads scoped revision context through confidential
+`:connector_lifecycle` with the explicit trusted capability. Archive executes
+its existing Engine entry point directly. Database row locks remain confined to
+persistence transactions; NodeRouter does not coordinate these operations.
+
+BO enable/disable uses the existing confidential `:connector_lifecycle` handler
+with its explicit trusted capability and `operation: :set_enabled`. The request
+contains connector ID, provider, kind, an explicit enabled boolean and the expected
+revision. `ConnectorLifecycle.execute/3` requires actor identity, validates scope, archive
+state and revision, and owns persistence and runtime synchronization. WhatsApp enablement
+requires super-admin authorization established from the authenticated BO session;
+the decision travels in trusted execution context (`skip_permissions`), never request
+fields. Neither polling nor completion reloads the BO user. Adapter disable preparation
+retains this authorization. Existing archive and OAuth entry-point checks are unchanged.
+Disable confirmation passes the original confirmed revision to Engine.
+
+For enable, Channels requests an after-persistence continuation before runtime
+credential access. The same interpreter handles both directions and Archive.
+Channels retains the existing provider disable behavior; Engine does not choose
+between stopping, logout or credential clearing. Legacy direct runtime-sync callers
+still use the same provider operations without the lifecycle outcome envelope.
+No row lock spans runtime calls, and this command does not serialize concurrent
+startup against cleanup. BO retains toggle presentation and opens pairing only
+after successful enable synchronization.
+
+Action reuse: extend the existing internal lifecycle command and its persistence
+helpers, reusing Channels runtime synchronization and adapter preparation. This
+adds no separate Action, agent-tool exposure or workflow step.
+
+### Connector credential documents
+
+`Actions.ConfirmLinkedDevice` owns its private atomic completion transaction: trusted
+session authorization and actor-derived ownership, attempt UUID validation/idempotence,
+connector defaults and encrypted batch provisioning. Repeated attempts verify saved provider/owner/account
+and retain later settings. No provider activation occurs inside the transaction.
+There is no separate public confirmation-save facade; runtime callers use the
+existing trusted completion Action. Credential document contracts remain unchanged.
+
+[`Connect.CredentialDocuments`](../../lib/zaq/engine/connect/credential_documents.ex)
+provides atomic namespaced record operations over an encrypted canonical org
+`api_key` grant. Engine's synchronous `:credential_document` event requires both
+`confidential: true` and explicit trusted `credential_document_runtime: true`.
+It executes the runtime-only `CredentialDocument` Action through `Jido.Exec`.
+These flags are an internal caller contract, not authentication for arbitrary
+NodeRouter callers; BO, agent tools and workflows must not expose this primitive.
+
+The request carries `binding: %{channel_config_id: id, credential_id: id}` and
+`op: :get | :put | :put_many | :delete | :delete_namespace | :clear | :list_keys`, with `namespace`, `key` and binary
+`value` where applicable. The connector's `settings["credential_document_id"]`
+must match a grant-bound API-key credential of the same provider, with disabled
+personal policy and metadata `auth_profile_id: "credential_document_v1"`,
+`subject: "channel_config:<id>"`. The operation checks both sides on every call. Runtime sinks may also supply an
+`expected_provider`; Engine rejects a mismatch before provisioning or accessing records.
+Only the reference is stored in connector settings; document values remain encrypted.
+
+One transaction locks the connector, credential and canonical grant before reading
+and merging. Disabled/archived connectors and revoked, expired, absent or unusable
+grants fail closed. Writes reuse canonical grant replacement and preserve grant
+expiry. Changes enqueue the existing secret-free mutation notification in the same
+transaction; identical puts and absent deletes do not enqueue jobs. Routed success
+follows commit. In-process callers composing an outer transaction own its commit.
+`put_many` accepts `records: %{{namespace, key} => binary_value}` and merges the
+entire batch with one grant replacement and notification. Every record and the
+resulting document must satisfy the same limits as single writes; invalid batches
+are atomic and identical batches are silent. Pairing confirmation uses this operation
+after Channels obtains encoded records from the adapter package. Engine does not
+serialize provider protocol terms.
+`delete_namespace` atomically removes all records in one namespace, leaving other
+namespaces intact; removing an absent namespace is a silent no-op. Namespace
+selection and storage migration policy belong to the adapter.
+
+Missing records return `:error`; unusable credentials, malformed documents and
+storage failures return sanitized `{:error, reason}` results. Versioned JSON stores
+Base64 binary values, bounded to 1 MiB per value and 16 MiB per document, with
+512-byte UTF-8 namespace/key limits. Consumers must treat the document as private
+runtime state, never as outbound HTTP authentication. See the module contract for
+return shapes and limits.
+
+`op: :bind` with `channel_config_id` provisions the association under the connector
+lock through canonical Connect configuration/grant persistence. Existing bindings
+are revalidated without replacing state or reactivating revoked grants. Linked-device
+pairing uses these existing Connect tables directly; see
+[Channels](channels.md#linked-device-integration).
+
+Linked-device confirmation accepts the adapter's normalized `account` with
+`external_id` and optional `display_name`, plus encoded `credentials`. Engine
+persists these fields without interpreting provider identity formats. The connector
+name uses `display_name` when available and otherwise the account ID. Provider-specific
+`identity`/`records` snapshots are rejected.
+
+Paired retrieval connectors use the trusted `adapter_authentication: true`
+option on `ChannelConfig` creation, changesets and provider upsert to supply blank
+URL/token placeholders. Provider names and submitted attributes do not grant this
+exemption. Confirmation supplies the option directly; BO edits resolve it from the
+saved connector's Channels authentication-flow capability, retaining its provider
+and kind. Engine validation does not query adapter implementations. Ordinary
+retrieval connectors continue to require URL/token fields.
+
+On saved connectors, `ChannelConfig.changeset/3` preserves Engine-owned
+`credential_document_id`, `owner_id`, `pairing_attempt` and `account` when settings
+are replaced or cleared. Ordinary edits may supply identical values but cannot
+introduce or change these reserved fields. Confirmation initializes identity;
+credential provisioning writes the binding through its existing trusted operation.
+User-owned settings retain replacement semantics. Regression tests cover metadata
+omission and tampering, and reads through the original binding after BO settings edits.
+
+Communication Edit forms reject enabled-state changes at validation and persistence.
+Operators use the existing Enable/Disable controls, which retain authorization,
+confirmation and cleanup ordering. New-config creation and data-source forms retain
+their existing behavior. Authentication fields follow the saved connector's capability,
+independently of the operator's permission to pair a device.
 
 ### Conversations
 
@@ -858,6 +1001,13 @@ use that claim protocol.
 
 `DeviceAttempts` stores a separate encrypted `DeviceAttempt`, bound to its initiating
 Person session (or trusted org setup), credential fingerprint, provider and deadline.
+It implements the higher-level `Zaq.SignIn` begin/observe/cancel contract, projecting
+verification challenges and credential completion without changing the OAuth HTTP
+behaviour. Existing global and authenticated Person events retain their authorization
+and actor/session-derived ownership. BO consumers share `DeviceSignInPolling` for
+private async admission/timers and `DesignSystem.DeviceSignIn` for presentation with
+Channels sign-in; protocol workers, storage and durable completion remain separate.
+OAuth modal dismissal detaches presentation, not the provider worker.
 One temporary `DeviceWorker` under the Engine's `DeviceSupervisor` drives HTTP and
 timers. Provider-normalized intervals/slowdown feed the worker; no provider names,
 endpoints or error codes enter its scheduling logic. There is one in-flight poll per
@@ -1374,11 +1524,14 @@ constant as the page grows to its 50-row bound.
 
 `ConnectorLifecycle.context/3` produces an exactly scoped, revisioned descriptor in
 Engine. `archive/2,3` validates scope/revision, stops data-source watches, requests
-confidential supplied-config provider teardown, then locks/rechecks the row and
-persists archival in Engine. It requests Channels runtime reconciliation and
-reconciles late watch cleanup afterward. Pre-archive failures
-leave the connector live. Runtime or cleanup failures after commit are returned as explicit
-pending stages, and retries resume the idempotent remaining work. BO callers and the
+confidential supplied-config provider teardown, and runs the optional adapter
+disable hook. Channels attempts runtime shutdown before Engine locks/rechecks the
+row to persist disablement. Successful shutdown is required before Engine
+locks/rechecks again to archive. Hook failures
+leave enablement unchanged; shutdown failures leave the connector disabled and
+unarchived. Retrying a disabled connector skips the hook and retries shutdown.
+Late watch cleanup is reconciled afterward and can return an explicit pending
+stage. No database row lock is held during adapter logout or runtime shutdown. BO callers and the
 `ArchiveChannelConnector` Action send only connector ID, provider, and kind with a current
 trusted actor.
 
@@ -1649,6 +1802,14 @@ the [Person email normalization runbook](../operations/person-email-normalizatio
 - All channel adapters must map their transport payload to this struct before passing to any
   ZAQ component.
 - When crossing nodes, this payload is carried in `%Zaq.Event.request`.
+
+Thread references select existing history scopes; they do not carry message content
+or grant access. Shared room history supplies local thread messages, bounded parent
+history, and an accessible parent message whose external ID matches the thread ID.
+If that original is absent, available authorized history remains usable without a
+provider fetch or a search of sibling transcripts. Direct-message history keeps its
+existing chat scope. Adapter-supplied quoted payload text is not injected into
+retrieval or agent prompts.
 
 ### Incoming Message Routing
 

@@ -999,7 +999,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     {:noreply,
      socket
      |> assign(ai_device_attempt: nil, ai_device_policy: nil)
-     |> schedule_ai_device_status(nil)
+     |> observe_ai_device(nil)
      |> AICredentialEvents.open_new_modal(&load_ai_credential_form/1)}
   end
 
@@ -1018,7 +1018,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
        credential,
        &engine_change_ai_provider_credential/2
      )
-     |> schedule_ai_device_status(attempt)}
+     |> observe_ai_device(attempt)}
   end
 
   def handle_event("connect_ai_credential_oauth", %{"id" => id}, socket) do
@@ -1052,20 +1052,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("cancel_ai_device", _, socket) do
-    case socket.assigns.ai_device_attempt do
-      %{attempt_id: id} ->
-        case dispatch_device(%{op: :cancel, attempt_id: id}) do
-          {:ok, attempt} ->
-            {:noreply,
-             socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)}
-
-          _ ->
-            {:noreply, put_flash(socket, :error, "Unable to cancel device sign-in.")}
-        end
-
-      _ ->
-        {:noreply, socket}
-    end
+    {:noreply, DeviceSignInPolling.request(socket, :cancel)}
   end
 
   def handle_event("open_delete_ai_credential_confirm", _params, socket) do
@@ -1248,14 +1235,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  def handle_info({:ai_device_status, id, generation}, socket) do
-    case DeviceSignInPolling.consume(socket, id, generation) do
-      {:ok, socket} -> refresh_ai_device_status(socket, socket.assigns.ai_device_attempt)
-      :stale -> {:noreply, socket}
-    end
-  end
-
-  def handle_info({:ai_device_status, _id}, socket), do: {:noreply, socket}
+  def handle_info({:sign_in_tick, generation, tick}, socket),
+    do: {:noreply, DeviceSignInPolling.tick(socket, generation, tick)}
 
   def handle_info(:studio_runtime_started, socket) do
     {:noreply, assign(socket, :studio_running, StudioRuntime.running?())}
@@ -1263,27 +1244,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   # ── Private ────────────────────────────────────────────────────────────
 
-  defp refresh_ai_device_status(socket, previous) do
-    case dispatch_device(%{op: :status, attempt_id: previous.attempt_id}) do
-      {:ok, attempt} ->
-        socket =
-          socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)
-
-        socket =
-          if attempt.status == "active", do: refresh_ai_device_success(socket), else: socket
-
-        {:noreply, socket}
-
-      {:error, :not_found} ->
-        attempt = %{attempt_id: previous.attempt_id, status: "unavailable"}
-
-        {:noreply,
-         socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)}
-
-      _ ->
-        {:noreply, schedule_ai_device_status(socket, previous)}
-    end
-  end
+  def handle_async({:sign_in, generation, id}, result, socket),
+    do: {:noreply, DeviceSignInPolling.result(socket, generation, id, result)}
 
   defp do_save_embedding(socket, params) do
     changeset = EmbeddingConfig.changeset(engine_get_embedding_config(), params)
@@ -1905,21 +1867,43 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp start_ai_device(socket, credential_id, attrs) do
-    case dispatch_device(%{op: :start, credential_id: credential_id, attrs: attrs}) do
-      {:ok, attempt} ->
-        socket |> assign(ai_device_attempt: attempt) |> schedule_ai_device_status(attempt)
-
-      _ ->
-        put_flash(socket, :error, "Unable to start device sign-in. Please try again.")
-    end
+    socket
+    |> observe_ai_device(%{ref: nil, status: "initializing", observe: false})
+    |> DeviceSignInPolling.request({:begin, %{credential_id: credential_id, attrs: attrs}})
   end
 
-  defp schedule_ai_device_status(socket, attempt),
-    do: DeviceSignInPolling.schedule(socket, attempt, :ai_device_status)
+  defp observe_ai_device(socket, attempt) do
+    router = node_router_module()
 
-  defp dispatch_device(request) do
+    DeviceSignInPolling.open(socket, attempt,
+      view_key: :ai_device_attempt,
+      dispatch: &ai_device_command(router, &1),
+      retry_errors: true,
+      on_complete: fn socket, _ -> refresh_ai_device_success(socket) end,
+      on_error: &ai_device_error/3
+    )
+  end
+
+  defp ai_device_command(router, {:begin, params}),
+    do: dispatch_device(Map.put(params, :op, :start), router)
+
+  defp ai_device_command(router, {:observe, id}),
+    do: dispatch_device(%{op: :status, attempt_id: id}, router)
+
+  defp ai_device_command(router, {:cancel, id}),
+    do: dispatch_device(%{op: :cancel, attempt_id: id}, router)
+
+  defp ai_device_error(socket, :begin, _),
+    do: put_flash(socket, :error, "Unable to start device sign-in. Please try again.")
+
+  defp ai_device_error(socket, :cancel, _),
+    do: put_flash(socket, :error, "Unable to cancel device sign-in.")
+
+  defp ai_device_error(socket, _, _), do: socket
+
+  defp dispatch_device(request, router \\ node_router_module()) do
     Events.build_and_dispatch_invoke_event(request, :connect_device,
-      node_router: node_router_module(),
+      node_router: router,
       event_opts: [confidential: true]
     ).response
   rescue

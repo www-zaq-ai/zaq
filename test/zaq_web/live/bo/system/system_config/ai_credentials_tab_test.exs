@@ -243,9 +243,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTabTest do
 
     pending = %{
       status: "pending",
-      verification_uri: "https://auth.openai.com/codex/device",
-      user_code: "ABCD-EFGH",
-      expires_at: ~U[2026-10-09 12:15:00Z]
+      challenge: %{
+        type: :verification_code,
+        uri: "https://auth.openai.com/codex/device",
+        code: "ABCD-EFGH",
+        expires_at: ~U[2026-10-09 12:15:00Z]
+      }
     }
 
     html =

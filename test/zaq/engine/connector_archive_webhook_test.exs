@@ -85,18 +85,19 @@ defmodule Zaq.Engine.ConnectorArchiveWebhookTest do
     assert Process.get(:webhook_delete_count) == 1
   end
 
-  test "post-commit stop failure stays pending and retry stops without another webhook deletion" do
+  test "stop failure leaves disabled connector unarchived and retry does not repeat webhook deletion" do
     config = insert_config()
     bridge_id = start_runtime(config)
     Process.put(:runtime_stop_failure, :runtime_down)
 
-    assert {:ok, %{status: :archived, runtime: {:pending, :runtime_down}}} = archive(config)
+    assert {:error, {:runtime_pending, :failed}} = archive(config)
     assert_received {:delete_webhook, ^bridge_id}
     assert_received {:stop_runtime, ^bridge_id}
-    assert Repo.get!(ChannelConfig, config.id).archived_at
+    assert %ChannelConfig{enabled: false, archived_at: nil} = Repo.get!(ChannelConfig, config.id)
     assert {:ok, _} = Supervisor.lookup_runtime(bridge_id)
 
-    assert {:ok, %{status: :already_archived, runtime: :synced}} = archive(config)
+    assert {:ok, %{status: :archived, runtime: :synced}} = archive(config)
+    assert Repo.get!(ChannelConfig, config.id).archived_at
     assert_received {:stop_runtime, ^bridge_id}
     refute_received {:delete_webhook, _}
     assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)

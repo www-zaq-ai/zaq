@@ -707,7 +707,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
-    attempt = device_attempt(credential.connect_credential_id)
+    attempt = device_attempt(credential.connect_credential_id, view)
 
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
     assert_error_flash(view, "Unable to start device sign-in. Please try again.")
@@ -736,17 +736,21 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
-    attempt = device_attempt(credential.connect_credential_id)
+    attempt = device_attempt(credential.connect_credential_id, view)
+    stale_socket = %{:sys.get_state(view.pid).socket | transport_pid: nil}
     {:ok, _} = PeopleAuth.revoke_session(ctx.token)
 
-    stale_socket =
-      %{
-        mounted
-        | assigns:
-            Map.put(mounted.assigns, :device_attempt, %{attempt_id: attempt.id, status: "pending"})
-      }
+    {:noreply, pending} = CredentialsLive.handle_event("cancel_device", %{}, stale_socket)
+    state = pending.private.sign_in_observer
+    result = state.dispatch.({:cancel, attempt.id})
 
-    {:noreply, failed} = CredentialsLive.handle_event("cancel_device", %{}, stale_socket)
+    {:noreply, failed} =
+      CredentialsLive.handle_async(
+        {:sign_in, state.generation, state.in_flight},
+        {:ok, {state.dispatch, result}},
+        pending
+      )
+
     assert_normalized_error(failed, "Unable to cancel device sign-in. Please try again.")
     assert Repo.get!(DeviceAttempt, attempt.id).status == "pending"
   end
@@ -756,9 +760,9 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
-    attempt = device_attempt(credential.connect_credential_id)
+    attempt = device_attempt(credential.connect_credential_id, view)
 
-    send(view.pid, {:device_status, Ecto.UUID.generate()})
+    send(view.pid, {:sign_in_tick, make_ref(), make_ref()})
     assert render(view) =~ "ABCD-EFGH"
     assert Repo.get!(DeviceAttempt, attempt.id).status == "pending"
 
@@ -772,7 +776,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
-    attempt = device_attempt(credential.connect_credential_id)
+    attempt = device_attempt(credential.connect_credential_id, view)
     pid = :erlang.binary_to_term(attempt.worker_pid, [:safe])
 
     Req.Test.expect(ConnectOAuthAttemptHTTP, fn conn ->
@@ -815,10 +819,14 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
-    attempt = device_attempt(credential.connect_credential_id)
+    attempt = device_attempt(credential.connect_credential_id, view)
 
     assert {:ok, %{status: "cancelled"}} =
-             DeviceAttempts.cancel(attempt.id, {"person", ctx.person.id, attempt.session_id})
+             DeviceAttempts.sign_in(
+               {:cancel, attempt.id},
+               {"person", ctx.person.id, attempt.session_id},
+               []
+             )
 
     refresh_device_status(view, attempt.id)
 
@@ -844,7 +852,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
-    attempt = device_attempt(credential.connect_credential_id)
+    attempt = device_attempt(credential.connect_credential_id, view)
 
     {:ok, _} = System.set_config("people_access.session_lifetime_seconds", "broken")
     refresh_device_status(view, attempt.id)
@@ -864,11 +872,11 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
-    attempt = device_attempt(credential.connect_credential_id)
+    attempt = device_attempt(credential.connect_credential_id, view)
     {:ok, _} = PeopleAuth.revoke_session(ctx.token)
 
-    refresh_device_status(view, attempt.id)
-    assert_redirect(view, "/people/login")
+    tick_device_status(view, attempt.id)
+    assert_redirect(view, "/people/login", 2_000)
   end
 
   test "missing device status clears instructions, stops observation and permits restart", ctx do
@@ -876,7 +884,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
-    attempt = device_attempt(credential.connect_credential_id)
+    attempt = device_attempt(credential.connect_credential_id, view)
     Repo.delete!(attempt)
 
     refresh_device_status(view, attempt.id)
@@ -888,12 +896,12 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
            )
 
     refute has_element?(view, "#people-device-sign-in-code")
-    assert :sys.get_state(view.pid).socket.private.device_sign_in_polling == nil
+    assert :sys.get_state(view.pid).socket.private.sign_in_observer_timer == nil
     refute render(view) =~ "You do not have permission to manage credentials."
 
     expect_device_code(view)
     view |> element("#credential-device-#{credential.connect_credential_id}") |> render_click()
-    restarted = device_attempt(credential.connect_credential_id)
+    restarted = device_attempt(credential.connect_credential_id, view)
     refute restarted.id == attempt.id
     assert has_element?(view, "#people-device-sign-in-code", "ABCD-EFGH")
   end
@@ -904,7 +912,7 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     {credential, view} = open_device_credential(ctx)
     expect_device_code(view)
     render_click(view, "connect_device", %{"id" => to_string(credential.connect_credential_id)})
-    _attempt = device_attempt(credential.connect_credential_id)
+    _attempt = device_attempt(credential.connect_credential_id, view)
     mounted = mount_credentials(ctx, MapSet.new([:access_profile, :manage_credentials]))
     {:ok, _} = PeopleAuth.revoke_session(ctx.token)
 
@@ -932,8 +940,15 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
   end
 
   defp refresh_device_status(view, id) do
-    %{generation: generation} = :sys.get_state(view.pid).socket.private.device_sign_in_polling
-    send(view.pid, {:device_status, id, generation})
+    tick_device_status(view, id)
+    render_async(view, 2_000)
+  end
+
+  defp tick_device_status(view, id) do
+    socket = :sys.get_state(view.pid).socket
+    assert socket.private.sign_in_observer.ref == id
+    %{identity: identity, generation: generation} = socket.private.sign_in_observer_timer
+    send(view.pid, {:sign_in_tick, identity, generation})
   end
 
   defp mount_credentials(ctx, permissions) do
@@ -1019,7 +1034,8 @@ defmodule ZaqWeb.Live.People.CredentialsLiveTest do
     end)
   end
 
-  defp device_attempt(credential_id) do
+  defp device_attempt(credential_id, view) do
+    render_async(view, 2_000)
     attempt = Repo.get_by!(DeviceAttempt, credential_id: credential_id)
     pid = :erlang.binary_to_term(attempt.worker_pid, [:safe])
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :kill) end)

@@ -4,20 +4,25 @@ defmodule Zaq.Channels.JidoChatBridge.Incoming do
 
   Selection follows the existing provider registration, with no consumer-specific
   configuration. Integrations interpret transport facts only; Engine owns history.
+
+  Adapters retain the transport facts required by their integration when
+  sanitizing media. Missing or contradictory evidence remains unknown.
   """
 
-  alias Zaq.Channels.JidoChatBridge.Incoming.{Discord, Mattermost, Telegram}
+  alias Zaq.Channels.JidoChatBridge.Incoming.{Discord, Mattermost, Telegram, WhatsApp}
 
   @integrations %{
     "discord" => Discord,
     "mattermost" => Mattermost,
-    "telegram" => Telegram
+    "telegram" => Telegram,
+    "whatsapp" => WhatsApp
   }
 
   @doc "Resolves the local normalization integration for an installed adapter."
   def integration(provider), do: Map.get(@integrations, to_string(provider))
 
   @doc "Normalizes verified transport facts, preserving unknown unsupported inputs."
+  @spec normalize(Jido.Chat.Incoming.t(), atom() | String.t(), module()) :: map()
   def normalize(incoming, provider, adapter) do
     case integration(provider) do
       nil ->

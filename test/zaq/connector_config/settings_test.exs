@@ -31,4 +31,75 @@ defmodule Zaq.ConnectorConfig.SettingsTest do
              settings: %{"imap" => %{"selected_mailboxes" => [nil, " INBOX ", ""]}}
            }) == ["INBOX"]
   end
+
+  test "legacy malformed runtime policies fail closed without provider-specific logic" do
+    assert Settings.jido_chat_room_reply_policy(%{settings: %{}}) == :default
+
+    for settings <- [
+          nil,
+          "invalid",
+          %{"jido_chat" => []},
+          %{"jido_chat" => %{"room_reply_policy" => nil}},
+          %{"jido_chat" => %{"room_reply_policy" => "all"}}
+        ] do
+      assert Settings.jido_chat_room_reply_policy(%{settings: settings}) == :mention_required
+    end
+  end
+
+  test "defaults support atom and string providers with an empty fallback" do
+    assert Settings.defaults("whatsapp") == Settings.defaults(:whatsapp)
+
+    for provider <- ["telegram", :telegram, "unregistered-provider", nil] do
+      assert Settings.defaults(provider) == %{}
+    end
+  end
+
+  property "creation defaults merge idempotently while explicit nested values win" do
+    check all(
+            value <- one_of([integer(), boolean(), string(:alphanumeric), constant(nil)]),
+            max_runs: 30
+          ) do
+      config = %{
+        provider: "whatsapp",
+        settings: %{"other" => value, "jido_chat" => %{"ingress" => %{"sync_history" => value}}}
+      }
+
+      effective = Settings.merge(Settings.defaults(config.provider), config.settings)
+
+      assert effective == %{
+               "other" => value,
+               "jido_chat" => %{
+                 "room_reply_policy" => "mention_required",
+                 "ingress" => %{"sync_history" => value, "sync_full_history" => false}
+               }
+             }
+
+      assert Settings.merge(Settings.defaults(config.provider), effective) == effective
+
+      assert Settings.preserve(%{config | settings: effective}, %{"other" => "edited"}) ==
+               %{"other" => "edited", "jido_chat" => effective["jido_chat"]}
+    end
+  end
+
+  test "settings projections read stored values without inserting provider defaults" do
+    config = %{provider: "whatsapp", settings: %{}}
+    assert Settings.jido_chat_room_reply_policy(%{}) == :default
+    assert Settings.jido_chat_settings(config) == %{}
+    assert Settings.jido_chat_room_reply_policy(config) == :default
+
+    partial = %{config | settings: %{"jido_chat" => %{"ingress" => %{"sync_history" => true}}}}
+    assert Settings.jido_chat_setting(partial, "ingress") == %{"sync_history" => true}
+
+    for settings <- [
+          nil,
+          "invalid",
+          %{"jido_chat" => nil},
+          %{"jido_chat" => []},
+          %{"jido_chat" => %{"room_reply_policy" => nil}},
+          %{"jido_chat" => %{"room_reply_policy" => "all"}}
+        ] do
+      malformed = %{config | settings: settings}
+      assert Settings.jido_chat_room_reply_policy(malformed) == :mention_required
+    end
+  end
 end

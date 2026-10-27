@@ -69,6 +69,24 @@ defmodule Zaq.Agent.RequestControlTest do
     %{agent: agent, actor: actor, scope: scope, server: server, pid: GenServer.whereis(server)}
   end
 
+  test "processing status rejects caller-supplied selectors even for an authorized Person", ctx do
+    {person_ctx, _id} = canonical_active(ctx)
+
+    assert {:ok, [%{user_message_id: message_id, status: :active}]} =
+             RequestControl.processing_status(event(person_ctx, %{}, confidential: true))
+
+    assert message_id == person_ctx.root.user_message_id
+
+    for request <- [
+          %{person_id: person_ctx.person.id},
+          %{scope: person_ctx.scope},
+          %{user_message_id: message_id}
+        ] do
+      assert {:error, :unauthorized} =
+               RequestControl.processing_status(event(person_ctx, request, confidential: true))
+    end
+  end
+
   test "native control reports stale runtime when either Jido operation exits", ctx do
     assert {:ok, %{request: request}} = Factory.ask_with_config(ctx.server, "Question", ctx.agent)
     assert_receive {:request_control_model_request, _, worker}, 5_000

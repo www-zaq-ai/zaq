@@ -9,9 +9,12 @@ defmodule ZaqWeb.Components.DesignSystem.DeviceSignInTest do
         id: "device",
         attempt: %{
           status: "pending",
-          verification_uri: "https://auth.openai.com/codex/device",
-          user_code: "ABCD-<EFGH>",
-          expires_at: ~U[2026-10-09 12:15:00Z]
+          challenge: %{
+            type: :verification_code,
+            uri: "https://auth.openai.com/codex/device",
+            code: "ABCD-<EFGH>",
+            expires_at: ~U[2026-10-09 12:15:00Z]
+          }
         }
       )
 
@@ -22,6 +25,48 @@ defmodule ZaqWeb.Components.DesignSystem.DeviceSignInTest do
     assert html =~ "ABCD-&lt;EFGH&gt;"
     refute html =~ "ABCD-<EFGH>"
     assert html =~ "12:15 UTC"
+  end
+
+  test "normalized QR renders local modules, never raw payload, and confirmation is escaped" do
+    html =
+      render_component(&DeviceSignIn.device_sign_in/1,
+        id: "linked-device",
+        attempt: %{status: "pending", challenge: %{type: :qr, value: "PRIVATE_QR_PAYLOAD"}}
+      )
+
+    assert html =~ "<svg"
+    refute html =~ "PRIVATE_QR_PAYLOAD"
+    assert html =~ ~s(aria-live="polite")
+
+    html =
+      render_component(&DeviceSignIn.device_sign_in/1,
+        id: "linked-device",
+        attempt: %{
+          status: "confirm",
+          confirmation: %{external_id: "+1234", display_name: "<account>"}
+        }
+      )
+
+    assert html =~ "Confirm to create this channel"
+    assert html =~ "&lt;account&gt;"
+    assert html =~ ~s(id="linked-device-account-id")
+    refute html =~ "<svg"
+  end
+
+  test "terminal and malformed challenges cannot retain QR or unsafe links" do
+    for attempt <- [
+          %{status: "expired", challenge: %{type: :qr, value: "OLD_QR"}},
+          %{status: "pending", challenge: %{type: :qr, value: String.duplicate("q", 2049)}},
+          %{
+            status: "pending",
+            challenge: %{type: :verification_code, uri: "javascript:alert(1)", code: "CODE"}
+          }
+        ] do
+      html = render_component(&DeviceSignIn.device_sign_in/1, id: "device", attempt: attempt)
+      refute html =~ "<svg"
+      refute html =~ "javascript:"
+      refute html =~ "OLD_QR"
+    end
   end
 
   test "terminal states omit codes and provide explicit recovery guidance" do

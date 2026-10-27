@@ -87,13 +87,24 @@ defmodule Zaq.Channels.EmailRuntimeConfigTest do
     disabled = %{ctx.config | enabled: false}
 
     event =
-      Event.new(%{before_config: disabled, after_config: disabled}, :channels,
+      Event.new(
+        %{
+          before_config: disabled,
+          after_config: disabled,
+          phase: :before_persist,
+          intent: :archive
+        },
+        :channels,
         opts: [action: :connector_sync_runtime, confidential: true]
       )
 
-    assert %{response: :ok} = Api.handle_event(event, :connector_sync_runtime, nil)
+    assert %{response: {:ok, %{runtime: :complete}}} =
+             Api.handle_event(event, :connector_sync_runtime, nil)
+
     assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id(disabled))
-    assert %{response: :ok} = Api.handle_event(event, :connector_sync_runtime, nil)
+
+    assert %{response: {:ok, %{runtime: :complete}}} =
+             Api.handle_event(event, :connector_sync_runtime, nil)
   end
 
   test "supplied-config runtime rejects incomplete identity or enablement" do
