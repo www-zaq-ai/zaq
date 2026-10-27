@@ -1,17 +1,16 @@
 defmodule Zaq.Channels.DiskFileDeliveryIntegrationTest do
-  @moduledoc "Real Disk -> authorized Outgoing -> Mattermost recipient download journeys."
+  @moduledoc "Authorized Disk -> Outgoing -> real Jido adapter -> HTTP stub journeys."
   use Zaq.DataCase, async: true
 
   alias Zaq.TestSupport.ChannelFileDelivery
 
-  @moduletag :integration
   @moduletag timeout: 180_000
 
-  test "only the selected signed Disk Record reaches the actual recipient's final thread post" do
+  test "only the selected signed Disk Record reaches the captured final thread post" do
     ChannelFileDelivery.run!([:mattermost])
   end
 
-  test "an empty attachment collection produces an actual text-only post" do
+  test "an empty attachment collection produces a text-only HTTP post" do
     ChannelFileDelivery.run!([:mattermost], files: false)
   end
 

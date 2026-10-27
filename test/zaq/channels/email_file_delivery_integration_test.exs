@@ -1,17 +1,16 @@
 defmodule Zaq.Channels.EmailFileDeliveryIntegrationTest do
-  @moduledoc "Real Disk -> authorized Outgoing -> SMTP acceptance and raw MIME readback journeys."
+  @moduledoc "Authorized Disk -> Outgoing -> real SMTP composition -> raw MIME stub capture."
   use Zaq.DataCase, async: true
 
   alias Zaq.TestSupport.ChannelFileDelivery
 
-  @moduletag :integration
   @moduletag timeout: 180_000
 
-  test "only the selected signed Disk Record reaches the actual SMTP recipient" do
+  test "only the selected signed Disk Record reaches the captured SMTP envelope" do
     ChannelFileDelivery.run!([:email])
   end
 
-  test "an empty attachment collection produces an actual message without MIME attachments" do
+  test "an empty attachment collection produces an SMTP message without MIME attachments" do
     ChannelFileDelivery.run!([:email], files: false)
   end
 

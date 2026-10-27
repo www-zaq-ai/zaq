@@ -1,7 +1,8 @@
 defmodule Zaq.TestSupport.MattermostHistoryFixture do
-  @moduledoc "Real Mattermost adapter frames and HTTP responses for Shared history regressions."
+  @moduledoc "Mattermost adapter frames, history responses and outgoing HTTP delivery captures."
 
   alias Jido.Chat.Mattermost.WebSocket.Client
+  alias Plug.Conn.Utils
   alias Zaq.Channels.JidoChatBridge
 
   def scenarios do
@@ -122,6 +123,82 @@ defmodule Zaq.TestSupport.MattermostHistoryFixture do
         send(owner, {:unexpected_history_http, other})
         {500, %{"error" => "unexpected mock request"}}
     end
+  end
+
+  @doc "Captures real adapter HTTP uploads/posts at a private delivery boundary."
+  def delivery_http(conn, body, owner, namespace) do
+    case {conn.method, conn.request_path} do
+      {"POST", "/api/v4/files"} ->
+        [content_type] = Plug.Conn.get_req_header(conn, "content-type")
+        {:ok, _, _, params} = Utils.media_type(content_type)
+        parts = multipart_parts(body, params["boundary"])
+
+        {[{file_headers, bytes}], [{channel_headers, channel_id}]} =
+          Enum.split_with(parts, fn {headers, _} -> headers =~ ~s(name="files") end)
+
+        true = channel_headers =~ ~s(name="channel_id")
+
+        [_, filename] = Regex.run(~r/filename="([^"]+)"/, file_headers)
+        [_, mime_type] = Regex.run(~r/content-type:\s*([^\r\n]+)/i, file_headers)
+
+        send(
+          owner,
+          {:delivery_upload, namespace,
+           %{
+             channel_id: channel_id,
+             filename: filename,
+             mime_type: mime_type,
+             bytes: bytes,
+             authorization: Plug.Conn.get_req_header(conn, "authorization")
+           }}
+        )
+
+        {201,
+         %{
+           "file_infos" => [
+             %{
+               "id" => "file-#{namespace}",
+               "name" => filename,
+               "mime_type" => mime_type,
+               "size" => byte_size(bytes)
+             }
+           ]
+         }}
+
+      {"POST", "/api/v4/posts"} ->
+        payload = Jason.decode!(body)
+
+        send(
+          owner,
+          {:delivery_boundary, namespace, self(),
+           %{post: payload, authorization: Plug.Conn.get_req_header(conn, "authorization")}}
+        )
+
+        receive do
+          :accept_delivery ->
+            {201, Map.put(payload, "id", "post-#{namespace}")}
+        after
+          15_000 -> {504, %{"error" => "delivery boundary was not released"}}
+        end
+
+      _ ->
+        http(conn, body, owner)
+    end
+  end
+
+  defp multipart_parts(body, boundary) do
+    body
+    |> :binary.split("--" <> boundary, [:global])
+    |> Enum.flat_map(fn
+      "\r\n" <> part ->
+        [headers, content] = :binary.split(part, "\r\n\r\n")
+        size = byte_size(content) - 2
+        <<bytes::binary-size(^size), "\r\n">> = content
+        [{headers, bytes}]
+
+      _ ->
+        []
+    end)
   end
 
   defp username("bot"), do: "zaq"

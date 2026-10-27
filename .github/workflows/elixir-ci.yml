@@ -9,43 +9,6 @@ on:
       - main
 
 jobs:
-  channel-files:
-    name: Real channel file delivery
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: pgvector/pgvector:pg18
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      MIX_ENV: test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
-        with:
-          otp-version: "28.1"
-          elixir-version: "1.20.4"
-      - uses: actions/cache@v4
-        with:
-          path: |
-            deps
-            _build
-          key: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-${{ hashFiles('mix.lock', 'mix.exs', 'config/**') }}
-          restore-keys: ${{ runner.os }}-mix-otp-28-1-elixir-1-20-4-test-
-      - run: mix deps.get
-      - name: Deliver and read back through disposable Mattermost and SMTP
-        run: sh scripts/test_channel_files.sh
-
   format:
     name: Format
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}

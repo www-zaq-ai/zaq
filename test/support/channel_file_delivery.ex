@@ -1,10 +1,11 @@
 defmodule Zaq.TestSupport.ChannelFileDelivery do
   @moduledoc """
-  Real-provider Channels journeys shared with future Agent ingress scenarios.
+  Channels journeys shared with future Agent ingress scenarios.
 
-  Uses uniquely owned source/provider resources and actual recipient readback.
-  A post-acceptance barrier keeps concurrent journeys alive until all receipts
-  exist, before allowing readback and fixture cleanup. No transport is replaced.
+  Uses private source resources and loopback Mattermost HTTP / SMTP stubs.
+  Final transport responses wait until every journey reaches its external
+  boundary, proving overlap before capture assertions and fixture cleanup.
+  These are ZAQ contract tests; real server compatibility belongs upstream.
   """
 
   import ExUnit.Assertions
@@ -23,11 +24,14 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
   alias Zaq.Storage.StorageEntry
   alias Zaq.Storage.VolumeConfig
 
-  @doc "Delivers through the selected real providers with private, explicitly allowed tasks."
+  alias Zaq.TestSupport.FileDeliverySmtpStub
+  alias Zaq.TestSupport.MattermostHistoryFixture
+  alias Zaq.TestSupport.OpenAIStub
+
+  @doc "Delivers through real internal paths with private tasks and external transport stubs."
   def run!(providers, opts \\ []) do
-    services = services!()
-    scopes = Enum.map(providers, &scope!(&1, services, opts))
     coordinator = self()
+    scopes = Enum.map(providers, &scope!(&1, coordinator, opts))
 
     tasks =
       Enum.map(scopes, fn scope ->
@@ -46,6 +50,20 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
         send(task.pid, :deliver)
       end
 
+      captures =
+        Map.new(scopes, fn scope ->
+          receive do
+            {:delivery_boundary, namespace, boundary_pid, capture}
+            when namespace == scope.namespace ->
+              {namespace, {boundary_pid, capture}}
+          after
+            15_000 -> flunk("delivery did not reach the external transport boundary")
+          end
+        end)
+
+      assert Enum.all?(tasks, &Process.alive?(&1.pid))
+      Enum.each(captures, fn {_, {pid, _}} -> send(pid, :accept_delivery) end)
+
       accepted =
         for task <- tasks do
           receive do
@@ -53,7 +71,7 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
               assert receipt.confirmation == :confirmed
               {pid, started, accepted_at, receipt.message_id}
           after
-            60_000 -> flunk("real provider did not confirm delivery")
+            60_000 -> flunk("stub transport did not confirm delivery")
           end
         end
 
@@ -64,7 +82,25 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
                Enum.min(Enum.map(accepted, &elem(&1, 2)))
 
       Enum.each(scopes, &assert_sources_preserved!/1)
-      Enum.each(tasks, &send(&1.pid, :readback))
+
+      Enum.zip(tasks, scopes)
+      |> Enum.each(fn {task, scope} ->
+        {_, capture} = Map.fetch!(captures, scope.namespace)
+
+        if scope.provider == :mattermost and scope.files? do
+          receive do
+            {:delivery_upload, namespace, upload} when namespace == scope.namespace ->
+              send(task.pid, {:delivery_upload, namespace, upload})
+          after
+            5_000 -> flunk("missing multipart upload capture")
+          end
+        end
+
+        namespace = scope.namespace
+        refute_received {:delivery_upload, ^namespace, _}
+        send(task.pid, {:readback, capture})
+      end)
+
       results = Enum.map(tasks, &Task.await(&1, 60_000))
 
       assert Enum.max(Enum.map(accepted, &elem(&1, 1))) <
@@ -75,6 +111,7 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
         Enum.reduce(scopes, scopes, fn scope, remaining ->
           assert_sources_preserved!(scope)
           File.rm_rf!(scope.root)
+          refute File.exists?(scope.root)
           remaining = List.delete(remaining, scope)
           Enum.each(remaining, &assert_sources_preserved!/1)
           remaining
@@ -86,13 +123,7 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
     end
   end
 
-  defp services! do
-    path = System.get_env("ZAQ_FILE_DELIVERY_SERVICES")
-    assert is_binary(path), "run scripts/test_channel_files.sh to provision the real providers"
-    Jason.decode!(File.read!(path))
-  end
-
-  defp scope!(provider, services, opts) do
+  defp scope!(provider, coordinator, opts) do
     namespace = "channel-files-#{Ecto.UUID.generate()}"
     volume = String.replace(namespace, "-", "")
     root = Path.join(VolumeConfig.base_path(), namespace)
@@ -138,7 +169,7 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
       other: other,
       actor: actor,
       record: record,
-      services: services,
+      coordinator: coordinator,
       files?: Keyword.get(opts, :files, true)
     }
 
@@ -146,56 +177,21 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
   end
 
   defp destination!(:mattermost, scope) do
-    services = scope.services
-    admin = services["mattermost_admin_token"]
-    sender = user!(services, admin, scope.namespace <> "-s")
-    recipient = user!(services, admin, scope.namespace <> "-r")
-
-    team_name = "ft-" <> binary_part(String.replace(Ecto.UUID.generate(), "-", ""), 0, 20)
-
-    team =
-      mm!(services, sender.token, :post, "/teams",
-        json: %{name: team_name, display_name: scope.namespace, type: "O"}
-      )
-
-    on_exit(fn -> mm_cleanup(services, admin, "/teams/#{team["id"]}") end)
-
-    mm!(services, sender.token, :post, "/teams/#{team["id"]}/members",
-      json: %{team_id: team["id"], user_id: recipient.id}
-    )
-
-    channel =
-      mm!(services, sender.token, :post, "/channels",
-        json: %{
-          team_id: team["id"],
-          name: scope.namespace,
-          display_name: scope.namespace,
-          type: "P"
-        }
-      )
-
-    mm!(services, sender.token, :post, "/channels/#{channel["id"]}/members",
-      json: %{user_id: recipient.id}
-    )
-
-    root =
-      mm!(services, recipient.token, :post, "/posts",
-        json: %{channel_id: channel["id"], message: "Private source request #{scope.namespace}"}
-      )
+    handler = &MattermostHistoryFixture.delivery_http(&1, &2, scope.coordinator, scope.namespace)
+    {server, endpoint} = OpenAIStub.server(handler, scope.coordinator)
+    ExUnit.Callbacks.start_supervised!(Supervisor.child_spec(server, id: scope.namespace))
 
     config =
       config!("mattermost", scope.namespace, %{
-        url: services["mattermost_url"],
-        token: sender.token
+        url: String.trim_trailing(endpoint, "/v1"),
+        token: "token-#{scope.namespace}"
       })
 
     %{
       provider: :mattermost,
       config: config,
-      channel_id: channel["id"],
-      thread_id: root["id"],
-      sender: sender,
-      recipient: recipient
+      channel_id: "room-#{scope.namespace}",
+      thread_id: "root-#{scope.namespace}"
     }
   end
 
@@ -204,13 +200,15 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
     recipient = "recipient-#{scope.namespace}@example.test"
     copied = "copied-#{scope.namespace}@example.test"
 
+    port = FileDeliverySmtpStub.start!(scope.coordinator, scope.namespace)
+
     config =
       config!("email:smtp", scope.namespace, %{
-        url: "smtp://#{scope.services["smtp_host"]}",
+        url: "smtp://127.0.0.1",
         token: "synthetic-unused",
         settings: %{
-          "relay" => scope.services["smtp_host"],
-          "port" => to_string(scope.services["smtp_port"]),
+          "relay" => "127.0.0.1",
+          "port" => to_string(port),
           "tls" => "never",
           "from_email" => sender,
           "from_name" => scope.namespace
@@ -228,27 +226,6 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
     }
   end
 
-  defp user!(services, admin, name) do
-    password = "Synthetic-#{Ecto.UUID.generate()}-123!"
-    username = "u" <> binary_part(String.replace(Ecto.UUID.generate(), "-", ""), 0, 20)
-
-    user =
-      mm!(services, admin, :post, "/users",
-        json: %{username: username, email: "#{name}@example.test", password: password}
-      )
-
-    on_exit(fn -> mm_cleanup(services, admin, "/users/#{user["id"]}") end)
-
-    response =
-      Req.post!(services["mattermost_url"] <> "/api/v4/users/login",
-        json: %{login_id: username, password: password},
-        retry: false
-      )
-
-    assert response.status == 200
-    %{id: user["id"], token: hd(response.headers["token"])}
-  end
-
   defp config!(provider, namespace, attrs) do
     %ChannelConfig{}
     |> ChannelConfig.changeset(
@@ -261,37 +238,25 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
   end
 
   defp journey!(scope, coordinator) do
-    socket = if scope.provider == :"email:smtp", do: mailpit_socket!(scope.services)
+    started = System.monotonic_time()
 
-    try do
-      started = System.monotonic_time()
-      outgoing = outgoing(scope)
+    event =
+      scope
+      |> outgoing()
+      |> Event.new(:channels, actor: scope.actor, opts: [action: :deliver_outgoing])
+      |> NodeRouter.dispatch()
 
-      event =
-        outgoing
-        |> Event.new(:channels, actor: scope.actor, opts: [action: :deliver_outgoing])
-        |> NodeRouter.dispatch()
+    assert {:ok, %{confirmation: :confirmed} = receipt} = event.response
+    send(coordinator, {:provider_accepted, self(), started, System.monotonic_time(), receipt})
 
-      assert {:ok, %{confirmation: :confirmed} = receipt} = event.response
-      send(coordinator, {:provider_accepted, self(), started, System.monotonic_time(), receipt})
-
-      receive do
-        :readback -> :ok
-      after
-        60_000 -> flunk("recipient readback was not released")
-      end
-
-      readback!(scope, receipt, socket)
-      assert_sources_preserved!(scope)
-
-      %{
-        provider: scope.provider,
-        message_id: receipt.message_id,
-        finished: System.monotonic_time()
-      }
+    receive do
+      {:readback, capture} -> assert_capture!(scope, receipt, capture)
     after
-      if socket, do: :gun.close(elem(socket, 0))
+      15_000 -> flunk("transport capture assertions were not released")
     end
+
+    assert_sources_preserved!(scope)
+    %{provider: scope.provider, message_id: receipt.message_id, finished: System.monotonic_time()}
   end
 
   defp outgoing(scope) do
@@ -322,43 +287,46 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
     end
   end
 
-  defp readback!(%{provider: :mattermost} = scope, receipt, _socket) do
-    post = mm!(scope.services, scope.recipient.token, :get, "/posts/#{receipt.message_id}")
+  defp assert_capture!(%{provider: :mattermost} = scope, receipt, %{
+         post: post,
+         authorization: auth
+       }) do
+    assert auth == ["Bearer token-#{scope.namespace}"]
+    assert receipt.message_id == "post-#{scope.namespace}"
     assert post["channel_id"] == scope.channel_id
-    assert post["user_id"] == scope.sender.id
     assert post["root_id"] == scope.thread_id
     assert post["message"] == outgoing(scope).body
 
     if scope.files? do
-      assert [file_id] = post["file_ids"]
-      info = mm!(scope.services, scope.recipient.token, :get, "/files/#{file_id}/info")
-      assert info["name"] == scope.selected.name
-      assert info["mime_type"] == scope.record.mime_type
+      assert post["file_ids"] == ["file-#{scope.namespace}"]
 
-      bytes =
-        mm!(scope.services, scope.recipient.token, :get, "/files/#{file_id}", decode_body: false)
-
-      assert bytes == scope.selected.bytes
-      refute bytes == scope.other.bytes
+      receive do
+        {:delivery_upload, namespace, upload} when namespace == scope.namespace ->
+          assert upload.channel_id == scope.channel_id
+          assert upload.authorization == ["Bearer token-#{scope.namespace}"]
+          assert upload.filename == scope.selected.name
+          assert upload.mime_type == scope.record.mime_type
+          assert upload.bytes == scope.selected.bytes
+          refute upload.bytes == scope.other.bytes
+      after
+        5_000 -> flunk("missing captured multipart upload")
+      end
     else
       assert Map.get(post, "file_ids", []) in [nil, []]
     end
   end
 
-  defp readback!(scope, receipt, socket) do
-    message = received_mail!(socket, scope.recipient)
-    id = message["ID"]
-    url = scope.services["mailpit_url"] <> "/api/v1/message/#{id}/raw"
-    response = Req.get!(url, decode_body: false, retry: false)
-    assert response.status == 200
-    parsed = Mail.parse(response.body)
+  defp assert_capture!(scope, receipt, %{raw: raw, sender: sender, recipients: recipients}) do
+    parsed = Mail.parse(raw)
     assert parsed.headers["message-id"] == "<#{receipt.message_id}>"
     assert parsed.headers["in-reply-to"] == "<#{scope.thread_id}>"
     assert parsed.headers["subject"] == scope.namespace
     assert receipt.audience.sender == scope.sender
     assert Enum.sort(receipt.audience.recipients) == Enum.sort([scope.recipient, scope.copied])
-    assert Enum.map(message["To"], & &1["Address"]) == [scope.recipient]
-    assert Enum.map(message["Cc"], & &1["Address"]) == [scope.copied]
+    assert sender == scope.sender
+    assert Enum.sort(recipients) == Enum.sort([scope.recipient, scope.copied])
+    assert parsed.headers["to"] == [scope.recipient]
+    assert parsed.headers["cc"] == [scope.copied]
 
     if scope.files? do
       assert Mail.get_attachments(parsed) == [{scope.selected.name, scope.selected.bytes}]
@@ -370,66 +338,6 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
     else
       assert Mail.get_attachments(parsed) == []
     end
-
-    deleted =
-      Req.delete!(scope.services["mailpit_url"] <> "/api/v1/messages",
-        json: %{IDs: [id]},
-        retry: false
-      )
-
-    assert deleted.status in 200..299
-  end
-
-  defp mailpit_socket!(services) do
-    uri = URI.parse(services["mailpit_url"])
-    {:ok, connection} = :gun.open(String.to_charlist(uri.host), uri.port, %{protocols: [:http]})
-    {:ok, _} = :gun.await_up(connection, 10_000)
-    stream = :gun.ws_upgrade(connection, "/api/events")
-
-    receive do
-      {:gun_upgrade, ^connection, ^stream, ["websocket"], _} -> {connection, stream}
-    after
-      10_000 -> flunk("Mailpit websocket did not connect")
-    end
-  end
-
-  defp received_mail!({connection, stream} = socket, recipient) do
-    receive do
-      {:gun_ws, ^connection, ^stream, {:text, json}} ->
-        case Jason.decode!(json) do
-          %{"Type" => "new", "Data" => message} ->
-            if Enum.any?(message["To"], &(&1["Address"] == recipient)),
-              do: message,
-              else: received_mail!(socket, recipient)
-
-          _ ->
-            received_mail!(socket, recipient)
-        end
-    after
-      15_000 -> flunk("SMTP receiver did not emit this journey's accepted-message event")
-    end
-  end
-
-  defp mm!(services, token, method, path, opts \\ []) do
-    response =
-      Req.request!(
-        [
-          url: services["mattermost_url"] <> "/api/v4" <> path,
-          method: method,
-          auth: {:bearer, token},
-          retry: false
-        ] ++ opts
-      )
-
-    assert response.status in 200..299, "Mattermost #{method} #{path}: HTTP #{response.status}"
-    response.body
-  end
-
-  defp mm_cleanup(services, token, path) do
-    Req.delete(services["mattermost_url"] <> "/api/v4" <> path,
-      auth: {:bearer, token},
-      retry: false
-    )
   end
 
   defp assert_sources_preserved!(scope) do
