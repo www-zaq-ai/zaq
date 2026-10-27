@@ -1,14 +1,92 @@
 defmodule Zaq.Channels.DeliveryConfirmationTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   import Mox
 
   alias Zaq.Channels.DeliveryConfirmation
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.EventHop
 
   setup :verify_on_exit!
+
+  property "confirmation excludes attachment capabilities and bytes while retaining receipt and IDs" do
+    check all(bytes <- binary(max_length: 2_048)) do
+      receipt = %{
+        confirmation: :confirmed,
+        action: :created,
+        message_id: "final-post",
+        thread_id: "root"
+      }
+
+      ids = %{
+        user_message_id: "u-1",
+        assistant_message_id: "a-1",
+        persisted_assistant_message_id: "stored-1"
+      }
+
+      attachments = [
+        %Record{
+          id: "file",
+          kind: :file,
+          content: bytes,
+          name: "private.bin",
+          path: "/private/original",
+          raw: %{token: "private"}
+        },
+        %Record{
+          id: "lazy",
+          kind: :file,
+          materialization_handle: "private-handle",
+          path: "/private/lazy"
+        }
+      ]
+
+      outgoing = %{
+        outgoing()
+        | attachments: attachments,
+          metadata:
+            Map.merge(ids, %{
+              "attachments" => attachments,
+              attachments: attachments,
+              trace: "private"
+            })
+      }
+
+      expected = %{outgoing | attachments: [], metadata: ids}
+
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        send(self(), {:projected_confirmation, event})
+        %{event | response: {:ok, receipt}}
+      end)
+
+      assert {:ok, ^receipt} =
+               DeliveryConfirmation.record({:ok, receipt}, outgoing,
+                 delivery_node_router: Zaq.NodeRouterMock
+               )
+
+      assert_received {:projected_confirmation, event}
+      assert event.request == %{receipt: receipt, outgoing: expected}
+      assert event.next_hop.destination == :engine
+      assert event.opts == [action: :record_delivery_confirmation]
+      assert outgoing.attachments == attachments
+    end
+  end
+
+  test "unconfirmed transport outcomes pass through without dispatching a recording event" do
+    for response <- [
+          {:error, :preparation_failed},
+          {:error, :timeout},
+          {:error, %Req.TransportError{reason: :timeout}},
+          {:ok, %{message_id: "unconfirmed"}}
+        ] do
+      assert DeliveryConfirmation.record(response, outgoing(),
+               delivery_node_router: Zaq.NodeRouterMock
+             ) == response
+    end
+  end
 
   test "rescues a dispatch exception while preserving a confirmed receipt" do
     receipt = %{confirmation: :confirmed, message_id: "external-1"}

@@ -6,12 +6,14 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
 
   alias Jido.Chat.Mattermost.Adapter
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions, PersonLoginChallenge}
+  alias Zaq.Channels.Api
   alias Zaq.Channels.{EmailBridge, JidoChatBridge}
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Contracts.Record
   alias Zaq.Engine.{ChannelConfig, Events, PeopleAuthGateway}
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Engine.Notifications.NotificationLog
+  alias Zaq.Event
   alias Zaq.Events.TrustedContext
   alias Zaq.TestSupport.OpenAIStub
 
@@ -129,6 +131,68 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     assert post_opts[:file_ids] == ["upload-id"]
     refute_received {:file_upload, _, _, _}
     refute_received {:file_post, _, _, _}
+  end
+
+  test "recording failure never resends files and a repeated caller submission remains another send" do
+    {child, endpoint} =
+      OpenAIStub.server(
+        fn conn, _body ->
+          case conn.request_path do
+            "/api/v4/files" -> {201, %{"file_infos" => [%{"id" => "uploaded-file"}]}}
+            "/api/v4/posts" -> {201, %{"id" => "accepted-post", "channel_id" => "private-room"}}
+          end
+        end,
+        self()
+      )
+
+    start_supervised!(child)
+
+    assert {:ok, config} =
+             ChannelConfig.upsert_by_provider("mattermost", %{
+               name: "File confirmation lifecycle",
+               kind: "retrieval",
+               enabled: true,
+               url: String.trim_trailing(endpoint, "/v1"),
+               token: "synthetic-token"
+             })
+
+    outgoing = %{
+      file_outgoing()
+      | routing_context: %{channel_config_id: config.id},
+        metadata: %{assistant_message_id: "persisted-answer"}
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [action: :deliver_outgoing, delivery_node_router: Zaq.NodeRouterMock]
+      )
+
+    expect(Zaq.NodeRouterMock, :dispatch, 2, fn confirmation ->
+      send(self(), {:file_confirmation, confirmation})
+      %{confirmation | response: {:error, :engine_unavailable}}
+    end)
+
+    for _submission <- 1..2 do
+      assert {:ok,
+              %{
+                confirmation: :confirmed,
+                message_id: "accepted-post",
+                confirmation_recording: :unavailable
+              }} =
+               Api.handle_event(event, :deliver_outgoing, nil).response
+
+      assert_received {:openai_request, "POST", "/api/v4/files", "", _upload}
+      assert_received {:openai_request, "POST", "/api/v4/posts", "", post}
+      assert Jason.decode!(post)["file_ids"] == ["uploaded-file"]
+      assert_received {:file_confirmation, confirmation}
+      assert confirmation.opts[:action] == :record_delivery_confirmation
+      assert confirmation.request.outgoing.attachments == []
+      assert confirmation.request.outgoing.metadata == %{assistant_message_id: "persisted-answer"}
+      assert confirmation.request.receipt.message_id == "accepted-post"
+      refute_received {:openai_request, _, _, _, _}
+    end
+
+    verify!(Zaq.NodeRouterMock)
   end
 
   test "files create a final post and replace the old placeholder with a safe success status" do

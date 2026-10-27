@@ -4,18 +4,20 @@ defmodule Zaq.Channels.DeliveryConfirmation do
 
   Transport success is preserved even if the downstream consumer is unavailable;
   reporting a receipt must never cause the accepted message to be resent.
+  The confirmation copy omits attachments and retains only canonical metadata IDs.
   """
 
   alias Zaq.Event
   alias Zaq.NodeRouter
 
-  @doc "Forwards a confirmed receipt and its original outgoing message to Engine."
+  @doc "Forwards a confirmed receipt and an attachment-free outgoing copy to Engine."
   def record({:ok, %{confirmation: :confirmed} = receipt}, outgoing, opts) do
     router = Keyword.get(opts, :delivery_node_router, NodeRouter)
 
     outgoing = %{
       outgoing
-      | metadata:
+      | attachments: [],
+        metadata:
           Map.take(outgoing.metadata || %{}, [
             :user_message_id,
             :assistant_message_id,
