@@ -9,8 +9,8 @@ defmodule Zaq.Engine.ActionSchedules do
 
   import Ecto.Query
 
-  alias Jido.Action.Schema, as: ActionSchema
   alias Oban.Job
+  alias Zaq.Agent.Tools.ActionContract
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Engine.ActionSchedules.Worker
   alias Zaq.Repo
@@ -100,17 +100,15 @@ defmodule Zaq.Engine.ActionSchedules do
 
   def resolve_action(action_key), do: {:error, {:unknown_action, action_key}}
 
-  @doc "Normalizes and validates params against an action's declared input schema."
+  @doc """
+  Normalizes and validates params against an action's declared input schema.
+
+  Delegates to `Zaq.Agent.Tools.ActionContract.validate/2`: it never executes
+  the action, so scheduling has no side effects.
+  """
   @spec validate_action_params(module(), map()) :: {:ok, map()} | {:error, term()}
-  def validate_action_params(module, params) when is_map(params) do
-    with {:module, ^module} <- Code.ensure_loaded(module),
-         true <- function_exported?(module, :validate_params, 1) do
-      module.validate_params(normalize_params_for_schema(params, module))
-    else
-      {:error, reason} -> {:error, {:invalid_action, module, reason}}
-      false -> {:error, {:invalid_action, module, :missing_validate_params}}
-    end
-  end
+  def validate_action_params(module, params) when is_map(params),
+    do: ActionContract.validate(module, params)
 
   defp pending_query do
     from(j in Job,
@@ -159,45 +157,4 @@ defmodule Zaq.Engine.ActionSchedules do
         {:ok, datetime}
     end
   end
-
-  defp normalize_params_for_schema(params, module) do
-    schema = module.schema()
-    schema_by_key = Map.new(schema)
-    known_keys = schema |> ActionSchema.known_keys() |> MapSet.new()
-
-    Map.new(params, fn
-      {key, value} when is_binary(key) ->
-        atom_key = Enum.find(known_keys, &(Atom.to_string(&1) == key))
-
-        if atom_key do
-          {atom_key, normalize_value_for_schema(value, Map.get(schema_by_key, atom_key))}
-        else
-          {key, value}
-        end
-
-      {key, value} when is_atom(key) ->
-        {key, normalize_value_for_schema(value, Map.get(schema_by_key, key))}
-
-      pair ->
-        pair
-    end)
-  end
-
-  defp normalize_value_for_schema(value, opts) when is_list(opts) do
-    case Keyword.get(opts, :type) do
-      {:in, allowed} -> normalize_in_value(value, allowed)
-      _ -> value
-    end
-  end
-
-  defp normalize_value_for_schema(value, _opts), do: value
-
-  defp normalize_in_value(value, allowed) when is_binary(value) and is_list(allowed) do
-    Enum.find(allowed, value, fn
-      allowed_value when is_atom(allowed_value) -> Atom.to_string(allowed_value) == value
-      _ -> false
-    end)
-  end
-
-  defp normalize_in_value(value, _allowed), do: value
 end
