@@ -1,11 +1,14 @@
 name: gitleaks
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 jobs:
   scan:
     name: gitleaks
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    # PRs are scanned before queue admission; report this required check as skipped in the queue.
+    if: ${{ github.event_name != 'merge_group' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
