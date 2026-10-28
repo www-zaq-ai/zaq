@@ -114,10 +114,10 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
 
       value =
         tree(scalar, fn child ->
-          one_of([list_of(child, max_length: 4), map_of(key, child, max_length: 4)])
+          one_of([list_of(child, max_length: 4), metadata_map(key, child, 4)])
         end)
 
-      check all(metadata <- map_of(key, value, max_length: 5)) do
+      check all(metadata <- metadata_map(key, value, 5)) do
         {:ok, receipt} = sent_result()
         assert {:ok, out} = run({:ok, %{receipt | thread_metadata: metadata}})
         assert out.thread_metadata === metadata
@@ -162,5 +162,11 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
       # The email leak this design deliberately avoids.
       refute :references in keys
     end
+  end
+
+  defp metadata_map(key, value, max_length) do
+    tuple({key, value})
+    |> list_of(max_length: max_length)
+    |> map(&Map.new/1)
   end
 end
