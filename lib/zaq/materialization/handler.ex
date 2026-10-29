@@ -6,6 +6,11 @@ defmodule Zaq.Materialization.Handler do
   calls. A handle selects only the handler type; it never selects an action or
   module directly.
 
+  When `context[:materialization_sink]` is a pid, handlers forward it to their producer as
+  the trusted event option `materialization_sink` so content can be streamed into the
+  consumer-owned `Zaq.Materialization.Sink`; a producer that streams answers with
+  `content: nil`. It never comes from options, locators or request params.
+
   Runtime options are JSON-compatible maps with string keys. Callers at
   non-serialized boundaries must normalize atom-keyed input before calling
   `Zaq.Materialization.materialize/4` or handler `materialize/3` functions.

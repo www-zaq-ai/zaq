@@ -19,6 +19,7 @@ defmodule Zaq.Ingestion.RecordSource do
   alias Zaq.Contracts.Record
   alias Zaq.Event
   alias Zaq.Materialization
+  alias Zaq.Materialization.RowsMarkdown
 
   alias Zaq.Ingestion.{ArtifactType, ExternalSource, TemporaryMaterializationStore}
 
@@ -87,34 +88,77 @@ defmodule Zaq.Ingestion.RecordSource do
   def from_storage_map(_), do: {:error, :invalid_source_record}
 
   defp materialize_external(%Record{} = record, context) do
-    with {:ok, %{record: %Record{} = downloaded}} <- download_external(record, context),
-         {:ok, stored} <- store_download(record, downloaded) do
-      source = ExternalSource.source(record)
+    with {:ok, root} <- TemporaryMaterializationStore.new_root() do
+      result =
+        case download_external(record, context, root) do
+          {:ok, %{record: %Record{} = downloaded} = payload} ->
+            file = Map.get(payload, :file)
+            record |> store_download(downloaded, file, root) |> settle_file(file)
 
-      {:ok,
-       %{
-         path: stored.absolute_path,
-         record: record,
-         cleanup_paths: stored[:cleanup_paths] || [],
-         processor_opts: [
-           source_override: source,
-           document_title: record.name,
-           document_metadata: ExternalSource.metadata(record)
-         ]
-       }}
+          other ->
+            other
+        end
+
+      finish_external(result, record, root)
     end
   end
 
-  defp download_external(%Record{materialization_handle: handle}, context)
+  # The streamed file stays owned by its sink (and is removed with `root` if this process
+  # exits) until it has been adopted; only then is ownership handed to the caller's cleanup.
+  defp settle_file(result, nil), do: result
+
+  defp settle_file({:ok, _stored} = result, file) do
+    case Materialization.complete_file(file) do
+      :ok -> result
+      {:error, :file_removed} -> {:error, :materialized_file_removed}
+    end
+  end
+
+  defp settle_file(error, file) do
+    Materialization.discard_file(file)
+    error
+  end
+
+  # The job-scoped root is kept only when the streamed file lives in it; otherwise (rows,
+  # inline content, failures) it is empty or partial and removed here.
+  defp finish_external({:ok, %{root_path: root} = stored}, record, root),
+    do: {:ok, external_input(record, stored)}
+
+  defp finish_external({:ok, stored}, record, root) do
+    _ = File.rm_rf(root)
+    {:ok, external_input(record, stored)}
+  end
+
+  defp finish_external(error, _record, root) do
+    _ = File.rm_rf(root)
+    error
+  end
+
+  defp external_input(record, stored) do
+    %{
+      path: stored.absolute_path,
+      record: record,
+      cleanup_paths: stored[:cleanup_paths] || [],
+      processor_opts: [
+        source_override: ExternalSource.source(record),
+        document_title: record.name,
+        document_metadata: ExternalSource.metadata(record)
+      ]
+    }
+  end
+
+  defp download_external(%Record{materialization_handle: handle}, context, root)
        when is_binary(handle) do
-    Materialization.materialize(
+    Materialization.materialize_file(
       handle,
       data_source_context(context),
-      "Data source document download failed"
+      "Data source document download failed",
+      %{},
+      file_opts(context, root)
     )
   end
 
-  defp download_external(%Record{} = record, context) do
+  defp download_external(%Record{} = record, context, root) do
     attrs = %{
       "config_id" => ExternalSource.config_id(record),
       "document_mime_type" => record.mime_type
@@ -126,10 +170,12 @@ defmodule Zaq.Ingestion.RecordSource do
            attrs
          ) do
       {:ok, handle} ->
-        Materialization.materialize(
+        Materialization.materialize_file(
           handle,
           data_source_context(context),
-          "Data source document download failed"
+          "Data source document download failed",
+          %{},
+          file_opts(context, root)
         )
 
       {:error, reason} ->
@@ -137,9 +183,21 @@ defmodule Zaq.Ingestion.RecordSource do
     end
   end
 
+  # The body was streamed to a file under `root`: adopt it, with no in-memory copy and no
+  # Base64 round trip. Binary files keep their original suffix, text becomes Markdown.
+  defp store_download(record, %Record{} = downloaded, %{path: path, binary?: binary?}, root) do
+    extension = if binary?, do: extension_for(record, downloaded), else: ".md"
+
+    with {:ok, stored} <- TemporaryMaterializationStore.adopt(record, root, path, extension) do
+      {:ok, Map.put(stored, :cleanup_paths, [stored.root_path])}
+    end
+  end
+
+  defp store_download(record, downloaded, nil, _root), do: store_download(record, downloaded)
+
   defp store_download(record, %Record{content: rows}) when is_list(rows) do
     record
-    |> TemporaryMaterializationStore.write_markdown(rows_to_markdown(rows))
+    |> TemporaryMaterializationStore.write_markdown(RowsMarkdown.render(rows))
     |> with_cleanup_root()
   end
 
@@ -180,7 +238,7 @@ defmodule Zaq.Ingestion.RecordSource do
 
     Event.new(%{provider: ExternalSource.provider(record), params: params}, :channels,
       actor: Map.get(context, :actor) || Map.get(context, "actor"),
-      opts: data_source_opts(:data_source_list_files)
+      opts: data_source_opts(:data_source_list_files, context)
     )
     |> node_router(context).dispatch()
     |> Map.get(:response)
@@ -202,58 +260,6 @@ defmodule Zaq.Ingestion.RecordSource do
       |> Map.put_new("provider_record_id", child.id)
 
     %Record{child | attributes: attrs}
-  end
-
-  defp rows_to_markdown([]), do: ""
-
-  defp rows_to_markdown([first | _] = rows) when is_map(first) do
-    headers = first |> Map.keys() |> Enum.map(&to_string/1)
-    divider = Enum.map(headers, fn _ -> "---" end)
-
-    ([headers, divider] ++
-       Enum.map(rows, fn row ->
-         Enum.map(headers, fn header -> row |> row_value(header) |> markdown_value() end)
-       end))
-    |> Enum.map_join("\n", fn columns -> "| " <> Enum.join(columns, " | ") <> " |" end)
-  end
-
-  defp rows_to_markdown(rows), do: Enum.map_join(rows, "\n", &markdown_value/1)
-
-  defp row_value(row, header) do
-    Enum.find_value(row, "", fn {key, value} ->
-      if to_string(key) == header, do: value, else: false
-    end)
-  end
-
-  defp markdown_value(nil), do: ""
-  defp markdown_value(value) when is_binary(value), do: value
-  defp markdown_value(value) when is_number(value) or is_boolean(value), do: to_string(value)
-
-  defp markdown_value(value) when is_list(value) or is_map(value) do
-    value
-    |> json_safe_value()
-    |> Jason.encode!()
-  end
-
-  defp markdown_value(value), do: safe_to_string(value)
-
-  defp json_safe_value(%_{} = value), do: value |> Map.from_struct() |> json_safe_value()
-
-  defp json_safe_value(value) when is_map(value) do
-    Map.new(value, fn {key, value} -> {to_string(key), json_safe_value(value)} end)
-  end
-
-  defp json_safe_value(value) when is_list(value), do: Enum.map(value, &json_safe_value/1)
-
-  defp json_safe_value(value)
-       when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value), do: value
-
-  defp json_safe_value(value), do: safe_to_string(value)
-
-  defp safe_to_string(value) do
-    to_string(value)
-  rescue
-    Protocol.UndefinedError -> ""
   end
 
   defp extension_for(%Record{} = original, %Record{} = downloaded) do
@@ -342,28 +348,31 @@ defmodule Zaq.Ingestion.RecordSource do
 
   defp stringify_map(_), do: %{}
 
-  defp data_source_opts(action) do
-    [
-      action: action,
-      data_source_bridge_module:
-        Application.get_env(
-          :zaq,
-          :ingestion_data_source_bridge_module,
-          Zaq.Channels.DataSourceBridge
-        )
-    ]
+  # `context[:materialization_max_bytes]` is the caller's quota for this download; without it
+  # the file default applies.
+  defp file_opts(context, root) do
+    [dir: root, own_dir: true, max_bytes: Map.get(context, :materialization_max_bytes)]
+  end
+
+  defp data_source_opts(action, context) do
+    [action: action, data_source_bridge_module: data_source_bridge_module(context)]
+  end
+
+  # A module in the call's context wins over the application-wide setting.
+  defp data_source_bridge_module(context) do
+    Map.get(context, :data_source_bridge_module) ||
+      Application.get_env(
+        :zaq,
+        :ingestion_data_source_bridge_module,
+        Zaq.Channels.DataSourceBridge
+      )
   end
 
   defp data_source_context(context) do
     %{}
     |> maybe_put_actor(Map.get(context, :actor) || Map.get(context, "actor"))
     |> Map.merge(%{
-      data_source_bridge_module:
-        Application.get_env(
-          :zaq,
-          :ingestion_data_source_bridge_module,
-          Zaq.Channels.DataSourceBridge
-        ),
+      data_source_bridge_module: data_source_bridge_module(context),
       node_router: Map.get(context, :node_router) || Map.get(context, "node_router")
     })
   end
