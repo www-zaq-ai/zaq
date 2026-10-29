@@ -1,5 +1,6 @@
 defmodule Zaq.Agent.Tools.ActionContractTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.Tools.ActionContract
   alias Zaq.Agent.Tools.General.EncodeBase64
@@ -120,6 +121,79 @@ defmodule Zaq.Agent.Tools.ActionContractTest do
   end
 
   describe "normalize/2" do
+    property "normalization is idempotent for bounded external parameters" do
+      value =
+        one_of([
+          integer(-10..10),
+          string(:alphanumeric, max_length: 12),
+          member_of([:fast, :slow, nil])
+        ])
+
+      check all(
+              action <- member_of([NimbleAction, ZoiAction, JsonSchemaAction]),
+              pairs <-
+                list_of(
+                  tuple(
+                    {member_of([
+                       "mode",
+                       :mode,
+                       "count",
+                       :count,
+                       "label",
+                       :label,
+                       "message",
+                       :message,
+                       "extra"
+                     ]), value}
+                  ),
+                  max_length: 5
+                ),
+              max_runs: 100
+            ) do
+        params = Map.new(pairs)
+        assert {:ok, normalized} = ActionContract.normalize(action, params)
+        assert {:ok, ^normalized} = ActionContract.normalize(action, normalized)
+      end
+    end
+
+    property "supported atom enums survive a JSON round trip" do
+      check all(
+              action <- member_of([NimbleAction, ZoiAction]),
+              mode <- member_of([:fast, :slow]),
+              max_runs: 100
+            ) do
+        params =
+          if action == NimbleAction,
+            do: %{mode: mode, count: 2},
+            else: %{mode: mode, label: "example"}
+
+        decoded = params |> Jason.encode!() |> Jason.decode!()
+        assert {:ok, %{mode: ^mode} = normalized} = ActionContract.normalize(action, params)
+        assert {:ok, ^normalized} = ActionContract.normalize(action, decoded)
+        assert {:ok, ^normalized} = ActionContract.validate(action, decoded)
+      end
+    end
+
+    property "unknown string keys survive normalization without creating atoms" do
+      check all(
+              suffix <- string(:alphanumeric, min_length: 1, max_length: 20),
+              value <- one_of([integer(-10..10), string(:alphanumeric, max_length: 12)]),
+              action <- member_of([NimbleAction, ZoiAction, JsonSchemaAction]),
+              max_runs: 100
+            ) do
+        key = "zaq_790_property_unknown_#{suffix}"
+        assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
+
+        known =
+          if action == JsonSchemaAction, do: %{"message" => "example"}, else: %{"mode" => "other"}
+
+        assert {:ok, normalized} = ActionContract.normalize(action, Map.put(known, key, value))
+        assert normalized[key] == value
+        assert Map.has_key?(normalized, if(action == JsonSchemaAction, do: :message, else: :mode))
+        assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
+      end
+    end
+
     test "converts string keys for known keys only" do
       assert {:ok, %{count: 2, extra: _}} =
                ActionContract.normalize(NimbleAction, %{"count" => 2, extra: 1})
