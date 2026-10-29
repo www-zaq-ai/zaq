@@ -82,6 +82,42 @@ defmodule Zaq.System do
     end
   end
 
+  @doc """
+  Reads independent confidentiality defaults, initially zero when absent.
+
+  Malformed persisted values are errors, never permissive fallbacks. This does
+  not activate policy administration or expose a new settings-write boundary.
+  """
+  @spec get_confidentiality_defaults() ::
+          {:ok, %{classification_level: non_neg_integer(), clearance_level: non_neg_integer()}}
+          | {:error, :invalid_confidentiality_defaults}
+  def get_confidentiality_defaults do
+    fields = [:classification_level, :clearance_level]
+    keys = Enum.map(fields, &"system.confidentiality.#{&1}")
+    rows = Repo.all(from c in Config, where: c.key in ^keys, select: {c.key, c.value})
+    values = Map.new(rows)
+
+    params = Map.new(fields, &{&1, Map.get(values, "system.confidentiality.#{&1}", 0)})
+
+    changeset =
+      {%{}, %{classification_level: :integer, clearance_level: :integer}}
+      |> Ecto.Changeset.cast(params, fields, empty_values: [])
+      |> Ecto.Changeset.validate_required(fields)
+      |> Ecto.Changeset.validate_number(:classification_level,
+        greater_than_or_equal_to: 0,
+        less_than_or_equal_to: 2_147_483_647
+      )
+      |> Ecto.Changeset.validate_number(:clearance_level,
+        greater_than_or_equal_to: 0,
+        less_than_or_equal_to: 2_147_483_647
+      )
+
+    case Ecto.Changeset.apply_action(changeset, :validate) do
+      {:ok, defaults} -> {:ok, defaults}
+      {:error, _changeset} -> {:error, :invalid_confidentiality_defaults}
+    end
+  end
+
   @doc "Upserts a single config entry."
   def set_config(key, value) do
     string_value = to_string(value)
