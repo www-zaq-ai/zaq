@@ -62,39 +62,29 @@ defmodule Zaq.Engine.Messages.Outgoing do
   the incoming message, sets `body` from `result.answer`, and merges result metadata
   (answer, confidence_score, latency_ms, tokens, error).
 
-  The atom-keyed `result.attachments` must be a list of `%Record{}` values and defaults
-  to `[]` when omitted. Invalid collections return `{:error, :invalid_attachments}`.
+  Copies atom-keyed `result.attachments` unchanged, defaulting to `[]` when omitted.
+  Producers own the Record contract; Channels validates attachments during delivery.
   Attachment keys are excluded from merged metadata, including any incoming values.
   """
-  @spec from_pipeline_result(Incoming.t(), map()) :: t() | {:error, :invalid_attachments}
+  @spec from_pipeline_result(Incoming.t(), map()) :: t()
   def from_pipeline_result(%Incoming{} = incoming, result) when is_map(result) do
-    with {:ok, attachments} <- normalize_attachments(Map.get(result, :attachments, [])) do
-      %__MODULE__{
-        body: result.answer,
-        channel_id: incoming.channel_id,
-        thread_id: incoming.thread_id,
-        author_id: incoming.author_id,
-        author_name: incoming.author_name,
-        provider: incoming.provider,
-        in_reply_to: incoming.message_id,
-        attachments: attachments,
-        routing_context: incoming.routing_context,
-        metadata:
-          incoming.metadata
-          |> Map.merge(result)
-          |> Map.drop([:attachments, "attachments"])
-          |> put_person(incoming.person)
-      }
-    end
+    %__MODULE__{
+      body: result.answer,
+      channel_id: incoming.channel_id,
+      thread_id: incoming.thread_id,
+      author_id: incoming.author_id,
+      author_name: incoming.author_name,
+      provider: incoming.provider,
+      in_reply_to: incoming.message_id,
+      attachments: Map.get(result, :attachments, []),
+      routing_context: incoming.routing_context,
+      metadata:
+        incoming.metadata
+        |> Map.merge(result)
+        |> Map.drop([:attachments, "attachments"])
+        |> put_person(incoming.person)
+    }
   end
-
-  defp normalize_attachments(attachments) when is_list(attachments) do
-    if Enum.all?(attachments, &match?(%Record{}, &1)),
-      do: {:ok, attachments},
-      else: {:error, :invalid_attachments}
-  end
-
-  defp normalize_attachments(_), do: {:error, :invalid_attachments}
 
   defp put_person(metadata, nil), do: metadata
   defp put_person(metadata, person), do: Map.put(metadata, :person, person)

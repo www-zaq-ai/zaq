@@ -33,12 +33,15 @@ defmodule Zaq.Engine.Messages.OutgoingTest do
     assert outgoing.in_reply_to == "m1"
   end
 
-  test "malformed explicit attachment collections fail instead of silently dropping files" do
+  test "attachment validation is deferred without losing the answer or supplied values" do
     record = %Record{id: "file", kind: :file}
 
     for attachments <- [nil, "file", %{}, record, [%{id: "file", kind: :file}], [record, nil]] do
-      assert Outgoing.from_pipeline_result(incoming(), %{answer: "ok", attachments: attachments}) ==
-               {:error, :invalid_attachments}
+      outgoing =
+        Outgoing.from_pipeline_result(incoming(), %{answer: "ok", attachments: attachments})
+
+      assert %Outgoing{body: "ok", attachments: ^attachments} = outgoing
+      refute Map.has_key?(outgoing.metadata, :attachments)
     end
   end
 
@@ -62,7 +65,7 @@ defmodule Zaq.Engine.Messages.OutgoingTest do
     assert Map.fetch!(outgoing, :attachments) == [record]
   end
 
-  property "explicit record normalization preserves every record in order and never leaks metadata" do
+  property "explicit records retain their order and never leak into metadata" do
     check all(ids <- list_of(string(:alphanumeric, min_length: 1), max_length: 12)) do
       records = Enum.map(ids, &%Record{id: &1, kind: :file, name: &1, content: &1})
       incoming = %{incoming() | attachments: [%Record{id: "incoming-only", kind: :file}]}
@@ -75,15 +78,16 @@ defmodule Zaq.Engine.Messages.OutgoingTest do
     end
   end
 
-  property "a non-record cannot be normalized into a sendable attachment" do
+  property "non-record values do not block outgoing construction or change supplied attachments" do
     check all(
             id <- string(:alphanumeric, min_length: 1),
             invalid <- one_of([integer(), string(:alphanumeric), constant(nil), constant(%{})])
           ) do
       records = [%Record{id: id, kind: :file}, invalid]
 
-      assert Outgoing.from_pipeline_result(incoming(), %{answer: "ok", attachments: records}) ==
-               {:error, :invalid_attachments}
+      outgoing = Outgoing.from_pipeline_result(incoming(), %{answer: "ok", attachments: records})
+      assert %Outgoing{body: "ok", attachments: ^records} = outgoing
+      refute Map.has_key?(outgoing.metadata, :attachments)
     end
   end
 

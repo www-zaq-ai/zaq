@@ -503,8 +503,9 @@ When routed across nodes, this payload is typically returned in `%Zaq.Event.resp
 
 `Outgoing.from_pipeline_result/2` copies routing fields and merges metadata from
 an `%Incoming{}` and pipeline result. Its explicit atom-keyed `:attachments`
-result must be a list of `Zaq.Contracts.Record` values; omission defaults to `[]`
-and malformed collections return `{:error, :invalid_attachments}`. Incoming
+result is copied unchanged; omission defaults to `[]`. Producers own the list-of-Records
+contract, while chat and email validate attachments through `DeliveryFiles` during
+preparation. The builder does not reject the answer for malformed attachments. Incoming
 attachments are never echoed automatically. Attachment collections are excluded
 from metadata, so file bytes and handles do not travel there.
 
@@ -513,12 +514,24 @@ email. Lazy materialization requires trusted Event actor or bypass context; sour
 paths, handles and credentials are not forwarded to the transport. Preparation
 creates no temporary files and never deletes source files. It acquires whole file
 contents in memory; acquisition budgets are tracked separately in [#875](https://github.com/www-zaq-ai/zaq/issues/875).
-Delivery confirmation forwards an attachment-free outgoing copy.
+Delivery confirmation forwards an outgoing copy with each attachment Record's
+`content` cleared; all other Record fields, including materialization handles,
+are preserved. Engine's confirmation capture currently does not persist these
+attachments; history preview support requires further Engine integration.
 
 Chat sends files as documents in a new final post. Adapter/provider errors own
 file count and size restrictions: current Jido core rejects multiple attachments,
-while SMTP accepts a list. Status distinguishes reported rejection from an
-ambiguous timeout, where delivery may be unconfirmed. A provider upload may persist
+while SMTP accepts a list. Text and file replies share preparation and sending;
+file replies choose creation because the current adapters cannot edit attachments.
+Both text and file creation return Jido's `post.id`, preserving its generated-ID
+fallback when an adapter reports success without a provider message ID.
+Successful file delivery adds no status notice or placeholder edit. On failure,
+the answer is preserved with an appended safe reason, editing the existing
+placeholder or posting a text-only notice when no editable placeholder exists.
+The original error is returned; this notice neither retries files nor invokes
+reply callbacks for a failed file delivery. Recognized timeouts report uncertainty.
+Provider error bodies are not displayed. Shared upstream error classification is
+tracked in [#893](https://github.com/www-zaq-ai/zaq/issues/893). A provider upload may persist
 even if sending fails; there is no exactly-once guarantee and an explicit resubmit
 sends again. Confirmation or status bookkeeping failure does not retry the send.
 Email delivery builds in-memory Swoosh attachments and sends synchronously.

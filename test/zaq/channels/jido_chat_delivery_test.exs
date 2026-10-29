@@ -22,10 +22,20 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       send(self(), {:file_upload, channel, file, opts})
 
       case URI.parse(opts[:url]).path do
-        "/upload_failed" -> {:error, :upload_failed}
-        "/size_rejected" -> {:error, {413, %{"message" => "private-provider-detail"}}}
-        "/upload_timeout" -> {:error, :timeout}
-        _ -> {:ok, %{"file_infos" => [%{"id" => "upload-id", "name" => file.filename}]}}
+        "/upload_failed" ->
+          {:error, :upload_failed}
+
+        "/size_rejected" ->
+          {:error, {413, %{"message" => "private-provider-detail"}}}
+
+        "/upload_timeout" ->
+          {:error, :timeout}
+
+        path when path in ["/notice_failed", "/notice_raised", "/notice_exit"] ->
+          {:error, :upload_failed}
+
+        _ ->
+          {:ok, %{"file_infos" => [%{"id" => "upload-id", "name" => file.filename}]}}
       end
     end
 
@@ -39,15 +49,17 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
         _ -> {:ok, %{"id" => "final-post-id", "channel_id" => channel}}
       end
     end
+  end
+
+  defmodule FailingEditAdapter do
+    defdelegate send_file(channel, file, opts), to: Adapter
 
     def edit_message(channel, message_id, text, opts) do
       send(self(), {:file_status, channel, message_id, text, opts})
 
       case URI.parse(opts[:url]).path do
-        "/status_failed" -> {:error, :status_failed}
-        "/status_raised" -> raise "status failed"
-        "/status_exit" -> exit(:status_failed)
-        _ -> {:ok, %{"id" => message_id, "channel_id" => channel}}
+        "/notice_raised" -> raise "status failed"
+        "/notice_exit" -> exit(:status_failed)
       end
     end
   end
@@ -63,6 +75,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
   end
 
   setup do
+    Code.ensure_loaded!(Adapter)
     previous = Application.get_env(:zaq, :channels)
 
     Application.put_env(:zaq, :channels, %{
@@ -186,7 +199,8 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       assert Jason.decode!(post)["file_ids"] == ["uploaded-file"]
       assert_received {:file_confirmation, confirmation}
       assert confirmation.opts[:action] == :record_delivery_confirmation
-      assert confirmation.request.outgoing.attachments == []
+      [original_attachment] = outgoing.attachments
+      assert confirmation.request.outgoing.attachments == [%{original_attachment | content: nil}]
       assert confirmation.request.outgoing.metadata == %{assistant_message_id: "persisted-answer"}
       assert confirmation.request.receipt.message_id == "accepted-post"
       refute_received {:openai_request, _, _, _, _}
@@ -195,7 +209,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     verify!(Zaq.NodeRouterMock)
   end
 
-  test "files create a final post and replace the old placeholder with a safe success status" do
+  test "files create a final post without appending success text or editing the placeholder" do
     outgoing = %{file_outgoing() | metadata: %{message_id: "status-id", format: :markdown}}
 
     assert {:ok, %{action: :created, message_id: "final-post-id"}} =
@@ -203,7 +217,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
 
     assert_received {:file_upload, _, _, _}
     assert_received {:file_post, _, "File caption", _}
-    assert_received {:file_status, "private-room", "status-id", "Files sent.", _}
+    refute_received {:file_status, _, _, _, _}
     refute_received {:file_upload, _, _, _}
     refute_received {:file_post, _, _, _}
   end
@@ -221,12 +235,15 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
              JidoChatBridge.send_reply(outgoing, file_connection())
 
     assert_received {:file_status, _, "status-id", status, _}
-    assert status =~ "does not support multiple attachments"
+
+    assert status ==
+             "File caption\n\nFile delivery failed: Sending multiple attachments together is not supported."
+
     refute_received {:file_upload, _, _, _}
     refute_received {:file_post, _, _, _}
   end
 
-  test "provider size rejection reports its category without exposing details or inventing a limit" do
+  test "provider rejection preserves the answer and HTTP status without exposing response details" do
     outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
 
     assert {:error, {413, _}} =
@@ -234,7 +251,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
 
     assert_received {:file_upload, _, _, _}
     assert_received {:file_status, _, _, status, _}
-    assert status == "The provider rejected the files as too large."
+    assert status == "File caption\n\nFile delivery failed: The provider returned HTTP 413."
     refute status =~ "private-provider-detail"
     refute_received {:file_post, _, _, _}
     refute_received {:file_upload, _, _, _}
@@ -246,7 +263,9 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       assert {:error, _} = JidoChatBridge.send_reply(outgoing, file_connection(failure))
       assert_received {:file_upload, _, _, _}
       if failure == "post_failed", do: assert_received({:file_post, _, _, _})
-      assert_received {:file_status, _, _, "Files could not be sent.", _}
+      assert_received {:file_status, _, _, status, _}
+      assert String.starts_with?(status, "File caption\n\nFile delivery failed: ")
+      refute status =~ "private-provider-detail"
       refute_received {:file_upload, _, _, _}
       refute_received {:file_post, _, _, _}
     end
@@ -261,23 +280,34 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       assert_received {:file_status, _, _, status, _}
 
       assert status ==
-               "File delivery could not be confirmed. Check the conversation before sending again."
+               "File caption\n\nFile delivery could not be confirmed: Check the conversation before sending again."
 
       refute_received {:file_upload, _, _, _}
       refute_received {:file_post, _, _, _}
     end
   end
 
-  test "a missing actual provider message ID cannot produce a confirmed receipt or callback" do
-    outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
+  test "file delivery preserves Jido's generated post ID when the provider ID is absent" do
+    outgoing = %{
+      file_outgoing()
+      | metadata: %{
+          "on_reply" => %{"module" => Atom.to_string(FileReplyWorker), "args" => %{}},
+          :message_id => "status-id"
+        }
+    }
 
-    assert {:error, :unconfirmed_delivery} =
+    assert {:ok, %{confirmation: :confirmed, action: :created, message_id: message_id}} =
              JidoChatBridge.send_reply(outgoing, file_connection("missing_post_id"))
+
+    assert is_binary(message_id) and byte_size(message_id) > 0
+    refute message_id in ["status-id", "upload-id"]
+
+    assert [%{args: %{"post_id" => ^message_id}}] =
+             Oban.Testing.all_enqueued(repo: Repo, worker: FileReplyWorker)
 
     assert_received {:file_upload, _, _, _}
     assert_received {:file_post, _, _, _}
-    assert_received {:file_status, _, _, status, _}
-    assert status =~ "could not be confirmed"
+    refute_received {:file_status, _, _, _, _}
     refute_received {:file_upload, _, _, _}
     refute_received {:file_post, _, _, _}
   end
@@ -293,7 +323,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
 
       assert_received {:file_upload, _, _, _}
       assert_received {:file_post, _, _, _}
-      assert_received {:file_status, _, _, _, _}
+      refute_received {:file_status, _, _, _, _}
       refute_received {:file_upload, _, _, _}
       refute_received {:file_post, _, _, _}
     end
@@ -323,7 +353,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     end
   end
 
-  test "preparation errors and unsupported bodies do not upload or silently send text" do
+  test "preparation errors preserve the answer with a notice and unsupported bodies are not sent" do
     assert {:ok, handle} =
              CommunicationMedia.issue("mattermost", "private-file", %{
                "source_author_id" => "owner"
@@ -345,6 +375,98 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
 
     for {outgoing, reason} <- cases do
       assert {:error, ^reason} = JidoChatBridge.send_reply(outgoing, file_connection())
+      refute_received {:file_upload, _, _, _}
+
+      if is_binary(outgoing.body) do
+        assert_received {:file_post, _, text, opts}
+        assert text == "File caption\n\nFile delivery failed: The attachment could not be sent."
+        assert opts[:file_ids] == nil
+      end
+
+      refute_received {:file_post, _, _, _}
+    end
+  end
+
+  test "failure without a placeholder sends the answer and reason once without attachments or callback" do
+    outgoing = %{
+      file_outgoing()
+      | metadata: %{"on_reply" => %{"module" => Atom.to_string(FileReplyWorker), "args" => %{}}}
+    }
+
+    assert {:error, :upload_failed} =
+             JidoChatBridge.send_reply(outgoing, file_connection("upload_failed"))
+
+    assert_received {:file_upload, _, _, _}
+    assert_received {:file_post, "private-room", text, opts}
+    assert text == "File caption\n\nFile delivery failed: The attachment could not be sent."
+    assert opts[:thread_id] == "root-post"
+    assert opts[:file_ids] == nil
+    assert Oban.Testing.all_enqueued(repo: Repo, worker: FileReplyWorker) == []
+    refute_received {:file_upload, _, _, _}
+    refute_received {:file_post, _, _, _}
+    refute_received {:file_status, _, _, _, _}
+  end
+
+  test "pipeline attachment mistakes reach delivery without losing the answer" do
+    incoming = %Zaq.Engine.Messages.Incoming{
+      content: "Send the file",
+      provider: :mattermost,
+      channel_id: "private-room"
+    }
+
+    connection = file_connection()
+
+    for attachments <- [nil, [%{id: "not-a-record"}]] do
+      outgoing =
+        Outgoing.from_pipeline_result(incoming, %{
+          answer: "Keep this answer",
+          attachments: attachments
+        })
+
+      assert {:error, _} = JidoChatBridge.send_reply(outgoing, connection)
+      assert_received {:file_post, "private-room", text, opts}
+      assert text == "Keep this answer\n\nFile delivery failed: The attachment could not be sent."
+      assert opts[:file_ids] == nil
+      refute_received {:file_upload, _, _, _}
+      refute_received {:file_post, _, _, _}
+    end
+  end
+
+  test "failure notice errors, exceptions and exits preserve the original failure without retry" do
+    registry = Application.fetch_env!(:zaq, :channels)
+
+    for scenario <- ["notice_failed", "notice_raised", "notice_exit"] do
+      adapter = if scenario == "notice_failed", do: Adapter, else: FailingEditAdapter
+      Application.put_env(:zaq, :channels, put_in(registry, [:mattermost, :adapter], adapter))
+      outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
+
+      capture_log(fn ->
+        assert {:error, :upload_failed} =
+                 JidoChatBridge.send_reply(outgoing, file_connection(scenario))
+      end)
+
+      assert_received {:file_upload, _, _, _}
+      assert_received {:file_status, _, "status-id", text, _}
+      assert text == "File caption\n\nFile delivery failed: The attachment could not be sent."
+      refute_received {:file_upload, _, _, _}
+      refute_received {:file_post, _, _, _}
+      refute_received {:file_status, _, _, _, _}
+    end
+  end
+
+  property "a failure notice preserves the complete answer, including an empty answer" do
+    connection = file_connection("upload_failed")
+
+    check all(body <- one_of([constant(""), string(:printable, max_length: 256)])) do
+      outgoing = %{file_outgoing() | body: body, metadata: %{message_id: "status-id"}}
+
+      assert {:error, :upload_failed} =
+               JidoChatBridge.send_reply(outgoing, connection)
+
+      assert_received {:file_upload, _, _, _}
+      assert_received {:file_status, _, "status-id", text, _}
+      notice = "File delivery failed: The attachment could not be sent."
+      assert text == if(body == "", do: notice, else: body <> "\n\n" <> notice)
       refute_received {:file_upload, _, _, _}
       refute_received {:file_post, _, _, _}
     end
@@ -369,8 +491,29 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
   end
 
   defp file_connection(scenario \\ "success") do
+    owner = self()
+
+    {child, endpoint} =
+      OpenAIStub.server(
+        fn conn, body ->
+          assert conn.method == "PUT"
+          assert conn.request_path == "/#{scenario}/api/v4/posts/status-id"
+          assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer synthetic-token"]
+          payload = Jason.decode!(body)
+          assert payload["id"] == "status-id"
+          send(owner, {:file_status, "private-room", payload["id"], payload["message"], []})
+
+          if scenario == "notice_failed",
+            do: {400, %{"message" => "synthetic edit rejection"}},
+            else: {200, %{"id" => payload["id"], "channel_id" => "private-room"}}
+        end,
+        owner
+      )
+
+    start_supervised!(Supervisor.child_spec(child, id: make_ref()))
+
     %{
-      url: "https://synthetic.test/#{scenario}",
+      url: String.trim_trailing(endpoint, "/v1") <> "/#{scenario}",
       token: "synthetic-token",
       transport: FileTransport,
       trusted_context: %TrustedContext{}

@@ -9,8 +9,9 @@ defmodule Zaq.Channels.JidoChatBridge do
   `send_reply/2` is called by Channels API for outbound delivery to any
   jido_chat-backed platform. Explicit file Records use shared preparation and
   existing adapter uploads as documents. File deliveries create a final post;
-  receipts and reply callbacks use its provider ID. Placeholder updates are
-  best effort and never change the provider delivery result.
+  receipts and reply callbacks use Jido's returned post ID. Success adds no status notice.
+  File failures preserve the answer and append a best-effort delivery notice,
+  without changing the provider delivery result or retrying the upload.
 
   `register_handlers/3` is called to attach function handlers per events
 
@@ -1860,81 +1861,74 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @doc "Sends a reply outbound via the provider adapter. Called by the bridge state process."
-  def do_send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection_details) do
+  def do_send_reply(%Outgoing{} = outgoing, %{url: _, token: _} = connection_details) do
     case adapter_for(outgoing.provider) do
       {:ok, adapter_module} ->
-        if outgoing.attachments == [] do
-          handle_send_with_adapter(outgoing, adapter_module, connection_details)
-        else
-          send_files_with_adapter(outgoing, adapter_module, connection_details)
-        end
+        result =
+          DeliveryFiles.with_prepared(
+            outgoing.attachments,
+            Map.get(connection_details, :trusted_context, %{}),
+            fn prepared ->
+              files = Enum.map(prepared, &prepared_upload/1)
+              handle_send_with_adapter(outgoing, adapter_module, connection_details, files)
+            end
+          )
+
+        report_file_failure(outgoing, adapter_module, connection_details, result)
+        result
 
       {:error, _reason} ->
         {:error, {:unsupported_provider, outgoing.provider}}
     end
   end
 
-  defp send_files_with_adapter(outgoing, adapter, details) do
-    result =
-      DeliveryFiles.with_prepared(
-        outgoing.attachments,
-        Map.get(details, :trusted_context, %{}),
-        fn prepared ->
-          files =
-            Enum.map(prepared, fn file ->
-              %FileUpload{
-                kind: :file,
-                data: file.content,
-                filename: file.name,
-                media_type: file.mime_type,
-                size_bytes: file.size
-              }
-            end)
-
-          opts = [files: files] ++ local_transport_opts(details)
-          create_and_dispatch_reply(outgoing, adapter, details, opts)
-        end
-      )
-
-    update_file_status(outgoing, adapter, details, result)
-    result
+  defp prepared_upload(file) do
+    %FileUpload{
+      kind: :file,
+      data: file.content,
+      filename: file.name,
+      media_type: file.mime_type,
+      size_bytes: file.size
+    }
   end
 
-  defp update_file_status(outgoing, adapter, details, result) do
-    message_id = metadata_message_id(outgoing.metadata)
+  defp report_file_failure(%Outgoing{attachments: []}, _adapter, _details, _result), do: :ok
 
-    if is_present_message_id(message_id) and supports_message_updates?(adapter) do
-      edit_message(
-        outgoing.provider,
-        adapter,
-        outgoing.channel_id,
-        message_id,
-        file_status_text(result),
-        details,
-        %{metadata: %{}},
-        local_transport_opts(details)
-      )
-    end
+  defp report_file_failure(%Outgoing{body: body} = outgoing, adapter, details, {:error, reason})
+       when is_binary(body) do
+    notice = %{
+      outgoing
+      | body: Enum.join(Enum.reject([body, file_failure_text(reason)], &(&1 == "")), "\n\n"),
+        attachments: [],
+        metadata: Map.drop(outgoing.metadata || %{}, [:on_reply, "on_reply"])
+    }
+
+    handle_send_with_adapter(notice, adapter, details, [])
   rescue
-    _ -> Logger.warning("[JidoChatBridge] file delivery status update failed")
+    _ -> Logger.warning("[JidoChatBridge] file delivery failure notice failed")
   catch
-    _, _ -> Logger.warning("[JidoChatBridge] file delivery status update failed")
+    _, _ -> Logger.warning("[JidoChatBridge] file delivery failure notice failed")
   end
 
-  defp file_status_text({:ok, _}), do: "Files sent."
+  defp report_file_failure(_outgoing, _adapter, _details, _result), do: :ok
 
-  defp file_status_text({:error, :multiple_attachments_unsupported}),
-    do:
-      "These files could not be sent together. The provider does not support multiple attachments."
-
-  defp file_status_text({:error, {413, _}}),
-    do: "The provider rejected the files as too large."
-
-  defp file_status_text({:error, reason}) do
+  defp file_failure_text(reason) do
     if unconfirmed_file_delivery?(reason),
-      do: "File delivery could not be confirmed. Check the conversation before sending again.",
-      else: "Files could not be sent."
+      do: "File delivery could not be confirmed: Check the conversation before sending again.",
+      else: "File delivery failed: #{delivery_failure_reason(reason)}"
   end
+
+  # Temporary: translate existing error shapes until adapters share a delivery-error contract.
+  # Tracked: zaq-2v9
+  defp delivery_failure_reason(:multiple_attachments_unsupported),
+    do: "Sending multiple attachments together is not supported."
+
+  defp delivery_failure_reason(:unsupported), do: "Sending attachments is not supported."
+
+  defp delivery_failure_reason({status, _body}) when is_integer(status) and status in 400..599,
+    do: "The provider returned HTTP #{status}."
+
+  defp delivery_failure_reason(_reason), do: "The attachment could not be sent."
 
   defp unconfirmed_file_delivery?(reason) when reason in [:timeout, :unconfirmed_delivery],
     do: true
@@ -1947,8 +1941,14 @@ defmodule Zaq.Channels.JidoChatBridge do
     details |> Map.take([:transport]) |> Map.to_list()
   end
 
-  defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, connection) do
+  defp handle_send_with_adapter(
+         %Outgoing{} = outgoing,
+         adapter_module,
+         details,
+         files
+       ) do
     metadata = outgoing.metadata || %{}
+    opts = [files: files] ++ local_transport_opts(details)
 
     with {:use_update, message_id} <- send_mode(outgoing, adapter_module),
          {:ok, receipt} <-
@@ -1958,15 +1958,17 @@ defmodule Zaq.Channels.JidoChatBridge do
              outgoing.channel_id,
              message_id,
              outgoing.body,
-             connection,
+             details,
              %{request_id: metadata[:request_id], metadata: metadata}
            ) do
       {:ok, Map.put(receipt, :confirmation, :confirmed)}
     else
-      :create -> create_and_dispatch_reply(outgoing, adapter_module, connection)
+      :create -> create_and_dispatch_reply(outgoing, adapter_module, details, opts)
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp send_mode(%Outgoing{attachments: [_ | _]}, _adapter_module), do: :create
 
   defp send_mode(%Outgoing{} = outgoing, adapter_module) do
     case metadata_message_id(outgoing.metadata) do
@@ -1978,7 +1980,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, connection, opts \\ []) do
+  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, connection, opts) do
     metadata = outgoing.metadata || %{}
 
     with {:ok, %{message_id: post_id}} <-
@@ -2087,7 +2089,7 @@ defmodule Zaq.Channels.JidoChatBridge do
         metadata: %{url: url, token: token}
       })
 
-    with {:ok, post_body} <- file_post_body(body, metadata, Keyword.get(opts, :files, [])),
+    with {:ok, post_body} <- build_post_body(body, metadata, Keyword.get(opts, :files, [])),
          {:ok, post} <-
            Chat.Thread.post(
              thread,
@@ -2095,29 +2097,9 @@ defmodule Zaq.Channels.JidoChatBridge do
              format_delivery_opts(provider, connection, metadata) ++
                Keyword.take(opts, [:transport])
            ) do
-      message_id =
-        if Keyword.get(opts, :files, []) == [],
-          do: post.id,
-          else: post.response.external_message_id
-
-      if is_present_message_id(message_id) do
-        {:ok,
-         %{
-           action: :created,
-           message_id: message_id
-         }}
-      else
-        {:error, :unconfirmed_delivery}
-      end
+      {:ok, %{action: :created, message_id: post.id}}
     end
   end
-
-  defp file_post_body(body, metadata, []), do: {:ok, build_post_body(body, metadata)}
-
-  defp file_post_body(body, metadata, files) when is_binary(body),
-    do: {:ok, Map.put(build_post_body(body, metadata), :files, files)}
-
-  defp file_post_body(_body, _metadata, _files), do: {:error, :invalid_postable}
 
   defp edit_message(
          provider,
@@ -2126,8 +2108,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          message_id,
          body,
          connection,
-         request,
-         extra_opts \\ []
+         request
        ) do
     metadata = Map.get(request, :metadata, %{})
 
@@ -2135,7 +2116,6 @@ defmodule Zaq.Channels.JidoChatBridge do
       (AdapterOptions.build(provider, connection) ++
          [update_intent: Map.get(request, :update_intent)])
       |> maybe_put_format_from_metadata(metadata)
-      |> Keyword.merge(Keyword.take(extra_opts, [:transport]))
 
     result = adapter_module.edit_message(channel_id, message_id, body, opts)
 
@@ -2164,11 +2144,13 @@ defmodule Zaq.Channels.JidoChatBridge do
     |> maybe_put_format_from_metadata(metadata)
   end
 
-  defp build_post_body(body, metadata) when is_binary(body) do
-    %{text: body, formatted: body, metadata: post_metadata(metadata)}
+  defp build_post_body(body, metadata, files) when is_binary(body) do
+    payload = %{text: body, formatted: body, metadata: post_metadata(metadata)}
+    {:ok, if(files == [], do: payload, else: Map.put(payload, :files, files))}
   end
 
-  defp build_post_body(body, _metadata), do: body
+  defp build_post_body(body, _metadata, []), do: {:ok, body}
+  defp build_post_body(_body, _metadata, _files), do: {:error, :invalid_postable}
 
   defp post_metadata(metadata) when is_map(metadata) do
     case Map.get(metadata, :format) || Map.get(metadata, "format") do

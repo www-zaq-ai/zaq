@@ -12,7 +12,7 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
 
   setup :verify_on_exit!
 
-  property "confirmation excludes attachment capabilities and bytes while retaining receipt and IDs" do
+  property "confirmation clears content while retaining attachment Records, handles, receipt and IDs" do
     check all(bytes <- binary(max_length: 2_048)) do
       receipt = %{
         confirmation: :confirmed,
@@ -33,6 +33,7 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
           kind: :file,
           content: bytes,
           name: "private.bin",
+          materialization_handle: "materialized-file-handle",
           path: "/private/original",
           raw: %{token: "private"}
         },
@@ -55,7 +56,8 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
             })
       }
 
-      expected = %{outgoing | attachments: [], metadata: ids}
+      [materialized, lazy] = attachments
+      expected = %{outgoing | attachments: [%{materialized | content: nil}, lazy], metadata: ids}
 
       expect(Zaq.NodeRouterMock, :dispatch, fn event ->
         send(self(), {:projected_confirmation, event})

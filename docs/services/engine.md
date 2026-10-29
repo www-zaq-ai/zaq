@@ -1711,8 +1711,9 @@ Rule write commands accept a required `rules` list. Each rule carries optional s
 - Canonical struct for all outbound messages.
 - Enforce keys: `:body`, `:channel_id`, `:provider`.
 - `from_pipeline_result/2` copies routing fields and merges result metadata, excluding
-  attachment collections. Explicit attachments default to `[]`; malformed input
-  returns `{:error, :invalid_attachments}`. See the [Channels outgoing contract](channels.md#zaqenginemessagesoutgoing).
+  attachment collections. Supplied attachments are copied unchanged and omission
+  defaults to `[]`; the builder does not validate attachment types. See the
+  [Channels outgoing contract](channels.md#zaqenginemessagesoutgoing).
 - When crossing nodes, this payload is typically returned in `%Zaq.Event.response`.
 
 ### Notifications Context (`Zaq.Engine.Notifications`)
