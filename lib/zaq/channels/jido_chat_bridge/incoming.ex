@@ -6,11 +6,12 @@ defmodule Zaq.Channels.JidoChatBridge.Incoming do
   configuration. Integrations interpret transport facts only; Engine owns history.
   """
 
-  alias Zaq.Channels.JidoChatBridge.Incoming.{Discord, Mattermost, Telegram}
+  alias Zaq.Channels.JidoChatBridge.Incoming.{Discord, Mattermost, Teams, Telegram}
 
   @integrations %{
     "discord" => Discord,
     "mattermost" => Mattermost,
+    "teams" => Teams,
     "telegram" => Telegram
   }
 

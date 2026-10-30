@@ -30,6 +30,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   alias Zaq.Channels.{
     Bridge,
+    ProviderCatalog,
     RetrievalChannel,
     Supervisor,
     WebhookUrl
@@ -535,7 +536,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          true <- is_atom(provider_atom) || {:error, {:unsupported_provider, provider}},
          true <- supports_message_updates?(adapter) || {:ok, %{action: :noop, message_id: nil}} do
       thread_id = Map.get(request, :thread_id)
-      channel_id = Map.get(request, :channel_id)
+      channel_id = delivery_room_id(provider, request)
       body = Map.get(request, :body)
       request_metadata = Map.get(request, :metadata, request)
 
@@ -724,8 +725,10 @@ defmodule Zaq.Channels.JidoChatBridge do
         channel_config_id: channel_config_id,
         conversation_type: facts[:conversation_type],
         source_scope: facts[:source_scope],
+        identity_platform: identity_platform(provider),
         sender_membership: sender_membership(incoming, provider, facts),
-        provider_sent_at: facts[:provider_sent_at]
+        provider_sent_at: facts[:provider_sent_at],
+        attributes: delivery_attributes(incoming, provider)
       },
       attachments:
         media_records(
@@ -740,6 +743,26 @@ defmodule Zaq.Channels.JidoChatBridge do
       metadata: incoming.metadata || %{}
     })
   end
+
+  # Teams can only post to the reference from the inbound activity.
+  defp delivery_attributes(%Chat.Incoming{delivery_external_room_id: reference}, provider)
+       when provider in [:teams, "teams"] and is_binary(reference),
+       do: %{"delivery_external_room_id" => reference}
+
+  defp delivery_attributes(_incoming, _provider), do: %{}
+
+  defp delivery_room_id(provider, %{
+         routing_context: %{attributes: %{"delivery_external_room_id" => reference}}
+       })
+       when provider in [:teams, "teams"],
+       do: reference
+
+  defp delivery_room_id(_provider, request), do: Map.get(request, :channel_id)
+
+  defp identity_platform(provider) when provider in [:teams, "teams"],
+    do: ProviderCatalog.person_platform("teams")
+
+  defp identity_platform(_provider), do: nil
 
   defp normalized_communication_facts(%Chat.Incoming{} = incoming, provider) do
     metadata = incoming.channel_meta
@@ -763,7 +786,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          sender_id: id
        })
        when is_binary(id) and id != "" do
-    %{identity_platform: to_string(provider), member_id: id}
+    %{identity_platform: ProviderCatalog.person_platform(to_string(provider)), member_id: id}
   end
 
   defp sender_membership(_, _, _), do: nil
@@ -789,7 +812,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     max_bytes = max_media_bytes(config_opts)
     size = Map.get(request, :size) || Map.get(request, "size")
 
-    with :ok <- enforce_media_size(size, max_bytes),
+    with :ok <- check_declared_size(provider, size, max_bytes),
          true <- present_reference?(reference) || {:error, :invalid_media_reference},
          {:ok, adapter} <- resolve_adapter_for_provider(provider, config_opts),
          true <- function_exported?(adapter, :fetch_media, 2) || {:error, :unsupported},
@@ -1781,6 +1804,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp maybe_put_source_scope_value(attributes, key, value),
     do: Map.put(attributes, key, to_string(value))
 
+  # Teams attachments carry no size. The adapter limits the download, and the real size is
+  # checked once the content arrives.
+  defp check_declared_size(provider, nil, _max_bytes) when provider in [:teams, "teams"], do: :ok
+  defp check_declared_size(_provider, size, max_bytes), do: enforce_media_size(size, max_bytes)
+
   defp enforce_media_size(size, max_bytes) when is_integer(size) and size > max_bytes,
     do: {:error, :media_too_large}
 
@@ -1893,7 +1921,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            edit_message(
              outgoing.provider,
              adapter_module,
-             outgoing.channel_id,
+             delivery_room_id(outgoing.provider, outgoing),
              message_id,
              outgoing.body,
              connection,
@@ -1923,7 +1951,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            create_message(
              outgoing.provider,
              adapter_module,
-             outgoing.channel_id,
+             delivery_room_id(outgoing.provider, outgoing),
              outgoing.thread_id,
              outgoing.body,
              connection,

@@ -71,12 +71,13 @@ original event kind, configured provider, and room. `ChannelMeta.is_dm` defaults
 to false, and some adapters default an absent kind to `:channel` or `:dm`;
 neither default authorizes shared or direct history. The currently verified
 kind matrix is Mattermost D/O/P (DM/public/private room), Telegram explicit
-private/group/supergroup/channel, and Discord guild messages plus threads with
+private/group/supergroup/channel, Teams personal/groupChat/channel with a matching
+adapter kind, and Discord guild messages plus threads with
 an explicit guild and parent. Discord Direct requires matching independently
 fetched channel metadata with channel type 1; message `type` and absent guild
 fields are not evidence. Unknown kinds, Mattermost group DM, Discord DM
 without independent room evidence, and missing Discord thread parents remain
-unknown. Slack and Teams have no configured adapter in `config/config.exs`.
+unknown. Slack has no configured adapter in `config/config.exs`.
 This is only transport context, not authentication of arbitrary external
 envelopes, a grant, passive capture, or a resolved Person. Engine resolves the
 actor after routing; strategy consumers must use authorized transcript reads.
@@ -143,11 +144,14 @@ Canonical Incoming construction normalizes numeric room/thread identifiers using
 the transport-neutral ConversationIdentity helper. External numeric IDs may be
 negative (for example group chats); internal connector/Person IDs remain positive.
 Channels stamps `routing_context.source_scope` for chat-local message identifiers
-(Telegram uses its chat ID; IMAP uses its exact mailbox). Engine capture, admission,
+(Telegram uses its chat ID; Teams uses its room ID; IMAP uses its exact mailbox). Engine capture, admission,
 locking and replay share `SourceIdentity.account_key/3`. Scope strings are opaque:
 trimming can merge distinct mailbox identities, and malformed scopes never become
 the connector-global `nil` namespace. Channels also stamps `identity_platform`,
 message-local `Audience`, factual `conversation_type` and UTC `provider_sent_at`.
+Teams connectors use the provider `teams`, and their Person links use the platform
+`microsoft_teams`; `ProviderCatalog.person_platform/1` and `connector_provider/1`
+translate between the two names.
 The conversation identity stamp carries
 its explicit `scoped` policy; Engine never infers it from a provider name.
 Chat providers produce those fields through provider-local normalization integrations
@@ -577,7 +581,9 @@ calls `EmailBridge.materialize_record/3`, which delegates to
 `ImapAdapter.download_attachment/2`. The 100 MiB default byte limit is
 configurable through `:message_trace_artifact_max_bytes`; declared sizes above
 that limit are rejected before provider fetch and downloaded bytes are checked
-again before returning content.
+again before returning content. An attachment without a valid declared size is
+refused, except on Teams, which never declares one; its adapter stops the
+download past its own limit instead.
 
 ---
 
@@ -992,6 +998,8 @@ Called by channels delivery routing (`Channels.Api` -> bridge-specific `send_rep
 2. Resolves the adapter module for the provider.
 3. Builds a `Jido.Chat.Thread` and calls `Chat.Thread.post/3`.
 4. If `outgoing.metadata` contains an `"on_reply"` key, dispatches an Oban job for reply tracking (used by the Notification center).
+
+Teams cannot post to a plain conversation ID, so `to_internal/2` keeps the adapter's `teamsref:v1:` delivery reference in `routing_context.attributes["delivery_external_room_id"]`. Create, edit and upsert use it as the adapter room ID, and `channel_id` stays the conversation identity. In a channel, the reference's conversation is the thread, so the reply lands in the original thread. The reference holds routing data and no secret. Other providers carry no such attribute and keep posting to `channel_id`. Teams has no typing indicator yet, because typing events carry only the provider and `channel_id`.
 
 ### Thread watch management
 

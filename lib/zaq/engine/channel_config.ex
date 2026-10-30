@@ -15,6 +15,7 @@ defmodule Zaq.Engine.ChannelConfig do
 
   alias Zaq.Channels.AgentRouting
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.ProviderCatalog
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.ConnectorConfig.{Settings, WidgetSettings}
   alias Zaq.Engine.IncomingMessageRouting
@@ -391,7 +392,7 @@ defmodule Zaq.Engine.ChannelConfig do
       routing = Bridge.incoming_routing(config)
 
       %{
-        platform: to_string(Bridge.provider_to_bridge_key(config.provider) || config.provider),
+        platform: person_channel_platform(config),
         incoming?: routing.incoming?,
         config: %__MODULE__{
           id: config.id,
@@ -465,7 +466,13 @@ defmodule Zaq.Engine.ChannelConfig do
   def incoming_routing_config?(_, _), do: false
 
   defp person_channel_config_for_platform?(config, platform) do
-    (Bridge.provider_to_bridge_key(config.provider) || config.provider) |> to_string() == platform
+    person_channel_platform(config) == platform
+  end
+
+  defp person_channel_platform(config) do
+    (Bridge.provider_to_bridge_key(config.provider) || config.provider)
+    |> to_string()
+    |> ProviderCatalog.person_platform()
   end
 
   defp normalize_filter_providers(providers) when is_list(providers) do

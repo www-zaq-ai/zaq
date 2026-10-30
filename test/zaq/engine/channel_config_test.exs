@@ -209,6 +209,18 @@ defmodule Zaq.Engine.ChannelConfigTest do
 
   # ── Teams connector ─────────────────────────────────────────────────────────
 
+  describe "list_person_channel_targets/2" do
+    test "lists a Teams connector under its person platform, not its provider" do
+      config = Repo.insert!(teams_changeset())
+
+      assert [%{platform: "microsoft_teams", config: %{id: id}}] =
+               ChannelConfig.list_person_channel_targets("microsoft_teams", config.id)
+
+      assert id == config.id
+      assert [] = ChannelConfig.list_person_channel_targets("teams", config.id)
+    end
+  end
+
   describe "Teams connector validation" do
     test "saves with App ID, Tenant ID and client secret, and no URL" do
       assert {:ok, config} = Repo.insert(teams_changeset())

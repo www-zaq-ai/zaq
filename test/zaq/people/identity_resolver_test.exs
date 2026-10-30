@@ -237,6 +237,24 @@ defmodule Zaq.People.IdentityResolverTest do
     person
   end
 
+  describe "resolve_channel_sender/1" do
+    test "matches a Teams connector sender through its person platform" do
+      config = connector_fixture("teams")
+
+      {:ok, person} =
+        People.find_or_create_from_channel("microsoft_teams", %{
+          channel_id: "aad-user-2",
+          channel_config_id: config.id
+        })
+
+      scope = %{channel_config_id: config.id, sender_id: "aad-user-2", provider: "teams"}
+
+      assert {:ok, resolved} = IdentityResolver.resolve_channel_sender(scope)
+      assert resolved.id == person.id
+      assert :ok = IdentityResolver.authorize_channel_sender(resolved, scope)
+    end
+  end
+
   describe "resolve/2" do
     test "rejects an invalid connector id before author lookup" do
       person_count = Repo.aggregate(Zaq.Accounts.Person, :count)
@@ -733,6 +751,30 @@ defmodule Zaq.People.IdentityResolverTest do
       channel = Enum.find(loaded.channels, &(&1.channel_identifier == "U_BACKFILL_DEFAULT"))
 
       assert channel.dm_channel_id == nil
+    end
+
+    test "asks Channels about a Teams author by its connector provider" do
+      config = connector_fixture("teams")
+      test_pid = self()
+
+      expect(Zaq.NodeRouterMock, :dispatch, 2, fn event ->
+        send(test_pid, {:channels_call, event.opts[:action], event.request.provider})
+        %{event | response: {:error, :not_found}}
+      end)
+
+      message =
+        incoming(%{
+          provider: :teams,
+          author_id: "aad-user-3",
+          routing_context: %RoutingContext{
+            channel_config_id: config.id,
+            identity_platform: "microsoft_teams"
+          }
+        })
+
+      assert {:ok, _person} = IdentityResolver.resolve(message, [])
+      assert_received {:channels_call, :fetch_profile, "teams"}
+      assert_received {:channels_call, :open_dm_channel, "teams"}
     end
 
     test "falls back when channel id is empty" do

@@ -7,6 +7,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.ChannelMeta
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Jido.Chat.Media
+  alias Jido.Chat.Teams.Auth.TokenCache
   alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
   alias Zaq.Channels.Bridge
@@ -1102,6 +1103,29 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert Enum.sort(opts) ==
                [app_id: "app-1", app_password: "client-secret", app_tenant_id: "tenant-1"]
+    end
+
+    test "downloads a Teams file of unknown size and records its real size" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        teams: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      config = %{provider: "teams"}
+      details = %{url: "", token: "client-secret"}
+
+      assert {:ok, %{record: %Record{size: 4}}} =
+               JidoChatBridge.materialize_record(config, %{"reference" => "x"}, details)
+
+      assert {:error, :unknown_media_size} =
+               JidoChatBridge.materialize_record(
+                 config,
+                 %{"reference" => "x", "size" => "3"},
+                 details
+               )
     end
   end
 
@@ -2485,6 +2509,190 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     test "unsubscribe_thread_reply/3 returns not_running when not subscribed", %{config: config} do
       assert {:error, :not_running} =
                JidoChatBridge.unsubscribe_thread_reply(config, "chan-1", "no-such-thread")
+    end
+  end
+
+  describe "Teams replies" do
+    setup do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        teams: %{
+          bridge: JidoChatBridge,
+          adapter: Jido.Chat.Teams.Adapter,
+          ingress_mode: :webhook
+        }
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      TokenCache.clear()
+      stub_teams_bot_connector()
+    end
+
+    test "stamps verified facts and the person platform on a personal message" do
+      incoming =
+        %{"id" => "a:personal-1", "conversationType" => "personal"}
+        |> teams_activity()
+        |> teams_incoming()
+
+      assert incoming.is_dm
+
+      assert %{
+               conversation_type: :one_to_one,
+               source_scope: "a:personal-1",
+               identity_platform: "microsoft_teams",
+               sender_membership: nil,
+               provider_sent_at: ~U[2026-08-19 12:00:00Z]
+             } = incoming.routing_context
+    end
+
+    test "records a channel sender's membership under the person platform" do
+      incoming =
+        %{"id" => "19:channel@thread.tacv2;messageid=1", "conversationType" => "channel"}
+        |> teams_activity(%{
+          "team" => %{"id" => "team-1"},
+          "channel" => %{"id" => "19:channel@thread.tacv2"}
+        })
+        |> teams_incoming()
+
+      assert %{
+               conversation_type: :room,
+               source_scope: "19:channel@thread.tacv2",
+               sender_membership: %{
+                 identity_platform: "microsoft_teams",
+                 member_id: "aad-user-1"
+               }
+             } = incoming.routing_context
+    end
+
+    test "answers a personal chat in its conversation" do
+      outgoing =
+        %{"id" => "a:personal-1", "conversationType" => "personal"}
+        |> teams_activity()
+        |> teams_incoming()
+        |> Outgoing.from_pipeline_result(%{answer: "the answer"})
+
+      assert {:ok, %{confirmation: :confirmed, action: :created, message_id: "reply-1"}} =
+               JidoChatBridge.send_reply(outgoing, teams_connection())
+
+      assert_received {:token_request, form}
+      assert form["client_id"] == "app-1"
+      assert form["client_secret"] == "client-secret"
+
+      assert %{"text" => "the answer"} =
+               assert_teams_request("POST", "a:personal-1", "/activities")
+    end
+
+    test "answers a group chat in its conversation" do
+      outgoing =
+        %{"id" => "19:group@thread.v2", "conversationType" => "groupChat"}
+        |> teams_activity()
+        |> teams_incoming()
+        |> Outgoing.from_pipeline_result(%{answer: "the answer"})
+
+      assert {:ok, %{action: :created}} = JidoChatBridge.send_reply(outgoing, teams_connection())
+
+      assert %{"text" => "the answer"} =
+               assert_teams_request("POST", "19:group@thread.v2", "/activities")
+    end
+
+    test "answers a channel message in its thread" do
+      thread_id = "19:channel@thread.tacv2;messageid=1700000000000"
+
+      incoming =
+        %{"id" => thread_id, "conversationType" => "channel"}
+        |> teams_activity(%{
+          "team" => %{"id" => "team-1"},
+          "channel" => %{"id" => "19:channel@thread.tacv2"}
+        })
+        |> teams_incoming()
+
+      assert incoming.channel_id == "19:channel@thread.tacv2"
+      assert incoming.thread_id == thread_id
+
+      outgoing = Outgoing.from_pipeline_result(incoming, %{answer: "the answer"})
+
+      assert {:ok, %{action: :created}} = JidoChatBridge.send_reply(outgoing, teams_connection())
+
+      assert %{"text" => "the answer"} = assert_teams_request("POST", thread_id, "/activities")
+    end
+
+    test "edits a reply through the same reference" do
+      outgoing =
+        %{"id" => "a:personal-1", "conversationType" => "personal"}
+        |> teams_activity()
+        |> teams_incoming()
+        |> Outgoing.from_pipeline_result(%{answer: "edited", message_id: "reply-1"})
+
+      assert {:ok, %{action: :updated, message_id: "reply-1"}} =
+               JidoChatBridge.send_reply(outgoing, teams_connection())
+
+      assert %{"text" => "edited"} =
+               assert_teams_request("PUT", "a:personal-1", "/activities/reply-1")
+    end
+
+    test "creates and edits a status message through the same reference" do
+      incoming =
+        %{"id" => "a:personal-1", "conversationType" => "personal"}
+        |> teams_activity()
+        |> teams_incoming()
+
+      config = %{provider: "teams", provider_atom: :teams}
+
+      request = %{
+        channel_id: incoming.channel_id,
+        thread_id: incoming.thread_id,
+        routing_context: incoming.routing_context,
+        body: "working"
+      }
+
+      assert {:ok, %{action: :created, message_id: "reply-1"}} =
+               JidoChatBridge.upsert_message(config, request, teams_connection())
+
+      assert %{"text" => "working"} = assert_teams_request("POST", "a:personal-1", "/activities")
+
+      assert {:ok, %{action: :updated}} =
+               JidoChatBridge.upsert_message(
+                 config,
+                 Map.put(request, :message_id, "reply-1"),
+                 teams_connection()
+               )
+
+      assert %{"text" => "working"} =
+               assert_teams_request("PUT", "a:personal-1", "/activities/reply-1")
+    end
+
+    test "keeps the attachments of a message and still answers it" do
+      attachments = [
+        %{
+          "contentType" => "image/png",
+          "contentUrl" => "https://smba.trafficmanager.net/amer/v3/attachments/a/views/original",
+          "name" => "pasted.png"
+        },
+        %{
+          "contentUrl" => "https://smba.trafficmanager.net/amer/v3/attachments/b/views/original",
+          "name" => "no-type.png"
+        }
+      ]
+
+      incoming =
+        %{"id" => "a:personal-1", "conversationType" => "personal"}
+        |> teams_activity(%{}, attachments)
+        |> teams_incoming()
+
+      assert [
+               %Record{mime_type: "image/png", size: nil, materialization_handle: pasted},
+               %Record{mime_type: nil, size: nil, materialization_handle: no_type}
+             ] = incoming.attachments
+
+      assert is_binary(pasted)
+      assert is_binary(no_type)
+
+      outgoing = Outgoing.from_pipeline_result(incoming, %{answer: "the answer"})
+
+      assert {:ok, %{action: :created}} = JidoChatBridge.send_reply(outgoing, teams_connection())
+      assert_teams_request("POST", "a:personal-1", "/activities")
     end
   end
 
@@ -5909,6 +6117,51 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     previous = Req.default_options()
     Req.default_options(plug: plug)
     on_exit(fn -> Req.default_options(previous) end)
+  end
+
+  defp stub_teams_bot_connector do
+    test_pid = self()
+
+    stub_teams_token_endpoint(fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      if conn.host == "login.microsoftonline.com" do
+        send(test_pid, {:token_request, URI.decode_query(body)})
+        Req.Test.json(conn, %{"access_token" => "bot-token", "expires_in" => 3600})
+      else
+        send(test_pid, {:teams_request, conn.method, conn.request_path, conn.req_headers, body})
+        Req.Test.json(conn, %{"id" => "reply-1"})
+      end
+    end)
+  end
+
+  defp teams_activity(conversation, channel_data \\ %{}, attachments \\ []) do
+    %{
+      "type" => "message",
+      "id" => "activity-1",
+      "timestamp" => "2026-08-19T12:00:00Z",
+      "serviceUrl" => "https://smba.trafficmanager.net/amer/",
+      "conversation" => conversation,
+      "channelData" => Map.put(channel_data, "tenant", %{"id" => "tenant-1"}),
+      "from" => %{"id" => "29:user", "aadObjectId" => "aad-user-1", "name" => "Alice"},
+      "recipient" => %{"id" => "28:bot", "name" => "ZAQ"},
+      "text" => "hello",
+      "attachments" => attachments
+    }
+  end
+
+  defp teams_incoming(activity) do
+    assert {:ok, incoming} = Jido.Chat.Teams.Adapter.transform_incoming(activity)
+    JidoChatBridge.to_internal(incoming, %{provider: "teams", id: 1})
+  end
+
+  defp teams_connection, do: Map.put(teams_connection_config(), :url, "")
+
+  defp assert_teams_request(method, conversation_id, path_suffix) do
+    assert_received {:teams_request, ^method, path, headers, body}
+    assert URI.decode(path) == "/amer/v3/conversations/#{conversation_id}#{path_suffix}"
+    assert {"authorization", "Bearer bot-token"} in headers
+    Jason.decode!(body)
   end
 
   defp put_fetch_media_adapter(adapter) do
