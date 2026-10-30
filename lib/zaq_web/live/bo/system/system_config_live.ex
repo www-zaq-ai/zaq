@@ -1522,12 +1522,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     |> Enum.sort_by(&elem(&1, 0))
   end
 
-  defp model_options_for_credential_id(credential_id, provider_id, model_filter) do
+  defp model_options_for_credential_id(
+         credential_id,
+         provider_id,
+         model_filter,
+         option_mapper \\ &{&1.name || &1.id, &1.id}
+       ) do
     credential_id
     |> credential_from_id()
     |> credential_models(provider_id)
     |> Enum.filter(model_filter)
-    |> Enum.map(&{&1.name || &1.id, &1.id})
+    |> Enum.map(option_mapper)
     |> Enum.sort_by(&elem(&1, 0))
   end
 
@@ -1760,11 +1765,29 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── Image-to-Text-specific helpers ────────────────────────────────────
 
   defp image_to_text_model_options_for_credential_id(credential_id, provider_id),
-    do: model_options_for_credential_id(credential_id, provider_id, &image_input_model?/1)
+    do:
+      model_options_for_credential_id(
+        credential_id,
+        provider_id,
+        &image_input_model?/1,
+        &image_to_text_model_option/1
+      )
 
   defp image_input_model?(m) do
-    input = (m.modalities && m.modalities.input) || []
-    :image in input
+    modalities = m.modalities || %{}
+    input = Map.get(modalities, :input) || []
+    output = Map.get(modalities, :output) || []
+    :image in input and (output == [] or :text in output)
+  end
+
+  defp image_to_text_model_option(m) do
+    label = m.name || m.id
+
+    if (Map.get(m.modalities || %{}, :output) || []) == [] do
+      {label, m.id, "Compatibility unconfirmed"}
+    else
+      {label, m.id}
+    end
   end
 
   defp save_ai_credential(socket, params) do
