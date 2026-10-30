@@ -8,6 +8,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Channels.{AgentRouting, Bridge}
   alias Zaq.Channels.ProviderCatalog, as: ChannelProvider
   alias Zaq.Channels.RetrievalChannel, as: RetChannel
+  alias Zaq.Channels.WebhookUrl
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Engine.IncomingMessageRouting
@@ -363,7 +364,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          socket
          |> assign(:changeset, changeset)
          |> assign(:form, to_form(changeset, as: :form))
-         |> assign(:modal_errors, format_errors(changeset))}
+         |> assign(:modal_errors, modal_errors(changeset, socket.assigns.provider))}
     end
   end
 
@@ -1133,6 +1134,12 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     )
   end
 
+  defp modal_errors(changeset, "teams") do
+    changeset |> format_errors() |> Enum.map(&String.replace_prefix(&1, "Settings ", ""))
+  end
+
+  defp modal_errors(changeset, _provider), do: format_errors(changeset)
+
   defp mattermost_api do
     RuntimeDeps.mattermost_api()
   end
@@ -1345,6 +1352,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     |> Map.get("jido_chat", %{})
     |> Map.get("bot_user_id", "")
   end
+
+  def jido_chat_setting_from_changeset(%Ecto.Changeset{} = changeset, key) do
+    changeset
+    |> Ecto.Changeset.get_field(:settings, %{})
+    |> Map.get("jido_chat", %{})
+    |> Map.get(key, "")
+  end
+
+  def messaging_endpoint(%Ecto.Changeset{data: %ChannelConfig{id: id, provider: provider}}),
+    do: WebhookUrl.build(:conversation, provider, id)
 
   def connect_credential_id_from_changeset(%Ecto.Changeset{} = changeset) do
     changeset

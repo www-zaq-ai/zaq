@@ -371,6 +371,7 @@ for cache refresh/expiry and eventual-consistency limitations.
 | `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources   |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
 | `Zaq.Channels.JidoChatBridge.AdapterOptions` | `lib/zaq/channels/jido_chat_bridge/adapter_options.ex` | Per-provider adapter credential options |
+| `Zaq.Channels.JidoChatBridge.Incoming.Teams` | `lib/zaq/channels/jido_chat_bridge/incoming/teams.ex` | Verified Teams conversation, sender and source-scope facts |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email IMAP ingress, SMTP delivery, and attachment materialization |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
 | `Zaq.Channels.Web.*`                | `lib/zaq/channels/web/`                      | Shared BO/widget transport contracts            |
@@ -582,8 +583,9 @@ calls `EmailBridge.materialize_record/3`, which delegates to
 configurable through `:message_trace_artifact_max_bytes`; declared sizes above
 that limit are rejected before provider fetch and downloaded bytes are checked
 again before returning content. An attachment without a valid declared size is
-refused, except on Teams, which never declares one; its adapter stops the
-download past its own limit instead.
+refused, except on Teams, which never declares one; ZAQ passes its limit to the
+Teams adapter as `max_media_bytes`, and the adapter stops the download once the
+file passes it.
 
 ---
 
@@ -723,6 +725,8 @@ The controller wraps each request into a normalized payload map before dispatch:
   "raw" => conn.assigns[:raw_body]
 }
 ```
+
+Route params replace body keys of the same name, so `body_payload` restores a body `type`. Teams activities need theirs.
 
 Response behavior:
 
@@ -1000,6 +1004,29 @@ Called by channels delivery routing (`Channels.Api` -> bridge-specific `send_rep
 4. If `outgoing.metadata` contains an `"on_reply"` key, dispatches an Oban job for reply tracking (used by the Notification center).
 
 Teams cannot post to a plain conversation ID, so `to_internal/2` keeps the adapter's `teamsref:v1:` delivery reference in `routing_context.attributes["delivery_external_room_id"]`. Create, edit and upsert use it as the adapter room ID, and `channel_id` stays the conversation identity. In a channel, the reference's conversation is the thread, so the reply lands in the original thread. The reference holds routing data and no secret. Other providers carry no such attribute and keep posting to `channel_id`. Teams has no typing indicator yet, because typing events carry only the provider and `channel_id`.
+
+### Microsoft Teams
+
+Teams is a webhook provider on `JidoChatBridge`. For setup, see [Connect Microsoft Teams](../guides/teams-channel-setup.md).
+
+- **Ingress:** Azure posts to the connector-scoped endpoint `/channels/webhook/conversation/teams/:config_id`. Teams has no subscription API, so the endpoint is configured in Azure, and `JidoChatBridge` treats the adapter's `:unsupported` ingress result as success.
+- **Verification:** the adapter's `JwtVerifier` checks the Bot Connector token's signature, issuer, audience (the App ID), expiry and `serviceUrl`. A failed check returns 401 and nothing reaches the Engine. `conversationUpdate`, `installationUpdate`, `event` and `typing` activities return 200 without processing.
+- **Answers:** personal chats are always answered. Group chats and channels follow the central mention policy, so ZAQ answers an @mention and only records other messages. Every channel message carries a thread ID, so a first @mention is admitted through `explicit_bot_mention?/2`.
+- **Credentials:** the client secret is in `token`. App ID and Tenant ID are in `settings["jido_chat"]`, trimmed on save. `url` stays empty because the adapter builds the token URL from the tenant.
+- **Connection test:** `test_connection/2` requests a Bot Connector token and sends no message.
+
+**Not supported yet:**
+
+- Typing indicators.
+- Notifications and other proactive messages.
+- Reaction ratings.
+- Multi-tenant bots.
+- Sending files and Adaptive Cards.
+- Files in group chats and channels, which need Microsoft Graph. Pasted images are expected to work there.
+
+Attachment download also needs a `jido_chat_teams` version with `fetch_media`. Until the pinned dependency has it, ZAQ records attachments and answers the message, but can't read the files.
+
+The Back Office tools on the provider page (channel browsing, Send Message, Browse Posts and Clear Channel) are built for Mattermost and don't work for Teams.
 
 ### Thread watch management
 

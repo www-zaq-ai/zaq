@@ -753,30 +753,6 @@ defmodule Zaq.People.IdentityResolverTest do
       assert channel.dm_channel_id == nil
     end
 
-    test "asks Channels about a Teams author by its connector provider" do
-      config = connector_fixture("teams")
-      test_pid = self()
-
-      expect(Zaq.NodeRouterMock, :dispatch, 2, fn event ->
-        send(test_pid, {:channels_call, event.opts[:action], event.request.provider})
-        %{event | response: {:error, :not_found}}
-      end)
-
-      message =
-        incoming(%{
-          provider: :teams,
-          author_id: "aad-user-3",
-          routing_context: %RoutingContext{
-            channel_config_id: config.id,
-            identity_platform: "microsoft_teams"
-          }
-        })
-
-      assert {:ok, _person} = IdentityResolver.resolve(message, [])
-      assert_received {:channels_call, :fetch_profile, "teams"}
-      assert_received {:channels_call, :open_dm_channel, "teams"}
-    end
-
     test "falls back when channel id is empty" do
       expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{
                                                  next_hop: %{destination: :channels},

@@ -7,6 +7,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.ChannelMeta
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Jido.Chat.Media
+  alias Jido.Chat.Teams.Auth.JwtVerifier
   alias Jido.Chat.Teams.Auth.TokenCache
   alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
@@ -1101,8 +1102,12 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert_received {:fetch_media_result, "x", opts}
 
-      assert Enum.sort(opts) ==
-               [app_id: "app-1", app_password: "client-secret", app_tenant_id: "tenant-1"]
+      assert Enum.sort(opts) == [
+               app_id: "app-1",
+               app_password: "client-secret",
+               app_tenant_id: "tenant-1",
+               max_media_bytes: 100 * 1024 * 1024
+             ]
     end
 
     test "downloads a Teams file of unknown size and records its real size" do
@@ -2693,6 +2698,115 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       assert {:ok, %{action: :created}} = JidoChatBridge.send_reply(outgoing, teams_connection())
       assert_teams_request("POST", "a:personal-1", "/activities")
+    end
+  end
+
+  describe "Teams webhook" do
+    setup do
+      Process.register(self(), :bridge_test_observer)
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        teams: %{
+          bridge: JidoChatBridge,
+          adapter: Jido.Chat.Teams.Adapter,
+          ingress_mode: :webhook
+        }
+      })
+
+      config = Map.put(teams_connection(), :id, System.unique_integer([:positive]))
+      bridge_id = "teams_webhook_#{config.id}"
+
+      {state_spec, listener_specs} = JidoChatBridge.runtime_specs(config, bridge_id, [])
+      assert {:ok, _runtime} = Supervisor.start_runtime(bridge_id, state_spec, listener_specs)
+      assert {:ok, state_pid} = Supervisor.lookup_state_pid(bridge_id)
+
+      signing_key = JOSE.JWK.generate_key({:rsa, 2048})
+      {_kty, public_key} = signing_key |> JOSE.JWK.to_public() |> JOSE.JWK.to_map()
+
+      JwtVerifier.clear_cache()
+      stub_teams_token_endpoint(&Req.Test.json(&1, %{"keys" => [public_key]}))
+
+      on_exit(fn ->
+        _ = Supervisor.stop_bridge_runtime(config, bridge_id)
+        Application.put_env(:zaq, :channels, previous)
+        if Process.whereis(:bridge_test_observer), do: Process.unregister(:bridge_test_observer)
+      end)
+
+      {:ok, config: config, state_pid: state_pid, signing_key: signing_key}
+    end
+
+    test "sends a signed personal message to the pipeline", context do
+      activity = teams_activity(%{"id" => "a:personal-1", "conversationType" => "personal"})
+      headers = teams_auth_headers(context.signing_key)
+
+      assert {:ok, %{response: %{status: 200}}} = post_teams_webhook(context, activity, headers)
+      assert_receive {:pipeline_run, "hello", _opts}, 1000
+    end
+
+    test "answers a channel message only when it mentions the bot", context do
+      headers = teams_auth_headers(context.signing_key)
+
+      mentioned =
+        %{"id" => "19:channel@thread.tacv2;messageid=1", "conversationType" => "channel"}
+        |> teams_activity(%{
+          "team" => %{"id" => "team-1"},
+          "channel" => %{"id" => "19:channel@thread.tacv2"}
+        })
+        |> Map.merge(%{
+          "text" => "<at>ZAQ</at> hello",
+          "entities" => [
+            %{
+              "type" => "mention",
+              "text" => "<at>ZAQ</at>",
+              "mentioned" => %{"id" => "28:bot", "name" => "ZAQ"}
+            }
+          ]
+        })
+
+      assert {:ok, %{response: %{status: 200}}} = post_teams_webhook(context, mentioned, headers)
+      assert_receive {:pipeline_run, "hello", _opts}, 1000
+
+      unmentioned =
+        Map.merge(mentioned, %{"id" => "activity-2", "text" => "not you", "entities" => []})
+
+      assert {:ok, %{response: %{status: 200}}} =
+               post_teams_webhook(context, unmentioned, headers)
+
+      refute_receive {:pipeline_run, "not you", _opts}, 200
+    end
+
+    test "refuses a request without a valid Bot Connector token", context do
+      activity = teams_activity(%{"id" => "a:personal-1", "conversationType" => "personal"})
+      key = context.signing_key
+      past = System.system_time(:second) - 3600
+
+      rejected = %{
+        "missing_authorization" => %{},
+        "invalid_signature" => teams_auth_headers(JOSE.JWK.generate_key({:rsa, 2048})),
+        "invalid_audience" => teams_auth_headers(key, %{"aud" => "another-app"}),
+        "expired_token" => teams_auth_headers(key, %{"exp" => past}),
+        "service_url_mismatch" => teams_auth_headers(key, %{"serviceurl" => "https://evil.test/"})
+      }
+
+      for {reason, headers} <- rejected do
+        assert {:ok, %{response: %{status: 401, body: %{error: ^reason}}}} =
+                 post_teams_webhook(context, activity, headers)
+      end
+
+      refute_receive {:pipeline_run, _content, _opts}, 200
+    end
+
+    test "acknowledges a conversationUpdate without running the pipeline", context do
+      activity =
+        %{"id" => "a:personal-1", "conversationType" => "personal"}
+        |> teams_activity()
+        |> Map.put("type", "conversationUpdate")
+
+      assert {:ok, %{response: %{status: 200}}} =
+               post_teams_webhook(context, activity, teams_auth_headers(context.signing_key))
+
+      refute_receive {:pipeline_run, _content, _opts}, 200
     end
   end
 
@@ -6162,6 +6276,32 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     assert URI.decode(path) == "/amer/v3/conversations/#{conversation_id}#{path_suffix}"
     assert {"authorization", "Bearer bot-token"} in headers
     Jason.decode!(body)
+  end
+
+  defp post_teams_webhook(%{state_pid: state_pid, config: config}, activity, headers) do
+    State.process_webhook_request(state_pid, config, %{
+      "method" => "POST",
+      "path" => "/channels/webhook/conversation/teams/#{config.id}",
+      "headers" => headers,
+      "query" => %{},
+      "payload" => activity
+    })
+  end
+
+  defp teams_auth_headers(signing_key, claims \\ %{}) do
+    defaults = %{
+      "iss" => "https://api.botframework.com",
+      "aud" => "app-1",
+      "exp" => System.system_time(:second) + 3600,
+      "serviceurl" => "https://smba.trafficmanager.net/amer/"
+    }
+
+    {_modules, token} =
+      signing_key
+      |> JOSE.JWT.sign(%{"alg" => "RS256"}, Map.merge(defaults, claims))
+      |> JOSE.JWS.compact()
+
+    %{"authorization" => "Bearer #{token}"}
   end
 
   defp put_fetch_media_adapter(adapter) do

@@ -227,6 +227,14 @@ defmodule Zaq.Engine.ChannelConfigTest do
       assert config.url == ""
     end
 
+    test "trims an App ID and Tenant ID pasted with stray spaces" do
+      settings = teams_settings(" app-1 ", "contoso.onmicrosoft.com\n")
+
+      assert {:ok, config} = Repo.insert(teams_changeset(%{settings: settings}))
+      assert config.settings["jido_chat"]["app_id"] == "app-1"
+      assert config.settings["jido_chat"]["tenant_id"] == "contoso.onmicrosoft.com"
+    end
+
     test "requires the client secret" do
       assert "can't be blank" in errors_on(teams_changeset(%{token: nil})).token
     end

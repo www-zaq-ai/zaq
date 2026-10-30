@@ -2312,6 +2312,104 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     refute html =~ "Runtime sync returned unexpected result"
   end
 
+  describe "Teams connector" do
+    setup do
+      channels = Application.get_env(:zaq, :channels, %{})
+      teams = %{bridge: BridgeFake, ingress_mode: :webhook}
+      Application.put_env(:zaq, :channels, Map.put(channels, :teams, teams))
+    end
+
+    test "asks for Azure credentials", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/bo/channels/retrieval/teams")
+
+      assert html =~ "Add a Microsoft Teams connection to get started"
+
+      view |> element("#new-config-button") |> render_click()
+
+      assert has_element?(view, "#teams-app-id")
+      assert has_element?(view, "#teams-tenant-id")
+      assert has_element?(view, "input[name='form[token]']")
+      assert render(view) =~ "Client Secret"
+
+      refute has_element?(view, "input[name='form[url]']")
+      refute has_element?(view, "input[name='form[settings][jido_chat][bot_name]']")
+      refute has_element?(view, "input[name='form[settings][jido_chat][bot_user_id]']")
+      refute has_element?(view, "#teams-messaging-endpoint")
+    end
+
+    test "saves the credentials and shows the messaging endpoint on edit", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/teams")
+
+      view |> element("#new-config-button") |> render_click()
+
+      view
+      |> form("#config-form",
+        form: %{
+          name: "Contoso",
+          token: "client-secret",
+          settings: %{jido_chat: %{app_id: "app-1", tenant_id: "contoso.onmicrosoft.com"}}
+        }
+      )
+      |> render_submit()
+
+      config = Repo.get_by!(ChannelConfig, provider: "teams")
+
+      assert config.settings["jido_chat"] == %{
+               "app_id" => "app-1",
+               "tenant_id" => "contoso.onmicrosoft.com"
+             }
+
+      view |> element("#edit-config-#{config.id}") |> render_click()
+
+      endpoint = "https://zaq.example/channels/webhook/conversation/teams/#{config.id}"
+      assert has_element?(view, "#teams-messaging-endpoint[value='#{endpoint}']")
+    end
+
+    test "explains why a connector without a Tenant ID cannot be saved", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/teams")
+
+      view |> element("#new-config-button") |> render_click()
+
+      view
+      |> form("#config-form",
+        form: %{
+          name: "Contoso",
+          token: "client-secret",
+          settings: %{jido_chat: %{app_id: "app-1", tenant_id: ""}}
+        }
+      )
+      |> render_submit()
+
+      assert render(view) =~ "Tenant ID is required"
+      refute Repo.get_by(ChannelConfig, provider: "teams")
+    end
+
+    test "checks the credentials without asking for a channel ID", %{conn: conn} do
+      config =
+        insert_channel_config(%{
+          name: "Contoso",
+          provider: "teams",
+          url: "",
+          settings: %{
+            "jido_chat" => %{"app_id" => "app-1", "tenant_id" => "contoso.onmicrosoft.com"}
+          }
+        })
+
+      BridgeFake.put(:test_connection, {:ok, :credentials_valid})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/teams")
+
+      view |> element("#open-test-config-#{config.id}") |> render_click()
+
+      refute has_element?(view, "#test-connection-form input[type='text']")
+      assert has_element?(view, "#test-connection-form button", "Check Credentials")
+
+      view |> element("#test-connection-form") |> render_submit()
+
+      assert render(view) =~ "Credentials verified."
+    end
+  end
+
   defp insert_channel_config(attrs) do
     params =
       %{

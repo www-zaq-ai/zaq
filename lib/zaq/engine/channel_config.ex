@@ -181,6 +181,7 @@ defmodule Zaq.Engine.ChannelConfig do
   defp maybe_validate_teams_settings(changeset) do
     case get_field(changeset, :provider) do
       @teams_provider ->
+        changeset = update_change(changeset, :settings, &trim_teams_settings/1)
         settings = Settings.jido_chat_settings(%{settings: get_field(changeset, :settings)})
 
         changeset
@@ -191,6 +192,22 @@ defmodule Zaq.Engine.ChannelConfig do
         changeset
     end
   end
+
+  # Values are pasted from Azure, and a stray space passes validation but fails at Microsoft.
+  defp trim_teams_settings(%{"jido_chat" => %{} = jido_chat} = settings) do
+    trimmed_credentials =
+      Map.new(jido_chat, fn
+        {key, value} when key in ["app_id", "tenant_id"] and is_binary(value) ->
+          {key, String.trim(value)}
+
+        entry ->
+          entry
+      end)
+
+    Map.put(settings, "jido_chat", trimmed_credentials)
+  end
+
+  defp trim_teams_settings(settings), do: settings
 
   # A missing tenant would send the adapter to the multi-tenant token endpoint.
   defp validate_teams_setting(changeset, value, label) do

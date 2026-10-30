@@ -74,7 +74,9 @@
       </div>
       <p class="font-mono text-sm font-bold text-black mb-1">No configs yet</p>
       <p class="font-mono text-[0.7rem] text-black/40">
-        Add a Mattermost connection to get started
+        {if @provider == "teams",
+          do: "Add a Microsoft Teams connection to get started",
+          else: "Add a Mattermost connection to get started"}
       </p>
     </div>
 
@@ -85,7 +87,7 @@
         id={"config-card-#{config.id}"}
         name={config.name}
         provider={@provider_label}
-        url={config.url}
+        url={if @provider != "teams", do: config.url}
         enabled={config.enabled}
         connector_id={config.id}
         toggle_event="toggle_enabled"
@@ -1197,7 +1199,48 @@
         />
       </div>
 
-      <div :if={@kind != :data_source} class="mb-4">
+      <div :if={@provider == "teams"} class="mb-4">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          App ID
+        </label>
+        <input
+          id="teams-app-id"
+          type="text"
+          name="form[settings][jido_chat][app_id]"
+          value={jido_chat_setting_from_changeset(@changeset, "app_id")}
+          placeholder="Application (client) ID from Azure"
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+      </div>
+
+      <div :if={@provider == "teams"} class="mb-4">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Tenant ID
+        </label>
+        <input
+          id="teams-tenant-id"
+          type="text"
+          name="form[settings][jido_chat][tenant_id]"
+          value={jido_chat_setting_from_changeset(@changeset, "tenant_id")}
+          placeholder="Directory (tenant) ID from Azure"
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black placeholder:text-black/30 text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+      </div>
+
+      <div :if={@provider == "teams" and @modal == :edit} class="mb-4">
+        <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
+          Messaging endpoint
+        </label>
+        <input
+          id="teams-messaging-endpoint"
+          type="text"
+          value={messaging_endpoint(@changeset)}
+          readonly
+          class="w-full h-11 px-4 rounded-xl border border-black/10 bg-[#f5f5f5] text-black text-sm font-mono outline-none focus:border-[#03b6d4] transition-colors"
+        />
+      </div>
+
+      <div :if={@kind != :data_source and @provider != "teams"} class="mb-4">
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           Instance URL
         </label>
@@ -1212,7 +1255,7 @@
 
       <div :if={@kind != :data_source} class="mb-6">
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
-          Bot Token
+          {if @provider == "teams", do: "Client Secret", else: "Bot Token"}
         </label>
         <div class="flex items-center gap-2">
           <div class="flex-1 min-w-0">
@@ -1235,7 +1278,9 @@
           </button>
         </div>
         <p class="font-mono text-[0.6rem] text-black/30 mt-1">
-          Bot or personal access token with post:write permissions
+          {if @provider == "teams",
+            do: "Client secret value from your Azure app registration",
+            else: "Bot or personal access token with post:write permissions"}
         </p>
       </div>
 
@@ -1296,7 +1341,7 @@
         </p>
       </div>
 
-      <div :if={@kind != :data_source} class="mb-4">
+      <div :if={@kind != :data_source and @provider != "teams"} class="mb-4">
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           Bot Username
         </label>
@@ -1313,7 +1358,7 @@
         </p>
       </div>
 
-      <div :if={@kind != :data_source} class="mb-6">
+      <div :if={@kind != :data_source and @provider != "teams"} class="mb-6">
         <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
           Bot User ID
         </label>
@@ -1632,10 +1677,12 @@
     <div class="relative w-full max-w-sm bg-white rounded-2xl border border-black/10 p-8 shadow-2xl">
       <h3 class="font-mono text-base font-bold text-black mb-1">Test Connection</h3>
       <p class="font-mono text-[0.7rem] text-black/40 mb-6">
-        Send a test message via <span class="text-black/60 font-bold">{@test_config.name}</span>
+        {if @provider == "teams", do: "Check the credentials of", else: "Send a test message via"}
+        <span class="text-black/60 font-bold">{@test_config.name}</span>
       </p>
       <form id="test-connection-form" phx-submit="run_test">
-        <div class="mb-4">
+        <input :if={@provider == "teams"} type="hidden" name="channel_id" value="" />
+        <div :if={@provider != "teams"} class="mb-4">
           <label class="font-mono text-[0.7rem] text-black/40 uppercase tracking-wider mb-2 block">
             Channel ID
           </label>
@@ -1668,7 +1715,11 @@
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
             />
           </svg>
-          <span class="font-mono text-[0.7rem] text-amber-700">Sending test message...</span>
+          <span class="font-mono text-[0.7rem] text-amber-700">
+            {if @provider == "teams",
+              do: "Checking credentials...",
+              else: "Sending test message..."}
+          </span>
         </div>
 
         <div
@@ -1685,7 +1736,9 @@
             <path d="M5 13l4 4L19 7" />
           </svg>
           <span class="font-mono text-[0.7rem] text-emerald-700">
-            Test message sent successfully!
+            {if @provider == "teams",
+              do: "Credentials verified.",
+              else: "Test message sent successfully!"}
           </span>
         </div>
 
@@ -1729,7 +1782,7 @@
               )
             ]}
           >
-            Send Test
+            {if @provider == "teams", do: "Check Credentials", else: "Send Test"}
           </button>
         </div>
       </form>

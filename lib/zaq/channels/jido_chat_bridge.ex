@@ -817,7 +817,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          {:ok, adapter} <- resolve_adapter_for_provider(provider, config_opts),
          true <- function_exported?(adapter, :fetch_media, 2) || {:error, :unsupported},
          {:ok, content} when is_binary(content) <-
-           adapter.fetch_media(reference, media_opts(provider, details)),
+           adapter.fetch_media(reference, media_opts(provider, details, max_bytes)),
          :ok <- enforce_media_size(byte_size(content), max_bytes) do
       {:ok,
        %{
@@ -1804,8 +1804,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp maybe_put_source_scope_value(attributes, key, value),
     do: Map.put(attributes, key, to_string(value))
 
-  # Teams attachments carry no size. The adapter limits the download, and the real size is
-  # checked once the content arrives.
+  # Teams attachments carry no size. The adapter stops the download past ZAQ's limit, and
+  # the real size is checked once the content arrives.
   defp check_declared_size(provider, nil, _max_bytes) when provider in [:teams, "teams"], do: :ok
   defp check_declared_size(_provider, size, max_bytes), do: enforce_media_size(size, max_bytes)
 
@@ -1822,7 +1822,12 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp media_opts(provider, details) do
+  defp media_opts(provider, details, max_bytes) when provider in [:teams, "teams"],
+    do: [max_media_bytes: max_bytes] ++ adapter_media_opts(provider, details)
+
+  defp media_opts(provider, details, _max_bytes), do: adapter_media_opts(provider, details)
+
+  defp adapter_media_opts(provider, details) do
     provider
     |> AdapterOptions.build(details)
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
