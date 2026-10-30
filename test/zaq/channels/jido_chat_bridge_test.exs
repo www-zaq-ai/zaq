@@ -1075,6 +1075,34 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:fetch_media_result, "x", opts}
       assert opts == [url: "url"]
     end
+
+    test "passes Teams the credentials from the connection settings" do
+      previous = Application.get_env(:zaq, :channels, %{})
+
+      Application.put_env(:zaq, :channels, %{
+        teams: %{bridge: JidoChatBridge, adapter: FetchMediaResultAdapter}
+      })
+
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      details = %{
+        url: "",
+        token: "client-secret",
+        settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
+      }
+
+      assert {:ok, %{record: %Record{content: <<0, 1, 2, 3>>}}} =
+               JidoChatBridge.materialize_record(
+                 %{provider: "teams"},
+                 %{"reference" => "x", "size" => 4},
+                 details
+               )
+
+      assert_received {:fetch_media_result, "x", opts}
+
+      assert Enum.sort(opts) ==
+               [app_id: "app-1", app_password: "client-secret", app_tenant_id: "tenant-1"]
+    end
   end
 
   # ── resolve_roles/1 ───────────────────────────────────────────────────
@@ -3170,6 +3198,44 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert_received {:adapter_send_message, "chan-1", _message, opts}
       assert opts[:url] == "https://mm.example.com"
       assert opts[:token] == "tok"
+    end
+
+    test "test_connection/2 checks Teams credentials by requesting a token" do
+      test_pid = self()
+
+      stub_teams_token_endpoint(fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(test_pid, {:token_request, URI.decode_query(body)})
+        Req.Test.json(conn, %{"access_token" => "bot-token", "expires_in" => 3600})
+      end)
+
+      assert {:ok, :credentials_valid} =
+               JidoChatBridge.test_connection(teams_connection_config(), "")
+
+      assert_received {:token_request, form}
+      assert form["client_id"] == "app-1"
+      assert form["client_secret"] == "client-secret"
+    end
+
+    test "test_connection/2 surfaces the Microsoft error for Teams credentials" do
+      stub_teams_token_endpoint(fn conn ->
+        conn
+        |> Plug.Conn.put_status(401)
+        |> Req.Test.json(%{
+          "error" => "invalid_client",
+          "error_description" => "AADSTS7000215: Invalid client secret"
+        })
+      end)
+
+      assert {:error, "AADSTS7000215: Invalid client secret"} =
+               JidoChatBridge.test_connection(teams_connection_config(), "")
+    end
+
+    test "test_connection/2 reports a missing Teams credential" do
+      config = %{provider: "teams", token: "client-secret", settings: %{}}
+
+      assert {:error, {:missing_credential, :app_id}} =
+               JidoChatBridge.test_connection(config, "")
     end
   end
 
@@ -5829,6 +5895,20 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     {:ok, port} = :inet.port(socket)
     :ok = :gen_tcp.close(socket)
     port
+  end
+
+  defp teams_connection_config do
+    %{
+      provider: "teams",
+      token: "client-secret",
+      settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
+    }
+  end
+
+  defp stub_teams_token_endpoint(plug) do
+    previous = Req.default_options()
+    Req.default_options(plug: plug)
+    on_exit(fn -> Req.default_options(previous) end)
   end
 
   defp put_fetch_media_adapter(adapter) do

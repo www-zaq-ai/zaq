@@ -940,7 +940,7 @@ delivery; bridges do not write whole exchanges.
 - Adapters own transport runtime details: connection lifecycle, listener child specs, and transport parsing.
 - Bridges must request runtime specs from adapters (for example `adapter.runtime_specs/3`) instead of building listener specs directly.
 - Adapter-specific callback names (for example `from_imap_listener/3`) are not allowed in bridge public APIs.
-- Adapter credential options come from `Zaq.Channels.JidoChatBridge.AdapterOptions.build/2`, not from inline `url:`/`token:` lists at call sites. Mattermost, Discord and Telegram share the default `[url: url, token: token]` shape; a provider whose adapter expects other credentials adds its shape there.
+- Adapter credential options come from `Zaq.Channels.JidoChatBridge.AdapterOptions.build/2`, not from inline `url:`/`token:` lists at call sites. Mattermost, Discord and Telegram share the default `[url: url, token: token]` shape; a provider whose adapter expects other credentials adds its shape there. Teams uses `[app_id:, app_password:, app_tenant_id:]`, read from the connector token and `settings["jido_chat"]`, so connection details carry `settings`.
 
 ### Ingress flow
 
@@ -988,7 +988,7 @@ Reaction removals and unrelated emoji still dispatch no rating.
 
 Called by channels delivery routing (`Channels.Api` -> bridge-specific `send_reply/2`):
 
-1. `send_reply/2` receives `%Outgoing{}` and connection details `%{url, token}`.
+1. `send_reply/2` receives `%Outgoing{}` and connection details `%{url, token, settings}`.
 2. Resolves the adapter module for the provider.
 3. Builds a `Jido.Chat.Thread` and calls `Chat.Thread.post/3`.
 4. If `outgoing.metadata` contains an `"on_reply"` key, dispatches an Oban job for reply tracking (used by the Notification center).

@@ -207,6 +207,53 @@ defmodule Zaq.Engine.ChannelConfigTest do
     assert {:ok, _config} = Repo.insert(changeset)
   end
 
+  # ── Teams connector ─────────────────────────────────────────────────────────
+
+  describe "Teams connector validation" do
+    test "saves with App ID, Tenant ID and client secret, and no URL" do
+      assert {:ok, config} = Repo.insert(teams_changeset())
+      assert config.url == ""
+    end
+
+    test "requires the client secret" do
+      assert "can't be blank" in errors_on(teams_changeset(%{token: nil})).token
+    end
+
+    test "requires an App ID" do
+      for app_id <- [nil, "", "   "] do
+        changeset = teams_changeset(%{settings: teams_settings(app_id, "tenant.example.com")})
+
+        assert "App ID is required" in errors_on(changeset).settings
+      end
+    end
+
+    test "requires a Tenant ID, so a connector can't reach the multi-tenant endpoint" do
+      for tenant_id <- [nil, "", "   "] do
+        changeset = teams_changeset(%{settings: teams_settings("app-1", tenant_id)})
+
+        assert "Tenant ID is required" in errors_on(changeset).settings
+      end
+
+      assert "Tenant ID is required" in errors_on(teams_changeset(%{settings: %{}})).settings
+    end
+
+    test "treats a value that is not a string as missing" do
+      changeset = teams_changeset(%{settings: teams_settings(123, 456)})
+
+      assert "App ID is required" in errors_on(changeset).settings
+      assert "Tenant ID is required" in errors_on(changeset).settings
+    end
+
+    test "rejects values outside 3 to 253 characters" do
+      for value <- ["ab", String.duplicate("a", 254)] do
+        changeset = teams_changeset(%{settings: teams_settings(value, value)})
+
+        assert "App ID must be 3 to 253 characters long" in errors_on(changeset).settings
+        assert "Tenant ID must be 3 to 253 characters long" in errors_on(changeset).settings
+      end
+    end
+  end
+
   # ── disk data source ────────────────────────────────────────────────────────
 
   describe "disk provider" do
@@ -869,6 +916,26 @@ defmodule Zaq.Engine.ChannelConfigTest do
     %ChannelConfig{}
     |> ChannelConfig.changeset(Map.merge(defaults, attrs))
     |> Repo.insert!()
+  end
+
+  defp teams_changeset(attrs \\ %{}) do
+    ChannelConfig.changeset(
+      %ChannelConfig{},
+      Map.merge(
+        %{
+          name: "Teams #{System.unique_integer([:positive])}",
+          provider: "teams",
+          kind: "retrieval",
+          token: "client-secret",
+          settings: teams_settings("app-1", "contoso.onmicrosoft.com")
+        },
+        attrs
+      )
+    )
+  end
+
+  defp teams_settings(app_id, tenant_id) do
+    %{"jido_chat" => %{"app_id" => app_id, "tenant_id" => tenant_id}}
   end
 
   defp upsert_imap_config(opts) do

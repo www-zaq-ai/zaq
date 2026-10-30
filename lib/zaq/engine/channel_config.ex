@@ -26,6 +26,8 @@ defmodule Zaq.Engine.ChannelConfig do
 
   @smtp_provider "email:smtp"
   @imap_provider "email:imap"
+  @teams_provider "teams"
+  @teams_setting_length 3..253
   @valid_kinds ~w(data_source retrieval)
   @valid_providers ~w(mattermost slack teams google_drive sharepoint email:smtp email:imap telegram discord disk web_widget)
 
@@ -57,6 +59,7 @@ defmodule Zaq.Engine.ChannelConfig do
     |> maybe_validate_imap_settings()
     |> maybe_validate_disk_settings()
     |> maybe_validate_widget_settings()
+    |> maybe_validate_teams_settings()
     |> maybe_require_widget_base_url_on_persist()
     |> maybe_validate_imap_smtp_dependency_on_persist()
     |> maybe_encrypt_token()
@@ -144,6 +147,11 @@ defmodule Zaq.Engine.ChannelConfig do
       {_kind, @imap_provider} ->
         validate_required(changeset, [:settings, :token])
 
+      {_kind, @teams_provider} ->
+        changeset
+        |> maybe_put_placeholder(:url)
+        |> validate_required([:token])
+
       {_kind, _provider} ->
         validate_required(changeset, [:url, :token])
     end
@@ -166,6 +174,32 @@ defmodule Zaq.Engine.ChannelConfig do
 
       _ ->
         changeset
+    end
+  end
+
+  defp maybe_validate_teams_settings(changeset) do
+    case get_field(changeset, :provider) do
+      @teams_provider ->
+        settings = Settings.jido_chat_settings(%{settings: get_field(changeset, :settings)})
+
+        changeset
+        |> validate_teams_setting(Map.get(settings, "app_id"), "App ID")
+        |> validate_teams_setting(Map.get(settings, "tenant_id"), "Tenant ID")
+
+      _ ->
+        changeset
+    end
+  end
+
+  # A missing tenant would send the adapter to the multi-tenant token endpoint.
+  defp validate_teams_setting(changeset, value, label) do
+    with true <- (is_binary(value) and String.trim(value) != "") || {:error, "is required"},
+         true <-
+           byte_size(value) in @teams_setting_length ||
+             {:error, "must be 3 to 253 characters long"} do
+      changeset
+    else
+      {:error, message} -> add_error(changeset, :settings, "#{label} #{message}")
     end
   end
 

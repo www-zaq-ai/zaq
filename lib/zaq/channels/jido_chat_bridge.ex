@@ -25,6 +25,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   alias Jido.Chat.Adapter
   alias Jido.Chat.Capabilities
   alias Jido.Chat.Media
+  alias Jido.Chat.Teams.Auth
   alias Jido.Chat.Thread
 
   alias Zaq.Channels.{
@@ -205,8 +206,27 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   def sync_runtime(_before, _after), do: :ok
 
-  @doc "Tests adapter connectivity by sending a test message."
+  @doc """
+  Tests adapter connectivity by sending a test message.
+
+  Teams cannot post without a conversation reference, so it requests a Bot Connector
+  token instead, which checks the App ID, Tenant ID and client secret.
+  """
   @impl true
+  def test_connection(%{provider: provider} = config, _channel_id)
+      when provider in [:teams, "teams"] do
+    case Auth.fetch_token(AdapterOptions.build(provider, config)) do
+      {:ok, _token} ->
+        {:ok, :credentials_valid}
+
+      {:error, {:oauth_error, _status, %{"error_description" => description}}} ->
+        {:error, description}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   def test_connection(config, channel_id) do
     with {:ok, adapter} <- adapter_for(config.provider) do
       adapter.send_message(
@@ -490,8 +510,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   """
   @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
-  def send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
-    do_send_reply(outgoing, %{url: url, token: token})
+  def send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection_details) do
+    do_send_reply(outgoing, connection_details)
   end
 
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
@@ -774,7 +794,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          {:ok, adapter} <- resolve_adapter_for_provider(provider, config_opts),
          true <- function_exported?(adapter, :fetch_media, 2) || {:error, :unsupported},
          {:ok, content} when is_binary(content) <-
-           adapter.fetch_media(reference, media_opts(details)),
+           adapter.fetch_media(reference, media_opts(provider, details)),
          :ok <- enforce_media_size(byte_size(content), max_bytes) do
       {:ok,
        %{
@@ -1774,12 +1794,10 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp media_opts(details) do
-    Enum.reduce(details, [], fn
-      {key, _value}, opts when key in [:config, :config_opts] -> opts
-      {key, value}, opts when is_atom(key) and not is_nil(value) -> Keyword.put(opts, key, value)
-      _, opts -> opts
-    end)
+  defp media_opts(provider, details) do
+    provider
+    |> AdapterOptions.build(details)
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
   defp config_opts(%{config_opts: opts}) when is_list(opts), do: opts

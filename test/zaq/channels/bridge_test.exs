@@ -384,6 +384,19 @@ defmodule Zaq.Channels.BridgeTest do
     assert {:error, {:channel_not_configured, :slack}} = Bridge.fetch_any_channel_config(:slack)
   end
 
+  test "connection details carry the connector settings" do
+    settings = %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
+    config = insert_config(:mattermost, %{settings: settings})
+
+    details = Bridge.fetch_connection_details(:mattermost)
+    assert details.settings == settings
+    assert details.url == config.url
+
+    details_for_config = Bridge.fetch_connection_details_for_config(config)
+    assert details_for_config.settings == settings
+    assert details_for_config.url == config.url
+  end
+
   test "unscoped capability lookup rejects ambiguity even with one disabled connector" do
     insert_config(:mattermost)
     insert_config(:mattermost, %{enabled: false})
