@@ -880,6 +880,14 @@ defmodule Zaq.Engine.Workflows do
   genuine unplanned crash — `kill -9`, OOM, host loss) or didn't finish before
   the process died anyway — both cases where the boot-sweep's own honest label
   is accurate by construction, not by inspecting a flag.
+
+  When the run registry is already gone (the root supervisor exited first, so
+  `prep_stop/1` runs after the engine tree and `Repo` have stopped), local
+  ownership cannot be determined: nothing is read from or written to the
+  database and `:ok` is returned, leaving those runs to that boot-sweep.
+
+  Options: `:reason`, `:message` (recorded on interrupted step rows) and
+  `:registry` (the run registry to read; defaults to `RunRegistry`).
   """
   @spec interrupt_in_flight_runs(keyword()) :: :ok
   def interrupt_in_flight_runs(opts \\ []) do
@@ -892,11 +900,17 @@ defmodule Zaq.Engine.Workflows do
         "The application was stopped for a restart or deploy while this run was executing."
       )
 
-    local_run_ids = locally_driven_run_ids()
+    # `:registry` names the node-local run registry (default `RunRegistry`).
+    # When it is gone — an abnormal shutdown already tore the engine tree down —
+    # local ownership cannot be determined, so nothing is enumerated or
+    # interrupted: the next boot's `StartupRecovery` sweep owns those runs.
+    registry = Keyword.get(opts, :registry, Zaq.Engine.Workflows.RunRegistry)
 
-    list_stale_runs()
-    |> Enum.filter(&MapSet.member?(local_run_ids, &1.id))
-    |> Enum.each(&interrupt_run(&1, reason: reason, message: message))
+    with {:ok, local_run_ids} <- locally_driven_run_ids(registry) do
+      list_stale_runs()
+      |> Enum.filter(&MapSet.member?(local_run_ids, &1.id))
+      |> Enum.each(&interrupt_run(&1, reason: reason, message: message))
+    end
 
     :ok
   end
@@ -904,11 +918,69 @@ defmodule Zaq.Engine.Workflows do
   # Run ids whose driving process is registered on *this* node. `RunRegistry` is
   # a node-local `:unique` Registry (see `Zaq.Engine.Supervisor`), so its keys
   # are exactly the runs this node drives — never a peer's.
-  defp locally_driven_run_ids do
-    Zaq.Engine.Workflows.RunRegistry
-    |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
-    |> MapSet.new()
+  #
+  # `Registry.select/2` raises `ArgumentError` once an ETS table it reads is gone.
+  # A table only disappears when its owner exits (the registry supervisor owns
+  # the metadata table; each partition owns its key/pid tables), unless someone
+  # deleted it by hand. A stopping registry loses a partition's tables *before*
+  # its supervisor exits and unregisters its name, and a suspended or slow
+  # supervisor can stay registered and alive indefinitely, so neither the name
+  # nor the supervisor says whether the registry is usable. Instead the owners
+  # are captured *before* selecting, from the registry's metadata table (plain
+  # ETS reads and `Process.alive?/1`; never a call into the registry processes,
+  # which could block on a suspended supervisor). If selecting fails and any
+  # captured owner is dead, the registry (or that generation of it) is gone:
+  # `:unavailable`. If every owner is alive the failure is a genuine fault and
+  # is re-raised.
+  defp locally_driven_run_ids(registry) do
+    case Process.whereis(registry) do
+      nil ->
+        :unavailable
+
+      pid ->
+        owners = [pid | registry_table_owners(registry)]
+
+        try do
+          {:ok, registry |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}]) |> MapSet.new()}
+        rescue
+          error in ArgumentError ->
+            if Enum.all?(owners, &Process.alive?/1),
+              do: reraise(error, __STACKTRACE__),
+              else: :unavailable
+        end
+    end
   end
+
+  # Pids owning the tables of a `Registry` (Elixir 1.20 layout): the metadata
+  # table named after the registry is owned by the registry supervisor; its
+  # `-1` row (single partition) or `{index, key_tid, {partition_pid, pid_tid}}`
+  # rows (several partitions) name the partition processes that own the key and
+  # pid tables. Any other shape yields no extra owners, so classification
+  # falls back to the supervisor pid alone.
+  defp registry_table_owners(registry) do
+    table_owner =
+      case :ets.info(registry, :owner) do
+        pid when is_pid(pid) -> [pid]
+        _ -> []
+      end
+
+    table_owner ++ Enum.flat_map(:ets.tab2list(registry), &registry_partition_pids/1)
+  rescue
+    ArgumentError -> []
+  end
+
+  defp registry_partition_pids({-1, info}) when tuple_size(info) == 5 do
+    case elem(info, 3) do
+      {pid, _pid_tid} when is_pid(pid) -> [pid]
+      _ -> []
+    end
+  end
+
+  defp registry_partition_pids({index, _key_tid, {pid, _pid_tid}})
+       when is_integer(index) and index >= 0 and is_pid(pid),
+       do: [pid]
+
+  defp registry_partition_pids(_row), do: []
 
   @doc """
   Bulk-fails any `StepRun` rows still `"running"` for `run_id`.
