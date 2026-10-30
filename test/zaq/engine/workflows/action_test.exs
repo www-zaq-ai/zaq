@@ -348,6 +348,13 @@ defmodule Zaq.Engine.Workflows.ActionTest do
   end
 
   describe "validate/1" do
+    test "schemas and workflow hooks alone do not make an executable Jido action" do
+      module = Zaq.Engine.Workflows.Test.ContractImpostor
+
+      assert {:error, {:contract_violation, ^module, missing}} = Action.validate(module)
+      assert missing == [:run, :validate_params, :__action_metadata__]
+    end
+
     test "returns :ok for a fully conforming action module" do
       assert :ok = Action.validate(OkAction)
     end
@@ -366,7 +373,15 @@ defmodule Zaq.Engine.Workflows.ActionTest do
       assert {:error, {:contract_violation, Zaq.VeryNonExistentModule, missing}} =
                Action.validate(Zaq.VeryNonExistentModule)
 
-      assert missing == [:on_success, :on_failure, :schema, :output_schema]
+      assert missing == [
+               :on_success,
+               :on_failure,
+               :schema,
+               :output_schema,
+               :run,
+               :validate_params,
+               :__action_metadata__
+             ]
     end
   end
 

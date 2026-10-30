@@ -11,75 +11,100 @@ defmodule Zaq.Agent.Tools.People.NotifyPerson do
   diagnostic classes and source locations. Ordinary callers retain binary errors.
   """
 
+  @person_schema Zoi.object(
+                   %{
+                     "id" => Zoi.integer(description: "Person id to notify."),
+                     "full_name" =>
+                       Zoi.any(description: "Person display name.") |> Zoi.optional(),
+                     "email" => Zoi.any(description: "Person email address.") |> Zoi.optional(),
+                     "phone" => Zoi.any(description: "Person phone number.") |> Zoi.optional(),
+                     "role" => Zoi.any(description: "Person role or title.") |> Zoi.optional(),
+                     "status" => Zoi.any(description: "Person status.") |> Zoi.optional(),
+                     "incomplete" =>
+                       Zoi.any(description: "Whether the person profile is incomplete.")
+                       |> Zoi.optional()
+                   },
+                   coerce: true,
+                   unrecognized_keys: :preserve,
+                   description: "Person payload to notify, usually returned by EnsurePerson."
+                 )
+
   use Zaq.Engine.Workflows.Action,
     name: "notify_person",
     description: "Notify a person through the notification center.",
-    schema: [
-      person: [
-        type: :map,
-        required: true,
-        doc: "Person payload to notify, usually returned by EnsurePerson."
-      ],
-      subject: [type: :string, required: true, doc: "Notification subject / title."],
-      message: [type: :string, required: true, doc: "Notification body text."]
-    ],
-    output_schema: [
-      notified: [type: :boolean, required: true],
-      status: [type: :atom, required: true],
-      channel: [
-        type: {:or, [:string, {:in, [nil]}]},
-        required: false,
-        doc: "Final channel platform used for delivery."
-      ],
-      channel_identifier: [
-        type: {:or, [:string, {:in, [nil]}]},
-        required: false,
-        doc: "Final channel identifier used for delivery."
-      ],
-      provider: [
-        type: {:or, [:string, {:in, [nil]}]},
-        required: false,
-        doc: "Alias for the final delivery channel."
-      ],
-      channel_id: [
-        type: {:or, [:string, {:in, [nil]}]},
-        required: false,
-        doc: "Alias for the final channel identifier."
-      ],
-      author_id: [
-        type: {:or, [:string, {:in, [nil]}]},
-        required: false,
-        doc: "Alias for the final channel identifier."
-      ],
-      person: [type: :map, required: false, doc: "Person payload that was notified."],
-      person_id: [type: :integer, required: false, doc: "Person id that was notified."],
-      subject: [type: :string, required: false, doc: "Notification subject."],
-      message: [type: :string, required: false, doc: "Notification body text."],
-      content: [type: :string, required: false, doc: "Alias for the notification body text."],
-      notification_log_id: [
-        type: {:or, [:integer, {:in, [nil]}]},
-        required: false,
-        doc: "Notification audit log id."
-      ],
-      # Generic, cross-channel threading pointers — a chat post has both of these
-      # too. Deliberately NOT `references`: that chain is email-only and stays
-      # inside the opaque `thread_metadata`, which this action never interprets.
-      message_id: [
-        type: {:or, [:string, {:in, [nil]}]},
-        required: false,
-        doc: "The sent message's own id on the provider (email Message-ID, chat post id)."
-      ],
-      thread_id: [
-        type: {:or, [:string, {:in, [nil]}]},
-        required: false,
-        doc: "Thread pointer the message belongs to (email thread root, chat root_id)."
-      ],
-      thread_metadata: [
-        type: {:map, :any, :any},
-        required: false,
-        doc: "Opaque channel-specific threading residue, forwarded verbatim to persistence."
-      ]
-    ]
+    schema:
+      Zoi.object(
+        %{
+          person: @person_schema,
+          subject: Zoi.string(description: "Notification subject / title."),
+          message: Zoi.string(description: "Notification body text.")
+        },
+        coerce: true,
+        unrecognized_keys: :preserve
+      ),
+    output_schema:
+      Zoi.object(%{
+        notified: Zoi.boolean(),
+        status: Zoi.atom(),
+        channel:
+          Zoi.string(description: "Final channel platform used for delivery.")
+          |> Zoi.nullable()
+          |> Zoi.optional(),
+        channel_identifier:
+          Zoi.string(description: "Final channel identifier used for delivery.")
+          |> Zoi.nullable()
+          |> Zoi.optional(),
+        provider:
+          Zoi.string(description: "Alias for the final delivery channel.")
+          |> Zoi.nullable()
+          |> Zoi.optional(),
+        channel_id:
+          Zoi.string(description: "Alias for the final channel identifier.")
+          |> Zoi.nullable()
+          |> Zoi.optional(),
+        author_id:
+          Zoi.string(description: "Alias for the final channel identifier.")
+          |> Zoi.nullable()
+          |> Zoi.optional(),
+        person:
+          Zoi.map(description: "Person payload that was notified.")
+          |> Zoi.optional(),
+        person_id:
+          Zoi.integer(description: "Person id that was notified.")
+          |> Zoi.optional(),
+        subject: Zoi.string(description: "Notification subject.") |> Zoi.optional(),
+        message: Zoi.string(description: "Notification body text.") |> Zoi.optional(),
+        content:
+          Zoi.string(description: "Alias for the notification body text.")
+          |> Zoi.optional(),
+        notification_log_id:
+          Zoi.integer(description: "Notification audit log id.")
+          |> Zoi.nullable()
+          |> Zoi.optional(),
+        # Generic, cross-channel threading pointers — a chat post has both of these
+        # too. Deliberately NOT `references`: that chain is email-only and stays
+        # inside the opaque `thread_metadata`, which this action never interprets.
+        message_id:
+          Zoi.string(
+            description:
+              "The sent message's own id on the provider (email Message-ID, chat post id)."
+          )
+          |> Zoi.nullable()
+          |> Zoi.optional(),
+        thread_id:
+          Zoi.string(
+            description:
+              "Thread pointer the message belongs to (email thread root, chat root_id)."
+          )
+          |> Zoi.nullable()
+          |> Zoi.optional(),
+        thread_metadata:
+          Zoi.map(
+            description:
+              "Opaque channel-specific threading residue, forwarded verbatim to persistence."
+          )
+          |> Zoi.optional()
+      })
 
   alias Jido.Action.Error
   alias Zaq.Accounts.Person

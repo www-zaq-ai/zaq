@@ -84,6 +84,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   alias Jido.Runic.ActionNode
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.EdgeCondition
+  alias Zaq.Engine.Workflows.ExecutionPolicy
   alias Zaq.Engine.Workflows.MapNodeBuilder
   alias Zaq.Engine.Workflows.StepRunner
 
@@ -187,11 +188,16 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
         step_index: step_index
       })
 
-    ActionNode.new(StepRunner, wrapper_params, name: node_atom(name), max_retries: 0)
+    ActionNode.new(
+      StepRunner,
+      wrapper_params,
+      [name: node_atom(name)] ++ ExecutionPolicy.outer_options()
+    )
   end
 
   def build_action_node(mod, params, name, _step_index, _run_id) do
-    ActionNode.new(mod, params, name: node_atom(name))
+    {:ok, opts} = ExecutionPolicy.inner_options(nil, nil)
+    ActionNode.new(mod, params, [name: node_atom(name)] ++ opts)
   end
 
   defp validate_edges(edges, node_map) do
@@ -394,15 +400,9 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
       }
       |> then(fn p -> if run_id, do: Map.put(p, :run_id, run_id), else: p end)
 
-    # `max_retries: 0` — an EdgeStep "fails" only by raising `ConditionNotMet` to
-    # prune a branch, which is deterministic control flow: a retry re-evaluates the
-    # same pure condition, gets the same result, and only adds Jido's default
-    # backoff (250ms) plus retry log noise per pruned branch. Mirror StepRunner,
-    # which is also built non-retriable.
-    ActionNode.new(Zaq.Engine.Workflows.Steps.EdgeStep, params,
-      name: node_atom(name),
-      max_retries: 0
-    )
+    # Edge conditions are deterministic and execute once without a deadline.
+    {:ok, opts} = ExecutionPolicy.inner_options(nil, nil)
+    ActionNode.new(Zaq.Engine.Workflows.Steps.EdgeStep, params, [name: node_atom(name)] ++ opts)
   end
 
   @doc """

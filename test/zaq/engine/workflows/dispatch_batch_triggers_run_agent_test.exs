@@ -60,7 +60,11 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
         count: [type: :integer, required: false, default: 8, doc: "How many items to emit."]
       ],
       output_schema: [
-        items: [type: {:list, :map}, required: true, doc: "Items to dispatch, one event each."]
+        items: [
+          type: {:list, {:map, :any, :any}},
+          required: true,
+          doc: "Items to dispatch, one event each."
+        ]
       ]
 
     @impl Jido.Action
@@ -84,8 +88,10 @@ defmodule Zaq.Engine.Workflows.DispatchBatchTriggersRunAgentTest do
     use Zaq.Engine.Workflows.Action,
       name: "prepare_item",
       description: "Pass a single batch item through as `input`.",
-      schema: [input: [type: :map, required: true, doc: "One item from the batch."]],
-      output_schema: [input: [type: :map, required: true, doc: "The item, unchanged."]]
+      schema: [input: [type: {:map, :any, :any}, required: true, doc: "One item from the batch."]],
+      output_schema: [
+        input: [type: {:map, :any, :any}, required: true, doc: "The item, unchanged."]
+      ]
 
     @impl Jido.Action
     def run(%{input: input}, _ctx), do: {:ok, %{input: input}}

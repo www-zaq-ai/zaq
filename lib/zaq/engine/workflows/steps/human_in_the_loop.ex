@@ -2,11 +2,12 @@ defmodule Zaq.Engine.Workflows.Steps.HumanInTheLoop do
   @moduledoc """
   Workflow action that suspends execution pending human or agent approval.
 
-  When reached in a DAG, this action creates a `StepApproval` record and
-  returns `{:error, {:waiting_for_human, approval_token}}`. `StepRunner`
-  pattern-matches this to mark the step as `"waiting"` and return
-  `{:error, :waiting_for_human}`. `WorkflowRunAgent` then transitions the run to
-  `"waiting"` by inspecting step statuses in `finalize/2`.
+  Creates or reuses the durable pending `StepApproval` for this exact run/step
+  and returns an empty, validated business payload with typed `PendingApproval`
+  success metadata. StepRunner records waiting and forwards that control to the
+  sequential driver, which stops before applying the result or running siblings.
+  No process waits for a human. Existing authorized approval/resume rebuilds the
+  graph and replays the decision data from the completed cursor.
 
   Approval or rejection arrives as a `:workflow` event dispatched to the engine:
 
@@ -34,13 +35,10 @@ defmodule Zaq.Engine.Workflows.Steps.HumanInTheLoop do
   use Zaq.Engine.Workflows.Action,
     name: "human_in_the_loop",
     schema: [message: [type: :string, required: false]],
-    output_schema: [
-      approved: [type: :boolean, required: true],
-      decision: [type: :map, required: false],
-      approved_by: [type: :string, required: false]
-    ]
+    output_schema: Zoi.object(%{})
 
   alias Zaq.Engine.Workflows
+  alias Zaq.Engine.Workflows.PendingApproval
 
   @impl Jido.Action
   def run(params, context) do
@@ -49,17 +47,19 @@ defmodule Zaq.Engine.Workflows.Steps.HumanInTheLoop do
     step_name =
       Map.get(context, :step_name) || raise ArgumentError, "step_name missing from context"
 
-    approval_token = Ecto.UUID.generate()
-
-    {:ok, _approval} =
-      Workflows.create_approval(%{
-        workflow_run_id: run_id,
-        step_name: step_name,
-        approval_token: approval_token,
-        message: params[:message],
-        status: "pending"
-      })
-
-    {:error, {:waiting_for_human, approval_token}}
+    with {:ok, approval} <-
+           Workflows.ensure_pending_approval(%{
+             workflow_run_id: run_id,
+             step_name: step_name,
+             message: params[:message],
+             status: "pending"
+           }) do
+      {:ok, %{},
+       workflow_control: %PendingApproval{
+         run_id: run_id,
+         step_name: step_name,
+         approval_token: approval.approval_token
+       }}
+    end
   end
 end
