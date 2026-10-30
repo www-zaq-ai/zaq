@@ -9,6 +9,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.Media
   alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
+  alias Zaq.Channels.Bridge
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.RetrievalChannel
@@ -3138,6 +3139,17 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert {:error, :unsupported_provider} = JidoChatBridge.adapter_for("does-not-exist")
     end
 
+    test "registers Teams as a webhook provider without listeners" do
+      assert {:ok, Jido.Chat.Teams.Adapter} = JidoChatBridge.adapter_for(:teams)
+      assert {:ok, Jido.Chat.Teams.Adapter} = JidoChatBridge.adapter_for("teams")
+      assert {:ok, JidoChatBridge} = Bridge.resolve_bridge("teams")
+
+      assert {%{id: {State, "teams_1"}}, []} =
+               JidoChatBridge.runtime_specs(%{id: 1, provider: "teams"}, "teams_1",
+                 channel_ids: []
+               )
+    end
+
     test "test_connection/2 returns unsupported_provider for unknown provider" do
       config = %{provider: "does-not-exist", url: "https://mm.example.com", token: "tok"}
       assert {:error, :unsupported_provider} = JidoChatBridge.test_connection(config, "chan-1")
@@ -4520,6 +4532,50 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       Process.put(:stub_ensure_ingress_subscription_result, {:error, :boom})
 
       assert {:error, {:ingress_ensure_failed, :boom}} = JidoChatBridge.sync_runtime(nil, config)
+    end
+
+    test "enables a webhook adapter without ingress subscription support" do
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :webhook
+        }
+      })
+
+      config = insert_channel_config(%{})
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.sync_runtime(nil, config)
+      assert {:ok, _state_pid} = Supervisor.lookup_state_pid(bridge_id)
+    end
+
+    test "disables a webhook adapter without ingress subscription support" do
+      Application.put_env(:zaq, :channels, %{
+        mattermost: %{
+          bridge: Zaq.Channels.JidoChatBridge,
+          adapter: StubAdapterListenerOpts,
+          ingress_mode: :webhook
+        }
+      })
+
+      config = insert_channel_config(%{})
+      bridge_id = "#{config.provider}_#{config.id}"
+
+      on_exit(fn ->
+        _ = JidoChatBridge.stop_runtime(config)
+      end)
+
+      assert :ok = JidoChatBridge.start_runtime(config)
+
+      disabled = config |> ChannelConfig.changeset(%{enabled: false}) |> Repo.update!()
+
+      assert :ok = JidoChatBridge.sync_runtime(config, disabled)
+      assert {:error, :not_running} = Supervisor.lookup_runtime(bridge_id)
     end
 
     test "preserves listing errors during teardown and does not delete" do

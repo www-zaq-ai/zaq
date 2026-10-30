@@ -1421,6 +1421,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     if ingress_mode_for(config.provider) == :webhook do
       case ensure_ingress_subscription(config, %{}) do
         {:ok, _result} -> :ok
+        {:error, :unsupported} -> :ok
         {:error, reason} -> {:error, {:ingress_ensure_failed, reason}}
       end
     else
@@ -1432,6 +1433,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     if ingress_mode_for(before_config.provider) == :webhook do
       case delete_ingress_subscription(after_config, %{}) do
         {:ok, _result} -> :ok
+        {:error, :unsupported} -> :ok
         {:error, reason} -> {:error, reason}
       end
     else

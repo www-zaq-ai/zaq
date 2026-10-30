@@ -36,6 +36,11 @@ config :zaq, :channels, %{
     adapter: Jido.Chat.Telegram.Adapter,
     ingress_mode: :webhook
   },
+  teams: %{
+    bridge: Zaq.Channels.JidoChatBridge,
+    adapter: Jido.Chat.Teams.Adapter,
+    ingress_mode: :webhook
+  },
   google_drive: %{
     bridge: Zaq.Channels.JidoConnectBridge,
     integration: Jido.Connect.Google.Drive
