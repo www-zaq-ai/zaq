@@ -21,11 +21,17 @@ defmodule Zaq.Agent.StreamEvents do
   Meaningful published answer content is tracked separately from reasoning. A
   failed stream returns any outstanding answer snapshot for Executor's terminal
   delivery without admitting another intermediate publication.
+
+  Factory supplies a private, request/incarnation-bound final effect snapshot
+  outside native trace history. Only successful terminal results expose selected files in
+  `attachments`; failed, cancelled and incomplete streams return no selected files.
   """
 
   alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
+  alias Zaq.Agent.RequestEffects
   alias Zaq.Agent.Status
+  alias Zaq.Agent.Tools.DataSource.AttachDocuments
   alias Zaq.ConnectorConfig.LiveUpdates
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.ToolStep
@@ -51,6 +57,7 @@ defmodule Zaq.Agent.StreamEvents do
           answer: term(),
           answer_published?: boolean(),
           pending_answer: String.t() | nil,
+          attachments: [Record.t()],
           usage: map(),
           llm_calls: [map()],
           trace: [map()],
@@ -128,6 +135,8 @@ defmodule Zaq.Agent.StreamEvents do
       tool_calls: %{},
       published_tool_steps: nil,
       answer: nil,
+      attachments: [],
+      request_completed: false,
       usage: %{},
       llm_calls: %{},
       llm_call_order: [],
@@ -144,6 +153,17 @@ defmodule Zaq.Agent.StreamEvents do
     }
 
     state = bind_selected_answer(kind(event), state)
+
+    state =
+      if terminal_kind?(kind(event)) do
+        records =
+          RequestEffects.take_snapshot(state.request_id, state.runtime_pid)
+          |> Map.get(AttachDocuments, [])
+
+        %{state | attachments: if(kind(event) == :request_completed, do: records, else: [])}
+      else
+        state
+      end
 
     if state.answer_binding_failed,
       do: state,
@@ -584,6 +604,7 @@ defmodule Zaq.Agent.StreamEvents do
     %{
       state
       | answer: data_get(data, :result),
+        request_completed: true,
         usage: usage,
         termination_reason: data_get(data, :termination_reason) || :complete
     }
@@ -708,6 +729,8 @@ defmodule Zaq.Agent.StreamEvents do
       answer: state.answer || state.latest_answer || state.current_full,
       answer_published?: not is_nil(state.published_answer),
       pending_answer: pending_answer(state),
+      attachments:
+        if(state.request_completed and is_nil(state.error), do: state.attachments, else: []),
       usage: state.usage,
       llm_calls: public_llm_calls(state),
       trace: Enum.reverse(state.trace),

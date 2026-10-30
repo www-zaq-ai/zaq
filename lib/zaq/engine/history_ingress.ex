@@ -279,9 +279,17 @@ defmodule Zaq.Engine.HistoryIngress do
         audience -> Map.from_struct(audience)
       end
     )
+    |> confirmation_attachments(delivery)
     |> Jason.encode!()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode64()
+  end
+
+  defp confirmation_attachments(fingerprint, delivery) do
+    case Enum.map(Map.get(delivery, :attachments, []), &attachment_descriptor/1) do
+      [] -> fingerprint
+      attachments -> Map.put(fingerprint, :attachments, attachments)
+    end
   end
 
   defp content_digest(content) when is_binary(content),
@@ -388,6 +396,7 @@ defmodule Zaq.Engine.HistoryIngress do
           role: "assistant",
           content: content,
           external_message_id: message_id,
+          attachments: Enum.map(Map.get(delivery, :attachments, []), &attachment_descriptor/1),
           author_id: audience.sender
         },
         %{

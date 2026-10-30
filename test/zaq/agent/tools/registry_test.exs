@@ -8,6 +8,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
     keys = Registry.tools() |> Enum.map(& &1.key)
 
     assert keys == [
+             "data_source.attach_document",
              "accounts.fetch_history",
              "accounts.notify_users",
              "answering.search_knowledge_base",
@@ -177,6 +178,7 @@ defmodule Zaq.Agent.Tools.RegistryTest do
 
   test "keys returns whitelisted keys" do
     assert Registry.keys() == [
+             "data_source.attach_document",
              "accounts.fetch_history",
              "accounts.notify_users",
              "answering.search_knowledge_base",

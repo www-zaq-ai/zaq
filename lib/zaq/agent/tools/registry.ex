@@ -19,6 +19,12 @@ defmodule Zaq.Agent.Tools.Registry do
 
   @tools [
     %{
+      key: "data_source.attach_document",
+      label: "Attach documents to response",
+      description: "Add, remove, or replace the active request's outgoing document selection",
+      module: Zaq.Agent.Tools.DataSource.AttachDocuments
+    },
+    %{
       key: "accounts.fetch_history",
       label: "Recall conversation history",
       description:

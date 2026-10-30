@@ -414,7 +414,12 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
         source_provider: delivery.provider,
         source_account_key:
           SourceIdentity.account_key(delivery.provider, delivery.channel_config_id, scope),
-        external_message_id: id
+        external_message_id: id,
+        attachments:
+          Enum.map(
+            Map.get(delivery, :attachments, response.attachments || []),
+            &Zaq.Contracts.Record.attachment_metadata/1
+          )
       }
 
       case response |> Message.canonical_changeset(attrs) |> Repo.update() do

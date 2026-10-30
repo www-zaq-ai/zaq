@@ -71,6 +71,22 @@ defmodule Zaq.TestSupport.OpenAIStub do
      port: port}
   end
 
+  @doc "Starts a supervised stub and discovers its port after the listener owns it."
+  def start_server!(handler, test_pid) do
+    server =
+      ExUnit.Callbacks.start_supervised!(
+        {Bandit,
+         plug: {__MODULE__, test_pid: test_pid, handler: handler},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0},
+        id: make_ref()
+      )
+
+    {:ok, {_, port}} = ThousandIsland.listener_info(server)
+    {server, "http://127.0.0.1:#{port}/v1"}
+  end
+
   def llm_config(endpoint, overrides \\ []) do
     [
       provider: "openai",

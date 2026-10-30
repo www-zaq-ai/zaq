@@ -61,6 +61,65 @@ display-only; Agent never constructs provider locators from prompt text.
 
 ---
 
+## Outgoing attachment selection
+
+`data_source.attach_document` exposes `Zaq.Agent.Tools.DataSource.AttachDocuments` to
+configured agents through the existing tool enablement controls and to the default
+answering agent. `get_document` keeps its retrieval-only behavior.
+
+The Action accepts `operation: "add" | "remove" | "replace"` and up to 100 signed
+document Records in `records`. It returns the validated input Records. `add`
+deduplicates by signed provider/configuration/document identity; removing an absent
+selection is a no-op; `replace` sets the exact collection and `replace([])` clears
+it. Removing a selection never deletes the source. Schema/provenance and the whole
+batch's read authorization are checked before a command can mutate selection.
+Identity comes from trusted execution context, with no implicit nil-person bypass;
+only an explicit `skip_permissions: true` bypasses the read check. Records with
+signed data-source identity are refreshed through the existing validated
+`GetDocument` Action, which delegates current read authorization to Channels and
+the source owner (including Storage for Disk). This reads metadata, never document
+bytes. Other signed Records use `Record.Authorization`; a missing or unusable
+permission projection fails closed. The entire batch must pass before selection
+changes. Selection success is not delivery.
+
+Factory delegates private request effects to `RequestEffects`. Configured Actions
+opt in with `init_request_effect/0` and `reduce_request_effect/2`; `AttachDocuments`
+owns document identity, ordering and add/remove/replace rules in those callbacks.
+The shared handler owns isolated values per Action in the existing Jido agent state,
+using the actual native request ID and runtime PID. Models cannot supply either.
+The runner executes tools concurrently but emits results in declaration order;
+Factory applies mutations in that order. Native invocation IDs deduplicate replay,
+including an old add replayed after removal. Request/PID and event-sequence checks
+reject stale effects. Active-request steering can revise the same collection.
+Every new request starts empty; successful completion freezes the collection;
+failure or cancellation discards it. Later requests cannot retract delivered files.
+
+Factory consumes private selection effects before native trace/thread projection,
+redacts selection tool arguments/results there, and omits checkpoint tokens that
+could contain model-private Records. The model retains validated, aliased Records
+within its active tool loop. A private final snapshot is sent to the existing request sink before native
+completion, outside the event stream. StreamEvents consumes only the matching
+request and incarnation at termination. Native event IDs and sequences are unchanged.
+Failed, cancelled and incomplete streams expose no selected files. StreamEvents
+selects the AttachDocuments value from the private result map; Executor preserves
+it for configured-agent delivery as `Outgoing.attachments`, outside metadata and
+public tool-step projections. The default Answering/Pipeline path does not enable
+or propagate selection. Incoming files are never auto-selected.
+
+Channels retains byte acquisition, final source authorization, MIME/name handling,
+and observable delivery. No file is delivered during a tool iteration. See
+[communication media](channels.md#communication-media-attachments) and
+[materialization](materialization.md) for those contracts. Selected documents still
+need a supported materialization handle or valid content at delivery time.
+
+Record provenance now authenticates the effective principal used by
+`Record.Authorization`, including nested principal overrides and unmatched
+principals, while retaining provider permission fields. Older signatures that
+omitted a differing authorization principal fail verification and must be reissued
+by retrieving the Record again; verification never falls back to the incomplete
+projection. Flat projections already matching the effective principal remain
+unchanged.
+
 ## Module Responsibility Map
 
 Use this to decide where new code belongs. When a function would violate the "Does NOT own" column, find the correct module first.

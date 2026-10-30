@@ -516,16 +516,27 @@ creates no temporary files and never deletes source files. It acquires whole fil
 contents in memory; acquisition budgets are tracked separately in [#875](https://github.com/www-zaq-ai/zaq/issues/875).
 Delivery confirmation forwards an outgoing copy with each attachment Record's
 `content` cleared; all other Record fields, including materialization handles,
-are preserved. Engine's confirmation capture currently does not persist these
-attachments; history preview support requires further Engine integration.
+are preserved in that transient copy. Mattermost receipts additionally carry
+content-free descriptors of the delivered channel files, normalized through the
+same media path as incoming attachments. Engine persists those descriptors on
+the existing assistant message and includes them in confirmation replay checks.
+History hydration uses the existing canonical transcript authorization path;
+source Disk handles and file contents are not stored as channel attachments.
+Providers without normalized delivered-media evidence do not fabricate channel
+attachment references.
 
-Chat sends files as documents in a new final post. Adapter/provider errors own
+Chat sends files as documents. With an existing streamed message ID, adapters
+declaring native `edit_attachments` update that post with the answer and file;
+otherwise delivery creates a final post. Mattermost uploads the file and patches
+the existing post, requiring the returned file IDs to confirm attachment delivery.
+Text-only edits preserve attachments. Adapter/provider errors own
 file count and size restrictions: current Jido core rejects multiple attachments,
 while SMTP accepts a list. Text and file replies share preparation and sending;
-file replies choose creation because the current adapters cannot edit attachments.
+file replies use attachment editing only when the adapter explicitly supports it.
 Both text and file creation return Jido's `post.id`, preserving its generated-ID
 fallback when an adapter reports success without a provider message ID.
-Successful file delivery adds no status notice or placeholder edit. On failure,
+Successful file delivery adds no status notice. Attachment edits retain the original
+post ID for delivery confirmation and reply callbacks. On failure,
 the answer is preserved with an appended safe reason, editing the existing
 placeholder or posting a text-only notice when no editable placeholder exists.
 The original error is returned; this notice neither retries files nor invokes

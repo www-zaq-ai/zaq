@@ -30,6 +30,28 @@ test/e2e/
 
 ---
 
+## Mattermost and email attachment journeys
+
+```sh
+mix test test/zaq/channels/attachment_agent_journey_test.exs
+```
+
+These journeys exercise channel ingress, Engine admission, configured Agent/Jido
+turns, `get_document`, `attach_documents`, stream completion, and Channels delivery.
+Only external services are stubbed: scripted LLM responses, Mattermost HTTP, and
+SMTP. They require the normal test database and dependencies; no live mailboxes,
+Mattermost accounts, Phoenix E2E server, or browser are needed. This stubbed scope
+was explicitly accepted for `zaq-ic9.14.8`; it does not establish live-service interoperability.
+
+Both channels cover add/remove, replacement, clearing, repeated selection, no early
+or duplicate file delivery, fresh-request isolation, failure, cancellation, active
+steering, permission revocation before materialization, and private-data exclusion
+from visible tool steps and persisted history. Assertions inspect actual HTTP
+uploads/posts and SMTP envelopes/MIME, including target/thread, filename, type,
+bytes, and answer. Tests wait for confirmation writers to exit before sandbox
+teardown. The suite remains synchronous because real runtime processes share the
+test's database sandbox; each journey owns its files, endpoints, and routing data.
+
 ## Real browser-tool integration (Flow 3)
 
 `test/zaq/agent/browser_flow_integration_test.exs` is tagged `:real_browser` and

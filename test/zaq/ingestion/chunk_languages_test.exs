@@ -7,6 +7,19 @@ defmodule Zaq.Ingestion.ChunkLanguagesTest do
   alias Zaq.Ingestion.{Chunk, ChunkLanguages, Document}
   alias Zaq.Repo
 
+  setup do
+    on_exit(fn ->
+      # Sandbox rollback does not clear the application-owned language cache.
+      ChunkLanguages.invalidate()
+
+      if pid = Process.whereis(ChunkLanguages) do
+        _ = :sys.get_state(pid)
+      end
+    end)
+
+    :ok
+  end
+
   test "globally discovers persisted languages and invalidates after writes and deletion" do
     Chunk.create_table(1536)
 

@@ -9,7 +9,7 @@ defmodule Zaq.TestSupport.FileDeliverySmtpStub do
 
   import ExUnit.Assertions
 
-  def start!(owner, namespace) do
+  def start!(owner, namespace, opts \\ []) do
     {:ok, listener} =
       :gen_tcp.listen(0, [
         :binary,
@@ -25,7 +25,15 @@ defmodule Zaq.TestSupport.FileDeliverySmtpStub do
     ExUnit.Callbacks.start_supervised!(%{
       id: {:smtp_delivery, namespace},
       restart: :temporary,
-      start: {Task, :start_link, [fn -> accept!(listener, owner, namespace) end]}
+      start:
+        {Task, :start_link,
+         [
+           fn ->
+             Enum.each(1..Keyword.get(opts, :connections, 1), fn _ ->
+               accept!(listener, owner, namespace)
+             end)
+           end
+         ]}
     })
 
     port

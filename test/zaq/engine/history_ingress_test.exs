@@ -15,6 +15,7 @@ defmodule Zaq.Engine.HistoryIngressTest do
   alias Zaq.Engine.{Conversations, HistoryDeliveryWorker, HistoryIngress, IncomingMessageRouter}
   alias Zaq.Engine.Conversations.{Message, Transcript, TranscriptMessage}
   alias Zaq.Engine.History.CommunicationPolicy
+  alias Zaq.Engine.History.Delivery
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
@@ -110,6 +111,89 @@ defmodule Zaq.Engine.HistoryIngressTest do
     assert {:ok, ^assistant_id} = HistoryIngress.record_confirmation(delivery)
     assert {:ok, :ok} = HistoryIngress.associate_confirmation(assistant_id)
     assert Repo.get!(Message, assistant_id).external_message_id == "query-response"
+  end
+
+  test "confirmed outgoing attachments bind to the existing answer without bytes or handles" do
+    config = connector("mattermost")
+    person = author("Attachment author", "mattermost", "attachment-author", config.id)
+
+    incoming =
+      Incoming.new(%{
+        content: "question",
+        channel_id: "attachment-room",
+        author_id: "attachment-author",
+        message_id: "attachment-input",
+        provider: :mattermost,
+        person: person,
+        routing_context: %{channel_config_id: config.id, conversation_type: :room}
+      })
+
+    assert {:ok, _} = HistoryIngress.capture(incoming)
+    assert {:ok, binding} = Conversations.admit_incoming(incoming)
+
+    assert {:ok, %{assistant_message_id: assistant_id}} =
+             Conversations.finalize_incoming(
+               binding.user_message_id,
+               binding.finalization_token,
+               %{answer: "answer", error: false},
+               actor: %{person: %{id: person.id}}
+             )
+
+    attachment = %Record{
+      id: "channel-file",
+      kind: :file,
+      name: "image.png",
+      mime_type: "image/png",
+      content: "private bytes",
+      materialization_handle: "private handle"
+    }
+
+    delivery = %{
+      confirmation: :confirmed,
+      provider: "mattermost",
+      kind: :channel,
+      channel_config_id: config.id,
+      channel_id: "attachment-room",
+      message_id: "attachment-response",
+      content: "answer",
+      user_message_id: binding.user_message_id,
+      assistant_message_id: assistant_id,
+      attachments: [attachment]
+    }
+
+    outgoing =
+      %Outgoing{
+        provider: :mattermost,
+        channel_id: "attachment-room",
+        body: "answer",
+        routing_context: %{channel_config_id: config.id, conversation_type: :room},
+        metadata: %{user_message_id: binding.user_message_id, assistant_message_id: assistant_id}
+      }
+
+    assert {:ok, %{history_capture: :stored}} =
+             Delivery.capture(
+               {:ok,
+                %{
+                  confirmation: :confirmed,
+                  message_id: "attachment-response",
+                  attachments: [attachment]
+                }},
+               outgoing
+             )
+
+    assert {:ok, ^assistant_id} = HistoryIngress.record_confirmation(delivery)
+    assert {:ok, ^assistant_id} = HistoryIngress.record_confirmation(delivery)
+    assert {:ok, :ok} = HistoryIngress.associate_confirmation(assistant_id)
+    message = Repo.get!(Message, assistant_id)
+    assert message.attachments == [Record.attachment_metadata(attachment)]
+    assert message.content == "answer"
+    refute Jason.encode!(message.attachments) =~ "private"
+
+    assert {:error, :conflicting_delivery_confirmation} =
+             HistoryIngress.record_confirmation(%{
+               delivery
+               | attachments: [%{attachment | id: "different-file"}]
+             })
   end
 
   test "unscoped admission retains its existing post-insert side-effect boundary" do

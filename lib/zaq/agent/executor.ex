@@ -778,6 +778,7 @@ defmodule Zaq.Agent.Executor do
 
     %{
       answer: answer_text,
+      attachments: Map.get(stream_result, :attachments, []),
       confidence_score: confidence,
       latency_ms: measurement_value(measurements, "latency_ms"),
       prompt_tokens: measurement_value(measurements, "input_tokens"),
