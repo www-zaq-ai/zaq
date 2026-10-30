@@ -366,6 +366,7 @@ for cache refresh/expiry and eventual-consistency limitations.
 | `Zaq.Channels.JidoChatBridge`       | `lib/zaq/channels/jido_chat_bridge.ex`       | Provider bridge for jido_chat adapters          |
 | `Zaq.Channels.JidoConnectBridge`    | `lib/zaq/channels/jido_connect_bridge.ex`    | Provider bridge for jido_connect data sources   |
 | `Zaq.Channels.JidoChatBridge.State` | `lib/zaq/channels/jido_chat_bridge/state.ex` | Per-bridge GenServer state holder               |
+| `Zaq.Channels.JidoChatBridge.AdapterOptions` | `lib/zaq/channels/jido_chat_bridge/adapter_options.ex` | Per-provider adapter credential options |
 | `Zaq.Channels.EmailBridge`          | `lib/zaq/channels/email_bridge.ex`           | Bridge for email IMAP ingress, SMTP delivery, and attachment materialization |
 | `Zaq.Channels.WebBridge`            | `lib/zaq/channels/web_bridge.ex`             | Bridge for web/ChatLive sessions via PubSub     |
 | `Zaq.Channels.Web.*`                | `lib/zaq/channels/web/`                      | Shared BO/widget transport contracts            |
@@ -939,6 +940,7 @@ delivery; bridges do not write whole exchanges.
 - Adapters own transport runtime details: connection lifecycle, listener child specs, and transport parsing.
 - Bridges must request runtime specs from adapters (for example `adapter.runtime_specs/3`) instead of building listener specs directly.
 - Adapter-specific callback names (for example `from_imap_listener/3`) are not allowed in bridge public APIs.
+- Adapter credential options come from `Zaq.Channels.JidoChatBridge.AdapterOptions.build/2`, not from inline `url:`/`token:` lists at call sites. Mattermost, Discord and Telegram share the default `[url: url, token: token]` shape; a provider whose adapter expects other credentials adds its shape there.
 
 ### Ingress flow
 

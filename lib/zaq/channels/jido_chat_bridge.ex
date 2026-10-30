@@ -39,6 +39,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   alias Jido.Chat.ReactionEvent
   alias Jido.Chat.Thread
+  alias Zaq.Channels.JidoChatBridge.AdapterOptions
   alias Zaq.Channels.JidoChatBridge.DeliveryResult
   alias Zaq.Channels.JidoChatBridge.ListenerStatus
   alias Zaq.Channels.JidoChatBridge.ReactionMapper
@@ -208,7 +209,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   @impl true
   def test_connection(config, channel_id) do
     with {:ok, adapter} <- adapter_for(config.provider) do
-      adapter.send_message(channel_id, @test_message, url: config.url, token: config.token)
+      adapter.send_message(
+        channel_id,
+        @test_message,
+        AdapterOptions.build(config.provider, config)
+      )
     end
   end
 
@@ -431,7 +436,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp post_reaction_follow_up(config, %Thread{} = thread, text) do
     thread = %{thread | metadata: Map.put(thread.metadata || %{}, :url, config.url)}
 
-    Thread.post(thread, text, url: config.url, token: config.token)
+    Thread.post(thread, text, AdapterOptions.build(config_value(config, :provider), config))
   end
 
   defp post_reaction_follow_up(_config, _thread, _text), do: :ok
@@ -498,10 +503,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @impl true
-  def upsert_message(%{provider: provider, provider_atom: provider_atom}, request, %{
-        url: url,
-        token: token
-      })
+  def upsert_message(
+        %{provider: provider, provider_atom: provider_atom},
+        request,
+        %{url: _url, token: _token} = connection
+      )
       when is_map(request) do
     message_id = Map.get(request, :message_id)
 
@@ -515,12 +521,12 @@ defmodule Zaq.Channels.JidoChatBridge do
 
       if is_present_message_id(message_id) do
         edit_message(
+          provider,
           adapter,
           channel_id,
           message_id,
           body,
-          url,
-          token,
+          connection,
           Map.put(request, :metadata, request_metadata)
         )
       else
@@ -530,8 +536,7 @@ defmodule Zaq.Channels.JidoChatBridge do
           channel_id,
           thread_id,
           body,
-          url,
-          token,
+          connection,
           request_metadata
         )
       end
@@ -554,11 +559,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   @doc "Fetches a user's canonical profile from the platform API."
   @spec fetch_profile(String.t(), map()) :: {:ok, map()} | {:error, term()}
   @impl true
-  def fetch_profile(author_id, %{url: url, token: token, provider: provider})
+  def fetch_profile(author_id, %{url: _url, token: _token, provider: provider} = details)
       when is_binary(author_id) do
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :get_user, 2) || {:error, :unsupported},
-         {:ok, user} <- adapter.get_user(author_id, url: url, token: token) do
+         {:ok, user} <- adapter.get_user(author_id, AdapterOptions.build(provider, details)) do
       {:ok,
        %{
          "email" => Map.get(user, :email) || Map.get(user, "email"),
@@ -579,10 +584,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   def send_typing(%{provider: provider}, channel_id, details),
     do: send_typing(provider, channel_id, details)
 
-  def send_typing(provider, channel_id, %{url: url, token: token}) do
+  def send_typing(provider, channel_id, %{url: _url, token: _token} = details) do
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :start_typing, 2) || {:error, :unsupported},
-         result <- adapter.start_typing(channel_id, url: url, token: token) do
+         result <- adapter.start_typing(channel_id, AdapterOptions.build(provider, details)) do
       normalize_outbound_result(result)
     end
   end
@@ -603,11 +608,13 @@ defmodule Zaq.Channels.JidoChatBridge do
   def add_reaction(%{provider: provider}, channel_id, message_id, emoji, details),
     do: add_reaction(provider, channel_id, message_id, emoji, details)
 
-  def add_reaction(provider, channel_id, message_id, emoji, %{url: url, token: token})
+  def add_reaction(provider, channel_id, message_id, emoji, %{url: _url, token: _token} = details)
       when is_present_message_id(message_id) and is_binary(emoji) do
+    opts = AdapterOptions.build(provider, details)
+
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :add_reaction, 4) || {:error, :unsupported},
-         result <- adapter.add_reaction(channel_id, message_id, emoji, url: url, token: token) do
+         result <- adapter.add_reaction(channel_id, message_id, emoji, opts) do
       normalize_outbound_result(result)
     end
   end
@@ -633,11 +640,12 @@ defmodule Zaq.Channels.JidoChatBridge do
         channel_id,
         message_id,
         emoji,
-        %{url: url, token: token} = details
+        %{url: _url, token: _token} = details
       )
       when is_present_message_id(message_id) and is_binary(emoji) do
     opts =
-      [url: url, token: token]
+      provider
+      |> AdapterOptions.build(details)
       |> maybe_put_user_id(details)
 
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
@@ -802,13 +810,14 @@ defmodule Zaq.Channels.JidoChatBridge do
   """
   @spec open_dm_channel(String.t(), map()) :: {:ok, String.t()} | {:error, term()}
   @impl true
-  def open_dm_channel(author_id, %{url: url, token: token, bot_user_id: bot_user_id} = details)
+  def open_dm_channel(author_id, %{url: _url, token: _token, bot_user_id: bot_user_id} = details)
       when is_binary(author_id) and is_binary(bot_user_id) do
     provider = Map.get(details, :provider, "mattermost")
+    opts = AdapterOptions.build(provider, details)
 
     with {:ok, adapter} <- resolve_adapter_for_provider(provider),
          true <- function_exported?(adapter, :open_dm_channel, 3) || {:error, :unsupported},
-         {:ok, channel} <- adapter.open_dm_channel(bot_user_id, author_id, url: url, token: token),
+         {:ok, channel} <- adapter.open_dm_channel(bot_user_id, author_id, opts),
          channel_id when is_binary(channel_id) <- channel["id"] || {:error, :missing_channel_id} do
       {:ok, channel_id}
     end
@@ -929,8 +938,7 @@ defmodule Zaq.Channels.JidoChatBridge do
            adapter.fetch_message(
              thread.external_room_id,
              root_id,
-             url: config_value(config, :url),
-             token: config_value(config, :token)
+             AdapterOptions.build(config_value(config, :provider), config)
            ),
          author_id when not is_nil(author_id) <- message_author_id(root_message) do
       to_string(author_id) == bot_user_id
@@ -1164,17 +1172,16 @@ defmodule Zaq.Channels.JidoChatBridge do
         do: Map.merge(default_ingress, configured_ingress),
         else: default_ingress
 
-    [
-      url: config.url,
-      token: config.token,
-      bot_user_id: Settings.jido_chat_bot_user_id(config),
-      bot_name: Settings.jido_chat_bot_name(config),
-      channel_ids: channel_ids,
-      bridge_id: bridge_id,
-      ingress: ingress,
-      sink_mfa: sink_mfa_for(config),
-      sink_opts: [transport: ingress_mode, bridge_id: bridge_id]
-    ]
+    AdapterOptions.build(config.provider, config) ++
+      [
+        bot_user_id: Settings.jido_chat_bot_user_id(config),
+        bot_name: Settings.jido_chat_bot_name(config),
+        channel_ids: channel_ids,
+        bridge_id: bridge_id,
+        ingress: ingress,
+        sink_mfa: sink_mfa_for(config),
+        sink_opts: [transport: ingress_mode, bridge_id: bridge_id]
+      ]
   end
 
   defp sink_mfa_for(config), do: {__MODULE__, :from_listener, [config]}
@@ -1361,17 +1368,16 @@ defmodule Zaq.Channels.JidoChatBridge do
     ingress = normalized_ingress(config)
     token = normalized_subscription_token(config)
 
-    [
-      url: config.url,
-      token: token,
-      bridge_id: bridge_id,
-      bridge_config: %{credentials: %{token: token}},
-      settings: %{"ingress" => ingress},
-      ingress: ingress,
-      target_url:
-        Map.get(params, :target_url) || Map.get(params, "target_url") ||
-          webhook_target_url(config)
-    ]
+    AdapterOptions.build(config.provider, %{url: config.url, token: token}) ++
+      [
+        bridge_id: bridge_id,
+        bridge_config: %{credentials: %{token: token}},
+        settings: %{"ingress" => ingress},
+        ingress: ingress,
+        target_url:
+          Map.get(params, :target_url) || Map.get(params, "target_url") ||
+            webhook_target_url(config)
+      ]
   end
 
   defp normalized_subscription_token(config) do
@@ -1849,33 +1855,33 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @doc "Sends a reply outbound via the provider adapter. Called by the bridge state process."
-  def do_send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
+  def do_send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection) do
     case adapter_for(outgoing.provider) do
       {:ok, adapter_module} ->
-        handle_send_with_adapter(outgoing, adapter_module, url, token)
+        handle_send_with_adapter(outgoing, adapter_module, connection)
 
       {:error, _reason} ->
         {:error, {:unsupported_provider, outgoing.provider}}
     end
   end
 
-  defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, url, token) do
+  defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, connection) do
     metadata = outgoing.metadata || %{}
 
     with {:use_update, message_id} <- send_mode(outgoing, adapter_module),
          {:ok, receipt} <-
            edit_message(
+             outgoing.provider,
              adapter_module,
              outgoing.channel_id,
              message_id,
              outgoing.body,
-             url,
-             token,
+             connection,
              %{request_id: metadata[:request_id], metadata: metadata}
            ) do
       {:ok, Map.put(receipt, :confirmation, :confirmed)}
     else
-      :create -> create_and_dispatch_reply(outgoing, adapter_module, url, token)
+      :create -> create_and_dispatch_reply(outgoing, adapter_module, connection)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -1890,7 +1896,7 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, url, token) do
+  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, connection) do
     metadata = outgoing.metadata || %{}
 
     with {:ok, %{message_id: post_id}} <-
@@ -1900,8 +1906,7 @@ defmodule Zaq.Channels.JidoChatBridge do
              outgoing.channel_id,
              outgoing.thread_id,
              outgoing.body,
-             url,
-             token,
+             connection,
              metadata
            ) do
       canonical_id = ConversationIdentity.normalize(post_id)
@@ -1981,8 +1986,7 @@ defmodule Zaq.Channels.JidoChatBridge do
          channel_id,
          thread_id,
          body,
-         url,
-         token,
+         %{url: url, token: token} = connection,
          metadata
        ) do
     effective_thread_id = thread_id || channel_id
@@ -1999,7 +2003,7 @@ defmodule Zaq.Channels.JidoChatBridge do
 
     post_body = build_post_body(body, metadata)
 
-    case Chat.Thread.post(thread, post_body, format_delivery_opts(url, token, metadata)) do
+    case Chat.Thread.post(thread, post_body, format_delivery_opts(provider, connection, metadata)) do
       {:ok, post} ->
         {:ok,
          %{
@@ -2012,11 +2016,12 @@ defmodule Zaq.Channels.JidoChatBridge do
     end
   end
 
-  defp edit_message(adapter_module, channel_id, message_id, body, url, token, request) do
+  defp edit_message(provider, adapter_module, channel_id, message_id, body, connection, request) do
     metadata = Map.get(request, :metadata, %{})
 
     opts =
-      [url: url, token: token, update_intent: Map.get(request, :update_intent)]
+      (AdapterOptions.build(provider, connection) ++
+         [update_intent: Map.get(request, :update_intent)])
       |> maybe_put_format_from_metadata(metadata)
 
     result = adapter_module.edit_message(channel_id, message_id, body, opts)
@@ -2040,8 +2045,9 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   defp metadata_message_id(_), do: nil
 
-  defp format_delivery_opts(url, token, metadata) do
-    [url: url, token: token]
+  defp format_delivery_opts(provider, connection, metadata) do
+    provider
+    |> AdapterOptions.build(connection)
     |> maybe_put_format_from_metadata(metadata)
   end
 
