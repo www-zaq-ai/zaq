@@ -8722,6 +8722,211 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ ~s(id="embedding-model-select")
     end
 
+    test "compatible-provider embedding selection keeps catalog identity when switching credentials",
+         %{conn: conn} do
+      with_compatible_provider_catalog()
+
+      vendor =
+        ai_credential_fixture(%{
+          provider: "compatible_catalog",
+          endpoint: "https://vendor.test/v1"
+        })
+
+      openai = ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
+      render_click(view, "unlock_embedding", %{})
+      render_click(view, "confirm_unlock_embedding", %{})
+
+      params = %{
+        "model" => "",
+        "dimension" => "768",
+        "chunk_min_tokens" => "400",
+        "chunk_max_tokens" => "900"
+      }
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => Map.put(params, "credential_id", to_string(openai.id))
+      })
+
+      assert has_element?(
+               view,
+               "#embedding-model-select [data-select-value='text-embedding-3-large']"
+             )
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => Map.put(params, "credential_id", to_string(vendor.id))
+      })
+
+      assert has_element?(view, "#embedding-model-select [data-select-value='vendor-embedding']")
+
+      refute has_element?(
+               view,
+               "#embedding-model-select [data-select-value='text-embedding-3-large']"
+             )
+
+      refute has_element?(view, "#embedding-model-select [data-select-value='vendor-rerank']")
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" =>
+          Map.merge(params, %{
+            "credential_id" => to_string(vendor.id),
+            "model" => "vendor-embedding"
+          })
+      })
+
+      assert has_element?(view, "input[name='embedding_config[dimension]'][value='1024']")
+
+      assert %{
+               provider: :compatible_catalog,
+               capabilities: %{embeddings: %{default_dimensions: 1024}}
+             } =
+               ProviderModels.model_for_credential(vendor, "vendor-embedding")
+
+      assert ProviderModels.model_for_credential(vendor, "text-embedding-3-large") == nil
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => Map.put(params, "credential_id", to_string(openai.id))
+      })
+
+      assert has_element?(
+               view,
+               "#embedding-model-select [data-select-value='text-embedding-3-large']"
+             )
+
+      refute has_element?(view, "#embedding-model-select [data-select-value='vendor-embedding']")
+    end
+
+    test "compatible-provider image selection filters its own catalog", %{conn: conn} do
+      with_compatible_provider_catalog()
+
+      vendor =
+        ai_credential_fixture(%{
+          provider: "compatible_catalog",
+          endpoint: "https://vendor.test/v1"
+        })
+
+      openai = ai_credential_fixture(%{provider: "openai", endpoint: "https://api.openai.com/v1"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
+
+      render_change(view, "validate_image_to_text", %{
+        "image_to_text_config" => %{"credential_id" => to_string(openai.id), "model" => ""}
+      })
+
+      assert has_element?(view, "#image-to-text-model-select [data-select-value='gpt-4o']")
+
+      render_change(view, "validate_image_to_text", %{
+        "image_to_text_config" => %{"credential_id" => to_string(vendor.id), "model" => ""}
+      })
+
+      assert has_element?(view, "#image-to-text-model-select [data-select-value='vendor-vision']")
+      refute has_element?(view, "#image-to-text-model-select [data-select-value='gpt-4o']")
+
+      refute has_element?(
+               view,
+               "#image-to-text-model-select [data-select-value='vendor-embedding']"
+             )
+
+      refute has_element?(view, "#image-to-text-model-select [data-select-value='vendor-rerank']")
+      refute has_element?(view, "#image-to-text-model-compatibility-note")
+    end
+
+    test "image-to-text suggestions mark unknown output and exclude explicit non-text output", %{
+      conn: conn
+    } do
+      model_specs =
+        for {input, i} <- Enum.with_index([[], [:text], [:image], [:text, :image]]),
+            {output, j} <- Enum.with_index([[], [:text], [:embedding], [:text, :embedding]]) do
+          status =
+            cond do
+              :image not in input -> :excluded
+              output == [] -> :unconfirmed
+              :text in output -> :confirmed
+              true -> :excluded
+            end
+
+          {"modality-#{i}-#{j}", %{input: input, output: output}, status}
+        end
+
+      model_specs =
+        model_specs ++
+          [
+            {"missing-modalities", nil, :excluded},
+            {"empty-modalities", %{}, :excluded},
+            {"text-input-only", %{input: [:text]}, :excluded},
+            {"image-input-only", %{input: [:image]}, :unconfirmed},
+            {"output-only", %{output: [:text]}, :excluded},
+            {"nil-modalities", %{input: nil, output: nil}, :excluded},
+            {"nil-input", %{input: nil, output: [:text]}, :excluded},
+            {"nil-output", %{input: [:image], output: nil}, :unconfirmed}
+          ]
+
+      with_catalog(fn providers, models ->
+        provider =
+          Enum.find(providers, &(&1.id == :openai))
+          |> Map.merge(%{id: :image_to_text_capabilities, alias_of: nil, catalog_only: true})
+
+        source =
+          Enum.find(models, &(&1.provider == :openai and not &1.deprecated and not &1.retired))
+
+        custom_models =
+          Enum.map(model_specs, fn {id, modalities, _eligible} ->
+            Map.merge(source, %{
+              provider: :image_to_text_capabilities,
+              id: id,
+              name: id,
+              modalities: modalities,
+              capabilities: %{chat: false}
+            })
+          end)
+
+        {[provider | providers], custom_models ++ models}
+      end)
+
+      credential =
+        ai_credential_fixture(%{provider: "image_to_text_capabilities", auth_kind: "none"})
+
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=image_to_text")
+
+      render_change(view, "validate_image_to_text", %{
+        "image_to_text_config" => %{"credential_id" => to_string(credential.id), "model" => ""}
+      })
+
+      for {id, _modalities, status} <- model_specs do
+        selector = "#image-to-text-model-select [data-select-value='#{id}']"
+
+        assert has_element?(view, selector) == (status != :excluded),
+               "incorrect image-to-text eligibility for #{id}"
+
+        assert has_element?(view, "#{selector} em", "Compatibility unconfirmed") ==
+                 (status == :unconfirmed),
+               "incorrect compatibility cue for #{id}"
+
+        if status == :unconfirmed do
+          assert has_element?(view, "#{selector}[data-select-disabled='false']")
+        end
+      end
+
+      assert has_element?(
+               view,
+               "#image-to-text-model-compatibility-note",
+               "Output capabilities are missing from the catalog"
+             )
+
+      render_change(view, "validate_image_to_text", %{
+        "image_to_text_config" => %{
+          "credential_id" => to_string(credential.id),
+          "model" => "image-input-only"
+        }
+      })
+
+      assert has_element?(
+               view,
+               "input[name='image_to_text_config[model]'][value='image-input-only']"
+             )
+    end
+
     test "embedding capability booleans and dimension metadata drive model validation", %{
       conn: conn
     } do
@@ -9067,6 +9272,45 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       {number, ""} -> number
       :error -> String.to_integer(value) * 1.0
     end
+  end
+
+  defp with_compatible_provider_catalog do
+    with_catalog(fn providers, models ->
+      provider =
+        providers
+        |> Enum.find(&(&1.id == :openai))
+        |> Map.merge(%{
+          id: :compatible_catalog,
+          name: "Compatible Catalog",
+          alias_of: nil,
+          catalog_only: false
+        })
+
+      source =
+        Enum.find(models, &(&1.provider == :openai and not &1.deprecated and not &1.retired))
+
+      vendor_models =
+        Enum.map(
+          [
+            {"vendor-embedding", %{embeddings: %{default_dimensions: 1024, max_dimensions: 2048}},
+             %{input: [:text], output: [:embedding]}},
+            {"vendor-vision", %{embeddings: false}, %{input: [:text, :image], output: [:text]}},
+            {"vendor-rerank", %{embeddings: false, rerank: true},
+             %{input: [:text], output: [:text]}}
+          ],
+          fn {id, capabilities, modalities} ->
+            Map.merge(source, %{
+              provider: :compatible_catalog,
+              id: id,
+              name: id,
+              capabilities: capabilities,
+              modalities: modalities
+            })
+          end
+        )
+
+      {[provider | providers], vendor_models ++ models}
+    end)
   end
 
   defp with_catalog(transform) do

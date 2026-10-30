@@ -61,6 +61,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ImageToTextTab do
                 placeholder="Search models..."
                 empty_label="Select a model..."
               />
+              <p
+                :if={Enum.any?(@model_options, &match?({_, _, "Compatibility unconfirmed"}, &1))}
+                id="image-to-text-model-compatibility-note"
+                class="zaq-text-caption mt-2"
+                style="color: var(--zaq-text-color-body-tertiary)"
+              >
+                Output capabilities are missing from the catalog; models marked
+                “Compatibility unconfirmed” may not support image-to-text.
+              </p>
               <input
                 :if={@model_options == []}
                 type="text"

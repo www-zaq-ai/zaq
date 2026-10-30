@@ -188,6 +188,39 @@ defmodule Zaq.Agent.ProviderModelsTest do
     def get(app, key, default, _opts), do: Application.get_env(app, key, default)
   end
 
+  defmodule CompatibleCatalogAdapter do
+    def models(provider) when provider in [:compatible_vendor, :other_compatible_vendor] do
+      [
+        %LLMDB.Model{
+          id: "vendor-embedding",
+          provider: provider,
+          capabilities: %{embeddings: %{default_dimensions: 1024, max_dimensions: 2048}}
+        },
+        %LLMDB.Model{
+          id: "vendor-vision",
+          provider: provider,
+          capabilities: %{embeddings: false},
+          modalities: %{input: [:text, :image], output: [:text]}
+        },
+        %LLMDB.Model{id: "old-model", provider: provider, deprecated: true},
+        %LLMDB.Model{id: "retired-model", provider: provider, retired: true}
+      ]
+    end
+
+    def models(:empty_compatible_vendor), do: []
+    def models(_), do: []
+    def parse_provider(provider), do: {:ok, String.to_existing_atom(provider)}
+    def provider(provider), do: {:ok, %LLMDB.Provider{id: provider, catalog_only: false}}
+
+    def available_models(opts) do
+      send(self(), {:compatible_available_models_called, opts})
+      ["openai:text-embedding-3-large"]
+    end
+
+    def model("openai:text-embedding-3-large"),
+      do: {:ok, %LLMDB.Model{id: "text-embedding-3-large", provider: :openai}}
+  end
+
   defp adapter_opts(adapter), do: [config: AdapterConfig, provider_models_adapter: adapter]
 
   describe "normalize_provider_id/1" do
@@ -372,6 +405,59 @@ defmodule Zaq.Agent.ProviderModelsTest do
 
     assert [%{id: "mistral-small-3.2-24b-instruct-2506", provider: :scaleway}] =
              ProviderModels.models_for_credential(credential, adapter_opts(CatalogOnlyAdapter))
+  end
+
+  describe "compatible-provider catalog isolation" do
+    test "uses the configured catalog rather than the OpenAI runtime catalog" do
+      credential = %{provider: "compatible_vendor", api_key: "sk-test"}
+
+      models =
+        ProviderModels.models_for_credential(credential, adapter_opts(CompatibleCatalogAdapter))
+
+      assert Enum.map(models, & &1.id) == ["vendor-embedding", "vendor-vision"]
+      assert Enum.all?(models, &(&1.provider == :compatible_vendor))
+
+      assert hd(models).capabilities.embeddings == %{
+               default_dimensions: 1024,
+               max_dimensions: 2048
+             }
+
+      refute_received {:compatible_available_models_called, _}
+    end
+
+    test "does not substitute OpenAI models for an empty or missing catalog" do
+      for provider <- ["empty_compatible_vendor", "missing_compatible_vendor_97531"] do
+        credential = %{provider: provider, api_key: "sk-test"}
+
+        assert ProviderModels.models_for_credential(
+                 credential,
+                 adapter_opts(CompatibleCatalogAdapter)
+               ) == []
+
+        refute_received {:compatible_available_models_called, _}
+      end
+    end
+
+    property "preserves catalog identity across compatible providers and normalized labels" do
+      check all(
+              provider <- member_of([:compatible_vendor, :other_compatible_vendor]),
+              display_case <- boolean(),
+              padding <- member_of(["", " ", "\t"]),
+              max_runs: 32
+            ) do
+        label = Atom.to_string(provider)
+        label = if display_case, do: String.upcase(label), else: label
+        credential = %{provider: padding <> label <> padding, api_key: "sk-test"}
+
+        assert [%{provider: ^provider}, %{provider: ^provider}] =
+                 ProviderModels.models_for_credential(
+                   credential,
+                   adapter_opts(CompatibleCatalogAdapter)
+                 )
+
+        refute_received {:compatible_available_models_called, _}
+      end
+    end
   end
 
   test "models_for_credential falls back to OpenAI catalog models resolved as Codex" do

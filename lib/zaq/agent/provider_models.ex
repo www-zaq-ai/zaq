@@ -135,12 +135,18 @@ defmodule Zaq.Agent.ProviderModels do
   defp available_models_for_credential(%{provider: provider_id} = credential, opts) do
     provider = ProviderSpec.reqllm_provider(provider_id)
 
-    credential
-    |> ProviderSpec.credential_opts()
-    |> Keyword.put(:scope, provider)
-    |> adapter(opts).available_models()
-    |> Enum.map(&reqllm_model(&1, opts))
-    |> Enum.reject(&(is_nil(&1) or deprecated_or_retired?(&1)))
+    # Runtime compatibility does not make the adapter's catalog this provider's
+    # catalog. Let the caller fall back to the configured provider's own models.
+    if Atom.to_string(provider) == provider_id do
+      credential
+      |> ProviderSpec.credential_opts()
+      |> Keyword.put(:scope, provider)
+      |> adapter(opts).available_models()
+      |> Enum.map(&reqllm_model(&1, opts))
+      |> Enum.reject(&(is_nil(&1) or deprecated_or_retired?(&1)))
+    else
+      []
+    end
   rescue
     _ -> []
   end
