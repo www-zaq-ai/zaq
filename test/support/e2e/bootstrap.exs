@@ -181,13 +181,6 @@ templates = [
     USER QUESTION: <%= @content %>
     retrieved_data = <%= @retrieved_data %>
     """
-  },
-  %{
-    slug: "chunk_title",
-    name: "Chunk Title Generator",
-    description: "E2E chunk title template",
-    active: true,
-    body: "Generate a short title for: <%= chunk %>"
   }
 ]
 

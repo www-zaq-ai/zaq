@@ -5,6 +5,27 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryTest do
   alias Zaq.Agent.Actions.TranslateKnowledgeQuery
   alias Zaq.TestSupport.OpenAIStub
 
+  test "unconfigured translation retains simple results and never uses global LLM" do
+    {child, endpoint} =
+      OpenAIStub.server(fn _conn, _body -> flunk("global model must not be called") end, self())
+
+    start_supervised!(child)
+    OpenAIStub.seed_llm_config(endpoint)
+
+    assert {:ok,
+            %{
+              queries: %{"simple" => %{semantic_query: "car", lexical_terms: ["car"]}},
+              errors: ["french"]
+            }} =
+             Jido.Exec.run(
+               TranslateKnowledgeQuery,
+               %{query: "car", lexical_terms: ["car"], languages: ["simple", "french"]},
+               %{}
+             )
+
+    refute_received {:openai_request, _, _, _, _}
+  end
+
   defp stub_llm(content) do
     {child_spec, endpoint} =
       OpenAIStub.server(
@@ -13,7 +34,7 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryTest do
       )
 
     start_supervised!(child_spec)
-    OpenAIStub.seed_llm_config(endpoint)
+    OpenAIStub.seed_operation_model_config(:translation, endpoint)
   end
 
   test "translates all requested languages with validated output" do

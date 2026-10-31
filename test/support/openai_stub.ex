@@ -123,6 +123,29 @@ defmodule Zaq.TestSupport.OpenAIStub do
     }
   end
 
+  @doc "Seeds an explicitly selected dedicated operation model at the stub endpoint."
+  def seed_operation_model_config(kind, endpoint, overrides \\ []) do
+    credential =
+      SystemConfigFixtures.ai_credential_fixture(%{
+        name: "#{kind} stub #{System.unique_integer([:positive])}",
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "test-key"
+      })
+
+    prefix = if kind == :translation, do: "rag.translation", else: "global.small_model"
+
+    for {key, value} <-
+          Keyword.merge(
+            [credential_id: credential.id, model: "test-model", temperature: 0.0, top_p: 0.9],
+            overrides
+          ) do
+      Zaq.System.set_config("#{prefix}.#{key}", to_string(value))
+    end
+
+    Zaq.System.get_operation_model_config(kind)
+  end
+
   @doc "OpenAI-compatible embedding response for the existing Req.Test HTTP boundary."
   def embedding_response(dimension, value \\ 0.1) when is_integer(dimension) and dimension > 0 do
     %{

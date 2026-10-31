@@ -22,7 +22,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerationFromConversationsTest do
 
     {child_spec, endpoint} = OpenAIStub.server(handler, self())
     start_supervised!(child_spec)
-    OpenAIStub.seed_llm_config(endpoint)
+    OpenAIStub.seed_operation_model_config(:small, endpoint)
 
     {:ok, conv} =
       Conversations.create_conversation(%{

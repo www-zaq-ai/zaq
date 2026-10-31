@@ -62,7 +62,6 @@ defmodule Zaq.Agent.Factory do
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Event
   alias Zaq.Identity.{ActorNormalizer, ExecutionActor}
-  alias Zaq.System
 
   def strategy_opts do
     super()
@@ -161,23 +160,12 @@ defmodule Zaq.Agent.Factory do
     end
   end
 
-  # Replace with per-agent advanced LLM opts so each ConfiguredAgent carries its own
-  # temperature/top_p/logprobs config instead of falling back to the global system LLM config.
-  @doc """
-  Returns LLM sampling opts (temperature, top_p, etc.) from the system LLM config.
-
-  Called by `runtime_config/1` as the baseline for every agent until per-agent advanced
-  options are surfaced in the BO UI. Reads live from `Zaq.System.get_llm_config/0` on
-  each call — no caching.
-  """
-  def generation_opts, do: System.get_llm_config() |> ProviderSpec.generation_opts()
-
   @doc """
   Resolves the runtime configuration map for a configured agent.
 
   Resolves tool modules from `enabled_tool_keys` unioned with attached skill tools
-  (`Zaq.Agent.Skills.provisioned_tool_keys/2`) via `Tools.Registry`, merges system-level
-  LLM sampling opts with any per-agent overrides from `ProviderSpec`, and returns the
+  (`Zaq.Agent.Skills.provisioned_tool_keys/2`) via `Tools.Registry`, uses the agent's own
+  LLM sampling opts from `ProviderSpec`, and returns the
   agent's `job` field plus the native skill index as the system prompt.
 
   Returns `{:ok, %{tools: [...], llm_opts: [...], system_prompt: binary()}}` or
@@ -200,9 +188,7 @@ defmodule Zaq.Agent.Factory do
       {:ok,
        %{
          tools: Enum.uniq(tools ++ skill_integration.tools),
-         # Merges system LLM sampling opts (temperature, top_p) as defaults until per-agent
-         # advanced options are wired into ConfiguredAgent and surfaced in the BO UI.
-         llm_opts: Keyword.merge(generation_opts(), llm_opts),
+         llm_opts: llm_opts,
          system_prompt: runtime_system_prompt(configured_agent, skill_integration),
          tool_context: skill_integration.tool_context,
          context_window: context_window_config(configured_agent)

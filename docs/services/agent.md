@@ -34,7 +34,7 @@ Before writing any new agent-service code, verify which entry point already cove
 | I need to… | Use |
 |---|---|
 | Ask a configured agent with its tools, history and lifecycle | `Executor.run/2` → `Factory.ask_with_config/4` |
-| Make a focused, tool-free one-shot LLM transformation | Keep generation in its owning Action/module; use `ProviderSpec.build/1` and `ProviderSpec.generation_opts/1` for the configured provider. Do not add a generic Factory wrapper for one caller. |
+| Make a focused, tool-free one-shot LLM transformation | Keep generation in its owning Action/module; dedicated translation/title calls use `ProviderSpec.operation_runtime/1` for canonical authentication and adapter options. Legacy retrieval uses `build/1` and `generation_opts/1`. Do not add a generic Factory generation wrapper. |
 | Execute a configured agent | `Executor.run/2` — handles server presence, config loading, factory delegation |
 | Build a response from pipeline output | `Outgoing.from_pipeline_result/2` — do not construct response maps inline |
 | Store or read conversation turns | `Zaq.Agent.History` — `build/1`, `entry_key/2` |
@@ -289,7 +289,9 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - Schema: `Zaq.Agent.ConfiguredAgent` (`configured_agents` table)
 - BO CRUD route: `/bo/agents`
 - Chat selector route: `/bo/chat` top bar dropdown
-- Key fields: `name`, `job`, `model`, `credential_id`, `model_max_context_tokens`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`, `enabled_skill_ids`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+- Key fields: `name`, `job`, `model`, `credential_id`, `temperature`, `top_p`, `model_max_context_tokens`, `enabled_tool_keys`, `enabled_mcp_endpoint_ids`, `enabled_skill_ids`, `conversation_enabled`, `strategy`, `advanced_options`, `active`
+- Sampling is explicit per agent (new defaults `0.0`/`0.9`) and overrides duplicate JSON keys. Factory does not inherit global sampling or credentials. The synthetic answering agent explicitly populates its own fields from global settings before entering the shared lifecycle.
+- The BO form groups Name, Conversation enabled and Active at the top. Sampling, iterations, idle timeout, context window, strategy and the existing JSON editor live in collapsed Advanced options; validation errors expand it.
 
 ### Skills (`Zaq.Agent.Skills` context)
 
@@ -911,16 +913,10 @@ without safe permission mutation support return `:unsupported`.
 - Runtime idle policy helper used by server lifecycle management
 - Centralizes idle-time behavior choices to avoid per-caller drift
 
-### Chunk Title Generation (`Zaq.Agent.ChunkTitle`)
-- Generates concise, searchable titles (max 8 words) for document chunks via LLM
-- Focuses on named entities, dates, product names to improve embedding quality
-- Implements `Zaq.Agent.ChunkTitleBehaviour` (injectable for tests)
-- Called during ingestion by `DocumentProcessor.store_chunk_with_metadata/3`
-
 ### Prompt Templates (`Zaq.Agent.PromptTemplate`)
 - Ecto schema backed by `prompt_templates` DB table
 - Editable via Back Office (`prompt_templates_live`)
-- Built-in slugs: `"chunk_title"`, `"image_to_text"`. Answering and retrieval no longer use this table.
+- Built-in slug: `"image_to_text"`. Answering and retrieval no longer use this table.
 - `body` is the prompt used at runtime; `default_body` stores an independent baseline.
 - `body_customized` records user ownership, not text equality. A persisted body change sets it;
   metadata edits and unchanged saves preserve it. Ordinary form parameters cannot change the
@@ -963,8 +959,6 @@ lib/zaq/agent/
 ├── answering/
 │   └── result.ex               # Canonical answer result struct
 ├── answering.ex                # Response formulation constants and helpers
-├── chunk_title.ex              # LLM-generated chunk titles for ingestion
-├── chunk_title_behaviour.ex    # Behaviour for ChunkTitle (allows mocking)
 ├── citation_normalizer.ex      # Rewrites [[source:...]] markers to numbered refs
 ├── factory.ex                  # Runtime-configured standard Jido agent
 ├── history.ex                  # Conversation history map helpers
@@ -1071,7 +1065,6 @@ page URLs are redacted. A capture error occurs before the PNG upload step.
   static Agent-owned implementations contain provider-specific ReqLLM translation;
   generation callers use Factory while model discovery uses narrow ProviderSpec APIs
 - **Prompt templates in DB** — editable at runtime without deploys; agents raise if missing
-- **ChunkTitle is injectable** — `Application.get_env(:zaq, :chunk_title_module, Zaq.Agent.ChunkTitle)` allows test mocking
 - **Confidence is optional** — gracefully skipped when `supports_logprobs?` is false
 - **NodeRouter for cross-node calls** — BO uses the [Event/dispatch contract](../architecture.md#noderouter--critical), never direct remote Agent calls; generic invoke helpers are legacy
 - **Answering.Result struct** — canonical shape shared across channels; `normalize_result/1` converts legacy maps

@@ -212,7 +212,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
     %{
       node_router: router,
       generation: generator,
-      llm_config: OpenAIStub.llm_config("http://example.test/v1") |> Map.new(),
+      translation_config:
+        OpenAIStub.seed_operation_model_config(:translation, "http://example.test/v1"),
       skip_permissions: true
     }
   end

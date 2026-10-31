@@ -207,11 +207,8 @@
       <div class="bg-white rounded-xl border border-dashed border-black/15 p-5 text-center">
         <p class="font-mono text-sm font-bold text-black mb-1">No Templates Found</p>
         <p class="font-mono text-[0.7rem] text-black/40 mb-3">
-          Run seeds to insert the default retrieval, answering and chunk_title templates.
+          Image ingestion uses the image_to_text template. Create it in Prompt Templates.
         </p>
-        <code class="font-mono text-[0.7rem] bg-black/5 text-black/60 px-3 py-1.5 rounded-lg">
-          mix run priv/repo/seeds.exs
-        </code>
       </div>
     <% else %>
       <div class="grid grid-cols-3 gap-4">

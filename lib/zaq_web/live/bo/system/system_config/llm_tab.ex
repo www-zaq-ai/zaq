@@ -1,27 +1,24 @@
 defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTab do
-  @moduledoc """
-  Tab component for the BO system configuration page.
-  """
+  @moduledoc "Chat model configuration; retrieval tuning belongs to the RAG tab."
   use ZaqWeb, :html
+  alias ZaqWeb.Components.DesignSystem.{Button, CardShell, Input}
   import ZaqWeb.Components.SearchableSelect
-
-  # ── LLM Panel ─────────────────────────────────────────────────────────
 
   attr :form, :any, required: true
   attr :credential_options, :list, required: true
   attr :model_options, :list, required: true
-  attr :capabilities, :map, required: true
+  attr :capabilities, :map, default: %{}
 
   def panel(assigns) do
     ~H"""
-    <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
-      <div class="px-8 py-5 border-b border-black/[0.06] bg-[#fafafa]">
-        <h2 class="font-mono text-[0.95rem] font-bold text-black">LLM</h2>
-        <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
-          OpenAI-compatible language model endpoint used for chat and retrieval.
-        </p>
-      </div>
-      <div class="px-8 py-6">
+    <CardShell.card_shell id="llm-section">
+      <div class="space-y-5">
+        <header>
+          <h2 class="zaq-text-h3" style="color: var(--zaq-text-color-body-default)">LLM</h2>
+          <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
+            Language model used for chat. Configure retrieval in the RAG tab.
+          </p>
+        </header>
         <.form
           id="llm-config-form"
           for={@form}
@@ -30,228 +27,77 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTab do
           class="space-y-5"
           novalidate
         >
-          <input type="hidden" name="llm_config[path]" value={@form[:path].value} />
-          <div class="grid grid-cols-2 gap-4">
+          <Input.input field={@form[:path]} type="hidden" />
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                AI Credential
-              </label>
               <.searchable_select
                 id="llm-credential-select"
                 name="llm_config[credential_id]"
+                label="AI Credential"
+                label_position="block"
                 value={to_string(@form[:credential_id].value || "")}
                 options={@credential_options}
-                placeholder="Search credentials..."
                 empty_label="Select a credential..."
               />
-              <p
-                :for={{msg, opts} <- @form[:credential_id].errors}
-                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-              >
-                {translate_error({msg, opts})}
+              <p :for={error <- @form[:credential_id].errors} class="zaq-field-error zaq-text-caption">
+                {translate_error(error)}
               </p>
             </div>
             <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Model
-              </label>
               <.searchable_select
                 :if={@model_options != []}
                 id="llm-model-select"
                 name="llm_config[model]"
+                label="Model"
+                label_position="block"
                 value={@form[:model].value}
                 options={@model_options}
-                placeholder="Search models..."
-                empty_label="Select a model..."
               />
-              <input
+              <Input.input
                 :if={@model_options == []}
-                type="text"
-                name="llm_config[model]"
-                value={@form[:model].value}
+                field={@form[:model]}
+                label="Model"
                 required
                 phx-debounce="400"
-                placeholder="llama-3.3-70b-instruct"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
               />
               <p
-                :for={{msg, opts} <- @form[:model].errors}
-                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
+                :for={error <- @form[:model].errors}
+                :if={@model_options != []}
+                class="zaq-field-error zaq-text-caption"
               >
-                {translate_error({msg, opts})}
+                {translate_error(error)}
               </p>
             </div>
+            <Input.input
+              field={@form[:temperature]}
+              label="Temperature"
+              type="number"
+              min="0"
+              max="2"
+              step="0.1"
+              phx-debounce="400"
+            />
+            <Input.input
+              field={@form[:top_p]}
+              label="Top-P"
+              type="number"
+              min="0"
+              max="1"
+              step="0.05"
+              phx-debounce="400"
+            />
+            <Input.input
+              field={@form[:max_context_window]}
+              label="Max Context Window (tokens)"
+              type="number"
+              min="1"
+              phx-debounce="400"
+            />
           </div>
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Temperature
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="2"
-                step="0.1"
-                name="llm_config[temperature]"
-                value={@form[:temperature].value}
-                phx-debounce="400"
-                placeholder="0.0"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-              />
-              <p
-                :for={{msg, opts} <- @form[:temperature].errors}
-                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-              >
-                {translate_error({msg, opts})}
-              </p>
-            </div>
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Top-P
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step="0.05"
-                name="llm_config[top_p]"
-                value={@form[:top_p].value}
-                phx-debounce="400"
-                placeholder="0.9"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-              />
-              <p
-                :for={{msg, opts} <- @form[:top_p].errors}
-                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-              >
-                {translate_error({msg, opts})}
-              </p>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-4 border-t border-black/[0.06] pt-4">
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Max Context Window (tokens)
-              </label>
-              <input
-                type="number"
-                min="1"
-                name="llm_config[max_context_window]"
-                value={@form[:max_context_window].value}
-                phx-debounce="400"
-                placeholder="5000"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-              />
-              <p
-                :for={{msg, opts} <- @form[:max_context_window].errors}
-                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-              >
-                {translate_error({msg, opts})}
-              </p>
-            </div>
-            <div>
-              <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                Maximum cosine distance
-              </label>
-              <input
-                type="number"
-                min="0"
-                max="2"
-                step="0.01"
-                name="llm_config[max_cosine_distance]"
-                value={@form[:max_cosine_distance].value}
-                phx-debounce="400"
-                placeholder="0.75"
-                class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-              />
-              <p
-                :for={{msg, opts} <- @form[:max_cosine_distance].errors}
-                class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-              >
-                {translate_error({msg, opts})}
-              </p>
-              <p class="mt-1.5 zaq-text-caption" style="color: var(--zaq-text-color-body-secondary)">
-                Lower is closer; cosine similarity is 1 − distance. Legacy L2 settings are retained for rollback.
-              </p>
-            </div>
-          </div>
-          <details
-            id="llm-fusion-advanced"
-            phx-hook="DetailsKeepOpen"
-            class="border border-black/[0.08] rounded-xl overflow-hidden"
-          >
-            <summary class="cursor-pointer select-none px-4 py-3 font-mono text-[0.75rem] font-semibold text-black/50 uppercase tracking-wider hover:bg-black/[0.02] transition-colors list-none flex items-center gap-2">
-              <svg
-                class="w-3.5 h-3.5 transition-transform details-open:rotate-90"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-              Advanced — Hybrid Search Fusion Weights
-            </summary>
-            <div class="px-4 pb-4 pt-3 bg-black/[0.01] border-t border-black/[0.06] grid grid-cols-2 gap-4">
-              <div>
-                <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                  BM25 Weight
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  name="llm_config[fusion_bm25_weight]"
-                  value={@form[:fusion_bm25_weight].value}
-                  phx-debounce="400"
-                  placeholder="0.5"
-                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-                />
-                <p
-                  :for={{msg, opts} <- @form[:fusion_bm25_weight].errors}
-                  class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-                >
-                  {translate_error({msg, opts})}
-                </p>
-              </div>
-              <div>
-                <label class="font-mono text-[0.7rem] font-semibold text-black/60 uppercase tracking-wider block mb-2">
-                  Vector Weight
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  name="llm_config[fusion_vector_weight]"
-                  value={@form[:fusion_vector_weight].value}
-                  phx-debounce="400"
-                  placeholder="0.5"
-                  class="w-full font-mono text-[0.88rem] text-black border border-black/10 rounded-xl h-11 px-4 bg-[#fafafa] placeholder:text-black/25 focus:outline-none focus:ring-2 focus:ring-[#03b6d4]/20 focus:border-[#03b6d4] transition-all"
-                />
-                <p
-                  :for={{msg, opts} <- @form[:fusion_vector_weight].errors}
-                  class="font-mono text-[0.72rem] text-red-500 mt-1.5"
-                >
-                  {translate_error({msg, opts})}
-                </p>
-              </div>
-            </div>
-          </details>
-          <div class="pt-2">
-            <button
-              type="submit"
-              class="font-mono text-[0.82rem] font-bold px-6 py-3 rounded-xl bg-[#03b6d4] text-white hover:bg-[#029ab3] shadow-sm shadow-[#03b6d4]/20 transition-all"
-            >
-              Save LLM Settings
-            </button>
-          </div>
+          <Button.button type="submit">Save LLM Settings</Button.button>
         </.form>
       </div>
-    </div>
+    </CardShell.card_shell>
     """
   end
 end

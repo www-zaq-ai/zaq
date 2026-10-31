@@ -149,8 +149,11 @@
         phx-hook="ScrollToFirstError"
         class="space-y-4"
       >
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
+        <div
+          id="agent-identity-settings"
+          class="grid grid-cols-1 md:grid-cols-3 items-start gap-4"
+        >
+          <div class="min-w-0">
             <label class="zaq-field-label-uppercase block mb-1">
               Name
             </label>
@@ -174,29 +177,58 @@
               {msg}
             </p>
           </div>
-          <div>
-            <label class="zaq-field-label-uppercase block mb-1">
-              Strategy
-            </label>
-            <select
-              name="configured_agent[strategy]"
-              class={[
-                "w-full zaq-control-select",
-                if(error_messages(@changeset, :strategy) != [],
-                  do: "zaq-control-error",
-                  else: ""
-                )
-              ]}
-            >
-              <option value="react" selected={@form[:strategy].value == "react"}>
-                react
-              </option>
-              <option value="cot" selected={@form[:strategy].value == "cot"}>cot</option>
-            </select>
+          <div
+            :for={
+              {field, label, description} <- [
+                {:conversation_enabled, "Conversation enabled",
+                 "Can be reached through conversation channels"},
+                {:active, "Active", "Agent can process requests"}
+              ]
+            }
+            class="min-w-0 space-y-2"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <span class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default)">{label}</span>
+              <input
+                type="hidden"
+                name={"configured_agent[#{field}]"}
+                value={to_string(@form[field].value in [true, "true"])}
+              />
+              <button
+                type="button"
+                phx-click="toggle_form_boolean"
+                phx-value-field={field}
+                role="switch"
+                aria-label={label}
+                aria-describedby={"agent-#{field}-description"}
+                aria-checked={to_string(@form[field].value in [true, "true"])}
+                class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors"
+                style={
+                  if @form[field].value in [true, "true"],
+                    do: "background: var(--zaq-color-accent)",
+                    else: "background: var(--zaq-border-color-default)"
+                }
+              >
+                <span class={[
+                  "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform",
+                  if(@form[field].value in [true, "true"],
+                    do: "translate-x-4",
+                    else: "translate-x-0"
+                  )
+                ]} />
+              </button>
+            </div>
             <p
-              :for={msg <- error_messages(@changeset, :strategy)}
+              id={"agent-#{field}-description"}
+              class="zaq-text-caption"
+              style="color: var(--zaq-text-color-body-secondary)"
+            >
+              {description}
+            </p>
+            <p
+              :for={msg <- error_messages(@changeset, field)}
               data-error-message
-              class="zaq-field-error mt-1"
+              class="zaq-field-error"
             >
               {msg}
             </p>
@@ -479,228 +511,188 @@
           </p>
         </div>
 
-        <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.42fr)_minmax(0,1fr)]">
-          <div>
-            <label class="zaq-field-label-uppercase block mb-1">
-              Max number of iterations
-            </label>
-            <.input
+        <details
+          id="agent-advanced-options"
+          phx-hook="DetailsKeepOpen"
+          open={
+            @advanced_options_error != nil or
+              Enum.any?(
+                [
+                  :temperature,
+                  :top_p,
+                  :max_iterations,
+                  :idle_time_seconds,
+                  :model_max_context_tokens,
+                  :strategy,
+                  :advanced_options
+                ],
+                &(error_messages(@changeset, &1) != [])
+              )
+          }
+          class="space-y-4"
+        >
+          <summary
+            class="zaq-text-body-sm cursor-pointer"
+            style="color: var(--zaq-text-color-body-accent)"
+          >
+            Advanced options
+          </summary>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <ZaqWeb.Components.DesignSystem.Input.input
               type="number"
-              field={@form[:max_iterations]}
-              placeholder="Default: 10"
-              class="w-full zaq-control-text"
+              field={@form[:temperature]}
+              label="Temperature"
+              min="0"
+              max="2"
+              step="0.01"
             />
-            <p
-              class="mt-1 zaq-text-caption"
-              style="color: var(--zaq-text-color-body-tertiary)"
-            >
-              Leave blank to use the default of 10 iterations.
-            </p>
-            <p
-              :for={msg <- error_messages(@changeset, :max_iterations)}
-              data-error-message
-              class="zaq-field-error mt-1"
-            >
-              {msg}
-            </p>
-          </div>
-
-          <div>
-            <label class="zaq-field-label-uppercase block mb-1">
-              Advanced Options (JSON)
-            </label>
-            <textarea
-              name="configured_agent[advanced_options_json]"
-              rows="5"
-              class="w-full zaq-control-text"
-            >{@advanced_options_json}</textarea>
-            <p
-              :if={@advanced_options_error}
-              class="zaq-field-error mt-1"
-            >
-              {@advanced_options_error}
-            </p>
-            <p
-              :for={msg <- error_messages(@changeset, :advanced_options)}
-              data-error-message
-              class="zaq-field-error mt-1"
-            >
-              {msg}
-            </p>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label class="zaq-field-label-uppercase block mb-1">
-              Idle Timeout (seconds)
-            </label>
-            <input
+            <ZaqWeb.Components.DesignSystem.Input.input
               type="number"
-              name="configured_agent[idle_time_seconds]"
-              value={@form[:idle_time_seconds].value || ""}
-              placeholder="Default: 1800"
-              class="w-full zaq-control-text"
+              field={@form[:top_p]}
+              label="Top P"
+              min="0.01"
+              max="1"
+              step="0.01"
             />
+          </div>
+          <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-secondary)">
+            Sampling is owned by this agent. These fields override temperature and top_p in Advanced options JSON.
+          </p>
+          <div>
+            <label class="zaq-field-label-uppercase block mb-1">Strategy</label>
+            <select name="configured_agent[strategy]" class="w-full zaq-control-select">
+              <option value="react" selected={@form[:strategy].value == "react"}>react</option>
+              <option value="cot" selected={@form[:strategy].value == "cot"}>cot</option>
+            </select>
             <p
-              class="mt-1 zaq-text-caption"
-              style="color: var(--zaq-text-color-body-tertiary)"
-            >
-              Leave blank to use the system default (30 min).
-            </p>
-            <p
-              :for={msg <- error_messages(@changeset, :idle_time_seconds)}
+              :for={msg <- error_messages(@changeset, :strategy)}
               data-error-message
               class="zaq-field-error mt-1"
             >
               {msg}
             </p>
           </div>
-          <div>
-            <div class="mb-1 flex items-center justify-between gap-3">
-              <label class="zaq-field-label-uppercase block">
-                Model Context Window (tokens)
+          <div class="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,0.42fr)_minmax(0,1fr)]">
+            <div>
+              <label class="zaq-field-label-uppercase block mb-1">
+                Max number of iterations
               </label>
-              <DSButton.button
-                :if={@model_context_catalog_tokens}
-                id="reset-model-context-tokens"
-                variant={:tertiary}
-                icon="hero-arrow-path"
-                type="button"
-                phx-click="reset_model_context_tokens"
-                disabled={
-                  to_string(@form[:model_max_context_tokens].value) ==
-                    to_string(@model_context_catalog_tokens)
-                }
-                title="Reset to model default"
+              <.input
+                type="number"
+                field={@form[:max_iterations]}
+                placeholder="Default: 10"
+                class="w-full zaq-control-text"
+              />
+              <p
+                class="mt-1 zaq-text-caption"
+                style="color: var(--zaq-text-color-body-tertiary)"
               >
-                Reset
-              </DSButton.button>
+                Leave blank to use the default of 10 iterations.
+              </p>
+              <p
+                :for={msg <- error_messages(@changeset, :max_iterations)}
+                data-error-message
+                class="zaq-field-error mt-1"
+              >
+                {msg}
+              </p>
             </div>
-            <input
-              type="number"
-              name="configured_agent[model_max_context_tokens]"
-              value={@form[:model_max_context_tokens].value || ""}
-              placeholder="Populated from selected model"
-              class="w-full zaq-control-text"
-            />
-            <p
-              class="mt-1 zaq-text-caption"
-              style="color: var(--zaq-text-color-body-tertiary)"
-            >
-              Maximum complete provider request size. Auto-filled from model metadata when available.
-            </p>
-            <p
-              :for={msg <- error_messages(@changeset, :model_max_context_tokens)}
-              data-error-message
-              class="zaq-field-error mt-1"
-            >
-              {msg}
-            </p>
-          </div>
-        </div>
 
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div
-            class="rounded-xl border px-3 py-2.5 flex items-center justify-between gap-3"
-            style="background-color: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default)"
-          >
             <div>
-              <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default)">
-                Conversation enabled
+              <label class="zaq-field-label-uppercase block mb-1">
+                Advanced Options (JSON)
+              </label>
+              <textarea
+                name="configured_agent[advanced_options_json]"
+                rows="5"
+                class="w-full zaq-control-text"
+              >{@advanced_options_json}</textarea>
+              <p
+                :if={@advanced_options_error}
+                class="zaq-field-error mt-1"
+              >
+                {@advanced_options_error}
               </p>
-              <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
-                Can be reached through conversation channels
+              <p
+                :for={msg <- error_messages(@changeset, :advanced_options)}
+                data-error-message
+                class="zaq-field-error mt-1"
+              >
+                {msg}
               </p>
             </div>
-            <input
-              type="hidden"
-              name="configured_agent[conversation_enabled]"
-              value={
-                if @form[:conversation_enabled].value in [true, "true"],
-                  do: "true",
-                  else: "false"
-              }
-            />
-            <button
-              type="button"
-              phx-click="toggle_form_boolean"
-              phx-value-field="conversation_enabled"
-              class={[
-                "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
-                if(@form[:conversation_enabled].value in [true, "true"],
-                  do: "bg-[var(--zaq-color-accent)]",
-                  else: "bg-black/20"
-                )
-              ]}
-              role="switch"
-              aria-checked={to_string(@form[:conversation_enabled].value in [true, "true"])}
-            >
-              <span class={[
-                "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200",
-                if(@form[:conversation_enabled].value in [true, "true"],
-                  do: "translate-x-4",
-                  else: "translate-x-0"
-                )
-              ]} />
-            </button>
-            <p
-              :for={msg <- error_messages(@changeset, :conversation_enabled)}
-              data-error-message
-              class="zaq-field-error mt-1"
-            >
-              {msg}
-            </p>
           </div>
 
-          <div
-            class="rounded-xl border px-3 py-2.5 flex items-center justify-between gap-3"
-            style="background-color: var(--zaq-surface-color-raised); border-color: var(--zaq-border-color-default)"
-          >
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
-              <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-default)">
-                Active
+              <label class="zaq-field-label-uppercase block mb-1">
+                Idle Timeout (seconds)
+              </label>
+              <input
+                type="number"
+                name="configured_agent[idle_time_seconds]"
+                value={@form[:idle_time_seconds].value || ""}
+                placeholder="Default: 1800"
+                class="w-full zaq-control-text"
+              />
+              <p
+                class="mt-1 zaq-text-caption"
+                style="color: var(--zaq-text-color-body-tertiary)"
+              >
+                Leave blank to use the system default (30 min).
               </p>
-              <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-tertiary)">
-                Agent can process requests
+              <p
+                :for={msg <- error_messages(@changeset, :idle_time_seconds)}
+                data-error-message
+                class="zaq-field-error mt-1"
+              >
+                {msg}
               </p>
             </div>
-            <input
-              type="hidden"
-              name="configured_agent[active]"
-              value={if @form[:active].value in [true, "true"], do: "true", else: "false"}
-            />
-            <button
-              type="button"
-              phx-click="toggle_form_boolean"
-              phx-value-field="active"
-              class={[
-                "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
-                if(@form[:active].value in [true, "true"],
-                  do: "bg-[var(--zaq-color-accent)]",
-                  else: "bg-black/20"
-                )
-              ]}
-              role="switch"
-              aria-checked={to_string(@form[:active].value in [true, "true"])}
-            >
-              <span class={[
-                "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200",
-                if(@form[:active].value in [true, "true"],
-                  do: "translate-x-4",
-                  else: "translate-x-0"
-                )
-              ]} />
-            </button>
-            <p
-              :for={msg <- error_messages(@changeset, :active)}
-              data-error-message
-              class="zaq-field-error mt-1"
-            >
-              {msg}
-            </p>
+            <div>
+              <div class="mb-1 flex items-center justify-between gap-3">
+                <label class="zaq-field-label-uppercase block">
+                  Model Context Window (tokens)
+                </label>
+                <DSButton.button
+                  :if={@model_context_catalog_tokens}
+                  id="reset-model-context-tokens"
+                  variant={:tertiary}
+                  icon="hero-arrow-path"
+                  type="button"
+                  phx-click="reset_model_context_tokens"
+                  disabled={
+                    to_string(@form[:model_max_context_tokens].value) ==
+                      to_string(@model_context_catalog_tokens)
+                  }
+                  title="Reset to model default"
+                >
+                  Reset
+                </DSButton.button>
+              </div>
+              <input
+                type="number"
+                name="configured_agent[model_max_context_tokens]"
+                value={@form[:model_max_context_tokens].value || ""}
+                placeholder="Populated from selected model"
+                class="w-full zaq-control-text"
+              />
+              <p
+                class="mt-1 zaq-text-caption"
+                style="color: var(--zaq-text-color-body-tertiary)"
+              >
+                Maximum complete provider request size. Auto-filled from model metadata when available.
+              </p>
+              <p
+                :for={msg <- error_messages(@changeset, :model_max_context_tokens)}
+                data-error-message
+                class="zaq-field-error mt-1"
+              >
+                {msg}
+              </p>
+            </div>
           </div>
-        </div>
+        </details>
       </.form>
 
       <:actions>
