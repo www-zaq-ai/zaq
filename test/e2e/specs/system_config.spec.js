@@ -28,6 +28,14 @@ async function switchSystemConfigTab(page, tabSelector, urlPattern, targetLocato
   }).toPass({ timeout: process.env.CI ? 20_000 : 15_000 })
 }
 
+async function openRetrievalSettings(page) {
+  await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
+  const advanced = page.locator("#rag-retrieval-advanced")
+  if (!(await advanced.evaluate(element => element.open))) {
+    await advanced.locator("summary").click()
+  }
+}
+
 const CONFIG_PATH = "/bo/system-config"
 const E2E_ENDPOINT = "http://localhost:11434/v1"
 
@@ -35,8 +43,8 @@ const E2E_ENDPOINT = "http://localhost:11434/v1"
 const SEL = {
   tabTelemetry: '[phx-value-tab="telemetry"]',
   tabLLM: '[phx-value-tab="llm"]',
-  tabEmbedding: '[phx-value-tab="embedding"]',
-  tabImageToText: '[phx-value-tab="image_to_text"]',
+  tabEmbedding: '[phx-value-tab="rag"]',
+  tabImageToText: '[phx-value-tab="rag"]',
   tabAICredentials: '[phx-value-tab="ai_credentials"]',
   tabAuthCredentials: '[phx-value-tab="auth_credentials"]',
   tabGlobal: '[phx-value-tab="global"]',
@@ -49,9 +57,9 @@ const SEL = {
   aiCredentialForm: "#ai-credential-form",
 
   unlockTrigger: '[phx-click="unlock_embedding"]',
-  cancelUnlock: '[phx-click="cancel_unlock_embedding"]',
+  cancelUnlock: 'button[phx-click="cancel_unlock_embedding"]:not([aria-label])',
   confirmUnlock: '[phx-click="confirm_unlock_embedding"]',
-  cancelSave: '[phx-click="cancel_save_embedding"]',
+  cancelSave: 'button[phx-click="cancel_save_embedding"]',
   confirmSave: '[phx-click="confirm_save_embedding"]',
 
   // Parent <label> wrappers for sr-only checkboxes — the div overlay intercepts clicks on the input
@@ -112,7 +120,7 @@ test.describe("System Config", () => {
       await switchSystemConfigTab(
         page,
         SEL.tabEmbedding,
-        /tab=embedding/,
+        /tab=rag/,
         page.locator(SEL.embeddingForm)
       )
     })
@@ -121,7 +129,7 @@ test.describe("System Config", () => {
       await switchSystemConfigTab(
         page,
         SEL.tabImageToText,
-        /tab=image_to_text/,
+        /tab=rag/,
         page.locator(SEL.imageToTextForm)
       )
     })
@@ -170,6 +178,139 @@ test.describe("System Config", () => {
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=nonexistent`)
       await expect(page.getByRole("heading", { name: "AI Credentials" })).toBeVisible()
     })
+  })
+
+  test.describe("RAG configuration", () => {
+    test("specialized models filter by purpose, persist independently, reset and clear", async ({ page }) => {
+      const credential = await createE2EAiCredential(page, {
+        name: `RAG catalog ${Date.now()}`,
+        provider: "openrouter",
+        endpoint: "http://127.0.0.1:4002/e2e/llm",
+        auth_kind: "none",
+      })
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
+
+      const selections = [
+        { kind: "reranking", title: "Re-ranking", model: "cohere/rerank-v3.5", label: "Cohere: Rerank v3.5", excluded: "liquid/d1" },
+        { kind: "decision", title: "Decision", model: "liquid/d1", label: "LiquidAI: d1", excluded: "cohere/rerank-v3.5" },
+      ]
+      for (const selection of selections) {
+        const prefix = `#rag-${selection.kind}`
+        await expect(page.locator(`${prefix}-section`)).toContainText("Not active in the RAG pipeline.")
+        await page.locator(`${prefix}-section`).scrollIntoViewIfNeeded()
+        await pickSearchableSelect(page, `${prefix}-credential-select`, credential.name)
+        await waitForLiveViewSettled(page)
+        await expect(page.locator(`${prefix}-model-select li[data-select-value="${selection.model}"]`)).toHaveCount(1)
+        await expect(page.locator(`${prefix}-model-select li[data-select-value="${selection.excluded}"]`)).toHaveCount(0)
+        await expect(page.locator(`${prefix}-model-select li[data-select-value="openai/gpt-4o"]`)).toHaveCount(0)
+        await pickSearchableSelect(page, `${prefix}-model-select`, selection.label)
+        await page.locator(`${prefix}-form`).getByRole("button", { name: `Save ${selection.title} Settings` }).click()
+        await expect(page.getByText("RAG model settings saved. Not active in the pipeline.")).toBeVisible()
+      }
+
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
+      for (const selection of selections) {
+        await expect(page.locator(`#rag-${selection.kind}-credential-select input[data-select-value]`)).toHaveValue(String(credential.id))
+        await expect(page.locator(`#rag-${selection.kind}-model-select input[data-select-value]`)).toHaveValue(selection.model)
+      }
+
+      // A forged selection must be rejected by the server, not merely hidden by the dropdown.
+      await page.locator('#rag-decision-model-select input[data-select-value]').evaluate(input => {
+        input.value = "cohere/rerank-v3.5"
+      })
+      await page.locator("#rag-decision-form").getByRole("button", { name: "Save Decision Settings" }).click()
+      await expect(page.locator("#rag-decision-section .zaq-field-error")).toContainText("is not a compatible model")
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
+      await expect(page.locator("#rag-decision-model-select input[data-select-value]")).toHaveValue("liquid/d1")
+
+      await page.locator("#rag-reranking-section").scrollIntoViewIfNeeded()
+      await pickSearchableSelect(page, "#rag-reranking-credential-select", seededCredential.name)
+      await expect(page.locator("#rag-reranking-model-select input[data-select-value]")).toHaveValue("")
+      await expect(page.locator("#rag-reranking-section")).toContainText("No compatible models.")
+      await expect(page.locator("#rag-reranking-model-select li[data-select-option]")).toHaveCount(0)
+      await expect(page.locator('#rag-reranking-form input[type="text"][name="rag_model_config[model]"]')).toHaveCount(0)
+      await pickSearchableSelect(page, "#rag-reranking-credential-select", "Not configured")
+      await page.locator("#rag-reranking-form").getByRole("button", { name: "Save Re-ranking Settings" }).click()
+      await expect(page.getByText("RAG model settings saved. Not active in the pipeline.")).toBeVisible()
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
+      await expect(page.locator("#rag-reranking-model-select input[data-select-value]")).toHaveValue("")
+      await expect(page.locator("#rag-reranking-credential-select input[data-select-value]")).toHaveValue("")
+      await expect(page.locator("#rag-decision-model-select input[data-select-value]")).toHaveValue("liquid/d1")
+    })
+
+    test("advanced retrieval saves complementary weights without unlocking embeddings", async ({ page }) => {
+      await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
+      const advanced = page.locator("#retrieval-section #rag-retrieval-advanced")
+      await expect(advanced).not.toHaveAttribute("open", "")
+      await advanced.locator("summary").focus()
+      await page.keyboard.press("Enter")
+      await expect(page.locator("#retrieval-config-form")).toBeVisible()
+      const dimension = page.locator('input[name="embedding_config[dimension]"]')
+      const savedDimension = await dimension.inputValue()
+      await expect(dimension).toBeDisabled()
+      await page.locator('input[name="retrieval_config[max_cosine_distance]"]').fill("0.6")
+      await page.locator('input[name="retrieval_config[fusion_bm25_weight]"]').fill("0.35")
+      await expect(page.locator('input[name="retrieval_config[fusion_vector_weight]"]')).toHaveValue("0.65")
+      await page.getByRole("button", { name: "Save Retrieval Settings" }).click()
+      await expect(page.getByText("Retrieval settings saved.")).toBeVisible()
+      await expect(page.locator("#embedding-save-confirm-modal")).toHaveCount(0)
+      await expect(dimension).toBeDisabled()
+      await expect(dimension).toHaveValue(savedDimension)
+      await openRetrievalSettings(page)
+      await expect(page.locator('input[name="retrieval_config[max_cosine_distance]"]')).toHaveValue("0.6")
+      await expect(page.locator('input[name="retrieval_config[fusion_bm25_weight]"]')).toHaveValue("0.35")
+      await expect(page.locator('input[name="retrieval_config[fusion_vector_weight]"]')).toHaveValue("0.65")
+      await expect(dimension).toHaveValue(savedDimension)
+      await expect(dimension).toBeDisabled()
+    })
+
+    for (const theme of ["light", "dark"]) {
+      test(`${theme} theme keeps RAG controls readable at desktop and mobile widths`, async ({ page }, testInfo) => {
+        await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
+        await page.getByRole("button", { name: `Use ${theme} theme`, exact: true }).click()
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme)
+        for (const width of [1280, 390]) {
+          await page.setViewportSize({ width, height: 900 })
+          if (width === 390) {
+            if (!(await page.locator("#bo-sidebar").evaluate(element => element.classList.contains("collapsed")))) {
+              await page.locator("#sidebar-toggle").click()
+            }
+            await expect(page.locator("#bo-main")).toHaveCSS("margin-left", "60px")
+          }
+          for (const section of ["embedding", "image-to-text", "rag-reranking", "rag-decision"]) {
+            await expect(page.locator(`#${section}-section h2`)).toBeVisible()
+          }
+          const layout = await page.locator("#rag-config").evaluate(root => {
+            const embedding = root.querySelector("#embedding-section")
+            const input = root.querySelector('input[name="embedding_config[chunk_min_tokens]"]')
+            const style = getComputedStyle(input)
+            return {
+              overflow: document.documentElement.scrollWidth > innerWidth,
+              width: embedding.getBoundingClientRect().width,
+              text: style.color,
+              background: style.backgroundColor,
+              cards: ["reranking", "decision"].map(kind => {
+                const rect = root.querySelector(`#rag-${kind}-section`).getBoundingClientRect()
+                return { x: rect.x, y: rect.y, right: rect.right }
+              }),
+              offscreen: [...root.querySelectorAll("input,button")].filter(element => element.getBoundingClientRect().right > innerWidth + 1).length,
+            }
+          })
+          expect(layout.overflow).toBe(false)
+          expect(layout.offscreen).toBe(0)
+          expect(layout.width).toBeGreaterThan(240)
+          expect(layout.text).not.toBe(layout.background)
+          expect(layout.text).toBe(theme === "dark" ? "rgb(243, 245, 247)" : "rgb(12, 19, 36)")
+          if (width === 390) {
+            expect(layout.cards[0].x).toBe(layout.cards[1].x)
+            expect(layout.cards[1].y).toBeGreaterThan(layout.cards[0].y)
+          } else {
+            expect(layout.cards[0].y).toBe(layout.cards[1].y)
+          }
+          await page.locator("#rag-config").screenshot({ path: testInfo.outputPath(`rag-${theme}-${width}.png`) })
+        }
+      })
+    }
   })
 
   // ── LLM tab ────────────────────────────────────────────────────────────
@@ -266,7 +407,8 @@ test.describe("System Config", () => {
       await expect(page.locator('input[name="llm_config[temperature]"]')).toBeVisible()
       await expect(page.locator('input[name="llm_config[top_p]"]')).toBeVisible()
       await expect(page.locator('input[name="llm_config[max_context_window]"]')).toBeVisible()
-      const cosineDistance = page.locator('input[name="llm_config[max_cosine_distance]"]')
+      await openRetrievalSettings(page)
+      const cosineDistance = page.locator('input[name="retrieval_config[max_cosine_distance]"]')
       await expect(cosineDistance).toBeVisible()
       await expect(cosineDistance).toHaveAttribute("min", "0")
       await expect(cosineDistance).toHaveAttribute("max", "2")
@@ -349,13 +491,13 @@ test.describe("System Config", () => {
       await field.fill("0.0")
       await field.press("Tab")
       await expect(
-        page.locator('p.text-red-500').filter({ hasText: /temperature/i })
+        page.locator('p.zaq-field-error').filter({ hasText: /temperature/i })
       ).not.toBeVisible()
 
       await field.fill("2.0")
       await field.press("Tab")
       await expect(
-        page.locator('p.text-red-500').filter({ hasText: /temperature/i })
+        page.locator('p.zaq-field-error').filter({ hasText: /temperature/i })
       ).not.toBeVisible()
     })
 
@@ -385,30 +527,30 @@ test.describe("System Config", () => {
 
     for (const boundary of ["0", "2"]) {
       test(`cosine distance boundary ${boundary} saves and persists`, async ({ page }) => {
-        const field = page.locator('input[name="llm_config[max_cosine_distance]"]')
-        // The existing top_p default is not on its HTML step grid.
-        await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
+        await openRetrievalSettings(page)
+        const field = page.locator('input[name="retrieval_config[max_cosine_distance]"]')
         await field.fill(boundary)
         await field.press("Tab")
         await waitForLiveViewSettled(page)
-        await page.getByRole("button", { name: "Save LLM Settings" }).click()
-        await expect(page.getByText("LLM settings saved.")).toBeVisible()
-        await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
-        await expect(page.locator('input[name="llm_config[max_cosine_distance]"]')).toHaveJSProperty("valueAsNumber", Number(boundary))
+        await page.getByRole("button", { name: "Save Retrieval Settings" }).click()
+        await expect(page.getByText("Retrieval settings saved.")).toBeVisible()
+        await openRetrievalSettings(page)
+        await expect(page.locator('input[name="retrieval_config[max_cosine_distance]"]')).toHaveJSProperty("valueAsNumber", Number(boundary))
       })
     }
 
     for (const invalid of ["-0.01", "2.01"]) {
       test(`cosine distance ${invalid} is rejected without changing persisted settings`, async ({ page }) => {
-        const field = page.locator('input[name="llm_config[max_cosine_distance]"]')
+        await openRetrievalSettings(page)
+        const field = page.locator('input[name="retrieval_config[max_cosine_distance]"]')
         const persisted = await field.evaluate(input => input.valueAsNumber)
         await field.fill(invalid)
         await field.press("Tab")
         await waitForLiveViewSettled(page)
-        await page.getByRole("button", { name: "Save LLM Settings" }).click()
-        await expect(page.getByText("LLM settings saved.")).not.toBeVisible()
-        await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
-        await expect(page.locator('input[name="llm_config[max_cosine_distance]"]')).toHaveJSProperty("valueAsNumber", persisted)
+        await page.getByRole("button", { name: "Save Retrieval Settings" }).click()
+        await expect(page.getByText("Retrieval settings saved.")).not.toBeVisible()
+        await openRetrievalSettings(page)
+        await expect(page.locator('input[name="retrieval_config[max_cosine_distance]"]')).toHaveJSProperty("valueAsNumber", persisted)
       })
     }
 
@@ -534,7 +676,7 @@ test.describe("System Config", () => {
 
       const saveBtn = page.getByRole("button", { name: "Save Embedding Settings" })
       // Wait for server to process validate_embedding and set model_changed: true
-      await expect(saveBtn).toHaveClass(/bg-red-500/)
+      await expect(saveBtn).toHaveClass(/zaq-btn-danger/)
 
       await saveBtn.click()
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).toBeVisible()

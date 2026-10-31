@@ -88,6 +88,7 @@
   "/storybook/not_used/table",
   "/storybook/patterns/addon_upsell_card",
   "/storybook/patterns/credentials",
+  "/storybook/patterns/rag_configuration",
   "/storybook/patterns/service_unavailable",
   "/storybook/semantic/borders",
   "/storybook/semantic/colors",

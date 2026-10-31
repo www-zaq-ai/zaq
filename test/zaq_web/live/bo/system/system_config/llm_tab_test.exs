@@ -5,8 +5,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTabTest do
   import Phoenix.Component, only: [to_form: 2]
   import Phoenix.LiveViewTest
 
-  alias Zaq.System.LLMConfig
+  alias Zaq.System.{
+    EmbeddingConfig,
+    ImageToTextConfig,
+    LLMConfig,
+    OperationModelConfig,
+    RAGModelConfig
+  }
+
   alias ZaqWeb.Live.BO.System.SystemConfig.LLMTab
+  alias ZaqWeb.Live.BO.System.SystemConfig.RAGTab
 
   test "model validation error renders below the model text input" do
     error = "model value rejected"
@@ -38,7 +46,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTabTest do
     error = "vector weight exceeds maximum"
     html = render_panel(%{fusion_vector_weight: error})
 
-    assert html =~ ~s(<details id="llm-fusion-advanced")
+    assert html =~ ~s(<details id="rag-retrieval-advanced")
     assert field_error(html, "fusion_vector_weight") == error
     refute field_error(html, "fusion_bm25_weight") =~ error
   end
@@ -62,44 +70,70 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTabTest do
         end
       )
       |> Map.put(:action, :validate)
+      |> then(fn cs ->
+        %{
+          cs
+          | params:
+              Map.merge(
+                cs.params || %{},
+                Map.new(errors, fn {field, _} -> {to_string(field), "0.5"} end)
+              )
+        }
+      end)
 
-    render_component(&LLMTab.panel/1,
-      form: to_form(changeset, as: :llm_config),
-      credential_options: [],
-      model_options: [],
-      capabilities: %{}
-    )
+    if Map.has_key?(errors, :model) do
+      render_component(&LLMTab.panel/1,
+        form: to_form(changeset, as: :llm_config),
+        credential_options: [],
+        model_options: [],
+        capabilities: %{}
+      )
+    else
+      render_component(&RAGTab.panel/1,
+        embedding_form:
+          to_form(EmbeddingConfig.changeset(%EmbeddingConfig{}, %{}), as: :embedding_config),
+        image_to_text_form:
+          to_form(ImageToTextConfig.changeset(%ImageToTextConfig{}, %{}),
+            as: :image_to_text_config
+          ),
+        retrieval_form: to_form(changeset, as: :retrieval_config),
+        translation_form:
+          to_form(
+            OperationModelConfig.changeset(%OperationModelConfig{}, %{}),
+            as: :operation_model_config
+          ),
+        translation_model_options: [],
+        model_forms:
+          Map.new(
+            [:reranking, :decision],
+            &{&1,
+             to_form(RAGModelConfig.changeset(%RAGModelConfig{}, %{}), as: :rag_model_config)}
+          ),
+        model_options: %{reranking: [], decision: []},
+        credential_options: [],
+        embedding_model_options: [],
+        image_to_text_model_options: [],
+        locked: true,
+        unlock_modal: false,
+        save_confirm_modal: false,
+        model_changed: false
+      )
+    end
   end
 
   defp field_error(html, field) do
-    field_name = Regex.escape("llm_config[#{field}]")
-
-    case Regex.run(
-           ~r/<input\b[^>]*\bname="#{field_name}"[^>]*>\s*<p\b[^>]*class="([^"]*)"[^>]*>(.*?)<\/p>/s,
-           html,
-           capture: :all
-         ) do
-      [_, classes, message] ->
-        if classes =~ ~r/\btext-red-500\b/, do: String.trim(message), else: ""
-
-      _ ->
-        ""
-    end
+    field_message(html, field, ".zaq-field-error")
   end
 
   defp field_help(html, field) do
-    field_name = Regex.escape("llm_config[#{field}]")
+    field_message(html, field, ".zaq-field-hint")
+  end
 
-    case Regex.run(
-           ~r/<input\b[^>]*\bname="#{field_name}"[^>]*>\s*<p\b[^>]*class="([^"]*)"[^>]*>(.*?)<\/p>/s,
-           html,
-           capture: :all
-         ) do
-      [_, classes, message] ->
-        if classes =~ ~r/\bzaq-text-caption\b/, do: String.trim(message), else: ""
-
-      _ ->
-        ""
-    end
+  defp field_message(html, field, selector) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(".zaq-field-row-block:has(input[name$='[#{field}]']) #{selector}")
+    |> LazyHTML.text()
+    |> String.trim()
   end
 end

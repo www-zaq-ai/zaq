@@ -135,7 +135,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     case Jido.Exec.run(
            TranslateKnowledgeQuery,
            %{query: query, lexical_terms: terms, languages: languages},
-           Map.take(context, [:llm_config, :generation])
+           Map.take(context, [:translation_config, :generation])
          ) do
       {:ok, %{queries: queries, errors: invalid}} ->
         {queries,

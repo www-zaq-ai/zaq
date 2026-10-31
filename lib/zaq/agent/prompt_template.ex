@@ -3,7 +3,7 @@ defmodule Zaq.Agent.PromptTemplate do
   Schema and context for DB-stored system prompts.
 
   Prompt templates are editable via the Back Office and fetched by slug
-  at runtime by chunk-title generation and image ingestion.
+  at runtime by image ingestion.
 
   `body` is always the used prompt. `default_body` is the independent baseline;
   ordinary edits cannot change it. Body edits set `body_customized`; only an
@@ -13,7 +13,6 @@ defmodule Zaq.Agent.PromptTemplate do
 
   ## Slugs
 
-    * `"chunk_title"` — chunk title generation during ingestion
     * `"image_to_text"` — vision model prompt for image description during PDF ingestion
 
   ## Placeholders
@@ -25,7 +24,7 @@ defmodule Zaq.Agent.PromptTemplate do
 
   Agents call `render/2` to interpolate:
 
-      PromptTemplate.render("chunk_title", %{chunk: "Document content"})
+      PromptTemplate.render("image_to_text", %{language: "eng"})
   """
 
   use Ecto.Schema
@@ -64,7 +63,7 @@ defmodule Zaq.Agent.PromptTemplate do
 
   ## Example
 
-      body = PromptTemplate.get_active!("chunk_title")
+      body = PromptTemplate.get_active!("image_to_text")
   """
   def get_active!(slug) do
     case get_active(slug) do
@@ -78,7 +77,7 @@ defmodule Zaq.Agent.PromptTemplate do
 
   ## Example
 
-      {:ok, body} = PromptTemplate.get_active("chunk_title")
+      {:ok, body} = PromptTemplate.get_active("image_to_text")
       {:error, :not_found} = PromptTemplate.get_active("nonexistent")
   """
   def get_active(slug) do
@@ -183,7 +182,7 @@ defmodule Zaq.Agent.PromptTemplate do
 
   ## Example
 
-      PromptTemplate.render("chunk_title", %{chunk: "Document content"})
+      PromptTemplate.render("image_to_text", %{language: "eng"})
   """
   def render(slug, assigns \\ %{}) do
     body = get_active!(slug)

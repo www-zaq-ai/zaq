@@ -219,7 +219,7 @@ export const liveViewHooks = {
       this._open = this.el.open
     },
     updated() {
-      this.el.open = this._open
+      this.el.open = this._open || this.el.hasAttribute("open")
     },
     beforeUpdate() {
       this._open = this.el.open

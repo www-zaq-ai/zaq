@@ -16,6 +16,8 @@ defmodule Zaq.Agent.ConfiguredAgent do
     field :description, :string
     field :job, :string
     field :model, :string
+    field :temperature, :float, default: 0.0
+    field :top_p, :float, default: 0.9
     field :enabled_tool_keys, {:array, :string}, default: []
     field :enabled_mcp_endpoint_ids, {:array, :integer}, default: []
     field :enabled_skill_ids, {:array, :integer}, default: []
@@ -32,7 +34,7 @@ defmodule Zaq.Agent.ConfiguredAgent do
     timestamps(type: :utc_datetime)
   end
 
-  @required_fields ~w(name job model credential_id strategy model_max_context_tokens)a
+  @required_fields ~w(name job model credential_id strategy model_max_context_tokens temperature top_p)a
   @optional_fields ~w(description enabled_tool_keys enabled_mcp_endpoint_ids enabled_skill_ids conversation_enabled advanced_options active max_iterations idle_time_seconds)a
 
   def changeset(configured_agent, attrs) do
@@ -41,6 +43,8 @@ defmodule Zaq.Agent.ConfiguredAgent do
     |> validate_required(@required_fields)
     |> validate_length(:name, min: 2, max: 255)
     |> validate_inclusion(:strategy, @strategies)
+    |> validate_number(:temperature, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 2.0)
+    |> validate_number(:top_p, greater_than: 0.0, less_than_or_equal_to: 1.0)
     |> validate_tool_keys()
     |> normalize_mcp_endpoint_ids()
     |> normalize_skill_ids()
