@@ -54,8 +54,8 @@ remains available for immediate operations such as folder expansion and material
 **Job queries**
 - `list_jobs/1` — paginated job list with optional status filter
 - `get_job/1` — fetch a single job by ID
-- `retry_job/1` — re-queue a failed job
-- `cancel_job/1` — cancel a pending job
+- `retry_job/1` — re-queue a failed job, or failed chunks of a partially completed job. The pending transition and worker insertion are transactional; a uniqueness conflict returns `{:error, :already_queued}` without leaving the job pending. Completed document workers do not block explicit retries.
+- `cancel_job/1` — stop a pending or processing job, including queued and executing document/chunk Oban workers. The existing `failed` status is retained so the same job can be retried.
 - `subscribe/0` — subscribe to `"ingestion:jobs"` PubSub topic for real-time updates
 
 **Data-source record consumption**
@@ -114,6 +114,7 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - Queue: `:ingestion`, max 3 attempts, 5s × attempt backoff
 - Unique jobs per args within 120s window (prevents duplicate ingestion)
 - Job lifecycle: `pending → processing → completed | completed_with_errors | failed`
+- Preparation that produces no searchable chunks fails immediately with image-to-text credential guidance instead of waiting for child jobs that were never scheduled. This includes scanned documents whose converted Markdown contains only page markers.
 - Broadcasts `{:job_updated, job}` on every state transition via PubSub
 - `DocumentProcessor` is injectable: `Application.get_env(:zaq, :document_processor)`
 
@@ -132,6 +133,9 @@ if those continue failing, investigate provider access and metadata-fetch errors
 - `transition/2`, `transition!/2` — generic changeset-based update + broadcast
 - `mark_processing!/1`, `mark_completed!/2`, `mark_failed/3`, `mark_failed!/3`, `mark_pending_retry!/2`
 - Broadcasts `{:job_updated, job}` to `"ingestion:jobs"` on every transition
+- `report_preparation_progress/2` saves a timestamped snapshot on the active `IngestJob` before broadcasting `{:job_progress, job_id, payload}`. Progress arriving after the job leaves preparation is ignored.
+- BO restores unexpired snapshots after refresh through the existing job query. Restored snapshots retain their original age for the preparation timeout. New attempts and transitions out of preparation clear the snapshot, including updates made from stale worker structs.
+- `broadcast_progress/2` remains a transient-only API for callers that do not need snapshot persistence.
 
 ### Document Chunking (`Zaq.Ingestion.DocumentChunker`)
 - Layout-aware, hierarchical section detection for Markdown

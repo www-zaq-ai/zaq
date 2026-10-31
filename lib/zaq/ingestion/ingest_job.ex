@@ -41,6 +41,8 @@ defmodule Zaq.Ingestion.IngestJob do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @type t :: %__MODULE__{}
+
   def statuses, do: @statuses
   def modes, do: @modes
 

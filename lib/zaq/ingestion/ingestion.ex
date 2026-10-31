@@ -865,6 +865,16 @@ defmodule Zaq.Ingestion do
 
   # --- Job actions ---
 
+  @doc """
+  Requeues a failed ingestion, or only failed chunks for a partially completed ingestion.
+
+  The pending transition and worker insertion share a transaction. Returns
+  `{:error, :already_queued}` on a worker uniqueness conflict, preserving the
+  persisted job state and notifying subscribers of that state after rollback.
+  """
+  @spec retry_job(Ecto.UUID.t()) ::
+          {:ok, IngestJob.t()}
+          | {:error, :not_found | :not_failed | :already_queued | Ecto.Changeset.t()}
   def retry_job(id) do
     with %IngestJob{} = job <- Repo.get(IngestJob, id),
          :ok <- ensure_retryable(job) do
@@ -912,6 +922,14 @@ defmodule Zaq.Ingestion do
 
   defp ensure_retryable(_), do: {:error, :not_retryable}
 
+  @doc """
+  Stops a pending or processing ingestion and its queued or executing Oban workers.
+
+  Cancelled ingestions retain the existing `failed` status so callers can retry
+  the same job through `retry_job/1`.
+  """
+  @spec cancel_job(Ecto.UUID.t()) ::
+          {:ok, IngestJob.t()} | {:error, :not_found | :not_cancellable | Ecto.Changeset.t()}
   def cancel_job(id) do
     case Repo.get(IngestJob, id) do
       %IngestJob{status: status} = job when status in ["pending", "processing"] ->
