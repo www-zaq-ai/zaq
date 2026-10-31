@@ -17,7 +17,9 @@ defmodule ZaqWeb do
   those modules here.
   """
 
-  use Boundary, check: [in: false, out: false]
+  use Boundary,
+    deps: [Zaq],
+    check: [in: false, out: true]
 
   def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
 

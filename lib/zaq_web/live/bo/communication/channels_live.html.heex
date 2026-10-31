@@ -271,18 +271,20 @@
             phx-change="set_retrieval_channel_agent"
           >
             <input type="hidden" name="retrieval_channel_id" value={rc.id} />
+            <% selected_agent_value =
+              retrieval_channel_agent_value(@retrieval_channel_agent_values, rc) %>
             <select
               id={"retrieval-channel-agent-select-#{rc.id}"}
               name="configured_agent_id"
               class="font-mono text-[0.65rem] px-2 py-1.5 rounded-lg border border-black/10 text-black/60 bg-[#fafafa]"
             >
-              <option value="" selected={retrieval_channel_agent_value(rc) == ""}>
+              <option value="" selected={selected_agent_value == ""}>
                 Use fallback
               </option>
               <option
                 :for={{name, id} <- @agent_options}
                 value={id}
-                selected={retrieval_channel_agent_value(rc) == to_string(id)}
+                selected={selected_agent_value == to_string(id)}
               >
                 {name}
               </option>

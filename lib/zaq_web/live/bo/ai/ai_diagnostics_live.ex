@@ -5,8 +5,9 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
 
   alias Zaq.Agent.{PromptTemplate, Retrieval, TokenEstimator}
   alias Zaq.Embedding.Client, as: EmbeddingClient
-  alias Zaq.Ingestion.{Chunk, Document}
+  alias Zaq.Event
   alias Zaq.Ingestion.Python.{Runner, Steps.ImageToText}
+  alias Zaq.NodeRouter
   alias Zaq.System
 
   def mount(_params, _session, socket) do
@@ -135,13 +136,19 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
   end
 
   defp document_count do
-    Zaq.Repo.aggregate(Document, :count)
+    case Event.new(%{}, :ingestion, opts: [action: :count_documents]) |> NodeRouter.dispatch() do
+      %Event{response: count} when is_integer(count) -> count
+      _ -> nil
+    end
   rescue
     _ -> nil
   end
 
   defp chunk_count do
-    Zaq.Repo.aggregate(Chunk, :count)
+    case Event.new(%{}, :ingestion, opts: [action: :count_chunks]) |> NodeRouter.dispatch() do
+      %Event{response: count} when is_integer(count) -> count
+      _ -> nil
+    end
   rescue
     _ -> nil
   end

@@ -21,16 +21,14 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Ingestion.{Document, ExternalSource, IngestJob}
   alias Zaq.NodeRouter
   alias Zaq.Permissions
-  alias Zaq.Repo
   alias Zaq.System
   alias ZaqWeb.Components.Drawer
   alias ZaqWeb.Helpers.Markdown
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.DataSourceBrowser
   alias ZaqWeb.Live.BO.DataSourceEvents
+  alias ZaqWeb.Live.BO.EngineDispatch
   alias ZaqWeb.Live.BO.PreviewHelpers
-
-  import Ecto.Query
 
   @allowed_extensions ~w(.md .txt .pdf .docx .pptx .xlsx .csv .png .jpg .jpeg)
   @ingestion_topic "ingestion:jobs"
@@ -1250,17 +1248,25 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   defp maybe_refresh_entries_after_job(socket, _job), do: socket
 
   defp enabled_data_source_sources do
-    ChannelConfig
-    |> where([c], c.kind == "data_source" and c.enabled == true)
-    |> Repo.all()
-    |> Enum.sort_by(&{&1.provider, &1.name})
-    |> Enum.flat_map(&source_scopes_for_config/1)
+    case EngineDispatch.dispatch(:channel_config, %{action: :list_enabled_data_sources},
+           confidential: true
+         ) do
+      configs when is_list(configs) ->
+        configs
+        |> Enum.sort_by(&{&1.provider, &1.name})
+        |> Enum.flat_map(&source_scopes_for_config/1)
+
+      _ ->
+        []
+    end
   end
 
   defp data_source_config_enabled? do
-    ChannelConfig
-    |> where([c], c.kind == "data_source" and c.enabled == true)
-    |> Repo.exists?()
+    EngineDispatch.dispatch(
+      :channel_config,
+      %{action: :data_source_config_enabled?},
+      confidential: true
+    ) == true
   end
 
   defp source_scopes_for_config(config) do

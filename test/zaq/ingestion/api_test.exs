@@ -8,6 +8,8 @@ defmodule Zaq.Ingestion.ApiTest do
 
   defmodule StubIngestion do
     def list_document_sources(query), do: [{:source, query}]
+    def count_documents, do: 5
+    def count_chunks, do: 12
 
     def sync_data_source_permission_projection(provider, config_id, affected_file_ids, context) do
       send(self(), {:sync_permission_projection, provider, config_id, affected_file_ids, context})
@@ -268,5 +270,19 @@ defmodule Zaq.Ingestion.ApiTest do
       assert handle(%{file_id: "archives/guide.md"}, :materialize_record) ==
                {:error, {:unsupported_action, :materialize_record}}
     end
+  end
+
+  test "counts documents and chunks through the ingestion boundary" do
+    doc_event =
+      Event.new(%{}, :ingestion,
+        opts: [action: :count_documents, ingestion_module: StubIngestion]
+      )
+
+    assert Api.handle_event(doc_event, :count_documents, nil).response == 5
+
+    chunk_event =
+      Event.new(%{}, :ingestion, opts: [action: :count_chunks, ingestion_module: StubIngestion])
+
+    assert Api.handle_event(chunk_event, :count_chunks, nil).response == 12
   end
 end

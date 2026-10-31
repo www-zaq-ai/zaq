@@ -242,6 +242,29 @@ defmodule Zaq.Channels.RetrievalChannelTest do
     assert nil == RetrievalChannel.id_by_config_and_channel(123, 456)
   end
 
+  test "get/1, get!/1, create/1, toggle_active!/1, and delete!/1 manage retrieval channels" do
+    config = insert_channel_config(%{provider: "mattermost"})
+
+    assert {:ok, created} =
+             RetrievalChannel.create(%{
+               channel_config_id: config.id,
+               channel_id: "chan-crud-1",
+               channel_name: "General",
+               team_id: "team-1",
+               team_name: "Team",
+               active: true
+             })
+
+    assert RetrievalChannel.get(created.id).id == created.id
+    assert RetrievalChannel.get!(created.id).id == created.id
+
+    toggled = RetrievalChannel.toggle_active!(created)
+    assert toggled.active == false
+
+    assert %RetrievalChannel{} = RetrievalChannel.delete!(toggled)
+    assert RetrievalChannel.get(created.id) == nil
+  end
+
   defp insert_channel_config(attrs) do
     unique = System.unique_integer([:positive])
 

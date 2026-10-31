@@ -1531,4 +1531,20 @@ defmodule Zaq.IngestionTest do
       end)
     end
   end
+
+  describe "count_documents/0 and count_chunks/0" do
+    test "returns integer counts for documents and chunks" do
+      initial_docs = Ingestion.count_documents()
+      assert is_integer(initial_docs)
+
+      {:ok, _doc} =
+        Document.create(%{
+          source: "count-doc-#{System.unique_integer([:positive])}.md",
+          content: "count test"
+        })
+
+      assert Ingestion.count_documents() == initial_docs + 1
+      assert is_integer(Ingestion.count_chunks())
+    end
+  end
 end

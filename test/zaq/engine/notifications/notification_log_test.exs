@@ -261,4 +261,19 @@ defmodule Zaq.Engine.Notifications.NotificationLogTest do
       assert NotificationLog.thread_anchor(123, "Lead outreach") == nil
     end
   end
+
+  describe "get_log/1 and list_logs/1" do
+    test "fetches a single log and lists paginated logs ordered deterministically" do
+      {:ok, first} = NotificationLog.create_log(@valid_attrs)
+      {:ok, second} = NotificationLog.create_log(Map.put(@valid_attrs, :sender, "other"))
+
+      assert NotificationLog.get_log(first.id).id == first.id
+      assert NotificationLog.get_log(-1) == nil
+
+      %{logs: logs, total: total} = NotificationLog.list_logs(page: 1, per_page: 10)
+      assert total >= 2
+      ids = Enum.map(logs, & &1.id)
+      assert Enum.find_index(ids, &(&1 == second.id)) < Enum.find_index(ids, &(&1 == first.id))
+    end
+  end
 end

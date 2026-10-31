@@ -562,6 +562,9 @@ defmodule Zaq.Engine.ChannelConfig do
 
   def get(_id), do: nil
 
+  @doc "Returns a config by primary key, raising `Ecto.NoResultsError` if not found."
+  def get!(id), do: Zaq.Repo.get!(__MODULE__, id)
+
   @doc "Returns a config for `provider`, including disabled entries."
   def get_any_by_provider(provider) do
     unique_config(where(__MODULE__, [c], c.provider == ^provider and is_nil(c.archived_at)))
@@ -573,6 +576,70 @@ defmodule Zaq.Engine.ChannelConfig do
     |> where([c], c.provider == ^provider and is_nil(c.archived_at))
     |> order_by([c], asc: c.id)
     |> Zaq.Repo.all()
+  end
+
+  @doc "Lists live (non-archived) connectors of a provider ordered by name, optionally filtered by `kind`."
+  def list_by_provider_named(provider, kind \\ nil) when is_binary(provider) do
+    query =
+      __MODULE__
+      |> where([c], c.provider == ^provider and is_nil(c.archived_at))
+
+    query =
+      if is_nil(kind),
+        do: query,
+        else: where(query, [c], c.kind == ^to_string(kind))
+
+    query
+    |> order_by(asc: :name)
+    |> Zaq.Repo.all()
+  end
+
+  @doc "Builds a `ChannelConfig` changeset from `params` and inserts (`:new`) or updates (`:edit`) it."
+  def persist(:new, %__MODULE__{} = config, params) when is_map(params) do
+    config |> changeset(params) |> Zaq.Repo.insert() |> strip_changeset_prepare()
+  end
+
+  def persist(:edit, %__MODULE__{} = config, params) when is_map(params) do
+    config |> changeset(params) |> Zaq.Repo.update() |> strip_changeset_prepare()
+  end
+
+  # Clears `prepare_changes` closures from failed changesets before returning across NodeRouter RPC.
+  # Callers must rebuild a fresh changeset via `persist/3` rather than re-inserting this error struct.
+  defp strip_changeset_prepare({:error, %Ecto.Changeset{} = cs}),
+    do: {:error, %{cs | prepare: []}}
+
+  defp strip_changeset_prepare(result), do: result
+
+  @doc "Flips the `enabled` flag on a `ChannelConfig` record and persists it."
+  def toggle_enabled!(%__MODULE__{} = config) do
+    config
+    |> Ecto.Changeset.change(enabled: !config.enabled)
+    |> Zaq.Repo.update!()
+  end
+
+  @doc "Returns a map of `%{provider => count}` for all enabled live configs."
+  def enabled_counts_by_provider do
+    __MODULE__
+    |> where([c], c.enabled == true and is_nil(c.archived_at))
+    |> group_by([c], c.provider)
+    |> select([c], {c.provider, count(c.id)})
+    |> Zaq.Repo.all()
+    |> Map.new()
+  end
+
+  @doc "Returns the list of provider strings that have at least one enabled live config of `kind`."
+  def enabled_providers_by_kind(kind) when is_binary(kind) do
+    __MODULE__
+    |> where([c], c.kind == ^kind and c.enabled == true and is_nil(c.archived_at))
+    |> select([c], c.provider)
+    |> Zaq.Repo.all()
+  end
+
+  @doc "Returns true when at least one live `data_source` config is enabled."
+  def data_source_config_enabled? do
+    __MODULE__
+    |> where([c], c.kind == "data_source" and c.enabled == true and is_nil(c.archived_at))
+    |> Zaq.Repo.exists?()
   end
 
   defp unique_config(query) do

@@ -863,6 +863,14 @@ defmodule Zaq.Ingestion do
 
   def get_job(id), do: Repo.get(IngestJob, id)
 
+  @doc "Returns the total count of ingested documents."
+  def count_documents, do: Repo.aggregate(Document, :count)
+
+  @doc "Returns the total count of ingested document chunks."
+  def count_chunks do
+    if Chunk.table_exists?(), do: Repo.aggregate(Chunk, :count), else: 0
+  end
+
   # --- Job actions ---
 
   def retry_job(id) do

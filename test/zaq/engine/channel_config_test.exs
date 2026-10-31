@@ -969,4 +969,78 @@ defmodule Zaq.Engine.ChannelConfigTest do
       Code.compiler_options(ignore_module_conflict: false)
     end
   end
+
+  describe "BO boundary helper functions" do
+    test "get!/1, list_by_provider_named/2, persist/3, toggle_enabled!/1, enabled_counts_by_provider/0, enabled_providers_by_kind/1, and data_source_config_enabled?/0" do
+      unique = System.unique_integer([:positive])
+      provider = "mattermost"
+
+      assert {:ok, created} =
+               ChannelConfig.persist(:new, %ChannelConfig{}, %{
+                 name: "B Connector #{unique}",
+                 provider: provider,
+                 kind: "retrieval",
+                 url: "https://mm.example.com",
+                 token: "secret-#{unique}",
+                 enabled: true
+               })
+
+      assert {:ok, second} =
+               ChannelConfig.persist(:new, %ChannelConfig{}, %{
+                 name: "A Connector #{unique}",
+                 provider: provider,
+                 kind: "retrieval",
+                 url: "https://mm2.example.com",
+                 token: "secret2-#{unique}",
+                 enabled: true
+               })
+
+      assert ChannelConfig.get!(created.id).id == created.id
+
+      listed_ids = Enum.map(ChannelConfig.list_by_provider_named(provider), & &1.id)
+
+      assert Enum.find_index(listed_ids, &(&1 == second.id)) <
+               Enum.find_index(listed_ids, &(&1 == created.id))
+
+      retrieval_ids =
+        Enum.map(ChannelConfig.list_by_provider_named(provider, :retrieval), & &1.id)
+
+      assert second.id in retrieval_ids
+      assert created.id in retrieval_ids
+
+      assert ChannelConfig.list_by_provider_named(provider, "ingestion") == []
+
+      assert {:ok, updated} =
+               ChannelConfig.persist(:edit, created, %{name: "Z Connector #{unique}"})
+
+      assert updated.name == "Z Connector #{unique}"
+
+      assert {:error, invalid_changeset} =
+               ChannelConfig.persist(:new, %ChannelConfig{}, %{name: ""})
+
+      assert invalid_changeset.prepare == []
+
+      toggled = ChannelConfig.toggle_enabled!(second)
+      assert toggled.enabled == false
+
+      counts = ChannelConfig.enabled_counts_by_provider()
+      assert Map.get(counts, provider, 0) >= 1
+
+      assert provider in ChannelConfig.enabled_providers_by_kind("retrieval")
+
+      assert {:ok, ds_config} =
+               ChannelConfig.persist(:new, %ChannelConfig{}, %{
+                 name: "Drive #{unique}",
+                 provider: "google_drive",
+                 kind: "data_source",
+                 url: "https://googleapis.com",
+                 token: "ds-token-#{unique}",
+                 enabled: true,
+                 settings: %{"folder_id" => "root"}
+               })
+
+      assert ChannelConfig.data_source_config_enabled?() == true
+      _ = ChannelConfig.toggle_enabled!(ds_config)
+    end
+  end
 end

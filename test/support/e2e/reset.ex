@@ -209,6 +209,48 @@ defmodule Zaq.E2E.Reset do
     {:ok, absolute}
   end
 
+  @doc "Seed multilingual ingestion summary metadata on an ingested document for E2E."
+  def seed_multilingual_summary(content, phase)
+      when is_binary(content) and phase in ["partial", "recovered"] do
+    case Repo.get_by(Document, content: content) do
+      %Document{} = document ->
+        indexed = if phase == "partial", do: 2, else: 3
+
+        errors =
+          if phase == "partial" do
+            [%{"chunk_index" => 3, "language" => "arabic", "message" => "Embedding unavailable"}]
+          else
+            []
+          end
+
+        summary = %{
+          "index_backend" => "parade_db",
+          "status" => if(phase == "partial", do: "completed_with_errors", else: "completed"),
+          "total_chunks_detected" => 3,
+          "total_chunks_indexed" => indexed,
+          "total_chunks_simple_indexed" => indexed,
+          "detected_languages" => ["arabic", "english", "french"],
+          "indexed_languages" =>
+            if(phase == "partial",
+              do: ["english", "french"],
+              else: ["arabic", "english", "french"]
+            ),
+          "errors" => errors
+        }
+
+        document
+        |> Document.changeset(%{
+          metadata: Map.put(document.metadata || %{}, "ingestion", summary)
+        })
+        |> Repo.update!()
+
+        {:ok, phase}
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
   # ── Internals ──────────────────────────────────────────────────────────────
 
   # Delete all users except the standing E2E admin so bootstrap-created users

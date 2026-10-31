@@ -1495,7 +1495,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert %Phoenix.LiveView.Socket{} = socket
   end
 
-  test "data source save hits sync_data_source_runtime path" do
+  test "data source save hits sync_data_source_runtime path", %{user: user} do
     config =
       insert_channel_config(%{
         provider: "google_drive",
@@ -1512,6 +1512,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
       assigns: %{
         __changed__: %{},
         flash: %{},
+        current_user: user,
         modal: :edit,
         provider: "google_drive",
         kind: :data_source,
@@ -2310,6 +2311,153 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     html = render(view)
     refute html =~ "Runtime sync failed"
     refute html =~ "Runtime sync returned unexpected result"
+  end
+
+  test "falls back to empty retrieval channels when :retrieval_channel dispatch fails", %{
+    conn: conn
+  } do
+    _config = insert_channel_config(%{})
+    stub(Zaq.NodeRouterMock, :find_node, fn _sup -> :channels@localhost end)
+
+    pid = Process.whereis(Zaq.Channels.Supervisor)
+
+    on_exit(fn ->
+      if pid && Process.whereis(Zaq.Channels.Supervisor) == nil do
+        Process.register(pid, Zaq.Channels.Supervisor)
+      end
+    end)
+
+    if pid, do: Process.unregister(Zaq.Channels.Supervisor)
+
+    try do
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      assert html =~ "Mattermost Main"
+    after
+      if pid && Process.whereis(Zaq.Channels.Supervisor) == nil do
+        Process.register(pid, Zaq.Channels.Supervisor)
+      end
+    end
+  end
+
+  test "renders error flash and safe empty state when engine service is unavailable on mount", %{
+    conn: conn
+  } do
+    _config = insert_channel_config(%{})
+    stub(Zaq.NodeRouterMock, :find_node, fn _sup -> :channels@localhost end)
+
+    pid = Process.whereis(Zaq.Engine.Supervisor)
+
+    on_exit(fn ->
+      if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+        Process.register(pid, Zaq.Engine.Supervisor)
+      end
+    end)
+
+    if pid, do: Process.unregister(Zaq.Engine.Supervisor)
+
+    try do
+      {:ok, _view, html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+      assert html =~ "Engine service is unavailable."
+    after
+      if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+        Process.register(pid, Zaq.Engine.Supervisor)
+      end
+    end
+  end
+
+  test "preserves user form input and renders error when engine fails during save", %{conn: conn} do
+    stub(Zaq.NodeRouterMock, :find_node, fn _sup -> :channels@localhost end)
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    view |> element("button[phx-click='open_modal'][phx-value-action='new']") |> render_click()
+
+    pid = Process.whereis(Zaq.Engine.Supervisor)
+
+    on_exit(fn ->
+      if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+        Process.register(pid, Zaq.Engine.Supervisor)
+      end
+    end)
+
+    if pid, do: Process.unregister(Zaq.Engine.Supervisor)
+
+    try do
+      html =
+        view
+        |> form("#config-form",
+          form: %{
+            "name" => "Unsaved Mattermost",
+            "url" => "https://mm.unsaved.local",
+            "token" => "keep-this-token"
+          }
+        )
+        |> render_submit()
+
+      assert html =~ "Failed to save channel config: Engine service is unavailable."
+      assert has_element?(view, "#channel-config-modal")
+
+      assert has_element?(
+               view,
+               "#config-form input[name='form[name]'][value='Unsaved Mattermost']"
+             )
+
+      assert has_element?(view, "#config-form input[name='form[token]'][value='keep-this-token']")
+    after
+      if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+        Process.register(pid, Zaq.Engine.Supervisor)
+      end
+    end
+  end
+
+  test "batches retrieval channel routing lookups into assigns for selected option rendering", %{
+    conn: conn
+  } do
+    stub(Zaq.NodeRouterMock, :find_node, fn _sup -> :channels@localhost end)
+
+    config = insert_channel_config(%{})
+    rc1 = insert_retrieval_channel(config)
+
+    rc2 =
+      %RetrievalChannel{}
+      |> RetrievalChannel.changeset(%{
+        channel_config_id: config.id,
+        channel_id: "channel-2",
+        channel_name: "product",
+        team_id: "team-1",
+        team_name: "Platform",
+        active: true
+      })
+      |> Repo.insert!()
+
+    agent = create_conversation_agent(true, "BatchRoute")
+
+    scope1 = %{channel_config_id: config.id, retrieval_channel_id: rc1.id}
+    scope2 = %{channel_config_id: config.id, retrieval_channel_id: rc2.id}
+
+    {:ok, _rule1} =
+      IncomingMessageRouting.upsert_rule(scope1, %{
+        routing_mode: :agent,
+        configured_agent_id: agent.id
+      })
+
+    {:ok, _rule2} =
+      IncomingMessageRouting.upsert_rule(scope2, %{
+        routing_mode: :none,
+        configured_agent_id: nil
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+
+    assert has_element?(
+             view,
+             "#retrieval-channel-agent-form-#{rc1.id} option[selected][value='#{agent.id}']"
+           )
+
+    assert has_element?(
+             view,
+             "#retrieval-channel-agent-form-#{rc2.id} option[selected][value='__none__']"
+           )
   end
 
   defp insert_channel_config(attrs) do

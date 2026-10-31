@@ -99,6 +99,29 @@ defmodule Zaq.Channels.RetrievalChannel do
     Repo.get_by(__MODULE__, channel_config_id: config_id, channel_id: channel_id)
   end
 
+  @doc "Fetches a retrieval channel by primary key."
+  def get(id), do: Repo.get(__MODULE__, id)
+
+  @doc "Fetches a retrieval channel by primary key, raising `Ecto.NoResultsError` if not found."
+  def get!(id), do: Repo.get!(__MODULE__, id)
+
+  @doc "Inserts a new retrieval channel from `attrs`."
+  def create(attrs) when is_map(attrs) do
+    %__MODULE__{}
+    |> changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc "Flips the `active` flag on a retrieval channel and persists it."
+  def toggle_active!(%__MODULE__{} = rc) do
+    rc
+    |> change(active: !rc.active)
+    |> Repo.update!()
+  end
+
+  @doc "Deletes a retrieval channel record."
+  def delete!(%__MODULE__{} = rc), do: Repo.delete!(rc)
+
   @doc "Returns the internal retrieval-channel id for a config and provider channel id."
   @spec id_by_config_and_channel(map() | integer() | nil, String.t() | nil) :: integer() | nil
   def id_by_config_and_channel(config_or_id, channel_id) when is_binary(channel_id) do

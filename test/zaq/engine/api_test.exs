@@ -7,6 +7,7 @@ defmodule Zaq.Engine.ApiTest do
   alias Zaq.Engine.Connect
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Engine.Messages.Incoming
+  alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Engine.Workflows
   alias Zaq.Event
   alias Zaq.Repo
@@ -1263,6 +1264,342 @@ defmodule Zaq.Engine.ApiTest do
       event = Event.new(%{action: "unknown_action"}, :engine)
       result = Api.handle_event(event, :trigger, nil)
       assert {:error, {:invalid_request, _}} = result.response
+    end
+  end
+
+  describe "notification_logs action" do
+    test "requires confidential event and lists/fetches notification logs" do
+      {:ok, log} =
+        NotificationLog.create_log(%{
+          sender: "system",
+          recipient_name: "Alice",
+          payload: %{"subject" => "Test", "body" => "Body"}
+        })
+
+      unconfidential_event = Event.new(%{action: :list, opts: []}, :engine)
+
+      assert {:error, :confidential_event_required} =
+               Api.handle_event(unconfidential_event, :notification_logs, nil).response
+
+      list_event =
+        Event.new(
+          %{action: :list, opts: [page: 1, per_page: 20]},
+          :engine,
+          opts: [confidential: true]
+        )
+
+      assert %{logs: entries, total: total} =
+               Api.handle_event(list_event, :notification_logs, nil).response
+
+      assert total >= 1
+      assert Enum.any?(entries, &(&1.id == log.id))
+
+      get_event = Event.new(%{action: :get, id: log.id}, :engine, opts: [confidential: true])
+      assert %{id: fetched_id} = Api.handle_event(get_event, :notification_logs, nil).response
+      assert fetched_id == log.id
+
+      bad_event = Event.new(%{action: :unknown}, :engine, opts: [confidential: true])
+
+      assert {:error, {:invalid_request, %{action: :unknown}}} =
+               Api.handle_event(bad_event, :notification_logs, nil).response
+    end
+  end
+
+  describe "channel_config action" do
+    test "rejects unconfidential events and unknown actions" do
+      unconfidential_event = Event.new(%{action: :enabled_counts_by_provider}, :engine)
+
+      assert {:error, :confidential_event_required} =
+               Api.handle_event(unconfidential_event, :channel_config, nil).response
+
+      bad_event = Event.new(%{action: :unknown}, :engine, opts: [confidential: true])
+
+      assert {:error, {:invalid_request, %{action: :unknown}}} =
+               Api.handle_event(bad_event, :channel_config, nil).response
+    end
+
+    test "persists, updates, toggles, and queries channel_config records" do
+      unique = System.unique_integer([:positive])
+      provider = "slack"
+      user = user_fixture(%{username: "channel_config_admin_#{unique}"})
+      {:ok, user} = Zaq.Accounts.change_password(user, %{password: "StrongPass1!"})
+      actor = %{user_id: user.id}
+
+      persist_insert =
+        Event.new(
+          %{
+            action: :persist,
+            modal: :new,
+            config: %ChannelConfig{},
+            params: %{
+              name: "Slack #{unique}",
+              provider: provider,
+              kind: "retrieval",
+              url: "https://slack.example.com",
+              token: "xoxb-#{unique}",
+              enabled: true
+            }
+          },
+          :engine,
+          actor: actor,
+          opts: [confidential: true]
+        )
+
+      assert {:ok, created} = Api.handle_event(persist_insert, :channel_config, nil).response
+
+      get_event = Event.new(%{action: :get, id: created.id}, :engine, opts: [confidential: true])
+      assert %{id: fetched_id} = Api.handle_event(get_event, :channel_config, nil).response
+      assert fetched_id == created.id
+
+      get_bang_event =
+        Event.new(%{action: :get!, id: created.id}, :engine, opts: [confidential: true])
+
+      assert %{id: ^fetched_id} = Api.handle_event(get_bang_event, :channel_config, nil).response
+
+      by_provider =
+        Event.new(%{action: :get_by_provider, provider: provider}, :engine,
+          opts: [confidential: true]
+        )
+
+      assert %ChannelConfig{} = Api.handle_event(by_provider, :channel_config, nil).response
+
+      by_channel =
+        Event.new(
+          %{action: :get_by_channel_id, provider: provider, channel_id: "nonexistent"},
+          :engine,
+          opts: [confidential: true]
+        )
+
+      assert Api.handle_event(by_channel, :channel_config, nil).response == nil
+
+      agent_choice =
+        Event.new(%{action: :get_provider_agent_choice, config: created}, :engine,
+          opts: [confidential: true]
+        )
+
+      assert Api.handle_event(agent_choice, :channel_config, nil).response == nil
+
+      list_provider =
+        Event.new(%{action: :list_by_provider, provider: provider}, :engine,
+          opts: [confidential: true]
+        )
+
+      assert is_list(Api.handle_event(list_provider, :channel_config, nil).response)
+
+      list_named =
+        Event.new(
+          %{action: :list_by_provider_named, provider: provider, kind: :retrieval},
+          :engine,
+          opts: [confidential: true]
+        )
+
+      assert Enum.any?(
+               Api.handle_event(list_named, :channel_config, nil).response,
+               &(&1.id == created.id)
+             )
+
+      persist_update =
+        Event.new(
+          %{
+            action: :persist,
+            modal: :edit,
+            config: created,
+            params: %{name: "Slack Updated #{unique}"}
+          },
+          :engine,
+          actor: actor,
+          opts: [confidential: true]
+        )
+
+      assert {:ok, updated} = Api.handle_event(persist_update, :channel_config, nil).response
+      assert updated.name == "Slack Updated #{unique}"
+
+      toggle_event =
+        Event.new(%{action: :toggle_enabled!, config: updated}, :engine,
+          actor: actor,
+          opts: [confidential: true]
+        )
+
+      assert %ChannelConfig{enabled: false} =
+               Api.handle_event(toggle_event, :channel_config, nil).response
+    end
+
+    test "returns error changeset with stripped prepare callbacks when persist fails" do
+      unique = System.unique_integer([:positive])
+      user = user_fixture(%{username: "channel_config_err_#{unique}"})
+      {:ok, user} = Zaq.Accounts.change_password(user, %{password: "StrongPass1!"})
+
+      invalid_persist =
+        Event.new(
+          %{
+            action: :persist,
+            modal: :new,
+            config: %ChannelConfig{},
+            params: %{provider: "web_widget", kind: "retrieval", name: ""}
+          },
+          :engine,
+          actor: %{user_id: user.id},
+          opts: [confidential: true]
+        )
+
+      assert {:error, %Ecto.Changeset{valid?: false, prepare: []}} =
+               Api.handle_event(invalid_persist, :channel_config, nil).response
+    end
+
+    test "rejects channel_config mutations without an authenticated BO actor" do
+      unique = System.unique_integer([:positive])
+      unactivated_user = user_fixture(%{username: "unactivated_bo_#{unique}"})
+
+      {:ok, config} =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "Slack #{unique}",
+          provider: "slack",
+          kind: "retrieval",
+          url: "https://slack.example.com",
+          token: "xoxb-#{unique}",
+          enabled: true
+        })
+        |> Repo.insert()
+
+      for bad_actor <- [nil, %{user_id: -1}, %{user_id: unactivated_user.id}] do
+        persist_event =
+          Event.new(
+            %{
+              action: :persist,
+              modal: :new,
+              config: %ChannelConfig{},
+              params: %{
+                name: "Unauthorized #{unique}",
+                provider: "slack",
+                kind: "retrieval",
+                url: "https://slack.example.com",
+                token: "xoxb-#{unique}",
+                enabled: true
+              }
+            },
+            :engine,
+            actor: bad_actor,
+            opts: [confidential: true]
+          )
+
+        assert {:error, :unauthorized} =
+                 Api.handle_event(persist_event, :channel_config, nil).response
+
+        toggle_event =
+          Event.new(%{action: :toggle_enabled!, config: config}, :engine,
+            actor: bad_actor,
+            opts: [confidential: true]
+          )
+
+        assert {:error, :unauthorized} =
+                 Api.handle_event(toggle_event, :channel_config, nil).response
+      end
+
+      assert Repo.get!(ChannelConfig, config.id).enabled == true
+    end
+
+    test "rejects email connectors in generic channel_config mutations to preserve email persistence contract" do
+      unique = System.unique_integer([:positive])
+      user = user_fixture(%{username: "email_guard_admin_#{unique}"})
+      {:ok, user} = Zaq.Accounts.change_password(user, %{password: "StrongPass1!"})
+      actor = %{user_id: user.id}
+
+      {:ok, imap_config} =
+        %ChannelConfig{}
+        |> ChannelConfig.changeset(%{
+          name: "IMAP #{unique}",
+          provider: "email:imap",
+          kind: "retrieval",
+          url: "imap://mail.example.com",
+          token: "secret-#{unique}",
+          enabled: false,
+          settings: %{
+            "server" => "mail.example.com",
+            "username" => "bot@example.com",
+            "imap" => %{"selected_mailboxes" => ["INBOX"]}
+          }
+        })
+        |> Repo.insert()
+
+      for email_provider <- ["email:imap", "email:smtp"] do
+        persist_new_email =
+          Event.new(
+            %{
+              action: :persist,
+              modal: :new,
+              config: %ChannelConfig{},
+              params: %{
+                name: "Email #{unique}",
+                provider: email_provider,
+                kind: "retrieval",
+                url: "smtp://mail.example.com",
+                enabled: true
+              }
+            },
+            :engine,
+            actor: actor,
+            opts: [confidential: true]
+          )
+
+        assert {:error, :email_connector_requires_email_settings} =
+                 Api.handle_event(persist_new_email, :channel_config, nil).response
+      end
+
+      tampered_struct = %{imap_config | provider: "slack"}
+
+      persist_tampered =
+        Event.new(
+          %{
+            action: :persist,
+            modal: :edit,
+            config: tampered_struct,
+            params: %{name: "Bypassed Email #{unique}"}
+          },
+          :engine,
+          actor: actor,
+          opts: [confidential: true]
+        )
+
+      assert {:error, :email_connector_requires_email_settings} =
+               Api.handle_event(persist_tampered, :channel_config, nil).response
+
+      toggle_email =
+        Event.new(%{action: :toggle_enabled!, config: tampered_struct}, :engine,
+          actor: actor,
+          opts: [confidential: true]
+        )
+
+      assert {:error, :email_connector_requires_email_settings} =
+               Api.handle_event(toggle_email, :channel_config, nil).response
+
+      persisted = Repo.get!(ChannelConfig, imap_config.id)
+      assert persisted.name == "IMAP #{unique}"
+      assert persisted.enabled == false
+    end
+
+    test "returns aggregate enabled counts and data source flags" do
+      counts_event =
+        Event.new(%{action: :enabled_counts_by_provider}, :engine, opts: [confidential: true])
+
+      assert is_map(Api.handle_event(counts_event, :channel_config, nil).response)
+
+      providers_event =
+        Event.new(%{action: :enabled_providers_by_kind, kind: "retrieval"}, :engine,
+          opts: [confidential: true]
+        )
+
+      assert is_list(Api.handle_event(providers_event, :channel_config, nil).response)
+
+      ds_list =
+        Event.new(%{action: :list_enabled_data_sources}, :engine, opts: [confidential: true])
+
+      assert is_list(Api.handle_event(ds_list, :channel_config, nil).response)
+
+      ds_enabled =
+        Event.new(%{action: :data_source_config_enabled?}, :engine, opts: [confidential: true])
+
+      assert is_boolean(Api.handle_event(ds_enabled, :channel_config, nil).response)
     end
   end
 
