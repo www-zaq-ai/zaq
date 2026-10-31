@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   alias Zaq.Ingestion.Document
   alias Zaq.Ingestion.ExternalSource
   alias Zaq.Ingestion.IngestJob
+  alias Zaq.Ingestion.JobLifecycle
   alias Zaq.Permissions
   alias Zaq.Repo
   alias Zaq.Storage.EntryCatalog
@@ -3002,6 +3003,48 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   # ────────────────────────────────────────────────────────────────
 
   describe "handle_info {:job_progress, job_id, payload}" do
+    test "restores the last preparation bar on refresh without another progress event", %{
+      conn: conn
+    } do
+      job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
+
+      payload = %{"stage" => "image_to_text", "current" => 6, "total" => 6}
+      assert :ok = JobLifecycle.report_preparation_progress(job.id, payload)
+
+      for _refresh <- 1..2 do
+        {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+        view = open_jobs_drawer(view)
+
+        assert render(view) =~ "describing images 6/6"
+        assert has_element?(view, "progress[value=\"6\"][max=\"6\"]")
+      end
+    end
+
+    test "expired and malformed saved progress stays hidden after refresh", %{conn: conn} do
+      old_timestamp = DateTime.utc_now() |> DateTime.add(-31, :minute) |> DateTime.to_iso8601()
+
+      for snapshot <- [
+            %{
+              "payload" => %{"stage" => "image_to_text", "current" => 2, "total" => 3},
+              "reported_at" => old_timestamp
+            },
+            %{"payload" => %{"current" => 2}, "reported_at" => "invalid"}
+          ] do
+        create_job(%{
+          file_path: "scan.pdf",
+          status: "processing",
+          total_chunks: 0,
+          preparation_progress: snapshot
+        })
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      view = open_jobs_drawer(view)
+      assert render(view) =~ "Preparing — starting"
+      refute render(view) =~ "describing images"
+      assert :sys.get_state(view.pid).socket.assigns.prep_progress == %{}
+    end
+
     test "renders a Preparing indicator for a processing job with no chunks yet", %{conn: conn} do
       job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
 

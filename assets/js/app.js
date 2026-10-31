@@ -54,6 +54,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
       liveViewHooks["ZaqWeb.Components.DesignSystem.PersonProfile.ProfileFocus"],
     "ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure":
       liveViewHooks["ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure"],
+    DialogOverlay: liveViewHooks.DialogOverlay,
     PeopleBulkDeleteDialog: liveViewHooks.DialogOverlay,
     PeoplePermissions,
     PeopleAuthForm,

@@ -80,7 +80,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        # jobs list on every change so the high-frequency :job_progress handler
        # can gate on an O(1) lookup instead of scanning the full jobs list.
        active_prep_ids: MapSet.new(),
-       # Transient PDF-prep progress, keyed by job id (not persisted)
+       # Live progress, restored from each job's saved snapshot on page load.
        prep_progress: %{},
        # Monotonic ms of the last progress update per prep entry, used to expire
        # stale bars left behind by an orphaned (never-finalized) job.
@@ -1162,8 +1162,37 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
           into: MapSet.new(),
           do: job.id
 
-    assign(socket, jobs: jobs, active_prep_ids: active_prep_ids)
+    socket = assign(socket, jobs: jobs, active_prep_ids: active_prep_ids)
+
+    Enum.reduce(jobs, socket, fn job, acc ->
+      if active_prep_job?(acc, job.id) and not Map.has_key?(acc.assigns.prep_progress, job.id) do
+        restore_preparation_progress(acc, job.id, Map.get(job, :preparation_progress))
+      else
+        acc
+      end
+    end)
   end
+
+  defp restore_preparation_progress(socket, id, %{
+         "payload" => payload,
+         "reported_at" => timestamp
+       })
+       when is_map(payload) and is_binary(timestamp) do
+    with {:ok, reported_at, _offset} <- DateTime.from_iso8601(timestamp),
+         age = max(0, DateTime.diff(DateTime.utc_now(), reported_at, :millisecond)),
+         true <- age < prep_ttl_ms() do
+      socket
+      |> record_prep_progress(id, payload)
+      |> Phoenix.Component.update(
+        :prep_seen_at,
+        &Map.put(&1, id, :erlang.monotonic_time(:millisecond) - age)
+      )
+    else
+      _ -> socket
+    end
+  end
+
+  defp restore_preparation_progress(socket, _id, _snapshot), do: socket
 
   # Records a fresh progress payload and its timestamp, starting the prune
   # sweep when this is the first live entry (so the timer only runs while there
