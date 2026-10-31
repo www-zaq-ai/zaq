@@ -9,6 +9,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
 
   import ZaqWeb.Helpers.DateFormat
 
+  alias Zaq.Contracts.PreparationProgress
   alias ZaqWeb.Components.DesignSystem.StatusPill
   alias ZaqWeb.Components.DesignSystem.Toggle
 
@@ -148,7 +149,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanel do
       class="zaq-text-body-sm space-y-0.5"
       style="color: var(--zaq-text-color-body-secondary)"
     >
-      <%= if is_map(@progress) do %>
+      <%= if PreparationProgress.valid?(@progress) do %>
         <p>Preparing — {prep_text(@progress)}</p>
         <progress
           class="zaq-jobs-panel-progress h-1.5 w-full overflow-hidden rounded-full"

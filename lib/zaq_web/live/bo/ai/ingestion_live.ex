@@ -14,7 +14,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.Events, as: ChannelEvents
   alias Zaq.Channels.WebhookUrl
-  alias Zaq.Contracts.Record
+  alias Zaq.Contracts.{PreparationProgress, Record}
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Event
   alias Zaq.Ingestion
@@ -975,7 +975,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
     # phase. This drops stragglers that arrive after the job moved on (PubSub
     # ordering is not guaranteed), which would otherwise re-show a bar on an
     # already-finished or chunk-scheduled job.
-    if active_prep_job?(socket, job_id) do
+    if active_prep_job?(socket, job_id) and PreparationProgress.valid?(payload) do
       {:noreply, record_prep_progress(socket, job_id, payload)}
     else
       {:noreply, socket}
@@ -1178,7 +1178,8 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
          "reported_at" => timestamp
        })
        when is_map(payload) and is_binary(timestamp) do
-    with {:ok, reported_at, _offset} <- DateTime.from_iso8601(timestamp),
+    with true <- PreparationProgress.valid?(payload),
+         {:ok, reported_at, _offset} <- DateTime.from_iso8601(timestamp),
          age = max(0, DateTime.diff(DateTime.utc_now(), reported_at, :millisecond)),
          true <- age < prep_ttl_ms() do
       socket

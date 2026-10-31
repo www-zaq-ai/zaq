@@ -871,6 +871,7 @@ defmodule Zaq.Ingestion do
   The pending transition and worker insertion share a transaction. Returns
   `{:error, :already_queued}` on a worker uniqueness conflict, preserving the
   persisted job state and notifying subscribers of that state after rollback.
+  Incomplete document workers deduplicate by ingestion-job ID for their full lifetime.
   """
   @spec retry_job(Ecto.UUID.t()) ::
           {:ok, IngestJob.t()}
@@ -902,7 +903,15 @@ defmodule Zaq.Ingestion do
 
     # A completed document worker may have left failed chunks behind. It must
     # not prevent an explicit retry, while active workers still deduplicate.
-    worker = IngestWorker.new(args, unique: [states: Oban.Job.unique_states(:incomplete)])
+    worker =
+      IngestWorker.new(args,
+        unique: [
+          period: :infinity,
+          fields: [:worker, :args],
+          keys: [:job_id],
+          states: Oban.Job.unique_states(:incomplete)
+        ]
+      )
 
     with {:ok, updated_job} <-
            JobLifecycle.transition(job, %{status: "pending", error: nil, completed_at: nil}),

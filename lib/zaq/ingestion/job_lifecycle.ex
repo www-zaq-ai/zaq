@@ -3,6 +3,7 @@ defmodule Zaq.Ingestion.JobLifecycle do
 
   import Ecto.Query
 
+  alias Zaq.Contracts.PreparationProgress
   alias Zaq.Ingestion.IngestJob
   alias Zaq.Repo
 
@@ -92,9 +93,23 @@ defmodule Zaq.Ingestion.JobLifecycle do
     Phoenix.PubSub.broadcast(@pubsub, @topic, {:job_progress, job_id, payload})
   end
 
-  @doc "Saves the current preparation snapshot before broadcasting it to connected clients."
-  @spec report_preparation_progress(Ecto.UUID.t(), map()) :: :ok | {:error, Ecto.Changeset.t()}
+  @doc """
+  Saves valid preparation progress before broadcasting it to connected clients.
+
+  Malformed supported fields return `{:error, :invalid_preparation_progress}`
+  without changing the snapshot or broadcasting an event.
+  """
+  @spec report_preparation_progress(Ecto.UUID.t(), map()) ::
+          :ok | {:error, :invalid_preparation_progress | Ecto.Changeset.t()}
   def report_preparation_progress(job_id, payload) when is_map(payload) do
+    if PreparationProgress.valid?(payload) do
+      save_preparation_progress(job_id, payload)
+    else
+      {:error, :invalid_preparation_progress}
+    end
+  end
+
+  defp save_preparation_progress(job_id, payload) do
     result =
       Repo.transaction(fn ->
         job =

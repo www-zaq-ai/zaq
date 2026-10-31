@@ -137,6 +137,29 @@ defmodule Zaq.Ingestion.JobLifecycleTest do
   end
 
   describe "durable preparation progress" do
+    test "rejects malformed fields without replacing a valid snapshot or broadcasting" do
+      job = create_job(%{status: "processing"})
+      job_id = job.id
+      payload = %{"current" => 2, "total" => 6}
+      assert :ok = JobLifecycle.report_preparation_progress(job_id, payload)
+      assert_receive {:job_progress, ^job_id, ^payload}
+      snapshot = Repo.get!(IngestJob, job_id).preparation_progress
+
+      for malformed <- [
+            %{"current" => %{}, "total" => 6},
+            %{"current" => 2, "total" => []},
+            %{"label" => %{}},
+            %{current: 2}
+          ] do
+        assert {:error, :invalid_preparation_progress} =
+                 JobLifecycle.report_preparation_progress(job_id, malformed)
+
+        assert Repo.get!(IngestJob, job_id).preparation_progress == snapshot
+      end
+
+      refute_receive {:job_progress, ^job_id, _}
+    end
+
     test "clears progress saved after the worker loaded its job struct" do
       for attrs <- [%{status: "failed"}, %{status: "pending"}, %{total_chunks: 6}],
           transition <- [:transition, :transition!] do

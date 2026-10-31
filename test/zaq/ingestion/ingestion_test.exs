@@ -768,6 +768,41 @@ defmodule Zaq.IngestionTest do
   end
 
   describe "retry_job/1" do
+    property "active document workers block retries for their full lifetime by job identity" do
+      check all(
+              age <- integer(121..86_400),
+              previous_chunk_retry? <- boolean(),
+              max_runs: 20
+            ) do
+        for state <- Oban.Job.unique_states(:incomplete) do
+          completed_at = DateTime.utc_now()
+
+          job =
+            create_job(%{status: "failed", error: "previous failure", completed_at: completed_at})
+
+          worker =
+            %{"job_id" => job.id, "retry_failed_chunks" => previous_chunk_retry?}
+            |> IngestWorker.new()
+            |> Oban.insert!()
+            |> Ecto.Changeset.change(
+              state: to_string(state),
+              inserted_at: DateTime.add(DateTime.utc_now(), -age, :second)
+            )
+            |> Repo.update!()
+
+          assert {:error, :already_queued} = Ingestion.retry_job(job.id)
+          assert Repo.get!(IngestJob, job.id) == job
+
+          assert Repo.all(
+                   from(j in Oban.Job,
+                     where: fragment("?->>'job_id' = ?", j.args, ^job.id),
+                     select: {j.id, j.state, j.args, j.inserted_at}
+                   )
+                 ) == [{worker.id, worker.state, worker.args, worker.inserted_at}]
+        end
+      end
+    end
+
     test "does not report a retry as queued when a document worker is already active" do
       completed_at = DateTime.utc_now()
       job = create_job(%{status: "failed", error: "previous failure", completed_at: completed_at})

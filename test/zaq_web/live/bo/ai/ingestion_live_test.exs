@@ -3003,6 +3003,41 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLiveTest do
   # ────────────────────────────────────────────────────────────────
 
   describe "handle_info {:job_progress, job_id, payload}" do
+    test "ignores malformed saved counters with a valid timestamp on refresh", %{conn: conn} do
+      timestamp = DateTime.to_iso8601(DateTime.utc_now())
+
+      for payload <- [
+            %{"current" => %{}, "total" => 6},
+            %{"current" => 2, "total" => []}
+          ] do
+        create_job(%{
+          file_path: "malformed-scan.pdf",
+          status: "processing",
+          total_chunks: 0,
+          preparation_progress: %{"payload" => payload, "reported_at" => timestamp}
+        })
+      end
+
+      for _refresh <- 1..2 do
+        {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+        view = open_jobs_drawer(view)
+        assert render(view) =~ "Preparing — starting"
+        assert :sys.get_state(view.pid).socket.assigns.prep_progress == %{}
+      end
+    end
+
+    test "malformed live progress does not replace the last valid event", %{conn: conn} do
+      job = create_job(%{file_path: "scan.pdf", status: "processing", total_chunks: 0})
+      {:ok, view, _html} = live(conn, ~p"/bo/ingestion")
+      payload = %{"stage" => "image_to_text", "current" => 2, "total" => 6}
+      send(view.pid, {:job_progress, job.id, payload})
+      send(view.pid, {:job_progress, job.id, %{"current" => %{}, "total" => 6}})
+
+      view = open_jobs_drawer(view)
+      assert render(view) =~ "describing images 2/6"
+      assert :sys.get_state(view.pid).socket.assigns.prep_progress == %{job.id => payload}
+    end
+
     test "restores the last preparation bar on refresh without another progress event", %{
       conn: conn
     } do
