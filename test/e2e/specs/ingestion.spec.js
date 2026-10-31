@@ -335,9 +335,9 @@ test.describe("Ingestion", () => {
     await modelTextInput.press("Tab")
 
     // Wait for the server to process validate_embedding and set model_changed: true,
-    // which turns the save button red.
+    // which gives the save button the Design System destructive state.
     const saveBtn = page.getByRole("button", { name: "Save Embedding Settings" })
-    await expect(saveBtn).toHaveClass(/bg-red-500/, { timeout: 5_000 })
+    await expect(saveBtn).toHaveClass(/\bzaq-btn-danger\b/, { timeout: 5_000 })
     await saveBtn.click()
 
     await confirmDestructiveSave(page)
