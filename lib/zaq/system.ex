@@ -7,6 +7,7 @@ defmodule Zaq.System do
 
   import Ecto.Query
 
+  alias Zaq.Agent.ProviderModels
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.Credential
@@ -24,8 +25,10 @@ defmodule Zaq.System do
   alias Zaq.System.HttpCredentialProviderRef
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
+  alias Zaq.System.OperationModelConfig
   alias Zaq.System.OutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
+  alias Zaq.System.RAGModelConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.System.WebBrowsingConfig
   alias Zaq.Types.EncryptedString
@@ -552,6 +555,112 @@ defmodule Zaq.System do
 
   def save_llm_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
 
+  @doc "Persists retrieval tuning without changing the configured chat model."
+  def save_retrieval_config(attrs) when is_map(attrs) do
+    changeset = LLMConfig.retrieval_changeset(get_llm_config(), attrs)
+
+    if changeset.valid? do
+      config = Ecto.Changeset.apply_changes(changeset)
+
+      with {:ok, _} <-
+             persist_config_fields(
+               ~w(max_cosine_distance fusion_bm25_weight fusion_vector_weight),
+               "llm",
+               config
+             ) do
+        {:ok, get_llm_config()}
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  @doc "Loads a saved-only specialized RAG model selection."
+  def get_rag_model_config(kind) when kind in [:reranking, :decision] do
+    %RAGModelConfig{
+      credential_id: ParseUtils.parse_int(get_config("rag.#{kind}.credential_id"), nil),
+      model: get_config("rag.#{kind}.model") |> blank_to_nil()
+    }
+  end
+
+  @doc "Saves a specialized RAG model selection without invoking it."
+  def save_rag_model_config(kind, attrs) when kind in [:reranking, :decision] and is_map(attrs) do
+    changeset = RAGModelConfig.changeset(get_rag_model_config(kind), attrs)
+    credential_id = Ecto.Changeset.get_field(changeset, :credential_id)
+
+    changeset =
+      if credential_id && is_nil(Repo.get(AIProviderCredential, credential_id)) do
+        Ecto.Changeset.add_error(changeset, :credential_id, "does not exist")
+      else
+        changeset
+      end
+
+    if changeset.valid? do
+      config = Ecto.Changeset.apply_changes(changeset)
+
+      with {:ok, _} <- persist_config_fields(~w(credential_id model), "rag.#{kind}", config) do
+        {:ok, get_rag_model_config(kind)}
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  @doc "Loads an independent translation or small-model selection, without resolving secrets."
+  def get_operation_model_config(kind) when kind in [:translation, :small] do
+    prefix = operation_model_prefix(kind)
+
+    %OperationModelConfig{
+      credential_id: ParseUtils.parse_int(get_config("#{prefix}.credential_id"), nil),
+      model: get_config("#{prefix}.model") |> blank_to_nil(),
+      temperature: ParseUtils.parse_float(get_config("#{prefix}.temperature"), 0.0),
+      top_p: ParseUtils.parse_float(get_config("#{prefix}.top_p"), 0.9)
+    }
+  end
+
+  @doc "Atomically saves a dedicated operation selection and sampling."
+  def save_operation_model_config(kind, attrs) when kind in [:translation, :small] do
+    changeset = OperationModelConfig.changeset(get_operation_model_config(kind), attrs)
+    credential_id = Ecto.Changeset.get_field(changeset, :credential_id)
+    model = Ecto.Changeset.get_field(changeset, :model)
+    credential = if credential_id, do: get_ai_provider_credential(credential_id)
+    changeset = validate_operation_model(changeset, credential_id, credential, model)
+
+    if changeset.valid? do
+      config = Ecto.Changeset.apply_changes(changeset)
+
+      with {:ok, _} <-
+             persist_config_fields(
+               ~w(credential_id model temperature top_p),
+               operation_model_prefix(kind),
+               config
+             ) do
+        {:ok, get_operation_model_config(kind)}
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  defp validate_operation_model(changeset, nil, _credential, _model), do: changeset
+
+  defp validate_operation_model(changeset, _id, nil, _model),
+    do: Ecto.Changeset.add_error(changeset, :credential_id, "does not exist")
+
+  defp validate_operation_model(changeset, _id, credential, model) do
+    models = ProviderModels.models_for_credential(credential)
+
+    if models == [] or
+         Enum.any?(models, &(&1.id == model and OperationModelConfig.supports?(&1))) do
+      changeset
+    else
+      Ecto.Changeset.add_error(changeset, :model, "is not a compatible text-generation model")
+    end
+  end
+
+  defp operation_model_prefix(:translation), do: "rag.translation"
+  defp operation_model_prefix(:small), do: "global.small_model"
+
   # ── Embedding ─────────────────────────────────────────────────────────
 
   @doc "Loads Embedding configuration from DB as `%EmbeddingConfig{}`."
@@ -977,7 +1086,15 @@ defmodule Zaq.System do
   defp credential_usage_keys(id) do
     id_value = to_string(id)
 
-    ["llm.credential_id", "embedding.credential_id", "image_to_text.credential_id"]
+    [
+      "llm.credential_id",
+      "embedding.credential_id",
+      "image_to_text.credential_id",
+      "rag.reranking.credential_id",
+      "rag.translation.credential_id",
+      "global.small_model.credential_id",
+      "rag.decision.credential_id"
+    ]
     |> Enum.filter(fn key -> get_config(key) == id_value end)
   end
 
@@ -988,6 +1105,21 @@ defmodule Zaq.System do
       value = encrypted_field_value(field, config)
       set_config("#{namespace}.#{field}", value)
     end)
+  end
+
+  defp persist_config_fields(fields, namespace, config) do
+    Repo.transaction(fn ->
+      Enum.each(fields, fn field ->
+        persist_config_field(field, namespace, config)
+      end)
+    end)
+  end
+
+  defp persist_config_field(field, namespace, config) do
+    case set_config("#{namespace}.#{field}", encrypted_field_value(field, config)) do
+      {:ok, _} -> :ok
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   defp encrypted_field_value(field, config)

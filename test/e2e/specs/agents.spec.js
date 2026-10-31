@@ -142,6 +142,7 @@ test.describe("Agents", () => {
     await expect(contextWindow).toHaveValue(/[1-9][0-9]+/)
     const modelDefault = await contextWindow.inputValue()
 
+    await page.locator("#agent-advanced-options summary").click()
     await contextWindow.fill("120000")
     await page.locator('input[name="configured_agent[name]"]').fill(`E2E Agent Context Override ${Date.now()}`)
     await waitForLiveViewSettled(page)
@@ -490,6 +491,7 @@ test.describe("Agents", () => {
     await selectModelFromPicker(page, TOOL_MODEL)
     await waitForLiveViewSettled(page)
 
+    await page.locator("#agent-advanced-options summary").click()
     await page.locator('textarea[name="configured_agent[advanced_options_json]"]').fill("{invalid json}")
     await page.locator("#save-agent-button").click()
     await waitForLiveViewSettled(page)
@@ -509,6 +511,7 @@ test.describe("Agents", () => {
     await selectModelFromPicker(page, TOOL_MODEL)
     await waitForLiveViewSettled(page)
 
+    await page.locator("#agent-advanced-options summary").click()
     await page.locator('textarea[name="configured_agent[advanced_options_json]"]').fill('"just a string"')
     await page.locator("#save-agent-button").click()
     await waitForLiveViewSettled(page)

@@ -4152,7 +4152,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert html =~ "llm-config-form"
       refute html =~ ~s(id="llm-model-select")
-      assert html =~ ~s(name="llm_config[model]" value="")
+      assert has_element?(view, ~s(input[name="llm_config[model]"][value=""]))
     end
 
     test "validate_llm treats omitted credential ids as custom providers", %{conn: conn} do
@@ -4233,7 +4233,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       html =
         view
-        |> element("button[phx-click='cancel_unlock_embedding']")
+        |> element("button[phx-click='cancel_unlock_embedding']:not([aria-label])")
         |> render_click()
 
       refute html =~ "Unlock Model Selection"
@@ -4436,6 +4436,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=embedding")
 
+      view |> element("button[phx-click='unlock_embedding']") |> render_click()
+      view |> element("button[phx-click='confirm_unlock_embedding']") |> render_click()
+
       html =
         render_change(view, "validate_embedding", %{
           "embedding_config" => %{
@@ -4447,7 +4450,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html =~ "bg-red-500"
+      assert html =~ "zaq-btn-danger"
     end
   end
 
@@ -4967,7 +4970,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ "llm-config-form"
     end
 
-    test "save_llm shows error when fusion weights sum is below minimum", %{conn: conn} do
+    test "save_retrieval shows error when fusion weights sum is below minimum", %{conn: conn} do
       {:ok, credential} =
         System.create_ai_provider_credential(%{
           name: "LLM Fusion Weights",
@@ -4976,11 +4979,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           auth_kind: "none"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
       html =
-        render_submit(view, "save_llm", %{
-          "llm_config" => %{
+        render_submit(view, "save_retrieval", %{
+          "retrieval_config" => %{
             "credential_id" => Integer.to_string(credential.id),
             "model" => "gpt-4o",
             "temperature" => "0.1",
@@ -5067,12 +5070,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       assert html =~ "llm-config-form"
     end
 
-    test "validate_llm clamps float fusion weight inputs", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+    test "validate_retrieval clamps float fusion weight inputs", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
       html =
-        render_hook(view, "validate_llm", %{
-          "llm_config" =>
+        render_hook(view, "validate_retrieval", %{
+          "retrieval_config" =>
             Map.merge(llm_validation_params(), %{
               "credential_id" => "",
               "model" => "test-model",
@@ -5081,12 +5084,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             })
         })
 
-      assert html =~ ~s(name="llm_config[fusion_bm25_weight]" value="0.75")
-      assert html =~ ~s(name="llm_config[fusion_vector_weight]" value="0.25")
+      assert input_number(html, "retrieval_config[fusion_bm25_weight]") == 0.75
+      assert input_number(html, "retrieval_config[fusion_vector_weight]") == 0.25
     end
 
     test "numeric LLM fusion weights are normalized", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
       for {bm25, vector, expected_bm25, expected_vector} <- [
             {-0.2, 0.5, 0.0, 1.0},
@@ -5094,22 +5097,22 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
             {0.756, 0.5, 0.76, 0.24}
           ] do
         html =
-          render_hook(view, "validate_llm", %{
-            "llm_config" =>
+          render_hook(view, "validate_retrieval", %{
+            "retrieval_config" =>
               Map.merge(llm_validation_params(), %{
                 "fusion_bm25_weight" => bm25,
                 "fusion_vector_weight" => vector
               })
           })
 
-        assert input_number(html, "llm_config[fusion_bm25_weight]") == expected_bm25
-        assert input_number(html, "llm_config[fusion_vector_weight]") == expected_vector
+        assert input_number(html, "retrieval_config[fusion_bm25_weight]") == expected_bm25
+        assert input_number(html, "retrieval_config[fusion_vector_weight]") == expected_vector
       end
     end
 
     property "normalized LLM fusion weights remain bounded complements", %{conn: conn} do
       check all(weight <- integer(-2000..3000), side <- member_of([:bm25, :vector]), max_runs: 25) do
-        {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=llm")
+        {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=rag")
 
         try do
           value = weight / 1000
@@ -5120,9 +5123,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
               "fusion_vector_weight" => if(side == :vector, do: value, else: "0.5")
             })
 
-          html = render_hook(view, "validate_llm", %{"llm_config" => params})
-          bm25 = input_number(html, "llm_config[fusion_bm25_weight]")
-          vector = input_number(html, "llm_config[fusion_vector_weight]")
+          html = render_hook(view, "validate_retrieval", %{"retrieval_config" => params})
+          bm25 = input_number(html, "retrieval_config[fusion_bm25_weight]")
+          vector = input_number(html, "retrieval_config[fusion_vector_weight]")
           assert bm25 >= 0.0 and bm25 <= 1.0
           assert vector >= 0.0 and vector <= 1.0
           assert_in_delta bm25 + vector, 1.0, 0.0001
@@ -5130,16 +5133,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           assert_in_delta vector * 100, Float.round(vector * 100), 0.0001
 
           stable =
-            render_hook(view, "validate_llm", %{
-              "llm_config" =>
+            render_hook(view, "validate_retrieval", %{
+              "retrieval_config" =>
                 Map.merge(llm_validation_params(), %{
                   "fusion_bm25_weight" => bm25,
                   "fusion_vector_weight" => vector
                 })
             })
 
-          assert input_number(stable, "llm_config[fusion_bm25_weight]") == bm25
-          assert input_number(stable, "llm_config[fusion_vector_weight]") == vector
+          assert input_number(stable, "retrieval_config[fusion_bm25_weight]") == bm25
+          assert input_number(stable, "retrieval_config[fusion_vector_weight]") == vector
         after
           if Process.alive?(view.pid), do: GenServer.stop(view.pid)
         end
@@ -5254,7 +5257,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html_small =~ ~s(name="embedding_config[dimension]" value="1536")
+      assert input_number(html_small, "embedding_config[dimension]") == 1536
 
       html_large =
         render_change(view, "validate_embedding", %{
@@ -5267,7 +5270,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html_large =~ ~s(name="embedding_config[dimension]" value="3072")
+      assert input_number(html_large, "embedding_config[dimension]") == 3072
     end
 
     test "validate_embedding keeps dimension when lookup returns nil", %{conn: conn} do
@@ -5316,7 +5319,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           }
         })
 
-      assert html =~ ~s(name="embedding_config[dimension]" value="1536")
+      assert input_number(html, "embedding_config[dimension]") == 1536
     end
   end
 
@@ -7593,6 +7596,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   defp stub_response_for_action(:system_config_get_image_to_text_config),
     do: %Zaq.System.ImageToTextConfig{}
 
+  defp stub_response_for_action(:system_config_get_operation_model_config),
+    do: %Zaq.System.OperationModelConfig{}
+
   defp stub_response_for_action(:system_config_embedding_ready), do: false
   defp stub_response_for_action(:system_config_get_global_default_agent_id), do: nil
   defp stub_response_for_action(:system_config_get_global_base_url), do: nil
@@ -8640,10 +8646,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         })
 
       refute html =~ ~s(id="llm-model-select")
-      assert html =~ ~s(name="llm_config[model]" value="manual-model")
+      assert has_element?(view, ~s(input[name="llm_config[model]"][value="manual-model"]))
       assert html =~ "is invalid"
-      assert html =~ ~s(name="llm_config[fusion_bm25_weight]" value="0.75")
-      assert html =~ ~s(name="llm_config[fusion_vector_weight]" value="0.25")
+      view |> element("#rag-tab") |> render_click()
+
+      html =
+        render_hook(view, "validate_retrieval", %{
+          "retrieval_config" => %{
+            "fusion_bm25_weight" => "0.75",
+            "fusion_vector_weight" => "0.25"
+          }
+        })
+
+      assert input_number(html, "retrieval_config[fusion_bm25_weight]") == 0.75
+      assert input_number(html, "retrieval_config[fusion_vector_weight]") == 0.25
       assert System.get_llm_config() == before
     end
 
@@ -9055,6 +9071,111 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       "distance_threshold" => "1.0",
       "path" => "/chat/completions"
     }
+  end
+
+  describe "RAG configuration" do
+    test "specialized selectors filter, reject incompatible models, save and reload independently",
+         %{conn: conn} do
+      with_catalog(fn providers, models ->
+        provider = Enum.find(providers, &(&1.id == :openai)) |> Map.put(:id, :catalog_test)
+
+        source =
+          Enum.find(models, &(&1.provider == :openai and not &1.deprecated and not &1.retired))
+
+        base =
+          Map.merge(source, %{
+            provider: :catalog_test,
+            modalities: %{input: [:text], output: [:text]}
+          })
+
+        {providers ++ [provider],
+         models ++
+           [
+             Map.merge(base, %{
+               id: "rag-reranker",
+               name: "RAG reranker",
+               capabilities: %{rerank: true}
+             }),
+             Map.merge(base, %{
+               id: "rag-decider",
+               name: "RAG decider",
+               capabilities: %{},
+               modalities: %{input: [:text], output: [:decisions]}
+             }),
+             Map.merge(base, %{id: "rag-chat", name: "RAG chat", capabilities: %{chat: true}})
+           ]}
+      end)
+
+      credential = ai_credential_fixture(%{provider: "catalog_test"})
+      other = ai_credential_fixture()
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=rag")
+
+      for {kind, model, excluded} <- [
+            {"reranking", "rag-reranker", "rag-decider"},
+            {"decision", "rag-decider", "rag-reranker"}
+          ] do
+        params = %{
+          "kind" => kind,
+          "rag_model_config" => %{"credential_id" => to_string(credential.id), "model" => ""}
+        }
+
+        render_change(view, "validate_rag_model", params)
+        assert has_element?(view, "#rag-#{kind}-model-select li[data-select-value='#{model}']")
+        refute has_element?(view, "#rag-#{kind}-model-select li[data-select-value='#{excluded}']")
+        refute has_element?(view, "#rag-#{kind}-model-select li[data-select-value='rag-chat']")
+        invalid = put_in(params, ["rag_model_config", "model"], "rag-chat")
+        assert render_submit(view, "save_rag_model", invalid) =~ "is not a compatible model"
+        assert System.get_rag_model_config(String.to_existing_atom(kind)).model == nil
+        valid = put_in(params, ["rag_model_config", "model"], model)
+        assert render_submit(view, "save_rag_model", valid) =~ "RAG model settings saved"
+        assert System.get_rag_model_config(String.to_existing_atom(kind)).model == model
+        switched = put_in(valid, ["rag_model_config", "credential_id"], to_string(other.id))
+        render_change(view, "validate_rag_model", switched)
+        assert has_element?(view, "#rag-#{kind}-model-select input[data-select-value][value='']")
+      end
+
+      {:ok, reloaded, _} = live(conn, ~p"/bo/system-config?tab=rag")
+      assert has_element?(reloaded, "#rag-reranking-model-select input[value='rag-reranker']")
+      assert has_element?(reloaded, "#rag-decision-model-select input[value='rag-decider']")
+    end
+
+    test "locked model changes are ignored and retrieval saves preserve chat configuration", %{
+      conn: conn
+    } do
+      credential = seed_embedding_config(%{model: "locked-model", dimension: 1536})
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=rag")
+
+      render_change(view, "validate_embedding", %{
+        "embedding_config" => %{
+          "credential_id" => to_string(credential.id),
+          "model" => "forged-model",
+          "dimension" => "42"
+        }
+      })
+
+      assert has_element?(
+               view,
+               "input[name='embedding_config[dimension]'][value='1536'][disabled]"
+             )
+
+      assert has_element?(
+               view,
+               "input[name='embedding_config[model]'][value='locked-model'][disabled]"
+             )
+
+      System.set_config("llm.model", "keep-model")
+
+      assert render_submit(view, "save_retrieval", %{
+               "retrieval_config" => %{
+                 "max_cosine_distance" => "0.8",
+                 "fusion_bm25_weight" => "0.3",
+                 "fusion_vector_weight" => "0.7"
+               }
+             }) =~ "Retrieval settings saved"
+
+      assert System.get_llm_config().max_cosine_distance == 0.8
+      assert System.get_llm_config().model == "keep-model"
+    end
   end
 
   defp input_number(html, name) do

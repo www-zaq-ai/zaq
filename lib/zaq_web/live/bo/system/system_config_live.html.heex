@@ -9,167 +9,37 @@
   <div class="flex flex-col lg:flex-row zaq-layout-section-gap items-start">
     <%!-- Sidebar --%>
     <div class="w-full lg:w-52 shrink-0">
-      <div class="bg-white rounded-2xl border border-black/[0.06] shadow-sm overflow-hidden">
-        <div class="px-4 py-3 border-b border-black/[0.06] bg-[#fafafa]">
-          <p class="font-mono text-[0.7rem] font-semibold text-black/40 uppercase tracking-wider">
+      <div class="zaq-card-default zaq-border-default overflow-hidden">
+        <div class="px-4 py-3" style="background: var(--zaq-surface-color-base)">
+          <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-secondary)">
             Configuration
           </p>
         </div>
         <nav class="p-2 space-y-0.5">
           <ZaqWeb.Components.DesignSystem.Button.button
-            id="people-access-tab"
+            :for={
+              {tab, label} <- [
+                people_access: "People access",
+                ai_credentials: "AI Credentials",
+                auth_credentials: "Auth Credentials",
+                mcps: "MCPs",
+                outbound_http: "Outbound HTTP",
+                global: "Global",
+                web_browsing: "Web browsing",
+                skills: "Skills",
+                llm: "LLM",
+                rag: "RAG",
+                telemetry: "Telemetry"
+              ]
+            }
+            id={"#{tab |> Atom.to_string() |> String.replace("_", "-")}-tab"}
             variant={:tertiary}
             phx-click="switch_tab"
-            phx-value-tab="people_access"
-            aria-current={if @active_tab == :people_access, do: "page", else: "false"}
-            active={@active_tab == :people_access}
-            class="w-full"
-          >
-            People access
-          </ZaqWeb.Components.DesignSystem.Button.button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="ai_credentials"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :ai_credentials,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            AI Credentials
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="auth_credentials"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :auth_credentials,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Auth Credentials
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="mcps"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :mcps,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            MCPs
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="outbound_http"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :outbound_http,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Outbound HTTP
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="global"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :global,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Global
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="web_browsing"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :web_browsing,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Web browsing
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="skills"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :skills,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Skills
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="llm"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :llm,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            LLM
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="embedding"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :embedding,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Embedding
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="image_to_text"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :image_to_text,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Image To Text
-          </button>
-          <button
-            phx-click="switch_tab"
-            phx-value-tab="telemetry"
-            class={[
-              "w-full text-left px-3 py-2.5 rounded-xl font-mono text-[0.82rem] transition-all",
-              if(@active_tab == :telemetry,
-                do: "bg-[#03b6d4]/10 text-[#03b6d4] font-semibold",
-                else: "text-black/60 hover:bg-black/[0.04] hover:text-black"
-              )
-            ]}
-          >
-            Telemetry
-          </button>
+            phx-value-tab={tab}
+            aria-current={if @active_tab == tab, do: "page", else: "false"}
+            active={@active_tab == tab}
+            class="w-full justify-start"
+          >{label}</ZaqWeb.Components.DesignSystem.Button.button>
         </nav>
       </div>
     </div>
@@ -240,6 +110,29 @@
         global_timezone={@global_timezone}
         detected_timezone={@detected_timezone}
       />
+      <ZaqWeb.Components.DesignSystem.CardShell.card_shell
+        :if={@active_tab == :global}
+        id="small-model-section"
+        class="mt-5"
+      >
+        <div class="space-y-4">
+          <header>
+            <h2 class="zaq-text-h3" style="color: var(--zaq-text-color-body-default)">
+              Small model
+            </h2>
+            <p class="zaq-text-caption" style="color: var(--zaq-text-color-body-secondary)">
+              Used for conversation titles. Without a selection, titles are derived from the first message.
+            </p>
+          </header>
+          <ZaqWeb.Live.BO.System.SystemConfig.OperationModelFields.selection_form
+            kind={:small}
+            title="Small Model"
+            form={@operation_model_forms[:small]}
+            options={@operation_model_options[:small]}
+            credential_options={@llm_credential_options}
+          />
+        </div>
+      </ZaqWeb.Components.DesignSystem.CardShell.card_shell>
       <SkillsTab.panel
         :if={@active_tab == :skills}
         config={@skill_resource_config}
@@ -274,21 +167,22 @@
         model_options={@llm_model_options}
         capabilities={@llm_capabilities}
       />
-      <ZaqWeb.Live.BO.System.SystemConfig.EmbeddingTab.panel
-        :if={@active_tab == :embedding}
-        form={@embedding_form}
+      <ZaqWeb.Live.BO.System.SystemConfig.RAGTab.panel
+        :if={@active_tab == :rag}
+        embedding_form={@embedding_form}
+        image_to_text_form={@image_to_text_form}
+        retrieval_form={@retrieval_form}
+        translation_form={@operation_model_forms[:translation]}
+        translation_model_options={@operation_model_options[:translation]}
+        model_forms={@rag_model_forms}
+        model_options={@rag_model_options}
         credential_options={@embedding_credential_options}
-        model_options={@embedding_model_options}
+        embedding_model_options={@embedding_model_options}
+        image_to_text_model_options={@image_to_text_model_options}
         locked={@embedding_locked}
         unlock_modal={@embedding_unlock_modal}
         model_changed={@model_changed}
         save_confirm_modal={@embedding_save_confirm_modal}
-      />
-      <ZaqWeb.Live.BO.System.SystemConfig.ImageToTextTab.panel
-        :if={@active_tab == :image_to_text}
-        form={@image_to_text_form}
-        credential_options={@image_to_text_credential_options}
-        model_options={@image_to_text_model_options}
       />
       <ZaqWeb.Live.BO.System.SystemConfig.TelemetryTab.panel
         :if={@active_tab == :telemetry}

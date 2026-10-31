@@ -79,13 +79,21 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQuery do
   end
 
   defp generate_translation(prompt, system_prompt, context) do
-    cfg = Map.get_lazy(context, :llm_config, &System.get_llm_config/0)
+    cfg =
+      Map.get_lazy(context, :translation_config, fn ->
+        System.get_operation_model_config(:translation)
+      end)
+
     generator = Map.get(context, :generation, Generation)
-    opts = cfg |> ProviderSpec.generation_opts() |> Keyword.put(:system_prompt, system_prompt)
 
     try do
-      with {:ok, response} <-
-             generator.generate_text(ProviderSpec.build(cfg), [Context.user(prompt)], opts),
+      with {:ok, model, opts} <- ProviderSpec.operation_runtime(cfg),
+           {:ok, response} <-
+             generator.generate_text(
+               model,
+               [Context.user(prompt)],
+               Keyword.put(opts, :system_prompt, system_prompt)
+             ),
            text when is_binary(text) <- Response.text(response),
            text when text != "" <- String.trim(text) do
         {:ok, text}

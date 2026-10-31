@@ -229,7 +229,8 @@ defmodule Zaq.Agent.FactoryTest do
       enabled_skill_ids: [],
       credential_id: credential.id,
       credential: credential,
-      advanced_options: %{"temperature" => 0.23}
+      temperature: 0.23,
+      advanced_options: %{}
     }
 
     with_runtime_credential_response({:ok, nil}, fn ->
@@ -451,7 +452,7 @@ defmodule Zaq.Agent.FactoryTest do
     end
 
     test "generation_opts returns temperature and top_p" do
-      opts = Factory.generation_opts()
+      opts = ProviderSpec.generation_opts(Zaq.System.get_llm_config())
 
       assert opts[:temperature] == 0.1
       assert opts[:top_p] == 0.8
@@ -867,6 +868,7 @@ defmodule Zaq.Agent.FactoryTest do
         name: "Prompt Override Agent #{System.unique_integer([:positive])}",
         description: "",
         job: "original system prompt",
+        temperature: 0.11,
         model: "gpt-4.1-mini",
         credential_id: credential.id,
         strategy: "react",
