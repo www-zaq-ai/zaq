@@ -36,9 +36,12 @@ defmodule Zaq.Ingestion.IngestJob do
     field :document_id, :integer
     field :volume_name, :string
     field :source_record, :map
+    field :preparation_progress, :map
 
     timestamps(type: :utc_datetime_usec)
   end
+
+  @type t :: %__MODULE__{}
 
   def statuses, do: @statuses
   def modes, do: @modes
@@ -59,7 +62,8 @@ defmodule Zaq.Ingestion.IngestJob do
       :failed_chunk_indices,
       :document_id,
       :volume_name,
-      :source_record
+      :source_record,
+      :preparation_progress
     ])
     |> validate_required([:file_path, :status, :mode])
     |> validate_inclusion(:status, @statuses)

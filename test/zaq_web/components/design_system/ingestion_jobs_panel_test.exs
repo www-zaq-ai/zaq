@@ -7,6 +7,26 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionJobsPanelTest do
   alias ZaqWeb.Components.DesignSystem.IngestionJobsPanel
 
   describe "jobs_panel/1 prep indicator" do
+    test "renders safely when supported progress fields have malformed types" do
+      job = processing_job("malformed.pdf")
+
+      for payload <- [
+            %{"current" => %{}, "total" => 6},
+            %{"stage" => "image_to_text", "current" => 2, "total" => []},
+            %{"stage" => "image_to_text", "label" => %{}, "current" => 2, "total" => 6}
+          ] do
+        html =
+          render_component(&IngestionJobsPanel.jobs_panel/1,
+            jobs: [job],
+            status_filter: "all",
+            prep_progress: %{job.id => payload}
+          )
+
+        assert html =~ "Preparing — starting"
+        refute html =~ ~s(value=)
+      end
+    end
+
     test "renders started preparation text with default progress bounds" do
       job = processing_job("started.pdf")
 

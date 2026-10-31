@@ -865,28 +865,61 @@ defmodule Zaq.Ingestion do
 
   # --- Job actions ---
 
+  @doc """
+  Requeues a failed ingestion, or only failed chunks for a partially completed ingestion.
+
+  The pending transition and worker insertion share a transaction. Returns
+  `{:error, :already_queued}` on a worker uniqueness conflict, preserving the
+  persisted job state and notifying subscribers of that state after rollback.
+  Incomplete document workers deduplicate by ingestion-job ID for their full lifetime.
+  """
+  @spec retry_job(Ecto.UUID.t()) ::
+          {:ok, IngestJob.t()}
+          | {:error, :not_found | :not_failed | :already_queued | Ecto.Changeset.t()}
   def retry_job(id) do
     with %IngestJob{} = job <- Repo.get(IngestJob, id),
-         :ok <- ensure_retryable(job),
-         original_status = job.status,
-         {:ok, updated_job} <-
-           JobLifecycle.transition(job, %{status: "pending", error: nil, completed_at: nil}) do
-      retry_args =
-        if original_status == "completed_with_errors" do
-          %{"job_id" => updated_job.id, "retry_failed_chunks" => true}
-        else
-          %{"job_id" => updated_job.id}
-        end
+         :ok <- ensure_retryable(job) do
+      result = Repo.transaction(fn -> enqueue_retry(job) end)
 
-      retry_args
-      |> IngestWorker.new()
-      |> Oban.insert()
+      # Lifecycle broadcasts aren't transactional. Restore subscribers to the
+      # persisted state if enqueueing rolled back the pending transition.
+      if match?({:error, _}, result), do: JobLifecycle.notify(Repo.get!(IngestJob, job.id))
 
-      {:ok, updated_job}
+      result
     else
       {:error, :not_retryable} -> {:error, :not_failed}
       nil -> {:error, :not_found}
       error -> error
+    end
+  end
+
+  defp enqueue_retry(job) do
+    args =
+      if job.status == "completed_with_errors" do
+        %{"job_id" => job.id, "retry_failed_chunks" => true}
+      else
+        %{"job_id" => job.id}
+      end
+
+    # A completed document worker may have left failed chunks behind. It must
+    # not prevent an explicit retry, while active workers still deduplicate.
+    worker =
+      IngestWorker.new(args,
+        unique: [
+          period: :infinity,
+          fields: [:worker, :args],
+          keys: [:job_id],
+          states: Oban.Job.unique_states(:incomplete)
+        ]
+      )
+
+    with {:ok, updated_job} <-
+           JobLifecycle.transition(job, %{status: "pending", error: nil, completed_at: nil}),
+         {:ok, %Oban.Job{conflict?: false}} <- Oban.insert(worker) do
+      updated_job
+    else
+      {:ok, %Oban.Job{conflict?: true}} -> Repo.rollback(:already_queued)
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 
@@ -898,6 +931,14 @@ defmodule Zaq.Ingestion do
 
   defp ensure_retryable(_), do: {:error, :not_retryable}
 
+  @doc """
+  Stops a pending or processing ingestion and its queued or executing Oban workers.
+
+  Cancelled ingestions retain the existing `failed` status so callers can retry
+  the same job through `retry_job/1`.
+  """
+  @spec cancel_job(Ecto.UUID.t()) ::
+          {:ok, IngestJob.t()} | {:error, :not_found | :not_cancellable | Ecto.Changeset.t()}
   def cancel_job(id) do
     case Repo.get(IngestJob, id) do
       %IngestJob{status: status} = job when status in ["pending", "processing"] ->
@@ -917,7 +958,7 @@ defmodule Zaq.Ingestion do
 
   defp stop_job(job, error_message) do
     Repo.transaction(fn ->
-      cancel_chunk_oban_jobs(job.id)
+      cancel_oban_jobs(job.id)
       terminate_chunk_jobs(job.id, error_message)
 
       case JobLifecycle.mark_failed(job, error_message) do
@@ -927,16 +968,15 @@ defmodule Zaq.Ingestion do
     end)
   end
 
-  defp cancel_chunk_oban_jobs(ingest_job_id) do
-    {count, _} =
+  defp cancel_oban_jobs(ingest_job_id) do
+    {:ok, count} =
       from(j in Oban.Job,
-        where: j.queue == "ingestion_chunks",
-        where: j.state in ["available", "scheduled", "retryable"],
+        where: j.queue in ["ingestion", "ingestion_chunks"],
         where: fragment("?->>'job_id' = ?", j.args, ^to_string(ingest_job_id))
       )
-      |> Repo.update_all(set: [state: "cancelled"])
+      |> Oban.cancel_all_jobs()
 
-    Logger.info("[Ingestion] Cancelled #{count} Oban chunk jobs for ingest_job=#{ingest_job_id}")
+    Logger.info("[Ingestion] Cancelled #{count} Oban jobs for ingest_job=#{ingest_job_id}")
     :ok
   end
 

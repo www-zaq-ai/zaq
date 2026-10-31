@@ -12,6 +12,7 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Ingestion
   alias Zaq.Ingestion.{Chunk, Document, IngestChunkJob, IngestJob, IngestWorker}
+  alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.Ingestion.RecordSource
   alias Zaq.Permissions
   alias Zaq.Repo
@@ -126,6 +127,36 @@ defmodule Zaq.Ingestion.IngestWorkerTest do
   end
 
   describe "perform/1" do
+    test "fails instead of waiting forever when conversion produces only page markers" do
+      original_processor = Application.get_env(:zaq, :document_processor)
+
+      file_path =
+        Path.join(System.tmp_dir!(), "empty-scan-#{System.unique_integer([:positive])}.md")
+
+      on_exit(fn ->
+        File.rm(file_path)
+        Application.put_env(:zaq, :document_processor, original_processor)
+      end)
+
+      File.write!(file_path, Enum.map_join(1..6, "\n\n", &"<!-- page: #{&1} -->"))
+      Application.put_env(:zaq, :document_processor, DocumentProcessor)
+      job = create_job(%{file_path: file_path})
+
+      assert {:cancel, :no_searchable_content} =
+               IngestWorker.perform(%Oban.Job{
+                 args: %{"job_id" => job.id},
+                 attempt: 1,
+                 max_attempts: 3
+               })
+
+      updated = Repo.get!(IngestJob, job.id)
+      assert updated.status == "failed"
+      assert updated.completed_at
+      assert updated.error =~ "No searchable text was extracted"
+      assert updated.error =~ "image-to-text"
+      refute Repo.exists?(from(c in IngestChunkJob, where: c.ingest_job_id == ^job.id))
+    end
+
     test "unsigned persisted source records still fail closed on the final attempt" do
       record = %Record{
         id: "unsigned-watch",
