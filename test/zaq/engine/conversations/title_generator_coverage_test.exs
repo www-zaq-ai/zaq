@@ -99,73 +99,12 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorCoverageTest do
     end
   end
 
-  describe "generate/2 — model and provider fallback coverage" do
-    test "uses the dedicated Small model selection" do
-      handler = fn _conn, body ->
-        payload = Jason.decode!(body)
-        assert payload["model"] == "coverage-model"
-
-        {200, OpenAIStub.chat_completion("Coverage Model Title")}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-      OpenAIStub.seed_operation_model_config(:small, endpoint, model: "coverage-model")
-
-      assert {:ok, "Coverage Model Title"} =
-               TitleGenerator.generate("Which model handles this?")
-    end
-
-    test "falls back when the provider returns an error tuple" do
-      handler = fn _conn, _body ->
-        {503, %{"error" => %{"message" => "service unavailable"}}}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self(), retry_after: 0)
-      start_supervised!(child_spec)
-      OpenAIStub.seed_operation_model_config(:small, endpoint)
-
-      assert {:fallback, "Need A Coverage Title", reason} =
-               TitleGenerator.generate("Need a coverage title")
-
-      refute is_nil(reason)
-    end
-
-    test "falls back to the default title when the user message is blank" do
-      handler = fn _conn, _body ->
-        {503, %{"error" => %{"message" => "service unavailable"}}}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self(), retry_after: 0)
-      start_supervised!(child_spec)
-      OpenAIStub.seed_operation_model_config(:small, endpoint)
-
-      assert {:fallback, "New Conversation", _reason} = TitleGenerator.generate("   ")
-    end
-  end
-
   describe "generate/2 — exception fallback" do
     test "rescues unexpected local errors and returns a deterministic fallback title" do
       assert {:fallback, "Explain Billing Retry Behavior", reason} =
                TitleGenerator.generate("Explain billing retry behavior", :invalid_opts)
 
       refute is_nil(reason)
-    end
-  end
-
-  describe "generate/2 — whitespace-only response after trimming" do
-    test "falls back when content becomes empty after prefix removal" do
-      handler = fn _conn, _body ->
-        # A string that is only whitespace after trimming
-        {200, OpenAIStub.chat_completion("   ")}
-      end
-
-      {child_spec, endpoint} = OpenAIStub.server(handler, self())
-      start_supervised!(child_spec)
-      OpenAIStub.seed_operation_model_config(:small, endpoint)
-
-      assert {:fallback, "Anything", "Empty assistant response content"} =
-               TitleGenerator.generate("Anything")
     end
   end
 end

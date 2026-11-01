@@ -969,7 +969,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
     config = %RAGModelConfig{}
     cs = RAGModelConfig.changeset(config, params)
-    cs = validate_rag_model_selection(cs, options)
     socket = assign_rag_model_form(socket, kind, cs, options)
 
     if event == "save_rag_model" and cs.valid? do
@@ -1564,7 +1563,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp load_operation_forms(socket) do
-    socket = assign(socket, operation_model_forms: %{}, operation_model_options: %{})
+    socket =
+      assign(socket,
+        operation_model_forms: %{},
+        operation_model_options: %{},
+        operation_model_manual: %{}
+      )
 
     Enum.reduce([:translation, :small], socket, fn kind, acc ->
       config = dispatch_engine(:system_config_get_operation_model_config, %{kind: kind})
@@ -1581,7 +1585,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   defp operation_model_options(credential_id) do
     provider = provider_from_credential_id(credential_id)
-    model_options_for_credential_id(credential_id, provider, &OperationModelConfig.supports?/1)
+    credential = credential_from_id(credential_id)
+    models = credential_models(credential, provider)
+
+    %{
+      options:
+        models
+        |> Enum.filter(&OperationModelConfig.supports?/1)
+        |> Enum.map(&{&1.name || &1.id, &1.id})
+        |> Enum.sort_by(&elem(&1, 0)),
+      manual?: not is_nil(credential) and models == []
+    }
   end
 
   defp save_operation_model(socket, kind, params, options) do
@@ -1612,23 +1626,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     )
     |> assign(
       :operation_model_options,
-      Map.put(socket.assigns.operation_model_options, kind, options)
+      Map.put(socket.assigns.operation_model_options, kind, options.options)
+    )
+    |> assign(
+      :operation_model_manual,
+      Map.put(socket.assigns.operation_model_manual, kind, options.manual?)
     )
   end
 
   defp rag_model_options(credential_id, kind) do
     provider = provider_from_credential_id(credential_id)
     model_options_for_credential_id(credential_id, provider, &RAGModelConfig.supports?(&1, kind))
-  end
-
-  defp validate_rag_model_selection(cs, options) do
-    model = Ecto.Changeset.get_field(cs, :model)
-
-    if model && not Enum.any?(options, fn {_, id} -> id == model end) do
-      Ecto.Changeset.add_error(cs, :model, "is not a compatible model for this provider")
-    else
-      cs
-    end
   end
 
   defp assign_rag_model_form(socket, kind, cs, options, action \\ :validate) do

@@ -190,7 +190,8 @@ async function waitForServerRoundTrip(page) {
   await waitForLiveViewSettled(page);
 }
 
-async function pickSearchableSelect(page, containerSel, optionLabel) {
+// ZaqWeb.Select uses the same hook with search disabled; existing searchable callers keep filtering.
+async function pickSearchableSelect(page, containerSel, optionLabel, { searchable = true } = {}) {
   const trigger = page.locator(`${containerSel} [data-select-trigger]`)
   const panel = page.locator(`${containerSel} [data-select-panel]`)
   const search = page.locator(`${containerSel} [data-select-search]`)
@@ -205,7 +206,7 @@ async function pickSearchableSelect(page, containerSel, optionLabel) {
     await trigger.click({ force: true })
     try {
       await expect(panel).toBeVisible({ timeout: 600 })
-      await expect(search).toBeVisible({ timeout: 600 })
+      if (searchable) await expect(search).toBeVisible({ timeout: 600 })
       opened = true
       break
     } catch (_error) {
@@ -214,7 +215,7 @@ async function pickSearchableSelect(page, containerSel, optionLabel) {
   }
 
   expect(opened).toBeTruthy()
-  await search.fill(optionLabel)
+  if (searchable) await search.fill(optionLabel)
   await expect(option).toBeVisible({ timeout: process.env.CI ? 10_000 : 5_000 })
   await option.click()
 }

@@ -82,12 +82,32 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.OperationModelFieldsTest do
            )
   end
 
+  test "a catalog with no compatible text models never offers manual entry" do
+    changeset = OperationModelConfig.changeset(%OperationModelConfig{}, %{credential_id: 12})
+
+    html =
+      render_component(&OperationModelFields.selection_form/1,
+        kind: :translation,
+        title: "Translation",
+        form: to_form(changeset, as: :operation_model_config),
+        options: [],
+        credential_options: [{"Embeddings-only catalog", "12"}],
+        manual_model: false
+      )
+
+    assert html =~ "No compatible text-generation models"
+    assert html =~ ~s(id="translation-model-select")
+    refute html =~ "Enter the model ID"
+    refute html =~ ~s(type="text" name="operation_model_config[model]")
+  end
+
   defp render_fields(changeset, options, credential_options \\ []) do
     render_component(&OperationModelFields.selection_form/1,
       kind: :translation,
       form: to_form(changeset, as: :operation_model_config),
       options: options,
       credential_options: credential_options,
+      manual_model: options == [] and Ecto.Changeset.get_field(changeset, :credential_id) != nil,
       title: "Translation"
     )
   end

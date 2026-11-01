@@ -1050,33 +1050,39 @@ test.describe("System Config", () => {
     test("renders Language and TimeZone fields", async ({ page }) => {
       await expect(page.locator("#global-language-select")).toBeVisible()
       await expect(page.locator("#global-timezone-select")).toBeVisible()
-      await expect(page.locator("#global-language-select option[value='en']")).toBeAttached()
-      await expect(page.locator("#global-language-select option[value='fr']")).toBeAttached()
+      await expect(page.locator("#global-language-select li[data-select-value='en']")).toBeAttached()
+      await expect(page.locator("#global-language-select li[data-select-value='fr']")).toBeAttached()
     })
 
     test("French language option is disabled", async ({ page }) => {
-      await expect(page.locator("#global-language-select option[value='fr']")).toBeDisabled()
+      await expect(page.locator("#global-language-select li[data-select-value='fr']")).toHaveAttribute("data-select-disabled", "true")
+      const selected = page.locator("#global-language-select input[data-select-value]")
+      const value = await selected.inputValue()
+      await page.locator("#global-language-select-trigger").click()
+      await page.locator("#global-language-select li[data-select-value='fr']").click()
+      await expect(selected).toHaveValue(value)
+      await page.locator("#global-language-select-trigger").click()
     })
 
     test("saves language and persists after page reload", async ({ page }) => {
-      await page.locator("#global-language-select").selectOption("en")
+      await pickSearchableSelect(page, "#global-language-select", "English", { searchable: false })
       await expectFlashDuringAction(page, "Language saved.", () => page.locator('form[phx-submit="save_global_language"] button[type="submit"]').click())
 
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
-      await expect(page.locator("#global-language-select")).toHaveValue("en")
+      await expect(page.locator("#global-language-select input[data-select-value]")).toHaveValue("en")
     })
 
     test("shows GMT offsets in timezone dropdown", async ({ page }) => {
-      const options = page.locator("#global-timezone-select option")
+      const options = page.locator("#global-timezone-select li[data-select-option]")
       await expect(options).toContainText(["GMT-12:00", "GMT+00:00", "GMT+14:00"])
     })
 
     test("saves timezone and persists after page reload", async ({ page }) => {
-      await page.locator("#global-timezone-select").selectOption("GMT+03:00")
+      await pickSearchableSelect(page, "#global-timezone-select", "GMT+03:00", { searchable: false })
       await expectFlashDuringAction(page, "Timezone saved.", () => page.locator('form[phx-submit="save_global_timezone"] button[type="submit"]').click())
 
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
-      await expect(page.locator("#global-timezone-select")).toHaveValue("GMT+03:00")
+      await expect(page.locator("#global-timezone-select input[data-select-value]")).toHaveValue("GMT+03:00")
     })
   })
 })

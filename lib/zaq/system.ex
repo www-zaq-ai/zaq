@@ -517,10 +517,15 @@ defmodule Zaq.System do
 
   @doc "Loads LLM configuration from DB as `%LLMConfig{}`."
   def get_llm_config do
-    keys = Enum.map(@llm_read_fields, &"llm.#{&1}")
-    rows = Repo.all(from c in Config, where: c.key in ^keys)
-    raw = Map.new(rows, fn row -> {String.replace_prefix(row.key, "llm.", ""), row.value} end)
-    build_llm_config(raw)
+    "llm" |> read_config_fields(@llm_read_fields) |> build_llm_config()
+  end
+
+  # One statement gives related keys the same database snapshot during saves.
+  defp read_config_fields(namespace, fields) do
+    keys = Enum.map(fields, &"#{namespace}.#{&1}")
+
+    Repo.all(from c in Config, where: c.key in ^keys)
+    |> Map.new(fn row -> {String.replace_prefix(row.key, namespace <> ".", ""), row.value} end)
   end
 
   defp build_llm_config(raw) do
@@ -577,23 +582,20 @@ defmodule Zaq.System do
 
   @doc "Loads a saved-only specialized RAG model selection."
   def get_rag_model_config(kind) when kind in [:reranking, :decision] do
+    raw = read_config_fields("rag.#{kind}", ~w(credential_id model))
+
     %RAGModelConfig{
-      credential_id: ParseUtils.parse_int(get_config("rag.#{kind}.credential_id"), nil),
-      model: get_config("rag.#{kind}.model") |> blank_to_nil()
+      credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
+      model: blank_to_nil(raw["model"])
     }
   end
 
   @doc "Saves a specialized RAG model selection without invoking it."
   def save_rag_model_config(kind, attrs) when kind in [:reranking, :decision] and is_map(attrs) do
-    changeset = RAGModelConfig.changeset(get_rag_model_config(kind), attrs)
-    credential_id = Ecto.Changeset.get_field(changeset, :credential_id)
-
     changeset =
-      if credential_id && is_nil(Repo.get(AIProviderCredential, credential_id)) do
-        Ecto.Changeset.add_error(changeset, :credential_id, "does not exist")
-      else
-        changeset
-      end
+      get_rag_model_config(kind)
+      |> RAGModelConfig.changeset(attrs)
+      |> validate_model_selection(&RAGModelConfig.supports?(&1, kind), false)
 
     if changeset.valid? do
       config = Ecto.Changeset.apply_changes(changeset)
@@ -608,23 +610,23 @@ defmodule Zaq.System do
 
   @doc "Loads an independent translation or small-model selection, without resolving secrets."
   def get_operation_model_config(kind) when kind in [:translation, :small] do
-    prefix = operation_model_prefix(kind)
+    raw =
+      read_config_fields(operation_model_prefix(kind), ~w(credential_id model temperature top_p))
 
     %OperationModelConfig{
-      credential_id: ParseUtils.parse_int(get_config("#{prefix}.credential_id"), nil),
-      model: get_config("#{prefix}.model") |> blank_to_nil(),
-      temperature: ParseUtils.parse_float(get_config("#{prefix}.temperature"), 0.0),
-      top_p: ParseUtils.parse_float(get_config("#{prefix}.top_p"), 0.9)
+      credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
+      model: blank_to_nil(raw["model"]),
+      temperature: ParseUtils.parse_float(raw["temperature"], 0.0),
+      top_p: ParseUtils.parse_float(raw["top_p"], 0.9)
     }
   end
 
   @doc "Atomically saves a dedicated operation selection and sampling."
   def save_operation_model_config(kind, attrs) when kind in [:translation, :small] do
-    changeset = OperationModelConfig.changeset(get_operation_model_config(kind), attrs)
-    credential_id = Ecto.Changeset.get_field(changeset, :credential_id)
-    model = Ecto.Changeset.get_field(changeset, :model)
-    credential = if credential_id, do: get_ai_provider_credential(credential_id)
-    changeset = validate_operation_model(changeset, credential_id, credential, model)
+    changeset =
+      get_operation_model_config(kind)
+      |> OperationModelConfig.changeset(attrs)
+      |> validate_model_selection(&OperationModelConfig.supports?/1, true)
 
     if changeset.valid? do
       config = Ecto.Changeset.apply_changes(changeset)
@@ -642,19 +644,33 @@ defmodule Zaq.System do
     end
   end
 
-  defp validate_operation_model(changeset, nil, _credential, _model), do: changeset
+  defp validate_model_selection(%{valid?: false} = changeset, _supports?, _allow_custom?),
+    do: changeset
 
-  defp validate_operation_model(changeset, _id, nil, _model),
-    do: Ecto.Changeset.add_error(changeset, :credential_id, "does not exist")
+  defp validate_model_selection(changeset, supports?, allow_custom?) do
+    id = Ecto.Changeset.get_field(changeset, :credential_id)
+    model = Ecto.Changeset.get_field(changeset, :model)
 
-  defp validate_operation_model(changeset, _id, credential, model) do
+    case {id, id && get_ai_provider_credential(id)} do
+      {nil, _} ->
+        changeset
+
+      {_, nil} ->
+        Ecto.Changeset.add_error(changeset, :credential_id, "does not exist")
+
+      {_, credential} ->
+        validate_catalog_model(changeset, credential, model, supports?, allow_custom?)
+    end
+  end
+
+  defp validate_catalog_model(changeset, credential, model, supports?, allow_custom?) do
     models = ProviderModels.models_for_credential(credential)
 
-    if models == [] or
-         Enum.any?(models, &(&1.id == model and OperationModelConfig.supports?(&1))) do
+    if (allow_custom? and models == []) or
+         Enum.any?(models, &(&1.id == model and supports?.(&1))) do
       changeset
     else
-      Ecto.Changeset.add_error(changeset, :model, "is not a compatible text-generation model")
+      Ecto.Changeset.add_error(changeset, :model, "is not a compatible model for this provider")
     end
   end
 

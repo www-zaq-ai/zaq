@@ -3,13 +3,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
   use ZaqWeb, :html
   alias ZaqWeb.Components.DesignSystem.{Button, CardShell, Input}
   alias ZaqWeb.Live.BO.System.SystemConfig.{EmbeddingTab, ImageToTextTab, OperationModelFields}
-  import ZaqWeb.Components.SearchableSelect
 
   attr :embedding_form, :any, required: true
   attr :image_to_text_form, :any, required: true
   attr :retrieval_form, :any, required: true
   attr :translation_form, :any, required: true
   attr :translation_model_options, :list, required: true
+  attr :translation_manual_model, :boolean, default: false
   attr :model_forms, :map, required: true
   attr :credential_options, :list, required: true
   attr :embedding_model_options, :list, required: true
@@ -50,6 +50,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
             title="Knowledge-query Translation"
             form={@translation_form}
             options={@translation_model_options}
+            manual_model={@translation_manual_model}
             credential_options={@credential_options}
           />
           <details id="rag-retrieval-advanced" phx-hook="DetailsKeepOpen">
@@ -136,30 +137,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
           class="space-y-4"
         >
           <input type="hidden" name="kind" value={@kind} />
-          <.searchable_select
-            id={"rag-#{@kind}-credential-select"}
-            name="rag_model_config[credential_id]"
-            label="Provider / AI credential"
-            label_position="block"
-            value={to_string(@form[:credential_id].value || "")}
-            options={[{"Not configured", ""} | @credential_options]}
-            empty_label="Select a credential..."
-          />
-          <p :for={error <- @form[:credential_id].errors} class="zaq-field-error zaq-text-caption">
-            {translate_error(error)}
-          </p>
-          <.searchable_select
-            id={"rag-#{@kind}-model-select"}
-            name="rag_model_config[model]"
-            label="Model"
-            label_position="block"
-            value={@form[:model].value}
+          <OperationModelFields.fields
+            id_prefix={"rag-#{@kind}"}
+            form={@form}
             options={@options}
-            empty_label="Select a compatible model..."
+            credential_options={@credential_options}
+            stacked={true}
           />
-          <p :for={error <- @form[:model].errors} class="zaq-field-error zaq-text-caption">
-            {translate_error(error)}
-          </p>
           <p
             :if={@options == []}
             class="zaq-text-caption"

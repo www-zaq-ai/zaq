@@ -4,6 +4,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
   """
   use ZaqWeb, :html
   alias ZaqWeb.Components.DesignSystem.{Button, CardShell, Input}
+  alias ZaqWeb.Select
 
   attr :global_agent_options, :list, required: true
   attr :global_default_agent_id, :any, required: true
@@ -56,29 +57,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
           </div>
 
           <div>
-            <label for="global-default-agent-select" class="zaq-field-label-uppercase block mb-2">
+            <label
+              for="global-default-agent-select-trigger"
+              class="zaq-field-label-uppercase block mb-2"
+            >
               Global Default Agent
             </label>
             <form
               phx-submit="save_global_default_agent"
               class="flex flex-col sm:flex-row sm:items-center gap-2"
             >
-              <select
+              <Select.select
                 id="global-default-agent-select"
                 name="global_default_agent_id"
-                class="w-full max-w-md zaq-control-select"
-              >
-                <option value="" selected={is_nil(@global_default_agent_id)}>
-                  Default Zaq Agent
-                </option>
-                <option
-                  :for={{name, id} <- @global_agent_options}
-                  value={id}
-                  selected={to_string(@global_default_agent_id || "") == to_string(id)}
-                >
-                  {name}
-                </option>
-              </select>
+                class="w-full max-w-md min-w-0"
+                value={@global_default_agent_id || ""}
+                options={[{"Default Zaq Agent", ""} | @global_agent_options]}
+              />
               <Button.button type="submit" variant={:secondary}>
                 Save
               </Button.button>
@@ -86,21 +81,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
           </div>
 
           <div>
-            <label for="global-language-select" class="zaq-field-label-uppercase block mb-2">
+            <label for="global-language-select-trigger" class="zaq-field-label-uppercase block mb-2">
               Language
             </label>
             <form
               phx-submit="save_global_language"
               class="flex flex-col sm:flex-row sm:items-center gap-2"
             >
-              <select
+              <Select.select
                 id="global-language-select"
                 name="language"
-                class="w-full max-w-md zaq-control-select"
-              >
-                <option value="en" selected={@global_language == "en"}>English</option>
-                <option value="fr" disabled selected={@global_language == "fr"}>French</option>
-              </select>
+                class="w-full max-w-md min-w-0"
+                value={@global_language}
+                options={[{"English", "en"}, {"French", "fr", nil, true}]}
+              />
               <Button.button type="submit" variant={:secondary}>
                 Save
               </Button.button>
@@ -111,30 +105,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
           </div>
 
           <div id="global-timezone-section" phx-hook="DetectTimezone">
-            <label for="global-timezone-select" class="zaq-field-label-uppercase block mb-2">
+            <label for="global-timezone-select-trigger" class="zaq-field-label-uppercase block mb-2">
               TimeZone
             </label>
             <form
               phx-submit="save_global_timezone"
               class="flex flex-col sm:flex-row sm:items-center gap-2"
             >
-              <select
+              <Select.select
                 id="global-timezone-select"
                 name="timezone"
-                class="w-full max-w-md zaq-control-select"
-              >
-                <option value="">—</option>
-                <option
-                  :for={gmt <- @gmt_offsets}
-                  value={gmt}
-                  selected={
-                    (@global_timezone && @global_timezone == gmt) ||
-                      (is_nil(@global_timezone) && @detected_timezone == gmt)
-                  }
-                >
-                  {gmt}
-                </option>
-              </select>
+                class="w-full max-w-md min-w-0"
+                value={@global_timezone || @detected_timezone || ""}
+                options={[{"—", ""} | Enum.map(@gmt_offsets, &{&1, &1})]}
+              />
               <Button.button type="submit" variant={:secondary}>
                 Save
               </Button.button>

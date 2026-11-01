@@ -39,6 +39,7 @@ defmodule Storybook.Patterns.RAGConfiguration do
       retrieval_form={@retrieval_form}
       translation_form={to_form(OperationModelConfig.changeset(%OperationModelConfig{}, %{}), as: :operation_model_config)}
       translation_model_options={[]}
+      translation_manual_model={false}
       model_forms={@model_forms}
       credential_options={[{"Example provider credential", "1"}]}
       embedding_model_options={[]}

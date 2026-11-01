@@ -450,12 +450,29 @@ defmodule Zaq.Agent.FactoryTest do
       assert spec.id == "test-model"
       assert spec.base_url == "https://api.example.com/v1"
     end
+  end
 
-    test "generation_opts returns temperature and top_p" do
-      opts = ProviderSpec.generation_opts(Zaq.System.get_llm_config())
+  test "Factory sampling is owned by the agent and remains independent of global changes" do
+    for {global_temperature, global_top_p} <- [{1.2, 0.6}, {0.7, 0.4}] do
+      Zaq.System.set_config("llm.temperature", global_temperature)
+      Zaq.System.set_config("llm.top_p", global_top_p)
 
-      assert opts[:temperature] == 0.1
-      assert opts[:top_p] == 0.8
+      for {agent, temperature, top_p} <- [
+            {%ConfiguredAgent{}, 0.0, 0.9},
+            {%ConfiguredAgent{temperature: 0.25, top_p: 0.8}, 0.25, 0.8}
+          ] do
+        agent = %{
+          agent
+          | job: "Sampling",
+            advanced_options: %{"temperature" => 1.9, "top_p" => 0.1, "max_tokens" => 40}
+        }
+
+        assert {:ok, runtime} = Factory.runtime_config(agent, actor: @execution_actor)
+        assert runtime.llm_opts[:temperature] == temperature
+        assert runtime.llm_opts[:top_p] == top_p
+        assert runtime.llm_opts[:max_tokens] == 40
+        refute Keyword.has_key?(runtime.llm_opts, :api_key)
+      end
     end
   end
 

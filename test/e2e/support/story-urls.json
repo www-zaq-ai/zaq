@@ -8,6 +8,7 @@
   "/storybook/chat/header",
   "/storybook/chat/message_info_popin",
   "/storybook/chat/suggested_prompts",
+  "/storybook/chat/tool_activity",
   "/storybook/chat/transcript",
   "/storybook/chat/user_bubble",
   "/storybook/components/cards/card_shell",

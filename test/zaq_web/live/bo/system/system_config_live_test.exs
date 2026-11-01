@@ -5457,7 +5457,12 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       html = render_hook(view, "detect_timezone", %{"offset" => "-180"})
 
       assert html =~ "GMT+03:00"
-      assert has_element?(view, "option[value='GMT+03:00'][selected]")
+
+      assert has_element?(
+               view,
+               "#global-timezone-select input[data-select-value][value='GMT+03:00']"
+             )
+
       refute html =~ "Failed to save timezone"
     end
 
@@ -5506,7 +5511,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       html = render_hook(view, "detect_timezone", %{"offset" => "60"})
 
       assert html =~ "GMT+02:00"
-      assert has_element?(view, "option[value='GMT+02:00'][selected]")
+
+      assert has_element?(
+               view,
+               "#global-timezone-select input[data-select-value][value='GMT+02:00']"
+             )
     end
   end
 
@@ -9074,6 +9083,71 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "RAG configuration" do
+    test "operation selectors distinguish incompatible catalogs from catalog-free credentials", %{
+      conn: conn
+    } do
+      with_catalog(fn providers, models ->
+        provider = Enum.find(providers, &(&1.id == :openai)) |> Map.put(:id, :catalog_test)
+
+        model =
+          models
+          |> Enum.find(&(&1.provider == :openai and not &1.deprecated and not &1.retired))
+          |> Map.merge(%{
+            id: "embedding-only",
+            provider: :catalog_test,
+            modalities: %{input: [:text], output: [:embedding]}
+          })
+
+        {providers ++ [provider], models ++ [model]}
+      end)
+
+      catalog = ai_credential_fixture(%{provider: "catalog_test"})
+      custom = ai_credential_fixture()
+
+      for {kind, tab} <- [{"translation", "rag"}, {"small", "global"}] do
+        {:ok, view, _} = live(conn, "/bo/system-config?tab=#{tab}")
+
+        params = %{
+          "kind" => kind,
+          "operation_model_config" => %{"credential_id" => to_string(catalog.id), "model" => ""}
+        }
+
+        html = render_change(view, "validate_operation_model", params)
+        assert html =~ "No compatible text-generation models"
+        assert has_element?(view, "##{kind}-model-select")
+
+        refute has_element?(
+                 view,
+                 "##{kind}-model-form input[type='text'][name='operation_model_config[model]']"
+               )
+
+        assert render_submit(
+                 view,
+                 "save_operation_model",
+                 put_in(params, ["operation_model_config", "model"], "embedding-only")
+               ) =~ "is not a compatible model"
+
+        assert System.get_operation_model_config(String.to_existing_atom(kind)).model == nil
+
+        params = put_in(params, ["operation_model_config", "credential_id"], to_string(custom.id))
+        render_change(view, "validate_operation_model", params)
+
+        assert has_element?(
+                 view,
+                 "##{kind}-model-form input[name='operation_model_config[model]'][value='']"
+               )
+
+        assert render_submit(
+                 view,
+                 "save_operation_model",
+                 put_in(params, ["operation_model_config", "model"], "custom-model")
+               ) =~ "Model settings saved"
+
+        assert System.get_operation_model_config(String.to_existing_atom(kind)).model ==
+                 "custom-model"
+      end
+    end
+
     test "specialized selectors filter, reject incompatible models, save and reload independently",
          %{conn: conn} do
       with_catalog(fn providers, models ->

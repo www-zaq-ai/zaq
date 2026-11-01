@@ -57,7 +57,7 @@ continue to open RAG.
 Specialized selectors use saved AI provider credentials and filter their models
 by catalog metadata: `capabilities.rerank` for re-ranking and `decisions` output
 modality for decision models. Changing credentials clears the model selection;
-incompatible submissions are rejected by the BO event handler. These selections
+incompatible submissions are rejected by System persistence for both BO and Engine callers. These selections
 are persisted as `rag.reranking.credential_id`, `rag.reranking.model`,
 `rag.decision.credential_id` and `rag.decision.model`; they **do not activate**
 re-ranking or decision inference in the pipeline. Referenced AI credentials cannot
@@ -76,7 +76,9 @@ Global settings' **Small model** uses `global.small_model.*` for conversation ti
 Each stores `credential_id`, `model`, `temperature` and `top_p`. Sampling belongs to
 the operation, not the global LLM, and is not exposed as extra controls in this UI.
 Text-output catalog models are eligible; catalog-free custom endpoints accept a
-model ID. Pair saves are atomic and referenced credentials cannot be deleted.
+model ID. A catalog with no eligible text models displays an empty selector, not
+manual entry. Pair saves are atomic; operation and specialized RAG selections are
+read in a single database snapshot. Referenced credentials cannot be deleted.
 
 The rollout snapshots configured legacy global pairs and sampling once, without
 overwriting existing dedicated settings. Fresh installations remain unconfigured.
@@ -91,7 +93,12 @@ unsupported parameters); these consumers do not add provider-specific branches.
 The global LLM provider/model remains for legacy retrieval preparation and synthetic
 default-agent answering only. Configured agents persist their own sampling values;
 new agents receive temperature `0.0` and top_p `0.9` without requiring user input.
-Existing agents migrate their effective JSON overrides over global values. Dedicated
+Existing agents snapshot JSON overrides, or legacy global values when an override
+key is absent. Each field accepts finite numeric values and numeric strings within
+its range (`temperature`: 0–2 inclusive; `top_p`: greater than 0 through 1).
+Malformed, null, non-finite and out-of-range values become the fixed defaults
+`0.0`/`0.9`, independently; values are never clamped. Invalid explicit overrides
+do not inherit global settings. Migrated JSON retains unrelated options. Dedicated
 fields take precedence over duplicate Advanced options JSON keys at runtime.
 
 - LLM config is read via `Zaq.System.get_llm_config/0`
