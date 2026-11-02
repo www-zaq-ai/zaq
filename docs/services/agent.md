@@ -696,8 +696,13 @@ without safe permission mutation support return `:unsupported`.
   the reducer's interval. There is no timer, replay queue or separate publisher.
   Segment changes, terminal events and enumerable exhaustion finalize evidence,
   not forced intermediate display. Final answers/errors still use normal delivery.
-  The result's internal `answer_published?` flag distinguishes a submitted answer
-  update from merely buffered text when handling partial stream errors.
+  The result's internal `answer_published?` flag requires a submitted nonblank
+  answer snapshot; whitespace and reasoning never suppress a stream error.
+  Answer snapshots are retained separately from reasoning. After a partially
+  published stream fails, internal `pending_answer` carries any outstanding
+  answer snapshot into Executor's normal terminal delivery, not another streamed
+  update. Fully published answers retain the empty suppressed terminal body;
+  canonical failure evidence is preserved in both cases.
 - Captures a uniform top-level message trace list, including content/reasoning segments and tool calls.
 - `Factory.after_tool_call/3` uses `MediaResultTransformer` to wrap materialized
   communication media in `ReqLLM.ToolResult`, preserving the application-visible

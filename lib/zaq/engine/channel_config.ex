@@ -80,9 +80,11 @@ defmodule Zaq.Engine.ChannelConfig do
 
   # Policy edits have a dedicated locked Engine operation. Ordinary connector
   # forms may carry an older settings snapshot and must not overwrite that policy.
+  # Inserts can already carry an ID, but have no persisted policy to preserve.
   defp preserve_live_update_policy(%{data: %{id: id}} = changeset) when not is_nil(id) do
-    prepare_changes(changeset, fn changeset ->
-      preserve_current_policy(changeset, id)
+    prepare_changes(changeset, fn
+      %{action: :update} = changeset -> preserve_current_policy(changeset, id)
+      changeset -> changeset
     end)
   end
 

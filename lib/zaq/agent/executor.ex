@@ -25,6 +25,8 @@ defmodule Zaq.Agent.Executor do
     results; public step snapshots are derived only at publication boundaries.
   - Per-request, secret-free streamed-update policy resolution through Engine,
     passed only to StreamEvents; progress/status producers remain independent.
+  - Terminal delivery of buffered answer content after a partially published
+    stream failure, without exposing reasoning or forcing intermediate updates.
 
   In short, `Executor` is the workflow coordinator; it does not build provider
   specs or runtime tool config itself. Those responsibilities stay in
@@ -341,8 +343,8 @@ defmodule Zaq.Agent.Executor do
     result
   end
 
-  # A streaming error after tokens were already delivered means the answer is
-  # visible; suppress the error bubble so we don't overlay a complete response.
+  # A streaming error after meaningful tokens were delivered keeps the answer
+  # visible; deliver any buffered tail without replacing it with an error bubble.
   # Otherwise (failed before any content — e.g. budget/rate limit on the first
   # token) surface the error instead of an empty bubble.
   defp handle_stream_error(
@@ -798,7 +800,7 @@ defmodule Zaq.Agent.Executor do
 
   defp suppressed_stream_error_result(_reason, partial) do
     %{
-      answer: "",
+      answer: partial[:pending_answer] || "",
       confidence_score: nil,
       latency_ms: nil,
       prompt_tokens: nil,

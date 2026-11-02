@@ -118,6 +118,71 @@ defmodule Zaq.Agent.StreamUpdatePolicyTest do
     end
   end
 
+  test "a failed stream retains its unpublished answer tail without a terminal publication" do
+    prefix = "Here is the beginning of the answer."
+    answer = prefix <> " This is the remaining answer text."
+
+    assert {:error, :provider_failure, result} =
+             consume([
+               delta(100, :content, prefix),
+               delta(110, :content, " This is the remaining answer text."),
+               event(:request_failed, 120, %{error: :provider_failure})
+             ])
+
+    assert_receive {:update, :answering, ^prefix, _}
+    refute_receive {:update, _, _, _}
+    assert result.answer_published?
+    assert result.answer == answer
+    assert result.pending_answer == answer
+  end
+
+  test "reasoning cannot replace a pending answer after content was published" do
+    prefix = "An answer long enough to publish."
+    answer = prefix <> " The final detail."
+
+    assert {:error, :provider_failure, result} =
+             consume([
+               delta(100, :content, prefix),
+               delta(110, :content, " The final detail."),
+               delta(200, :thinking, "Private reasoning long enough to publish."),
+               event(:request_failed, 210, %{error: :provider_failure})
+             ])
+
+    assert result.answer == answer
+    assert result.pending_answer == answer
+    assert result.answer_published?
+    assert Enum.any?(result.trace, &(&1["type"] == "reasoning"))
+  end
+
+  test "a fully published answer needs no terminal replacement" do
+    text = "An answer long enough to publish."
+    assert {:ok, result} = consume([delta(100, :content, text), done(110)])
+    assert result.answer_published?
+    assert result.pending_answer == nil
+  end
+
+  property "published whitespace is never evidence of a meaningful answer" do
+    check all(
+            parts <-
+              list_of(member_of([" ", "\t", "\n", "\r", "\u00a0"]),
+                min_length: 21,
+                max_length: 50
+              )
+          ) do
+      text = Enum.join(parts)
+
+      assert {:error, :provider_failure, result} =
+               consume([
+                 delta(100, :content, text),
+                 event(:request_failed, 110, %{error: :provider_failure})
+               ])
+
+      assert_receive {:update, :answering, ^text, _}
+      refute result.answer_published?
+      assert result.pending_answer == nil
+    end
+  end
+
   property "publication preferences never change canonical execution evidence" do
     check all(
             answer <- boolean(),

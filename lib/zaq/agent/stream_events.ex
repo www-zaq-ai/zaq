@@ -18,6 +18,9 @@ defmodule Zaq.Agent.StreamEvents do
   this reducer. Trigger switches select publication opportunities, not snapshot
   visibility or trace collection. Lifecycle status bypasses this policy and does
   not consume its interval. There are no timers or forced terminal publications.
+  Meaningful published answer content is tracked separately from reasoning. A
+  failed stream returns any outstanding answer snapshot for Executor's terminal
+  delivery without admitting another intermediate publication.
   """
 
   alias ReqLLM.Message.ContentPart
@@ -47,6 +50,7 @@ defmodule Zaq.Agent.StreamEvents do
   @type result :: %{
           answer: term(),
           answer_published?: boolean(),
+          pending_answer: String.t() | nil,
           usage: map(),
           llm_calls: [map()],
           trace: [map()],
@@ -107,7 +111,8 @@ defmodule Zaq.Agent.StreamEvents do
       last_flush_ms: started_at,
       event_ms: started_at,
       terminal_received: false,
-      answer_published?: false,
+      latest_answer: nil,
+      published_answer: nil,
       live_update_policy: live_update_policy(opts),
       current_key: nil,
       current_stage: nil,
@@ -305,6 +310,7 @@ defmodule Zaq.Agent.StreamEvents do
           current_stage: stage,
           current_intent: intent,
           current_full: full,
+          latest_answer: latest_answer(state, intent, full),
           current_model: model,
           current_started_at_ms: started_at_ms,
           current_ended_at_ms: field(event, :at_ms),
@@ -317,6 +323,9 @@ defmodule Zaq.Agent.StreamEvents do
       state
     end
   end
+
+  defp latest_answer(_state, :stream_delta, text), do: text
+  defp latest_answer(state, _intent, _text), do: state.latest_answer
 
   defp handle_llm_completed(event, state) do
     usage = normalize_usage(data_get(data(event), :usage))
@@ -614,9 +623,15 @@ defmodule Zaq.Agent.StreamEvents do
         buffer: "",
         last_flush_ms: now,
         published_tool_steps: public_tool_steps(state),
-        answer_published?: state.answer_published? or state.current_intent == :stream_delta
+        published_answer: published_answer(state)
     }
   end
+
+  defp published_answer(%{current_intent: :stream_delta, current_full: text} = state) do
+    if String.trim(text) == "", do: state.published_answer, else: text
+  end
+
+  defp published_answer(state), do: state.published_answer
 
   defp live_update_policy(opts) do
     case LiveUpdates.normalize(Keyword.get(opts, :live_update_policy, LiveUpdates.defaults())) do
@@ -690,8 +705,9 @@ defmodule Zaq.Agent.StreamEvents do
 
   defp result(state) do
     %{
-      answer: state.answer || state.current_full,
-      answer_published?: state.answer_published?,
+      answer: state.answer || state.latest_answer || state.current_full,
+      answer_published?: not is_nil(state.published_answer),
+      pending_answer: pending_answer(state),
       usage: state.usage,
       llm_calls: public_llm_calls(state),
       trace: Enum.reverse(state.trace),
@@ -705,6 +721,12 @@ defmodule Zaq.Agent.StreamEvents do
       runtime_pid: state.runtime_pid,
       execution_scope: state.execution_scope
     }
+  end
+
+  defp pending_answer(%{published_answer: nil}), do: nil
+
+  defp pending_answer(%{latest_answer: latest, published_answer: published}) do
+    if latest != published and String.trim(latest) != "", do: latest
   end
 
   defp flush_trace_segment(%{current_key: nil} = state, _event), do: state

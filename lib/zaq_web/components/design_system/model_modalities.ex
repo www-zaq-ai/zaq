@@ -87,6 +87,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
             if (this.tooltip?.isConnected) this.tooltip.hidePopover();
             this.tooltip = null;
             this.trigger = null;
+            this.touchOpen = false;
           };
           this.visibleTriggerRect = () => {
             const rect = this.trigger.getBoundingClientRect();
@@ -144,9 +145,12 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
             if (!this.el.contains(event.relatedTarget)) this.hide();
           };
           this.onPointerLeave = event => {
-            if (event.pointerType !== 'touch' && !this.el.contains(event.relatedTarget)) this.hide();
+            // WebKit can emit a compatibility mouse leave when a tapped trigger
+            // moves during scrolling. Its tooltip follows clipping, not hover.
+            if (event.pointerType !== 'touch' && !this.touchOpen && !this.el.contains(event.relatedTarget)) this.hide();
           };
           this.onPointerDown = event => {
+            if (event.target.closest('.zaq-model-modality-trigger')) this.lastPointerType = event.pointerType;
             if (!event.target.closest('.zaq-model-modality-tooltip')) return;
             // Keep focus on the trigger: blur would remove the top-layer target
             // before click dispatch, retargeting the click to the selectable row.
@@ -162,6 +166,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
             if (!trigger) return;
             event.stopPropagation();
             this.show(trigger);
+            this.touchOpen = event.detail > 0 && this.lastPointerType === 'touch';
           };
           this.onOutside = event => {
             if (!this.el.contains(event.target)) this.hide();

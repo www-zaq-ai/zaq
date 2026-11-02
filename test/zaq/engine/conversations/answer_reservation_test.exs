@@ -27,16 +27,18 @@ defmodule Zaq.Engine.Conversations.AnswerReservationTest do
       Incoming.new(%{content: "Question", channel_id: "test", provider: :web})
 
     binding = %{user_message_id: input.id, execution_id: execution.id, finalization_token: token}
+    answer = "An answer eligible for a streamed update."
 
     events = [
       %{kind: :request_started, at_ms: 0, data: %{}},
       %{kind: :request_started, at_ms: 1, data: %{}},
-      %{kind: :llm_delta, at_ms: 10, data: %{chunk_type: :content, delta: "hello"}},
-      %{kind: :request_completed, at_ms: 20, data: %{result: "hello"}}
+      %{kind: :llm_delta, at_ms: 100, data: %{chunk_type: :content, delta: answer}},
+      %{kind: :request_completed, at_ms: 110, data: %{result: answer}}
     ]
 
     assert {:ok, result} =
              StreamEvents.consume(events, incoming,
+               started_at: 0,
                conversation_binding: binding,
                actor: opts[:actor],
                node_router: EngineRouter,

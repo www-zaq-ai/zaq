@@ -21,6 +21,27 @@ defmodule Zaq.Engine.LiveUpdateSettingsTest do
     %{actor: %{user_id: user.id}}
   end
 
+  test "a new connector with an explicit ID keeps its submitted policy on insert" do
+    %{rows: [[id]]} =
+      Repo.query!("SELECT nextval(pg_get_serial_sequence('channel_configs', 'id'))")
+
+    settings = %{"live_updates" => %{"enabled" => false}, "unrelated" => "retained"}
+
+    assert {:ok, config} =
+             %ChannelConfig{id: id}
+             |> ChannelConfig.changeset(%{
+               name: "Preassigned connector",
+               provider: "web_widget",
+               kind: "retrieval",
+               enabled: false,
+               settings: settings
+             })
+             |> Repo.insert()
+
+    assert config.id == id
+    assert Repo.get!(ChannelConfig, id).settings == settings
+  end
+
   test "management authenticates the actor and requires confidential dispatch", %{actor: actor} do
     config = connector()
     request = %{op: :snapshot, id: config.id}
