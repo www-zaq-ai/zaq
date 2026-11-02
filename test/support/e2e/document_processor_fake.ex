@@ -49,7 +49,16 @@ defmodule Zaq.E2E.DocumentProcessorFake do
     person_id = Keyword.get(access_opts, :person_id)
     team_ids = Keyword.get(access_opts, :team_ids, [])
     skip_permissions = Keyword.get(access_opts, :skip_permissions, false)
-    terms = tokenize(query)
+    mode = Keyword.get(access_opts, :search_mode, :hybrid)
+
+    terms =
+      if mode == :keyword,
+        do:
+          access_opts
+          |> Keyword.get(:lexical_terms, [])
+          |> Enum.flat_map(&tokenize/1)
+          |> Enum.uniq(),
+        else: tokenize(query)
 
     docs =
       Repo.all(from(d in Document))
@@ -67,20 +76,20 @@ defmodule Zaq.E2E.DocumentProcessorFake do
       |> Enum.filter(fn {score, _doc} -> score > 0 end)
       |> Enum.sort_by(fn {score, doc} -> {-score, doc.source} end)
       |> Enum.take(8)
-      |> Enum.map(fn {_score, doc} -> to_extraction(doc) end)
+      |> Enum.map(fn {score, doc} -> to_extraction(doc, score, mode) end)
 
     fallback =
       docs
       |> Enum.sort_by(fn {_score, doc} -> doc.source end)
       |> Enum.take(3)
-      |> Enum.map(fn {_score, doc} -> to_extraction(doc) end)
+      |> Enum.map(fn {score, doc} -> to_extraction(doc, score, mode) end)
 
     {:ok, if(matches == [], do: fallback, else: matches)}
   end
 
   # The fake already limits each retrieval to at most eight documents. Keep
   # that E2E fixture contract when the multilingual tool applies its final cap.
-  def limit_chunks(chunks) when is_list(chunks), do: chunks
+  def limit_chunks(chunks, maximum \\ 100) when is_list(chunks), do: Enum.take(chunks, maximum)
 
   defp extract_source(file_path) do
     base = FileExplorer.base_path() |> Path.expand()
@@ -143,11 +152,22 @@ defmodule Zaq.E2E.DocumentProcessorFake do
     end)
   end
 
-  defp to_extraction(doc) do
+  defp to_extraction(doc, score, mode) do
+    chunk = Chunk.get_by_index(doc.id, 1)
+
     %{
       "content" => compact_content(doc.content),
       "source" => doc.source,
-      "rrf_score" => 1.0
+      "chunk_id" => chunk && chunk.id,
+      "document_id" => doc.id,
+      "chunk_index" => 1,
+      "section_path" => if(chunk, do: chunk.section_path, else: []),
+      "previous_chunk_id" => nil,
+      "next_chunk_id" => nil,
+      "direct_match" => not is_nil(chunk),
+      "bm25_score" => if(mode in [:keyword, :hybrid], do: score),
+      "vector_distance" => if(mode in [:semantic, :hybrid], do: 1.0 / (score + 1)),
+      "rrf_score" => if(mode == :hybrid, do: 1.0)
     }
   end
 
