@@ -139,9 +139,13 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   defp search_languages(params, languages, context) do
     {queries, translation_errors} = translate_languages(params, languages, context)
 
-    {chunks, errors, successful} =
-      run_language_searches(params, queries, translation_errors, context)
+    case run_language_searches(params, queries, translation_errors, context) do
+      {:error, :deadline_exceeded} -> {:error, "Knowledge base search timed out"}
+      result -> complete_search(params, result, context)
+    end
+  end
 
+  defp complete_search(params, {chunks, errors, successful}, context) do
     if errors != [],
       do: Logger.warning("Knowledge base language searches incomplete: #{inspect(errors)}")
 
@@ -193,6 +197,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
 
   defp run_language_searches(params, queries, translation_errors, context) do
     sorted = Enum.sort_by(queries, &elem(&1, 0))
+    deadline_limited = remaining(context, 45_000) < 45_000
 
     searches =
       Task.Supervisor.async_stream(
@@ -205,8 +210,18 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
         on_timeout: :kill_task
       )
 
+    results = Enum.to_list(searches)
+
+    if deadline_timeout?(results, deadline_limited) do
+      {:error, :deadline_exceeded}
+    else
+      collect_languages(sorted, results, translation_errors)
+    end
+  end
+
+  defp collect_languages(sorted, results, translation_errors) do
     sorted
-    |> Enum.zip(searches)
+    |> Enum.zip(results)
     |> Enum.reduce({[], translation_errors, 0}, fn {{language, _}, result},
                                                    {chunks, errors, count} ->
       case result do
@@ -242,6 +257,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
       {KeywordKnowledgeSearch, %{lexical_terms: query.lexical_terms, language: language}}
     ]
 
+    deadline_limited = remaining(context, 30_000) < 30_000
+
     results =
       Task.Supervisor.async_stream(
         Zaq.TaskSupervisor,
@@ -263,8 +280,18 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
         )
 
       _ ->
-        {:error, :search_failed}
+        if deadline_timeout?(results, deadline_limited),
+          do: {:error, :deadline_exceeded},
+          else: {:error, :search_failed}
     end
+  end
+
+  defp deadline_timeout?(results, deadline_limited) do
+    Enum.any?(results, fn
+      {:ok, {:error, :deadline_exceeded}} -> true
+      {:exit, :timeout} -> deadline_limited
+      _ -> false
+    end)
   end
 
   defp merge_chunks(chunks, mode) do
