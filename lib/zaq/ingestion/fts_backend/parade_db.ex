@@ -80,6 +80,7 @@ defmodule Zaq.Ingestion.FTSBackend.ParadeDB do
     )
     |> limit(^limit)
     |> select([c], %{
+      chunk_id: c.id,
       document_id: c.document_id,
       section_path: c.section_path,
       chunk_index: c.chunk_index,

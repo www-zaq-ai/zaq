@@ -1353,7 +1353,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       refute Enum.any?(results, &(&1["source"] == "volume-b/other.md"))
     end
 
-    test "section siblings do not inherit direct-match scores or measured vector distances" do
+    test "only direct matches are returned with explicit neighboring chunk IDs" do
       stub_embedding_success()
       doc = create_document()
       dim = embedding_dimension()
@@ -1373,19 +1373,18 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Repo.insert!()
       end
 
-      assert {:ok, [direct, sibling]} =
+      assert {:ok, [direct]} =
                DocumentProcessor.query_extraction("target", skip_permissions: true)
 
+      sibling = Chunk.get_by_index(doc.id, 2)
+      assert direct["chunk_id"] == Chunk.get_by_index(doc.id, 1).id
+      assert direct["previous_chunk_id"] == nil
+      assert direct["next_chunk_id"] == sibling.id
       assert direct["direct_match"]
       assert "vector" in direct["retrieval_legs"]
       assert is_number(direct["vector_distance"])
-      assert sibling["direct_match"] == false
-      assert sibling["vector_distance"] == nil
-      assert sibling["retrieval_legs"] == []
       assert is_number(direct["rrf_score"])
-      assert sibling["rrf_score"] == nil
       refute Map.has_key?(direct, "distance")
-      refute Map.has_key?(sibling, "distance")
     end
 
     test "lexical and vector hits in one section retain separate evidence after hydration" do

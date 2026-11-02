@@ -51,7 +51,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
     Map.merge(
       %{
         generation: TranslationGeneration,
-        llm_config: OpenAIStub.llm_config("http://example.test/v1") |> Map.new()
+        translation_config:
+          OpenAIStub.seed_operation_model_config(:translation, "http://example.test/v1")
       },
       extra
     )
