@@ -37,6 +37,7 @@ defmodule Zaq.Engine.Workflows.Step.Node do
   import Ecto.Changeset
 
   alias Zaq.Engine.Workflows.Action
+  alias Zaq.Engine.Workflows.Step.Edge
 
   @primary_key false
 
@@ -221,10 +222,21 @@ defmodule Zaq.Engine.Workflows.Step.Node do
     changeset = changeset(%__MODULE__{}, Map.put_new(attrs, "index", 0))
 
     if changeset.valid? do
-      :ok
+      validate_inline_mapping(attrs)
     else
       {:error, errors_to_message(changeset)}
     end
+  end
+
+  defp validate_inline_mapping(attrs) do
+    edge =
+      Edge.changeset(%Edge{}, %{
+        from: "previous",
+        to: attrs["name"],
+        mapping: attrs["mapping"] || %{}
+      })
+
+    if edge.valid?, do: :ok, else: {:error, errors_to_message(edge)}
   end
 
   defp errors_to_message(%Ecto.Changeset{errors: errors}) do

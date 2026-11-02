@@ -21,12 +21,19 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   way `DagBuilder` assembles a regular node. The shared node-building primitives
   (`node_atom/1`, `atomize_keys/1`, `build_action_node/5`) live in `DagBuilder` and
   are reused here.
+
+  Body and post-process nodes may declare an incoming `mapping`, using the same
+  field references as workflow edges. Pipelines using mappings inherit the parent
+  cascade and add outputs under local body names, so `capture.result` resolves within that
+  item only. Collection restores the parent cascade, including when every item
+  fails or the collection is empty. Persisted StepRun names remain `<map>/<step>[i]`.
   """
 
   alias Runic.Workflow.Step
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.DagBuilder
+  alias Zaq.Engine.Workflows.Step.Edge
   alias Zaq.Engine.Workflows.StepRunner
   alias Zaq.Engine.Workflows.Steps
   alias Zaq.Engine.Workflows.WorkflowRun
@@ -63,6 +70,7 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
       # (Chaining the sub-steps as separate Runic steps reacted breadth-first across
       # forks — every fork's body ran before any fork's post_process.)
       specs = body_specs ++ post_specs
+      mapped? = Enum.any?(specs, &(map_size(&1.mapping) > 0))
       extract_atom = DagBuilder.node_atom("#{name}__map_extract")
       fan_out_hash = :erlang.phash2({:map_fan_out, name})
       map_component = DagBuilder.node_atom("#{name}__map")
@@ -86,11 +94,18 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
       {:ok,
        %{
          extract:
-           build_extract_node(extract_atom, name, index, over, delivery_opts(params), run_id),
+           build_extract_node(
+             extract_atom,
+             name,
+             index,
+             over,
+             Map.put(delivery_opts(params), :inherit_cascade, mapped?),
+             run_id
+           ),
          extract_atom: extract_atom,
          map: map_struct,
          last_body: fork_step,
-         reduce: build_map_reduce(name, map_component),
+         reduce: build_map_reduce(name, map_component, mapped?),
          collect:
            DagBuilder.build_action_node(
              Steps.MapCollect,
@@ -118,31 +133,38 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
     end
   end
 
-  # A fork sub-step spec is the `StepRunner` wrapper-params map (minus the incoming
-  # fork fact, which is merged in at run time). `run_fork/2` calls `StepRunner.run/2`
-  # with `Map.merge(fork_fact, spec)`, so the fork carries the same per-step StepRun
-  # writing, retry, isolation and cascade as the old chained pipeline.
+  # Keep incoming mappings outside Action params. StepRunner still owns execution,
+  # persistence, retries and isolation for each mapped fork step.
   defp build_fork_spec(bnode, map_name, strategy, run_id) do
     type = Map.get(bnode, "type")
     bname = Map.get(bnode, "name")
     bparams = Map.get(bnode, "params") || %{}
+    mapping = Map.get(bnode, "mapping") || %{}
 
     if type in ["action", "agent"] do
       with {:ok, mod} <- Action.resolve(Map.get(bnode, "module")),
-           :ok <- Action.validate(mod) do
+           :ok <- Action.validate(mod),
+           :ok <- validate_body_mapping(map_name, bname, mapping) do
         base = bparams |> DagBuilder.atomize_keys() |> Map.put(:__map_strategy__, strategy)
 
-        {:ok,
-         Map.merge(base, %{
-           wrapped_module: mod,
-           run_id: run_id,
-           step_name: "#{map_name}/#{bname}",
-           step_index: 0
-         })}
+        params =
+          Map.merge(base, %{
+            wrapped_module: mod,
+            run_id: run_id,
+            step_name: "#{map_name}/#{bname}",
+            step_index: 0
+          })
+
+        {:ok, %{params: params, name: bname, mapping: mapping}}
       end
     else
       {:error, {:unsupported_map_body_node_type, type}}
     end
+  end
+
+  defp validate_body_mapping(map_name, name, mapping) do
+    edge = Edge.changeset(%Edge{}, %{from: map_name, to: name, mapping: mapping})
+    if edge.valid?, do: :ok, else: {:error, {:invalid_body_mapping, name}}
   end
 
   # One Runic step that runs a fork's whole body + post_process chain in order. Runic
@@ -161,18 +183,45 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   # sub-steps short-circuit on it); a non-isolated failure (`:fail_workflow`) returns
   # `{:error, _}` — its `StepRun` row is already `"failed"`, so we emit the sentinel
   # to keep the FanIn cardinality intact and let `finalize/2` fail the run.
+  defp run_fork(%{__map_empty__: true} = fact, _specs) do
+    %{__map_empty__: true, __map_parent_cascade__: fact.__cascade__}
+  end
+
   defp run_fork(fact, specs) do
+    mapped? = Enum.any?(specs, &(map_size(&1.mapping) > 0))
+
     specs
     |> Enum.reduce_while({:ok, fact}, fn spec, {:ok, prev} ->
-      case StepRunner.run(Map.merge(prev, spec), %{}) do
-        {:ok, result} -> {:cont, {:ok, result}}
-        {:error, _} -> {:halt, {:error, map_index_of(prev)}}
+      params = prev |> Steps.EdgeStep.apply_mapping(spec.mapping) |> Map.merge(spec.params)
+
+      case StepRunner.run(params, %{}) do
+        {:ok, result} ->
+          {:cont, {:ok, put_local_result(result, spec.name, mapped?)}}
+
+        {:error, _} ->
+          {:halt, {:error, map_index_of(prev)}}
       end
     end)
     |> case do
       {:ok, result} -> result
       {:error, index} -> %{"__map_index__" => index, "__map_error__" => true}
     end
+    |> put_parent_cascade(fact, mapped?)
+  end
+
+  defp put_parent_cascade(result, _fact, false), do: result
+
+  defp put_parent_cascade(result, fact, true) do
+    Map.put(result, :__map_parent_cascade__, Map.get(fact, :__cascade__, %{}))
+  end
+
+  defp put_local_result(result, _name, false), do: result
+
+  defp put_local_result(result, name, true) do
+    cascade = Map.get(result, :__cascade__, Map.get(result, "__cascade__", %{}))
+    cascade = Map.delete(cascade, safe_existing_atom(name))
+    output = Map.drop(result, [:__cascade__, "__cascade__", :__map_index__, "__map_index__"])
+    result |> Map.delete("__cascade__") |> Map.put(:__cascade__, Map.put(cascade, name, output))
   end
 
   defp map_index_of(fact) when is_map(fact),
@@ -180,7 +229,7 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
 
   defp map_index_of(_), do: nil
 
-  defp build_map_reduce(name, map_component) do
+  defp build_map_reduce(name, map_component, mapped?) do
     reduce_name = DagBuilder.node_atom("#{name}__map_reduce")
 
     %Runic.Workflow.Reduce{
@@ -188,17 +237,26 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
       hash: :erlang.phash2({:map_reduce, name}),
       fan_in: %Runic.Workflow.FanIn{
         map: map_component,
-        init: fn -> [] end,
-        reducer: fn item, acc ->
-          # A non-fatal failed fork emits an `__map_error__` sentinel purely to keep the
-          # FanIn cardinality intact (so it fires); it is excluded from the results list.
-          # The failure itself is recovered from the fork's `StepRun` row by `MapCollect`.
-          if map_error_item?(item), do: acc, else: acc ++ [summarize_map_item(item)]
-        end,
+        init: fn -> if mapped?, do: %{input: [], __cascade__: %{}}, else: [] end,
+        reducer: &reduce_item/2,
         hash: :erlang.phash2({:map_fan_in, name}),
         name: reduce_name
       }
     }
+  end
+
+  # Carry only the parent cascade across fan-in, including all-error and empty
+  # batches. Item-local names stay inside their fork and cannot overwrite it.
+  defp reduce_item(item, %{input: results} = acc) do
+    acc
+    |> Map.put(:__cascade__, Map.fetch!(item, :__map_parent_cascade__))
+    |> Map.put(:input, reduce_item(item, results))
+  end
+
+  defp reduce_item(%{__map_empty__: true}, results), do: results
+
+  defp reduce_item(item, results) do
+    if map_error_item?(item), do: results, else: results ++ [summarize_map_item(item)]
   end
 
   defp map_error_item?(item) when is_map(item),
@@ -208,7 +266,16 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
 
   defp summarize_map_item(item) when is_map(item) do
     idx = Map.get(item, "__map_index__") || Map.get(item, :__map_index__)
-    clean = Map.drop(item, ["__map_index__", :__map_index__, :__cascade__, "__cascade__"])
+
+    clean =
+      Map.drop(item, [
+        "__map_index__",
+        :__map_index__,
+        :__cascade__,
+        "__cascade__",
+        :__map_parent_cascade__
+      ])
+
     %{"index" => idx, "status" => "completed", "result" => clean}
   end
 
@@ -255,10 +322,30 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
     items
     |> group_units(opts)
     |> Enum.with_index()
-    |> Enum.map(fn {unit, i} -> stamp_unit(unit, i, opts) end)
+    |> Enum.map(fn {unit, i} ->
+      fact = stamp_unit(unit, i, opts)
+
+      case opts.inherit_cascade && Map.get(input, :__cascade__, Map.get(input, "__cascade__")) do
+        false -> fact
+        nil -> fact
+        cascade -> Map.put(fact, :__cascade__, cascade)
+      end
+    end)
+    |> retain_empty_cascade(input, opts)
   end
 
   defp extract_items(_input, _name, _index, _over, _opts, _run_id), do: []
+
+  defp retain_empty_cascade([], input, %{inherit_cascade: true}) do
+    [
+      %{
+        __map_empty__: true,
+        __cascade__: Map.get(input, :__cascade__, Map.get(input, "__cascade__", %{}))
+      }
+    ]
+  end
+
+  defp retain_empty_cascade(facts, _input, _opts), do: facts
 
   # Run-time guard: a runtime collection larger than the effective cap must
   # not fan out unbounded. Runic swallows step exceptions and only logs them, so a

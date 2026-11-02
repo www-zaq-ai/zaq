@@ -176,9 +176,11 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
     end
   end
 
-  defp apply_mapping(fact, mapping) when map_size(mapping) == 0, do: fact
+  @doc "Applies the shared edge mapping contract to a fact, including cascade references."
+  @spec apply_mapping(map(), map()) :: map()
+  def apply_mapping(fact, mapping) when map_size(mapping) == 0, do: fact
 
-  defp apply_mapping(fact, mapping) do
+  def apply_mapping(fact, mapping) do
     source_atom_keys = MapSet.new(mapping, fn {_t, s} -> to_key(s) end)
 
     base = Map.drop(fact, MapSet.to_list(source_atom_keys))

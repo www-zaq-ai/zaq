@@ -70,41 +70,41 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
              evaluate("return data", %{}, eval_timeout_ms: 0)
   end
 
-  test "optionally exposes the current item and original request" do
+  test "reads context only from explicit data without injecting globals or loading a run" do
     params = %{
-      code: "return {agent_id = input.agent_id, range = request.target_range}",
-      input: %{agent_id: 42},
-      include_context: true
+      code: "return {agent_id = data.item.agent_id, range = data.job.target_range}",
+      data: %{item: %{agent_id: 42}, job: %{target_range: "D2:D3"}}
     }
 
-    context = %{source_request: %{"target_range" => "D2:D3"}}
+    context = %{run_id: "not-a-persisted-run", source_request: %{"target_range" => "wrong"}}
 
     assert {:ok, %{result: %{"agent_id" => 42, "range" => "D2:D3"}}} =
              Jido.Exec.run(LuaEval, params, context, max_retries: 0)
 
     assert {:ok, %{result: ["nil", "nil"]}} =
-             evaluate("return {type(input), type(request)}")
+             Jido.Exec.run(LuaEval, %{code: "return {type(input), type(request)}"}, context,
+               max_retries: 0
+             )
   end
 
-  test "merges named result fields as following Action params" do
-    assert {:ok, %{agent_id: 42, input: "Q1", result: result}} =
-             evaluate("return {agent_id = 42, input = 'Q1'}", %{}, merge_result: true)
+  test "keeps named fields and lists under result for cascade mappings" do
+    assert evaluate("return {agent_id = 42, input = 'Q1'}") ==
+             {:ok, %{result: %{"agent_id" => 42, "input" => "Q1"}}}
 
-    assert result == %{"agent_id" => 42, "input" => "Q1"}
-    assert {:error, _reason} = evaluate("return {1, 2}", %{}, merge_result: true)
+    assert evaluate("return {1, 2}") == {:ok, %{result: [1, 2]}}
   end
 
-  test "merging unknown fields does not create atoms" do
+  test "returning unknown fields does not create atoms" do
     key = "unknown-output-key-#{System.unique_integer([:positive])}"
     assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
 
-    assert {:ok, %{^key => "value", result: %{^key => "value"}}} =
-             evaluate("return data", %{key => "value"}, merge_result: true)
+    assert evaluate("return data", %{key => "value"}) ==
+             {:ok, %{result: %{key => "value"}}}
 
     assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
   end
 
-  property "merged results cannot override workflow engine-control fields" do
+  property "returned data cannot override workflow engine-control fields" do
     check all(
             key <-
               member_of(
@@ -112,7 +112,8 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
               ),
             max_runs: 20
           ) do
-      assert {:error, _reason} = evaluate("return data", %{key => "blocked"}, merge_result: true)
+      assert evaluate("return data", %{key => "nested"}) ==
+               {:ok, %{result: %{key => "nested"}}}
     end
   end
 
