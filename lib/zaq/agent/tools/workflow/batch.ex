@@ -24,116 +24,47 @@ defmodule Zaq.Agent.Tools.Workflow.Batch do
     from the body's first action's input schema.
 
   Iteration over the upstream collection always reads the `items` key (Batch's
-  required input, supplied via the incoming edge mapping). There is no `Iterate`
-  module — delivery mode is the explicit `delivery` param, not a wrapper node.
+  required input, supplied via the incoming edge mapping). Pipeline lowering is
+  shared with `Iterate`; Batch retains scheduler-selected fork order. Use `Iterate`
+  when each item must execute in input order.
   """
 
   @behaviour Zaq.Engine.Workflows.Node
 
-  alias Zaq.Engine.Workflows.Action
-  alias Zaq.Engine.Workflows.Step
+  alias Zaq.Agent.Tools.Workflow.Iterate
 
-  @default_delivery "list"
-
-  @doc """
-  Rewrites a Batch node into a `map` node. Returns `{:ok, map_node}` or
-  `{:error, reason}` when the process pipeline is missing/unresolvable.
-  """
-  @impl Zaq.Engine.Workflows.Node
-  def enrich(node, _nodes_list) do
+  @impl true
+  def enrich(node, _nodes) do
     params = Map.get(node, "params") || %{}
-    name = Map.get(node, "name")
-    process = Map.get(params, "process", [])
-    post_process = Map.get(params, "post_process", [])
-    batch_size = Map.get(params, "batch_size")
-    strategy = Map.get(params, "strategy", "skip_and_continue")
-    delivery = Map.get(params, "delivery", @default_delivery)
 
-    with :ok <- require_process(process),
-         {:ok, field} <- detect_field(process) do
-      map_params =
-        %{
-          "over" => "items",
-          "body" => process,
-          "field" => field,
-          "delivery" => delivery,
-          "strategy" => strategy,
-          "post_process" => post_process
-        }
-        |> maybe_put("chunk_size", batch_size)
+    with {:ok, lowered} <- Iterate.prepare_pipeline(node) do
+      batch_params =
+        lowered["params"]
+        |> Map.put("ordered", false)
+        |> Map.put("delivery", Map.get(params, "delivery", "list"))
+        |> put_chunk_size(Map.get(params, "batch_size"))
 
-      {:ok,
-       %{
-         "name" => name,
-         "type" => "map",
-         "index" => Map.get(node, "index"),
-         "params" => map_params
-       }}
+      {:ok, Map.put(lowered, "params", batch_params)}
     end
   end
 
-  defp require_process([_ | _]), do: :ok
-  defp require_process(_), do: {:error, :missing_process_pipeline}
-
-  @doc """
-  Save-time validation for an authored Batch node (dispatched by
-  `Zaq.Engine.Workflows.Step.Node`). Lowers the node via `enrich/2` and validates
-  the resulting iteration body — every body node must satisfy the
-  `Workflows.Action` contract, and `batch_size` (carried as `chunk_size`) must be a
-  positive integer when present. This gives a Batch node the same save-time
-  guarantees the retired public `map` type used to enforce directly.
-  """
-  @impl Zaq.Engine.Workflows.Node
+  @impl true
   def validate(node) do
-    case enrich(node, []) do
-      {:ok, %{"params" => params}} -> validate_map_params(params)
-      {:error, _reason} = err -> err
+    params = Map.get(node, "params") || %{}
+
+    with :ok <- Iterate.validate(node),
+         :ok <- validate_delivery(Map.get(params, "delivery", "list")) do
+      validate_batch_size(Map.get(params, "batch_size"))
     end
   end
 
-  defp validate_map_params(params) do
-    with :ok <- validate_body(Map.get(params, "body")),
-         :ok <- validate_delivery(Map.get(params, "delivery")) do
-      validate_chunk_size(Map.get(params, "chunk_size"))
-    end
-  end
-
-  defp validate_delivery(d) when d in ["item", "list"], do: :ok
+  defp validate_delivery(delivery) when delivery in ["item", "list"], do: :ok
   defp validate_delivery(_), do: {:error, ~s(delivery must be "item" or "list")}
 
-  # Each lowered body node is validated through the single node validator
-  # (`Step.Node.validate_node_map/1`) — the same rules a top-level node gets, with
-  # no Batch-specific re-derivation of type/module/contract checks.
-  defp validate_body([_ | _] = body) do
-    body
-    |> Enum.with_index()
-    |> Enum.reduce_while(:ok, fn {bnode, i}, :ok ->
-      case Step.Node.validate_node_map(bnode) do
-        :ok -> {:cont, :ok}
-        {:error, msg} -> {:halt, {:error, "process node #{i}: #{msg}"}}
-      end
-    end)
-  end
+  defp validate_batch_size(nil), do: :ok
+  defp validate_batch_size(size) when is_integer(size) and size > 0, do: :ok
+  defp validate_batch_size(_), do: {:error, "batch_size must be a positive integer"}
 
-  defp validate_body(_body), do: {:error, "process must list at least one node"}
-
-  defp validate_chunk_size(nil), do: :ok
-  defp validate_chunk_size(n) when is_integer(n) and n > 0, do: :ok
-  defp validate_chunk_size(_n), do: {:error, "batch_size must be a positive integer"}
-
-  # Delivery field comes from the body's first action's input schema.
-  # `Action.batch_field/1` guards module loading, so we only need the atom here.
-  defp detect_field([%{"module" => module} | _]) when is_binary(module) do
-    mod = module |> String.split(".") |> Module.concat()
-
-    case Action.batch_field(mod) do
-      {:ok, {field, _mode}} -> {:ok, to_string(field)}
-      {:error, _} = err -> err
-    end
-  end
-
-  defp detect_field(_), do: {:error, :missing_process_pipeline}
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp put_chunk_size(params, nil), do: params
+  defp put_chunk_size(params, size), do: Map.put(params, "chunk_size", size)
 end
