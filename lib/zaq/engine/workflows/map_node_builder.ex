@@ -8,13 +8,10 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
 
       MapExtract(over) -> %Map{FanOut -> fork executor} -> %Reduce{collect} -> MapCollect
 
-  `MapExtract`/`MapCollect` live in `Steps.*`. Each fan-out unit runs its WHOLE
-  `body` + `post_process` chain as ONE serialized Runic step
-  (`build_fork_executor/2`), so iteration N completes (body AND post_process) before
-  N+1 begins. The sub-steps are threaded through `StepRunner`, which writes the
-  per-fork StepRun rows (`"<map>/<step>[i]"`). `MapCollect` is wrapped under the map
-  node's own name, so it writes the single aggregate StepRun and is the chain's tail
-  for outgoing edges.
+  Batch runs each fork's whole body and post-process together, in scheduler
+  order. Iterate uses an ordered step that finishes each item's whole pipeline
+  before starting the next item in input order. Both execute through StepRunner
+  for per-item persistence and collect through MapCollect under the parent name.
 
   `build_spec/4` returns a plain spec map; `DagBuilder.add_map_chain/5` wires the
   extract head to incoming edges and appends the Map/Reduce/Collect chain — the same
@@ -45,7 +42,8 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
 
   @doc """
   Lowers a `"map"` node's params into the spec map consumed by `DagBuilder`'s
-  assembly: `%{extract, extract_atom, map, last_body, reduce, collect}`.
+  assembly: `%{ordered, collect}` for Iterate, or
+  `%{extract, extract_atom, map, last_body, reduce, collect}` for Batch.
 
   Returns `{:error, {:map_body_required, name}}` (or a body-node resolution error)
   when the inline `body` pipeline is empty/unresolvable.
@@ -53,7 +51,6 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   @spec build_spec(String.t(), map(), non_neg_integer(), String.t() | nil) ::
           {:ok, map()} | {:error, term()}
   def build_spec(name, params, index, run_id) do
-    over = Map.get(params, "over")
     body = Map.get(params, "body") || []
     post = Map.get(params, "post_process") || []
     strategy = Map.get(params, "strategy", "skip_and_continue")
@@ -61,61 +58,78 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
     with :ok <- DagBuilder.require_non_empty(body, {:map_body_required, name}),
          {:ok, body_specs} <- build_fork_specs(body, name, strategy, run_id),
          {:ok, post_specs} <- build_fork_specs(post, name, strategy, run_id) do
-      # Each fork runs its WHOLE body + post_process chain as one serialized unit, so
-      # a later step (e.g. `post_process`) can never run before an earlier fork's
-      # tail. The sub-steps are threaded through `StepRunner` inside a single
-      # composite Runic step (`build_fork_executor/2`); Runic invokes that step once
-      # per fan-out unit and the run driver is single-process sequential, so
-      # iteration N completes (body AND post_process) before iteration N+1 begins.
-      # (Chaining the sub-steps as separate Runic steps reacted breadth-first across
-      # forks — every fork's body ran before any fork's post_process.)
-      specs = body_specs ++ post_specs
-      mapped? = Enum.any?(specs, &(map_size(&1.mapping) > 0))
-      extract_atom = DagBuilder.node_atom("#{name}__map_extract")
-      fan_out_hash = :erlang.phash2({:map_fan_out, name})
-      map_component = DagBuilder.node_atom("#{name}__map")
-      fork_step = build_fork_executor(name, specs)
+      spec = build_execution_spec(name, params, index, run_id, body_specs ++ post_specs)
 
-      pipeline =
-        map_component
-        |> Runic.Workflow.new()
-        |> Runic.Workflow.add_step(%Runic.Workflow.FanOut{
-          hash: fan_out_hash,
-          name: map_component
-        })
-        |> Runic.Workflow.add(fork_step, to: fan_out_hash)
+      collect =
+        DagBuilder.build_action_node(
+          Steps.MapCollect,
+          %{__map_prefix__: "#{name}/"},
+          name,
+          index,
+          run_id
+        )
 
-      map_struct = %Runic.Workflow.Map{
-        name: map_component,
-        hash: :erlang.phash2({:map, name}),
-        pipeline: pipeline
-      }
-
-      {:ok,
-       %{
-         extract:
-           build_extract_node(
-             extract_atom,
-             name,
-             index,
-             over,
-             Map.put(delivery_opts(params), :inherit_cascade, mapped?),
-             run_id
-           ),
-         extract_atom: extract_atom,
-         map: map_struct,
-         last_body: fork_step,
-         reduce: build_map_reduce(name, map_component, mapped?),
-         collect:
-           DagBuilder.build_action_node(
-             Steps.MapCollect,
-             %{__map_prefix__: "#{name}/"},
-             name,
-             index,
-             run_id
-           )
-       }}
+      {:ok, Map.put(spec, :collect, collect)}
     end
+  end
+
+  defp build_execution_spec(name, %{"ordered" => true} = params, index, run_id, specs) do
+    opts = Map.put(delivery_opts(params), :inherit_cascade, true)
+
+    ordered =
+      Step.new(%{
+        name: DagBuilder.node_atom("#{name}__iterate"),
+        work: fn input ->
+          input
+          |> extract_items(name, index, params["over"], opts, run_id)
+          |> Enum.reduce(%{input: [], __cascade__: %{}}, fn fact, acc ->
+            result = run_ordered_fork(fact, specs)
+            reduce_item(result, acc)
+          end)
+        end
+      })
+
+    %{ordered: ordered}
+  end
+
+  defp build_execution_spec(name, params, index, run_id, specs) do
+    # Batch forks execute atomically, but Runic chooses their order.
+    mapped? = Enum.any?(specs, &(map_size(&1.mapping) > 0))
+    extract_atom = DagBuilder.node_atom("#{name}__map_extract")
+    fan_out_hash = :erlang.phash2({:map_fan_out, name})
+    map_component = DagBuilder.node_atom("#{name}__map")
+    fork_step = build_fork_executor(name, specs)
+
+    pipeline =
+      map_component
+      |> Runic.Workflow.new()
+      |> Runic.Workflow.add_step(%Runic.Workflow.FanOut{
+        hash: fan_out_hash,
+        name: map_component
+      })
+      |> Runic.Workflow.add(fork_step, to: fan_out_hash)
+
+    map_struct = %Runic.Workflow.Map{
+      name: map_component,
+      hash: :erlang.phash2({:map, name}),
+      pipeline: pipeline
+    }
+
+    %{
+      extract:
+        build_extract_node(
+          extract_atom,
+          name,
+          index,
+          Map.get(params, "over"),
+          Map.put(delivery_opts(params), :inherit_cascade, mapped?),
+          run_id
+        ),
+      extract_atom: extract_atom,
+      map: map_struct,
+      last_body: fork_step,
+      reduce: build_map_reduce(name, map_component, mapped?)
+    }
   end
 
   defp build_fork_specs(nodes, map_name, strategy, run_id) do
@@ -190,6 +204,30 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
   defp run_fork(fact, specs) do
     mapped? = Enum.any?(specs, &(map_size(&1.mapping) > 0))
 
+    fact
+    |> run_pipeline(specs, mapped?)
+    |> case do
+      {:ok, result} -> result
+      {:error, _reason, index} -> %{"__map_index__" => index, "__map_error__" => true}
+    end
+    |> put_parent_cascade(fact, mapped?)
+  end
+
+  defp run_ordered_fork(%{__map_empty__: true} = fact, specs), do: run_fork(fact, specs)
+
+  defp run_ordered_fork(fact, specs) do
+    case run_pipeline(fact, specs, true) do
+      {:ok, result} ->
+        put_parent_cascade(result, fact, true)
+
+      {:error, reason, _index} ->
+        # StepRunner has persisted the failure or wait. Abort this Runic step so
+        # later items and downstream nodes cannot run until it is resolved.
+        raise "iteration stopped: #{inspect(reason)}"
+    end
+  end
+
+  defp run_pipeline(fact, specs, mapped?) do
     specs
     |> Enum.reduce_while({:ok, fact}, fn spec, {:ok, prev} ->
       params = prev |> Steps.EdgeStep.apply_mapping(spec.mapping) |> Map.merge(spec.params)
@@ -198,15 +236,10 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilder do
         {:ok, result} ->
           {:cont, {:ok, put_local_result(result, spec.name, mapped?)}}
 
-        {:error, _} ->
-          {:halt, {:error, map_index_of(prev)}}
+        {:error, reason} ->
+          {:halt, {:error, reason, map_index_of(prev)}}
       end
     end)
-    |> case do
-      {:ok, result} -> result
-      {:error, index} -> %{"__map_index__" => index, "__map_error__" => true}
-    end
-    |> put_parent_cascade(fact, mapped?)
   end
 
   defp put_parent_cascade(result, _fact, false), do: result
