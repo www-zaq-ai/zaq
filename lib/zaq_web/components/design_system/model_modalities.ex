@@ -53,7 +53,11 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
         :if={@selected}
         class="zaq-model-modalities-group"
       >
-        <.icon :if={direction == "Output"} name="hero-arrow-right" class="zaq-icon-sm" />
+        <.icon
+          :if={direction == "Output"}
+          name="hero-arrow-right"
+          class="zaq-icon-sm zaq-model-modalities-arrow"
+        />
         <span :for={{{label, icon}, index} <- Enum.with_index(entries)} class="zaq-model-modality">
           <button
             type="button"

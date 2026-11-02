@@ -1615,6 +1615,10 @@ a.zaq-chat-source-row:focus-visible {
   flex-shrink: 0;
 }
 
+.zaq-model-modalities-arrow {
+  color: var(--zaq-icon-color-accent);
+}
+
 .zaq-model-modality-trigger {
   display: inline-flex;
   align-items: center;
