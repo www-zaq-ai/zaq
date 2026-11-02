@@ -1575,6 +1575,33 @@ a.zaq-chat-source-row:focus-visible {
   position: absolute !important;
 }
 /* Catalog model modalities shared by agent forms and selectable list rows. */
+.zaq-agent-model-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--zaq-layout-grid-gap);
+  align-items: start;
+}
+
+.zaq-agent-model-modalities {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+@media (min-width: 1024px) {
+  .zaq-agent-model-settings {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .zaq-agent-model-modalities {
+    padding-top: var(--zaq-scale-32);
+    max-width: 240px;
+  }
+
+  .zaq-agent-model-warning {
+    grid-column: 1 / -1;
+  }
+}
+
 .zaq-model-modalities,
 .zaq-model-modalities-group,
 .zaq-model-modality {

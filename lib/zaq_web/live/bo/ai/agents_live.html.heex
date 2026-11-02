@@ -86,7 +86,11 @@
           Agents ({@total_agents})
         </h2>
 
-        <.agents_table agents={@agents} selected_agent_id={@selected_agent_id} />
+        <.agents_table
+          agents={@agents}
+          selected_agent_id={@selected_agent_id}
+          modalities={@agent_modalities}
+        />
       </div>
     </section>
 
@@ -281,8 +285,8 @@
           </p>
         </div>
 
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
+        <div class="zaq-agent-model-settings">
+          <div class="min-w-0">
             <label class="zaq-field-label-uppercase block mb-1">
               Credential
             </label>
@@ -313,7 +317,7 @@
               {msg}
             </p>
           </div>
-          <div>
+          <div class="min-w-0">
             <label class="zaq-field-label-uppercase block mb-1">
               Model
             </label>
@@ -347,6 +351,15 @@
             >
               {msg}
             </p>
+          </div>
+          <div class="zaq-agent-model-modalities">
+            <ModelModalities.model_modalities
+              id="agent-form-modalities"
+              modalities={@selected_model_modalities}
+              selected={@form[:model].value not in [nil, ""]}
+            />
+          </div>
+          <div class="zaq-agent-model-warning">
             <div
               :if={@selected_model_tool_capability == :unsupported}
               class="mt-2 rounded-lg border px-3 py-2 zaq-text-caption"

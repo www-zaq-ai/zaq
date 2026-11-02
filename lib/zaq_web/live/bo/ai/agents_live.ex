@@ -18,6 +18,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   alias Zaq.NodeRouter
   alias Zaq.System
   alias ZaqWeb.Components.DesignSystem.Button, as: DSButton
+  alias ZaqWeb.Components.DesignSystem.ModelModalities
   alias ZaqWeb.Components.Drawer
 
   @impl true
@@ -32,6 +33,10 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
     credentials = System.list_ai_provider_credentials()
     credentials_by_id = Map.new(credentials, &{&1.id, &1})
+
+    models_by_credential_id =
+      Map.new(credentials, &{&1.id, ProviderModels.models_for_credential(&1)})
+
     tools = Registry.tools()
 
     socket =
@@ -40,6 +45,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       |> assign(:filters, filters)
       |> assign(:credentials, credentials)
       |> assign(:credentials_by_id, credentials_by_id)
+      |> assign(:models_by_credential_id, models_by_credential_id)
       |> assign(:tools, tools)
       |> assign(:page, 1)
       |> assign(:per_page, 20)
@@ -459,6 +465,10 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
 
     socket
     |> assign(:agents, agents)
+    |> assign(
+      :agent_modalities,
+      Map.new(agents, &{&1.id, model_modalities(&1.credential_id, &1.model, socket)})
+    )
     |> assign(:total_agents, total)
     |> assign(:selected_agent, selected_agent)
   end
@@ -471,6 +481,14 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
     socket
     |> assign(:changeset, changeset)
     |> assign(:model_context_catalog_tokens, model_context_catalog_tokens(changeset, socket))
+    |> assign(
+      :selected_model_modalities,
+      model_modalities(
+        Changeset.get_field(changeset, :credential_id),
+        Changeset.get_field(changeset, :model),
+        socket
+      )
+    )
     |> assign(:selected_model_tool_capability, selected_model_tool_capability(changeset, socket))
     |> assign(:mcp_notice, nil)
     |> assign(:form, to_form(changeset, as: :configured_agent))
@@ -650,14 +668,35 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   end
 
   defp model_context_catalog_tokens(credential_id, model_id, socket) do
-    with credential when not is_nil(credential) <- credential_for_form_id(credential_id, socket),
-         model when not is_nil(model) <- ProviderModels.model_for_credential(credential, model_id),
+    with model when not is_nil(model) <- model_metadata(credential_id, model_id, socket),
          limits when is_map(limits) <- Map.get(model, :limits),
          tokens when is_integer(tokens) and tokens > 0 <- Map.get(limits, :context) do
       tokens
     else
       _ -> nil
     end
+  end
+
+  defp model_modalities(credential_id, model_id, socket) do
+    case model_metadata(credential_id, model_id, socket) do
+      nil -> nil
+      model -> model.modalities
+    end
+  end
+
+  defp model_metadata(_credential_id, model_id, _socket) when model_id in [nil, ""], do: nil
+
+  defp model_metadata(credential_id, model_id, socket) when is_binary(credential_id) do
+    case Integer.parse(credential_id) do
+      {id, ""} -> model_metadata(id, model_id, socket)
+      _ -> nil
+    end
+  end
+
+  defp model_metadata(credential_id, model_id, socket) do
+    socket.assigns.models_by_credential_id
+    |> Map.get(credential_id, [])
+    |> Enum.find(fn model -> model.id == model_id or model.model == model_id end)
   end
 
   defp normalize_tool_keys(keys) when is_list(keys), do: Enum.reject(keys, &(&1 in [nil, ""]))
@@ -721,13 +760,10 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   end
 
   defp model_options_for_credential(credential_id, socket) when is_integer(credential_id) do
-    case credential_for_id(socket.assigns.credentials_by_id, credential_id) do
-      credential ->
-        credential
-        |> ProviderModels.models_for_credential()
-        |> Enum.sort_by(& &1.id)
-        |> Enum.map(&{&1.id, &1.id})
-    end
+    socket.assigns.models_by_credential_id
+    |> Map.get(credential_id, [])
+    |> Enum.sort_by(& &1.id)
+    |> Enum.map(&{&1.id, &1.id})
   end
 
   defp pretty_json(map) when is_map(map) do
@@ -753,22 +789,6 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
       _ -> nil
     end
   end
-
-  defp credential_for_form_id(nil, _socket), do: nil
-  defp credential_for_form_id("", _socket), do: nil
-
-  defp credential_for_form_id(credential_id, socket) when is_binary(credential_id) do
-    case Integer.parse(credential_id) do
-      {int_id, ""} -> credential_for_form_id(int_id, socket)
-      _ -> nil
-    end
-  end
-
-  defp credential_for_form_id(credential_id, socket) when is_integer(credential_id) do
-    credential_for_id(socket.assigns.credentials_by_id, credential_id)
-  end
-
-  defp credential_for_form_id(_credential_id, _socket), do: nil
 
   defp credential_for_id(credentials_by_id, credential_id) when is_map(credentials_by_id) do
     Map.get(credentials_by_id, credential_id) || System.get_ai_provider_credential(credential_id)

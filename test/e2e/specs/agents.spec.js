@@ -299,7 +299,7 @@ test.describe("Agents", () => {
     await loginToBackOffice(page)
 
     await gotoBackOfficeLive(page, AGENTS_PATH)
-    await clickUntilVisible(page, `[phx-value-id="${agent.id}"]`, "#configured-agent-form")
+    await clickUntilVisible(page, `#agent-row-${agent.id} td:first-child`, "#configured-agent-form")
     await waitForLiveViewSettled(page)
 
     const updatedName = `E2E Agent Edited ${Date.now()}`
@@ -331,7 +331,7 @@ test.describe("Agents", () => {
     // us clicking a button that isn't rendered yet.
     await clickUntilVisible(
       page,
-      `[phx-value-id="${agent.id}"]`,
+      `#agent-row-${agent.id} td:first-child`,
       `[phx-click="delete_agent"][phx-value-id="${agent.id}"]`
     )
 
