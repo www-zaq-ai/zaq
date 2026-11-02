@@ -1,4 +1,5 @@
 const { test, expect, request: apiRequest } = require("@playwright/test")
+const { expectFlashDuringAction } = require("../support/bo")
 const {
   loginToBackOffice,
   waitForLiveViewConnected,
@@ -141,12 +142,11 @@ test.describe("Bootstrap onboarding", () => {
     await setupBootstrapUser(page)
 
     // Submit form — no modal will appear (portal_reachable: false at mount).
-    await fillBootstrapForm(page)
+    await expectFlashDuringAction(page, "Password changed successfully", () => fillBootstrapForm(page))
 
     // Redirects directly to dashboard with the standard flash.
     await expect(page).toHaveURL(/\/bo\/dashboard/, { timeout: 10_000 })
     await waitForLiveViewConnected(page)
-    await expect(page.getByText("Password changed successfully")).toBeVisible()
 
     // Dashboard shows the offline notice; the retry banner is absent.
     await expect(

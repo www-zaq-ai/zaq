@@ -1,4 +1,5 @@
 const { test, expect, request: apiRequest } = require("@playwright/test")
+const { expectFlashDuringAction } = require("../support/bo")
 const {
   gotoBackOfficeLive,
   loginToBackOffice,
@@ -208,8 +209,7 @@ test.describe("System Config", () => {
     }
     for (const [field, value] of Object.entries(updated)) await input(field).fill(value)
     await waitForLiveViewSettled(page)
-    await page.locator("#people-access-save").click()
-    await expect(page.getByText("People access settings saved", { exact: true })).toBeVisible()
+    await expectFlashDuringAction(page, "People access settings saved", () => page.locator("#people-access-save").click(), { exact: true })
     await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=people_access`)
     for (const [field, value] of Object.entries(updated)) await expect(input(field)).toHaveValue(value)
 
@@ -292,8 +292,7 @@ test.describe("System Config", () => {
 
       // Set top_p to 0.91 — the nearest valid value on the step grid (0.01 + n×0.05)
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
-      await page.getByRole("button", { name: "Save LLM Settings" }).click()
-      await expect(page.getByText("LLM settings saved.")).toBeVisible()
+      await expectFlashDuringAction(page, "LLM settings saved.", () => page.getByRole("button", { name: "Save LLM Settings" }).click())
     })
 
     test("flash auto-dismisses without user interaction", async ({ page }) => {
@@ -391,8 +390,7 @@ test.describe("System Config", () => {
         await field.fill(boundary)
         await field.press("Tab")
         await waitForLiveViewSettled(page)
-        await page.getByRole("button", { name: "Save LLM Settings" }).click()
-        await expect(page.getByText("LLM settings saved.")).toBeVisible()
+        await expectFlashDuringAction(page, "LLM settings saved.", () => page.getByRole("button", { name: "Save LLM Settings" }).click())
         await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
         await expect(page.locator('input[name="llm_config[max_cosine_distance]"]')).toHaveJSProperty("valueAsNumber", Number(boundary))
       })
@@ -420,8 +418,7 @@ test.describe("System Config", () => {
 
       // Set top_p to a valid step value before saving (see NOTE above)
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
-      await page.getByRole("button", { name: "Save LLM Settings" }).click()
-      await expect(page.getByText("LLM settings saved.")).toBeVisible()
+      await expectFlashDuringAction(page, "LLM settings saved.", () => page.getByRole("button", { name: "Save LLM Settings" }).click())
 
       // Full reload — triggers mount → load_llm_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=llm`)
@@ -515,10 +512,9 @@ test.describe("System Config", () => {
 
     test("saving with current config (no field change) succeeds without confirm modal", async ({ page }) => {
       // model_changed is false at mount; no phx-change fired → goes straight to do_save_embedding
-      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
+      await expectFlashDuringAction(page, "Embedding settings saved.", () => page.getByRole("button", { name: "Save Embedding Settings" }).click())
 
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
-      await expect(page.getByText("Embedding settings saved.")).toBeVisible()
     })
 
     // ── Destructive save flow ─────────────────────────────────────────────
@@ -572,10 +568,9 @@ test.describe("System Config", () => {
       await page.getByRole("button", { name: "Save Embedding Settings" }).click()
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).toBeVisible()
 
-      await page.locator(SEL.confirmSave).click()
+      await expectFlashDuringAction(page, "Embedding settings saved.", () => page.locator(SEL.confirmSave).click())
 
       await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).not.toBeVisible()
-      await expect(page.getByText("Embedding settings saved.")).toBeVisible()
     })
 
     // ── Validation: required & numeric ───────────────────────────────────
@@ -639,8 +634,7 @@ test.describe("System Config", () => {
       await page.locator(SEL.tabEmbedding).click()
       await pickSearchableSelect(page, "#embedding-credential-select", seededCredential.name)
 
-      await page.getByRole("button", { name: "Save Embedding Settings" }).click()
-      await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+      await expectFlashDuringAction(page, "Embedding settings saved.", () => page.getByRole("button", { name: "Save Embedding Settings" }).click())
 
       // Full reload — triggers mount → load_embedding_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=embedding`)
@@ -692,8 +686,7 @@ test.describe("System Config", () => {
         seededCredential.name
       )
 
-      await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
-      await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
+      await expectFlashDuringAction(page, "Image-to-Text settings saved.", () => page.getByRole("button", { name: "Save Image to Text Settings" }).click())
     })
 
     test("either model text input or model dropdown is present", async ({ page }) => {
@@ -712,8 +705,7 @@ test.describe("System Config", () => {
         seededCredential.name
       )
 
-      await page.getByRole("button", { name: "Save Image to Text Settings" }).click()
-      await expect(page.getByText("Image-to-Text settings saved.")).toBeVisible()
+      await expectFlashDuringAction(page, "Image-to-Text settings saved.", () => page.getByRole("button", { name: "Save Image to Text Settings" }).click())
 
       // Full reload — triggers mount → load_image_to_text_form → reads from DB
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=image_to_text`)
@@ -836,8 +828,7 @@ test.describe("System Config", () => {
       await page.locator('select[name="ai_credential[auth_mode]"]').selectOption("oauth2")
       await page.locator('textarea[name="ai_credential[metadata]"]').fill('{"client_id":"e2e-client"}')
       await page.locator('[name="ai_credential[personal_credential_policy]"]').selectOption("required")
-      await page.locator("#ai-credential-modal").getByRole("button", { name: "Save credential" }).click()
-      await expect(page.getByText("AI credential saved.")).toBeVisible()
+      await expectFlashDuringAction(page, "AI credential saved.", () => page.locator("#ai-credential-modal").getByRole("button", { name: "Save credential" }).click())
       const requiredRow = page
         .locator('button[phx-click="edit_ai_credential"]')
         .filter({ hasText: required.name })
@@ -901,8 +892,7 @@ test.describe("System Config", () => {
 
       await pickSearchableSelect(page, "#llm-credential-select", credential.name)
       await page.locator('input[name="llm_config[top_p]"]').fill("0.91")
-      await page.getByRole("button", { name: "Save LLM Settings" }).click()
-      await expect(page.getByText("LLM settings saved.")).toBeVisible()
+      await expectFlashDuringAction(page, "LLM settings saved.", () => page.getByRole("button", { name: "Save LLM Settings" }).click())
     })
   })
 
@@ -928,8 +918,7 @@ test.describe("System Config", () => {
 
     test("saves language and persists after page reload", async ({ page }) => {
       await page.locator("#global-language-select").selectOption("en")
-      await page.locator('form[phx-submit="save_global_language"] button[type="submit"]').click()
-      await expect(page.getByText("Language saved.")).toBeVisible()
+      await expectFlashDuringAction(page, "Language saved.", () => page.locator('form[phx-submit="save_global_language"] button[type="submit"]').click())
 
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
       await expect(page.locator("#global-language-select")).toHaveValue("en")
@@ -942,8 +931,7 @@ test.describe("System Config", () => {
 
     test("saves timezone and persists after page reload", async ({ page }) => {
       await page.locator("#global-timezone-select").selectOption("GMT+03:00")
-      await page.locator('form[phx-submit="save_global_timezone"] button[type="submit"]').click()
-      await expect(page.getByText("Timezone saved.")).toBeVisible()
+      await expectFlashDuringAction(page, "Timezone saved.", () => page.locator('form[phx-submit="save_global_timezone"] button[type="submit"]').click())
 
       await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
       await expect(page.locator("#global-timezone-select")).toHaveValue("GMT+03:00")
