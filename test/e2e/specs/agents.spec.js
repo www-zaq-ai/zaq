@@ -310,15 +310,27 @@ test.describe("Agents", () => {
         body.scrollTop += rect.top + rect.height / 2 - body.getBoundingClientRect().top - body.clientTop
       })
       await expect(tooltip).toBeVisible()
-      await expect.poll(async () => {
-        const tip = await tooltip.boundingBox()
-        const scrollport = await body.boundingBox()
-        const trigger = await image.boundingBox()
+      // Sample visibility and geometry together: scroll events can hide the
+      // popover after toBeVisible() but before a separate boundingBox() call.
+      await expect.poll(() => image.evaluate(el => {
+        const tooltip = document.getElementById(el.getAttribute("aria-describedby"))
+        const body = el.closest(".zaq-drawer-body")
+        if (!tooltip || !body) return Infinity
+
+        const tip = tooltip.getBoundingClientRect()
+        const scrollport = body.getBoundingClientRect()
+        const trigger = el.getBoundingClientRect()
+        if (!tooltip.matches(":popover-open") ||
+            getComputedStyle(tooltip).visibility !== "visible" ||
+            [tip, scrollport, trigger].some(rect => rect.width <= 0 || rect.height <= 0)) {
+          return Infinity
+        }
+
         const expectedTop = scrollport.y >= tip.height + 8
           ? scrollport.y - tip.height - 8
           : trigger.y + trigger.height + 8
         return Math.abs(tip.y - expectedTop)
-      }).toBeLessThan(1)
+      })).toBeLessThan(1)
 
       await body.evaluate(el => { el.scrollTop += 40 })
       await expect(tooltip).toBeHidden()
