@@ -1087,6 +1087,98 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     {cfg.fusion_bm25_weight, cfg.fusion_vector_weight}
   end
 
+  @doc """
+  Fuses ordered, already hydrated retrieval legs without fetching content again.
+
+  Uses ordinal ranks to retain the rank of redacted matches without disclosing
+  their measured scores. Only the RRF score is taken from the existing merger;
+  original measured scores and metadata are never replaced by ordinal surrogates.
+  """
+  def fuse_chunks(lexical, vector) do
+    if Enum.all?(lexical ++ vector, &valid_fusion_chunk?/1) do
+      lexical = Enum.uniq_by(lexical, &fusion_identity/1)
+      vector = Enum.uniq_by(vector, &fusion_identity/1)
+
+      originals =
+        Enum.group_by(
+          tag_leg(lexical, "lexical") ++ tag_leg(vector, "vector"),
+          &fusion_identity/1
+        )
+
+      with {:ok, fused} <- rrf_merge(ranked_leg(lexical, :lexical), ranked_leg(vector, :vector)) do
+        {:ok, %{chunks: fused_payload(fused, originals)}}
+      end
+    else
+      {:error, :invalid_fusion_chunks}
+    end
+  end
+
+  defp fused_payload(fused, originals) do
+    fused
+    |> ranked_matches(:hybrid)
+    |> Enum.map(fn match ->
+      originals[{match.document_id, match.chunk_index}]
+      |> merge_fusion_evidence()
+      |> Map.put("rrf_score", match.rrf_score)
+    end)
+  end
+
+  defp valid_fusion_chunk?(%{
+         "document_id" => doc_id,
+         "chunk_index" => index,
+         "section_path" => path
+       }),
+       do: is_integer(doc_id) and is_integer(index) and is_list(path)
+
+  defp valid_fusion_chunk?(_chunk), do: false
+
+  defp fusion_identity(chunk), do: {chunk["document_id"], chunk["chunk_index"]}
+
+  defp tag_leg(chunks, leg) do
+    Enum.map(chunks, fn chunk ->
+      if is_integer(chunk["chunk_id"]), do: Map.put(chunk, "retrieval_legs", [leg]), else: chunk
+    end)
+  end
+
+  defp ranked_leg(chunks, leg) do
+    chunks
+    |> Enum.with_index(1)
+    |> Enum.map(fn {chunk, rank} ->
+      %{
+        document_id: chunk["document_id"],
+        section_path: chunk["section_path"],
+        chunk_index: chunk["chunk_index"],
+        chunk_id: chunk["chunk_id"],
+        bm25_score: if(leg == :lexical, do: -rank),
+        vector_distance: if(leg == :vector, do: rank)
+      }
+    end)
+    |> Enum.group_by(& &1.document_id)
+    |> Map.new(fn {doc_id, matches} -> {doc_id, Enum.group_by(matches, & &1.section_path)} end)
+  end
+
+  defp merge_fusion_evidence(chunks) do
+    case Enum.find(chunks, &(not is_integer(&1["chunk_id"]))) do
+      nil ->
+        base = hd(chunks)
+
+        legs =
+          Enum.flat_map(chunks, &Map.get(&1, "retrieval_legs", [])) |> Enum.uniq() |> Enum.sort()
+
+        measured = Enum.reduce(chunks, %{}, &merge_measured_scores/2)
+        base |> Map.merge(measured) |> Map.put("retrieval_legs", legs)
+
+      denied ->
+        denied
+    end
+  end
+
+  defp merge_measured_scores(chunk, scores) do
+    Enum.reduce(["bm25_score", "vector_distance"], scores, fn key, acc ->
+      if is_number(chunk[key]), do: Map.put(acc, key, chunk[key]), else: acc
+    end)
+  end
+
   defp rank_chunks(grouped, score_key, order) do
     grouped
     |> Enum.flat_map(fn {_doc_id, paths} ->

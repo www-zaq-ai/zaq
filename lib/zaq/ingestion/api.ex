@@ -54,6 +54,15 @@ defmodule Zaq.Ingestion.Api do
   end
 
   def handle_event(
+        %Event{request: %{keyword_chunks: lexical, semantic_chunks: vector}} = event,
+        :fuse_knowledge_results,
+        _context
+      )
+      when is_list(lexical) and is_list(vector) do
+    %{event | response: DocumentProcessor.fuse_chunks(lexical, vector)}
+  end
+
+  def handle_event(
         %Event{request: %{source: source}, actor: actor} = event,
         :get_ingestion_details,
         _context
