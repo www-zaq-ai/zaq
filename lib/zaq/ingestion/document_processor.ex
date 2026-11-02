@@ -879,6 +879,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp match_score(match, :semantic), do: match.vector_distance
+  defp match_score(match, :keyword), do: -match.bm25_score
   defp match_score(match, :hybrid), do: -match.rrf_score
 
   defp lexical_input(nil, query), do: query
@@ -897,6 +898,16 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     similarity_search_group_by(query, source_filter, language)
   end
 
+  defp retrieve(_query, terms, source_filter, language, :keyword) do
+    with {:ok, grouped} <-
+           bm25_search_group_by(terms, hybrid_search_limit(), source_filter, language) do
+      {:ok,
+       Map.new(grouped, fn {doc_id, paths} ->
+         {doc_id, mark_lexical_matches(paths)}
+       end)}
+    end
+  end
+
   defp retrieve(query, lexical_terms, source_filter, language, :hybrid) do
     limit = hybrid_search_limit()
 
@@ -913,6 +924,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp retrieve(_query, _terms, _source_filter, _language, _mode),
     do: {:error, :invalid_search_mode}
+
+  defp mark_lexical_matches(paths) do
+    Map.new(paths, fn {path, matches} ->
+      {path, Enum.map(matches, &Map.put(&1, :lexical_match, true))}
+    end)
+  end
 
   defp limit_to_context_window([]), do: []
 

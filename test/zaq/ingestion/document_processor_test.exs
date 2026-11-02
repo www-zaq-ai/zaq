@@ -1476,6 +1476,27 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert is_number(only["vector_distance"])
     end
 
+    test "keyword mode works without a usable embedding provider and never fuses" do
+      stub_embedding_failure()
+      doc = create_document()
+
+      {:ok, stored} =
+        Chunk.create(%{document_id: doc.id, content: "exactkeyword", chunk_index: 1})
+
+      assert {:ok, [only]} =
+               DocumentProcessor.query_extraction("not embedded",
+                 search_mode: :keyword,
+                 lexical_terms: ["exactkeyword"],
+                 skip_permissions: true
+               )
+
+      assert only["chunk_id"] == stored.id
+      assert only["retrieval_legs"] == ["lexical"]
+      assert only["vector_distance"] == nil
+      assert only["rrf_score"] == nil
+      assert is_number(only["bm25_score"])
+    end
+
     test "lexical clauses after the eighth reach full-text search untruncated" do
       stub_embedding_success()
       doc = create_document()
