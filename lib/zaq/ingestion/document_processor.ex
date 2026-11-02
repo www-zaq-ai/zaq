@@ -950,8 +950,13 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Enum.reverse(answer)
   end
 
-  @doc "Applies the ingestion-owned context budget after cross-language merging."
-  def limit_chunks(chunks) when is_list(chunks), do: limit_to_context_window(chunks)
+  @doc "Applies the global chunk-count ceiling and ingestion context budget after ranking."
+  def limit_chunks(chunks, max_total_results \\ 100)
+
+  def limit_chunks(chunks, maximum) when is_list(chunks) and is_integer(maximum) and maximum > 0,
+    do: chunks |> Enum.take(maximum) |> limit_to_context_window()
+
+  def limit_chunks(_chunks, _maximum), do: {:error, :invalid_max_total_results}
 
   defp similarity_search_group_by(query_text, source_filter, language) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text),

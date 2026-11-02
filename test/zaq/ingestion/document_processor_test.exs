@@ -7,6 +7,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   alias Zaq.Accounts.People
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.Api
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor, FTSBackend}
   alias Zaq.Ingestion.Python.Runner
   alias Zaq.Repo
@@ -29,6 +30,45 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
   test "an empty candidate list does not load LLM configuration" do
     assert {[], []} = Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks([]) end)
+  end
+
+  test "final result limiting defaults to 100 and supports caller overrides" do
+    chunks = Enum.map(1..120, &%{"chunk_id" => &1})
+    assert DocumentProcessor.limit_chunks(chunks) == Enum.take(chunks, 100)
+    assert DocumentProcessor.limit_chunks(chunks, 3) == Enum.take(chunks, 3)
+    assert DocumentProcessor.limit_chunks(chunks, 120) == chunks
+  end
+
+  test "invalid maximum result counts are rejected without loading configuration" do
+    for maximum <- [0, -1, 1.5, "3", nil] do
+      assert {{:error, :invalid_max_total_results}, []} =
+               Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks([], maximum) end)
+    end
+  end
+
+  test "the final-limit Ingestion event validates and applies the caller maximum" do
+    event =
+      Zaq.Event.new(
+        %{chunks: [%{"chunk_id" => 1}, %{"chunk_id" => 2}], max_total_results: 1},
+        :ingestion
+      )
+
+    assert %{response: {:ok, [%{"chunk_id" => 1}]}} =
+             Api.handle_event(event, :limit_knowledge_results, %{})
+
+    invalid = %{event | request: %{chunks: [], max_total_results: 0}}
+
+    assert %{response: {:error, :invalid_max_total_results}} =
+             Api.handle_event(invalid, :limit_knowledge_results, %{})
+  end
+
+  property "final result count is globally bounded without reordering" do
+    check all(total <- integer(0..150), maximum <- integer(1..150)) do
+      chunks = Enum.map(Enum.take(1..151, total), &%{"chunk_id" => &1})
+      limited = DocumentProcessor.limit_chunks(chunks, maximum)
+      assert length(limited) <= maximum
+      assert limited == Enum.take(chunks, length(limited))
+    end
   end
 
   property "context limiting preserves the longest prefix strictly below the budget" do

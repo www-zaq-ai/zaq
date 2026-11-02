@@ -89,6 +89,23 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: response}
   end
 
+  def handle_event(
+        %Event{request: %{chunks: chunks, max_total_results: maximum}} = event,
+        :limit_knowledge_results,
+        _context
+      )
+      when is_list(chunks) do
+    processor = Keyword.get(event.opts, :document_processor, DocumentProcessor)
+
+    response =
+      case processor.limit_chunks(chunks, maximum) do
+        {:error, _} = error -> error
+        limited when is_list(limited) -> {:ok, limited}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{request: %{chunks: chunks}} = event, :limit_knowledge_results, _context)
       when is_list(chunks) do
     processor = Keyword.get(event.opts, :document_processor, DocumentProcessor)
