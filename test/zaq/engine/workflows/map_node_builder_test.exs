@@ -8,6 +8,52 @@ defmodule Zaq.Engine.Workflows.MapNodeBuilderTest do
 
   @capture_module "Zaq.Engine.Workflows.Test.CaptureValue"
 
+  test "mapping the cascade into Lua data preserves it for subsequent body nodes" do
+    stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
+
+    {:ok, workflow} =
+      Workflows.create_workflow(%{
+        name: "Lua cascade preservation",
+        status: "active",
+        nodes: [
+          %{
+            name: "batch",
+            type: "action",
+            index: 0,
+            module: "Zaq.Agent.Tools.Workflow.Batch",
+            params: %{
+              "delivery" => "item",
+              "process" => [
+                %{
+                  "name" => "lua",
+                  "type" => "action",
+                  "module" => "Zaq.Agent.Tools.Workflow.LuaEval",
+                  "params" => %{"code" => "return data.start.marker"},
+                  "mapping" => %{"data" => "__cascade__"}
+                },
+                %{
+                  "name" => "capture",
+                  "type" => "action",
+                  "module" => @capture_module,
+                  "params" => %{},
+                  "mapping" => %{"value" => "start.marker"}
+                }
+              ]
+            }
+          }
+        ],
+        edges: []
+      })
+
+    source = %{assigns: %{input: %{items: [1], marker: "parent"}}}
+    assert {:ok, run} = Workflows.create_and_start_run(workflow, source)
+    assert run.status == "completed"
+    steps = Workflows.list_step_runs(run.id)
+
+    assert Enum.find(steps, &(&1.step_name == "batch/lua[0]")).results["result"] == "parent"
+    assert Enum.find(steps, &(&1.step_name == "batch/capture[0]")).results["captured"] == "parent"
+  end
+
   test "collection preserves only the parent cascade for successful, failed and empty batches" do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
 

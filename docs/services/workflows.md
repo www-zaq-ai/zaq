@@ -124,7 +124,7 @@ or fetch workflow state.
     %{"key" => "last_sent_at", "type" => "datetime", "op" => "lt",
       "value" => %{"from" => "now", "days" => -7}}
     ```
-- `"mapping"` — optional map of `"target_key" => "source_key"` string pairs. The `EdgeStep` renames source keys to target keys in the downstream fact. Source keys in the mapping are consumed (not passed through); all other keys pass through unchanged. A mapped value that is (or contains) a struct passes through unnormalized — only plain map/list values have their keys atomized.
+- `"mapping"` — optional map of `"target_key" => "source_key"` string pairs. The `EdgeStep` renames source keys to target keys in the downstream fact. Source keys in the mapping are consumed (not passed through), except `__cascade__`, which remains available to StepRunner when copied into an Action input; all other keys pass through unchanged. This preservation also applies to Batch and Iterate body mappings through the shared mapper. A mapped value that is (or contains) a struct passes through unnormalized — only plain map/list values have their keys atomized.
 
 ---
 
