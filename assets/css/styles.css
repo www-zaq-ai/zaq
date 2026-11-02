@@ -1574,3 +1574,44 @@ a.zaq-chat-source-row:focus-visible {
 .zaq-modal-preview .zaq-bo-modal-overlay {
   position: absolute !important;
 }
+/* Catalog model modalities shared by agent forms and selectable list rows. */
+.zaq-model-modalities,
+.zaq-model-modalities-group,
+.zaq-model-modality {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--zaq-layout-inline-gap-compact);
+}
+
+.zaq-model-modalities {
+  color: var(--zaq-text-color-body-tertiary);
+  flex-shrink: 0;
+}
+
+.zaq-model-modality-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--zaq-scale-2);
+  border: 0;
+  background: transparent;
+  color: var(--zaq-icon-color-default);
+  border-radius: var(--zaq-scale-4);
+  cursor: help;
+}
+
+.zaq-model-modality-trigger:focus-visible {
+  outline: 1px solid var(--zaq-border-color-accent);
+}
+
+.zaq-model-modality-tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: var(--zaq-scale-4) var(--zaq-scale-8);
+  border: 1px solid var(--zaq-border-color-default);
+  border-radius: var(--zaq-scale-4);
+  background: var(--zaq-surface-color-elevated);
+  color: var(--zaq-text-color-body-default);
+  max-width: calc(100vw - 16px);
+}
