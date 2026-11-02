@@ -95,6 +95,22 @@ Iteration is **not** an authorable node type. Authors express it through the `Ba
 
 **Internal `"map"` node** (produced only by a translator's `enrich/2`, never authored): the iteration primitive (Runic `FanOut`/`FanIn`). Runs an inline `params["body"]` pipeline once per item of the upstream collection named by `params["over"]`. Each item writes its own per-fork `Step.Run`; the trailing `MapCollect` writes the single aggregate `Step.Run`. A fan-out cap applies: `params["max_items"]` or the global default `Application.get_env(:zaq, Zaq.Engine.Workflows)[:map_max_items]` (defaults to `10_000`). Exceeding it surfaces `{:error, {:map_over_limit, …}}` (read back via `Workflows.map_over_limit/1`). `DagBuilder` still accepts `"map"` in a run's `steps_snapshot` because that is where lowering writes it.
 
+**Batch body mappings:** A `process` or `post_process` node may carry an incoming
+`"mapping"` beside `"params"`, using the same target/source pairs and lookup rules
+as workflow edges. For example, `"mapping": {"input": "pass_item.input.question"}`
+binds a prior body node's output to the next Action. A pipeline with mappings
+inherits the parent cascade (including `start`) and records each body output
+under its local node name, isolated per item. Body names shadow identical parent
+names after that body node completes; persisted step identities remain
+`<batch>/<node>[index]`. Static node params take precedence over mapped values,
+as they do over the incoming fact in existing Batch pipelines. Pipelines without
+mappings retain their existing cascade and payload behavior. For mapped pipelines,
+collection preserves the parent cascade alongside the aggregate results/errors,
+including empty and all-failed batches; local item aliases do not escape the Batch.
+Lua nodes can receive the cascade explicitly with `"mapping": {"data": "__cascade__"}`
+and read named outputs from `data`. LuaEval does not inject request/input globals
+or fetch workflow state.
+
 **Edge fields:**
 - `"from"` / `"to"` — node names (strings, matched to node `"name"` field).
 - `"condition"` — optional map with `"field"`, `"op"`, and optionally `"value"`. Supported ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `not_empty`, `empty`, `in`. When present, an `EdgeStep` is injected between the two nodes; a false condition raises `ConditionNotMet`, pruning that branch while sibling edges continue.
