@@ -126,8 +126,7 @@ defmodule Zaq.MixProject do
 
       # Jido Ecosystem
       # {:llm_db, "~> 2026.5", runtime: false, override: true},
-      {:llm_db,
-       github: "jfayad/llmdb", branch: "feat/add-albert-provider", runtime: false, override: true},
+      {:llm_db, github: "agentjido/llmdb", branch: "main", runtime: false, override: true},
       {:jido, "~> 2.4"},
       {:jido_action, github: "agentjido/jido_action", branch: "main", override: true},
       {:lua, "~> 1.0.2"},
