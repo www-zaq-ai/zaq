@@ -41,6 +41,7 @@
   "/storybook/components/icons/channel_icons",
   "/storybook/components/icons/mcp_endpoint_icons",
   "/storybook/components/list_selection",
+  "/storybook/components/model_modalities",
   "/storybook/components/table/empty_state",
   "/storybook/components/table/table",
   "/storybook/dashboard/ai_diagnostics",

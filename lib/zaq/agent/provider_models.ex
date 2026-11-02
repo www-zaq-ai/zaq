@@ -106,7 +106,7 @@ defmodule Zaq.Agent.ProviderModels do
   def model_for_credential(credential, model_id) do
     credential
     |> models_for_credential()
-    |> Enum.find(fn model -> model.id == model_id or Map.get(model, :model) == model_id end)
+    |> find_model(model_id)
   end
 
   @doc "Returns model metadata for one provider/model pair, or nil when unknown."
@@ -117,7 +117,20 @@ defmodule Zaq.Agent.ProviderModels do
     provider_id
     |> normalize_provider_id()
     |> models()
-    |> Enum.find(fn model -> model.id == model_id or Map.get(model, :model) == model_id end)
+    |> find_model(model_id)
+  end
+
+  @doc """
+  Finds the first model matching an ID or runtime alias in an already-loaded catalog.
+
+  Returns nil for blank or unknown IDs. Preserves catalog order without discovering
+  models, so callers with a credential-scoped snapshot can reuse the same lookup.
+  """
+  @spec find_model([LLMDB.Model.t() | map()], String.t() | nil) :: LLMDB.Model.t() | map() | nil
+  def find_model(_models, model_id) when model_id in [nil, ""], do: nil
+
+  def find_model(models, model_id) do
+    Enum.find(models, fn model -> model.id == model_id or Map.get(model, :model) == model_id end)
   end
 
   defp normalize_credential_provider(credential, provider_id) when is_binary(provider_id) do
