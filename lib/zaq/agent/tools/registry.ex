@@ -46,6 +46,13 @@ defmodule Zaq.Agent.Tools.Registry do
       module: Zaq.Agent.Tools.KnowledgeBaseOverview
     },
     %{
+      key: "answering.get_knowledge_base_chunks",
+      label: "Get knowledge base chunks",
+      description:
+        "Fetch exact chunk IDs, including previous/next IDs, to expand context explicitly",
+      module: Zaq.Agent.Tools.GetKnowledgeBaseChunks
+    },
+    %{
       key: "general.encode_base64",
       label: "Encode Base64",
       description:
