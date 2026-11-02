@@ -256,6 +256,34 @@ defmodule Zaq.People.IdentityResolverTest do
   end
 
   describe "resolve/2" do
+    test "stores a Teams personal chat's delivery reference as the direct-message channel" do
+      config = connector_fixture("teams")
+      reference = "teamsref:v1:" <> String.duplicate("a", 520)
+
+      message =
+        incoming(%{
+          provider: :teams,
+          author_id: "aad-user-4",
+          channel_id: "a:personal-4",
+          is_dm: true,
+          routing_context: %RoutingContext{
+            channel_config_id: config.id,
+            identity_platform: "microsoft_teams",
+            attributes: %{"delivery_external_room_id" => reference}
+          }
+        })
+
+      assert {:ok, person} = IdentityResolver.resolve(message, channels_router: ErrorRouter)
+
+      assert [
+               %PersonChannel{
+                 platform: "microsoft_teams",
+                 channel_identifier: "aad-user-4",
+                 dm_channel_id: ^reference
+               }
+             ] = People.list_person_channels(person.id)
+    end
+
     test "rejects an invalid connector id before author lookup" do
       person_count = Repo.aggregate(Zaq.Accounts.Person, :count)
 

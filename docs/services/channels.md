@@ -1014,12 +1014,13 @@ Teams is a webhook provider on `JidoChatBridge`. For setup, see [Connect Microso
 - **Answers:** personal chats are always answered. Group chats and channels follow the central mention policy, so ZAQ answers an @mention and only records other messages. Every channel message carries a thread ID, so a first @mention is admitted through `explicit_bot_mention?/2`.
 - **Credentials:** the client secret is in `token`. App ID and Tenant ID are in `settings["jido_chat"]`, trimmed on save. `url` stays empty because the adapter builds the token URL from the tenant.
 - **Connection test:** `test_connection/2` requests a Bot Connector token and sends no message.
+- **Reaction ratings:** Teams sends reaction types as words. `like` and `heart` rate 5, `sad` and `angry` rate 1, and `laugh` and `surprised` are ignored. In a channel, the adapter reports the channel as the reaction's room, so the rating finds the message under its source scope.
+- **Notifications:** a personal chat stores its `delivery_external_room_id` reference as the person's `dm_channel_id`, which notifications target. `Channels.Api` maps the `microsoft_teams` person platform to the `teams` connector. A person who has never messaged the bot has no reference, so their notification falls back to their next channel.
 
 **Not supported yet:**
 
 - Typing indicators.
-- Notifications and other proactive messages.
-- Reaction ratings.
+- Starting a new conversation with someone who has never messaged the bot.
 - Multi-tenant bots.
 - Sending files and Adaptive Cards.
 - Files in group chats and channels, which need Microsoft Graph. Pasted images are expected to work there.

@@ -438,6 +438,11 @@ defmodule Zaq.Channels.ApiTest do
     def fetch_channel_config(_provider), do: {:ok, %{id: 1, provider: "mattermost"}}
   end
 
+  defmodule StubTeamsOnlyBridge do
+    def bridge_for("teams", _opts), do: Zaq.Channels.ApiTest.StubBridgeImpl
+    def bridge_for(_provider, _opts), do: nil
+  end
+
   defmodule StubCommunicationBridgeNoBridge do
     def bridge_for(_provider), do: nil
     def bridge_for(provider, _opts), do: bridge_for(provider)
@@ -751,6 +756,32 @@ defmodule Zaq.Channels.ApiTest do
              {:error, :invalid_connector_id}
 
     refute_received {:bridge_send_reply, _, _}
+  end
+
+  test "deliver_outgoing reaches a Teams person through the teams connector" do
+    config =
+      insert_config(:teams, %{
+        url: "",
+        settings: %{"jido_chat" => %{"app_id" => "app-1", "tenant_id" => "tenant-1"}}
+      })
+
+    outgoing = %Outgoing{
+      body: "Your report is ready",
+      channel_id: "teamsref:v1:reference",
+      provider: "microsoft_teams",
+      routing_context: %{channel_config_id: config.id}
+    }
+
+    event =
+      Event.new(outgoing, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: StubCommunicationBridge]
+      )
+
+    assert Api.handle_event(event, :deliver_outgoing, nil).response == {:ok, %{}}
+
+    assert_received {:bridge_send_reply,
+                     %Outgoing{provider: "teams", channel_id: "teamsref:v1:reference"},
+                     %{settings: %{"jido_chat" => %{"app_id" => "app-1"}}}}
   end
 
   test "final channel delivery reports transport timeout even when the outgoing answer exists" do
@@ -2287,6 +2318,15 @@ defmodule Zaq.Channels.ApiTest do
 
     assert Api.handle_event(yes_event, :bridge_available, nil).response == true
     assert Api.handle_event(no_event, :bridge_available, nil).response == false
+  end
+
+  test "bridge_available finds the Teams bridge from the Teams person platform" do
+    event =
+      Event.new(%{platform: "microsoft_teams"}, :channels,
+        opts: [bridge_module: StubTeamsOnlyBridge]
+      )
+
+    assert Api.handle_event(event, :bridge_available, nil).response == true
   end
 
   test "handles channel_capability_snapshot" do

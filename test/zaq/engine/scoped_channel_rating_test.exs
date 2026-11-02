@@ -167,7 +167,12 @@ defmodule Zaq.Engine.ScopedChannelRatingTest do
         ReactionEvent.new(%{
           message_id: external_id,
           channel_id: "room",
-          emoji: if(provider == "mattermost", do: "+1_medium_skin_tone", else: "👍"),
+          emoji:
+            case provider do
+              "mattermost" -> "+1_medium_skin_tone"
+              "teams" -> "like"
+              _ -> "👍"
+            end,
           user: %{user_id: "rater", user_name: "Rater"}
         })
 

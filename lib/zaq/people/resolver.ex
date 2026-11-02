@@ -22,7 +22,8 @@ defmodule Zaq.People.Resolver do
       "channel_id" => get(attrs, :azure_ad_id) || get(attrs, :channel_id),
       "username" => get(attrs, :email) || get(attrs, :username),
       "display_name" => get(attrs, :full_name) || get(attrs, :display_name),
-      "email" => get(attrs, :email)
+      "email" => get(attrs, :email),
+      "dm_channel_id" => get(attrs, :dm_channel_id)
     }
   end
 
