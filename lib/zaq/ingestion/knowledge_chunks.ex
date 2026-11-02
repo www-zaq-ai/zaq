@@ -18,6 +18,39 @@ defmodule Zaq.Ingestion.KnowledgeChunks do
   @doc "Returns the existing search placeholder for an inaccessible chunk."
   def access_denied_message, do: @access_denied_message
 
+  @doc "Fetches exactly the requested accessible IDs, without search or context limiting."
+  def fetch(chunk_ids, access_opts \\ []) do
+    if is_list(chunk_ids) and chunk_ids != [] and
+         Enum.all?(chunk_ids, &(is_integer(&1) and &1 > 0)) do
+      fetch_validated(Enum.uniq(chunk_ids), access_opts)
+    else
+      {:error, :invalid_chunk_ids}
+    end
+  end
+
+  defp fetch_validated(ids, access_opts) do
+    doc_ids =
+      Repo.all(from(c in Chunk, where: c.id in ^ids, select: c.document_id, distinct: true))
+
+    allowed_ids = doc_ids |> permitted_documents(access_opts) |> MapSet.to_list()
+
+    source_condition =
+      DocumentAccess.build_source_filter_condition(Keyword.get(access_opts, :source_filter))
+
+    by_id =
+      allowed_ids
+      |> materialization_query()
+      |> where([c], c.id in ^ids)
+      |> where(^source_condition)
+      |> Repo.all()
+      |> Enum.map(&serialize_timestamps/1)
+      |> Map.new(&{&1["chunk_id"], &1})
+
+    chunks = Enum.flat_map(ids, fn id -> if by_id[id], do: [by_id[id]], else: [] end)
+    unavailable = Enum.reject(ids, &Map.has_key?(by_id, &1))
+    {:ok, %{chunks: chunks, count: length(chunks), unavailable_ids: unavailable}}
+  end
+
   @doc "Hydrates only direct retrieval matches, preserving their supplied order."
   def hydrate(matches, access_opts)
   def hydrate([], _access_opts), do: []

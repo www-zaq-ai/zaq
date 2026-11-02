@@ -9,7 +9,7 @@ defmodule Zaq.Ingestion.Api do
   alias Zaq.Event
   alias Zaq.Events.TrustedContext
   alias Zaq.Ingestion
-  alias Zaq.Ingestion.{ChunkLanguages, Document, DocumentProcessor}
+  alias Zaq.Ingestion.{ChunkLanguages, Document, DocumentProcessor, KnowledgeChunks}
   alias Zaq.InternalBoundaries
   alias Zaq.Permissions
 
@@ -42,6 +42,15 @@ defmodule Zaq.Ingestion.Api do
   def handle_event(%Event{} = event, :list_chunk_languages, _context) do
     inventory = Keyword.get(event.opts, :chunk_languages, ChunkLanguages)
     %{event | response: {:ok, inventory.list()}}
+  end
+
+  def handle_event(
+        %Event{request: %{chunk_ids: ids, access_opts: access_opts}} = event,
+        :get_knowledge_base_chunks,
+        _context
+      )
+      when is_list(access_opts) do
+    %{event | response: KnowledgeChunks.fetch(ids, access_opts)}
   end
 
   def handle_event(
