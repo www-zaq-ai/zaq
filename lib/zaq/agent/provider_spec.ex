@@ -43,7 +43,10 @@ defmodule Zaq.Agent.ProviderSpec do
   end
 
   @doc "Builds a dedicated operation runtime using canonical global authentication, never global LLM defaults."
-  def operation_runtime(config) do
+  def operation_runtime(config), do: operation_runtime(config, :generation)
+
+  @doc "Builds operation-appropriate options and validates reranking model capability when selected."
+  def operation_runtime(config, operation) when operation in [:generation, :reranking] do
     with id when is_integer(id) <- config.credential_id,
          model when is_binary(model) and model != "" <- config.model,
          credential when not is_nil(credential) <- System.get_ai_provider_credential(id),
@@ -52,17 +55,25 @@ defmodule Zaq.Agent.ProviderSpec do
         credential_id: id,
         credential: credential,
         model: model,
-        temperature: config.temperature,
-        top_p: config.top_p
+        temperature: Map.get(config, :temperature, 0.0),
+        top_p: Map.get(config, :top_p, 0.9)
       }
 
       with {:ok, spec} <- build(agent),
            {:ok, opts} <- llm_opts(agent, resolved) do
-        {:ok, spec, opts}
+        operation_options(operation, spec, opts)
       end
     else
       {:error, _} = error -> error
       _ -> {:error, :model_not_configured}
+    end
+  end
+
+  defp operation_options(:generation, spec, opts), do: {:ok, spec, opts}
+
+  defp operation_options(:reranking, spec, opts) do
+    with {:ok, model} <- ReqLLM.Rerank.validate_model(spec) do
+      {:ok, model, Keyword.drop(opts, [:temperature, :top_p])}
     end
   end
 

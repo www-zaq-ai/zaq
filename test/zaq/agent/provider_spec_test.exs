@@ -7,6 +7,37 @@ defmodule Zaq.Agent.ProviderSpecTest do
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.ResolvedCredential
+  alias Zaq.System.RAGModelConfig
+
+  describe "operation_runtime/2 reranking" do
+    test "resolves reranking model authentication without text-generation options" do
+      credential = ai_credential_fixture(%{provider: "cohere", api_key: "test-rerank-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "rerank-v3.5"}
+
+      assert {:ok, model, opts} = ProviderSpec.operation_runtime(config, :reranking)
+      assert model.provider == :cohere
+      assert model.id == "rerank-v3.5"
+      assert opts[:api_key] == "test-rerank-key"
+      refute Keyword.has_key?(opts, :temperature)
+      refute Keyword.has_key?(opts, :top_p)
+    end
+
+    test "rejects a configured model without reranking capability" do
+      credential = ai_credential_fixture(%{provider: "openai", api_key: "test-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "gpt-4.1-mini"}
+      assert {:error, _} = ProviderSpec.operation_runtime(config, :reranking)
+    end
+
+    test "missing credential or incomplete selection returns an error" do
+      for config <- [
+            %RAGModelConfig{},
+            %RAGModelConfig{model: "rerank-v3.5"},
+            %RAGModelConfig{credential_id: -1, model: "rerank-v3.5"}
+          ] do
+        assert {:error, _} = ProviderSpec.operation_runtime(config, :reranking)
+      end
+    end
+  end
 
   # Minimal ConfiguredAgent map used across tests — only the fields ProviderSpec touches.
   defp agent_base do
