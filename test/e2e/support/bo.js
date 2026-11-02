@@ -1,5 +1,20 @@
 const { expect } = require("@playwright/test");
 const path = require("path");
+const { installFlashObserver } = require("./flash-observer");
+const flashObserverPages = new WeakSet();
+
+// Observes actual rendered notifications before the action, retaining evidence
+// after auto-dismissal. The collector lives only for this test's page lifetime.
+async function expectFlashDuringAction(page, text, action, { timeout = process.env.CI ? 20_000 : 15_000, exact = false } = {}) {
+  if (!flashObserverPages.has(page)) {
+    await page.addInitScript(installFlashObserver);
+    flashObserverPages.add(page);
+  }
+  await page.evaluate(installFlashObserver);
+  await page.evaluate(() => window.__e2eArmFlashes());
+  await action();
+  await page.waitForFunction(({ text, exact }) => window.__e2eFlashes?.some(message => exact ? message === text : message.includes(text)), { text, exact }, { timeout });
+}
 
 const DEFAULT_BASE_URL = process.env.E2E_BASE_URL || "http://localhost:4002";
 const DEFAULT_ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || "e2e_admin";
@@ -494,6 +509,7 @@ async function openPromptTemplate(page, slug) {
 }
 
 module.exports = {
+  expectFlashDuringAction,
   seedE2EPromptTemplateDefaults,
   publishE2EPromptTemplateDefaults,
   openPromptTemplate,

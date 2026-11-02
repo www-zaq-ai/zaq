@@ -596,6 +596,13 @@ Do not define helpers inline inside a spec file if they could be reused. Move th
 
 ### Current exports
 
+Use `expectFlashDuringAction(page, text, action)` for positive success-notification
+assertions. It observes rendered flashes in the browser before the action and
+retains their appearance after auto-dismissal, including across navigation. Stale
+notifications are excluded by recording their existing DOM identity/text before observation starts. Keep durable reload/state
+assertions; use the clock-controlled test for auto-dismissal itself. Negative
+validation and security assertions are not replaced by this helper.
+
 ```js
 module.exports = {
   loginToBackOffice,
@@ -604,6 +611,7 @@ module.exports = {
   waitForLiveViewSettled,
   waitForServerRoundTrip,
   dismissFlash,
+  expectFlashDuringAction,
   pickSearchableSelect,
   pickFirstSearchableSelectOption,
   createAiCredential,       // UI-based (legacy) — prefer createE2EAiCredential
