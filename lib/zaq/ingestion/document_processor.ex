@@ -1100,7 +1100,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   original measured scores and metadata are never replaced by ordinal surrogates.
   """
   def fuse_chunks(lexical, vector) do
-    if Enum.all?(lexical ++ vector, &valid_fusion_chunk?/1) do
+    if valid_fusion_chunks?(lexical ++ vector) do
       lexical = Enum.uniq_by(lexical, &fusion_identity/1)
       vector = Enum.uniq_by(vector, &fusion_identity/1)
 
@@ -1136,6 +1136,30 @@ defmodule Zaq.Ingestion.DocumentProcessor do
        do: is_integer(doc_id) and is_integer(index) and is_list(path)
 
   defp valid_fusion_chunk?(_chunk), do: false
+
+  defp valid_fusion_chunks?(chunks) do
+    Enum.all?(chunks, &valid_fusion_chunk?/1) and
+      consistent_match_ids?(chunks) and consistent_chunk_locations?(chunks)
+  end
+
+  defp consistent_match_ids?(chunks) do
+    chunks
+    |> Enum.group_by(&fusion_identity/1)
+    |> Enum.all?(fn {_identity, matches} ->
+      paths = matches |> Enum.map(& &1["section_path"]) |> Enum.uniq()
+      ids = matches |> Enum.map(& &1["chunk_id"]) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+      length(paths) == 1 and length(ids) <= 1
+    end)
+  end
+
+  defp consistent_chunk_locations?(chunks) do
+    chunks
+    |> Enum.reject(&is_nil(&1["chunk_id"]))
+    |> Enum.group_by(& &1["chunk_id"])
+    |> Enum.all?(fn {_id, matches} ->
+      matches |> Enum.map(&fusion_identity/1) |> Enum.uniq() |> length() == 1
+    end)
+  end
 
   defp fusion_identity(chunk), do: {chunk["document_id"], chunk["chunk_index"]}
 

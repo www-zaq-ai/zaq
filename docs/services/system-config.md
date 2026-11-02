@@ -45,8 +45,8 @@ direct page access from lazily starting persistence while Studio is disabled.
 AI model settings are configured in Back Office at `/bo/system-config` and
 persisted in `system_configs`.
 
-The **RAG** tab groups embeddings and chunking, image-to-text, Retrieval, and saved-only
-re-ranking and decision model selections. Retrieval sits below Image to text and
+The **RAG** tab groups embeddings and chunking, image-to-text, Retrieval, re-ranking,
+and a saved-only decision model selection. Retrieval sits below Image to text and
 contains the Knowledge-query translation credential/model selection. Retrieval tuning
 (maximum cosine distance and hybrid BM25/vector fusion weights) is under its collapsed
 **Advanced settings** and saves independently of embedding or translation changes.
@@ -59,9 +59,20 @@ by catalog metadata: `capabilities.rerank` for re-ranking and `decisions` output
 modality for decision models. Changing credentials clears the model selection;
 incompatible submissions are rejected by System persistence for both BO and Engine callers. These selections
 are persisted as `rag.reranking.credential_id`, `rag.reranking.model`,
-`rag.decision.credential_id` and `rag.decision.model`; they **do not activate**
-re-ranking or decision inference in the pipeline. Referenced AI credentials cannot
-be deleted until the selection is cleared.
+`rag.decision.credential_id` and `rag.decision.model`. Re-ranking is active in
+`SearchKnowledgeBase` for every search mode: the selected model ranks the merged
+authorized chunks before the global count/token limits. With both reranking
+fields unconfigured, results are unchanged. A partial/broken selection,
+unsupported model, authentication failure, provider error or timeout fails the
+search rather than silently using unre-ranked results. Runtime authentication
+uses the existing System/Connect boundary and provider adapters; ReqLLM owns
+reranking inference and batching, without text-generation sampling options.
+No denied content is sent to the model. Decision inference remains inactive.
+Referenced AI credentials cannot be deleted until the selection is cleared.
+
+Existing saved reranking selections become active on deployment. Verify the
+selected provider/model before rollout; clear the selection to disable reranking.
+There is no fallback to the global LLM or another model when this selection fails.
 
 Retrieval settings retain their existing `llm.max_cosine_distance`,
 `llm.fusion_bm25_weight` and `llm.fusion_vector_weight` keys for runtime

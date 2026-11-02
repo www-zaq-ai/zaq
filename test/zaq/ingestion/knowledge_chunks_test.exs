@@ -73,6 +73,23 @@ defmodule Zaq.Ingestion.KnowledgeChunksTest do
     end
   end
 
+  test "permission bypass requires literal true rather than a truthy context value" do
+    doc = document()
+    first = chunk(doc, 1)
+
+    for invalid_bypass <- [nil, false, "true", "false", 1, :admin] do
+      assert [%{"content" => denied}] =
+               KnowledgeChunks.hydrate([match(first)], skip_permissions: invalid_bypass)
+
+      assert denied == KnowledgeChunks.access_denied_message()
+
+      assert {:ok, %{count: 0, unavailable_ids: [id]}} =
+               KnowledgeChunks.fetch([first.id], skip_permissions: invalid_bypass)
+
+      assert id == first.id
+    end
+  end
+
   test "empty hydration performs no database reads" do
     assert {[], []} = Zaq.QueryRecorder.capture(fn -> KnowledgeChunks.hydrate([], []) end)
   end

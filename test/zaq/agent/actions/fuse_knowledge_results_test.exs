@@ -95,4 +95,20 @@ defmodule Zaq.Agent.Actions.FuseKnowledgeResultsTest do
                %{node_router: Router}
              )
   end
+
+  test "conflicting chunk IDs or section identities cannot be fused as one match" do
+    original = chunk(1)
+
+    for changed <- [
+          Map.put(original, "chunk_id", 2),
+          Map.put(original, "section_path", ["different"])
+        ] do
+      assert {:error, _} =
+               Jido.Exec.run(
+                 FuseKnowledgeResults,
+                 %{keyword_chunks: [original], semantic_chunks: [changed]},
+                 %{node_router: Router}
+               )
+    end
+  end
 end

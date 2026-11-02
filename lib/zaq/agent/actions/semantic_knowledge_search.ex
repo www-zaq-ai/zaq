@@ -19,6 +19,8 @@ defmodule Zaq.Agent.Actions.SemanticKnowledgeSearch do
 
   @impl Jido.Action
   def run(%{query: query} = params, context) do
-    KnowledgeSearch.search(query, params, context, :semantic)
+    if String.trim(query) == "",
+      do: {:error, :invalid_query},
+      else: KnowledgeSearch.search(query, params, context, :semantic)
   end
 end

@@ -512,24 +512,60 @@ After a successful bridge write, Channels notifies Ingestion to refresh indexed-
 permission projections. Inherited and unmentioned direct grants are preserved; provider bridges
 without safe permission mutation support return `:unsupported`.
 
-### Built-in Agent Tools (`Zaq.Agent.Tools.SearchKnowledgeBase`, `Zaq.Agent.Tools.ListKnowledgeBaseFiles`)
+### Built-in Agent Tools (`Zaq.Agent.Tools.SearchKnowledgeBase`, `Zaq.Agent.Tools.GetKnowledgeBaseChunks`)
 - Tool implementations exposed to configured agents through `Tools.Registry`
 - Availability remains controlled by enabled tool keys and provider capabilities
-- `SearchKnowledgeBase` requires a semantic `query` and LLM-authored
-  `lexical_terms` (including names and identifiers, without filler words). The
-  legacy Pipeline's Retrieval LLM supplies both fields; the tool discovers
-  persisted chunk languages from Ingestion's ETS inventory and passes the terms
-  to the internal `TranslateKnowledgeQuery` Action. It translates terms for
-  detected languages via `ProviderSpec`, while `simple` preserves the original
-  query and terms without calling the generator. Every supplied term reaches
-  Ingestion as an independent OR clause; no first-N or per-term length cutoff
-  applies. Searches run concurrently through explicit Ingestion events, which
-  apply ACLs after retrieval and filter candidates/chunks by language. Direct
-  matches are merged by chunk-level hybrid-fusion score and limited globally by
-  Ingestion's context budget. The tool returns chunk languages, per-language
-  errors and a `partial` flag. RRF scores are separate from measured cosine
-  distances; section-only siblings inherit neither score nor distance. The
-  translation Action is not exposed in `Tools.Registry`.
+- `SearchKnowledgeBase` requires `query` and accepts optional `search_mode`:
+  `hybrid` (default) runs vector and keyword retrieval concurrently and fuses
+  each language's results; `semantic` uses vectors without keyword search or
+  fusion; `keyword` uses lexical retrieval without embeddings or fusion.
+  Keyword/hybrid require nonempty, meaningful `lexical_terms`, preserving names
+  and identifiers. Clauses match independently (OR), without first-N or length
+  truncation. Semantic search does not require lexical terms.
+- Language discovery remains in Ingestion's ETS inventory. One internal
+  `TranslateKnowledgeQuery` call prepares mode-appropriate queries for detected
+  languages using `ProviderSpec`; `simple` passes the originals through without
+  generation. Missing translations are not silently retried untranslated.
+  Successful language results retain the existing per-language errors and
+  `partial` flag. A failed hybrid leg fails that language rather than silently
+  falling back to single-mode search.
+- The internal workflow-compatible Actions are
+  `Zaq.Agent.Actions.SemanticKnowledgeSearch`, `KeywordKnowledgeSearch`,
+  `FuseKnowledgeResults` and `RerankKnowledgeResults`. Invoke them through
+  validated `Jido.Exec` execution. They reuse Ingestion's queries, access
+  filtering and weighted RRF; none is automatically exposed in `Tools.Registry`.
+  Fusion accepts ranked retrieval lists and retains redacted candidates' ranks
+  without re-exposing their measured scores. Search orchestration owns a linked
+  supervised cancellation tree and runs nested validated Actions inline in it;
+  caller cancellation and deadlines terminate both active retrieval legs.
+- After all languages are merged and deduplicated, the configured RAG model
+  re-ranks the complete authorized candidate set against the original query.
+  This applies to every mode, including keyword; hybrid re-ranks after fusion,
+  not just its vector leg. Unconfigured re-ranking is an exact no-op. A configured
+  model failure is a search error, not partial success or an implicit fallback.
+  Denied placeholders are never sent for inference. Model `rerank_score`, RRF
+  score, backend keyword score and measured cosine distance remain separate.
+- Optional positive-integer `max_total_results` defaults to `100`, globally
+  across languages/legs, and is enforced only after re-ranking alongside the
+  existing token budget. It is an output ceiling, not a retrieval-candidate
+  budget or guaranteed count; increasing it cannot bypass the token budget.
+  The legacy Pipeline uses the same validated Action/defaults and preserves
+  configured-reranking errors instead of reporting an ordinary negative answer.
+- Search returns direct matches only, never automatic section siblings.
+  Accessible chunks carry `chunk_id`, `previous_chunk_id` and `next_chunk_id`.
+  The initial Pipeline answering context preserves these IDs too. The exact
+  fetch tool `GetKnowledgeBaseChunks` (key `answering.get_knowledge_base_chunks`)
+  accepts a nonempty list of positive integer `chunk_ids`; use a one-item list
+  for one chunk, or previous/next IDs for incremental context expansion.
+  It returns full requested accessible chunks in first-requested order, deduped,
+  plus `count` and `unavailable_ids`. It performs no search, re-ranking, automatic
+  expansion or search-budget truncation. Missing, stale, denied and out-of-source
+  IDs are unavailable without distinguishing the reason. Every fetch rechecks
+  trusted permissions and source scope. See [Ingestion](ingestion.md#knowledge-chunk-navigation)
+  for adjacency and ID lifetime.
+- The synthetic/default answering agent enables both search and exact fetch.
+  Persisted configured agents keep explicit tool selections: enable the new
+  fetch key alongside search when desired; deployment does not grant it silently.
 
 ### Conversation Recall Tool (`Zaq.Agent.Tools.Accounts.History`, key `accounts.fetch_history`)
 - Recalls the requesting person's past conversations by topic (`query`) and/or time

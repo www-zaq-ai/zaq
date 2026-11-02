@@ -32,4 +32,9 @@ defmodule Zaq.Agent.Actions.SemanticKnowledgeSearchTest do
     assert chunk["opts"][:source_filter] == ["knowledge"]
     assert :ok = Action.validate(SemanticKnowledgeSearch)
   end
+
+  test "standalone semantic retrieval rejects a whitespace-only query" do
+    assert {:error, _} =
+             Jido.Exec.run(SemanticKnowledgeSearch, %{query: "   "}, %{node_router: Router})
+  end
 end

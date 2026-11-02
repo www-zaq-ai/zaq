@@ -154,7 +154,7 @@ defmodule Zaq.Ingestion.KnowledgeChunks do
   end
 
   defp permitted_documents(doc_ids, opts) do
-    if Keyword.get(opts, :skip_permissions, false) do
+    if Keyword.get(opts, :skip_permissions, false) == true do
       MapSet.new(doc_ids)
     else
       doc_ids
