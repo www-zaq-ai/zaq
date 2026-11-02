@@ -57,6 +57,21 @@ defmodule Zaq.System.LLMConfig do
     |> validate_number(:top_p, greater_than: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:max_context_window, greater_than: 0)
     |> validate_number(:distance_threshold, greater_than: 0.0)
+    |> validate_retrieval()
+  end
+
+  @doc "Validates retrieval tuning independently of chat model configuration."
+  def retrieval_changeset(config, attrs) do
+    config
+    |> cast(attrs, [:max_cosine_distance, :fusion_bm25_weight, :fusion_vector_weight],
+      empty_values: []
+    )
+    |> validate_retrieval()
+  end
+
+  defp validate_retrieval(changeset) do
+    changeset
+    |> validate_required([:max_cosine_distance, :fusion_bm25_weight, :fusion_vector_weight])
     |> validate_number(:max_cosine_distance,
       greater_than_or_equal_to: 0.0,
       less_than_or_equal_to: 2.0

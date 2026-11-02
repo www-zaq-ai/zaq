@@ -6,6 +6,29 @@ defmodule Zaq.Agent.ConfiguredAgentTest do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Repo
 
+  describe "sampling" do
+    test "new agents receive explicit defaults without submitted sampling" do
+      changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{})
+      agent = Ecto.Changeset.apply_changes(changeset)
+      assert agent.temperature == 0.0
+      assert agent.top_p == 0.9
+      refute Keyword.has_key?(changeset.errors, :temperature)
+      refute Keyword.has_key?(changeset.errors, :top_p)
+    end
+
+    test "sampling rejects missing and out-of-range explicit values" do
+      for attrs <- [
+            %{temperature: nil, top_p: nil},
+            %{temperature: -0.1, top_p: 0},
+            %{temperature: 2.1, top_p: 1.1}
+          ] do
+        errors = errors_on(ConfiguredAgent.changeset(%ConfiguredAgent{}, attrs))
+        assert errors.temperature != []
+        assert errors.top_p != []
+      end
+    end
+  end
+
   describe "runtime limit fields" do
     test "changeset accepts positive integer for max_iterations" do
       changeset = ConfiguredAgent.changeset(%ConfiguredAgent{}, %{max_iterations: 10})

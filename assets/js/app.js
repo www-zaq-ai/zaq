@@ -285,11 +285,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
         })
       }
     },
-    DetailsKeepOpen: {
-      mounted() { this._open = this.el.open },
-      updated() { this.el.open = this._open },
-      beforeUpdate() { this._open = this.el.open }
-    },
+    DetailsKeepOpen: liveViewHooks.DetailsKeepOpen,
     AutoExpand: {
       mounted() {
         const el = this.el

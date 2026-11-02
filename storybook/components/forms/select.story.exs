@@ -3,7 +3,7 @@ defmodule Storybook.Components.Forms.Select do
 
   def function, do: &ZaqWeb.Select.select/1
 
-  def description, do: "Styled native select using the zaq-control-select token system."
+  def description, do: "Design System dropdown using SearchableSelect with search disabled."
 
   def variations do
     [

@@ -79,7 +79,6 @@ config :bcrypt_elixir, :log_rounds, 4
 
 # --MOX--
 config :zaq,
-  chunk_title_module: Zaq.Agent.ChunkTitleMock,
   document_processor: Zaq.DocumentProcessorMock,
   node_router: Zaq.NodeRouterMock
 

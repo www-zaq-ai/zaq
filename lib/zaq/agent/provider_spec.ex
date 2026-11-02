@@ -42,6 +42,30 @@ defmodule Zaq.Agent.ProviderSpec do
     implementation.fixed_url_provider?(provider)
   end
 
+  @doc "Builds a dedicated operation runtime using canonical global authentication, never global LLM defaults."
+  def operation_runtime(config) do
+    with id when is_integer(id) <- config.credential_id,
+         model when is_binary(model) and model != "" <- config.model,
+         credential when not is_nil(credential) <- System.get_ai_provider_credential(id),
+         {:ok, resolved} <- System.resolve_ai_provider_authentication(credential) do
+      agent = %ConfiguredAgent{
+        credential_id: id,
+        credential: credential,
+        model: model,
+        temperature: config.temperature,
+        top_p: config.top_p
+      }
+
+      with {:ok, spec} <- build(agent),
+           {:ok, opts} <- llm_opts(agent, resolved) do
+        {:ok, spec, opts}
+      end
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :model_not_configured}
+    end
+  end
+
   @doc """
   Builds a ReqLLM model spec map from the system LLM config.
   """
@@ -171,8 +195,8 @@ defmodule Zaq.Agent.ProviderSpec do
   @doc """
   Builds ReqLLM keyword opts for a configured agent.
 
-  Converts the agent's `advanced_options` map to a keyword list, then merges
-  in `api_key` and `base_url` from the resolved credential.
+  Dedicated sampling fields take precedence over overlapping `advanced_options`
+  keys. Authentication and endpoint options come from the resolved credential.
   """
   @spec llm_opts(ConfiguredAgent.t()) :: keyword()
   def llm_opts(%ConfiguredAgent{} = configured_agent) do
@@ -309,9 +333,8 @@ defmodule Zaq.Agent.ProviderSpec do
 
   defp credential_value(_, _), do: nil
 
-  defp advanced_options_as_keyword(%ConfiguredAgent{advanced_options: options})
-       when is_map(options) do
-    options
+  defp advanced_options_as_keyword(%ConfiguredAgent{} = agent) do
+    (agent.advanced_options || %{})
     |> Enum.reduce([], fn {key, value}, acc ->
       case normalize_option_key(key) do
         nil -> acc
@@ -319,9 +342,8 @@ defmodule Zaq.Agent.ProviderSpec do
       end
     end)
     |> Enum.reverse()
+    |> Keyword.merge(temperature: agent.temperature, top_p: agent.top_p)
   end
-
-  defp advanced_options_as_keyword(_), do: []
 
   defp normalize_option_key(key) when is_atom(key), do: key
 
