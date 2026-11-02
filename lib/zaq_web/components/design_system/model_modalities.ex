@@ -84,12 +84,15 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
           this.hide = () => {
             if (this.tooltip?.isConnected) this.tooltip.hidePopover();
             this.tooltip = null;
+            this.trigger = null;
           };
-          this.show = trigger => {
-            this.hide();
-            this.tooltip = document.getElementById(trigger.getAttribute('aria-describedby'));
-            this.tooltip.showPopover();
-            const rect = trigger.getBoundingClientRect();
+          this.position = () => {
+            if (!this.tooltip || !this.trigger?.isConnected) return;
+            const rect = this.trigger.getBoundingClientRect();
+            if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
+              this.hide();
+              return;
+            }
             const box = this.tooltip.getBoundingClientRect();
             const inset = 8;
             const left = Math.max(inset, Math.min(rect.left, document.documentElement.clientWidth - box.width - inset));
@@ -97,12 +100,22 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
             this.tooltip.style.left = `${left}px`;
             this.tooltip.style.top = `${top}px`;
           };
+          this.show = trigger => {
+            this.hide();
+            this.trigger = trigger;
+            this.tooltip = document.getElementById(trigger.getAttribute('aria-describedby'));
+            this.tooltip.showPopover();
+            this.position();
+          };
           this.onEnter = event => {
             const trigger = event.target.closest('.zaq-model-modality-trigger');
             if (trigger && !trigger.contains(event.relatedTarget)) this.show(trigger);
           };
           this.onLeave = event => {
             if (!this.el.contains(event.relatedTarget)) this.hide();
+          };
+          this.onPointerLeave = event => {
+            if (event.pointerType !== 'touch') this.hide();
           };
           this.onClick = event => {
             const trigger = event.target.closest('.zaq-model-modality-trigger');
@@ -121,19 +134,20 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
           };
           this.el.addEventListener('pointerover', this.onEnter);
           this.el.addEventListener('focusin', this.onEnter);
-          this.el.addEventListener('pointerleave', this.hide);
+          this.el.addEventListener('pointerleave', this.onPointerLeave);
           this.el.addEventListener('focusout', this.onLeave);
           this.el.addEventListener('click', this.onClick);
-          this.el.addEventListener('keydown', this.onKey);
+          document.addEventListener('keydown', this.onKey);
           document.addEventListener('click', this.onOutside);
-          document.addEventListener('scroll', this.hide, true);
+          document.addEventListener('scroll', this.position, true);
           window.addEventListener('resize', this.hide);
         },
         beforeUpdate() { this.hide(); },
         destroyed() {
           this.hide();
+          document.removeEventListener('keydown', this.onKey);
           document.removeEventListener('click', this.onOutside);
-          document.removeEventListener('scroll', this.hide, true);
+          document.removeEventListener('scroll', this.position, true);
           window.removeEventListener('resize', this.hide);
         }
       }

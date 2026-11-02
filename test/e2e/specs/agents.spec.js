@@ -16,6 +16,7 @@ const AGENTS_PATH = "/bo/agents"
 // ZAQ Router is provisioned by the E2E support path and advertises deterministic
 // tool-capable models, unlike external provider catalogs.
 const TOOL_MODEL = "openai/gpt-oss-120b"
+const VISION_MODEL = "qwen/qwen3-vl-235b-a22b-instruct"
 
 // Clicks `clickSelector` and waits for `revealSelector` to appear, retrying the
 // click if it lands before the LiveView channel is bound (a known connection
@@ -102,6 +103,174 @@ test.describe("Agents", () => {
     await page.locator("#new-agent-button").click()
     await expect(page.locator("#agent-form-drawer")).toBeVisible()
     await expect(page.locator("#configured-agent-form")).toBeVisible()
+  })
+
+  test("model modalities update with the credential and model in the create form", async ({ page }) => {
+    const req = await apiRequest.newContext()
+    const credential = await getZaqRouterCredential(req)
+    await req.dispose()
+    await loginToBackOffice(page)
+
+    const custom = await createE2EAiCredential(page, {
+      name: "E2E Custom Modalities",
+      provider: "Custom",
+      endpoint: "https://custom-endpoint.com",
+      api_key: "e2e-modality-key",
+    })
+
+    const agentName = "E2E Agent Modalities"
+    await openNewAgentForm(page, agentName)
+    const modalities = page.locator("#agent-form-modalities")
+    await expect(modalities).toHaveText("Select a model to view modalities")
+    await selectAgentCredential(page, credential.name)
+    await selectModelFromPicker(page, VISION_MODEL)
+
+    await expect(modalities.getByRole("button", { name: "Input: Image", exact: true })).toBeVisible()
+    expect(await modalities.locator("button").evaluateAll(buttons => buttons.map(b => b.getAttribute("aria-label"))))
+      .toEqual(["Input: Text", "Input: Image", "Output: Text"])
+
+    const image = modalities.getByRole("button", { name: "Input: Image", exact: true })
+    const tooltip = page.locator(`[id="${await image.getAttribute("aria-describedby")}"]`)
+    await image.hover()
+    await expect(tooltip).toBeVisible()
+    await expect(tooltip).toHaveText("Input: Image")
+    await page.mouse.move(0, 0)
+    await expect(tooltip).toBeHidden()
+    await image.focus()
+    await expect(tooltip).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(tooltip).toBeHidden()
+    await expect(page.locator("#configured-agent-form")).toBeVisible()
+
+    const arrowColor = await modalities.locator(".zaq-model-modalities-arrow").evaluate(el => getComputedStyle(el).color)
+    const iconColor = await image.evaluate(el => getComputedStyle(el).color)
+    expect(arrowColor).not.toBe(iconColor)
+
+    await selectModelFromPicker(page, TOOL_MODEL)
+    await expect(modalities.getByRole("button", { name: "Input: Unknown", exact: true })).toBeVisible()
+    await expect(modalities.getByRole("button", { name: "Output: Unknown", exact: true })).toBeVisible()
+    await selectModelFromPicker(page, VISION_MODEL)
+    await expect(image).toBeVisible()
+
+    await selectAgentCredential(page, custom.name)
+    await expect(modalities.getByRole("button", { name: "Input: Unknown", exact: true })).toBeVisible()
+    await expect(modalities.getByRole("button", { name: "Output: Unknown", exact: true })).toBeVisible()
+    await expect(modalities.getByRole("button", { name: "Input: Image", exact: true })).toHaveCount(0)
+
+    await selectAgentCredential(page, credential.name)
+    await selectModelFromPicker(page, VISION_MODEL)
+    await expect(modalities.getByRole("button", { name: "Input: Image", exact: true })).toBeVisible()
+    await page.locator("#save-agent-button").click()
+    await waitForLiveViewSettled(page)
+
+    const row = page.locator("#agents-table tr").filter({ hasText: agentName })
+    await expect(row.getByRole("button", { name: "Input: Image", exact: true })).toBeVisible()
+    await expect(row.getByRole("button", { name: "Output: Text", exact: true })).toBeVisible()
+  })
+
+  test("list modalities stay beside the model and tooltips do not select the row", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    const req = await apiRequest.newContext()
+    const credential = await getZaqRouterCredential(req)
+    const agent = await createE2EAgent(req, {
+      name: "E2E Vision Modalities",
+      job: "Answer with text.",
+      model: VISION_MODEL,
+      credential_id: credential.id,
+    })
+    const unknown = await createE2EAgent(req, {
+      name: "E2E Unknown Modalities",
+      job: "Unknown catalog entry.",
+      model: "unlisted-custom-model",
+      credential_id: credential.id,
+    })
+    await req.dispose()
+    await loginToBackOffice(page)
+    await gotoBackOfficeLive(page, AGENTS_PATH)
+
+    const row = page.locator(`#agent-row-${agent.id}`)
+    const modalities = row.locator(".zaq-model-modalities")
+    const image = modalities.getByRole("button", { name: "Input: Image", exact: true })
+    const tooltip = page.locator(`[id="${await image.getAttribute("aria-describedby")}"]`)
+    await image.click()
+    await expect(tooltip).toBeVisible()
+    await expect(tooltip).toHaveText("Input: Image")
+    await expect(page.locator("#agent-form-drawer")).toHaveCount(0)
+    await page.keyboard.press("Escape")
+    await expect(tooltip).toBeHidden()
+
+    const modelBox = await row.getByText(VISION_MODEL, { exact: true }).boundingBox()
+    const iconsBox = await modalities.boundingBox()
+    expect(iconsBox.x).toBeGreaterThanOrEqual(modelBox.x + modelBox.width)
+    expect(Math.abs(iconsBox.y + iconsBox.height / 2 - modelBox.y - modelBox.height / 2)).toBeLessThan(2)
+
+    const unknownModalities = page.locator(`#agent-${unknown.id}-modalities`)
+    await expect(unknownModalities.getByRole("button", { name: "Input: Unknown", exact: true })).toBeVisible()
+    await expect(unknownModalities.getByRole("button", { name: "Output: Unknown", exact: true })).toBeVisible()
+
+    await row.getByText(agent.name, { exact: true }).click()
+    await expect(page.locator("#agent-form-modalities").getByRole("button", { name: "Input: Image", exact: true })).toBeVisible()
+    await page.locator("#close-agent-detail").click()
+    await page.locator('input[name="filters[name]"]').fill(agent.name)
+    await waitForLiveViewSettled(page)
+    await expect(page.locator(`#agent-row-${unknown.id}`)).toHaveCount(0)
+    await expect(image).toBeVisible()
+  })
+
+  test.describe("modality touch tooltips and responsive layout", () => {
+    test.use({ hasTouch: true, viewport: { width: 1440, height: 1100 } })
+
+    test("equal-width desktop fields stack on mobile and icons respond to taps", async ({ page }) => {
+      const req = await apiRequest.newContext()
+      const credential = await getZaqRouterCredential(req)
+      const agent = await createE2EAgent(req, {
+        name: "E2E Touch Modalities",
+        job: "Answer with text.",
+        model: VISION_MODEL,
+        credential_id: credential.id,
+      })
+      await req.dispose()
+      await loginToBackOffice(page)
+      await gotoBackOfficeLive(page, AGENTS_PATH)
+
+      const row = page.locator(`#agent-row-${agent.id}`)
+      const listIcon = row.getByRole("button", { name: "Input: Image", exact: true })
+      await listIcon.tap()
+      await expect(row.locator('[role="tooltip"]:visible')).toHaveText("Input: Image")
+      await expect(page.locator("#agent-form-drawer")).toHaveCount(0)
+
+      await row.getByText(agent.name, { exact: true }).click()
+      await expect(page.locator("#agent-form-modalities")).toBeVisible()
+      const credentialField = page.locator('select[name="configured_agent[credential_id]"]')
+      const modelField = page.locator("#configured-agent-model-select")
+      const modalities = page.locator("#agent-form-modalities")
+      const credentialBox = await credentialField.boundingBox()
+      const modelBox = await modelField.boundingBox()
+      const iconsBox = await modalities.boundingBox()
+      expect(Math.abs(credentialBox.width - modelBox.width)).toBeLessThan(1)
+      expect(Math.abs(credentialBox.y - modelBox.y)).toBeLessThan(1)
+      expect(iconsBox.x).toBeGreaterThanOrEqual(modelBox.x + modelBox.width)
+      expect(iconsBox.y + iconsBox.height).toBeLessThanOrEqual(credentialBox.y + credentialBox.height)
+
+      await page.setViewportSize({ width: 390, height: 844 })
+      const mobileCredential = await credentialField.boundingBox()
+      const mobileModel = await modelField.boundingBox()
+      const mobileIcons = await modalities.boundingBox()
+      expect(mobileModel.y).toBeGreaterThanOrEqual(mobileCredential.y + mobileCredential.height)
+      expect(mobileIcons.y).toBeGreaterThanOrEqual(mobileModel.y + mobileModel.height)
+      expect(Math.abs(mobileCredential.width - mobileModel.width)).toBeLessThan(1)
+
+      await modalities.getByRole("button", { name: "Input: Image", exact: true }).tap()
+      const tooltip = modalities.locator('[role="tooltip"]:visible')
+      await expect(tooltip).toHaveText("Input: Image")
+      const tooltipBox = await tooltip.boundingBox()
+      expect(tooltipBox.x).toBeGreaterThanOrEqual(0)
+      expect(tooltipBox.x + tooltipBox.width).toBeLessThanOrEqual(390)
+      expect(tooltipBox.y).toBeGreaterThanOrEqual(0)
+      expect(tooltipBox.y + tooltipBox.height).toBeLessThanOrEqual(844)
+      await page.locator("#configured-agent-form").getByText("Model", { exact: true }).tap()
+      await expect(tooltip).toBeHidden()
+    })
   })
 
   // ─── Existing tests (with model-picker fix applied) ───────────────────────
