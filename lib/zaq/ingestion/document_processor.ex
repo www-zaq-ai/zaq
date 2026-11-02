@@ -859,9 +859,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     source_filter = Keyword.get(access_opts, :source_filter, [])
     language = Keyword.get(access_opts, :language)
     lexical_terms = lexical_input(Keyword.get(access_opts, :lexical_terms), query)
+    mode = Keyword.get(access_opts, :search_mode, :hybrid)
 
-    with {:ok, grouped} <- retrieve(query, lexical_terms, source_filter, language) do
-      filtered = KnowledgeChunks.hydrate(ranked_matches(grouped), access_opts)
+    with {:ok, grouped} <- retrieve(query, lexical_terms, source_filter, language, mode) do
+      filtered = KnowledgeChunks.hydrate(ranked_matches(grouped, mode), access_opts)
 
       if Keyword.get(access_opts, :unbounded, false) do
         {:ok, filtered}
@@ -871,11 +872,14 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp ranked_matches(grouped) do
+  defp ranked_matches(grouped, mode) do
     grouped
     |> Enum.flat_map(fn {_doc_id, paths} -> Enum.flat_map(paths, &elem(&1, 1)) end)
-    |> Enum.sort_by(&{-&1.rrf_score, &1.document_id, &1.section_path, &1.chunk_index})
+    |> Enum.sort_by(&{match_score(&1, mode), &1.document_id, &1.section_path, &1.chunk_index})
   end
+
+  defp match_score(match, :semantic), do: match.vector_distance
+  defp match_score(match, :hybrid), do: -match.rrf_score
 
   defp lexical_input(nil, query), do: query
 
@@ -889,7 +893,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp lexical_input(_invalid, _query), do: []
 
-  defp retrieve(query, lexical_terms, source_filter, language) do
+  defp retrieve(query, _terms, source_filter, language, :semantic) do
+    similarity_search_group_by(query, source_filter, language)
+  end
+
+  defp retrieve(query, lexical_terms, source_filter, language, :hybrid) do
     limit = hybrid_search_limit()
 
     bm25_task =
@@ -902,6 +910,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       rrf_merge(bm25, vector)
     end
   end
+
+  defp retrieve(_query, _terms, _source_filter, _language, _mode),
+    do: {:error, :invalid_search_mode}
 
   defp limit_to_context_window([]), do: []
 

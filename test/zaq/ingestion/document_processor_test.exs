@@ -1449,6 +1449,33 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
                )
     end
 
+    test "semantic mode never returns keyword-only evidence or invokes fusion" do
+      stub_embedding_success()
+      doc = create_document()
+
+      for {index, content, value} <- [{1, "exclusivekeyword", -0.1}, {2, "vector evidence", 0.1}] do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          chunk_index: index,
+          content: content,
+          embedding: Pgvector.HalfVector.new(List.duplicate(value, embedding_dimension()))
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:ok, [only]} =
+               DocumentProcessor.query_extraction("exclusivekeyword",
+                 skip_permissions: true,
+                 search_mode: :semantic
+               )
+
+      assert only["chunk_index"] == 2
+      assert only["retrieval_legs"] == ["vector"]
+      assert only["rrf_score"] == nil
+      assert is_number(only["vector_distance"])
+    end
+
     test "lexical clauses after the eighth reach full-text search untruncated" do
       stub_embedding_success()
       doc = create_document()
