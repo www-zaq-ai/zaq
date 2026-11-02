@@ -4,7 +4,9 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
 
   Metadata is supplied by the caller; this component never discovers models. Missing
   directions are unknown, not unsupported. Tooltips identify direction and modality
-  on hover, focus or tap, without activating an enclosing selectable row.
+  on hover, focus or tap. Neither triggers nor tooltip content activate an enclosing
+  selectable row. Tooltips follow the visible portion of their trigger and close
+  when it leaves the viewport or an ancestor's horizontal/vertical clipping bounds.
   """
 
   use Phoenix.Component
@@ -86,10 +88,37 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
             this.tooltip = null;
             this.trigger = null;
           };
+          this.visibleTriggerRect = () => {
+            const rect = this.trigger.getBoundingClientRect();
+            const visible = {
+              left: Math.max(0, rect.left),
+              right: Math.min(document.documentElement.clientWidth, rect.right),
+              top: Math.max(0, rect.top),
+              bottom: Math.min(window.innerHeight, rect.bottom)
+            };
+            for (let parent = this.trigger.parentElement; parent; parent = parent.parentElement) {
+              const style = getComputedStyle(parent);
+              const clipsX = /^(auto|scroll|hidden|clip)$/.test(style.overflowX);
+              const clipsY = /^(auto|scroll|hidden|clip)$/.test(style.overflowY);
+              if (!clipsX && !clipsY) continue;
+              const bounds = parent.getBoundingClientRect();
+              const left = bounds.left + parent.clientLeft;
+              const top = bounds.top + parent.clientTop;
+              if (clipsX) {
+                visible.left = Math.max(visible.left, left);
+                visible.right = Math.min(visible.right, left + parent.clientWidth);
+              }
+              if (clipsY) {
+                visible.top = Math.max(visible.top, top);
+                visible.bottom = Math.min(visible.bottom, top + parent.clientHeight);
+              }
+            }
+            return visible.right > visible.left && visible.bottom > visible.top ? visible : null;
+          };
           this.position = () => {
             if (!this.tooltip || !this.trigger?.isConnected) return;
-            const rect = this.trigger.getBoundingClientRect();
-            if (rect.bottom <= 0 || rect.top >= window.innerHeight) {
+            const rect = this.visibleTriggerRect();
+            if (!rect) {
               this.hide();
               return;
             }
@@ -115,9 +144,20 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
             if (!this.el.contains(event.relatedTarget)) this.hide();
           };
           this.onPointerLeave = event => {
-            if (event.pointerType !== 'touch') this.hide();
+            if (event.pointerType !== 'touch' && !this.el.contains(event.relatedTarget)) this.hide();
+          };
+          this.onPointerDown = event => {
+            if (!event.target.closest('.zaq-model-modality-tooltip')) return;
+            // Keep focus on the trigger: blur would remove the top-layer target
+            // before click dispatch, retargeting the click to the selectable row.
+            event.preventDefault();
+            event.stopPropagation();
           };
           this.onClick = event => {
+            if (event.target.closest('.zaq-model-modality-tooltip')) {
+              event.stopPropagation();
+              return;
+            }
             const trigger = event.target.closest('.zaq-model-modality-trigger');
             if (!trigger) return;
             event.stopPropagation();
@@ -136,6 +176,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
           this.el.addEventListener('focusin', this.onEnter);
           this.el.addEventListener('pointerleave', this.onPointerLeave);
           this.el.addEventListener('focusout', this.onLeave);
+          this.el.addEventListener('pointerdown', this.onPointerDown);
           this.el.addEventListener('click', this.onClick);
           document.addEventListener('keydown', this.onKey);
           document.addEventListener('click', this.onOutside);
@@ -145,6 +186,7 @@ defmodule ZaqWeb.Components.DesignSystem.ModelModalities do
         beforeUpdate() { this.hide(); },
         destroyed() {
           this.hide();
+          this.el.removeEventListener('pointerdown', this.onPointerDown);
           document.removeEventListener('keydown', this.onKey);
           document.removeEventListener('click', this.onOutside);
           document.removeEventListener('scroll', this.position, true);

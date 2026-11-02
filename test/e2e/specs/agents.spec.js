@@ -196,6 +196,9 @@ test.describe("Agents", () => {
     await expect(tooltip).toBeVisible()
     await expect(tooltip).toHaveText("Input: Image")
     await expect(page.locator("#agent-form-drawer")).toHaveCount(0)
+    await tooltip.click()
+    await expect(page.locator("#agent-form-drawer")).toHaveCount(0)
+    await expect(tooltip).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(tooltip).toBeHidden()
 
@@ -238,6 +241,9 @@ test.describe("Agents", () => {
       await listIcon.tap()
       await expect(row.locator('[role="tooltip"]:visible')).toHaveText("Input: Image")
       await expect(page.locator("#agent-form-drawer")).toHaveCount(0)
+      await row.locator('[role="tooltip"]:visible').tap()
+      await expect(page.locator("#agent-form-drawer")).toHaveCount(0)
+      await expect(row.locator('[role="tooltip"]:visible')).toHaveText("Input: Image")
 
       await row.getByText(agent.name, { exact: true }).click()
       await expect(page.locator("#agent-form-modalities")).toBeVisible()
@@ -269,6 +275,70 @@ test.describe("Agents", () => {
       expect(tooltipBox.y).toBeGreaterThanOrEqual(0)
       expect(tooltipBox.y + tooltipBox.height).toBeLessThanOrEqual(844)
       await page.locator("#configured-agent-form").getByText("Model", { exact: true }).tap()
+      await expect(tooltip).toBeHidden()
+    })
+
+    test("tooltips follow partially visible icons and hide beyond drawer and horizontal clipping", async ({ page }) => {
+      const req = await apiRequest.newContext()
+      const credential = await getZaqRouterCredential(req)
+      const agent = await createE2EAgent(req, {
+        name: "E2E Clipped Modalities",
+        job: "Answer with text.",
+        model: VISION_MODEL,
+        credential_id: credential.id,
+      })
+      await req.dispose()
+      await loginToBackOffice(page)
+      await gotoBackOfficeLive(page, AGENTS_PATH)
+      await page.locator(`#agent-row-${agent.id}`).getByText(agent.name, { exact: true }).click()
+      await page.setViewportSize({ width: 390, height: 844 })
+      // Expand the real form so there is enough content below the modalities
+      // to scroll the trigger past the drawer header without a layout fixture.
+      await page.locator("#configured-agent-form summary").click()
+
+      const modalities = page.locator("#agent-form-modalities")
+      const image = modalities.getByRole("button", { name: "Input: Image", exact: true })
+      const tooltip = modalities.getByRole("tooltip", { includeHidden: true }).filter({ hasText: "Input: Image" })
+      const body = page.locator("#agent-form-drawer .zaq-drawer-body")
+      await image.tap()
+      await expect(tooltip).toBeVisible()
+
+      // Keep half the trigger visible at the scrollport's top edge.
+      await image.evaluate(el => {
+        const body = el.closest(".zaq-drawer-body")
+        const rect = el.getBoundingClientRect()
+        body.scrollTop += rect.top + rect.height / 2 - body.getBoundingClientRect().top - body.clientTop
+      })
+      await expect(tooltip).toBeVisible()
+      await expect.poll(async () => {
+        const tip = await tooltip.boundingBox()
+        const scrollport = await body.boundingBox()
+        const trigger = await image.boundingBox()
+        const expectedTop = scrollport.y >= tip.height + 8
+          ? scrollport.y - tip.height - 8
+          : trigger.y + trigger.height + 8
+        return Math.abs(tip.y - expectedTop)
+      }).toBeLessThan(1)
+
+      await body.evaluate(el => { el.scrollTop += 40 })
+      await expect(tooltip).toBeHidden()
+      await image.tap()
+      await expect(tooltip).toBeVisible()
+
+      // A narrow overflow fixture exercises the same horizontal scrollport used
+      // by the form when the catalog contains more modalities than fit.
+      const container = page.locator(".zaq-agent-model-modalities")
+      const text = modalities.getByRole("button", { name: "Input: Text", exact: true })
+      const textTooltip = modalities.getByRole("tooltip", { includeHidden: true }).filter({ hasText: "Input: Text" })
+      await container.evaluate(el => { el.style.width = "16px" })
+      await text.tap()
+      await expect(textTooltip).toBeVisible()
+      await container.evaluate(el => { el.scrollLeft = el.scrollWidth })
+      await expect(textTooltip).toBeHidden()
+      await container.evaluate(el => { el.style.removeProperty("width"); el.scrollLeft = 0 })
+      await image.tap()
+      await expect(tooltip).toBeVisible()
+      await page.keyboard.press("Escape")
       await expect(tooltip).toBeHidden()
     })
   })

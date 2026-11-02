@@ -240,6 +240,7 @@ test.describe("People", () => {
       "ToolStepTimer", "WorkflowExport", "ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure",
       "ZaqWeb.Components.DesignSystem.ChannelPriorityList.PriorityDrag",
       "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox",
+      "ZaqWeb.Components.DesignSystem.ModelModalities.ModalityTooltips",
       "ZaqWeb.Components.DesignSystem.PersonProfile.ProfileFocus", "liveViewHooks",
     ].sort())
     expect(registered).not.toContain("DetectTimezone")

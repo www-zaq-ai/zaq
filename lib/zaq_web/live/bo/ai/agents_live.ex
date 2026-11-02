@@ -696,7 +696,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsLive do
   defp model_metadata(credential_id, model_id, socket) do
     socket.assigns.models_by_credential_id
     |> Map.get(credential_id, [])
-    |> Enum.find(fn model -> model.id == model_id or model.model == model_id end)
+    |> ProviderModels.find_model(model_id)
   end
 
   defp normalize_tool_keys(keys) when is_list(keys), do: Enum.reject(keys, &(&1 in [nil, ""]))

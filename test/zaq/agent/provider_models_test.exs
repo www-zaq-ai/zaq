@@ -281,6 +281,46 @@ defmodule Zaq.Agent.ProviderModelsTest do
     assert ProviderModels.models_for_credential(nil) == []
   end
 
+  describe "find_model/2" do
+    test "matches IDs and aliases without requiring an alias field" do
+      plain = %{id: "plain"}
+      aliased = %{id: "catalog-id", model: "runtime-id"}
+      models = [plain, aliased]
+
+      assert ProviderModels.find_model(models, "plain") == plain
+      assert ProviderModels.find_model(models, "catalog-id") == aliased
+      assert ProviderModels.find_model(models, "runtime-id") == aliased
+    end
+
+    test "returns nil for blank or unknown IDs and empty catalogs" do
+      for id <- [nil, "", "unknown"] do
+        assert ProviderModels.find_model([%{id: "known"}], id) == nil
+        assert ProviderModels.find_model([], id) == nil
+      end
+    end
+
+    test "preserves catalog order when aliases and IDs overlap" do
+      first = %{id: "first", model: "shared"}
+      second = %{id: "shared"}
+
+      assert ProviderModels.find_model([first, second], "shared") == first
+      assert ProviderModels.find_model([second, first], "shared") == second
+    end
+
+    property "appending nonmatching entries cannot change a match" do
+      check all(
+              id <- string(:alphanumeric, min_length: 1),
+              suffix <- list_of(string(:alphanumeric, min_length: 1))
+            ) do
+        model = %{id: id, model: "alias-" <> id}
+        others = Enum.map(suffix, &%{id: "other-" <> &1})
+
+        assert ProviderModels.find_model([model | others], id) == model
+        assert ProviderModels.find_model([model | others], model.model) == model
+      end
+    end
+  end
+
   test "model_for_credential returns nil for nil or blank model id" do
     credential = %AIProviderCredential{provider: "openai", api_key: "sk-test"}
 
