@@ -84,6 +84,34 @@ Stored `jido_chat` fields include bot name/user ID, message patterns and ingress
 overrides. SMTP and IMAP lookup helpers live in `Zaq.ConnectorConfig`; bridge/listener
 normalization remains provider-local in Channels.
 
+`Zaq.Engine.LiveUpdateSettings` owns the `settings["live_updates"]` subtree for
+retrieval connectors. The confidential `:manage_live_update_settings` Engine event
+runs `ManageLiveUpdateSettings` through validated Action execution and authenticates
+the current BO actor. Its `:snapshot` and `:save` operations address an exact connector
+ID; policy saves lock the current row and replace only this subtree. Results contain
+the ID, normalized policy and opaque lifecycle revisions, never connection settings
+or credentials. The `:save_configuration` operation saves ordinary fields and policy
+for a persisted native connector in one transaction, requiring the snapshot revision.
+Widgets instead compose the existing policy save inside `WidgetConnectorSettings`'s
+configuration transaction, retaining widget-specific validation, routing and lifecycle
+checks. Invalid fields or policy roll back the whole edit; changed revisions reject
+with `:stale_connector`. An unchanged absent policy is not materialized merely by
+saving other fields. The BO holds all drafts until the modal's overall Save/Update;
+Cancel writes nothing.
+Ordinary `ChannelConfig.changeset/2` updates preserve the current policy under a
+row lock in write preparation, even if a form submits an old settings snapshot.
+Only the dedicated policy operation replaces that subtree on existing connectors;
+it validates the policy before changing the locked row's settings. Widget lifecycle
+revision checks still reject stale widget forms instead of silently replaying them.
+The confidential `:resolve_live_update_policy` event requires an identified trusted
+execution actor and projects only the policy from the admitted Incoming routing
+context. It does not require BO privileges or grant conversation access. Explicit
+connector IDs must match the provider and an unarchived retrieval configuration;
+configless BO `:web` execution uses defaults. Missing policy fields use defaults,
+while malformed stored policies return validation errors. The pure
+`Zaq.ConnectorConfig.LiveUpdates` contract includes only answer, reasoning and tool
+triggers; status notifications are outside this policy.
+
 ### Conversations
 
 Channel history grant foundation: `Zaq.Permissions.ChannelHistoryResource` identifies

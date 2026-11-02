@@ -23,6 +23,8 @@ defmodule Zaq.Agent.Executor do
     channel adapters receive a consistent payload shape.
   - Canonical tool invocation evidence on successful, partial and handled-error
     results; public step snapshots are derived only at publication boundaries.
+  - Per-request, secret-free streamed-update policy resolution through Engine,
+    passed only to StreamEvents; progress/status producers remain independent.
 
   In short, `Executor` is the workflow coordinator; it does not build provider
   specs or runtime tool config itself. Those responsibilities stay in
@@ -46,6 +48,7 @@ defmodule Zaq.Agent.Executor do
     StreamEvents
   }
 
+  alias Zaq.ConnectorConfig.LiveUpdates
   alias Zaq.Engine.Conversations.MessageAuthor
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry
@@ -262,6 +265,7 @@ defmodule Zaq.Agent.Executor do
                agent: configured_agent,
                node_router: node_router(execution_opts),
                status_module: status_mod(execution_opts),
+               live_update_policy: live_update_policy(incoming, actor, execution_opts),
                notify_execution_lifecycle:
                  Keyword.get(execution_opts, :notify_execution_lifecycle, false)
              ) do
@@ -381,8 +385,7 @@ defmodule Zaq.Agent.Executor do
     not is_nil(get_in(incoming.metadata, [:status_message_id])) and content_delivered?(partial)
   end
 
-  defp content_delivered?(%{answer: answer}) when is_binary(answer),
-    do: String.trim(answer) != ""
+  defp content_delivered?(%{answer_published?: published?}), do: published? == true
 
   defp content_delivered?(_), do: false
 
@@ -648,6 +651,35 @@ defmodule Zaq.Agent.Executor do
       result ->
         result
     end
+  end
+
+  defp live_update_policy(incoming, actor, opts) do
+    event =
+      Event.new(incoming, :engine,
+        actor: actor,
+        opts: [action: :resolve_live_update_policy, confidential: true]
+      )
+
+    case node_router(opts).dispatch(event) do
+      %{response: {:ok, policy}} -> validated_live_update_policy(policy)
+      _ -> unavailable_live_update_policy()
+    end
+  rescue
+    _error -> unavailable_live_update_policy()
+  catch
+    :exit, _reason -> unavailable_live_update_policy()
+  end
+
+  defp validated_live_update_policy(policy) do
+    case LiveUpdates.normalize(policy) do
+      {:ok, normalized} -> normalized
+      {:error, _errors} -> unavailable_live_update_policy()
+    end
+  end
+
+  defp unavailable_live_update_policy do
+    Logger.warning("Streamed-update policy unavailable; suppressing managed stream updates")
+    Map.put(LiveUpdates.defaults(), "enabled", false)
   end
 
   defp queue_busy_input(runtime, %{incoming: incoming, actor: actor, opts: opts}) do

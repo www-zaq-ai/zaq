@@ -194,6 +194,47 @@ defmodule Zaq.Agent.ExecutorTest do
     def dispatch(%Zaq.Event{} = event), do: %{event | response: :ok}
   end
 
+  defmodule PolicyRouter do
+    alias Zaq.ConnectorConfig.LiveUpdates
+
+    def dispatch(%Zaq.Event{opts: opts} = event) do
+      if opts[:action] == :resolve_live_update_policy do
+        send(self(), {:resolved_stream_policy, event.request.routing_context, event.actor, opts})
+
+        policy =
+          case event.request.routing_context.channel_config_id do
+            2 -> Map.put(LiveUpdates.defaults(), "enabled", false)
+            _ -> LiveUpdates.defaults()
+          end
+
+        %{event | response: {:ok, policy}}
+      else
+        %{event | response: :ok}
+      end
+    end
+  end
+
+  defmodule PublishedAnswerFactory do
+    def ask_with_config(_server, _content, _agent, _opts) do
+      {:ok,
+       %{
+         request: :request,
+         events: [
+           %{
+             kind: :llm_delta,
+             at_ms: 100,
+             data: %{chunk_type: :content, delta: "An answer long enough to publish"}
+           },
+           %{
+             kind: :request_failed,
+             at_ms: 101,
+             data: %{error: ReqLLM.Error.API.Stream.exception(reason: "closed", cause: nil)}
+           }
+         ]
+       }}
+    end
+  end
+
   defmodule MalformedAdmissionRouter do
     def dispatch(%Zaq.Event{opts: [action: :admit_execution, confidential: true]} = event),
       do: %{event | response: {:ok, %{kind: :unexpected}}}
@@ -337,8 +378,12 @@ defmodule Zaq.Agent.ExecutorTest do
 
       refute Map.has_key?(outgoing.metadata, :tool_steps)
 
-      assert_receive {:public_tool_snapshot, [%{"state" => "unknown"}, %{"state" => "failed"}]}
-      if mode == "suppressed", do: assert(outgoing.metadata.suppressed)
+      refute_receive {:public_tool_snapshot, [%{"state" => "unknown"}, %{"state" => "failed"}]}
+
+      if mode == "suppressed" do
+        assert outgoing.metadata.error
+        refute outgoing.metadata[:suppressed]
+      end
     end
   end
 
@@ -346,6 +391,44 @@ defmodule Zaq.Agent.ExecutorTest do
     assert Executor.run(@incoming, @base_opts).metadata.tool_calls == []
     opts = Keyword.put(@base_opts, :server_manager_module, MissingRuntimeServerManager)
     assert Executor.run(@incoming, opts).metadata.tool_calls == []
+  end
+
+  test "resolves a confidential request-local stream policy without moving status delivery" do
+    opts = Keyword.merge(@base_opts, node_router: PolicyRouter, status_module: CoverageStubStatus)
+
+    for _request <- 1..2 do
+      assert Executor.run(@incoming, opts).body == "stubbed answer"
+      assert_receive {:resolved_stream_policy, routing, actor, event_opts}
+      assert routing == @incoming.routing_context
+      assert actor == %{kind: :anonymous, subject: "executor-test"}
+      assert event_opts[:confidential]
+      refute_receive {:resolved_stream_policy, _, _, _}
+      assert_receive {:coverage_status, _, :answering, "Formulating your answer…", PolicyRouter}
+    end
+  end
+
+  test "exact connector policy controls partial publication, not traces or answering status" do
+    opts =
+      Keyword.merge(@base_opts,
+        node_router: PolicyRouter,
+        status_module: ToolStepStatus,
+        factory_module: PublishedAnswerFactory
+      )
+
+    for {id, published?} <- [{1, true}, {2, false}, {1, true}] do
+      incoming = put_in(@incoming.routing_context.channel_config_id, id)
+      outgoing = Executor.run(incoming, opts)
+      assert [%{"type" => "content"}] = outgoing.metadata.trace
+
+      if published? do
+        assert_receive {:public_tool_snapshot, []}
+        assert outgoing.metadata.suppressed
+      else
+        refute_receive {:public_tool_snapshot, _}
+        assert outgoing.metadata.error
+        refute outgoing.metadata[:suppressed]
+      end
+    end
   end
 
   test "native failure retains the started assistant identity from the partial stream" do

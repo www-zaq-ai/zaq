@@ -22,6 +22,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{ExecutionRecord, Message}
   alias Zaq.Engine.HistoryIngress
+  alias Zaq.Engine.LiveUpdateSettings
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Engine.Telemetry.Buffer
   alias Zaq.Engine.Telemetry.Point
@@ -47,6 +48,72 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   setup do
     Code.ensure_loaded!(AgentConfig)
     :ok
+  end
+
+  defmodule StreamPolicyStatus do
+    def broadcast(incoming, stage, _message, _router) do
+      send(self(), {:policy_status, stage})
+      incoming
+    end
+
+    def broadcast(incoming, stage, text, _router, _opts) do
+      send(self(), {:policy_stream, stage, text})
+      put_in(incoming.metadata[:status_message_id], "policy-status")
+    end
+  end
+
+  test "saved connector policies reach the real runtime without affecting final answers or status" do
+    text = "A complete answer long enough for the internal stream buffer."
+    handler = fn conn, _body -> {200, streamed_reply(conn.request_path, text, "gpt-4.1-mini")} end
+    {child_spec, endpoint} = OpenAIStub.server(handler, self())
+    start_supervised!(child_spec)
+    scope = "stream-policy:#{Ecto.UUID.generate()}"
+    configured = IntegrationAgent.create!(endpoint, scope, "Answer the question.", [])
+    on_exit(fn -> ServerManager.stop_server(configured) end)
+
+    config =
+      %ChannelConfig{}
+      |> ChannelConfig.changeset(%{
+        name: scope,
+        provider: "web_widget",
+        kind: "retrieval",
+        enabled: false
+      })
+      |> Repo.insert!()
+
+    incoming =
+      Incoming.new(%{
+        content: "Answer",
+        channel_id: scope,
+        provider: :web_widget,
+        routing_context: %{channel_config_id: config.id}
+      })
+
+    for enabled? <- [true, false, true] do
+      assert {:ok, _saved} =
+               LiveUpdateSettings.execute(%{
+                 op: :save,
+                 id: config.id,
+                 policy: %{"enabled" => enabled?, "throttle_enabled" => false}
+               })
+
+      outgoing =
+        run_executor(incoming,
+          agent_id: configured.id,
+          scope: scope,
+          status_module: StreamPolicyStatus,
+          event: execution_event()
+        )
+
+      assert outgoing.body == text
+      refute outgoing.metadata.error
+      assert Enum.any?(outgoing.metadata.trace, &(&1["type"] == "content"))
+      assert_receive {:policy_status, :answering}
+
+      if enabled?,
+        do: assert_receive({:policy_stream, :answering, ^text}),
+        else: refute_receive({:policy_stream, _, _})
+    end
   end
 
   test "drain configuration stays scoped through reuse, credential invalidation and recreation" do

@@ -210,6 +210,99 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert has_element?(view, "#retrieval-channel-agent-select-#{retrieval.id}")
   end
 
+  test "connector Update saves all fields together and Cancel discards all drafts", %{conn: conn} do
+    first = insert_channel_config(%{name: "Stream workspace A"})
+    second = insert_channel_config(%{name: "Stream workspace B"})
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    selector = "#stream-updates-#{second.id}"
+    refute has_element?(view, "[id^='stream-updates-']")
+    view |> element("#edit-config-#{first.id}") |> render_click()
+    assert has_element?(view, "#config-form #stream-updates-#{first.id}")
+
+    view
+    |> form("#config-form", form: %{"name" => "Discarded"}, live_updates: %{"enabled" => "false"})
+    |> render_change()
+
+    view |> element("button[phx-click='close_modal']", "Cancel") |> render_click()
+    assert Repo.get!(ChannelConfig, first.id).name == "Stream workspace A"
+    refute Map.has_key?(Repo.get!(ChannelConfig, first.id).settings, "live_updates")
+    view |> element("#edit-config-#{second.id}") |> render_click()
+    assert has_element?(view, "#channel-config-modal #{selector}")
+    assert has_element?(view, "#config-form #{selector}")
+    refute has_element?(view, "button", "Save streamed updates")
+    assert has_element?(view, "#channel-config-modal button[type='submit'][form='config-form']")
+
+    view
+    |> form("#config-form",
+      form: %{"name" => "Renamed stream workspace"},
+      live_updates: %{"enabled" => "false"}
+    )
+    |> render_change()
+
+    refute Map.has_key?(Repo.get!(ChannelConfig, second.id).settings, "live_updates")
+    refute Map.has_key?(Repo.get!(ChannelConfig, first.id).settings, "live_updates")
+    assert render(view) =~ "Progress/status messages are unaffected"
+    view |> form("#config-form") |> render_submit()
+    assert Repo.get!(ChannelConfig, second.id).name == "Renamed stream workspace"
+    refute Repo.get!(ChannelConfig, second.id).settings["live_updates"]["enabled"]
+    refute has_element?(view, "[id^='stream-updates-']")
+  end
+
+  test "invalid streamed preferences cannot partially save connector details", %{conn: conn} do
+    config = insert_channel_config(%{name: "Atomic settings"})
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#edit-config-#{config.id}") |> render_click()
+
+    view
+    |> form("#config-form",
+      form: %{"name" => "Must not persist"},
+      live_updates: %{"min_interval_ms" => "0"}
+    )
+    |> render_submit()
+
+    assert render(view) =~ "must be a positive integer"
+    assert Repo.get!(ChannelConfig, config.id).name == "Atomic settings"
+    refute Map.has_key?(Repo.get!(ChannelConfig, config.id).settings, "live_updates")
+
+    view
+    |> form("#config-form",
+      form: %{"name" => "Corrected"},
+      live_updates: %{"min_interval_ms" => "250"}
+    )
+    |> render_submit()
+
+    assert Repo.get!(ChannelConfig, config.id).name == "Corrected"
+    assert Repo.get!(ChannelConfig, config.id).settings["live_updates"]["min_interval_ms"] == 250
+  end
+
+  test "grouped connector saves reject stale revisions and expired BO identity", %{
+    conn: conn,
+    user: user
+  } do
+    config = insert_channel_config(%{name: "Fenced edit"})
+    {:ok, view, _} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#edit-config-#{config.id}") |> render_click()
+    Repo.update!(Ecto.Changeset.change(config, name: "Updated elsewhere"))
+    view |> form("#config-form", live_updates: %{"enabled" => "false"}) |> render_submit()
+    assert render(view) =~ "may have changed since"
+    assert Repo.get!(ChannelConfig, config.id).name == "Updated elsewhere"
+    refute Map.has_key?(Repo.get!(ChannelConfig, config.id).settings, "live_updates")
+    view |> element("button[phx-click='close_modal']", "Cancel") |> render_click()
+    view |> element("#edit-config-#{config.id}") |> render_click()
+    Repo.delete!(user)
+
+    view
+    |> form("#config-form",
+      form: %{"name" => "Unauthorized"},
+      live_updates: %{"enabled" => "false"}
+    )
+    |> render_submit()
+
+    assert render(view) =~ "Unable to save configuration"
+    assert Repo.get!(ChannelConfig, config.id).name == "Updated elsewhere"
+    refute Map.has_key?(Repo.get!(ChannelConfig, config.id).settings, "live_updates")
+  end
+
   test "requires an explicit connector choice when provider has multiple configs", %{conn: conn} do
     first = insert_channel_config(%{name: "Workspace A"})
     second = insert_channel_config(%{name: "Workspace B"})

@@ -13,11 +13,17 @@ defmodule Zaq.Agent.StreamEvents do
   canonical invocation facts, which also drive final delivery's public projection.
   Existing private trace entries retain these normalized facts, including starts
   settled to unknown, so authorized presentation can use the same projector on reload.
+
+  Answer, reasoning and tool events share an event-driven publication interval in
+  this reducer. Trigger switches select publication opportunities, not snapshot
+  visibility or trace collection. Lifecycle status bypasses this policy and does
+  not consume its interval. There are no timers or forced terminal publications.
   """
 
   alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
   alias Zaq.Agent.Status
+  alias Zaq.ConnectorConfig.LiveUpdates
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Incoming
@@ -26,7 +32,6 @@ defmodule Zaq.Agent.StreamEvents do
   @tool_trace_fields ~w(id type turn_id content name arguments response duration_ms started_at started_at_ms ended_at ended_at_ms status invocation_id sequence outcome)
 
   @flush_chars 20
-  @flush_interval_ms 100
   @terminal_kinds [:request_completed, :request_failed, :request_cancelled]
   @input_token_keys [:input_tokens, :prompt_tokens, :input, :promptTokenCount, :inputTokenCount]
   @output_token_keys [
@@ -41,6 +46,7 @@ defmodule Zaq.Agent.StreamEvents do
 
   @type result :: %{
           answer: term(),
+          answer_published?: boolean(),
           usage: map(),
           llm_calls: [map()],
           trace: [map()],
@@ -61,11 +67,14 @@ defmodule Zaq.Agent.StreamEvents do
         state = handle_event(event, state)
 
         if state.answer_binding_failed or terminal_kind?(kind(event)),
-          do: {:halt, flush(state, force?: true, now: field(event, :at_ms))},
+          do: {:halt, state},
           else: {:cont, state}
       end)
 
-    final_state = flush(final_state, force?: true)
+    final_state =
+      if final_state.terminal_received,
+        do: final_state,
+        else: flush_trace_segment(final_state, %{})
 
     case final_state.error do
       # Return the partial result alongside the error so callers can tell whether
@@ -96,6 +105,10 @@ defmodule Zaq.Agent.StreamEvents do
       agent: Keyword.get(opts, :agent),
       started_at: started_at,
       last_flush_ms: started_at,
+      event_ms: started_at,
+      terminal_received: false,
+      answer_published?: false,
+      live_update_policy: live_update_policy(opts),
       current_key: nil,
       current_stage: nil,
       current_intent: nil,
@@ -119,6 +132,12 @@ defmodule Zaq.Agent.StreamEvents do
   end
 
   defp handle_event(event, state) do
+    state = %{
+      state
+      | event_ms: field(event, :at_ms) || System.monotonic_time(:millisecond),
+        terminal_received: terminal_kind?(kind(event))
+    }
+
     state = bind_selected_answer(kind(event), state)
 
     if state.answer_binding_failed,
@@ -265,8 +284,8 @@ defmodule Zaq.Agent.StreamEvents do
       state =
         if state.current_key != nil and state.current_key != event_key do
           state
-          |> flush(force?: true)
           |> flush_trace_segment(event)
+          |> Map.put(:buffer, "")
         else
           state
         end
@@ -570,18 +589,15 @@ defmodule Zaq.Agent.StreamEvents do
   defp maybe_flush(state, event) do
     now = field(event, :at_ms) || System.monotonic_time(:millisecond)
 
-    if byte_size(state.buffer) > @flush_chars and now - state.last_flush_ms >= @flush_interval_ms do
-      flush(state, force?: true, now: now)
+    if byte_size(state.buffer) > @flush_chars and
+         eligible_update?(state, state.current_intent, now) do
+      flush(state, now)
     else
       state
     end
   end
 
-  defp flush(%{buffer: ""} = state, _opts), do: state
-
-  defp flush(state, opts) do
-    now = Keyword.get(opts, :now) || System.monotonic_time(:millisecond)
-
+  defp flush(state, now) do
     incoming =
       state.status_module.broadcast(
         state.incoming,
@@ -592,14 +608,36 @@ defmodule Zaq.Agent.StreamEvents do
         tool_steps: public_tool_steps(state)
       )
 
-    %{state | incoming: incoming, buffer: "", last_flush_ms: now}
+    %{
+      state
+      | incoming: incoming,
+        buffer: "",
+        last_flush_ms: now,
+        published_tool_steps: public_tool_steps(state),
+        answer_published?: state.answer_published? or state.current_intent == :stream_delta
+    }
+  end
+
+  defp live_update_policy(opts) do
+    case LiveUpdates.normalize(Keyword.get(opts, :live_update_policy, LiveUpdates.defaults())) do
+      {:ok, policy} -> policy
+      {:error, _errors} -> Map.put(LiveUpdates.defaults(), "enabled", false)
+    end
+  end
+
+  defp eligible_update?(state, intent, now) do
+    policy = state.live_update_policy
+
+    policy["enabled"] and policy["triggers"][Atom.to_string(intent)] == true and
+      (not policy["throttle_enabled"] or now - state.last_flush_ms >= policy["min_interval_ms"])
   end
 
   defp broadcast_tool(state, tool_call, status) do
     steps = public_tool_steps(state)
     projected? = Enum.any?(steps, &(&1["id"] == tool_call["invocation_id"]))
 
-    if projected? and steps == state.published_tool_steps do
+    if not eligible_update?(state, :tool_call, state.event_ms) or
+         (projected? and steps == state.published_tool_steps) do
       state
     else
       do_broadcast_tool(state, tool_call, status, steps)
@@ -622,7 +660,7 @@ defmodule Zaq.Agent.StreamEvents do
         tool_steps: steps
       )
 
-    %{state | incoming: incoming, published_tool_steps: steps}
+    %{state | incoming: incoming, published_tool_steps: steps, last_flush_ms: state.event_ms}
   end
 
   # Classify the native envelope before json_safe turns tuples into trace arrays.
@@ -645,7 +683,6 @@ defmodule Zaq.Agent.StreamEvents do
       state
       |> Map.put(:tool_calls, calls)
       |> Map.put(:trace, Enum.reduce(Map.values(calls), state.trace, &put_tool_trace(&2, &1)))
-      |> broadcast_tool(%{}, :unknown)
     end
   end
 
@@ -654,6 +691,7 @@ defmodule Zaq.Agent.StreamEvents do
   defp result(state) do
     %{
       answer: state.answer || state.current_full,
+      answer_published?: state.answer_published?,
       usage: state.usage,
       llm_calls: public_llm_calls(state),
       trace: Enum.reverse(state.trace),

@@ -1316,6 +1316,23 @@ bootstrap/delivery/provider-only paths still call this schema locally; its names
 move does not establish a Repo-free Channels node. Supplied email-save and archive
 runtime events do not use those legacy persistence paths.
 
+Each communication connector's Edit modal exposes an expandable **Streamed message
+updates** section inside its overall configuration form. Save/Update commits ordinary
+fields and streamed preferences atomically through Engine; Cancel discards all drafts.
+There is no separate streamed-preferences save button. The section appears only after
+initial connector creation. Turning off **Limit streamed update frequency** removes
+the minimum time interval, but answer and reasoning text retain internal batching.
+The controls select
+answer content, reasoning and tool activity as events that can trigger an update;
+they do not filter the information displayed in snapshots or recorded in traces.
+The optional minimum interval is shared by these three triggers within a response.
+Eligibility is checked on arriving events, without a timer or replay queue. Text
+retains its internal byte-buffer threshold. Disabling streamed updates does **not**
+disable progress/status messages: those retain their existing behavior outside the
+stream interval. Final answers and terminal errors retain normal delivery.
+See [Engine policy ownership](engine.md#connector-configuration-persistence) and
+[stream reduction](agent.md#stream-events-zaqagentstreamevents) for the contracts.
+
 ---
 
 ## Retrieval Channel
