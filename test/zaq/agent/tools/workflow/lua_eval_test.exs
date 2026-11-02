@@ -52,6 +52,23 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
     assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
   end
 
+  test "supports explicit first and list return modes" do
+    code = "return {answer = 42}, {1, 2}, false, nil, 'last'"
+
+    assert evaluate(code, %{}, return_mode: :first) == {:ok, %{result: %{"answer" => 42}}}
+
+    assert evaluate(code, %{}, return_mode: :list) ==
+             {:ok, %{result: [%{"answer" => 42}, [1, 2], false, nil, "last"]}}
+
+    assert evaluate("return", %{}, return_mode: :list) == {:ok, %{result: [nil]}}
+    assert evaluate("return {}", %{}, return_mode: :list) == {:ok, %{result: [[]]}}
+  end
+
+  test "rejects unsupported return modes through Jido.Exec" do
+    assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+             evaluate("return 42", %{}, return_mode: :invalid)
+  end
+
   test "keeps the upstream sandbox enabled" do
     assert {:error, error} = evaluate("return os.execute('echo unexpected')")
     assert Exception.message(error) =~ "sandbox"
@@ -125,6 +142,19 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
           ) do
       data = %{"values" => values, "nested" => %{"label" => label, "enabled" => true}}
       assert {:ok, %{result: ^data}} = evaluate("return data", data)
+    end
+  end
+
+  property "list return mode normalizes each value without flattening returned tables" do
+    check all(
+            values <- list_of(integer(-1_000_000..1_000_000), max_length: 20),
+            label <- string(:alphanumeric, max_length: 30),
+            max_runs: 30
+          ) do
+      data = %{"values" => values, "label" => label}
+
+      assert evaluate("return data.values, data.label", data, return_mode: :list) ==
+               {:ok, %{result: [values, label]}}
     end
   end
 

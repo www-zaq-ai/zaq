@@ -3,7 +3,9 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEval do
   Workflow adapter for the existing sandboxed `Jido.Tools.LuaEval` Action.
 
   `code` evaluates with the supplied `data` available as the Lua global `data`.
-  Only the first returned value is exposed, under `result`. Execution delegates
+  `return_mode` defaults to `:first`, exposing the first returned value under
+  `result`; `:list` exposes all returned values as a list under the same key.
+  Execution delegates
   through `Jido.Exec` and retains the upstream sandbox, heap limit and deadline
   handling. `eval_timeout_ms` controls the upstream evaluation timeout; it is
   separate from the workflow runner's reserved `timeout_ms` parameter.
@@ -40,9 +42,14 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEval do
       code: [
         type: :string,
         required: true,
-        doc: "Lua code; its first return value becomes result."
+        doc: "Lua code; return_mode selects the values exposed under result."
       ],
       data: [type: :any, default: %{}, doc: "Value exposed through the Lua global data."],
+      return_mode: [
+        type: {:in, [:first, :list]},
+        default: :first,
+        doc: "Return the first value (:first) or all values (:list) under result."
+      ],
       eval_timeout_ms: [
         type: :pos_integer,
         default: 1000,
@@ -53,7 +60,7 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEval do
       result: [
         type: :any,
         required: true,
-        doc: "First returned value, with Lua tables normalized."
+        doc: "Selected return value or list of values, with Lua tables normalized."
       ]
     ]
 
@@ -62,13 +69,14 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEval do
     lua_params = %{
       code: code,
       globals: %{data: Map.get(params, :data, %{})},
-      return_mode: :first,
+      return_mode: Map.get(params, :return_mode, :first),
       timeout_ms: Map.get(params, :eval_timeout_ms, 1000)
     }
 
-    with {:ok, %{result: result}} <-
-           Jido.Exec.run(Jido.Tools.LuaEval, lua_params, context, max_retries: 0) do
-      {:ok, %{result: normalize(result)}}
+    case Jido.Exec.run(Jido.Tools.LuaEval, lua_params, context, max_retries: 0) do
+      {:ok, %{result: result}} -> {:ok, %{result: normalize(result)}}
+      {:ok, %{results: results}} -> {:ok, %{result: Enum.map(results, &normalize/1)}}
+      {:error, _reason} = error -> error
     end
   end
 
