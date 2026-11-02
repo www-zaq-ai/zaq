@@ -41,6 +41,7 @@ defmodule Zaq.Agent.Pipeline do
   """
 
   require Logger
+  alias Jido.Action.Error.ExecutionFailureError
   alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.Executor
   alias Zaq.Agent.StreamEvents
@@ -52,6 +53,7 @@ defmodule Zaq.Agent.Pipeline do
 
   @answering_chunk_fields ~w(
     content source title watch_status inserted_at updated_at metadata language
+    chunk_id previous_chunk_id next_chunk_id
   )
 
   # ---------------------------------------------------------------------------
@@ -237,15 +239,22 @@ defmodule Zaq.Agent.Pipeline do
       skip_permissions: Keyword.get(opts, :skip_permissions, false),
       node_router: node_router(opts),
       document_processor: document_processor_mod(opts),
+      reranker: Keyword.get(opts, :reranker, ReqLLM),
       incoming: incoming
     }
 
-    case SearchKnowledgeBase.run(%{query: query, lexical_terms: terms}, context) do
+    case Jido.Exec.run(SearchKnowledgeBase, %{query: query, lexical_terms: terms}, context,
+           timeout: SearchKnowledgeBase.tool_timeout_ms(),
+           max_retries: 0
+         ) do
       {:ok, %{chunks: []}} when is_binary(negative_answer) ->
         {:error, :no_results, negative_answer}
 
       {:ok, %{chunks: chunks}} ->
         {:ok, chunks}
+
+      {:error, %ExecutionFailureError{details: %{reason: :knowledge_reranking_failed}}} ->
+        {:error, :knowledge_reranking_failed}
 
       {:error, _reason} when is_binary(negative_answer) ->
         {:error, :no_results, negative_answer}
