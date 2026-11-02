@@ -264,6 +264,7 @@ defmodule Zaq.Agent.Executor do
                started_at: started_at,
                server_id: server_ref,
                runtime_pid: runtime_pid,
+               opaque_alias_scope: server_id,
                agent: configured_agent,
                node_router: node_router(execution_opts),
                status_module: status_mod(execution_opts),

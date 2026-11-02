@@ -3,7 +3,7 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocumentsTest do
   use ExUnitProperties
 
   alias Zaq.Accounts.Person
-  alias Zaq.Agent.{Factory, OpaqueAliases, RequestEffects}
+  alias Zaq.Agent.{Factory, OpaqueAliases}
   alias Zaq.Agent.Tools.DataSource.AttachDocuments
   alias Zaq.Agent.Tools.Registry
   alias Zaq.Contracts.Record
@@ -13,33 +13,26 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocumentsTest do
     record = record("a")
 
     for operation <- ["add", "remove", "replace"] do
-      assert {:ok, %{records: [^record]}, [effect]} =
+      assert {:ok, %{operation: ^operation, records: [^record]}} =
                Jido.Exec.run(
                  AttachDocuments,
                  %{operation: operation, records: [record]},
                  context()
                )
-
-      assert effect.path == [:request_effect]
-      assert effect.value.payload.operation == operation
-      assert effect.value.request_id == "request"
-      assert effect.value.incarnation == self()
     end
 
-    assert {:ok, %{records: []}, [_]} =
+    assert {:ok, %{operation: "replace", records: []}} =
              Jido.Exec.run(AttachDocuments, %{operation: "replace", records: []}, context())
 
     assert {:ok, [AttachDocuments]} = Registry.resolve_modules(["data_source.attach_document"])
     assert {:ok, []} = Registry.resolve_modules([])
 
-    assert {:ok, _, [effect]} =
+    assert {:ok, %{operation: "replace", records: []}} =
              Jido.Exec.run(
                AttachDocuments,
                %{operation: "replace", records: [], request_id: "forged"},
                context()
              )
-
-    assert effect.value.request_id == "request"
   end
 
   test "requires trusted request context and identity even for clearing an empty selection" do
@@ -53,7 +46,7 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocumentsTest do
     params = %{operation: "add", records: [record("a")]}
     assert {:error, _} = Jido.Exec.run(AttachDocuments, params, denied)
 
-    assert {:ok, _, [_]} =
+    assert {:ok, _} =
              Jido.Exec.run(AttachDocuments, params, Map.put(denied, :skip_permissions, true))
   end
 
@@ -132,8 +125,52 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocumentsTest do
                ctx
              )
 
-    assert {:ok, _, [_]} = Jido.Exec.run(AttachDocuments, expanded.arguments, ctx)
+    assert {:ok, _} = Jido.Exec.run(AttachDocuments, expanded.arguments, ctx)
     OpaqueAliases.clear_scope(ctx.opaque_alias_scope)
+  end
+
+  test "selection output aliases resolve only within the owning live scope" do
+    scope = make_ref()
+    ctx = %{opaque_alias_scope: scope}
+    on_exit(fn -> OpaqueAliases.clear_scope(scope) end)
+    record = record("output")
+    output = %{operation: "add", records: [record]}
+
+    assert {:ok, {:ok, aliased, []}} =
+             Factory.after_tool_call(%{action_module: AttachDocuments}, {:ok, output, []}, ctx)
+
+    assert {:ok, %{operation: "add", records: [expanded_record]}} =
+             OpaqueAliases.expand_tool_output(AttachDocuments, aliased, ctx)
+             |> then(fn {:ok, expanded} -> AttachDocuments.validate_output(expanded) end)
+
+    assert expanded_record.id == record.id
+    assert expanded_record.provenance_ref == record.provenance_ref
+    assert {:ok, _} = Provenance.verify(expanded_record)
+
+    assert {:error, _} = OpaqueAliases.expand_tool_output(AttachDocuments, aliased, %{})
+
+    assert {:error, _} =
+             OpaqueAliases.expand_tool_output(AttachDocuments, aliased, %{
+               opaque_alias_scope: make_ref()
+             })
+
+    OpaqueAliases.clear_scope(scope)
+    assert {:error, _} = OpaqueAliases.expand_tool_output(AttachDocuments, aliased, ctx)
+  end
+
+  test "native request state must match and remain pending" do
+    for state <- [
+          %{},
+          %{requests: nil},
+          %{requests: %{"other" => %{status: :pending}}},
+          %{requests: %{"request" => %{status: :completed}}}
+        ] do
+      assert {:error, _} =
+               Jido.Exec.run(AttachDocuments, %{operation: "replace", records: []}, %{
+                 context()
+                 | state: state
+               })
+    end
   end
 
   defp context do
@@ -141,7 +178,7 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocumentsTest do
       request_id: "request",
       actor: %Person{id: 1, email: "reader@example.test", channels: []},
       state: %{
-        request_effects: RequestEffects.new("request", self(), [AttachDocuments])
+        requests: %{"request" => %{status: :pending}}
       }
     }
   end

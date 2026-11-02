@@ -18,9 +18,6 @@ defmodule Zaq.Agent.Factory do
     each ask.
   - Streamed request dispatch; callers consume runtime events from `ask_stream/3`
     for status updates, trace collection, and measurements.
-  - Private request effects: opted-in Actions reduce validated commands in Jido
-    state before native trace/history projection. RequestEffects owns isolation
-    and successful completion transport; failure/cancellation discards values.
 
   Typical flow:
 
@@ -58,7 +55,6 @@ defmodule Zaq.Agent.Factory do
     OpaqueAliases,
     ProviderSpec,
     RecordResultTransformer,
-    RequestEffects,
     Skills,
     Skills.Limits
   }
@@ -146,26 +142,10 @@ defmodule Zaq.Agent.Factory do
         put_in(state, [:config, :tool_timeout_ms], timeout)
       end)
 
-    {:ok, agent, {:ai_react_start, params} = action} = super(agent, action)
-    agent = RequestEffects.start(agent, params.request_id, config.tools)
-
-    {:ok, agent, action}
-  end
-
-  def on_before_cmd(agent, {:ai_react_worker_event, %{event: event} = params}) do
-    case RequestEffects.accept_event(agent, event) do
-      {:ok, agent, event} -> super(agent, {:ai_react_worker_event, %{params | event: event}})
-      :stale -> {:ok, agent, []}
-    end
+    super(agent, action)
   end
 
   def on_before_cmd(agent, action), do: super(agent, action)
-
-  @impl true
-  def on_after_cmd(agent, action, directives) do
-    {:ok, agent, directives} = super(agent, action, directives)
-    {:ok, RequestEffects.settle(agent), directives}
-  end
 
   @impl Jido.AI.ToolInterceptor
   def before_tool_call(tool_call, context) do
@@ -174,8 +154,6 @@ defmodule Zaq.Agent.Factory do
 
   @impl Jido.AI.ToolInterceptor
   def after_tool_call(tool_call, result, context) do
-    result = RequestEffects.bind_invocation(tool_call, result)
-
     with {:ok, result} <- OpaqueAliases.alias_tool_result(tool_call, result, context),
          {:ok, result} <- MediaResultTransformer.project_tool_result(tool_call, result, context) do
       RecordResultTransformer.project_tool_result(tool_call, result, context)

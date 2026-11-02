@@ -64,11 +64,11 @@ display-only; Agent never constructs provider locators from prompt text.
 ## Outgoing attachment selection
 
 `data_source.attach_document` exposes `Zaq.Agent.Tools.DataSource.AttachDocuments` to
-configured agents through the existing tool enablement controls and to the default
-answering agent. `get_document` keeps its retrieval-only behavior.
+configured agents through the existing tool enablement controls. `get_document`
+keeps its retrieval-only behavior.
 
 The Action accepts `operation: "add" | "remove" | "replace"` and up to 100 signed
-document Records in `records`. It returns the validated input Records. `add`
+document Records in `records`. It returns the validated operation and authorized Records. `add`
 deduplicates by signed provider/configuration/document identity; removing an absent
 selection is a no-op; `replace` sets the exact collection and `replace([])` clears
 it. Removing a selection never deletes the source. Schema/provenance and the whole
@@ -82,29 +82,37 @@ bytes. Other signed Records use `Record.Authorization`; a missing or unusable
 permission projection fails closed. The entire batch must pass before selection
 changes. Selection success is not delivery.
 
-Factory delegates private request effects to `RequestEffects`. Configured Actions
-opt in with `init_request_effect/0` and `reduce_request_effect/2`; `AttachDocuments`
-owns document identity, ordering and add/remove/replace rules in those callbacks.
-The shared handler owns isolated values per Action in the existing Jido agent state,
-using the actual native request ID and runtime PID. Models cannot supply either.
-The runner executes tools concurrently but emits results in declaration order;
-Factory applies mutations in that order. Native invocation IDs deduplicate replay,
-including an old add replayed after removal. Request/PID and event-sequence checks
-reject stale effects. Active-request steering can revise the same collection.
-Every new request starts empty; successful completion freezes the collection;
-failure or cancellation discards it. Later requests cannot retract delivered files.
+`StreamEvents.consume/3` owns the selection in its existing fresh per-request
+accumulator. `AttachDocuments.reduce_selection/2` owns the pure document identity,
+ordering and add/remove/replace rules. The Action requires the native request ID
+to match a pending request in the trusted tool context; model parameters cannot
+supply that context. It returns an instruction, never a delivery or Jido state
+mutation. Standalone/workflow calls without that native context are rejected.
 
-Factory consumes private selection effects before native trace/thread projection,
-redacts selection tool arguments/results there, and omits checkpoint tokens that
-could contain model-private Records. The model retains validated, aliased Records
-within its active tool loop. A private final snapshot is sent to the existing request sink before native
-completion, outside the event stream. StreamEvents consumes only the matching
-request and incarnation at termination. Native event IDs and sequences are unchanged.
-Failed, cancelled and incomplete streams expose no selected files. StreamEvents
-selects the AttachDocuments value from the private result map; Executor preserves
-it for configured-agent delivery as `Outgoing.attachments`, outside metadata and
-public tool-step projections. The default Answering/Pipeline path does not enable
-or propagate selection. Incoming files are never auto-selected.
+The runner executes tools concurrently and emits their results in declaration
+order. The existing tool-completion handler suppresses duplicate invocation IDs
+before applying each successful selection instruction, including an old add
+replayed after removal. Events carrying a different request ID are ignored.
+Active-request steering can revise the same collection. Every new consume starts
+empty; only successful terminal results expose selected files. Failure,
+cancellation and incomplete streams expose no selected files. Later requests
+cannot retract delivered files.
+
+Attachment selection follows ordinary document-tool tracing: authorized private
+traces and native checkpoints may retain selection arguments/results. Successful
+outputs use the existing scoped aliases for signed provenance and materialization
+values. There is no selection-specific event redaction, checkpoint suppression,
+Jido selection state or private mailbox snapshot. Public tool steps retain only
+`ToolStep`'s allowlisted invocation facts, never arguments, results or Records.
+
+Executor passes the canonical runtime alias scope to StreamEvents. Successful
+attachment outputs are expanded and schema/provenance-validated before trace
+serialization can discard or truncate data. Missing, foreign or retired aliases
+reject selection with a bounded error and prevent final attachment delivery.
+Alias lifetime follows the existing runtime lifecycle; no additional store is
+created. Executor preserves the final selection as `Outgoing.attachments`, outside
+metadata and public tool-step projections. The default Answering/Pipeline path
+does not enable or propagate selection. Incoming files are never auto-selected.
 
 Channels retains byte acquisition, final source authorization, MIME/name handling,
 and observable delivery. No file is delivered during a tool iteration. See

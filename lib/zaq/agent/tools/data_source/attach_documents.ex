@@ -4,15 +4,13 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocuments do
 
   Selection does not deliver, materialize, or delete documents. Signed data-source
   Records reuse GetDocument for current authorized metadata; other signed Records
-  reuse Record authorization. This Action owns selection rules through RequestEffects
-  callbacks; the shared handler serializes commands before trace/history projection. Standalone and workflow
-  callers require the same trusted active runtime context.
+  reuse Record authorization. This Action returns a validated selection instruction;
+  StreamEvents owns its request-local accumulation. The pure reducer below owns
+  document identity and ordering. Standalone and workflow callers require the same
+  trusted native request context and cannot deliver files by invoking this Action.
   """
 
   alias Jido.Action.Tool
-  alias Zaq.Agent.RequestEffects
-
-  @behaviour RequestEffects
   alias Zaq.Accounts.Person
   alias Zaq.Agent.Tools.DataSource.GetDocument
   alias Zaq.Contracts.Record
@@ -33,7 +31,11 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocuments do
         operation: Zoi.enum(["add", "remove", "replace"]),
         records: Zoi.list(Record.zoi_type(), max_length: 100)
       }),
-    output_schema: Zoi.object(%{records: Zoi.list(Record.zoi_type())})
+    output_schema:
+      Zoi.object(%{
+        operation: Zoi.enum(["add", "remove", "replace"]),
+        records: Zoi.list(Record.zoi_type(), max_length: 100)
+      })
 
   @impl Jido.Action
   def on_before_validate_params(params) when is_map(params),
@@ -43,27 +45,35 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocuments do
 
   @impl Jido.Action
   def run(%{operation: operation, records: records}, context) do
-    with {:ok, records} <- authorize(records, context),
-         {:ok, effect} <-
-           RequestEffects.command(context, __MODULE__, %{operation: operation, records: records}) do
-      {:ok, %{records: records}, [effect]}
+    with :ok <- active_request(context),
+         {:ok, records} <- authorize(records, context) do
+      {:ok, %{operation: operation, records: records}}
     end
   end
 
-  @impl RequestEffects
-  def init_request_effect, do: []
-
-  @impl RequestEffects
-  def reduce_request_effect(selected, %{operation: "add", records: records}),
+  @doc "Applies one validated instruction to the current selection without side effects."
+  @spec reduce_selection([Record.t()], %{operation: String.t(), records: [Record.t()]}) ::
+          {:ok, [Record.t()]}
+  def reduce_selection(selected, %{operation: "add", records: records}),
     do: {:ok, Enum.uniq_by(selected ++ records, &selection_identity/1)}
 
-  def reduce_request_effect(_selected, %{operation: "replace", records: records}),
+  def reduce_selection(_selected, %{operation: "replace", records: records}),
     do: {:ok, Enum.uniq_by(records, &selection_identity/1)}
 
-  def reduce_request_effect(selected, %{operation: "remove", records: records}) do
+  def reduce_selection(selected, %{operation: "remove", records: records}) do
     removed = MapSet.new(records, &selection_identity/1)
     {:ok, Enum.reject(selected, &MapSet.member?(removed, selection_identity(&1)))}
   end
+
+  defp active_request(%{request_id: id, state: %{requests: requests}})
+       when is_binary(id) and is_map(requests) do
+    case Map.get(requests, id) do
+      %{status: :pending} -> :ok
+      _ -> {:error, :inactive_attachment_selection}
+    end
+  end
+
+  defp active_request(_context), do: {:error, :inactive_attachment_selection}
 
   defp selection_identity(%Record{} = record) do
     {:ok, claims} = Provenance.verify(record)

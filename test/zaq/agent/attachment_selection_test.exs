@@ -2,7 +2,6 @@ defmodule Zaq.Agent.AttachmentSelectionTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias Zaq.Agent.RequestEffects
   alias Zaq.Agent.Tools.DataSource.AttachDocuments
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Provenance
@@ -17,81 +16,29 @@ defmodule Zaq.Agent.AttachmentSelectionTest do
                 max_length: 40
               )
           ) do
-      {selection, expected} =
-        operations
-        |> Enum.with_index(1)
-        |> Enum.reduce({RequestEffects.new("r", self(), [AttachDocuments]), []}, fn {{op, ids},
-                                                                                     seq},
-                                                                                    {selection,
-                                                                                     expected} ->
-          records = Enum.map(ids, &record(to_string(&1)))
+      Enum.reduce(operations, {[], []}, fn {operation, ids}, {selected, expected} ->
+        records = Enum.map(ids, &record(to_string(&1)))
 
-          command = %{
-            request_id: "r",
-            incarnation: self(),
-            invocation_id: "call#{seq}",
-            handler: AttachDocuments,
-            payload: %{operation: op, records: records}
-          }
+        assert {:ok, updated} =
+                 AttachDocuments.reduce_selection(selected, %{
+                   operation: operation,
+                   records: records
+                 })
 
-          {:ok, updated} = RequestEffects.apply_command(selection, command)
+        expected =
+          case operation do
+            "add" -> Enum.uniq(expected ++ ids)
+            "remove" -> Enum.reject(expected, &(&1 in ids))
+            "replace" -> Enum.uniq(ids)
+          end
 
-          expected =
-            case op do
-              "add" -> Enum.uniq(expected ++ ids)
-              "remove" -> expected -- ids
-              "replace" -> Enum.uniq(ids)
-            end
-
-          assert Enum.map(updated.values[AttachDocuments], &String.to_integer(&1.id)) == expected
-          {updated, expected}
-        end)
-
-      assert length(selection.values[AttachDocuments]) == length(expected)
+        assert Enum.map(updated, &String.to_integer(&1.id)) == expected
+        {updated, expected}
+      end)
     end
-  end
-
-  test "replay after removal, foreign requests/incarnations and terminal commands cannot mutate" do
-    selection = RequestEffects.new("r", self(), [AttachDocuments])
-    a = record("a")
-
-    add = %{
-      request_id: "r",
-      incarnation: self(),
-      invocation_id: "add",
-      handler: AttachDocuments,
-      payload: %{operation: "add", records: [a]}
-    }
-
-    assert {:ok, selection} = RequestEffects.apply_command(selection, add)
-
-    assert {:ok, selection} =
-             RequestEffects.apply_command(selection, %{
-               add
-               | payload: %{operation: "remove", records: [a]},
-                 invocation_id: "remove"
-             })
-
-    assert {:ok, ^selection} = RequestEffects.apply_command(selection, add)
-    assert selection.values[AttachDocuments] == []
-
-    for command <- [%{add | request_id: "other"}, %{add | incarnation: spawn(fn -> :ok end)}] do
-      assert {:error, _} = RequestEffects.apply_command(selection, command)
-    end
-
-    frozen = RequestEffects.finish(selection, :completed)
-    assert {:error, _} = RequestEffects.apply_command(frozen, add)
-
-    assert RequestEffects.finish(%{selection | values: %{AttachDocuments => [a]}}, :failed).values[
-             AttachDocuments
-           ] == []
-
-    assert RequestEffects.new("next", self(), [AttachDocuments]).values[AttachDocuments] == []
   end
 
   test "one provider-scoped identity is selected once even with fresh signed projections" do
-    selection = RequestEffects.new("r", self(), [AttachDocuments])
-
     records = [
       record("a", %{"provider" => "disk", "config_id" => 1}, "first"),
       record("a", %{"provider" => "disk", "config_id" => 1}, "second"),
@@ -102,21 +49,10 @@ defmodule Zaq.Agent.AttachmentSelectionTest do
     assert Enum.all?(records, &match?({:ok, _}, Provenance.verify(&1)))
     assert Enum.at(records, 0).provenance_ref != Enum.at(records, 1).provenance_ref
 
-    command = %{
-      request_id: "r",
-      incarnation: self(),
-      invocation_id: "add",
-      handler: AttachDocuments,
-      payload: %{operation: "add", records: records}
-    }
+    assert {:ok, selected} =
+             AttachDocuments.reduce_selection([], %{operation: "add", records: records})
 
-    assert {:ok, selection} = RequestEffects.apply_command(selection, command)
-
-    assert selection.values[AttachDocuments] == [
-             Enum.at(records, 0),
-             Enum.at(records, 2),
-             Enum.at(records, 3)
-           ]
+    assert selected == [Enum.at(records, 0), Enum.at(records, 2), Enum.at(records, 3)]
   end
 
   defp record(id, claims \\ %{}, parent_id \\ "root") do
@@ -125,68 +61,10 @@ defmodule Zaq.Agent.AttachmentSelectionTest do
   end
 end
 
-defmodule Zaq.Agent.AttachmentSelectionStreamTest do
-  use ExUnit.Case, async: true
-
-  alias Zaq.Agent.RequestEffects
-  alias Zaq.Agent.StreamEvents
-  alias Zaq.Agent.Tools.DataSource.AttachDocuments
-  alias Zaq.Contracts.Record
-  alias Zaq.Engine.Messages.Incoming
-
-  test "only the matching runtime/request snapshot reaches a successful final result" do
-    record = %Record{id: "a", kind: :file}
-    incoming = %Incoming{content: "select", channel_id: "c", provider: :web, message_id: "r"}
-    completed = %{kind: :request_completed, data: %{result: "Done"}}
-    snapshot = {RequestEffects, "r", self(), %{AttachDocuments => [record]}}
-
-    send(self(), snapshot)
-
-    assert {:ok, %{attachments: [^record]}} =
-             StreamEvents.consume([completed], incoming, runtime_pid: self())
-
-    refute_received ^snapshot
-
-    foreign = {RequestEffects, "other", self(), %{AttachDocuments => [record]}}
-    send(self(), foreign)
-
-    assert {:ok, %{attachments: []}} =
-             StreamEvents.consume([completed], incoming, runtime_pid: self())
-
-    assert_receive ^foreign
-
-    send(self(), snapshot)
-
-    assert {:ok, %{attachments: []}} =
-             StreamEvents.consume([completed], incoming, runtime_pid: nil)
-
-    assert_receive ^snapshot
-
-    send(self(), snapshot)
-
-    assert {:ok, %{attachments: []}} =
-             StreamEvents.consume([], incoming, runtime_pid: self())
-
-    assert_receive ^snapshot
-
-    for kind <- [:request_failed, :request_cancelled] do
-      send(self(), snapshot)
-
-      assert {:error, _, %{attachments: []}} =
-               StreamEvents.consume([%{kind: kind, data: %{error: :failed}}], incoming,
-                 runtime_pid: self()
-               )
-
-      refute_received ^snapshot
-    end
-  end
-end
-
 defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Agent.{Factory, ServerManager, StreamEvents}
-  alias Zaq.Agent.Tools.DataSource.AttachDocuments
   alias Zaq.Contracts.{Record, ToolStep}
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Engine.Messages.Incoming
@@ -200,7 +78,11 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
       observed = Enum.to_list(events)
 
       assert {:ok, result} =
-               StreamEvents.consume(observed, incoming(), request: request, runtime_pid: server)
+               StreamEvents.consume(observed, incoming(),
+                 request: request,
+                 runtime_pid: server,
+                 opaque_alias_scope: server
+               )
 
       assert result.attachments == []
       assert {:ok, status} = Jido.AgentServer.status(server)
@@ -209,7 +91,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     end
   end
 
-  test "real tool iterations retain only B, freeze selection and keep Records out of traces/history" do
+  test "real tool iterations retain only B and preserve ordinary private evidence and public privacy" do
     a = record("private-a")
     b = record("private-b")
 
@@ -225,12 +107,16 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     observed = Enum.to_list(events)
 
     assert {:ok, result} =
-             StreamEvents.consume(observed, incoming(), request: request, runtime_pid: server)
+             StreamEvents.consume(observed, incoming(),
+               request: request,
+               runtime_pid: server,
+               opaque_alias_scope: server
+             )
 
     assert [%Record{id: "private-b"}] = result.attachments
     assert result.answer == "Here is B."
     assert {:ok, status} = Jido.AgentServer.status(server)
-    assert status.raw_state.request_effects.status == :completed
+    refute Map.has_key?(status.raw_state, :request_effects)
     assert Enum.all?(observed, &(&1.request_id == request.id))
     assert Enum.count(observed, &(&1.kind == :tool_completed)) == 3
 
@@ -238,22 +124,12 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     sequences = Enum.map(observed, & &1.seq)
     assert sequences == Enum.to_list(hd(sequences)..List.last(sequences))
 
-    projected =
-      inspect(
-        {result.trace, result.trace_artifacts, ToolStep.project(result.tool_calls),
-         status.raw_state.__strategy__.request_traces, status.raw_state[:__thread__]},
-        limit: :infinity
-      )
+    assert Enum.any?(observed, &(&1.kind == :checkpoint and is_binary(&1.data[:token])))
+    assert inspect(result.trace, limit: :infinity) =~ a.id
+    public = inspect(ToolStep.project(result.tool_calls), limit: :infinity)
 
-    for value <- [
-          a.id,
-          b.id,
-          a.provenance_ref,
-          b.provenance_ref,
-          "request_effect",
-          "rt2."
-        ] do
-      refute projected =~ value
+    for value <- [a.id, b.id, a.provenance_ref, b.provenance_ref, "request_effect", "rt2."] do
+      refute public =~ value
     end
   end
 
@@ -272,11 +148,16 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     {request, events} = ask(server, configured, "Revise selection")
 
     assert {:ok, result} =
-             StreamEvents.consume(events, incoming(), request: request, runtime_pid: server)
+             StreamEvents.consume(events, incoming(),
+               request: request,
+               runtime_pid: server,
+               opaque_alias_scope: server
+             )
 
     assert result.attachments == []
     assert {:ok, status} = Jido.AgentServer.status(server)
-    assert MapSet.size(status.raw_state.request_effects.seen) == 5
+    assert length(result.tool_calls) == 5
+    refute Map.has_key?(status.raw_state, :request_effects)
   end
 
   test "shared-snapshot calls preserve first projection and same-batch remove/add ordering" do
@@ -296,13 +177,19 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     assert_receive {:attachment_model_paused, model_pid}, 5_000
     assert {:ok, status} = Jido.AgentServer.status(server)
 
-    assert [%Record{id: "a", parent_id: "root"}] =
-             status.raw_state.request_effects.values[AttachDocuments]
+    assert Enum.count(
+             status.raw_state.__strategy__.request_traces[request.id].events,
+             &(&1.kind == :tool_completed)
+           ) == 2
 
     send(model_pid, :release)
 
     assert {:ok, result} =
-             StreamEvents.consume(events, incoming(), request: request, runtime_pid: server)
+             StreamEvents.consume(events, incoming(),
+               request: request,
+               runtime_pid: server,
+               opaque_alias_scope: server
+             )
 
     assert [%Record{id: "b"}, %Record{id: "a", parent_id: "root"}] = result.attachments
   end
@@ -316,19 +203,29 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     {request, events} = ask(server, configured, "Attach A")
     assert_receive {:attachment_model_paused, model_pid}, 5_000
     assert {:ok, status} = Jido.AgentServer.status(server)
-    assert [%Record{id: "a"}] = status.raw_state.request_effects.values[AttachDocuments]
+
+    assert Enum.any?(
+             status.raw_state.__strategy__.request_traces[request.id].events,
+             &(&1.kind == :tool_completed and &1.tool_name == "attach_documents")
+           )
 
     {busy_request, busy_events} = ask(server, configured, "Another request")
 
     assert {:error, _, %{attachments: []}} =
              StreamEvents.consume(busy_events, incoming(),
                request: busy_request,
-               runtime_pid: server
+               runtime_pid: server,
+               opaque_alias_scope: server
              )
 
     assert {:ok, status} = Jido.AgentServer.status(server)
-    assert status.raw_state.request_effects.request_id == request.id
-    assert [%Record{id: "a"}] = status.raw_state.request_effects.values[AttachDocuments]
+    assert status.raw_state.__strategy__.active_request_id == request.id
+
+    assert Enum.any?(
+             status.raw_state.__strategy__.request_traces[request.id].events,
+             &(&1.kind == :tool_completed and &1.tool_name == "attach_documents")
+           )
+
     assert {:ok, _} = Factory.steer(server, "Remove A instead", expected_request_id: request.id)
     send(model_pid, :release)
 
@@ -343,7 +240,11 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     assert Enum.all?(observed, &(&1.request_id == request.id))
 
     assert {:ok, %{attachments: []}} =
-             StreamEvents.consume(observed, incoming(), request: request, runtime_pid: server)
+             StreamEvents.consume(observed, incoming(),
+               request: request,
+               runtime_pid: server,
+               opaque_alias_scope: server
+             )
   end
 
   test "cancellation discards selected files and the next request starts empty" do
@@ -359,19 +260,27 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     assert :ok = Factory.cancel(server, request_id: request.id, reason: :user_cancelled)
 
     assert {:error, _, %{attachments: []}} =
-             StreamEvents.consume(events, incoming(), request: request, runtime_pid: server)
+             StreamEvents.consume(events, incoming(),
+               request: request,
+               runtime_pid: server,
+               opaque_alias_scope: server
+             )
 
     send(model_pid, :release)
     assert_receive {:DOWN, ^pending_ref, :process, _, _}, 5_000
     assert {:ok, status} = Jido.AgentServer.status(server)
-    assert status.raw_state.request_effects.values[AttachDocuments] == []
+    refute Map.has_key?(status.raw_state, :request_effects)
     {request, events} = ask(server, configured, "New request")
 
     assert {:ok, %{attachments: [], answer: "Fresh."}} =
-             StreamEvents.consume(events, incoming(), request: request, runtime_pid: server)
+             StreamEvents.consume(events, incoming(),
+               request: request,
+               runtime_pid: server,
+               opaque_alias_scope: server
+             )
   end
 
-  test "replayed, cross-request and post-terminal worker events cannot resurrect selection" do
+  test "replayed native completions and post-terminal events cannot resurrect selection" do
     a = record("a") |> Record.metadata()
 
     {server, configured} =
@@ -380,10 +289,6 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     {request, events} = ask(server, configured, "Revise")
     assert_receive {:attachment_model_paused, model_pid}, 5_000
     assert {:ok, status} = Jido.AgentServer.status(server)
-    selection = status.raw_state.request_effects
-    assert selection.values[AttachDocuments] == []
-    # Native traces have already had private effects stripped; replaying their
-    # completion cannot reintroduce a Record or mutate a different request.
     trace = status.raw_state.__strategy__.request_traces[request.id].events
     completion = Enum.find(trace, &(&1.kind == :tool_completed))
 
@@ -396,63 +301,18 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
                })
              )
 
-    assert {:ok, status} = Jido.AgentServer.status(server)
-    assert status.raw_state.request_effects == selection
-
-    command = %{
-      request_id: request.id,
-      incarnation: server,
-      invocation_id: "selection_0",
-      handler: AttachDocuments,
-      payload: %{operation: "add", records: [record("a")]}
-    }
-
-    effect = %Jido.Agent.StateOp.SetPath{path: [:request_effect], value: command}
-
-    replay = %{
-      completion
-      | seq: selection.last_seq + 1,
-        data:
-          Map.put(completion.data, :result, {:ok, %{records: command.payload.records}, [effect]})
-    }
-
-    assert {:ok, _} =
-             Jido.AgentServer.call(
-               server,
-               Jido.Signal.new!("ai.react.worker.event", %{event: replay, request_id: request.id})
-             )
-
-    assert {:ok, status} = Jido.AgentServer.status(server)
-    assert status.raw_state.request_effects.values[AttachDocuments] == []
-
-    foreign = %{replay | request_id: "foreign", seq: replay.seq + 1}
-
-    assert {:ok, _} =
-             Jido.AgentServer.call(
-               server,
-               Jido.Signal.new!("ai.react.worker.event", %{event: foreign, request_id: "foreign"})
-             )
-
-    assert {:ok, status} = Jido.AgentServer.status(server)
-    assert status.raw_state.request_effects.request_id == request.id
     send(model_pid, :release)
     observed = Enum.to_list(events)
+    assert Enum.count(observed, &(&1.kind == :tool_completed)) == 3
 
-    assert {:ok, %{attachments: []}} =
-             StreamEvents.consume(observed, incoming(), request: request, runtime_pid: server)
-
-    assert {:ok, _} =
-             Jido.AgentServer.call(
-               server,
-               Jido.Signal.new!("ai.react.worker.event", %{
-                 event: %{completion | seq: completion.seq + 100},
-                 request_id: request.id
-               })
+    assert {:ok, %{attachments: []} = result} =
+             StreamEvents.consume(observed ++ [completion], incoming(),
+               request: request,
+               runtime_pid: server,
+               opaque_alias_scope: server
              )
 
-    assert {:ok, status} = Jido.AgentServer.status(server)
-    assert status.raw_state.request_effects.status == :completed
-    assert status.raw_state.request_effects.values[AttachDocuments] == []
+    assert length(result.tool_calls) == 2
   end
 
   test "provider failure after selection clears files and does not contaminate the next request" do
@@ -464,15 +324,23 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
     {request, events} = ask(server, configured, "Select then fail")
 
     assert {:error, _, %{attachments: []}} =
-             StreamEvents.consume(events, incoming(), request: request, runtime_pid: server)
+             StreamEvents.consume(events, incoming(),
+               request: request,
+               runtime_pid: server,
+               opaque_alias_scope: server
+             )
 
     assert {:ok, status} = Jido.AgentServer.status(server)
-    assert status.raw_state.request_effects.status == :failed
-    assert status.raw_state.request_effects.values[AttachDocuments] == []
+    assert status.raw_state.requests[request.id].status == :failed
+    refute Map.has_key?(status.raw_state, :request_effects)
     {request, events} = ask(server, configured, "Fresh after failure")
 
     assert {:ok, %{attachments: [], answer: "Recovered."}} =
-             StreamEvents.consume(events, incoming(), request: request, runtime_pid: server)
+             StreamEvents.consume(events, incoming(),
+               request: request,
+               runtime_pid: server,
+               opaque_alias_scope: server
+             )
   end
 
   defp runtime(script, tools \\ ["data_source.attach_document"]) do
@@ -494,7 +362,7 @@ defmodule Zaq.Agent.AttachmentSelectionRuntimeTest do
   defp ask(server, configured, query) do
     assert {:ok, %{request: request, events: events}} =
              Factory.ask_with_config(server, query, configured,
-               tool_context: %{skip_permissions: true}
+               tool_context: %{skip_permissions: true, opaque_alias_scope: server}
              )
 
     {request, events}

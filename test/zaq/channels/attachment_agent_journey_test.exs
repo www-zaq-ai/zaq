@@ -4,7 +4,6 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
   alias Mail.Message, as: MailMessage
   alias Zaq.Accounts.People
   alias Zaq.Agent.{Factory, ServerManager}
-  alias Zaq.Agent.Tools.DataSource.AttachDocuments
   alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.EmailBridge.ImapAdapter
   alias Zaq.Contracts.ToolStep
@@ -171,9 +170,19 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
       server = runtime.runtime_pid
       server_ref = Process.monitor(server)
       assert {:ok, status} = Jido.AgentServer.status(server)
-      selection = status.raw_state.request_effects
-      assert [%{id: selected_id}] = selection.values[AttachDocuments]
+      selection = %{request_id: status.raw_state.last_request_id}
+
+      completion =
+        Enum.find(
+          status.raw_state.__strategy__.request_traces[selection.request_id].events,
+          &(&1.kind == :tool_completed and &1.tool_name == "attach_documents")
+        )
+
+      assert {:ok, %{operation: "add", records: [%{"id" => selected_id}]}, []} =
+               completion.data.result
+
       assert selected_id == files.b.id
+      refute Map.has_key?(status.raw_state, :request_effects)
       refute_received {:delivery_upload, _, _}
       refute_received {:delivery_boundary, _, _, _}
 
@@ -204,13 +213,13 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
         end
       else
         assert {:ok, status} = Jido.AgentServer.status(server)
-        assert status.raw_state.request_effects.request_id == selection.request_id
+        assert status.raw_state.last_request_id == selection.request_id
       end
 
       if @scenario == :steer do
         assert outgoing.attachments == []
         assert {:ok, status} = Jido.AgentServer.status(server)
-        assert status.raw_state.request_effects.values[AttachDocuments] == []
+        refute Map.has_key?(status.raw_state, :request_effects)
         trace = status.raw_state.__strategy__.request_traces[selection.request_id].events
         assert Enum.any?(trace, &(&1.kind == :input_injected))
         assert Enum.all?(trace, &(&1.request_id == selection.request_id))
@@ -238,8 +247,8 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
                })
 
       assert {:ok, next_status} = Jido.AgentServer.status(next_runtime.runtime_pid)
-      refute next_status.raw_state.request_effects.request_id == selection.request_id
-      assert next_status.raw_state.request_effects.values[AttachDocuments] == []
+      refute next_status.raw_state.last_request_id == selection.request_id
+      refute Map.has_key?(next_status.raw_state, :request_effects)
       send(next_model, :release)
       assert_delivery(followup, namespace, nil)
       assert await_delivery(destination.config.id).attachments == []
@@ -326,7 +335,10 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
     persisted =
       Jason.encode!(%{
-        history: Map.take(message, [:content, :attachments, :trace, :metadata]),
+        history:
+          message
+          |> Map.take([:content, :attachments, :metadata])
+          |> Map.put(:trace, ToolStep.from_trace(Map.get(message, :trace))),
         visible_steps: ToolStep.project(outgoing.metadata[:tool_calls] || [])
       })
 

@@ -46,7 +46,9 @@ was explicitly accepted for `zaq-ic9.14.8`; it does not establish live-service i
 Both channels cover add/remove, replacement, clearing, repeated selection, no early
 or duplicate file delivery, fresh-request isolation, failure, cancellation, active
 steering, permission revocation before materialization, and private-data exclusion
-from visible tool steps and persisted history. Assertions inspect actual HTTP
+from public tool-step and history projections. Authorized private traces retain
+ordinary document-tool evidence; selection is accumulated in `StreamEvents` rather
+than Jido state. Assertions inspect actual HTTP
 uploads/posts and SMTP envelopes/MIME, including target/thread, filename, type,
 bytes, and answer. Tests wait for confirmation writers to exit before sandbox
 teardown. The suite remains synchronous because real runtime processes share the
