@@ -106,7 +106,6 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
         )
 
       start_supervised!(spec)
-      OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
       configured = configured_agent(endpoint)
       # This consumer lifecycle journey requires each intermediate state; rate
       # limiting itself is covered by the streamed-update policy suites.
@@ -263,7 +262,6 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
         )
 
       start_supervised!(spec)
-      OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
       configured = configured_agent(endpoint)
       widget = widget(ctx, configured, %{"throttle_enabled" => false})
 
@@ -384,7 +382,6 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
           )
 
         start_supervised!(Supervisor.child_spec(spec, id: make_ref()))
-        OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
         configured = configured_agent(endpoint)
         config = widget(ctx, configured, %{"throttle_enabled" => false})
         %{widget_id: config.id, prompt: prompt, answer: answer}

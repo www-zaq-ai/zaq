@@ -38,6 +38,9 @@ defmodule Zaq.E2E.ResetTest do
              Connect.list_grant_summaries(credential_id: connect_credential_id)
 
     assert %{} = Reset.reset_system_config!()
+    assert System.get_config("llm.credential_id") == nil
+    assert System.get_config("llm.model") == nil
+    assert Zaq.Agent.list_agents() == []
     assert System.get_ai_provider_credential_by_name("ZAQ Router") == nil
     assert Connect.fetch_credential(connect_credential_id) == {:error, :not_found}
     assert Connect.list_grant_summaries(credential_id: connect_credential_id) == []

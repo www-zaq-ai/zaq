@@ -29,6 +29,7 @@ defmodule Zaq.System do
   alias Zaq.System.OutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
   alias Zaq.System.RAGModelConfig
+  alias Zaq.System.RetrievalConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.System.WebBrowsingConfig
   alias Zaq.Types.EncryptedString
@@ -560,9 +561,23 @@ defmodule Zaq.System do
 
   def save_llm_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
 
-  @doc "Persists retrieval tuning without changing the configured chat model."
+  @doc "Loads retrieval tuning without resolving legacy chat credentials."
+  @spec get_retrieval_config() :: RetrievalConfig.t()
+  def get_retrieval_config do
+    raw =
+      read_config_fields("llm", ~w(max_cosine_distance fusion_bm25_weight fusion_vector_weight))
+
+    %RetrievalConfig{
+      max_cosine_distance: ParseUtils.parse_float(raw["max_cosine_distance"], 0.45),
+      fusion_bm25_weight: ParseUtils.parse_float(raw["fusion_bm25_weight"], 0.5),
+      fusion_vector_weight: ParseUtils.parse_float(raw["fusion_vector_weight"], 0.5)
+    }
+  end
+
+  @doc "Persists retrieval tuning without changing legacy model configuration."
+  @spec save_retrieval_config(map()) :: {:ok, RetrievalConfig.t()} | {:error, Ecto.Changeset.t()}
   def save_retrieval_config(attrs) when is_map(attrs) do
-    changeset = LLMConfig.retrieval_changeset(get_llm_config(), attrs)
+    changeset = RetrievalConfig.changeset(get_retrieval_config(), attrs)
 
     if changeset.valid? do
       config = Ecto.Changeset.apply_changes(changeset)
@@ -573,7 +588,7 @@ defmodule Zaq.System do
                "llm",
                config
              ) do
-        {:ok, get_llm_config()}
+        {:ok, get_retrieval_config()}
       end
     else
       {:error, changeset}

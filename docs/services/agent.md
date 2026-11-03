@@ -530,7 +530,12 @@ without safe permission mutation support return `:unsupported`.
   score, backend keyword score and measured cosine distance remain separate.
 - Optional positive-integer `max_total_results` defaults to `100`, globally
   across languages/legs, and is enforced only after re-ranking alongside the
-  existing token budget. It is an output ceiling, not a retrieval-candidate
+  caller token budget. The tool requires trusted `context_window.max_context_tokens`
+  and currently allocates one fifth of it, rounded down, to returned chunks.
+  Missing/invalid caller capacity returns `:context_budget_unavailable`; capacities
+  below five yield a zero result budget. This is a fixed-share heuristic, not
+  remaining-capacity accounting; shared runtime allocation is deferred to
+  [#915](https://github.com/www-zaq-ai/zaq/issues/915). It is an output ceiling, not a retrieval-candidate
   budget or guaranteed count; increasing it cannot bypass the token budget.
 - Search returns direct matches only, never automatic section siblings.
   Accessible chunks carry `chunk_id`, `previous_chunk_id` and `next_chunk_id`.
@@ -1000,8 +1005,8 @@ lib/zaq/agent/
 
 Configured agents own their model, credential reference, sampling, context window,
 job and enabled tools. The legacy global LLM selection does not select a fallback
-chat runtime. Shared retrieval budgets and dedicated operation models retain their
-existing storage contracts; see [System configuration](system-config.md) for those
+chat runtime. Search budgets come from the invoking agent, while retrieval tuning
+and dedicated operation models retain their storage contracts; see [System configuration](system-config.md) for those
 settings and the canonical credential boundary.
 
 For the routing cutover, retained compatibility names and retired Pipeline hooks,

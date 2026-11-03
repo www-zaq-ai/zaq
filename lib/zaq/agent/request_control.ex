@@ -199,10 +199,6 @@ defmodule Zaq.Agent.RequestControl do
   end
 
   @doc "Routes a verified same-Person explicit incoming input before request status side effects."
-  def queue_incoming(_event, _incoming, %{kind: :canonical}, _binding, agent_id)
-      when agent_id in [nil, ""],
-      do: {:error, :configured_agent_required}
-
   def queue_incoming(
         event,
         incoming,

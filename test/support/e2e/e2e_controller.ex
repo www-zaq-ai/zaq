@@ -667,11 +667,12 @@ defmodule ZaqWeb.E2EController do
     system_content =
       messages |> Enum.find(%{}, &(Map.get(&1, "role") == "system")) |> Map.get("content", "")
 
-    content = fake_llm_content(messages, system_content)
+    tool_call = search_tool_call(conn.body_params, messages)
+    content = tool_call || fake_llm_content(messages, system_content)
 
     # Retrieval must finish to publish the pending conversation to BO. Hold the
     # answer until the browser switches chats, regardless of runner speed.
-    if streaming? and not retrieval_call?(system_content) do
+    if streaming? and is_nil(tool_call) and not retrieval_call?(system_content) do
       token = Enum.find_value(messages, &held_llm_token/1)
       if token, do: hold_llm(token)
     end
@@ -685,8 +686,8 @@ defmodule ZaqWeb.E2EController do
         "choices" => [
           %{
             "index" => 0,
-            "message" => %{"role" => "assistant", "content" => content},
-            "finish_reason" => "stop"
+            "message" => Map.merge(%{"role" => "assistant"}, llm_delta(content)),
+            "finish_reason" => if(tool_call, do: "tool_calls", else: "stop")
           }
         ],
         "usage" => %{"prompt_tokens" => 10, "completion_tokens" => 20, "total_tokens" => 30}
@@ -694,9 +695,49 @@ defmodule ZaqWeb.E2EController do
     end
   end
 
+  defp search_tool_call(request, messages) do
+    available? =
+      Enum.any?(Map.get(request, "tools", []), fn tool ->
+        get_in(tool, ["function", "name"]) == "search_knowledge_base"
+      end)
+
+    current_results = messages |> Enum.reverse() |> Enum.take_while(&(&1["role"] != "user"))
+
+    if available? and not Enum.any?(current_results, &(&1["role"] == "tool")) do
+      user = messages |> Enum.reverse() |> Enum.find(%{}, &(&1["role"] == "user"))
+      query = Map.get(user, "content", "")
+
+      %{
+        "tool_calls" => [
+          %{
+            "index" => 0,
+            "id" => "e2e-search-#{System.unique_integer([:positive])}",
+            "type" => "function",
+            "function" => %{
+              "name" => "search_knowledge_base",
+              "arguments" =>
+                Jason.encode!(%{
+                  query: query,
+                  lexical_terms: String.split(query, ~r/[^\p{L}\p{N}_-]+/u, trim: true),
+                  search_mode: "keyword",
+                  max_total_results: 3
+                })
+            }
+          }
+        ]
+      }
+    end
+  end
+
+  defp llm_delta(content) when is_map(content), do: content
+  defp llm_delta(content), do: %{"content" => content}
+
   defp fake_llm_content(messages, system_content) do
     user_content =
-      messages |> Enum.find(%{}, &(Map.get(&1, "role") == "user")) |> Map.get("content", "")
+      messages
+      |> Enum.reverse()
+      |> Enum.find(%{}, &(Map.get(&1, "role") == "user"))
+      |> Map.get("content", "")
 
     cond do
       retrieval_call?(system_content) ->
@@ -721,7 +762,7 @@ defmodule ZaqWeb.E2EController do
         )
 
       true ->
-        sources = extract_llm_sources(system_content)
+        sources = tool_result_sources(messages) ++ extract_llm_sources(system_content)
         source = List.first(sources)
         tuned? = String.contains?(system_content, "E2E_PROMPT_VARIANT_B")
 
@@ -733,6 +774,24 @@ defmodule ZaqWeb.E2EController do
         if is_binary(source),
           do: "#{body} [[source:#{source}]]",
           else: "#{body} [[memory:llm-general-knowledge]]"
+    end
+  end
+
+  defp tool_result_sources(messages) do
+    messages
+    |> Enum.reverse()
+    |> Enum.take_while(&(&1["role"] != "user"))
+    |> Enum.filter(&(&1["role"] == "tool"))
+    |> Enum.flat_map(&search_result_sources/1)
+  end
+
+  defp search_result_sources(message) do
+    case Jason.decode(message["content"] || "") do
+      {:ok, %{"ok" => true, "result" => %{"chunks" => chunks}}} ->
+        for %{"source" => source} <- chunks, is_binary(source), do: source
+
+      _ ->
+        []
     end
   end
 
@@ -756,13 +815,19 @@ defmodule ZaqWeb.E2EController do
         "id" => id,
         "object" => "chat.completion.chunk",
         "model" => "e2e-fake",
-        "choices" => [%{"index" => 0, "delta" => %{"content" => content}, "finish_reason" => nil}]
+        "choices" => [%{"index" => 0, "delta" => llm_delta(content), "finish_reason" => nil}]
       }),
       Jason.encode!(%{
         "id" => id,
         "object" => "chat.completion.chunk",
         "model" => "e2e-fake",
-        "choices" => [%{"index" => 0, "delta" => %{}, "finish_reason" => "stop"}]
+        "choices" => [
+          %{
+            "index" => 0,
+            "delta" => %{},
+            "finish_reason" => if(is_map(content), do: "tool_calls", else: "stop")
+          }
+        ]
       })
     ]
 

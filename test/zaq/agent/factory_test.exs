@@ -13,7 +13,6 @@ defmodule Zaq.Agent.FactoryTest do
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
   alias Zaq.Agent.InputPrompt
-  alias Zaq.Agent.ProviderSpec
   alias Zaq.Agent.ServerManager
   alias Zaq.Agent.Skills
   alias Zaq.Agent.Tools.Registry
@@ -389,27 +388,6 @@ defmodule Zaq.Agent.FactoryTest do
     assert Jido.MCP.Actions.ListTools in actions
     assert Jido.MCP.JidoAI.Actions.SyncToolsToAgent in actions
     assert Jido.MCP.JidoAI.Actions.UnsyncToolsFromAgent in actions
-  end
-
-  describe "ProviderSpec.build/0" do
-    setup do
-      seed_llm_config(%{
-        endpoint: "https://api.example.com/v1",
-        model: "test-model",
-        temperature: 0.1,
-        top_p: 0.8
-      })
-
-      :ok
-    end
-
-    test "returns model spec with provider, id, and base_url" do
-      spec = ProviderSpec.build()
-
-      assert spec.provider == :openai
-      assert spec.id == "test-model"
-      assert spec.base_url == "https://api.example.com/v1"
-    end
   end
 
   test "Factory sampling is owned by the agent and remains independent of global changes" do

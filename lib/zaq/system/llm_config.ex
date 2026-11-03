@@ -17,6 +17,7 @@ defmodule Zaq.System.LLMConfig do
 
   use Ecto.Schema
   import Ecto.Changeset
+  alias Zaq.System.RetrievalConfig
 
   embedded_schema do
     field :credential_id, :integer
@@ -57,48 +58,6 @@ defmodule Zaq.System.LLMConfig do
     |> validate_number(:top_p, greater_than: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:max_context_window, greater_than: 0)
     |> validate_number(:distance_threshold, greater_than: 0.0)
-    |> validate_retrieval()
-  end
-
-  @doc "Validates retrieval tuning independently of chat model configuration."
-  def retrieval_changeset(config, attrs) do
-    config
-    |> cast(attrs, [:max_cosine_distance, :fusion_bm25_weight, :fusion_vector_weight],
-      empty_values: []
-    )
-    |> validate_retrieval()
-  end
-
-  defp validate_retrieval(changeset) do
-    changeset
-    |> validate_required([:max_cosine_distance, :fusion_bm25_weight, :fusion_vector_weight])
-    |> validate_number(:max_cosine_distance,
-      greater_than_or_equal_to: 0.0,
-      less_than_or_equal_to: 2.0
-    )
-    |> validate_number(:fusion_bm25_weight,
-      greater_than_or_equal_to: 0.0,
-      less_than_or_equal_to: 1.0
-    )
-    |> validate_number(:fusion_vector_weight,
-      greater_than_or_equal_to: 0.0,
-      less_than_or_equal_to: 1.0
-    )
-    |> validate_fusion_weight_sum()
-  end
-
-  defp validate_fusion_weight_sum(changeset) do
-    bm25 = get_field(changeset, :fusion_bm25_weight)
-    vector = get_field(changeset, :fusion_vector_weight)
-
-    if is_float(bm25) and is_float(vector) and bm25 + vector < 0.1 do
-      add_error(
-        changeset,
-        :fusion_bm25_weight,
-        "combined fusion weights must sum to at least 0.1"
-      )
-    else
-      changeset
-    end
+    |> RetrievalConfig.validate_fields()
   end
 end

@@ -833,21 +833,6 @@ defmodule Zaq.Agent.ExecutorTest do
   end
 
   describe "run/2 — configured agent selection" do
-    test "missing agent_id refuses execution without starting a runtime" do
-      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 5}}
-
-      result =
-        Executor.run(incoming,
-          server_manager_module: StubServerManager,
-          factory_module: StubFactory,
-          node_router: StubNodeRouter
-        )
-
-      assert result.metadata.error
-      assert result.metadata.reason == ":configured_agent_required"
-      refute_received {:ensure_server, _, _, _}
-    end
-
     defmodule StubSMAnswering do
       alias Zaq.Agent.ExecutorTest
 

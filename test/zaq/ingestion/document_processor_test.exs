@@ -18,14 +18,14 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
   setup :verify_on_exit!
 
-  test "context limiting loads the LLM budget once for all candidates" do
+  test "context limiting uses the caller budget without reading configuration" do
     chunks = Enum.map(1..20, &%{content: "chunk #{&1}"})
 
     {limited, queries} =
-      Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks(chunks) end)
+      Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks(chunks, 100, 5_000) end)
 
     assert limited == chunks
-    assert Enum.count(queries, &(&1.source == "system_configs")) == 1
+    assert queries == []
   end
 
   test "an empty candidate list does not load LLM configuration" do
@@ -49,14 +49,18 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   test "the final-limit Ingestion event validates and applies the caller maximum" do
     event =
       Zaq.Event.new(
-        %{chunks: [%{"chunk_id" => 1}, %{"chunk_id" => 2}], max_total_results: 1},
+        %{
+          chunks: [%{"chunk_id" => 1}, %{"chunk_id" => 2}],
+          max_total_results: 1,
+          token_budget: 100
+        },
         :ingestion
       )
 
     assert %{response: {:ok, [%{"chunk_id" => 1}]}} =
              Api.handle_event(event, :limit_knowledge_results, %{})
 
-    invalid = %{event | request: %{chunks: [], max_total_results: 0}}
+    invalid = %{event | request: %{chunks: [], max_total_results: 0, token_budget: 100}}
 
     assert %{response: {:error, :invalid_max_total_results}} =
              Api.handle_event(invalid, :limit_knowledge_results, %{})
@@ -72,9 +76,10 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   end
 
   property "context limiting preserves the longest prefix strictly below the budget" do
-    budget = Zaq.System.get_llm_config().max_context_window
-
-    check all(contents <- list_of(string(:alphanumeric, max_length: 500), max_length: 40)) do
+    check all(
+            budget <- integer(0..10_000),
+            contents <- list_of(string(:alphanumeric, max_length: 500), max_length: 40)
+          ) do
       chunks = Enum.map(contents, &%{content: &1})
 
       {expected, _tokens} =
@@ -86,8 +91,16 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
             else: {:halt, {prefix, tokens}}
         end)
 
-      assert DocumentProcessor.limit_chunks(chunks) == Enum.reverse(expected)
+      assert DocumentProcessor.limit_chunks(chunks, 100, budget) == Enum.reverse(expected)
     end
+  end
+
+  test "invalid token budgets are rejected and zero budget returns no chunks" do
+    for budget <- [-1, 1.5, "100", :invalid] do
+      assert {:error, :invalid_token_budget} = DocumentProcessor.limit_chunks([], 100, budget)
+    end
+
+    assert DocumentProcessor.limit_chunks([%{content: "hello"}], 100, 0) == []
   end
 
   setup do
@@ -929,7 +942,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert {:error, _} = DocumentProcessor.similarity_search_count("query")
     end
 
-    test "query_extraction/1 returns empty when max_context_window is too small" do
+    test "query_extraction returns empty when the explicit caller budget is too small" do
       stub_embedding_success()
       doc = create_document()
 
@@ -947,9 +960,11 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       })
       |> Repo.insert!()
 
-      Zaq.System.set_config("llm.max_context_window", 1)
-
-      assert {:ok, []} = DocumentProcessor.query_extraction("token heavy", skip_permissions: true)
+      assert {:ok, []} =
+               DocumentProcessor.query_extraction("token heavy",
+                 skip_permissions: true,
+                 token_budget: 1
+               )
     end
   end
 
@@ -1271,15 +1286,17 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Jason.encode!()
         |> TokenEstimator.estimate()
 
-      Zaq.System.set_config("llm.max_context_window", boundary_tokens)
-
       assert {:ok, []} =
-               DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
-
-      Zaq.System.set_config("llm.max_context_window", boundary_tokens + 1)
+               DocumentProcessor.query_extraction("deterministic payload",
+                 skip_permissions: true,
+                 token_budget: boundary_tokens
+               )
 
       assert {:ok, [first | _]} =
-               DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
+               DocumentProcessor.query_extraction("deterministic payload",
+                 skip_permissions: true,
+                 token_budget: boundary_tokens + 1
+               )
 
       assert first["content"] == "Boundary-only chunk with deterministic payload."
     end

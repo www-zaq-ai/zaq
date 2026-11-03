@@ -1,9 +1,47 @@
 defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.Tools.SearchKnowledgeBase
   alias Zaq.Event
   alias Zaq.TestSupport.OpenAIStub
+
+  defmodule BudgetRouter do
+    alias Zaq.Agent.Tools.SearchKnowledgeBaseTest.StubNodeRouter
+
+    def dispatch(%Event{request: %{token_budget: budget, chunks: chunks}} = event) do
+      send(event.actor.test_pid, {:result_budget, budget})
+      %{event | response: {:ok, chunks}}
+    end
+
+    def dispatch(event), do: StubNodeRouter.dispatch(event)
+  end
+
+  property "result budgets are one fifth of the invoking agent maximum, rounded down" do
+    check all(maximum <- integer(1..1_000_000)) do
+      assert {:ok, _} =
+               SearchKnowledgeBase.run(%{query: "find elixir", lexical_terms: ["test"]}, %{
+                 node_router: BudgetRouter,
+                 execution_actor: %{test_pid: self()},
+                 context_window: %{max_context_tokens: maximum}
+               })
+
+      assert_received {:result_budget, budget}
+      assert budget == div(maximum, 5)
+    end
+  end
+
+  test "search rejects absent or invalid caller capacity without falling back to global config" do
+    for context <- [
+          %{},
+          %{context_window: %{}},
+          %{context_window: %{max_context_tokens: 0}},
+          %{context_window: %{max_context_tokens: "5000"}}
+        ] do
+      assert {:error, :context_budget_unavailable} =
+               SearchKnowledgeBase.run(%{query: "hello", search_mode: "semantic"}, context)
+    end
+  end
 
   defmodule StubNodeRouter do
     def dispatch(%Event{request: %{semantic_chunks: chunks}} = event),
@@ -247,6 +285,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
   defp translation_context(router, generator) do
     %{
+      context_window: %{max_context_tokens: 5_000},
       node_router: router,
       generation: generator,
       translation_config:
@@ -359,7 +398,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
             %{query: "car", lexical_terms: [3]}
           ] do
         assert {:error, _} =
-                 Jido.Exec.run(SearchKnowledgeBase, input, %{node_router: StubNodeRouter})
+                 Jido.Exec.run(SearchKnowledgeBase, input, %{
+                   node_router: StubNodeRouter,
+                   context_window: %{max_context_tokens: 5_000}
+                 })
       end
     end
 
@@ -378,7 +420,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       assert {:error, "Knowledge base language discovery failed: :inventory_unavailable"} =
                SearchKnowledgeBase.run(
                  %{query: "find something", lexical_terms: ["something"]},
-                 %{node_router: DiscoveryErrorRouter}
+                 %{
+                   node_router: DiscoveryErrorRouter,
+                   context_window: %{max_context_tokens: 5_000}
+                 }
                )
     end
 
@@ -386,7 +431,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       assert {:error, "Knowledge base search error: inventory offline"} =
                SearchKnowledgeBase.run(
                  %{query: "find something", lexical_terms: ["something"]},
-                 %{node_router: RaisingDiscoveryRouter}
+                 %{
+                   node_router: RaisingDiscoveryRouter,
+                   context_window: %{max_context_tokens: 5_000}
+                 }
                )
     end
 
@@ -394,7 +442,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       assert {:ok, %{chunks: [], count: 0, errors: [], partial: false}} =
                SearchKnowledgeBase.run(
                  %{query: "find something", lexical_terms: ["something"]},
-                 %{node_router: EmptyDiscoveryRouter}
+                 %{
+                   node_router: EmptyDiscoveryRouter,
+                   context_window: %{max_context_tokens: 5_000}
+                 }
                )
     end
 
@@ -420,12 +471,17 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       assert {:ok, %{chunks: []}} =
                SearchKnowledgeBase.run(
                  %{query: "Where is Saint-Saturnin?", lexical_terms: terms},
-                 %{node_router: LongTermsRouter}
+                 %{node_router: LongTermsRouter, context_window: %{max_context_tokens: 5_000}}
                )
     end
 
     test "returns formatted chunks and count on success" do
-      context = %{person_id: 42, team_ids: [1, 2], node_router: StubNodeRouter}
+      context = %{
+        person_id: 42,
+        team_ids: [1, 2],
+        node_router: StubNodeRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:ok, result} =
                SearchKnowledgeBase.run(%{query: "find elixir", lexical_terms: ["test"]}, context)
@@ -438,7 +494,11 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
     end
 
     test "returns error message when NodeRouter returns error" do
-      context = %{person_id: 42, node_router: StubNodeRouter}
+      context = %{
+        person_id: 42,
+        node_router: StubNodeRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:error, message} =
                SearchKnowledgeBase.run(
@@ -450,7 +510,11 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
     end
 
     test "returns wrapped error when node router raises exception" do
-      context = %{person_id: 42, node_router: RaisingNodeRouter}
+      context = %{
+        person_id: 42,
+        node_router: RaisingNodeRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:error, message} =
                SearchKnowledgeBase.run(%{query: "any query", lexical_terms: ["test"]}, context)
@@ -460,7 +524,11 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
     end
 
     test "returns empty chunks when no results found" do
-      context = %{person_id: 42, node_router: StubNodeRouter}
+      context = %{
+        person_id: 42,
+        node_router: StubNodeRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:ok, result} =
                SearchKnowledgeBase.run(%{query: "nothing here", lexical_terms: ["test"]}, context)
@@ -472,42 +540,69 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
 
   describe "run/2 — permission enforcement" do
     test "nil person_id without skip_permissions passes skip_permissions: false (public data only)" do
-      context = %{person_id: nil, node_router: SkipPermissionsRouter}
+      context = %{
+        person_id: nil,
+        node_router: SkipPermissionsRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:ok, _} =
                SearchKnowledgeBase.run(%{query: "anything", lexical_terms: ["test"]}, context)
     end
 
     test "nil person_id absent from context also passes skip_permissions: false" do
-      context = %{team_ids: [1], node_router: SkipPermissionsRouter}
+      context = %{
+        team_ids: [1],
+        node_router: SkipPermissionsRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:ok, _} =
                SearchKnowledgeBase.run(%{query: "anything", lexical_terms: ["test"]}, context)
     end
 
     test "nil person_id with explicit skip_permissions: true passes skip_permissions: true (admin)" do
-      context = %{person_id: nil, skip_permissions: true, node_router: SkipPermissionsRouter}
+      context = %{
+        person_id: nil,
+        skip_permissions: true,
+        node_router: SkipPermissionsRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:ok, _} =
                SearchKnowledgeBase.run(%{query: "anything", lexical_terms: ["test"]}, context)
     end
 
     test "forwards person_id and team_ids to query_extraction" do
-      context = %{person_id: 42, team_ids: [1, 2], node_router: PermissionRouter}
+      context = %{
+        person_id: 42,
+        team_ids: [1, 2],
+        node_router: PermissionRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:ok, _} =
                SearchKnowledgeBase.run(%{query: "test", lexical_terms: ["test"]}, context)
     end
 
     test "sets skip_permissions: false when person_id is present" do
-      context = %{person_id: 1, team_ids: [], node_router: SkipPermissionsRouter}
+      context = %{
+        person_id: 1,
+        team_ids: [],
+        node_router: SkipPermissionsRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:ok, _} =
                SearchKnowledgeBase.run(%{query: "test", lexical_terms: ["test"]}, context)
     end
 
     test "defaults team_ids to [] when absent from context" do
-      context = %{person_id: 1, node_router: DefaultTeamIdsRouter}
+      context = %{
+        person_id: 1,
+        node_router: DefaultTeamIdsRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:ok, _} =
                SearchKnowledgeBase.run(%{query: "test", lexical_terms: ["test"]}, context)
@@ -516,7 +611,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
     test "forwards the actual team_ids value, not a hardcoded default" do
       # PermissionRouter only matches team_ids: [1, 2] — passing [99] must fail,
       # proving the value comes from context and not a hardcoded fallback.
-      context = %{person_id: 42, team_ids: [99], node_router: PermissionRouter}
+      context = %{
+        person_id: 42,
+        team_ids: [99],
+        node_router: PermissionRouter,
+        context_window: %{max_context_tokens: 5_000}
+      }
 
       assert {:error, _} =
                SearchKnowledgeBase.run(%{query: "test", lexical_terms: ["test"]}, context)

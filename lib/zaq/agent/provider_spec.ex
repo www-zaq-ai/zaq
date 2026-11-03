@@ -78,18 +78,10 @@ defmodule Zaq.Agent.ProviderSpec do
   end
 
   @doc """
-  Builds a ReqLLM model spec map from the system LLM config.
-  """
-  def build do
-    System.get_llm_config() |> build()
-  end
-
-  @doc """
   Builds a ReqLLM model spec map.
 
-  Accepts either a system LLM config map (`%{provider:, model:, ...}`) or a
-  `ConfiguredAgent`. Pass a pre-fetched config map when the config has already
-  been read to avoid a redundant `get_llm_config/0` call.
+  Accepts either an explicit config map (`%{provider:, model:, ...}`) or a
+  `ConfiguredAgent`.
 
   For a `ConfiguredAgent`, resolves the provider via LLMDB and the agent's
   credential, falling back to `:openai` for OpenAI-compatible custom endpoints.

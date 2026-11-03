@@ -101,11 +101,16 @@ credential boundary and ProviderSpec adapters, including no-auth and OAuth handl
 ReqLLM's provider/model parameter profiles own sampling restrictions (such as dropping
 unsupported parameters); these consumers do not add provider-specific branches.
 
-The global LLM provider/model no longer selects a chat runtime: the synthetic
-Default Agent and its retrieval preparation are removed. The legacy configuration
-API/storage remains for compatibility and shared ingestion/result-limit settings
-(`max_context_window`, cosine distance and fusion weights); do not drop the entire
-`llm.*` namespace or credentials referenced by other operations. The legacy LLM
+The LLM tab is removed; old `?tab=llm` links redirect to RAG. Configured agents
+own chat model selection and sampling. Retrieval uses `RetrievalConfig` through
+`get_retrieval_config/0` and `save_retrieval_config/1`, without loading chat
+credentials. Cosine distance and fusion weights retain their `llm.*` storage keys.
+Search results use an explicit caller token budget, currently 20% of the invoking
+agent's maximum context size, rather than `llm.max_context_window`.
+The legacy LLM configuration API/storage remains for the deferred Provisioner
+adjustment and compatibility; do not drop the entire `llm.*` namespace or
+credentials referenced by other operations. Engine no longer exposes the legacy
+global-LLM read/save UI events. The legacy LLM
 diagnostics probe is removed, while embedding, image-to-text, Python and token
 diagnostics remain. Configured agents persist their own sampling values;
 new agents receive temperature `0.0` and top_p `0.9` without requiring user input.

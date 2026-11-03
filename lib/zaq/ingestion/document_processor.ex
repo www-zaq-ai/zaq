@@ -7,11 +7,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   the `Zaq.Ingestion.Chunk` Ecto schema.
 
   Exposes BM25+vector hybrid search via parallel `Task.async` with Elixir-side
-  RRF fusion, and token-limited query extraction for the answering agent.
+  RRF fusion, and query extraction with optional caller-owned token budgets.
 
   ## Configuration (read from `config :zaq, Zaq.Ingestion`)
 
-    * `:max_context_window` - token limit for query extraction (default `5_000`)
     * `:max_cosine_distance` - vector distance cutoff (default `0.45`)
     * `:hybrid_search_limit` - max rows per search leg (default `20`)
   """
@@ -56,12 +55,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Config helpers
   # ---------------------------------------------------------------------------
 
-  defp max_context_window do
-    Zaq.System.get_llm_config().max_context_window
-  end
-
   defp max_cosine_distance do
-    Zaq.System.get_llm_config().max_cosine_distance
+    Zaq.System.get_retrieval_config().max_cosine_distance
   end
 
   # Check the stored precision rather than the source floats: a small nonzero
@@ -853,6 +848,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     * `:team_ids` - list of team IDs the person belongs to (default `[]`).
     * `:skip_permissions` - when `true`, bypasses all permission filtering.
       Intended for internal/admin queries only (default `false`).
+    * `:token_budget` - optional non-negative token limit supplied by the caller.
+      Without it, only the retrieval candidate limits apply; no global LLM limit is read.
   """
   @spec query_extraction(String.t(), keyword()) :: {:ok, list(map())} | {:error, term()}
   def query_extraction(query, access_opts \\ []) do
@@ -867,7 +864,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
       if Keyword.get(access_opts, :unbounded, false) do
         {:ok, filtered}
       else
-        {:ok, limit_to_context_window(filtered)}
+        {:ok, limit_to_context_window(filtered, Keyword.get(access_opts, :token_budget))}
       end
     end
   end
@@ -931,11 +928,9 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end)
   end
 
-  defp limit_to_context_window([]), do: []
+  defp limit_to_context_window(data, nil), do: data
 
-  defp limit_to_context_window(data) do
-    budget = max_context_window()
-
+  defp limit_to_context_window(data, budget) when is_integer(budget) and budget >= 0 do
     {answer, _} =
       Enum.reduce_while(data, {[], 0}, fn chunk, {acc, acc_tokens} ->
         output_tokens = chunk |> Jason.encode!() |> TokenEstimator.estimate()
@@ -950,13 +945,19 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Enum.reverse(answer)
   end
 
-  @doc "Applies the global chunk-count ceiling and ingestion context budget after ranking."
-  def limit_chunks(chunks, max_total_results \\ 100)
+  @doc "Applies the caller's result-count ceiling and optional token budget after ranking."
+  def limit_chunks(chunks, max_total_results \\ 100, token_budget \\ nil)
 
-  def limit_chunks(chunks, maximum) when is_list(chunks) and is_integer(maximum) and maximum > 0,
-    do: chunks |> Enum.take(maximum) |> limit_to_context_window()
+  def limit_chunks(chunks, maximum, token_budget)
+      when is_list(chunks) and is_integer(maximum) and maximum > 0 and
+             (is_nil(token_budget) or (is_integer(token_budget) and token_budget >= 0)),
+      do: chunks |> Enum.take(maximum) |> limit_to_context_window(token_budget)
 
-  def limit_chunks(_chunks, _maximum), do: {:error, :invalid_max_total_results}
+  def limit_chunks(_chunks, maximum, _token_budget)
+      when not is_integer(maximum) or maximum <= 0,
+      do: {:error, :invalid_max_total_results}
+
+  def limit_chunks(_chunks, _maximum, _token_budget), do: {:error, :invalid_token_budget}
 
   defp similarity_search_group_by(query_text, source_filter, language) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text),
@@ -1088,7 +1089,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp fusion_weights do
-    cfg = Zaq.System.get_llm_config()
+    cfg = Zaq.System.get_retrieval_config()
     {cfg.fusion_bm25_weight, cfg.fusion_vector_weight}
   end
 

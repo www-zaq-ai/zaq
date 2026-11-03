@@ -150,7 +150,8 @@ defmodule Zaq.Agent.Executor do
 
   On any `{:error, reason}` in the pipeline the error is logged, an error telemetry
   event is emitted, and a safe fallback `Outgoing.t()` is returned — this function
-  never raises.
+  does not raise for execution failures. Callers must supply the required agent ID;
+  the Agent API validates selection before entering this execution boundary.
 
   ## Options
 
@@ -167,7 +168,7 @@ defmodule Zaq.Agent.Executor do
   - `:agent_module`, `:server_manager_module`, `:factory_module`, `:node_router` — injectable runtime dependencies
   """
   @spec run(Incoming.t(), keyword()) :: Outgoing.t() | RequestControl.handoff()
-  def run(%Incoming{} = incoming, opts \\ []) do
+  def run(%Incoming{} = incoming, opts) do
     if is_reference(Keyword.get(opts, :history_session)) do
       do_run(incoming, opts)
     else
@@ -183,7 +184,7 @@ defmodule Zaq.Agent.Executor do
     server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
     factory_module = Keyword.get(opts, :factory_module, Factory)
     actor_result = execution_actor(opts, incoming)
-    selected_agent_result = load_selected_agent(opts, agent_module)
+    selected_agent_result = agent_module.get_active_agent(Keyword.fetch!(opts, :agent_id))
     dims = telemetry_dimensions(incoming, selected_agent_result)
 
     :ok = Telemetry.record("qa.message.count", 1, dims)
@@ -509,13 +510,6 @@ defmodule Zaq.Agent.Executor do
       history_binding: history_binding(opts),
       history_cursors: (Keyword.get(opts, :execution_history) || %{})[:cursors]
     )
-  end
-
-  defp load_selected_agent(opts, agent_module) do
-    case Keyword.get(opts, :agent_id) do
-      id when id in [nil, ""] -> {:error, :configured_agent_required}
-      agent_id -> agent_module.get_active_agent(agent_id)
-    end
   end
 
   defp ensure_scope_for_answering_path(opts, incoming, actor) do

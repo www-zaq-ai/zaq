@@ -289,21 +289,6 @@ defmodule Zaq.Agent.ProviderSpecTest do
     end
   end
 
-  describe "build/0" do
-    test "returns a spec map with provider and id from seeded LLM config" do
-      seed_llm_config(%{
-        provider: "openai",
-        endpoint: "http://test-llm.example.com/v1",
-        api_key: "build-zero-key"
-      })
-
-      spec = ProviderSpec.build()
-      assert is_map(spec)
-      assert spec.provider == :openai
-      assert is_binary(spec.id)
-    end
-  end
-
   describe "build/1 with config map" do
     test "openai with endpoint sets base_url" do
       spec =

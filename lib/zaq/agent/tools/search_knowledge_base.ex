@@ -75,10 +75,19 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
         System.monotonic_time(:millisecond) + tool_timeout_ms()
       )
 
-    with :ok <- validate_input(params) do
-      bounded_search(params, context)
+    with :ok <- validate_input(params),
+         {:ok, token_budget} <- result_token_budget(context) do
+      bounded_search(params, Map.put(context, :result_token_budget, token_budget))
     end
   end
+
+  # Temporary: allocate a fixed share until the runtime can reserve available space.
+  # Tracked: https://github.com/www-zaq-ai/zaq/issues/915
+  defp result_token_budget(%{context_window: %{max_context_tokens: maximum}})
+       when is_integer(maximum) and maximum > 0,
+       do: {:ok, div(maximum, 5)}
+
+  defp result_token_budget(_context), do: {:error, :context_budget_unavailable}
 
   defp validate_input(%{query: query, search_mode: mode, max_total_results: maximum} = params) do
     cond do
@@ -167,7 +176,11 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   defp limit_results(chunks, maximum, errors, context) do
     case dispatch(
            :limit_knowledge_results,
-           %{chunks: chunks, max_total_results: maximum},
+           %{
+             chunks: chunks,
+             max_total_results: maximum,
+             token_budget: context.result_token_budget
+           },
            context
          ) do
       {:ok, limited} when is_list(limited) ->

@@ -1507,11 +1507,10 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     start_supervised!(child_spec)
 
     credential =
-      seed_llm_config(%{
+      ai_credential_fixture(%{
         provider: "openai",
         endpoint: endpoint,
-        api_key: "answering-org-key",
-        model: "gpt-4.1-mini"
+        api_key: "answering-org-key"
       })
 
     connect_credential = Connect.get_credential!(credential.connect_credential_id)
@@ -2169,16 +2168,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert String.contains?(body2, prompt_v2)
   end
 
-  test "routes to answering path when no agent_id is provided" do
-    incoming = %Incoming{content: "hello", channel_id: "bo-test", provider: :web}
-
-    # nil agent_id → answering configured agent; ServerManager spawns a real server.
-    # Since there is no LLM configured in test env, the run will error gracefully.
-    outgoing = run_executor(incoming, event: execution_event())
-
-    assert %Zaq.Engine.Messages.Outgoing{} = outgoing
-  end
-
   test "returns graceful error when selected agent is inactive" do
     credential =
       ai_credential_fixture(%{
@@ -2219,19 +2208,6 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     assert outgoing.metadata.error == true
     assert outgoing.metadata.reason == ":agent_not_found"
     assert outgoing.body =~ "something went wrong"
-  end
-
-  test "run/1 with no opts routes to answering path" do
-    incoming = %Incoming{
-      content: "hello",
-      channel_id: "bo-test",
-      provider: :web,
-      person: %{id: 42}
-    }
-
-    outgoing = run_executor(incoming)
-
-    assert %Zaq.Engine.Messages.Outgoing{} = outgoing
   end
 
   test "normalizes nested result answer maps" do
@@ -2904,7 +2880,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
   end
 
   # Preserve fast real shutdowns without changing configuration for other runtimes.
-  defp run_executor(incoming, opts \\ []) do
+  defp run_executor(incoming, opts) do
     Executor.run(incoming, Keyword.put_new(opts, :config, AgentConfig))
   end
 

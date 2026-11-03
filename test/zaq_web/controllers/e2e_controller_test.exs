@@ -12,6 +12,51 @@ defmodule ZaqWeb.E2EControllerTest do
     :ok
   end
 
+  test "fake model searches on each user turn and cites only actual tool results", %{conn: conn} do
+    alias ZaqWeb.E2EController
+
+    user = %{"role" => "user", "content" => "benefits"}
+
+    tool = %{
+      "role" => "tool",
+      "content" =>
+        Jason.encode!(%{
+          ok: true,
+          result: %{chunks: [%{source: "knowledge/benefits.md"}]}
+        })
+    }
+
+    request = %{
+      "messages" => [user],
+      "tools" => [%{"function" => %{"name" => "search_knowledge_base"}}]
+    }
+
+    first = E2EController.fake_llm(%{conn | body_params: request}, %{}) |> json_response(200)
+    [choice] = first["choices"]
+    assert choice["finish_reason"] == "tool_calls"
+    [call] = choice["message"]["tool_calls"]
+    assert call["function"]["name"] == "search_knowledge_base"
+    assert Jason.decode!(call["function"]["arguments"])["search_mode"] == "keyword"
+
+    result =
+      E2EController.fake_llm(
+        %{build_conn() | body_params: %{request | "messages" => [user, tool]}},
+        %{}
+      )
+
+    [answer] = json_response(result, 200)["choices"]
+    assert answer["message"]["content"] =~ "[[source:knowledge/benefits.md]]"
+
+    next = %{request | "messages" => [user, tool, %{"role" => "user", "content" => "onboarding"}]}
+
+    [choice] =
+      E2EController.fake_llm(%{build_conn() | body_params: next}, %{})
+      |> json_response(200)
+      |> Map.fetch!("choices")
+
+    assert choice["finish_reason"] == "tool_calls"
+  end
+
   # ---------------------------------------------------------------------------
   # Portal loopback — only compiled when E2E=1 (e2e_routes: true).
   # Tagged :integration so they're skipped in plain `mix test` and run

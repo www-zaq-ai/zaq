@@ -894,15 +894,8 @@ defmodule Zaq.Engine.Api do
     end
   end
 
-  def handle_event(%Event{} = event, :system_config_get_llm_config, _context),
-    do: %{event | response: System.get_llm_config()}
-
-  def handle_event(%Event{} = event, :system_config_save_llm_config, _context) do
-    case event.request do
-      %{changeset: changeset} -> %{event | response: System.save_llm_config(changeset)}
-      other -> %{event | response: {:error, {:invalid_request, other}}}
-    end
-  end
+  def handle_event(%Event{} = event, :system_config_get_retrieval_config, _context),
+    do: %{event | response: System.get_retrieval_config()}
 
   def handle_event(%Event{} = event, :system_config_get_embedding_config, _context),
     do: %{event | response: System.get_embedding_config()}
