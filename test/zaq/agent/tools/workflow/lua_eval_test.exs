@@ -69,9 +69,30 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
              evaluate("return 42", %{}, return_mode: :invalid)
   end
 
+  test "accepts JSON string return modes through Jido.Exec" do
+    assert evaluate("return 10, 20", %{}, return_mode: "first") == {:ok, %{result: 10}}
+    assert evaluate("return 10, 20", %{}, return_mode: "list") == {:ok, %{result: [10, 20]}}
+  end
+
+  test "rejects unsupported string return modes through Jido.Exec" do
+    assert {:error, %Jido.Action.Error.InvalidInputError{}} =
+             evaluate("return 42", %{}, return_mode: "invalid")
+  end
+
   test "keeps the upstream sandbox enabled" do
     assert {:error, error} = evaluate("return os.execute('echo unexpected')")
     assert Exception.message(error) =~ "sandbox"
+  end
+
+  test "returns upstream errors for unsupported input values, including nested data" do
+    for value <- [self(), make_ref(), {:unsupported, 42, 7}, ~U[2026-01-01 00:00:00Z]],
+        data <- [value, %{"nested" => [value]}] do
+      assert {:error, %Jido.Action.Error.ExecutionFailureError{} = error} =
+               evaluate("return data", data)
+
+      assert Exception.message(error) =~ ~r/(Failed to encode|cannot encode)/
+      assert error.details.type == :lua_error
+    end
   end
 
   test "propagates invalid Lua and evaluation timeouts" do
