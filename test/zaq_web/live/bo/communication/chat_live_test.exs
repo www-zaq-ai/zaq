@@ -1175,7 +1175,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :ingestion,
       DocumentProcessor,
       :query_extraction,
-      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
+      {:ok,
+       [
+         %{
+           "content" => "ZAQ docs",
+           "source" => "guide.md",
+           "document_id" => 1,
+           "chunk_index" => 1,
+           "section_path" => []
+         }
+       ]}
     )
 
     NodeRouterFake.put(
@@ -1510,7 +1519,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :ingestion,
       DocumentProcessor,
       :query_extraction,
-      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
+      {:ok,
+       [
+         %{
+           "content" => "ZAQ docs",
+           "source" => "guide.md",
+           "document_id" => 1,
+           "chunk_index" => 1,
+           "section_path" => []
+         }
+       ]}
     )
 
     NodeRouterFake.put(
@@ -1592,7 +1610,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :ingestion,
       DocumentProcessor,
       :query_extraction,
-      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
+      {:ok,
+       [
+         %{
+           "content" => "ZAQ docs",
+           "source" => "guide.md",
+           "document_id" => 1,
+           "chunk_index" => 1,
+           "section_path" => []
+         }
+       ]}
     )
 
     NodeRouterFake.put(
@@ -1680,7 +1707,16 @@ defmodule ZaqWeb.Live.BO.Communication.ChatLiveTest do
       :ingestion,
       DocumentProcessor,
       :query_extraction,
-      {:ok, [%{"content" => "ZAQ docs", "source" => "guide.md"}]}
+      {:ok,
+       [
+         %{
+           "content" => "ZAQ docs",
+           "source" => "guide.md",
+           "document_id" => 1,
+           "chunk_index" => 1,
+           "section_path" => []
+         }
+       ]}
     )
 
     NodeRouterFake.put(

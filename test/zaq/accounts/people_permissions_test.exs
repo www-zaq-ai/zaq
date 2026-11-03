@@ -1,5 +1,5 @@
 defmodule Zaq.Accounts.PeoplePermissionsTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: true, group: :people_permission_grants
   use ExUnitProperties
 
   alias Zaq.Accounts.{People, PeoplePermissionGrant, PeoplePermissions, Person, Team}

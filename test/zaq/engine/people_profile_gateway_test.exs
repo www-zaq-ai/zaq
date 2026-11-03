@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.PeopleProfileGatewayTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: true, group: :people_permission_grants
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissionGrant, PeoplePermissions, PersonSession}
   alias Zaq.Engine.{Api, Events, PeopleAuthGateway}
 
