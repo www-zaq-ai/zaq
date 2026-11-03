@@ -12,14 +12,6 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
     def dispatch(event) do
       send(event.request.metadata.session_id, {:step_upsert, event.request})
 
-      if Enum.any?(event.request.metadata.tool_steps, &(&1["state"] == "unknown")) do
-        send(event.request.metadata.session_id, {:settled_upsert_waiting, self()})
-
-        receive do
-          :release_settled_upsert -> :ok
-        end
-      end
-
       %{event | response: {:ok, %{message_id: "status"}}}
     end
   end
@@ -108,11 +100,6 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
     assert is_pid(worker)
     Process.exit(worker, :kill)
 
-    assert_receive {:settled_upsert_waiting, upsert_process}, 5_000
-    consumer_ref = consumer.ref
-    refute_received {^consumer_ref, _result}
-    send(upsert_process, :release_settled_upsert)
-
     assert {:error, {:react_worker_exit, :killed}, result} = Task.await(consumer, 10_000)
 
     assert [
@@ -125,14 +112,13 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
 
     assert_receive {:native_tool_event, :request_failed}
     refute_received {:native_tool_event, :tool_completed}
-    assert_receive {:step_upsert, %{metadata: %{tool_steps: steps}}} when length(steps) == 2
-
-    upserts = collect_upserts([])
-    final = List.last(upserts)
-    assert final.metadata.tool_steps == ToolStep.project(result.tool_calls)
-    assert final.metadata.assistant_message_id == "answer"
-    assert final.metadata.request_id == "root"
-    refute Jason.encode!(steps) =~ "arguments"
+    # Settled facts are guaranteed in final delivery, not in an intermediate
+    # update. Any earlier publication still uses the correlated safe projection.
+    for upsert <- collect_upserts([]) do
+      assert upsert.metadata.assistant_message_id == "answer"
+      assert upsert.metadata.request_id == "root"
+      refute Jason.encode!(upsert.metadata.tool_steps) =~ "arguments"
+    end
 
     internal_result =
       result
@@ -149,7 +135,9 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
     delivered = ChannelsApi.handle_event(event, :deliver_outgoing, nil)
     assert delivered.response == {:ok, %{}}
     assert_receive {:final_tool_publication, published}
-    assert published.metadata.tool_steps == final.metadata.tool_steps
+    assert published.metadata.tool_steps == ToolStep.project(result.tool_calls)
+    assert published.metadata.assistant_message_id == "answer"
+    assert published.metadata.request_id == "root"
     assert delivered.request.metadata.tool_calls == result.tool_calls
     refute Map.has_key?(delivered.request.metadata, :tool_steps)
     refute Jason.encode!(published.metadata.tool_steps) =~ "arguments"

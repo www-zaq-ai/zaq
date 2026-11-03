@@ -35,7 +35,7 @@ defmodule Zaq.Agent.StreamEventsTest do
     end
   end
 
-  test "publishes settled snapshots before returning and suppresses public step replay" do
+  test "settles snapshots in evidence without forcing publication and suppresses public step replay" do
     start = event(:tool_started, 1, %{tool_name: "search"}, tool_call_id: "a")
     events = [start, start, event(:request_failed, 2, %{error: {:react_worker_exit, :killed}})]
 
@@ -43,9 +43,7 @@ defmodule Zaq.Agent.StreamEventsTest do
              StreamEvents.consume(events, incoming(), status_module: SnapshotStatus)
 
     assert_receive {:snapshot, :tool_call, "Using search", [%{"state" => "running"}]}
-    assert_receive {:snapshot, :tool_call, _, steps}
-    assert steps == public_steps(result)
-    assert [%{"state" => "unknown"}] = steps
+    assert [%{"state" => "unknown"}] = public_steps(result)
     refute_receive {:snapshot, _, _, _}
   end
 
@@ -158,8 +156,9 @@ defmodule Zaq.Agent.StreamEventsTest do
 
     assert [%{"id" => "known"}] = public_steps(result)
 
-    assert_receive {:broadcast, :tool_call, "Using legacy", :tool_call}
-    assert_receive {:broadcast, :tool_call, "Finished legacy", :tool_call}
+    refute_receive {:broadcast, :tool_call, "Using legacy", :tool_call}
+    refute_receive {:broadcast, :tool_call, "Finished legacy", :tool_call}
+    assert Enum.any?(result.tool_calls, &(&1["name"] == "legacy"))
   end
 
   test "late events without a name cannot erase an observed public name" do
@@ -220,7 +219,8 @@ defmodule Zaq.Agent.StreamEventsTest do
 
     assert result.incoming.metadata.status_message_id == incoming().metadata.request_id
     assert_receive {:broadcast, :execution_started, "Preparing answer", :status}
-    assert_receive {:broadcast, :answering, "hello", :stream_delta}
+    refute_receive {:broadcast, :answering, "hello", :stream_delta}
+    assert result.answer == "hello"
     refute_received {:broadcast, :execution_started, _, _}
   end
 
@@ -234,7 +234,7 @@ defmodule Zaq.Agent.StreamEventsTest do
     refute_received {:broadcast, :execution_started, _, _}
   end
 
-  test "coalesces small deltas and flushes the full content on terminal event" do
+  test "coalesces small deltas into the final result without a forced terminal update" do
     incoming = incoming()
 
     events = [
@@ -269,7 +269,8 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert result.measurements["llm_call_count"] == 1
     assert result.model == "openai:gpt-4o-mini"
     assert result.agent == %{id: 42, name: "Answering"}
-    assert_receive {:broadcast, :answering, "hello world", :stream_delta}
+    refute result.answer_published?
+    refute_receive {:broadcast, :answering, "hello world", :stream_delta}
     refute_receive {:broadcast, _, _, _}
   end
 
@@ -488,7 +489,7 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert result.measurements["total_tokens"] == 11
   end
 
-  test "flushes when chunk type changes and stores thinking as reasoning trace" do
+  test "records segment changes without forcing a short text publication" do
     incoming = incoming()
 
     events = [
@@ -507,7 +508,8 @@ defmodule Zaq.Agent.StreamEventsTest do
     refute Map.has_key?(content_entry, "content")
 
     assert_receive {:broadcast, :thinking, "I should search first.", :reasoning}
-    assert_receive {:broadcast, :answering, "The answer is 42.", :stream_delta}
+    refute_receive {:broadcast, :answering, "The answer is 42.", :stream_delta}
+    assert result.answer == "The answer is 42."
   end
 
   test "json_safe converts non-json values before trace persistence" do
@@ -555,7 +557,7 @@ defmodule Zaq.Agent.StreamEventsTest do
 
     assert result.measurements["tool_call_count"] == 1
     assert_receive {:broadcast, :tool_call, "Using search", :tool_call}
-    assert_receive {:broadcast, :tool_call, "Finished search", :tool_call}
+    refute_receive {:broadcast, :tool_call, "Finished search", :tool_call}
   end
 
   property "repeated and late tool starts preserve correlated arguments and completed evidence" do
@@ -756,7 +758,7 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert response == ["ok", %{"record" => safe_record}, []]
     assert Jason.encode!(result.trace)
     assert Jason.encode!(result.tool_calls)
-    assert_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
+    refute_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
   end
 
   test "sanitizes invalid base64 communication media without failing the request" do
@@ -795,7 +797,7 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert response == ["ok", %{"record" => safe_record}, []]
     refute Jason.encode!(result.trace) =~ "%%%invalid%%%"
     refute Jason.encode!(result.tool_calls) =~ "%%%invalid%%%"
-    assert_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
+    refute_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
     assert trace_entry["id"] == "coverage-tool"
   end
 
@@ -828,7 +830,7 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert [%{"response" => ["ok", %{"record" => safe_record}, []]}] = result.trace
     assert safe_record["id"] == "media"
     assert safe_record["content"] == "nil"
-    assert_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
+    refute_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
   end
 
   test "omits ignored resource content parts from tool results" do
@@ -859,7 +861,7 @@ defmodule Zaq.Agent.StreamEventsTest do
     refute Map.has_key?(safe_payload, "__content_parts__")
     encoded = Jason.encode!(result.trace) <> Jason.encode!(result.tool_calls)
     refute encoded =~ "private-resource-text"
-    assert_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
+    refute_receive {:broadcast, :tool_call, "Finished download_document", :tool_call}
   end
 
   property "base64 communication media round-trips into artifacts only" do
@@ -945,7 +947,7 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert [%{"id" => "missing-time-tool", "started_at" => nil, "started_at_ms" => nil}] =
              result.tool_calls
 
-    assert_receive {:broadcast, :tool_call, "Using lookup", :tool_call}
+    refute_receive {:broadcast, :tool_call, "Using lookup", :tool_call}
   end
 
   describe "terminal events" do
@@ -963,7 +965,8 @@ defmodule Zaq.Agent.StreamEventsTest do
       assert result.answer == "partial"
       assert result.termination_reason == :cancelled
       assert [%{"type" => "content"}] = result.trace
-      assert_receive {:broadcast, :answering, "partial", :stream_delta}
+      refute result.answer_published?
+      refute_receive {:broadcast, :answering, "partial", :stream_delta}
     end
   end
 
@@ -1063,8 +1066,9 @@ defmodule Zaq.Agent.StreamEventsTest do
     assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
 
     assert [%{"type" => "reasoning"}, %{"type" => "content"}] = result.trace
-    assert_receive {:broadcast, :thinking, "reason", :reasoning}
-    assert_receive {:broadcast, :answering, "answer", :stream_delta}
+    refute_receive {:broadcast, :thinking, "reason", :reasoning}
+    refute_receive {:broadcast, :answering, "answer", :stream_delta}
+    assert result.answer == "answer"
   end
 
   test "ignores malformed non-map events" do

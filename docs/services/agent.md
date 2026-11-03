@@ -666,8 +666,9 @@ without safe permission mutation support return `:unsupported`.
   no observed completion. Request failure preserves known tool outcomes, never
   infers tool failure, and never triggers retry/cancellation from a step state.
   There is no separate interrupted state or request-exhaustion protocol here.
-- Settled snapshots are published through the existing synchronous Status upsert
-  before stream consumption returns. Only the last published snapshot is retained
+- Eligible snapshots are published through the existing synchronous Status upsert
+  while reducing events; terminal settlement never forces an intermediate edit.
+  Only the last published snapshot is retained
   for emission deduplication. StreamEvents, Executor and default answering Pipeline
   carry canonical `tool_calls`, not parallel public snapshots, through success,
   handled-error and suppressed partial results. No-tool/pre-stream canonical
@@ -682,7 +683,26 @@ without safe permission mutation support return `:unsupported`.
   directive, included in the current lock. Do not substitute generic per-event
   Emit tasks or add a ZAQ lifecycle/reorder workaround. See the
   [native ordering diagnostic](../operations/native-event-ordering.md).
-- Broadcasts buffered realtime updates through `Status.broadcast/4` so all channels keep using the same channel update flow.
+- Broadcasts buffered realtime updates through `Status.broadcast/5` so all channels
+  keep using the same channel update flow. Executor resolves the connector's
+  secret-free `live_updates` policy once through Engine before stream consumption.
+  The reducer owns one shared interval for `stream_delta`, `reasoning` and
+  `tool_call` triggers. Defaults are all enabled with a 100 ms minimum interval;
+  text additionally requires more than 20 newly buffered bytes. A disabled trigger
+  cannot initiate an edit but its information may appear in another edit's snapshot.
+  Disabling time limiting retains byte batching. All-off suppresses these streamed
+  updates, not progress/status notifications: API, Executor, tool-authored progress
+  and `execution_started` status keep their existing behavior and do not consume
+  the reducer's interval. There is no timer, replay queue or separate publisher.
+  Segment changes, terminal events and enumerable exhaustion finalize evidence,
+  not forced intermediate display. Final answers/errors still use normal delivery.
+  The result's internal `answer_published?` flag requires a submitted nonblank
+  answer snapshot; whitespace and reasoning never suppress a stream error.
+  Answer snapshots are retained separately from reasoning. After a partially
+  published stream fails, internal `pending_answer` carries any outstanding
+  answer snapshot into Executor's normal terminal delivery, not another streamed
+  update. Fully published answers retain the empty suppressed terminal body;
+  canonical failure evidence is preserved in both cases.
 - Captures a uniform top-level message trace list, including content/reasoning segments and tool calls.
 - `Factory.after_tool_call/3` uses `MediaResultTransformer` to wrap materialized
   communication media in `ReqLLM.ToolResult`, preserving the application-visible

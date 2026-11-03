@@ -9,6 +9,7 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
   alias Zaq.ConnectorConfig.WidgetSettings
   alias Zaq.Event
   alias Zaq.NodeRouter
+  alias ZaqWeb.Components.LiveUpdateSettings
   alias ZaqWeb.Helpers.DateFormat
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
@@ -87,6 +88,8 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     do: {:noreply, socket |> clear_flash() |> reload(selected_id(socket))}
 
   def handle_event("validate", %{"widget" => params} = event, socket) do
+    socket = update_live_update_draft(socket, event)
+
     changed =
       case Map.get(event, "_target") do
         ["widget", field] when field in @policy_fields ->
@@ -106,13 +109,20 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
      |> assign(:form, to_form(params, as: :widget))}
   end
 
-  def handle_event("save", %{"widget" => params}, socket) do
+  def handle_event("save", %{"widget" => params} = event, socket) do
+    socket = update_live_update_draft(socket, event)
+
     socket =
       assign(socket, :form, to_form(Map.merge(socket.assigns.form.params, params), as: :widget))
 
     case widget_routing_params(params, socket) do
       {:ok, params} ->
         params = preserve_legacy_settings(params, socket)
+
+        params =
+          if socket.assigns.selected,
+            do: Map.put(params, "live_updates", socket.assigns.live_update_policy),
+            else: params
 
         params =
           if Map.has_key?(params, "allowed_domains"),
@@ -231,9 +241,14 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
 
   defp save_configuration(socket, request, message) do
     case settings(socket, request) do
-      {:ok, result} -> saved(socket, result, message)
-      {:error, {:validation, errors}} -> socket |> clear_key() |> assign(:errors, errors)
-      {:error, reason} -> failure(socket, reason)
+      {:ok, result} ->
+        saved(socket, result, message)
+
+      {:error, {:validation, errors}} ->
+        socket |> clear_key() |> assign(:errors, errors)
+
+      {:error, reason} ->
+        failure(socket, reason)
     end
   end
 
@@ -242,6 +257,8 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     |> clear_key()
     |> assign(:configs, snapshot.configs)
     |> assign(:selected, snapshot.selected)
+    |> assign(:live_update_policy, snapshot.selected && snapshot.selected.live_updates)
+    |> assign(:live_update_errors, %{})
     |> assign(:base_url, snapshot.base_url)
     |> assign(:adapter, snapshot.adapter)
     |> assign(:errors, %{})
@@ -252,6 +269,23 @@ defmodule ZaqWeb.Live.BO.Communication.WebWidgetLive do
     |> assign(:changed_settings, MapSet.new())
     |> assign(:ingress_statuses, %{})
     |> refresh_health()
+  end
+
+  defp update_live_update_draft(socket, event) do
+    if socket.assigns.selected do
+      policy =
+        LiveUpdateSettings.merge_params(
+          socket.assigns.live_update_policy,
+          Map.get(event, "live_updates", %{})
+        )
+
+      assign(socket,
+        live_update_policy: policy,
+        live_update_errors: LiveUpdateSettings.errors(policy)
+      )
+    else
+      socket
+    end
   end
 
   defp preserve_legacy_settings(params, %{assigns: %{selected: nil}}), do: params

@@ -108,7 +108,9 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
       start_supervised!(spec)
       OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
       configured = configured_agent(endpoint)
-      widget = widget(ctx, configured)
+      # This consumer lifecycle journey requires each intermediate state; rate
+      # limiting itself is covered by the streamed-update policy suites.
+      widget = widget(ctx, configured, %{"throttle_enabled" => false})
 
       HistoryBrowser.run!(
         %{
@@ -128,6 +130,7 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
 
             assert_receive {:model_waiting, worker}, 15_000
             on_exit(fn -> send(worker, :release_answer) end)
+            state = Map.put(state, :consumer, monitor_widget_consumer(widget.id))
 
             if unquote(reconnect?) do
               pending =
@@ -145,6 +148,9 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
             {%{}, state}
 
           "saved", state ->
+            {ref, pid} = state.consumer
+            assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
+
             answer =
               Repo.one!(
                 from m in widget_messages(widget.id), where: m.content == "The real sum is 5."
@@ -259,7 +265,7 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
       start_supervised!(spec)
       OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
       configured = configured_agent(endpoint)
-      widget = widget(ctx, configured)
+      widget = widget(ctx, configured, %{"throttle_enabled" => false})
 
       HistoryBrowser.run!(
         %{
@@ -380,7 +386,7 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
         start_supervised!(Supervisor.child_spec(spec, id: make_ref()))
         OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
         configured = configured_agent(endpoint)
-        config = widget(ctx, configured)
+        config = widget(ctx, configured, %{"throttle_enabled" => false})
         %{widget_id: config.id, prompt: prompt, answer: answer}
       end
 
@@ -405,6 +411,7 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
                    Enum.sort(Enum.map(widgets, & &1.prompt))
 
           ids = Enum.map(widgets, & &1.widget_id)
+          consumers = Enum.map(ids, &monitor_widget_consumer/1)
 
           assert Repo.aggregate(
                    from(e in widget_executions(ids), where: e.status == "pending"),
@@ -416,9 +423,13 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
           |> Enum.reverse()
           |> Enum.each(fn {_, worker} -> send(worker, :release_answer) end)
 
-          {%{}, state}
+          {%{}, Map.put(state, :consumers, consumers)}
 
         "isolated-saved", state ->
+          for {ref, pid} <- state.consumers do
+            assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
+          end
+
           answers =
             for widget <- widgets do
               answer =
@@ -498,6 +509,120 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
     )
   end
 
+  for engine <- ~w(chromium firefox webkit), mode <- [:disabled, :answer_only] do
+    @tag timeout: 180_000
+    test "#{engine}: streamed policy #{mode} preserves actual widget final delivery and history",
+         ctx do
+      owner = self()
+      answer = "The real sum is 5. Canonical tool evidence survives the streamed-update policy."
+
+      handler =
+        ToolCallingLLMStub.handler(
+          routes: [
+            %{
+              match: &String.contains?(&1, "add 2 and 3"),
+              tool: "add",
+              arguments: fn _ -> %{value: 2, amount: 3} end
+            }
+          ],
+          final_response: fn _ -> answer end
+        )
+
+      {spec, endpoint} =
+        OpenAIStub.server(
+          fn conn, body ->
+            response = handler.(conn, body)
+
+            if MultiAgentOpenAIStub.tool_results(Jason.decode!(body)) != [] do
+              send(owner, {:policy_model_waiting, self()})
+
+              receive do
+                :release_policy_answer -> :ok
+              after
+                30_000 -> raise "Browser did not complete the policy checkpoint"
+              end
+            end
+
+            response
+          end,
+          owner
+        )
+
+      start_supervised!(spec)
+      OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
+      configured = configured_agent(endpoint)
+
+      policy =
+        case unquote(mode) do
+          :disabled -> %{"enabled" => false}
+          :answer_only -> %{"throttle_enabled" => false, "triggers" => %{"tool_call" => false}}
+        end
+
+      connector = widget(ctx, configured, policy)
+
+      HistoryBrowser.run!(
+        %{
+          runner: "test/e2e/support/widget-lifecycle-browser.cjs",
+          engine: unquote(engine),
+          scenario: "stream-policy",
+          parent_origin: ctx.parent_origin,
+          widget_id: connector.id,
+          answer: answer
+        },
+        fn
+          "policy-pending", state ->
+            assert_receive {:llm_tool_result, "add", %{"ok" => true}}, 15_000
+            assert_receive {:policy_model_waiting, worker}, 15_000
+            on_exit(fn -> send(worker, :release_policy_answer) end)
+
+            {%{},
+             Map.merge(state, %{worker: worker, consumer: monitor_widget_consumer(connector.id)})}
+
+          "policy-release", state ->
+            send(state.worker, :release_policy_answer)
+            {%{}, state}
+
+          "policy-saved", state ->
+            {ref, pid} = state.consumer
+            assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
+
+            message =
+              Repo.one!(from m in widget_messages(connector.id), where: m.content == ^answer)
+
+            execution =
+              Repo.one!(
+                from e in ExecutionRecord, where: e.public_answer_message_id == ^message.id
+              )
+
+            assert execution.status == "completed"
+
+            assert [%{"name" => "add", "state" => "succeeded"}] =
+                     ToolStep.from_trace(execution.trace_entries)
+
+            assert Enum.any?(execution.trace_entries, &(&1["type"] == "content"))
+            {%{conversation_id: message.conversation_id}, state}
+        end
+      )
+
+      refute_received {:llm_stub_error, _}
+      :ok = ServerManager.stop_server(configured)
+    end
+  end
+
+  defp monitor_widget_consumer(config_id) do
+    input = Repo.one!(from m in widget_messages(config_id), where: m.role == "user")
+    execution = Repo.one!(from e in ExecutionRecord, where: e.user_message_id == ^input.id)
+
+    assert {:ok, candidates} =
+             ServerManager.runtime_candidates(%{person: %{id: execution.person_id}})
+
+    assert %{consumer_pid: pid} =
+             Enum.find(candidates, &(&1.execution_user_message_id == input.id))
+
+    assert is_pid(pid)
+    {Process.monitor(pid), pid}
+  end
+
   defp configured_agent(endpoint) do
     credential =
       SystemConfigFixtures.ai_credential_fixture(%{
@@ -546,7 +671,14 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
       distinct: true
   end
 
-  defp widget(ctx, configured) do
+  defp widget(ctx, configured, stream_policy \\ nil) do
+    settings =
+      WidgetSettings.defaults()
+      |> Map.merge(%{"same_site" => "Lax", "allowed_domains" => [ctx.parent_origin]})
+
+    settings =
+      if stream_policy, do: Map.put(settings, "live_updates", stream_policy), else: settings
+
     config =
       %ChannelConfig{}
       |> ChannelConfig.changeset(%{
@@ -555,9 +687,7 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
         kind: "retrieval",
         enabled: true,
         token: Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false),
-        settings:
-          WidgetSettings.defaults()
-          |> Map.merge(%{"same_site" => "Lax", "allowed_domains" => [ctx.parent_origin]})
+        settings: settings
       })
       |> Repo.insert!()
 

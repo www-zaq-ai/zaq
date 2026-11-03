@@ -324,6 +324,15 @@
                 else: [{"None", "None"}, {"Lax", "Lax"}, {"Strict", "Strict"}]
             }
           />
+          <ZaqWeb.Components.LiveUpdateSettings.fields
+            :if={@selected}
+            id={"stream-updates-#{@selected.id}"}
+            policy={@live_update_policy}
+            errors={@live_update_errors}
+            load_error={
+              if is_nil(@live_update_policy), do: "Unable to load streamed-update settings"
+            }
+          />
         </.form>
       </section>
       <section class="space-y-4">
@@ -446,7 +455,7 @@
           id="close-widget-modal"
           variant={:secondary}
           phx-click="close_modal"
-        >Done</ZaqWeb.Components.DesignSystem.Button.button>
+        >Cancel</ZaqWeb.Components.DesignSystem.Button.button>
       </:actions>
     </ZaqWeb.Components.BOModal.form_dialog>
   </div>
