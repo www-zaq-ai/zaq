@@ -130,6 +130,7 @@
             form={@operation_model_forms[:small]}
             options={@operation_model_options[:small]}
             manual_model={@operation_model_manual[:small]}
+            model_catalogs={@model_catalogs}
             credential_options={@llm_credential_options}
           />
         </div>
@@ -167,6 +168,7 @@
         credential_options={@llm_credential_options}
         model_options={@llm_model_options}
         capabilities={@llm_capabilities}
+        model_catalogs={@model_catalogs}
       />
       <ZaqWeb.Live.BO.System.SystemConfig.RAGTab.panel
         :if={@active_tab == :rag}
@@ -176,6 +178,7 @@
         translation_form={@operation_model_forms[:translation]}
         translation_model_options={@operation_model_options[:translation]}
         translation_manual_model={@operation_model_manual[:translation]}
+        model_catalogs={@model_catalogs}
         model_forms={@rag_model_forms}
         model_options={@rag_model_options}
         credential_options={@embedding_credential_options}

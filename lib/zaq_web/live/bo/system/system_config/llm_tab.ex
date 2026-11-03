@@ -1,13 +1,13 @@
 defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTab do
   @moduledoc "Chat model configuration; retrieval tuning belongs to the RAG tab."
   use ZaqWeb, :html
-  alias ZaqWeb.Components.DesignSystem.{Button, CardShell, Input}
-  import ZaqWeb.Components.SearchableSelect
+  alias ZaqWeb.Components.DesignSystem.{AIModelSelector, Button, CardShell, Input}
 
   attr :form, :any, required: true
   attr :credential_options, :list, required: true
   attr :model_options, :list, required: true
   attr :capabilities, :map, default: %{}
+  attr :model_catalogs, :map, default: %{}
 
   def panel(assigns) do
     ~H"""
@@ -28,46 +28,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTab do
           novalidate
         >
           <Input.input field={@form[:path]} type="hidden" />
+          <AIModelSelector.ai_model_selector
+            id_prefix="llm"
+            form={@form}
+            options={@model_options}
+            credential_options={@credential_options}
+            credential_label="AI Credential"
+            model_catalogs={@model_catalogs}
+            manual_model={@model_options == []}
+            model_required={true}
+          />
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <.searchable_select
-                id="llm-credential-select"
-                name="llm_config[credential_id]"
-                label="AI Credential"
-                label_position="block"
-                value={to_string(@form[:credential_id].value || "")}
-                options={@credential_options}
-                empty_label="Select a credential..."
-              />
-              <p :for={error <- @form[:credential_id].errors} class="zaq-field-error zaq-text-caption">
-                {translate_error(error)}
-              </p>
-            </div>
-            <div>
-              <.searchable_select
-                :if={@model_options != []}
-                id="llm-model-select"
-                name="llm_config[model]"
-                label="Model"
-                label_position="block"
-                value={@form[:model].value}
-                options={@model_options}
-              />
-              <Input.input
-                :if={@model_options == []}
-                field={@form[:model]}
-                label="Model"
-                required
-                phx-debounce="400"
-              />
-              <p
-                :for={error <- @form[:model].errors}
-                :if={@model_options != []}
-                class="zaq-field-error zaq-text-caption"
-              >
-                {translate_error(error)}
-              </p>
-            </div>
             <Input.input
               field={@form[:temperature]}
               label="Temperature"

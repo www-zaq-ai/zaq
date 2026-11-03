@@ -263,8 +263,10 @@ test.describe("Agents", () => {
       const mobileModel = await modelField.boundingBox()
       const mobileIcons = await modalities.boundingBox()
       expect(mobileModel.y).toBeGreaterThanOrEqual(mobileCredential.y + mobileCredential.height)
-      expect(mobileIcons.y).toBeGreaterThanOrEqual(mobileModel.y + mobileModel.height)
-      expect(Math.abs(mobileCredential.width - mobileModel.width)).toBeLessThan(1)
+      expect(mobileIcons.x).toBeGreaterThanOrEqual(mobileModel.x + mobileModel.width)
+      expect(mobileIcons.y).toBeLessThan(mobileModel.y + mobileModel.height)
+      const mobileModelRow = await page.locator(".zaq-ai-model-row").boundingBox()
+      expect(Math.abs(mobileCredential.width - mobileModelRow.width)).toBeLessThan(1)
 
       await modalities.getByRole("button", { name: "Input: Image", exact: true }).tap()
       const tooltip = modalities.locator('[role="tooltip"]:visible')
@@ -339,7 +341,7 @@ test.describe("Agents", () => {
 
       // A narrow overflow fixture exercises the same horizontal scrollport used
       // by the form when the catalog contains more modalities than fit.
-      const container = page.locator(".zaq-agent-model-modalities")
+      const container = page.locator(".zaq-ai-model-modalities")
       const text = modalities.getByRole("button", { name: "Input: Text", exact: true })
       const textTooltip = modalities.getByRole("tooltip", { includeHidden: true }).filter({ hasText: "Input: Text" })
       await container.evaluate(el => { el.style.width = "16px" })

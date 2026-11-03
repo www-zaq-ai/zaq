@@ -1420,7 +1420,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp load_ai_credentials(socket) do
-    assign(socket, :ai_credentials, engine_list_ai_provider_credentials())
+    credentials = engine_list_ai_provider_credentials()
+
+    socket
+    |> assign(:ai_credentials, credentials)
+    |> assign(
+      :model_catalogs,
+      Map.new(credentials, &{to_string(&1.id), ProviderModels.models_for_credential(&1)})
+    )
   end
 
   defp load_ai_grants(socket) do

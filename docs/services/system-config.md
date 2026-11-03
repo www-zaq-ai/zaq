@@ -57,7 +57,12 @@ continue to open RAG.
 Specialized selectors use saved AI provider credentials and filter their models
 by catalog metadata: `capabilities.rerank` for re-ranking and `decisions` output
 modality for decision models. Changing credentials clears the model selection;
-incompatible submissions are rejected by System persistence for both BO and Engine callers. These selections
+incompatible catalog submissions are rejected by System persistence for both BO and Engine callers.
+Custom endpoints without a catalog accept explicitly supplied model IDs; changing
+credentials cannot implicitly carry a previous provider's model into a custom endpoint.
+All AI model configuration forms share `DesignSystem.AIModelSelector`, including
+manual model entry and catalog modalities. Missing modality metadata is displayed
+as unknown, not inferred from the model name. These selections
 are persisted as `rag.reranking.credential_id`, `rag.reranking.model`,
 `rag.decision.credential_id` and `rag.decision.model`; they **do not activate**
 re-ranking or decision inference in the pipeline. Referenced AI credentials cannot
