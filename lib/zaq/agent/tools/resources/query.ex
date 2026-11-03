@@ -11,8 +11,10 @@ defmodule Zaq.Agent.Tools.Resources.Query do
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
+  alias Zaq.Agent.Tools.Resources.{DocumentFilters, Registry}
   alias Zaq.Channels.RetrievalChannel
   alias Zaq.Identity.ActorNormalizer
+  alias Zaq.Ingestion.Labels.{DocumentAssignment, Target}
   alias Zaq.Permissions
   alias Zaq.Permissions.ResourcePermission
   alias Zaq.Repo
@@ -27,6 +29,24 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   authorization enforced by `resources.query`.
   """
   @spec authorized_query(map(), map()) :: {:ok, Ecto.Query.t()} | {:error, term()}
+  def authorized_query(%{key: "label", module: module}, context) do
+    if skip_permissions?(context) do
+      {:ok, from(row in module)}
+    else
+      {:ok, descriptor} = Registry.get("document")
+      {:ok, documents} = authorized_query(descriptor, context)
+
+      label_ids =
+        from a in DocumentAssignment,
+          join: d in subquery(documents),
+          on: d.id == a.document_id,
+          where: a.selected,
+          select: a.label_id
+
+      {:ok, from(row in module, where: row.id in subquery(label_ids))}
+    end
+  end
+
   def authorized_query(%{public?: true, module: module}, _context),
     do: {:ok, from(row in module)}
 
@@ -73,6 +93,7 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   def run(descriptor, params, context) do
     with :ok <- validate_requested_fields(descriptor, params),
          :ok <- validate_filter_fields(descriptor, params),
+         :ok <- validate_document_filters(descriptor, params),
          :ok <- validate_sort_field(descriptor, params) do
       if present?(Map.get(params, :id)) do
         get_resource(descriptor, params, context)
@@ -85,9 +106,12 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   defp get_resource(descriptor, params, context) do
     id = Map.get(params, :id)
 
-    case get_authorized_resource(descriptor, id, context) do
+    case get_authorized_resource(descriptor, id, context, params) do
       {:error, reason} ->
         {:error, reason}
+
+      :filtered_out ->
+        {:ok, base_response(descriptor, params, %{resource: nil, found: false})}
 
       nil ->
         if resource_exists?(descriptor, id) do
@@ -111,16 +135,32 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     end
   end
 
-  defp get_authorized_resource(%{key: "person", public?: true}, id, _context),
+  defp get_authorized_resource(%{key: "document"} = descriptor, id, context, params) do
+    with {:ok, query} <- authorized_query(descriptor, context) do
+      authorized = where(query, [row], row.id == ^id)
+
+      resource =
+        authorized
+        |> apply_search(descriptor, Map.get(params, :query))
+        |> apply_filters(descriptor, Map.get(params, :filters, %{}))
+        |> project_resource_fields(descriptor, requested_fields(descriptor, params))
+        |> Repo.one()
+
+      if is_nil(resource) and Repo.exists?(authorized), do: :filtered_out, else: resource
+    end
+  end
+
+  defp get_authorized_resource(%{key: "person", public?: true}, id, _context, _params),
     do: People.get_person(id)
 
-  defp get_authorized_resource(%{public?: true, module: module}, id, _context),
+  defp get_authorized_resource(%{public?: true, module: module}, id, _context, _params),
     do: Repo.get(module, id)
 
-  defp get_authorized_resource(%{module: _module} = descriptor, id, context) do
+  defp get_authorized_resource(%{module: _module} = descriptor, id, context, params) do
     with {:ok, query} <- authorized_query(descriptor, context) do
       query
       |> where([row], row.id == ^id)
+      |> project_resource_fields(descriptor, requested_fields(descriptor, params))
       |> Repo.one()
     end
   end
@@ -143,6 +183,7 @@ defmodule Zaq.Agent.Tools.Resources.Query do
         |> apply_sort(descriptor, params)
         |> limit(^page_limit)
         |> offset(^page_offset)
+        |> project_resource_fields(descriptor, fields)
         |> Repo.all()
         |> preload_for_fields(descriptor, fields)
         |> Enum.map(&serialize(&1, descriptor, fields))
@@ -231,14 +272,33 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     Enum.reduce(conditions, condition, fn condition, acc -> dynamic(^acc or ^condition) end)
   end
 
-  defp apply_filters(query, descriptor, filters) when is_map(filters) do
+  defp apply_filters(query, %{key: "document"} = descriptor, filters) when is_map(filters) do
+    ordinary_filters =
+      Map.drop(filters, [
+        "label_ids",
+        "label_values",
+        "label_match",
+        :label_ids,
+        :label_values,
+        :label_match
+      ])
+
+    query
+    |> DocumentFilters.apply(filters)
+    |> apply_exact_filters(descriptor, ordinary_filters)
+  end
+
+  defp apply_filters(query, descriptor, filters) when is_map(filters),
+    do: apply_exact_filters(query, descriptor, filters)
+
+  defp apply_filters(query, _descriptor, _filters), do: query
+
+  defp apply_exact_filters(query, descriptor, filters) do
     Enum.reduce(filters, query, fn {field_name, value}, acc ->
       field = field_atom!(descriptor.filter_fields, field_name)
       apply_filter(acc, field, value)
     end)
   end
-
-  defp apply_filters(query, _descriptor, _filters), do: query
 
   defp apply_filter(query, field, value)
        when field in [
@@ -262,7 +322,11 @@ defmodule Zaq.Agent.Tools.Resources.Query do
 
     direction = if Map.get(params, :sort_dir) == "desc", do: :desc, else: :asc
 
-    order_by(query, [row], [{^direction, field(row, ^field)}])
+    query = order_by(query, [row], [{^direction, field(row, ^field)}])
+
+    if descriptor.key in ["document", "label"] and field != :id,
+      do: order_by(query, [row], asc: row.id),
+      else: query
   end
 
   defp count(query) do
@@ -284,6 +348,11 @@ defmodule Zaq.Agent.Tools.Resources.Query do
       {:error, :invalid_filters}
     end
   end
+
+  defp validate_document_filters(%{key: "document"}, params),
+    do: DocumentFilters.validate(Map.get(params, :filters, %{}))
+
+  defp validate_document_filters(_descriptor, _params), do: :ok
 
   defp validate_sort_field(descriptor, params) do
     case Map.get(params, :sort_by) do
@@ -332,6 +401,9 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     |> Map.get(:channels, [])
     |> serialize_channels()
   end
+
+  defp serialize_field(resource, %{key: "label"}, :resource_types),
+    do: Enum.map(resource.targets, & &1.resource_type)
 
   defp serialize_field(resource, %{key: "channel_config"}, :retrieval_channels) do
     resource
@@ -404,7 +476,39 @@ defmodule Zaq.Agent.Tools.Resources.Query do
       else: resource
   end
 
+  defp preload_for_fields(resources, %{key: "label"}, fields) do
+    if :resource_types in fields,
+      do: Repo.preload(resources, targets: from(t in Target, order_by: t.resource_type)),
+      else: resources
+  end
+
+  defp preload_for_fields(resources, %{key: "document"}, fields) when is_list(resources) do
+    if :labels in fields do
+      labels =
+        resources
+        |> Enum.map(& &1.id)
+        |> DocumentAssignment.selected_labels_query()
+        |> Repo.all()
+        |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+      Enum.map(resources, &Map.put(&1, :labels, Map.get(labels, &1.id, [])))
+    else
+      resources
+    end
+  end
+
+  defp preload_for_fields(resource, %{key: "document"} = descriptor, fields) do
+    [resource] |> preload_for_fields(descriptor, fields) |> hd()
+  end
+
   defp preload_for_fields(resources_or_resource, _descriptor, _fields), do: resources_or_resource
+
+  defp project_resource_fields(query, %{key: key}, fields) when key in ["document", "label"] do
+    fields = Enum.uniq([:id | fields -- [:resource_types, :labels]])
+    select(query, [row], struct(row, ^fields))
+  end
+
+  defp project_resource_fields(query, _descriptor, _fields), do: query
 
   defp channels_query do
     from(channel in PersonChannel, order_by: channel.weight)

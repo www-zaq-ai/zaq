@@ -192,6 +192,18 @@ defmodule Zaq.Permissions do
   def access(person, right),
     do: %{person: person, team_ids: effective_team_ids(person), right: right}
 
+  @doc "Builds a principal/right-scoped grant query for database-side resource filtering."
+  @spec grants_query(map()) :: Ecto.Query.t()
+  def grants_query(%{person: person, right: right} = access) do
+    team_ids = Map.get(access, :team_ids) || effective_team_ids(person)
+    condition = principal_condition(person, team_ids)
+    right = to_string(right)
+
+    from p in ResourcePermission,
+      where: fragment("? = ANY(?)", ^right, p.access_rights),
+      where: ^condition
+  end
+
   @doc "Returns true when already-loaded effective grants include the requested access."
   @spec grants_allow?([map()], map()) :: boolean()
   def grants_allow?(grants, %{right: right} = access) when is_list(grants) do
@@ -373,17 +385,11 @@ defmodule Zaq.Permissions do
       preload: [person: person, team: team]
   end
 
-  defp effective_permissions_query(coords_by_type, %{person: person, right: right} = access) do
-    right_str = to_string(right)
-    team_ids = Map.get(access, :team_ids) || effective_team_ids(person)
-    principal_condition = principal_condition(person, team_ids)
-
-    from p in ResourcePermission,
+  defp effective_permissions_query(coords_by_type, access) do
+    from p in grants_query(access),
       left_join: person in assoc(p, :person),
       left_join: team in assoc(p, :team),
       where: ^resource_scope(coords_by_type),
-      where: fragment("? = ANY(?)", ^right_str, p.access_rights),
-      where: ^principal_condition,
       preload: [person: person, team: team]
   end
 

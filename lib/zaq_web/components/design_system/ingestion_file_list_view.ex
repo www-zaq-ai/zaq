@@ -24,6 +24,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
   import ZaqWeb.Components.DesignSystem.IngestionFileStatus
 
   alias ZaqWeb.Components.DesignSystem.IngestionFileIcon, as: IngFileIcon
+  alias ZaqWeb.Components.DesignSystem.LabelChips
   alias ZaqWeb.Helpers.SizeFormat
 
   attr :entries, :list, required: true
@@ -51,8 +52,8 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
           <.table_cell element={:th} class="zaq-ingestion-meta-label w-full max-w-0">
             <.table_text label="Name" tone={:tertiary} />
           </.table_cell>
-          <.table_cell element={:th} width="w-24" nowrap class="zaq-ingestion-meta-label">
-            <.table_text label="Size" tone={:tertiary} />
+          <.table_cell element={:th} width="w-64" class="zaq-ingestion-meta-label">
+            <.table_text label="Labels" tone={:tertiary} />
           </.table_cell>
           <.table_cell element={:th} width="w-36" class="zaq-ingestion-meta-label">
             <.table_text label="Status" tone={:tertiary} />
@@ -89,7 +90,7 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                   <button
                     phx-click="navigate"
                     phx-value-path={record_path(entry)}
-                    class="zaq-table-name-action-target flex items-center gap-2 min-w-0 w-full zaq-text-body zaq-link-underline text-left cursor-pointer"
+                    class="zaq-table-name-action-target flex items-center gap-2 min-w-0 w-full zaq-text-body text-left cursor-pointer"
                     style="color: var(--zaq-text-color-body-accent)"
                     title={entry.name}
                   >
@@ -110,14 +111,20 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                     >
                       <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
                     </svg>
-                    <span class="truncate">{entry.name}</span>
+                    <span class="truncate zaq-link-underline">{entry.name}</span>
+                    <span
+                      class="zaq-text-body-sm shrink-0"
+                      style="color: var(--zaq-text-color-body-tertiary)"
+                    >
+                      ({entry_size_label(entry, @ingestion_map)})
+                    </span>
                   </button>
                 <% else %>
                   <button
                     type="button"
                     phx-click="open_preview"
                     phx-value-path={record_path(entry)}
-                    class="zaq-table-name-action-target flex items-center gap-2 min-w-0 w-full text-left cursor-pointer zaq-text-body zaq-link-underline zaq-table-preview-link"
+                    class="zaq-table-name-action-target flex items-center gap-2 min-w-0 w-full text-left cursor-pointer zaq-text-body zaq-table-preview-link"
                     title={entry.name}
                   >
                     <img
@@ -133,7 +140,13 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                       name={entry.name}
                       class={"w-4 h-4 shrink-0 #{IngFileIcon.file_icon_color(entry.name)}"}
                     />
-                    <span class="truncate">{entry.name}</span>
+                    <span class="truncate zaq-link-underline">{entry.name}</span>
+                    <span
+                      class="zaq-text-body-sm shrink-0"
+                      style="color: var(--zaq-text-color-body-tertiary)"
+                    >
+                      ({entry_size_label(entry, @ingestion_map)})
+                    </span>
                   </button>
                 <% end %>
                 <.table_actions reveal={:hover} class="zaq-table-actions--overlay">
@@ -145,10 +158,12 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileListView do
                 </.table_actions>
               </div>
             </.table_cell>
-            <.table_cell width="w-24" nowrap>
-              <.table_text
-                label={entry_size_label(entry, @ingestion_map)}
-                tone={:tertiary}
+            <.table_cell width="w-64" class="min-w-48">
+              <% label_projection = get_in(@ingestion_map, [entry.name, :label_projection]) %>
+              <LabelChips.label_chips
+                :if={label_projection && !record_folder?(entry)}
+                labels={label_projection.chips}
+                resource_id={label_projection.document_id}
               />
             </.table_cell>
             <.table_cell width="w-36">

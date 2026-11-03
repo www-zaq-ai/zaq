@@ -113,6 +113,28 @@ defmodule Zaq.Agent.Tools.Resources.Registry do
       sort_fields: ~w(id inserted_at updated_at)a,
       default_sort: :id,
       max_limit: 100
+    },
+    %{
+      key: "label",
+      module: Zaq.Ingestion.Labels.Label,
+      public?: false,
+      fields: ~w(id name description resource_types inserted_at updated_at)a,
+      search_fields: ~w(name description)a,
+      filter_fields: ~w(name)a,
+      sort_fields: ~w(id name inserted_at updated_at)a,
+      default_sort: :name,
+      max_limit: 100
+    },
+    %{
+      key: "document",
+      module: Zaq.Ingestion.Document,
+      public?: false,
+      fields: ~w(id title source content_type labels inserted_at updated_at)a,
+      search_fields: ~w(title source)a,
+      filter_fields: ~w(source content_type label_ids label_values label_match)a,
+      sort_fields: ~w(id title source inserted_at updated_at)a,
+      default_sort: :title,
+      max_limit: 100
     }
   ]
 

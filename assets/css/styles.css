@@ -551,6 +551,112 @@ pre.zaq-file-preview-body {
   margin-top: var(--zaq-scale-4);
 }
 
+/* Compact resource labels: reveal actions on hover and keyboard focus. */
+.zaq-label-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.zaq-label-search-results {
+  box-sizing: border-box;
+  position: fixed;
+  z-index: 9999;
+  border: 1px solid var(--zaq-border-color-default);
+  border-radius: var(--zaq-scale-8);
+  background: var(--zaq-surface-color-raised);
+}
+
+.zaq-resource-label-choice {
+  padding: var(--zaq-scale-16);
+  border: 1px solid var(--zaq-border-color-default);
+  border-radius: var(--zaq-scale-8);
+  background: var(--zaq-surface-color-raised);
+}
+
+.zaq-resource-label-choice[data-selected="true"] {
+  border-color: var(--zaq-border-color-accent);
+  background: var(--zaq-surface-color-accent);
+}
+
+.zaq-label-chips {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.zaq-label-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: var(--zaq-scale-96);
+  flex-shrink: 1;
+}
+
+.zaq-label-chip-remove,
+.zaq-label-add {
+  cursor: pointer;
+  color: var(--zaq-text-color-body-tertiary);
+  border-radius: var(--zaq-scale-4);
+  opacity: 0;
+}
+
+.zaq-label-chip-remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  transform: translate(50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--zaq-scale-16);
+  height: var(--zaq-scale-16);
+  border-radius: var(--zaq-scale-16);
+  background: var(--zaq-surface-color-elevated);
+}
+
+.zaq-label-add {
+  padding: var(--zaq-scale-4) var(--zaq-scale-8);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.zaq-label-more {
+  flex-shrink: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--zaq-text-color-body-tertiary);
+  padding: var(--zaq-scale-4);
+  border-radius: var(--zaq-scale-4);
+}
+
+.zaq-label-chip:hover .zaq-label-chip-remove,
+.zaq-label-chip:focus-within .zaq-label-chip-remove,
+.zaq-table tr:hover .zaq-label-add,
+.zaq-table tr:focus-within .zaq-label-add,
+.zaq-ingestion-file-grid-card:hover .zaq-label-add,
+.zaq-ingestion-file-grid-card:focus-within .zaq-label-add,
+.zaq-label-chips:hover .zaq-label-add,
+.zaq-label-chips:focus-within .zaq-label-add {
+  opacity: 1;
+}
+
+.zaq-label-chip-remove:hover,
+.zaq-label-more:hover,
+.zaq-label-add:hover {
+  color: var(--zaq-text-color-body-accent);
+  background: var(--zaq-surface-color-accent);
+}
+
+@media (hover: none) {
+  .zaq-label-chip-remove,
+  .zaq-label-add {
+    opacity: 1;
+  }
+}
+
 /* Universal underlined link — combine with any .zaq-text-* or inherited color; hover thickens underline only */
 .zaq-link-underline {
   color: inherit;
@@ -1645,4 +1751,24 @@ a.zaq-chat-source-row:focus-visible {
   background: var(--zaq-surface-color-elevated);
   color: var(--zaq-text-color-body-default);
   max-width: calc(100vw - 16px);
+}
+
+/* Optional clear action inside the shared value picker. */
+.zaq-searchable-select-clearable [data-select-label] {
+  padding-inline-end: var(--zaq-scale-32);
+}
+
+.zaq-searchable-select-clear {
+  position: absolute;
+  inset-inline-end: var(--zaq-scale-40);
+  top: 50%;
+  transform: translateY(-50%);
+  width: var(--zaq-scale-24);
+  min-width: var(--zaq-scale-24);
+  height: var(--zaq-scale-24);
+  padding: 0;
+}
+
+.zaq-searchable-select-clear[hidden] {
+  display: none;
 }

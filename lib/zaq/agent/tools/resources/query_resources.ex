@@ -3,13 +3,14 @@ defmodule Zaq.Agent.Tools.Resources.QueryResources do
   Queries allowlisted Ecto resources for agents and workflows.
 
   Resource names are intentionally limited to: `agent`, `mcp`, `skill`, `user`,
-  `person`, `ai_provider`, `channel_config`, and `incoming_message_routing_rule`. Data source connector configs are `channel_config` resources with `kind: "data_source"`. Use `mode: "describe"` to discover each resource's
+  `person`, `ai_provider`, `channel_config`, `incoming_message_routing_rule`,
+  `label`, and `document`. Data source connector configs are `channel_config` resources with `kind: "data_source"`. Use `mode: "describe"` to discover each resource's
   output fields, search fields, filter fields, sort fields, and public/private
   access policy. Use `mode: "query"` to get one resource by id or list/search
   resources with filters and pagination.
   """
 
-  @resource_names ~w(agent mcp skill user person ai_provider channel_config incoming_message_routing_rule)
+  @resource_names ~w(agent mcp skill user person ai_provider channel_config incoming_message_routing_rule label document)
 
   @schema Zoi.object(%{
             mode:
@@ -21,7 +22,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResources do
             resource_type:
               Zoi.enum(@resource_names,
                 description:
-                  "Resource type. Allowed: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule. Use channel_config with filter kind=data_source for data source connector configs. Optional only for mode=describe."
+                  "Resource type. Allowed: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule, label, document. Use channel_config with filter kind=data_source for data source connector configs. Optional only for mode=describe."
               )
               |> Zoi.optional(),
             id:
@@ -38,7 +39,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResources do
             filters:
               Zoi.map(Zoi.string(), Zoi.any(),
                 description:
-                  "Optional exact filters. Keys must be listed in the resource's filter_fields."
+                  "Optional exact filters. Keys must be listed in the resource's filter_fields. Documents also accept label_ids and label_values (up to 100 {label_id, value} pairs), with label_match (any by default, or all). Values match exactly after trimming/NFC normalization; null matches a label without a value. Only selected document assignments match. Empty lists match nothing. If both label_ids and label_values are supplied, both filter groups must match."
               )
               |> Zoi.default(%{}),
             fields:
@@ -90,7 +91,7 @@ defmodule Zaq.Agent.Tools.Resources.QueryResources do
   use Zaq.Engine.Workflows.Action,
     name: "query_resources",
     description:
-      "Query allowlisted ZAQ Ecto resources: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule. Data source connector configs are channel_config rows with kind=data_source. Use mode=describe to discover fields/search_fields/filter_fields/sort_fields. Use mode=query with optional id for get mode, or query/filters/sort/limit/offset for list/search mode. Public reads: agent, mcp, skill. Private reads require permissions or skip_permissions.",
+      "Query allowlisted ZAQ Ecto resources: agent, mcp, skill, user, person, ai_provider, channel_config, incoming_message_routing_rule, label, document. Data source connector configs are channel_config rows with kind=data_source. Use mode=describe to discover fields/search_fields/filter_fields/sort_fields. Use mode=query with optional id for get mode, or query/filters/sort/limit/offset for list/search mode. Public reads: agent, mcp, skill. Private reads require permissions or trusted execution-context skip_permissions. Document results contain metadata and selected labels as {id, name, value}; document content is never returned. Use label_values filters to find documents such as Location=Paris after discovering the label ID. Labels are visible only when selected on a readable document; trusted admin context can see all definitions.",
     schema: @schema,
     output_schema: @output_schema
 

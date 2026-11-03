@@ -81,6 +81,12 @@ defmodule ZaqWeb.Components.DesignSystem.IngestionFileGridView do
               watch_supported={@watch_supported}
               watch_disabled_reason={@watch_disabled_reason}
             />
+            <% label_projection = get_in(@ingestion_map, [entry.name, :label_projection]) %>
+            <ZaqWeb.Components.DesignSystem.LabelChips.label_chips
+              :if={label_projection}
+              labels={label_projection.chips}
+              resource_id={label_projection.document_id}
+            />
           <% end %>
         </.grid_card>
       </:cards>

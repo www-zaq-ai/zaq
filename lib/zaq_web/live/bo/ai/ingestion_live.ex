@@ -28,6 +28,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.DataSourceBrowser
   alias ZaqWeb.Live.BO.DataSourceEvents
+  alias ZaqWeb.Live.BO.LabelEvents
   alias ZaqWeb.Live.BO.PreviewHelpers
 
   import Ecto.Query
@@ -129,6 +130,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
        raw_filename: "",
        preview: nil,
        ingestion_details: nil,
+       label_editor_resource: nil,
        # Folder drop
        folder_drop_skipped: []
      )
@@ -146,6 +148,35 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
   # ────────────────────────────────────────────────────────────────
 
   # Permission sharing (share modal)
+
+  def handle_event("open_label_editor", %{"type" => "document", "id" => id}, socket) do
+    case Integer.parse(id) do
+      {id, ""} when id > 0 ->
+        {:noreply, assign(socket, label_editor_resource: %{type: "document", id: id})}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_label_editor", _, socket),
+    do: {:noreply, assign(socket, label_editor_resource: nil)}
+
+  def handle_event(
+        "remove_resource_label",
+        %{"type" => "document", "id" => id, "label-id" => label_id},
+        socket
+      ) do
+    with {id, ""} when id > 0 <- Integer.parse(id),
+         {label_id, ""} when label_id > 0 <- Integer.parse(label_id),
+         {:ok, _} <-
+           LabelEvents.remove(socket.assigns.current_user, %{type: "document", id: id}, label_id) do
+      {:noreply, load_entries(socket)}
+    else
+      {:error, reason} -> {:noreply, put_flash(socket, :error, LabelEvents.error_message(reason))}
+      _ -> {:noreply, socket}
+    end
+  end
 
   def handle_event("share_item", %{"path" => path, "type" => "directory"}, socket) do
     open_source_share_modal(socket, path, true)
@@ -968,6 +999,10 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
       |> maybe_refresh_entries_after_job(job)
 
     {:noreply, socket}
+  end
+
+  def handle_info({:resource_labels_saved, _resource}, socket) do
+    {:noreply, socket |> assign(label_editor_resource: nil) |> load_entries()}
   end
 
   def handle_info({:job_progress, job_id, payload}, socket) when is_map(payload) do
@@ -2074,6 +2109,7 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
 
   defp enrich_provider_records(records, socket) do
     documents_by_source = provider_documents_by_source(records)
+    label_projection = document_label_projection(records, socket)
     permission_counts = provider_document_permission_counts(documents_by_source)
     inherited_watch = provider_inherited_watch(socket)
     latest_jobs_by_source = latest_jobs_by_source(socket.assigns.jobs)
@@ -2087,8 +2123,19 @@ defmodule ZaqWeb.Live.BO.AI.IngestionLive do
         |> provider_record_status(doc, permission_counts, inherited_watch, socket)
         |> overlay_latest_job_status(source, latest_jobs_by_source)
 
+      status = Map.put(status, :label_projection, Map.get(label_projection, source))
+
       {record, Map.put(acc, record.name, status)}
     end)
+  end
+
+  defp document_label_projection(records, socket) do
+    sources = Enum.map(records, &ExternalSource.source/1) |> Enum.uniq()
+
+    case LabelEvents.call(socket.assigns.current_user, :document_label_chips, %{sources: sources}) do
+      {:ok, projection} -> projection
+      {:error, _} -> %{}
+    end
   end
 
   defp latest_jobs_by_source(jobs) do
