@@ -1,5 +1,6 @@
 defmodule Zaq.Engine.IncomingMessageRoutingTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
   import Zaq.CommunicationFixtures, only: [connector_fixture: 1]
 
   alias Zaq.Accounts.{People, Person}
@@ -772,9 +773,61 @@ defmodule Zaq.Engine.IncomingMessageRoutingTest do
       assert configured_agent_id == provider_agent.id
     end
 
-    test "falls back to default ZAQ agent when no rule matches" do
-      assert %{mode: :agent, source: :default_zaq_agent, rule: nil, configured_agent_id: nil} =
+    test "resolves to none when no rule matches" do
+      assert %{mode: :none, source: :no_matching_rule, rule: nil, configured_agent_id: nil} =
                IncomingMessageRouting.resolve(incoming())
+    end
+
+    test "exhausting inactive agent rules resolves to none without changing the rules" do
+      agent = insert_agent!()
+
+      {:ok, rule} =
+        IncomingMessageRouting.upsert_rule(%{}, %{
+          routing_mode: :agent,
+          configured_agent_id: agent.id
+        })
+
+      agent |> Ecto.Changeset.change(active: false) |> Repo.update!()
+
+      assert %{mode: :none, configured_agent_id: nil, rule: nil} =
+               IncomingMessageRouting.resolve(incoming())
+
+      assert IncomingMessageRouting.get_rule(%{}) == rule
+    end
+
+    property "clearing a scoped override inherits a configured agent and never writes none" do
+      agent = insert_agent!()
+      config = insert_channel_config!()
+
+      {:ok, global_rule} =
+        IncomingMessageRouting.upsert_rule(%{}, %{
+          routing_mode: :agent,
+          configured_agent_id: agent.id
+        })
+
+      check all(topic <- StreamData.string(:alphanumeric, min_length: 1), max_runs: 20) do
+        scope = %{channel_config_id: config.id, topic_id: topic}
+        {:ok, _} = IncomingMessageRouting.upsert_rule(scope, %{routing_mode: :none})
+
+        assert %{mode: :none} =
+                 IncomingMessageRouting.resolve(
+                   incoming(channel_config_id: config.id, topic_id: topic)
+                 )
+
+        assert {:ok, _} =
+                 IncomingMessageRouting.apply_rule_commands([
+                   Map.put(scope, :routing_mode, :clear)
+                 ])
+
+        assert IncomingMessageRouting.get_rule(scope) == nil
+
+        assert %{mode: :agent, configured_agent_id: id, rule: ^global_rule} =
+                 IncomingMessageRouting.resolve(
+                   incoming(channel_config_id: config.id, topic_id: topic)
+                 )
+
+        assert id == agent.id
+      end
     end
   end
 

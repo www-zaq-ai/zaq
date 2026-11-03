@@ -78,6 +78,24 @@ defmodule Zaq.Agent.RequestControlTest do
     %{agent: agent, actor: actor, scope: scope, server: server, pid: GenServer.whereis(server)}
   end
 
+  test "canonical incoming without a configured agent never selects a synthetic runtime", ctx do
+    incoming = Incoming.new(%{content: "Correction", channel_id: "test", provider: :web})
+    event = Event.new(incoming, :agent, actor: ctx.actor)
+
+    for agent_id <- [nil, ""] do
+      assert {:error, :configured_agent_required} =
+               RequestControl.queue_incoming(
+                 event,
+                 incoming,
+                 %{kind: :canonical, transcript_id: "no-default-runtime"},
+                 nil,
+                 agent_id
+               )
+    end
+
+    refute_received {:request_control_model_request, _, _}
+  end
+
   test "native control reports stale runtime when either Jido operation exits", ctx do
     assert {:ok, %{request: request}} = Factory.ask_with_config(ctx.server, "Question", ctx.agent)
     assert_receive {:request_control_model_request, _, worker}, 5_000

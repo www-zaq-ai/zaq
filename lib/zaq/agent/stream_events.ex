@@ -971,7 +971,7 @@ defmodule Zaq.Agent.StreamEvents do
 
   @doc """
   Sources the trace/agent/model/measurements fields from an `Outgoing`'s
-  metadata, so chat results (`Zaq.Agent.Pipeline`) and workflow step results
+  metadata, so chat results (`Zaq.Agent.Executor`) and workflow step results
   (`Zaq.Agent.Tools.Workflow.RunAgent`) surface the same telemetry fields.
 
   With `json_safe: true`, present values are passed through `json_safe/1` for

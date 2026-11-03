@@ -284,8 +284,6 @@ defmodule Zaq.Engine.IncomingMessageRouter do
     %{event | assigns: Map.put(event.assigns || %{}, "conversation_binding", normalized)}
   end
 
-  defp maybe_put_agent_selection(%Event{} = event, nil, _source), do: event
-
   defp maybe_put_agent_selection(%Event{} = event, configured_agent_id, source) do
     selection = %{"agent_id" => configured_agent_id, "source" => Atom.to_string(source)}
     %{event | assigns: Map.put(event.assigns || %{}, "agent_selection", selection)}

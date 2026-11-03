@@ -3,15 +3,14 @@ defmodule Zaq.Agent.PromptGuard do
   Security guards to prevent prompt injection and system prompt leakage.
 
   Use `validate/1` at the entry point before the question reaches any agent.
-  Use `output_safe?/1` to check LLM responses before returning them to the user.
+  `output_safe?/1` is also available for callers that explicitly check generated text;
+  it is not an automatic filter on configured-agent streaming output.
 
   ## Flow
 
       User question
         → PromptGuard.validate/1        ← blocks injection here
-        → Retrieval.ask/2               ← LLM call
-        → Answering.ask/2               ← LLM call
-        → PromptGuard.output_safe?/1    ← catches leaks here
+        → Executor.run/2                ← configured agent and tools
         → User
   """
 
@@ -74,13 +73,8 @@ defmodule Zaq.Agent.PromptGuard do
 
   ## Example
 
-      case PromptGuard.validate(question) do
-        {:ok, clean_input} ->
-          Retrieval.ask(clean_input, opts)
-
-        {:error, :prompt_injection} ->
-          {:error, "I can't process that request."}
-      end
+      PromptGuard.validate("Explain the leave policy")
+      # => {:ok, "Explain the leave policy"}
   """
   def validate(input) when is_binary(input) do
     cond do

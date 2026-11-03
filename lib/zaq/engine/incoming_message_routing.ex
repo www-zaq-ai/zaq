@@ -5,6 +5,9 @@ defmodule Zaq.Engine.IncomingMessageRouting do
   This module is the single source of truth for incoming-message routing policy.
   Channel bridges may provide routing facts, but they must not resolve the final
   destination outside this context.
+
+  Clearing a scoped rule preserves inheritance. If no eligible configured agent
+  or explicit rule matches, routing resolves to `:none` (workflow-only).
   """
 
   import Ecto.Query
@@ -27,7 +30,7 @@ defmodule Zaq.Engine.IncomingMessageRouting do
           | :person_channel
           | :person_provider
           | :person_global
-          | :default_zaq_agent
+          | :no_matching_rule
   @scope_keys [:person_id, :channel_config_id, :retrieval_channel_id, :topic_id]
 
   @doc "Lists persisted Person overrides for administrative presentation."
@@ -381,7 +384,7 @@ defmodule Zaq.Engine.IncomingMessageRouting do
   defp scoped_source(_person_id, :global), do: :person_global
 
   defp default_resolution do
-    %{mode: :agent, source: :default_zaq_agent, rule: nil, configured_agent_id: nil}
+    %{mode: :none, source: :no_matching_rule, rule: nil, configured_agent_id: nil}
   end
 
   defp scope_keys, do: @scope_keys

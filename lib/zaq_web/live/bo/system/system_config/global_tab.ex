@@ -72,7 +72,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTab do
                 name="global_default_agent_id"
                 class="w-full max-w-md min-w-0"
                 value={@global_default_agent_id || ""}
-                options={[{"Default Zaq Agent", ""} | @global_agent_options]}
+                options={[{"None", ""} | @global_agent_options]}
               />
               <Button.button type="submit" variant={:secondary}>
                 Save

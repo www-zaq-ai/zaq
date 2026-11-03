@@ -32,8 +32,6 @@ defmodule Zaq.Agent.ExecutorTest do
     def ask_with_config(_server, _content, _configured_agent, _opts \\ []),
       do: {:ok, %{request: :request, events: [completed_event("stubbed answer")]}}
 
-    def answering_configured_agent, do: %{id: :answering, name: "answering"}
-
     defp completed_event(result, usage \\ %{}) do
       %{kind: :request_completed, at_ms: 10, data: %{result: result, usage: usage}}
     end
@@ -159,9 +157,6 @@ defmodule Zaq.Agent.ExecutorTest do
           {:ok, %{request: :coverage_request, events: [failed_event(reason)]}}
       end
     end
-
-    def answering_configured_agent,
-      do: %{id: :answering, name: "answering", job: "Configured job"}
 
     defp completed_event(%{result: result, usage: usage}) do
       %{kind: :request_completed, at_ms: 10, data: %{result: result, usage: usage}}
@@ -837,7 +832,22 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
-  describe "run/2 — answering agent (no agent_id)" do
+  describe "run/2 — configured agent selection" do
+    test "missing agent_id refuses execution without starting a runtime" do
+      incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 5}}
+
+      result =
+        Executor.run(incoming,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactory,
+          node_router: StubNodeRouter
+        )
+
+      assert result.metadata.error
+      assert result.metadata.reason == ":configured_agent_required"
+      refute_received {:ensure_server, _, _, _}
+    end
+
     defmodule StubSMAnswering do
       alias Zaq.Agent.ExecutorTest
 
@@ -849,9 +859,6 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     defmodule StubFactoryAnswering do
-      def answering_configured_agent,
-        do: %Zaq.Agent.ConfiguredAgent{id: :answering, name: "answering", strategy: "react"}
-
       def ask_with_config(_server_id, _query, _agent, _opts \\ []),
         do: {:ok, %{request: make_ref(), events: [completed_event("hi")]}}
 
@@ -863,9 +870,6 @@ defmodule Zaq.Agent.ExecutorTest do
     end
 
     defmodule StubFactoryWithUsage do
-      def answering_configured_agent,
-        do: %Zaq.Agent.ConfiguredAgent{id: :answering, name: "answering", strategy: "react"}
-
       def ask_with_config(_server_id, _query, _agent, _opts \\ []) do
         {:ok,
          %{
@@ -886,19 +890,20 @@ defmodule Zaq.Agent.ExecutorTest do
       def runtime_config(_agent), do: {:ok, %{system_prompt: "", tools: [], llm_opts: []}}
     end
 
-    test "routes through answering configured agent, scoped per person and channel" do
+    test "routes through the selected configured agent, scoped per person and channel" do
       incoming = %Incoming{content: "hello", channel_id: "c1", provider: :web, person: %{id: 5}}
 
       result =
         Executor.run(incoming,
-          answering_module: StubFactoryAnswering,
+          agent_id: 77,
+          agent_module: StubAgent,
           factory_module: StubFactoryAnswering,
           server_manager_module: StubSMAnswering,
           node_router: StubNodeRouter
         )
 
       assert %Zaq.Engine.Messages.Outgoing{} = result
-      assert_received {:ensure_server, "answering:scope:bo:person:5"}
+      assert_received {:ensure_server, "Stub Agent:scope:bo:person:5"}
     end
 
     test "uses 'anonymous' scope when person and session_id are absent" do
@@ -910,13 +915,14 @@ defmodule Zaq.Agent.ExecutorTest do
           next_hop: nil,
           actor: %{kind: :anonymous, subject: "answering-test"}
         },
-        answering_module: StubFactoryAnswering,
+        agent_id: 77,
+        agent_module: StubAgent,
         factory_module: StubFactoryAnswering,
         server_manager_module: StubSMAnswering,
         node_router: StubNodeRouter
       )
 
-      assert_received {:ensure_server, "answering:anonymous"}
+      assert_received {:ensure_server, "Stub Agent:anonymous"}
     end
 
     test "propagates answer text and token counts into Outgoing metadata" do
@@ -924,7 +930,8 @@ defmodule Zaq.Agent.ExecutorTest do
 
       result =
         Executor.run(incoming,
-          answering_module: StubFactoryWithUsage,
+          agent_id: 77,
+          agent_module: StubAgent,
           factory_module: StubFactoryWithUsage,
           server_manager_module: StubSMAnswering,
           node_router: StubNodeRouter,
@@ -973,7 +980,8 @@ defmodule Zaq.Agent.ExecutorTest do
 
       result =
         Executor.run(incoming,
-          answering_module: StubFactoryWithUsage,
+          agent_id: 77,
+          agent_module: StubAgent,
           factory_module: StubFactoryWithUsage,
           server_manager_module: StubSMAnswering,
           node_router: StubNodeRouter,

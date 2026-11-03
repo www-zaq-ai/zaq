@@ -101,8 +101,13 @@ credential boundary and ProviderSpec adapters, including no-auth and OAuth handl
 ReqLLM's provider/model parameter profiles own sampling restrictions (such as dropping
 unsupported parameters); these consumers do not add provider-specific branches.
 
-The global LLM provider/model remains for legacy retrieval preparation and synthetic
-default-agent answering only. Configured agents persist their own sampling values;
+The global LLM provider/model no longer selects a chat runtime: the synthetic
+Default Agent and its retrieval preparation are removed. The legacy configuration
+API/storage remains for compatibility and shared ingestion/result-limit settings
+(`max_context_window`, cosine distance and fusion weights); do not drop the entire
+`llm.*` namespace or credentials referenced by other operations. The legacy LLM
+diagnostics probe is removed, while embedding, image-to-text, Python and token
+diagnostics remain. Configured agents persist their own sampling values;
 new agents receive temperature `0.0` and top_p `0.9` without requiring user input.
 Existing agents snapshot JSON overrides, or legacy global values when an override
 key is absent. Each field accepts finite numeric values and numeric strings within

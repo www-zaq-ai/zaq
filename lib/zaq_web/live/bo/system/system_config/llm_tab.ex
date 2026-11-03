@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTab do
-  @moduledoc "Chat model configuration; retrieval tuning belongs to the RAG tab."
+  @moduledoc "Legacy global settings, including the shared knowledge-result context budget."
   use ZaqWeb, :html
   alias ZaqWeb.Components.DesignSystem.{Button, CardShell, Input}
   import ZaqWeb.Components.SearchableSelect
@@ -16,7 +16,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.LLMTab do
         <header>
           <h2 class="zaq-text-h3" style="color: var(--zaq-text-color-body-default)">LLM</h2>
           <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-secondary)">
-            Language model used for chat. Configure retrieval in the RAG tab.
+            Legacy global settings. Configured agents use their own model and sampling settings.
+            Max Context Window still limits knowledge-result context. Configure retrieval in the RAG tab.
           </p>
         </header>
         <.form

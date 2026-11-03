@@ -1700,9 +1700,21 @@ Routing precedence:
 7. Topic rule
 8. Provider rule
 9. Global rule
-10. Default ZAQ agent
+10. None (workflow-only, source `no_matching_rule`)
 
 Agent-targeting rules and explicit selections must resolve to agents that are active and conversation-enabled; invalid configured-agent references are skipped during resolution.
+
+`Default` in a scoped selector still means inheritance: clearing that rule allows
+broader configured-agent rules to apply. It is not the removed built-in Default
+Agent. Explicit `None` is terminal. When no eligible rule remains, the router fires
+the existing workflow-only event, retains applicable history capture, and does not
+admit an agent execution or manufacture an assistant response. Existing configured
+assignments and absent/inherited rules are not rewritten by this cutover.
+
+Global settings now displays an unset root selection as `None` rather than
+`Default Zaq Agent`. BO chat's empty transient selection is `Default (routing)`:
+it still follows persisted routing rules, not a synthetic agent. Scoped selectors
+retain `Default` (clear/inherit) and their explicit `NONE` override.
 
 Rule write commands accept a required `rules` list. Each rule carries optional scope keys (`person_id`, `channel_config_id`, `retrieval_channel_id`, `topic_id`), `routing_mode: "agent" | "none" | "clear"`, and `configured_agent_id` for agent mode. Example: `%{rules: [%{channel_config_id: 12, topic_id: "INBOX", routing_mode: "agent", configured_agent_id: 34}]}`. Single-rule updates submit a one-item list; IMAP mailbox saves use the same batch form so selected mailbox rules are updated through one standardized action call.
 

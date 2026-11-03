@@ -166,7 +166,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       assert_patch(view, ~p"/bo/system-config?tab=global")
       assert has_element?(view, "#global-default-agent-select")
-      assert render(view) =~ "Default Zaq Agent"
+      refute render(view) =~ "Default Zaq Agent"
+      assert render(view) =~ "None"
     end
 
     test "switches to Skills tab", %{conn: conn} do
@@ -206,7 +207,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
 
       {:ok, _view, global_html} = live(conn, ~p"/bo/system-config?tab=global")
       assert global_html =~ "Global"
-      assert global_html =~ "Default Zaq Agent"
+      refute global_html =~ "Default Zaq Agent"
+      assert global_html =~ "None"
 
       {:ok, _view, outbound_html} = live(conn, ~p"/bo/system-config?tab=outbound_http")
       assert outbound_html =~ "Outbound HTTP"

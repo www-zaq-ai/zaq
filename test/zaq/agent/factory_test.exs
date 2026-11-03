@@ -10,7 +10,6 @@ defmodule Zaq.Agent.FactoryTest do
   alias Jido.AI.Skill.Resources
   alias Zaq.Accounts.Person
   alias Zaq.Agent
-  alias Zaq.Agent.Answering
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
   alias Zaq.Agent.InputPrompt
@@ -372,45 +371,6 @@ defmodule Zaq.Agent.FactoryTest do
 
     test "returns nil for an empty tool list" do
       assert Factory.tool_timeout_ms([]) == nil
-    end
-  end
-
-  describe "answering_configured_agent/0" do
-    test "returns a ConfiguredAgent with name answering" do
-      agent = Answering.answering_configured_agent()
-      assert %ConfiguredAgent{} = agent
-      assert agent.id == :answering
-      assert agent.name == "answering"
-    end
-
-    test "includes answering tool keys" do
-      agent = Answering.answering_configured_agent()
-      assert "answering.search_knowledge_base" in agent.enabled_tool_keys
-    end
-
-    test "is active and not conversation-enabled" do
-      agent = Answering.answering_configured_agent()
-      assert agent.active == true
-      assert agent.conversation_enabled == true
-    end
-
-    test "uses the configured LLM context window" do
-      Zaq.System.set_config("llm.max_context_window", "128000")
-
-      agent = Answering.answering_configured_agent()
-
-      assert agent.model_max_context_tokens == 128_000
-    end
-
-    test "leaves canonical credential loading to lifecycle authentication resolution" do
-      credential = seed_llm_config(%{api_key: "answering-key"})
-
-      agent = Answering.answering_configured_agent()
-
-      assert agent.credential_id == credential.id
-      assert agent.credential == nil
-      assert {:ok, runtime} = Factory.runtime_config(agent, actor: @execution_actor)
-      assert runtime.llm_opts[:api_key] == "answering-key"
     end
   end
 

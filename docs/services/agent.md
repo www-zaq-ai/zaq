@@ -2,10 +2,11 @@
 
 ## Overview
 
-The Agent service is the AI layer of ZAQ. It handles query rewriting, response formulation,
-confidence scoring, prompt security, and chunk title generation during ingestion.
+The Agent service is the AI layer of ZAQ. Configured agents own tool selection and
+response formulation; shared Actions own knowledge search, translation and reranking.
+The service also handles confidence scoring, prompt security and ingestion helpers.
 
-Core pipeline modules remain stateless, but configured agents are now runtime-managed.
+Configured agents are runtime-managed. There is no built-in Default Agent fallback.
 `Zaq.Agent.Supervisor` starts:
 - `DynamicSupervisor` (named `:Zaq.Agent.AgentServerSupervisor`)
 - `Zaq.Agent.ServerManager`
@@ -34,7 +35,7 @@ Before writing any new agent-service code, verify which entry point already cove
 | I need to… | Use |
 |---|---|
 | Ask a configured agent with its tools, history and lifecycle | `Executor.run/2` → `Factory.ask_with_config/4` |
-| Make a focused, tool-free one-shot LLM transformation | Keep generation in its owning Action/module; dedicated translation/title calls use `ProviderSpec.operation_runtime/1` for canonical authentication and adapter options. Legacy retrieval uses `build/1` and `generation_opts/1`. Do not add a generic Factory generation wrapper. |
+| Make a focused, tool-free one-shot LLM transformation | Keep generation in its owning Action/module; dedicated translation/title calls use `ProviderSpec.operation_runtime/1` for canonical authentication and adapter options. Do not add a generic Factory generation wrapper. |
 | Execute a configured agent | `Executor.run/2` — handles server presence, config loading, factory delegation |
 | Build a response from pipeline output | `Outgoing.from_pipeline_result/2` — do not construct response maps inline |
 | Store or read conversation turns | `Zaq.Agent.History` — `build/1`, `entry_key/2` |
@@ -73,8 +74,6 @@ Use this to decide where new code belongs. When a function would violate the "Do
 | `Executor` | Configured-agent lifecycle, config loading, factory delegation, `:answering` status broadcast | LLM call details, response struct construction |
 | `StreamEvents` | Request-local stream reduction, accepted-answer correlation and native-input evidence dispatch, buffered updates, trace/tool capture, model/measurement extraction | Server lifecycle, provider config, database persistence or outcome finalization |
 | `ServerManager` | `AgentServer` start/stop/lookup per configured agent id | Provider logic, URL handling, answer building, branching by agent type |
-| `Pipeline` | Orchestration of retrieval → answering steps, hook dispatch | LLM calls, response struct construction, agent-type branches, status broadcasts |
-| `Answering` | Answer extraction, `Result` struct, telemetry | Agent lifecycle, provider/credential details |
 | `Api` | `NodeRouter` dispatch entrypoint, PromptGuard gate, `:validating` status broadcast, route decision | Business logic beyond routing |
 | `Status` | Ordered intermediate upserts routed via NodeRouter to Channels | Orchestration, agent lifecycle, UI logic, PubSub subscription |
 | `History` | Conversation turn storage and retrieval helpers | LLM calls, pipeline logic |
@@ -97,7 +96,7 @@ IDs never resolve to an identity.
 
 ---
 
-## Pipeline Flow
+## Configured-agent execution flow
 
 The [incoming routing sequence](message-lifecycle.md#incoming-routing-overview)
 shows how Engine admits execution and selects the Agent hop through `NodeRouter`;
@@ -110,24 +109,7 @@ User question (BO Chat / Channel)
       → PromptGuard.validate/1              ← blocks prompt injection (single gate)
       → Status.broadcast(:validating)       ← PubSub → ChatLive
       → normalizes channel-resolved Incoming.person into Event.actor
-      → route decision:
-
-    [RAG path — no agent_selection]
-      → Pipeline.run/2
-          → Hooks.dispatch_sync(:retrieval, ...)
-          → Retrieval.ask/2                 ← LLM rewrites question into queries (JSON)
-              → Status.broadcast(:retrieving) ← PubSub → ChatLive
-          → Hooks.dispatch_async(:retrieval_complete, ...)
-          → Hooks.dispatch_sync(:answering, ...)
-          → DocumentProcessor.query_extraction  ← ranked KB chunks
-          → Executor.run/2  (agent_id: nil)
-              → Status.broadcast(:answering)  ← PubSub → ChatLive
-              → Factory.ask_with_config/4
-              → StreamEvents.consume/3       ← realtime updates + trace/measurements
-          → Hooks.dispatch_async(:answer_generated, ...)
-          → Hooks.dispatch_async(:pipeline_complete, ...)
-
-    [Configured-agent path — explicit or Engine-resolved agent_selection]
+      → explicit or Engine-resolved configured agent_selection
       → Executor.run/2  (agent_id: N)
           → Status.broadcast(:answering)    ← PubSub → ChatLive
           → Factory.ask_with_config/4
@@ -135,8 +117,19 @@ User question (BO Chat / Channel)
 
   → %Outgoing{} → Router.deliver → WebBridge.send_reply → PubSub → ChatLive
 
-  On no-answer: emits qa.no_answer.count telemetry
 ```
+
+The `:run_pipeline` event name remains a compatibility contract; it only executes
+configured agents. Missing/invalid selection returns a safe error and follows the
+existing outcome finalization path without starting a runtime. Internal workflow
+runs also require an explicit configured agent. Scoped `Default` continues to
+inherit routing rules; exhausted inheritance resolves to `None` in Engine, which
+does not request an Agent hop. See [incoming routing](engine.md#incoming-message-routing).
+
+Automatic busy-input controls use that same explicit configured identity when
+locating a live request. A canonical input without it is refused; it cannot target
+a synthetic `:answering` runtime or another configured agent's request. Existing
+principal/grant, exact-incarnation and receipt/finalization checks remain in force.
 
 ### Status broadcast ownership
 
@@ -153,30 +146,20 @@ Consumers may opt into `notify_execution_lifecycle` through trusted pipeline opt
 dispatch or ask-handle acquisition. Agent API reports safe `:submission_accepted` for
 accepted no-answer inputs and `:submission_rejected` for failed asynchronous admission
 through the existing ordered Status/Channels boundary. These are consumer-neutral
-lifecycle facts; only Channels translates them into a web protocol. Pipeline forwards
-the option and retains the started status-message identity for final response mapping.
+lifecycle facts; only Channels translates them into a web protocol. Agent API forwards
+the option to Executor for final response mapping.
 
 Each module broadcasts its own stage — orchestrators broadcast nothing:
 
 | Stage | Owner | Notes |
 |---|---|---|
 | `:validating` | `Api` | after PromptGuard passes; before routing |
-| `:retrieving` | `Retrieval` | at start of `ask/2`, before LLM call |
-| `:answering` | `Executor` | before `Factory.ask_with_config`; fires on both paths |
+| `:retrieving` | `SearchKnowledgeBase` | when the configured agent invokes search |
+| `:answering` | `Executor` | before `Factory.ask_with_config` |
 
 ---
 
 ## Modules
-
-### Pipeline (`Zaq.Agent.Pipeline`)
-- `run/2` — shared answering pipeline for all retrieval channels (Mattermost, Slack, chat widget, …). **Deprecated as a direct caller API**: invoke through `Zaq.Agent.Api` via `NodeRouter.dispatch/1` (`:run_pipeline`) instead of calling `Pipeline.run/2` from feature code.
-- Runs: retrieve → extract → answer → output safety check (input validation happens in `Api` before routing)
-- Returns a stable map: `:answer`, `:confidence_score`, `:latency_ms`, `:prompt_tokens`, `:completion_tokens`, `:total_tokens`, `:error`
-- On no-answer emits telemetry via `Zaq.Engine.Telemetry.record("qa.no_answer.count", 1, ...)`
-- Dispatches hook events: `:retrieval`, `:retrieval_complete`, `:answering`, `:answer_generated`, `:pipeline_complete`
-- All sub-modules injectable via opts (`:hooks`, `:node_router`, `:retrieval`, `:document_processor`, `:answering`, `:prompt_guard`, `:prompt_template`)
-- Pipeline broadcasts **no status events** — each sub-module owns its own stage signal
-- `telemetry_dimensions` opt: map of extra dimensions forwarded to telemetry metrics
 
 ### Status (`Zaq.Agent.Status`)
 - `broadcast/4,5` — ordered synchronous Channels upsert for intermediate stage and
@@ -227,7 +210,7 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
   granting the next lease. Accepted waiters and reservations survive history-access
   loss. Engine then prepares one immutable-receipt-linked root with a fresh
   capability. Only its creating caller replaces the trusted binding and enters the
-  normal Pipeline/Executor path, adopting rather than reacquiring the reserved lease.
+  normal Executor path, adopting rather than reacquiring the reserved lease.
   The internal handoff result/reservation is never public outgoing metadata or a
   scheduler; crashes do not resume it, and ambiguous starts are not retried.
   Native completion already visible during discovery follows ordinary admission.
@@ -260,10 +243,10 @@ Each module broadcasts its own stage — orchestrators broadcast nothing:
 - `:run_pipeline` is a single entrypoint with three sequential responsibilities:
   1. **Guard**: `PromptGuard.validate/1` — if it fails, returns a guard-blocked `Outgoing` through the standard persist + channels return-hop path (same delivery flow as regular pipeline responses)
   2. **Signal**: `Status.broadcast(:validating)` — fired once after the guard passes, before routing
-  3. **Route**: no `event.assigns["agent_selection"]` → `Pipeline.run/2`; `agent_id` present → `Executor.run/2`
+  3. **Execute**: a configured `agent_id` is required for `Executor.run/2`; missing selection is finalized as a safe refusal, not a default runtime.
 - `event.assigns["agent_selection"]` is produced upstream by Engine incoming routing. It may come from transient BO Chat explicit selection (`source: "bo_explicit"`) or persisted routing policy (`source: "channel"`, `"topic"`, `"provider"`, `"global"`, etc.). Agent API consumes both the same way.
 - Both `prompt_guard:` and `status_module:` are injectable via event opts for testing
-- `Zaq.Agent.Executor` loads the configured agent (or default answering agent), ensures server presence, broadcasts `:answering`, delegates dispatch to `Factory`, then consumes stream events through `StreamEvents`
+- `Zaq.Agent.Executor` loads the explicitly selected configured agent, ensures server presence, broadcasts `:answering`, delegates dispatch to `Factory`, then consumes stream events through `StreamEvents`
 - **Auditability rule (mandatory):** Engine admits and persists the incoming user message before Agent dispatch. `Zaq.Agent.Api` then finalizes the returned success or handled failure against that user-message ID before scheduling `:deliver_outgoing`. If finalization fails, the API returns `{:error, {:persist_failed, reason}}`, logs a sanitized reason, and does not deliver the generated answer. Agent keeps trace collection request-local; handled failures retain the trace at finalization, while process/node crashes are a separate durability guarantee.
 - **Assistant identity:** accepted streams obtain their selected root's Engine UUID
   before assistant-bearing output. API rechecks that reservation before finalizing
@@ -549,12 +532,9 @@ without safe permission mutation support return `:unsupported`.
   across languages/legs, and is enforced only after re-ranking alongside the
   existing token budget. It is an output ceiling, not a retrieval-candidate
   budget or guaranteed count; increasing it cannot bypass the token budget.
-  The legacy Pipeline uses the same validated Action/defaults and preserves
-  configured-reranking errors instead of reporting an ordinary negative answer.
 - Search returns direct matches only, never automatic section siblings.
   Accessible chunks carry `chunk_id`, `previous_chunk_id` and `next_chunk_id`.
-  The initial Pipeline answering context preserves these IDs too. The exact
-  fetch tool `GetKnowledgeBaseChunks` (key `answering.get_knowledge_base_chunks`)
+  The exact fetch tool `GetKnowledgeBaseChunks` (key `answering.get_knowledge_base_chunks`)
   accepts a nonempty list of positive integer `chunk_ids`; use a one-item list
   for one chunk, or previous/next IDs for incremental context expansion.
   It returns full requested accessible chunks in first-requested order, deduped,
@@ -563,8 +543,7 @@ without safe permission mutation support return `:unsupported`.
   IDs are unavailable without distinguishing the reason. Every fetch rechecks
   trusted permissions and source scope. See [Ingestion](ingestion.md#knowledge-chunk-navigation)
   for adjacency and ID lifetime.
-- The synthetic/default answering agent enables both search and exact fetch.
-  Persisted configured agents keep explicit tool selections: enable the new
+- Persisted configured agents keep explicit tool selections: enable the
   fetch key alongside search when desired; deployment does not grant it silently.
 
 ### Conversation Recall Tool (`Zaq.Agent.Tools.Accounts.History`, key `accounts.fetch_history`)
@@ -615,9 +594,6 @@ without safe permission mutation support return `:unsupported`.
   `:resolve_ai_runtime_credential` action. Engine loads provider configuration and
   resolves the associated Connect credential once; Factory translates that single
   result into runtime authentication without calling Engine/System contexts locally.
-- The built-in Answering agent retains only the configured provider ID; it does not load
-  the System credential row. Factory's Engine action performs the lifecycle read and
-  canonical resolution together.
 - Stores `context_window` runtime state (`max_context_tokens`, fixed `tokens_per_character`, safety margin) and forwards it through Jido `tool_context` for each request transformer run
 - Model-facing signed-value aliases use `OpaqueAliases`' existing schema traversal.
   With Zoi 0.18.11, defaults remain metadata on the underlying schema; traversal
@@ -632,7 +608,7 @@ without safe permission mutation support return `:unsupported`.
   discarded when it is untracked. `Executor.run/2` forwards this option. Calls
   without a custom provider retain the application-configured timeout at shutdown.
 - `Zaq.Identity.ExecutionActor` validates the shared contract: canonical `person.id`, or explicit `kind` (`bo_user`, `channel_subject`, `anonymous`, `system`) plus nonblank `subject`. JSON string-key actors normalize to the same identity. Conflicting/malformed declarations return `:invalid_execution_actor`, not a fallback identity. This validates identity shape, not authentication; only trusted origins may assert actors.
-- Executor passes one effective actor to runtime creation and request tool context. API rejects missing/invalid raw declarations before deriving permissions or invoking retrieval/Pipeline; permissive enrichment cannot discard conflicting aliases first.
+- Executor passes one effective actor to runtime creation and request tool context. API rejects missing/invalid raw declarations before deriving permissions or invoking an agent; permissive enrichment cannot discard conflicting aliases first.
 - Cold starts pass actor context to `Factory.runtime_config/2`, which synchronously asks
   Engine to resolve Connect authentication before spawn. The confidential envelope is
   excluded from observer/workflow broadcasts. The server retains the resulting runtime
@@ -705,7 +681,7 @@ without safe permission mutation support return `:unsupported`.
 - Eligible snapshots are published through the existing synchronous Status upsert
   while reducing events; terminal settlement never forces an intermediate edit.
   Only the last published snapshot is retained
-  for emission deduplication. StreamEvents, Executor and default answering Pipeline
+  for emission deduplication. StreamEvents and Executor
   carry canonical `tool_calls`, not parallel public snapshots, through success,
   handled-error and suppressed partial results. No-tool/pre-stream canonical
   results use `[]`. Agent API preserves private evidence for Engine finalization;
@@ -786,32 +762,9 @@ without safe permission mutation support return `:unsupported`.
 - Keeps OpenAI-compatible fallback behavior in the default runtime implementation so
   other modules do not branch by provider
 
-### Query Rewriting (`Zaq.Agent.Retrieval`)
-- **Deprecated:** `ask/2` remains for existing Pipeline/diagnostics callers only.
-  Its separate generation path is excluded from configured-agent author/time
-  presentation; deprecation does not change execution or migrate callers.
-- Rewrites user question into structured JSON search queries via LLM
-- Uses its fixed query-rewriting prompt
-- Supports conversation history
-- Returns string-keyed map — callers (Pipeline) normalize to atom keys internally
-
 ### Query Filters (`Zaq.Agent.QueryFilters`)
 - Canonical helper module for retrieval filter normalization and composition
 - Prevents ad-hoc filter shaping across retrieval callers
-
-### Response Formulation (`Zaq.Agent.Answering`)
-- Generates natural language answers from retrieved context
-- Uses DB-managed prompt template (`"answering"` slug)
-- Optionally computes confidence score from logprobs via `LogprobsAnalyzer.confidence_from_metadata/2` (when supported)
-- Emits telemetry: `qa.answer.latency_ms`, `qa.tokens.prompt`, `qa.tokens.completion`, `qa.tokens.total`, `qa.answer.confidence`, `qa.answer.confidence.bucket.*`
-- Returns `%Zaq.Agent.Answering.Result{}` struct
-- `no_answer?/1` — detects when LLM signals it couldn't find relevant info; checks against a fixed set of signal phrases (e.g. `"i don't have"`, `"no relevant"`, `"outside my knowledge"`)
-- `clean_answer/1` — strips markdown fences and surrounding quotes
-- `normalize_result/1` — converts legacy map or struct to `%Result{}`; handles atom-keyed maps, string-keyed maps, and bare strings
-
-### Answering Result (`Zaq.Agent.Answering.Result`)
-- Canonical struct for answer payloads across all callers and channels
-- Fields: `:answer`, `:confidence_score`, `:latency_ms`, `:prompt_tokens`, `:completion_tokens`, `:total_tokens`
 
 ### Citation Normalizer (`Zaq.Agent.CitationNormalizer`)
 - `normalize/3` — rewrites inline `[[source:path]]` and `[[memory:label]]` markers to numbered citation references
@@ -892,7 +845,7 @@ without safe permission mutation support return `:unsupported`.
   process-owned lease and incorporated cursor ledger, releasing queued callers
   only after native apply confirmation. Abandoned owners or failed application
   invalidate the runtime instead of advancing cursors. `HistorySync` coordinates
-  an explicit, caller-owned API completion session around Executor/Pipeline and
+  an explicit, caller-owned API completion session around Executor and
   Engine outcome persistence; session references and leases never enter outgoing
   metadata. After successful persistence, it rereads authorized additions, binds
   the native final answer to its persisted UUID, merges without duplicating inputs
@@ -955,7 +908,7 @@ without safe permission mutation support return `:unsupported`.
 ### Confidence Scoring (`Zaq.Agent.LogprobsAnalyzer`)
 - Converts logprobs to probabilities via `exp(logprob)`
 - `calculate_confidence/2` — average confidence across all tokens; accepts `logprobs_content` list and optional `round` flag
-- `confidence_from_metadata/2` — extracts `logprobs.content` from LangChain message metadata and calls `calculate_confidence/2`; used directly by `Answering`
+- Confidence helpers normalize provider logprobs; Executor uses confidence only when supplied by the runtime.
 - `confidence_from_metadata_or_nil/2` — convenience variant that returns `nil` on error instead of `{:error, reason}`
 - `token_confidences/1` — per-token confidence list with alternatives; defined but not called by the pipeline
 - Only invoked when logprobs are enabled for the active provider/options path
@@ -972,7 +925,7 @@ without safe permission mutation support return `:unsupported`.
 ### Prompt Templates (`Zaq.Agent.PromptTemplate`)
 - Ecto schema backed by `prompt_templates` DB table
 - Editable via Back Office (`prompt_templates_live`)
-- Built-in slug: `"image_to_text"`. Answering and retrieval no longer use this table.
+- Built-in slug: `"image_to_text"`. Configured-agent prompts come from their stored job and enabled skills, not legacy answering/retrieval templates.
 - `body` is the prompt used at runtime; `default_body` stores an independent baseline.
 - `body_customized` records user ownership, not text equality. A persisted body change sets it;
   metadata edits and unchanged saves preserve it. Ordinary form parameters cannot change the
@@ -1012,9 +965,6 @@ without safe permission mutation support return `:unsupported`.
 lib/zaq/agent/
 ├── configured_agent.ex          # Ecto schema for BO-managed configured agents
 ├── executor.ex                  # Selected-agent execution path; broadcasts :answering
-├── answering/
-│   └── result.ex               # Canonical answer result struct
-├── answering.ex                # Response formulation constants and helpers
 ├── citation_normalizer.ex      # Rewrites [[source:...]] markers to numbered refs
 ├── factory.ex                  # Runtime-configured standard Jido agent
 ├── history.ex                  # Conversation history map helpers
@@ -1028,12 +978,10 @@ lib/zaq/agent/
 │   ├── endpoint.ex             # MCP endpoint schema
 │   ├── runtime.ex              # MCP runtime id mapping, guards, registration helpers
 │   └── signal_adapter.ex       # MCP signal normalization for RuntimeSync
-├── pipeline.ex                 # Unified answering pipeline for all channels
 ├── prompt_guard.ex             # Prompt injection + leakage protection
 ├── prompt_template.ex          # Ecto schema + context for DB-stored prompts
 ├── provider_spec.ex            # Provider normalization + model spec policy
 ├── query_filters.ex            # Retrieval query filter helpers
-├── retrieval.ex                # Query rewriting agent; broadcasts :retrieving
 ├── runtime_sync.ex             # Runtime orchestration for agent + MCP mutations
 ├── stream_events.ex            # Stream reduction, realtime updates, trace capture
 ├── server_manager.ex           # Ensures one AgentServer per configured agent id
@@ -1050,23 +998,14 @@ lib/zaq/agent/
 
 ## Configuration
 
-- Managed in Back Office at `/bo/system-config`
-- Persisted in `system_configs`
-- Loaded at runtime via `Zaq.System.get_llm_config/0`
+Configured agents own their model, credential reference, sampling, context window,
+job and enabled tools. The legacy global LLM selection does not select a fallback
+chat runtime. Shared retrieval budgets and dedicated operation models retain their
+existing storage contracts; see [System configuration](system-config.md) for those
+settings and the canonical credential boundary.
 
-LLM keys stored in System Config:
-
-- `llm.credential_id`
-- `llm.model`
-- `llm.temperature`
-- `llm.top_p`
-- `llm.supports_logprobs`
-- `llm.supports_json_mode`
-- `llm.max_context_window`
-- `llm.distance_threshold`
-
-Connection fields (`provider`, `endpoint`, `api_key`) are resolved from
-`ai_provider_credentials` using `llm.credential_id`.
+For the routing cutover, retained compatibility names and retired Pipeline hooks,
+see [the deployment upgrade guide](../operations/deployment.md#upgrading-to-configured-only-agent-execution).
 
 ## Outbound HTTP Tool
 
@@ -1111,19 +1050,18 @@ page URLs are redacted. A capture error occurs before the PNG upload step.
 
 ## Key Design Decisions
 
-- **`Api` is the security boundary** — `PromptGuard.validate/1` runs once in `Api` before routing; neither `Pipeline` nor `Executor` call it for input validation; Pipeline still calls `output_safe?/1` on the LLM response
-- **Status ownership follows work ownership** — each module broadcasts its own stage signal (`Api` → `:validating`, `Retrieval` → `:retrieving`, `Executor` → `:answering`); orchestrators (`Pipeline`) broadcast nothing
+- **`Api` is the security boundary** — `PromptGuard.validate/1` runs once in `Api` before configured execution; streaming output is not automatically filtered by `output_safe?/1`.
+- **Status ownership follows work ownership** — each module broadcasts its own stage signal (`Api` → `:validating`, `SearchKnowledgeBase` → `:retrieving`, `Executor` → `:answering`).
 - **Status broadcasts route via NodeRouter** — `Status.broadcast/4` routes through `NodeRouter.dispatch/1` so the PubSub broadcast runs on the BO node where `ChatLive` is subscribed; the 4th `node_router` arg is injectable (default `Zaq.NodeRouter`) so unit tests pass a `FakeNodeRouter` that calls `apply/3` locally
-- **`Api` is the only supported cross-role entrypoint** — dispatch a `%Zaq.Event{}` to `:agent` with action `:run_pipeline`; incoming channel messages first pass through Engine routing. Follow the [dispatch contract](../architecture.md#noderouter--critical), not generic invoke helpers; direct `Pipeline.run/2` calls are deprecated outside agent internals
-- **All sub-modules injectable** — Pipeline accepts module overrides for every dependency, enabling isolated unit tests without mocking globals
-- **Hook system** — sync and async hooks dispatched at pipeline stage boundaries; external features attach via hooks without modifying core pipeline logic
+- **`Api` is the only supported cross-role entrypoint** — dispatch a `%Zaq.Event{}` to `:agent` with compatibility action `:run_pipeline` and a configured selection; incoming channel messages first pass through Engine routing. Follow the [dispatch contract](../architecture.md#noderouter--critical), not generic invoke helpers.
+- **Runtime dependencies** — Api/Executor accept their established dependency options; legacy Pipeline module overrides are removed.
+- **Hook system** — ingestion, conversation and channel events remain. The five legacy Pipeline stage events are retired; see `Zaq.Hooks.documented_events/0`.
 - **Provider policy has one boundary** — `ProviderSpec` is the generic facade and its
   static Agent-owned implementations contain provider-specific ReqLLM translation;
   generation callers use Factory while model discovery uses narrow ProviderSpec APIs
 - **Prompt templates in DB** — editable at runtime without deploys; agents raise if missing
 - **Confidence is optional** — gracefully skipped when `supports_logprobs?` is false
 - **NodeRouter for cross-node calls** — BO uses the [Event/dispatch contract](../architecture.md#noderouter--critical), never direct remote Agent calls; generic invoke helpers are legacy
-- **Answering.Result struct** — canonical shape shared across channels; `normalize_result/1` converts legacy maps
 
 ### Public error contract
 
@@ -1150,7 +1088,7 @@ and post-login continuation remain People portal concerns.
   registered implementations own provider-specific ReqLLM options and endpoint policy.
   Connect resolves authentication/identity and Factory assembles generation runtimes.
   Do not add provider branches to ProviderSpec, Factory or consumers.
-- **Configured-agent parity**: the default answering agent is a configured agent with defaults, not a special case. `ServerManager` must not branch by agent type; answering-only behavior must fit the general path or be removed.
+- **Configured-only execution**: an explicit configured-agent ID is required. `ServerManager` must not branch by agent type or manufacture a default answering agent.
 - **Minimal lifecycle state**: if state exists only to trigger future behavior, use `Process.send_after/3` instead.
 - **Provider catalog**: read provider names, endpoint configuration and capability flags from `llm_db` at runtime, not hardcoded source lists.
 - **Ownership-aligned telemetry**: avoid duplicate emitters; module doing work emits the stage/metric.

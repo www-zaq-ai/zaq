@@ -481,6 +481,101 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
     )
   end
 
+  @tag timeout: 180_000, routing_inheritance: true
+  test "explicit NONE overrides a configured global and clearing it resumes inherited execution",
+       ctx do
+    owner = self()
+
+    handler =
+      ToolCallingLLMStub.handler(
+        routes: [
+          %{
+            match: &String.contains?(&1, "add 2 and 3"),
+            tool: "add",
+            arguments: fn _ -> %{value: 2, amount: 3} end
+          }
+        ],
+        final_response: fn %{tool_result: result} ->
+          assert result == %{"ok" => true, "result" => %{"result" => 5.0}}
+          "The real sum is 5."
+        end
+      )
+
+    {spec, endpoint} =
+      OpenAIStub.server(
+        fn conn, body ->
+          response = handler.(conn, body)
+
+          if MultiAgentOpenAIStub.tool_results(Jason.decode!(body)) != [] do
+            send(owner, {:inherited_model_waiting, self()})
+
+            receive do
+              :release_inherited_answer -> :ok
+            after
+              30_000 -> raise "Browser did not observe inherited tool execution"
+            end
+          end
+
+          response
+        end,
+        owner
+      )
+
+    start_supervised!(spec)
+    configured = configured_agent(endpoint)
+    :ok = Zaq.System.set_global_default_agent_id(configured.id)
+    widget = widget(ctx, nil)
+
+    HistoryBrowser.run!(
+      %{
+        runner: "test/e2e/support/widget-lifecycle-browser.cjs",
+        engine: "chromium",
+        scenario: "routing-inheritance",
+        parent_origin: ctx.parent_origin,
+        widget_id: widget.id
+      },
+      fn
+        "no-answer", state ->
+          assert Repo.aggregate(widget_messages(widget.id), :count) == 1
+          assert Repo.aggregate(widget_executions(widget.id), :count) == 0
+          refute_received {:openai_request, _, _, _, _}
+          {%{}, state}
+
+        "inherit", state ->
+          assert {:ok, _} = IncomingMessageRouting.delete_rule(%{channel_config_id: widget.id})
+          assert IncomingMessageRouting.get_rule(%{channel_config_id: widget.id}) == nil
+          {%{}, state}
+
+        "tools-visible", state ->
+          assert_receive {:inherited_model_waiting, worker}, 15_000
+          send(worker, :release_inherited_answer)
+          {%{}, state}
+
+        "saved", state ->
+          execution = Repo.one!(widget_executions(widget.id))
+          input = Repo.get!(Message, execution.user_message_id)
+
+          {%{
+             answer_id: execution.reserved_answer_message_id,
+             conversation_id: input.conversation_id
+           }, state}
+      end
+    )
+
+    # The browser has restored durable history, rather than merely seeing a final
+    # streaming delta. Check canonical completion after that read barrier.
+    execution = Repo.one!(widget_executions(widget.id))
+    assert execution.status == "completed"
+    answer = Repo.get!(Message, execution.public_answer_message_id)
+    assert answer.content == "The real sum is 5."
+
+    assert [%{"name" => "add", "state" => "succeeded"}] =
+             ToolStep.from_trace(execution.trace_entries)
+
+    assert Repo.aggregate(widget_messages(widget.id), :count) == 3
+    refute_received {:llm_stub_error, _}
+  end
+
   test "inactive sender is rejected before Agent execution and retains the draft", ctx do
     widget = widget(ctx, nil)
 
@@ -710,7 +805,7 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
   end
 
   defp restore_dependencies do
-    keys = [:node_router, :pipeline_executor_module, :pipeline_hooks_module]
+    keys = [:node_router, :pipeline_hooks_module]
     previous = Map.new(keys, &{&1, Application.fetch_env(:zaq, &1)})
     Enum.each(keys, &Application.delete_env(:zaq, &1))
 

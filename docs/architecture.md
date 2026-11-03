@@ -93,7 +93,7 @@ Example: `incoming` is an already normalized `%Zaq.Engine.Messages.Incoming{}`;
 
 ```elixir
 # WRONG — breaks multi-node
-Zaq.Agent.Retrieval.ask(question, opts)
+Zaq.Agent.Executor.run(incoming, agent_id: configured_agent_id)
 
 # CORRECT — Engine applies incoming routing policy before the Agent hop
 event =
@@ -287,21 +287,20 @@ registration/recovery and the event registry, in addition to telemetry and adapt
 
 ---
 
-## Agent Pipeline
+## Configured-agent execution
 
-The agent pipeline is coordinated through `Zaq.Agent.Pipeline`:
+Agent execution uses the single configured-agent lifecycle:
 
 ```
 Normalized Incoming + trusted actor
   → Engine :route_incoming_message  ← identity enrichment and routing policy
-  → Agent :run_pipeline             ← role API validates input and selects execution path
-      → Pipeline (default RAG)      ← retrieve → extract → answer → output safety check
-      → Executor (selected agent)   ← configured-agent execution
+  → configured selection -> Agent :run_pipeline (compatibility action name)
+      → Executor -> Factory         ← configured-agent execution and tools
+  → no eligible selection -> None   ← history/workflow-only, no Agent hop
 ```
 
 Key agent modules:
 
-- `Zaq.Agent.Pipeline` — orchestrates the full RAG flow
 - `Zaq.Agent.ProviderSpec` / `Zaq.Agent.Factory` — provider normalization and runtime/model configuration
 - `Zaq.Agent.Executor` / `Zaq.Agent.ServerManager` — run lifecycle and Jido server management
 - `Zaq.Agent.History` — conversation history management
@@ -312,9 +311,10 @@ Configured-agent execution path:
 - BO chat dispatches `%Incoming{provider: :web}` to Engine with `action: :route_incoming_message`
 - Optional explicit BO selection is carried in `event.assigns["agent_selection"]` with `source: "bo_explicit"`
 - Engine incoming routing turns the request into the executable agent `:run_pipeline` hop
-- On the agent node, `Zaq.Agent.Api` decides:
-  - no selection -> `Zaq.Agent.Pipeline.run/2`
-  - explicit selection -> `Zaq.Agent.Executor.run/2`
+- On the agent node, `Zaq.Agent.Api` validates the admitted request and executes
+  `Zaq.Agent.Executor.run/2` with a configured selection. Direct requests without
+  selection receive a safe finalized refusal; they never bootstrap a built-in agent.
+- Scoped `Default` still inherits broader rules; explicit `None` remains terminal.
 - `Zaq.Agent.Executor` derives conversation/person/session/anonymous scope and asks `ServerManager` for the matching Jido runtime; server identity is not just a configured-agent id
 
 ### Configured Agent Runtime Lifecycle
