@@ -40,7 +40,7 @@ test("touch-opened tooltips ignore compatibility mouse leave, mouse-opened ones 
   for (const pointerType of ["touch", "mouse"]) {
     const { hook, tooltip, trigger } = fixture()
     hook.onPointerDown({ target: trigger, pointerType })
-    hook.onClick({ target: trigger, stopPropagation() {} })
+    hook.onClick({ target: trigger, detail: 1, stopPropagation() {} })
     hook.onPointerLeave({ pointerType: "mouse", relatedTarget: null })
     assert.equal(tooltip.open, pointerType === "touch")
   }
@@ -54,7 +54,8 @@ test("touch tooltips still close on full clipping, outside click, blur and Escap
     hook => hook.onKey({ key: "Escape", stopPropagation() {} })
   ]) {
     const { hook, tooltip, trigger } = fixture()
-    hook.show(trigger, true)
+    hook.onPointerDown({ target: trigger, pointerType: "touch" })
+    hook.onClick({ target: trigger, detail: 1, stopPropagation() {} })
     dismiss(hook)
     assert.equal(tooltip.open, false)
   }

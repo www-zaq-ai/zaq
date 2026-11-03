@@ -11,6 +11,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   alias Zaq.Accounts
   alias Zaq.Agent
   alias Zaq.Agent.MCP
+  alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.ZAQRouter
   alias Zaq.Channels.DataSourceBridge
   alias Zaq.Channels.DiskBridge
