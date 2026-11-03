@@ -641,7 +641,6 @@ defmodule ZaqWeb.WidgetLifecycleBrowserTest do
         )
 
       start_supervised!(spec)
-      OpenAIStub.seed_llm_config(endpoint, model: "gpt-4.1-mini")
       configured = configured_agent(endpoint)
 
       policy =

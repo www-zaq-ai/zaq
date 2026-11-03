@@ -301,6 +301,7 @@ defmodule Zaq.E2E.Reset do
 
   @doc "Reset system configuration and AI credentials to the E2E baseline."
   def reset_system_config! do
+    Repo.delete_all(Zaq.Engine.IncomingMessageRoutingRule)
     Repo.delete_all(ConfiguredAgent)
     Repo.delete_all(MCPEndpoint)
 
