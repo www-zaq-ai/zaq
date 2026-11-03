@@ -78,6 +78,118 @@ defmodule Zaq.Agent.KnowledgeNavigationFlowIntegrationTest do
     refute_received {:llm_stub_error, _}
   end
 
+  test "agent can complete a thirteen-chunk proposal by fetching only unseen returned neighbors" do
+    scope = "proposal-navigation-#{Ecto.UUID.generate()}"
+    {:ok, person} = People.create_person(%{full_name: "Proposal reader #{scope}"})
+    {:ok, document} = Document.upsert(%{source: "#{scope}/proposal.md"})
+    {:ok, _} = Permissions.grant_public(document)
+
+    chunks =
+      Enum.map(1..13, fn index ->
+        content = if index in 7..10, do: "Additional slide", else: "proposalneedle slide"
+        insert_chunk(document, index, "#{content} #{index}")
+      end)
+
+    test_pid = self()
+
+    {child, endpoint} =
+      OpenAIStub.server(fn _, body -> complete_proposal(body, test_pid) end, test_pid)
+
+    start_supervised!(child)
+
+    agent =
+      IntegrationAgent.create!(
+        endpoint,
+        scope,
+        "Use search content directly and fetch only missing context through returned neighbor IDs.",
+        ["answering.search_knowledge_base", "answering.get_knowledge_base_chunks"]
+      )
+
+    outgoing =
+      Executor.run(
+        %Incoming{
+          content: "Read the complete proposalneedle proposal, including its missing slides.",
+          channel_id: scope,
+          provider: :web,
+          person: person
+        },
+        agent_id: to_string(agent.id),
+        scope: scope
+      )
+
+    assert outgoing.metadata.error == false
+
+    assert outgoing.body ==
+             "Read all thirteen proposal chunks without refetching visible content."
+
+    assert outgoing.metadata.sources == [document.source]
+    assert_received {:proposal_search, search_chunks}
+    assert length(search_chunks) == 9
+    assert_received {:proposal_fetch, first_ids}
+    assert_received {:proposal_fetch, second_ids}
+    refute_received {:proposal_fetch, _}
+    search_ids = Enum.map(search_chunks, & &1["chunk_id"])
+    assert Enum.sort(first_ids ++ second_ids) == Enum.map(Enum.slice(chunks, 6, 4), & &1.id)
+    assert Enum.all?(first_ids ++ second_ids, &(&1 not in search_ids))
+    assert length(Enum.uniq(first_ids ++ second_ids)) == 4
+    refute_received {:llm_stub_error, _}
+  end
+
+  defp complete_proposal(body, test_pid) do
+    request = MultiAgentOpenAIStub.decode_request!(body)
+    tools = Map.new(request["tools"], &{&1["name"], &1})
+    assert tools["search_knowledge_base"]["description"] =~ "usable content"
+    assert tools["get_knowledge_base_chunks"]["description"] =~ "Never guess"
+    results = MultiAgentOpenAIStub.tool_results(request)
+
+    case results do
+      [] ->
+        {200,
+         MultiAgentOpenAIStub.tool_call_sse(
+           "search_knowledge_base",
+           %{query: "proposalneedle", lexical_terms: ["proposalneedle"], search_mode: "keyword"},
+           model: "gpt-4.1-mini",
+           call_id: "proposal-search",
+           fc_id: "fc_proposal_search"
+         )}
+
+      [search | _] ->
+        assert Enum.all?(results, & &1.output["ok"])
+
+        if length(results) == 1,
+          do: send(test_pid, {:proposal_search, search.output["result"]["chunks"]})
+
+        visible = Enum.flat_map(results, & &1.output["result"]["chunks"])
+        seen = MapSet.new(visible, & &1["chunk_id"])
+
+        missing =
+          visible
+          |> Enum.flat_map(&[&1["previous_chunk_id"], &1["next_chunk_id"]])
+          |> Enum.filter(&(is_integer(&1) and not MapSet.member?(seen, &1)))
+          |> Enum.uniq()
+          |> Enum.sort()
+
+        if missing == [] do
+          {200,
+           MultiAgentOpenAIStub.text_sse(
+             "Read all thirteen proposal chunks without refetching visible content.",
+             "gpt-4.1-mini"
+           )}
+        else
+          send(test_pid, {:proposal_fetch, missing})
+
+          {200,
+           MultiAgentOpenAIStub.tool_call_sse(
+             "get_knowledge_base_chunks",
+             %{chunk_ids: missing},
+             model: "gpt-4.1-mini",
+             call_id: "proposal-fetch-#{length(results)}",
+             fc_id: "fc_proposal_fetch_#{length(results)}"
+           )}
+        end
+    end
+  end
+
   defp insert_chunk(document, index, content) do
     {:ok, chunk} =
       Chunk.create(%{

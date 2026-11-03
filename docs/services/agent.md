@@ -538,6 +538,9 @@ without safe permission mutation support return `:unsupported`.
   [#915](https://github.com/www-zaq-ai/zaq/issues/915). It is an output ceiling, not a retrieval-candidate
   budget or guaranteed count; increasing it cannot bypass the token budget.
 - Search returns direct matches only, never automatic section siblings.
+  Accessible matches already contain usable content, not just references. Tool
+  descriptions instruct agents to use it directly, avoid near-identical parallel
+  searches without distinct information needs, and stop when evidence is sufficient.
   Both knowledge tools declare a deduplicated `sources` list from the chunks
   actually returned. Exposed source identities on denied chunks are included;
   citation propagation does not decide access. Agents cite only sources used in
@@ -550,12 +553,20 @@ without safe permission mutation support return `:unsupported`.
   The exact fetch tool `GetKnowledgeBaseChunks` (key `answering.get_knowledge_base_chunks`)
   accepts a nonempty list of positive integer `chunk_ids`; use a one-item list
   for one chunk, or previous/next IDs for incremental context expansion.
+  Follow neighbor IDs returned by search or fetch; never infer contiguous ID ranges.
+  Avoid fetching content already visible unless refreshing it or recovering pruned
+  context. This is model guidance, not automatic suppression of repeated requests.
   It returns full requested accessible chunks in first-requested order, deduped,
   plus `count` and `unavailable_ids`. It performs no search, re-ranking, automatic
   expansion or search-budget truncation. Missing, stale, denied and out-of-source
   IDs are unavailable without distinguishing the reason. Every fetch rechecks
   trusted permissions and source scope. See [Ingestion](ingestion.md#knowledge-chunk-navigation)
   for adjacency and ID lifetime.
+  Permission regression coverage exercises all three search modes and exact fetch
+  through real Ingestion/SQL checks, including person/team grants, nil identity,
+  trusted bypass, source restrictions, and revocation between search and fetch.
+  The configured-agent navigation test uses a controlled external provider to
+  verify missing-only retrieval; it does not establish autonomous model compliance.
 - Persisted configured agents keep explicit tool selections: enable the
   fetch key alongside search when desired; deployment does not grant it silently.
 

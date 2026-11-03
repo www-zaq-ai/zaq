@@ -17,9 +17,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     meaningful independent words or phrases, preserving names and identifiers;
     clauses match independently (OR), without splitting the question into filler.
     All modes re-rank when the RAG model is configured. max_total_results defaults
-    to 100 globally; the context-token budget may return fewer. Results contain
-    chunk_id and previous_chunk_id/next_chunk_id; use get_knowledge_base_chunks
-    to fetch additional context rather than assuming surrounding chunks are included.
+    to 100 globally; the context-token budget may return fewer. Accessible results
+    already contain usable content, not just references; use that content directly.
+    For missing context, pass returned previous_chunk_id/next_chunk_id values to
+    get_knowledge_base_chunks; surrounding chunks are not automatically included.
+    Avoid near-identical parallel searches unless each serves a distinct information need.
+    Stop retrieving once you have sufficient evidence to answer.
     Cite sources used in your answer as [[source:path]], using paths from sources.
     A returned source may identify a document requiring access; do not infer its content.
     """,

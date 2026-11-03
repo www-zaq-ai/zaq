@@ -228,9 +228,13 @@ behind the agent tool. It fetches only requested accessible IDs, preserves their
 first-requested order and reports remaining IDs as unavailable without revealing
 whether they are missing, private or outside the source scope. It does not apply
 the search's count/token budget or perform implicit context expansion. Nil
-identity never bypasses ACLs; privileged bypass is explicit trusted context.
-Denied search placeholders retain the existing contract without the new chunk
-IDs, navigation or private metadata. Permissions are checked afresh on exact fetch.
+identity never bypasses ACLs; privileged bypass requires literal
+`skip_permissions: true` in trusted context, never model-supplied arguments.
+Denied search placeholders redact content, chunk IDs, navigation and selected
+metadata. They currently retain section headings in `section_path`; closing that
+metadata leak requires coordinated fusion changes tracked in
+[#917](https://github.com/www-zaq-ai/zaq/issues/917). Permissions are checked afresh
+on exact fetch, including when a grant was revoked after search.
 
 IDs reference persisted rows, not immutable document versions. Re-ingestion or
 deletion can invalidate them; fetch reports stale IDs as unavailable. No backfill

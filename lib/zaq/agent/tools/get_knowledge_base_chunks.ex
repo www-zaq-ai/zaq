@@ -9,10 +9,15 @@ defmodule Zaq.Agent.Tools.GetKnowledgeBaseChunks do
   use Zaq.Engine.Workflows.Action,
     name: "get_knowledge_base_chunks",
     description: """
-    Fetch one or multiple knowledge chunks by ID. Use chunk_id, previous_chunk_id
-    or next_chunk_id from search results to obtain surrounding context explicitly.
+    Fetch one or multiple knowledge chunks by ID only when their content is needed.
+    Search results already contain usable content. Do not fetch content already visible
+    unless you need to refresh it or recover content pruned from your context.
+    Follow returned neighbor IDs (previous_chunk_id/next_chunk_id) from search or fetch
+    results to read missing context. Never guess IDs or assume a contiguous ID range.
     Returns only the requested accessible chunks, in requested order; missing or
     inaccessible IDs are unavailable. Does not search or expand neighbors.
+    Current document permissions are rechecked on every fetch; knowing an ID grants no access.
+    Stop retrieving once you have sufficient evidence to answer.
     Cite sources used in your answer as [[source:path]], using paths from sources.
     """,
     schema:
