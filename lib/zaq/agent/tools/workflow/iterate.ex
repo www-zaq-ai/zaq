@@ -60,27 +60,27 @@ defmodule Zaq.Agent.Tools.Workflow.Iterate do
 
   @impl true
   def validate(node) do
-    case prepare_pipeline(node) do
-      {:ok, %{"params" => params}} -> validate_body(Map.get(params, "body"))
-      {:error, _} = error -> error
+    with {:ok, %{"params" => params}} <- prepare_pipeline(node),
+         :ok <- validate_pipeline(params["body"], "process") do
+      validate_pipeline(params["post_process"] || [], "post_process")
     end
   end
 
   # Each lowered body node is validated through the single node validator
   # (`Step.Node.validate_node_map/1`) — the same rules a top-level node gets, with
   # no Batch-specific re-derivation of type/module/contract checks.
-  defp validate_body([_ | _] = body) do
-    body
+  defp validate_pipeline(nodes, pipeline) when is_list(nodes) do
+    nodes
     |> Enum.with_index()
     |> Enum.reduce_while(:ok, fn {bnode, i}, :ok ->
       case Step.Node.validate_node_map(bnode) do
         :ok -> {:cont, :ok}
-        {:error, msg} -> {:halt, {:error, "process node #{i}: #{msg}"}}
+        {:error, msg} -> {:halt, {:error, "#{pipeline} node #{i}: #{msg}"}}
       end
     end)
   end
 
-  defp validate_body(_body), do: {:error, "process must list at least one node"}
+  defp validate_pipeline(_nodes, pipeline), do: {:error, "#{pipeline} must be a list of nodes"}
 
   # Delivery field comes from the body's first action's input schema.
   # `Action.batch_field/1` guards module loading, so we only need the atom here.

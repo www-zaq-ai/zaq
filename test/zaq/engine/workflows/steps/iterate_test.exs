@@ -19,6 +19,24 @@ defmodule Zaq.Engine.Workflows.Steps.IterateTest do
     end
   end
 
+  defmodule RecordAndPause do
+    @moduledoc false
+    use Zaq.Engine.Workflows.Action,
+      name: "test_iterate_record_and_pause",
+      schema: Zoi.object(%{value: Zoi.any(), phase: Zoi.string() |> Zoi.optional()}),
+      output_schema: Zoi.object(%{value: Zoi.any()})
+
+    @impl true
+    def run(params, context) do
+      if params.value == "pause" do
+        run = Workflows.get_run!(context.run_id)
+        {:ok, _} = Workflows.update_run(run, %{status: "paused"})
+      end
+
+      Zaq.Engine.Workflows.Steps.IterateTest.Record.run(params, context)
+    end
+  end
+
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
@@ -73,7 +91,45 @@ defmodule Zaq.Engine.Workflows.Steps.IterateTest do
     assert Enum.find(steps, &(&1.step_name == "loop/tail[1]")).results["value"] == 9
   end
 
-  defp execute(items, strategy \\ "skip_and_continue") do
+  test "resume preserves isolated failures without repeating effects or error records" do
+    paused = execute(["fail", "pause", 3], "skip_and_continue", RecordAndPause)
+    assert paused.status == "paused"
+    assert observations() == [{"body", "fail"}, {"body", "pause"}]
+    refute aggregate(paused)
+
+    [failed] =
+      paused.id
+      |> Workflows.list_step_runs()
+      |> Enum.filter(&(&1.status == "failed_fatal"))
+
+    assert failed.step_name == "loop/body[0]"
+    assert failed.errors == %{"reason" => ":test_failure"}
+
+    assert {:ok, resumed} = Workflows.resume_run(Workflows.get_run!(paused.id))
+    assert resumed.status == "completed"
+
+    # All three observations must survive replay unchanged: effects, persistence,
+    # and the error presented by collection.
+    actual = %{
+      effects: observations(),
+      failed_step_ids:
+        resumed.id
+        |> Workflows.list_step_runs()
+        |> Enum.filter(&(&1.step_name == failed.step_name))
+        |> Enum.map(& &1.id),
+      errors: aggregate(resumed).results["errors"],
+      count: aggregate(resumed).results["count"]
+    }
+
+    assert actual == %{
+             effects: [{"tail", "pause"}, {"body", 3}, {"tail", 3}],
+             failed_step_ids: [failed.id],
+             errors: [%{"index" => 0, "item" => failed.input, "reason" => ":test_failure"}],
+             count: 3
+           }
+  end
+
+  defp execute(items, strategy \\ "skip_and_continue", record_module \\ Record) do
     {:ok, workflow} =
       Workflows.create_workflow(%{
         name: "Iterate #{System.unique_integer([:positive])}",
@@ -93,7 +149,7 @@ defmodule Zaq.Engine.Workflows.Steps.IterateTest do
             index: 1,
             params: %{
               "strategy" => strategy,
-              "process" => [body("body", %{})],
+              "process" => [Map.put(body("body", %{}), "module", inspect(record_module))],
               "post_process" => [body("tail", %{"value" => "body.value"})]
             }
           },

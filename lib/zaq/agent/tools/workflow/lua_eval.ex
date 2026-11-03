@@ -46,9 +46,10 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEval do
       ],
       data: [type: :any, default: %{}, doc: "Value exposed through the Lua global data."],
       return_mode: [
-        type: {:in, [:first, :list]},
+        type: {:in, [:first, :list, "first", "list"]},
         default: :first,
-        doc: "Return the first value (:first) or all values (:list) under result."
+        doc:
+          "Return the first value (first) or all values (list) under result; accepts strings or atoms."
       ],
       eval_timeout_ms: [
         type: :pos_integer,
@@ -69,7 +70,7 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEval do
     lua_params = %{
       code: code,
       globals: %{data: Map.get(params, :data, %{})},
-      return_mode: Map.get(params, :return_mode, :first),
+      return_mode: normalize_return_mode(Map.get(params, :return_mode, :first)),
       timeout_ms: Map.get(params, :eval_timeout_ms, 1000)
     }
 
@@ -79,6 +80,10 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEval do
       {:error, _reason} = error -> error
     end
   end
+
+  defp normalize_return_mode("first"), do: :first
+  defp normalize_return_mode("list"), do: :list
+  defp normalize_return_mode(mode), do: mode
 
   defp normalize([]), do: []
 
