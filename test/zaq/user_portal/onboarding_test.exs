@@ -9,6 +9,8 @@ defmodule Zaq.UserPortal.OnboardingTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Agent
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.System
   alias Zaq.UserPortal.ClientMock
   alias Zaq.UserPortal.Onboarding
@@ -189,7 +191,8 @@ defmodule Zaq.UserPortal.OnboardingTest do
       assert is_nil(credential.api_key)
 
       # Provider is listed, but not wired as the active model configuration.
-      assert is_nil(System.get_llm_config().credential_id)
+      assert {:error, :agent_not_found} = Agent.get_agent_by_name("ZAQ Assistant")
+      assert is_nil(IncomingMessageRouting.get_rule(%{}))
       assert is_nil(System.get_embedding_config().credential_id)
       assert is_nil(System.get_image_to_text_config().credential_id)
     end

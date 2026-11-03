@@ -6,6 +6,22 @@ defmodule Zaq.System.RAGSettingsTest do
   alias Zaq.System.RAGModelConfig
   alias Zaq.System.RetrievalConfig
 
+  test "retrieval defaults and invalid stored values retain the cosine cutoff default" do
+    assert %RetrievalConfig{max_cosine_distance: 0.45} = System.get_retrieval_config()
+
+    for value <- ["", "invalid"] do
+      System.set_config("llm.max_cosine_distance", value)
+      assert System.get_retrieval_config().max_cosine_distance == 0.45
+    end
+  end
+
+  test "retrieval preserves a stored cosine cutoff" do
+    System.set_config("llm.max_cosine_distance", "0.62")
+
+    assert System.get_retrieval_config().max_cosine_distance == 0.62
+    assert System.get_config("llm.max_cosine_distance") == "0.62"
+  end
+
   test "retrieval reads use saved tuning without loading legacy model credentials" do
     System.set_config("llm.max_cosine_distance", 0.8)
     System.set_config("llm.fusion_bm25_weight", 0.3)
@@ -101,7 +117,7 @@ defmodule Zaq.System.RAGSettingsTest do
                "fusion_vector_weight" => "0"
              })
 
-    assert System.get_llm_config().fusion_bm25_weight == 0.5
+    assert System.get_retrieval_config().fusion_bm25_weight == 0.5
     assert {:error, _} = System.save_retrieval_config(%{"max_cosine_distance" => ""})
   end
 

@@ -20,6 +20,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     to 100 globally; the context-token budget may return fewer. Results contain
     chunk_id and previous_chunk_id/next_chunk_id; use get_knowledge_base_chunks
     to fetch additional context rather than assuming surrounding chunks are included.
+    Cite sources used in your answer as [[source:path]], using paths from sources.
+    A returned source may identify a document requiring access; do not infer its content.
     """,
     schema:
       Zoi.object(%{
@@ -34,6 +36,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     output_schema:
       Zoi.object(%{
         chunks: Zoi.list(Zoi.map()),
+        sources: Zoi.list(Zoi.string()),
         count: Zoi.integer(),
         errors:
           Zoi.list(
@@ -55,6 +58,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   }
 
   alias Zaq.Agent.Status
+  alias Zaq.Agent.Tools.KnowledgeSources
   alias Zaq.Event
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
@@ -184,7 +188,14 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
            context
          ) do
       {:ok, limited} when is_list(limited) ->
-        {:ok, %{chunks: limited, count: length(limited), errors: errors, partial: errors != []}}
+        {:ok,
+         %{
+           chunks: limited,
+           sources: KnowledgeSources.from_chunks(limited),
+           count: length(limited),
+           errors: errors,
+           partial: errors != []
+         }}
 
       {:error, reason} ->
         {:error, "Knowledge base context limiting failed: #{inspect(reason)}"}

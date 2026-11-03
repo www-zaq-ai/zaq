@@ -12,6 +12,28 @@ defmodule ZaqWeb.E2EControllerTest do
     :ok
   end
 
+  test "fake search excludes conversational filler and input annotations", %{conn: conn} do
+    request = %{
+      "messages" => [
+        %{
+          "role" => "user",
+          "content" =>
+            "What do you know about unique_signal?\n\n[Input context: Admin; person 42]"
+        }
+      ],
+      "tools" => [%{"function" => %{"name" => "search_knowledge_base"}}]
+    }
+
+    response =
+      ZaqWeb.E2EController.fake_llm(%{conn | body_params: request}, %{}) |> json_response(200)
+
+    [choice] = response["choices"]
+    [call] = choice["message"]["tool_calls"]
+    arguments = Jason.decode!(call["function"]["arguments"])
+    assert arguments["lexical_terms"] == ["unique_signal"]
+    assert arguments["query"] == "What do you know about unique_signal?"
+  end
+
   test "fake model searches on each user turn and cites only actual tool results", %{conn: conn} do
     alias ZaqWeb.E2EController
 

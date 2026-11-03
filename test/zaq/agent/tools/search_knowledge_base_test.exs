@@ -6,6 +6,36 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   alias Zaq.Event
   alias Zaq.TestSupport.OpenAIStub
 
+  defmodule SourceBudgetRouter do
+    alias Zaq.Agent.Tools.SearchKnowledgeBaseTest.StubNodeRouter
+    alias Zaq.Ingestion.Api
+
+    def dispatch(%Event{request: %{token_budget: _}} = event),
+      do: Api.handle_event(event, :limit_knowledge_results, nil)
+
+    def dispatch(%Event{request: %{access_opts: _}} = event) do
+      %{
+        event
+        | response:
+            {:ok,
+             [
+               %{"source" => "denied.md", "content" => "You don't have access to this chunk."},
+               %{"source" => "discarded.md", "content" => String.duplicate("large ", 5_000)}
+             ]}
+      }
+    end
+
+    def dispatch(event), do: StubNodeRouter.dispatch(event)
+  end
+
+  test "declared sources include denied identities but not budget-discarded chunks" do
+    assert {:ok, %{sources: ["denied.md"], count: 1}} =
+             SearchKnowledgeBase.run(%{query: "needle", search_mode: "semantic"}, %{
+               node_router: SourceBudgetRouter,
+               context_window: %{max_context_tokens: 5_000}
+             })
+  end
+
   defmodule BudgetRouter do
     alias Zaq.Agent.Tools.SearchKnowledgeBaseTest.StubNodeRouter
 
@@ -487,6 +517,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                SearchKnowledgeBase.run(%{query: "find elixir", lexical_terms: ["test"]}, context)
 
       assert result.count == 2
+      assert result.sources == ["docs/elixir.md"]
 
       [first_chunk | _] = result.chunks
       assert String.contains?(first_chunk["content"], "Elixir runs on the BEAM VM.")

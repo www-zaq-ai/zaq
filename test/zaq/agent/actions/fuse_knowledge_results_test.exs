@@ -40,7 +40,7 @@ defmodule Zaq.Agent.Actions.FuseKnowledgeResultsTest do
     assert overlap["retrieval_legs"] == ["lexical", "vector"]
     assert overlap["bm25_score"] == 0.8
     assert overlap["vector_distance"] == 0.1
-    weights = Zaq.System.get_llm_config()
+    weights = Zaq.System.get_retrieval_config()
 
     assert_in_delta overlap["rrf_score"],
                     weights.fusion_bm25_weight / 62 + weights.fusion_vector_weight / 61,

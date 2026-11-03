@@ -3766,7 +3766,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
           endpoint: "https://api.openai.com/v1"
         })
 
-      System.set_config("llm.credential_id", credential.id)
+      System.set_config("embedding.credential_id", credential.id)
 
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=ai_credentials")
 
@@ -8919,8 +8919,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
                }
              }) =~ "Retrieval settings saved"
 
-      assert System.get_llm_config().max_cosine_distance == 0.8
-      assert System.get_llm_config().model == "keep-model"
+      assert System.get_retrieval_config().max_cosine_distance == 0.8
+      assert System.get_config("llm.model") == "keep-model"
     end
   end
 

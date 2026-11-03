@@ -3,23 +3,26 @@ defmodule Zaq.UserPortal.Provisioner do
   Provisions the ZAQ Router credential from user portal onboarding results.
 
   This module owns the portal-specific bootstrap behavior: creating or updating
-  the "ZAQ Router" credential, and wiring first-run model configs when the
-  portal returns a LiteLLM API key. Secret-bearing credential mutations are dispatched
-  to Engine; local System calls are limited to existing configuration reads/writes.
+  the "ZAQ Router" credential, configured assistant and first-run model configs when the
+  portal returns a LiteLLM API key. Credential and routing mutations are dispatched
+  to Engine, and configured-agent operations to Agent; local System calls are
+  limited to existing configuration reads/writes.
   """
 
+  alias Zaq.Agent
   alias Zaq.Agent.ZAQRouter
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.System
   alias Zaq.System.AIProviderCredential
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
-  alias Zaq.System.LLMConfig
 
   require Logger
 
   @credential_name "ZAQ Router"
+  @agent_name "ZAQ Assistant"
   @description "ZAQ Router gives you the ability to access different models."
   @engine_actor %{kind: :system, subject: "user-portal-provisioner"}
 
@@ -49,10 +52,8 @@ defmodule Zaq.UserPortal.Provisioner do
   Claims a LiteLLM API key from the portal for `email` **without** writing
   anything locally. Returns `{:ok, %{litellm_api_key: key}}` or `{:error, reason}`.
 
-  Pair with `provision_with_key/1` to persist the credential. Keeping the portal
-  HTTP call separate from the DB write lets the bootstrap flow commit the
-  credential in the same transaction as the account registration, so a failed
-  registration never leaves an orphaned credential.
+  Pair with `provision_with_key/1` to persist the credential and bootstrap its
+  configured agent after account registration has succeeded.
   """
   @spec claim_key(String.t()) :: {:ok, %{litellm_api_key: String.t()}} | {:error, term()}
   def claim_key(email) when is_binary(email) do
@@ -75,8 +76,8 @@ defmodule Zaq.UserPortal.Provisioner do
   Creates the "ZAQ Router" credential with no API key, used when the portal is
   unreachable during onboarding so the provider is still listed for the user.
 
-  Unlike `provision_with_key/1`, this does **not** wire the LLM/embedding/image
-  configs and does **not** overwrite an existing credential. A later successful
+  Unlike `provision_with_key/1`, this does **not** create an agent or wire
+  embedding/image configs and does **not** overwrite an existing credential. A later successful
   portal claim updates the same credential by name and fills in the API key.
   """
   @spec ensure_offline_credential(keyword()) ::
@@ -103,13 +104,11 @@ defmodule Zaq.UserPortal.Provisioner do
         existing -> update_credential(existing, attrs, opts)
       end
 
-    case result do
-      {:ok, credential} ->
-        provision_system_configs(credential)
-        {:ok, credential}
-
-      error ->
-        error
+    with {:ok, credential} <- result,
+         {:ok, agent} <- provision_agent(credential, opts),
+         {:ok, _routing} <- provision_global_routing(agent, opts) do
+      provision_system_configs(credential)
+      {:ok, credential}
     end
   end
 
@@ -143,8 +142,12 @@ defmodule Zaq.UserPortal.Provisioner do
   end
 
   defp dispatch_engine(request, action, opts) do
+    dispatch(request, :engine, action, opts)
+  end
+
+  defp dispatch(request, destination, action, opts) do
     event =
-      Event.new(request, :engine,
+      Event.new(request, destination,
         actor: @engine_actor,
         opts: [action: action, confidential: true]
       )
@@ -154,15 +157,46 @@ defmodule Zaq.UserPortal.Provisioner do
     |> then(& &1.dispatch(event).response)
   end
 
+  defp provision_agent(%AIProviderCredential{id: credential_id}, opts) do
+    request = %{module: Agent, function: :get_agent_by_name, args: [@agent_name]}
+
+    case dispatch(request, :agent, :invoke, opts) do
+      {:error, :agent_not_found} ->
+        attrs = %{
+          name: @agent_name,
+          job: "Help users answer questions using the company knowledge base.",
+          credential_id: credential_id,
+          model: ZAQRouter.default_chat_model(),
+          conversation_enabled: true,
+          enabled_tool_keys: [
+            "answering.search_knowledge_base",
+            "answering.get_knowledge_base_chunks"
+          ]
+        }
+
+        dispatch(%{module: Agent, function: :create_agent, args: [attrs]}, :agent, :invoke, opts)
+
+      result ->
+        result
+    end
+  end
+
+  defp provision_global_routing(agent, opts) do
+    case IncomingMessageRouting.get_rule(%{}) do
+      nil ->
+        dispatch_engine(
+          %{rules: [%{routing_mode: "agent", configured_agent_id: agent.id}]},
+          :upsert_incoming_message_routing_rules,
+          opts
+        )
+
+      rule ->
+        {:ok, rule}
+    end
+  end
+
   defp provision_system_configs(%AIProviderCredential{id: cred_id}) do
     {embedding_model, embedding_dimension} = ZAQRouter.default_embedding_model()
-
-    if is_nil(System.get_llm_config().credential_id) do
-      %LLMConfig{}
-      |> LLMConfig.changeset(%{credential_id: cred_id, model: ZAQRouter.default_chat_model()})
-      |> System.save_llm_config()
-      |> log_config_result("LLM")
-    end
 
     if is_nil(System.get_embedding_config().credential_id) do
       %EmbeddingConfig{}

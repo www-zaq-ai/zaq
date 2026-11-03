@@ -13,8 +13,8 @@ Onboarding turns a freshly installed ZAQ instance into a usable one by:
 2. Asking for **consent** to provision a ZAQ Portal account (email + machine
    signals are sent to the portal).
 3. On acceptance, **provisioning** the "ZAQ Router" credential with the LiteLLM
-   API key returned by the portal, and wiring first-run LLM / embedding /
-   image-to-text configs.
+   API key returned by the portal, creating a configured assistant, and wiring
+   first-run embedding / image-to-text configs.
 
 If consent is declined or the portal is unreachable, the instance is still
 fully usable — a keyless "ZAQ Router" credential is scaffolded so the provider
@@ -25,7 +25,7 @@ is listed, and the user can retry later from the dashboard banner.
 | Module | Responsibility |
 | ------ | -------------- |
 | `Zaq.UserPortal.Onboarding` | Boundary orchestrator: registration write, consent persistence, provisioning sequencing. |
-| `Zaq.UserPortal.Provisioner` | Owns the "ZAQ Router" credential — creates/updates it and wires first-run model configs from the portal's LiteLLM key. Delegates persistence to `Zaq.System`. |
+| `Zaq.UserPortal.Provisioner` | Owns portal bootstrap defaults: the "ZAQ Router" credential, configured assistant and initial routing, plus embedding/image model configs. Dispatches credential/routing mutations to Engine and configured-agent operations to Agent. |
 | `Zaq.UserPortal.Client` | HTTP client for the portal API (`POST /onboarding`, `PATCH /account/email`, `GET /onboarding/:slug`). |
 | `Zaq.UserPortal.ClientBehaviour` | Behaviour resolved via `Application.get_env(:zaq, :user_portal_client, …)`; tests substitute a `Mox` mock. |
 | `Zaq.UserPortal.AccountSync` | Best-effort sync of email changes to the portal for `accepted` users only. |
@@ -54,8 +54,8 @@ Entry point: an admin whose account is still in the pending state.
 3. **Accept** (`accept_portal_consent`) → `complete_bootstrap_onboarding(user,
    attrs, :accepted)`. **Registration is committed first** (`ZAQ-first`), then
    the portal is provisioned — a portal failure never blocks account creation:
-   - **Provisioning succeeds** → consent `"accepted"`, credential + model configs
-     wired, post-accept modal shown.
+   - **Provisioning succeeds** → consent `"accepted"`, credential + configured
+     assistant + model configs wired, post-accept modal shown.
    - **Provisioning fails** (unreachable or 5xx) → the account stays registered,
      consent is recorded `"declined"`, the keyless "ZAQ Router" credential is
      scaffolded, and the user is routed to `/bo/dashboard` with an info flash so
@@ -86,7 +86,8 @@ bootstrap. Metadata + reachability are fetched **once** on component mount.
 - `accept_portal_consent` → `Onboarding.activate_portal(user, entered_email)`.
 - `activate_portal/2` validates the email up front, provisions, and persists the
   email + `"accepted"` consent **only after provisioning succeeds** — a failed
-  attempt commits nothing.
+  attempt does not change email or consent. Successfully provisioned resources
+  remain available for an idempotent retry if a later step fails.
 - `entered_email` is used when the user has no email on file, or when they supply
   a non-blank override (the 409 email-correction flow).
 - Errors are mapped to UI modes: `:allow_override` (email conflict) or
@@ -106,11 +107,19 @@ Persisted on `users.portal_consent`:
 
 - `provision_for_user/1` — calls `client().onboard_user(email)`; on
   `{:ok, %{litellm_api_key: key}}` runs `provision_with_key/2`, which creates/updates
-  the "ZAQ Router" credential and wires first-run `LLMConfig`, `EmbeddingConfig`,
-  and `ImageToTextConfig`.
+  the "ZAQ Router" credential and creates the active, conversation-enabled configured
+  agent `ZAQ Assistant`, using the router's default chat model and these tool keys:
+  `answering.search_knowledge_base`, `answering.get_knowledge_base_chunks`.
+  Its job defines its purpose only; search, chunk navigation and citation instructions
+  remain in the tools. Retries reuse the named agent without overwriting user edits.
+  A global routing rule selects it only when no global rule exists; existing agent
+  assignments and explicit `None` rules are preserved. Agent/routing failures are
+  returned to onboarding, rather than reporting success for a partial setup.
+  First-run `EmbeddingConfig` and `ImageToTextConfig` wiring remains best-effort
+  and never overwrites existing configuration. No legacy `LLMConfig` is read or written.
 - `ensure_offline_credential/0` — creates the "ZAQ Router" credential with **no**
-  API key using explicit no-auth configuration (does not wire model configs and does
-  not overwrite an existing credential). A later successful claim updates the same
+  API key using explicit no-auth configuration (does not create an agent/routing,
+  wire model configs, or overwrite an existing credential). A later successful claim updates the same
   credential by name, switches its associated Connect credential to API-key auth and
   fills the canonical org grant.
 
@@ -136,6 +145,8 @@ associated canonical Connect org grant, not the retained legacy AI key field.
 
 ## Tests
 
+- `test/zaq/user_portal/provisioner_test.exs` — provider/agent/tool bootstrap, routing,
+  retries, preserved configuration, offline scaffolding and dispatch failures.
 - `test/zaq/user_portal/onboarding_test.exs` — orchestrator unit tests.
 - `test/zaq_web/live/bo/system/onboarding_scenarios_test.exs` — bootstrap flow scenarios.
 - `test/zaq_web/live/bo/system/onboarding_scenarios_integration_test.exs` — integration scenarios.

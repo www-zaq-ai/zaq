@@ -13,6 +13,7 @@ defmodule Zaq.Agent.Tools.GetKnowledgeBaseChunks do
     or next_chunk_id from search results to obtain surrounding context explicitly.
     Returns only the requested accessible chunks, in requested order; missing or
     inaccessible IDs are unavailable. Does not search or expand neighbors.
+    Cite sources used in your answer as [[source:path]], using paths from sources.
     """,
     schema:
       Zoi.object(%{
@@ -21,10 +22,12 @@ defmodule Zaq.Agent.Tools.GetKnowledgeBaseChunks do
     output_schema:
       Zoi.object(%{
         chunks: Zoi.list(Zoi.map()),
+        sources: Zoi.list(Zoi.string()),
         count: Zoi.integer(),
         unavailable_ids: Zoi.list(Zoi.integer())
       })
 
+  alias Zaq.Agent.Tools.KnowledgeSources
   alias Zaq.Event
   alias Zaq.NodeRouter
 
@@ -46,6 +49,9 @@ defmodule Zaq.Agent.Tools.GetKnowledgeBaseChunks do
       )
 
     router = Map.get(context, :node_router, NodeRouter)
-    router.dispatch(event).response
+
+    with {:ok, %{chunks: chunks} = result} <- router.dispatch(event).response do
+      {:ok, Map.put(result, :sources, KnowledgeSources.from_chunks(chunks))}
+    end
   end
 end

@@ -26,9 +26,7 @@ defmodule Zaq.System.RetrievalConfig do
     |> validate_fields()
   end
 
-  @doc "Shared validation for retrieval tuning, including legacy provisioning changesets."
-  @spec validate_fields(Ecto.Changeset.t()) :: Ecto.Changeset.t()
-  def validate_fields(changeset) do
+  defp validate_fields(changeset) do
     changeset
     |> validate_required([:max_cosine_distance, :fusion_bm25_weight, :fusion_vector_weight])
     |> validate_number(:max_cosine_distance,

@@ -783,7 +783,7 @@ defmodule Zaq.Agent.Executor do
       llm_calls: Map.get(stream_result, :llm_calls, []),
       trace: stream_result.trace,
       trace_artifacts: Map.get(stream_result, :trace_artifacts, []),
-      sources: []
+      sources: Map.get(stream_result, :sources, [])
     }
   end
 
@@ -833,6 +833,7 @@ defmodule Zaq.Agent.Executor do
       :trace,
       :trace_artifacts,
       :tool_calls,
+      :sources,
       :llm_calls,
       :termination_reason,
       :measurements,

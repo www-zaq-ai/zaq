@@ -538,6 +538,14 @@ without safe permission mutation support return `:unsupported`.
   [#915](https://github.com/www-zaq-ai/zaq/issues/915). It is an output ceiling, not a retrieval-candidate
   budget or guaranteed count; increasing it cannot bypass the token budget.
 - Search returns direct matches only, never automatic section siblings.
+  Both knowledge tools declare a deduplicated `sources` list from the chunks
+  actually returned. Exposed source identities on denied chunks are included;
+  citation propagation does not decide access. Agents cite only sources used in
+  their answers with `[[source:path]]`. StreamEvents collects successful tool
+  declarations per request and Executor forwards them to the existing citation
+  normalizer and history pipeline. Uncited declarations do not produce badges;
+  unknown citation paths remain excluded. Opening content retains its existing
+  authorization checks.
   Accessible chunks carry `chunk_id`, `previous_chunk_id` and `next_chunk_id`.
   The exact fetch tool `GetKnowledgeBaseChunks` (key `answering.get_knowledge_base_chunks`)
   accepts a nonempty list of positive integer `chunk_ids`; use a one-item list

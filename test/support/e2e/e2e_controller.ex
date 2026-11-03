@@ -705,7 +705,13 @@ defmodule ZaqWeb.E2EController do
 
     if available? and not Enum.any?(current_results, &(&1["role"] == "tool")) do
       user = messages |> Enum.reverse() |> Enum.find(%{}, &(&1["role"] == "user"))
-      query = Map.get(user, "content", "")
+
+      query =
+        user
+        |> Map.get("content", "")
+        |> String.split("\n\n[Input context:", parts: 2)
+        |> hd()
+        |> String.trim()
 
       %{
         "tool_calls" => [
@@ -718,7 +724,7 @@ defmodule ZaqWeb.E2EController do
               "arguments" =>
                 Jason.encode!(%{
                   query: query,
-                  lexical_terms: String.split(query, ~r/[^\p{L}\p{N}_-]+/u, trim: true),
+                  lexical_terms: search_terms(query),
                   search_mode: "keyword",
                   max_total_results: 3
                 })
@@ -727,6 +733,15 @@ defmodule ZaqWeb.E2EController do
         ]
       }
     end
+  end
+
+  defp search_terms(query) do
+    filler = ~w(what do you know about can tell me please the a an is are how of in for)
+
+    query
+    |> String.split(~r/[^\p{L}\p{N}_-]+/u, trim: true)
+    |> Enum.reject(&(String.downcase(&1) in filler))
+    |> Enum.uniq()
   end
 
   defp llm_delta(content) when is_map(content), do: content

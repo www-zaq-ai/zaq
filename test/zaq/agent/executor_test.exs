@@ -423,6 +423,35 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
+  defmodule SourceFactory do
+    alias Zaq.Agent.ExecutorTest.ToolStepFactory
+
+    def ask_with_config(server, content, agent, opts) do
+      {:ok, request} = ToolStepFactory.ask_with_config(server, content, agent, opts)
+
+      source_event = %{
+        kind: :tool_completed,
+        at_ms: 0,
+        tool_call_id: "sources",
+        data: %{tool_name: "knowledge", result: {:ok, %{sources: ["returned.md"]}, []}}
+      }
+
+      {:ok, %{request | events: [source_event | request.events]}}
+    end
+  end
+
+  test "Executor preserves declared sources on success and partial terminal paths" do
+    for mode <- ~w(success failure cancelled suppressed) do
+      outgoing =
+        Executor.run(
+          %{@incoming | content: mode},
+          Keyword.merge(@base_opts, factory_module: SourceFactory, status_module: ToolStepStatus)
+        )
+
+      assert outgoing.metadata.sources == ["returned.md"]
+    end
+  end
+
   test "all Executor terminal paths retain canonical facts for the same public projection" do
     for mode <- ~w(success failure cancelled suppressed) do
       outgoing =

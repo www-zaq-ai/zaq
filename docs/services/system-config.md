@@ -107,10 +107,13 @@ own chat model selection and sampling. Retrieval uses `RetrievalConfig` through
 credentials. Cosine distance and fusion weights retain their `llm.*` storage keys.
 Search results use an explicit caller token budget, currently 20% of the invoking
 agent's maximum context size, rather than `llm.max_context_window`.
-The legacy LLM configuration API/storage remains for the deferred Provisioner
-adjustment and compatibility; do not drop the entire `llm.*` namespace or
-credentials referenced by other operations. Engine no longer exposes the legacy
-global-LLM read/save UI events. The legacy LLM
+The legacy LLM schema and read/save APIs are removed. Portal provisioning creates
+a configured assistant instead of writing global LLM settings. Existing global
+chat-model rows are left untouched but no longer consumed; a stale
+`llm.credential_id` does not block provider deletion. Active model references
+remain protected. Historical migrations retain legacy-key reads for upgrades;
+do not drop the entire `llm.*` namespace because retrieval still uses it.
+Engine no longer exposes the legacy global-LLM read/save UI events. The legacy LLM
 diagnostics probe is removed, while embedding, image-to-text, Python and token
 diagnostics remain. Configured agents persist their own sampling values;
 new agents receive temperature `0.0` and top_p `0.9` without requiring user input.
@@ -122,20 +125,15 @@ Malformed, null, non-finite and out-of-range values become the fixed defaults
 do not inherit global settings. Migrated JSON retains unrelated options. Dedicated
 fields take precedence over duplicate Advanced options JSON keys at runtime.
 
-- LLM config is read via `Zaq.System.get_llm_config/0`
+- Retrieval config is read via `Zaq.System.get_retrieval_config/0`
 - Embedding config is read via `Zaq.System.get_embedding_config/0`
 - Image-to-text config is read via `Zaq.System.get_image_to_text_config/0`
 
-### LLM Keys
+### Retrieval Keys (retained storage namespace)
 
-- `llm.credential_id`
-- `llm.model`
-- `llm.temperature`
-- `llm.top_p`
-- `llm.supports_logprobs`
-- `llm.supports_json_mode`
-- `llm.max_context_window`
-- `llm.distance_threshold`
+- `llm.max_cosine_distance`
+- `llm.fusion_bm25_weight`
+- `llm.fusion_vector_weight`
 
 ### Embedding Keys
 

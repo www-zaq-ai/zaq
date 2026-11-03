@@ -65,6 +65,7 @@ defmodule Zaq.Agent.KnowledgeNavigationFlowIntegrationTest do
 
     assert outgoing.metadata.error == false
     assert outgoing.body == "Retrieved the requested surrounding context."
+    assert outgoing.metadata.sources == [document.source]
     assert_received {:agent_search_result, %{"count" => 1, "chunks" => [hit]}}
     assert hit["chunk_id"] == target.id
     assert hit["previous_chunk_id"] == previous.id
@@ -72,6 +73,7 @@ defmodule Zaq.Agent.KnowledgeNavigationFlowIntegrationTest do
     assert_received {:agent_fetch_result, fetched}
     assert Enum.map(fetched["chunks"], & &1["chunk_id"]) == [previous.id, following.id]
     assert fetched["unavailable_ids"] == [private.id]
+    assert fetched["sources"] == [document.source]
     refute inspect(fetched) =~ "Private data never disclosed"
     refute_received {:llm_stub_error, _}
   end
