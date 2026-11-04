@@ -7,11 +7,14 @@ defmodule Zaq.UserPortal.Provisioner do
   portal returns a LiteLLM API key. Credential and routing mutations are dispatched
   to Engine, and configured-agent operations to Agent; local System calls are
   limited to existing configuration reads/writes.
+
+  A successful portal claim records versioned, non-secret email provenance in
+  credential metadata, atomically with canonical authentication. Matching retries
+  resume local bootstrap without claiming the remote account again.
   """
 
   alias Zaq.Agent
   alias Zaq.Agent.ZAQRouter
-  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.System
@@ -61,14 +64,44 @@ defmodule Zaq.UserPortal.Provisioner do
   end
 
   @doc """
-  Calls the portal to onboard the user by email and provisions the ZAQ credential
-  with the returned API key. Returns `{:ok, credential}` or `{:error, reason}`.
+  Claims and persists the portal credential, or resumes bootstrap for a recorded
+  claim of the same email. A recorded claim with unusable authentication fails
+  locally rather than claiming again. Returns `{:ok, credential}` or an error.
   """
   @spec provision_for_user(String.t()) :: {:ok, AIProviderCredential.t()} | {:error, term()}
   def provision_for_user(email) when is_binary(email) do
-    case claim_key(email) do
-      {:ok, litellm} -> provision_with_key(litellm)
-      {:error, reason} -> {:error, reason}
+    existing = System.get_ai_provider_credential_by_name(@credential_name)
+
+    case existing do
+      %AIProviderCredential{
+        metadata: %{"user_portal_claim" => %{"version" => 1, "email" => ^email}}
+      } ->
+        resume_claim(existing)
+
+      _ ->
+        with {:ok, %{litellm_api_key: api_key}} <- claim_key(email),
+             metadata =
+               Map.put(claim_metadata(existing), "user_portal_claim", %{
+                 "version" => 1,
+                 "email" => email
+               }),
+             {:ok, credential} <- persist_key(api_key, existing, metadata, []) do
+          bootstrap_credential(credential, [])
+        end
+    end
+  end
+
+  defp claim_metadata(nil), do: %{}
+  defp claim_metadata(%AIProviderCredential{metadata: metadata}), do: metadata || %{}
+
+  defp resume_claim(credential) do
+    case System.resolve_ai_provider_authentication(credential) do
+      {:ok, %{auth_kind: "api_key", authentication: %{api_key: key}}}
+      when is_binary(key) and byte_size(key) > 0 ->
+        bootstrap_credential(credential, [])
+
+      _ ->
+        {:error, :portal_claim_credential_unavailable}
     end
   end
 
@@ -96,16 +129,24 @@ defmodule Zaq.UserPortal.Provisioner do
   @spec provision_with_key(%{litellm_api_key: String.t()}, keyword()) ::
           {:ok, AIProviderCredential.t()} | {:error, term()}
   def provision_with_key(%{litellm_api_key: api_key}, opts \\ []) when is_binary(api_key) do
-    attrs = credential_attrs(%{api_key: api_key, auth_kind: "api_key"})
+    existing = System.get_ai_provider_credential_by_name(@credential_name)
 
-    result =
-      case System.get_ai_provider_credential_by_name(@credential_name) do
-        nil -> create_credential(attrs, opts)
-        existing -> update_credential(existing, attrs, opts)
-      end
+    with {:ok, credential} <- persist_key(api_key, existing, claim_metadata(existing), opts) do
+      bootstrap_credential(credential, opts)
+    end
+  end
 
-    with {:ok, credential} <- result,
-         {:ok, agent} <- provision_agent(credential, opts),
+  defp persist_key(api_key, existing, metadata, opts) do
+    attrs = credential_attrs(%{api_key: api_key, auth_kind: "api_key", metadata: metadata})
+
+    case existing do
+      nil -> create_credential(attrs, opts)
+      existing -> update_credential(existing, attrs, opts)
+    end
+  end
+
+  defp bootstrap_credential(credential, opts) do
+    with {:ok, agent} <- provision_agent(credential, opts),
          {:ok, _routing} <- provision_global_routing(agent, opts) do
       provision_system_configs(credential)
       {:ok, credential}
@@ -182,17 +223,15 @@ defmodule Zaq.UserPortal.Provisioner do
   end
 
   defp provision_global_routing(agent, opts) do
-    case IncomingMessageRouting.get_rule(%{}) do
-      nil ->
-        dispatch_engine(
-          %{rules: [%{routing_mode: "agent", configured_agent_id: agent.id}]},
-          :upsert_incoming_message_routing_rules,
-          opts
-        )
-
-      rule ->
-        {:ok, rule}
-    end
+    dispatch_engine(
+      %{
+        rules: [
+          %{routing_mode: "agent", configured_agent_id: agent.id, write_mode: "insert_if_absent"}
+        ]
+      },
+      :upsert_incoming_message_routing_rules,
+      opts
+    )
   end
 
   defp provision_system_configs(%AIProviderCredential{id: cred_id}) do

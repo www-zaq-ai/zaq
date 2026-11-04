@@ -446,6 +446,18 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   describe "run/2 — basic behaviour" do
+    test "empty discovery satisfies the output schema through Action execution" do
+      assert {:ok, %{chunks: [], sources: [], count: 0, errors: [], partial: false}} =
+               Jido.Exec.run(
+                 SearchKnowledgeBase,
+                 %{query: "find something", lexical_terms: ["something"]},
+                 %{
+                   node_router: EmptyDiscoveryRouter,
+                   context_window: %{max_context_tokens: 5_000}
+                 }
+               )
+    end
+
     test "returns the exact error when language discovery fails" do
       assert {:error, "Knowledge base language discovery failed: :inventory_unavailable"} =
                SearchKnowledgeBase.run(

@@ -68,8 +68,9 @@ defmodule Zaq.UserPortal.Onboarding do
   explicitly provides a non-blank override (inline email-correction flow after a
   409 conflict). The email is validated up front, so an invalid address never
   reaches the portal, and both the email and the accepted consent are persisted
-  **only after provisioning succeeds** — a failed provisioning attempt commits
-  nothing.
+  **only after provisioning succeeds**. A successful portal claim and credential
+  are retained if later local bootstrap fails, so retries can resume without a
+  second remote claim. A failed attempt does not change the user's email/consent.
 
   Returns `{:ok, user}`, `{:error, %Ecto.Changeset{}}` for an invalid/blank email,
   or `{:error, reason}` when provisioning fails.
@@ -88,7 +89,7 @@ defmodule Zaq.UserPortal.Onboarding do
   # A 409 means the email is already provisioned in the portal. Re-provisioning
   # cannot help, so guarantee the keyless ZAQ Router credential exists (the call
   # is idempotent) for the user to paste their existing key into, then surface
-  # the conflict. No consent is written — a failed retry commits nothing.
+  # the conflict. No user email or consent is written on failure.
   defp provision_or_scaffold_on_conflict(email) do
     case Provisioner.provision_for_user(email) do
       {:ok, _credential} = ok ->

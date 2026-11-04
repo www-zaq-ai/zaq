@@ -756,7 +756,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("save_global_default_agent", %{"global_default_agent_id" => raw_id}, socket) do
-    case engine_set_global_default_agent_id(ParseUtils.parse_optional_int(raw_id)) do
+    selection = if raw_id == "none", do: :none, else: ParseUtils.parse_optional_int(raw_id)
+
+    case engine_set_global_default_agent_id(selection) do
       :ok ->
         {:noreply,
          socket
@@ -2218,13 +2220,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp unwrap_ok!({:ok, value}), do: value
   defp unwrap_ok!(value), do: value
 
-  defp engine_get_global_default_agent_id,
-    do: dispatch_engine(:system_config_get_global_default_agent_id)
+  defp engine_get_global_default_agent_id do
+    case dispatch_engine(:system_config_get_global_default_agent_id, %{include_none: true}) do
+      :none -> "none"
+      id -> id
+    end
+  end
 
   defp engine_set_global_default_agent_id(id) do
     rule =
       case id do
         nil -> %{routing_mode: :clear}
+        :none -> %{routing_mode: :none}
         id -> %{routing_mode: :agent, configured_agent_id: id}
       end
 

@@ -144,7 +144,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     )
 
     case dispatch(:list_chunk_languages, %{}, context) do
-      {:ok, []} -> {:ok, %{chunks: [], count: 0, errors: [], partial: false}}
+      {:ok, []} -> {:ok, %{chunks: [], sources: [], count: 0, errors: [], partial: false}}
       {:ok, languages} when is_list(languages) -> search_languages(params, languages, context)
       {:error, reason} -> {:error, "Knowledge base language discovery failed: #{inspect(reason)}"}
     end

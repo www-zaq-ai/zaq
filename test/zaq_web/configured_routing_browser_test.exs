@@ -17,7 +17,9 @@ defmodule ZaqWeb.ConfiguredRoutingBrowserTest do
   alias Zaq.Ingestion.{Chunk, ChunkLanguages, Document}
   alias Zaq.Permissions
   alias Zaq.Repo
+  alias Zaq.System, as: ZaqSystem
   alias Zaq.TestSupport.{HistoryBrowser, MultiAgentOpenAIStub, OpenAIStub}
+  alias Zaq.UserPortal.ClientMock
 
   setup :verify_on_exit!
 
@@ -87,8 +89,61 @@ defmodule ZaqWeb.ConfiguredRoutingBrowserTest do
             assert_answer_count(user.id, 1)
             {%{}, state}
 
-          "global-none", state ->
+          "global-clear", state ->
             assert IncomingMessageRouting.get_rule(%{}) == nil
+
+            user
+            |> Accounts.User.portal_consent_changeset("declined")
+            |> Repo.update!()
+
+            assert {:ok, bootstrap_agent} =
+                     Zaq.Agent.create_agent(%{
+                       name: "ZAQ Assistant",
+                       job: "Preserve this job",
+                       model: "gpt-4.1-mini",
+                       credential_id: credential.id,
+                       conversation_enabled: false
+                     })
+
+            stub(ClientMock, :fetch_onboarding, fn _ ->
+              {:ok, Zaq.PortalStubs.onboarding_message()}
+            end)
+
+            expect(ClientMock, :onboard_user, 1, fn email ->
+              assert email == user.email
+              {:ok, %{litellm_api_key: "sk-browser-claim"}}
+            end)
+
+            {%{}, Map.put(state, :bootstrap_agent, bootstrap_agent)}
+
+          "explicit-global-none", state ->
+            assert %{routing_mode: :none, configured_agent_id: nil} =
+                     rule = IncomingMessageRouting.get_rule(%{})
+
+            {%{}, Map.put(state, :none_rule, rule)}
+
+          "activation-failed", state ->
+            assert Accounts.get_user!(user.id).portal_consent == "declined"
+            assert IncomingMessageRouting.get_rule(%{}) == state.none_rule
+            claimed = ZaqSystem.get_ai_provider_credential_by_name("ZAQ Router")
+
+            assert claimed.metadata["user_portal_claim"] == %{
+                     "version" => 1,
+                     "email" => user.email
+                   }
+
+            assert {:ok, _} =
+                     Zaq.Agent.update_agent(state.bootstrap_agent, %{conversation_enabled: true})
+
+            {%{}, Map.put(state, :claimed_credential_id, claimed.id)}
+
+          "activation-recovered", state ->
+            assert Accounts.get_user!(user.id).portal_consent == "accepted"
+            assert IncomingMessageRouting.get_rule(%{}) == state.none_rule
+
+            assert ZaqSystem.get_ai_provider_credential_by_name("ZAQ Router").id ==
+                     state.claimed_credential_id
+
             {%{}, state}
 
           "explicit-answer", state ->

@@ -105,18 +105,35 @@ Persisted on `users.portal_consent`:
 
 ## Provisioning Details (`Provisioner`)
 
-- `provision_for_user/1` — calls `client().onboard_user(email)`; on
-  `{:ok, %{litellm_api_key: key}}` runs `provision_with_key/2`, which creates/updates
-  the "ZAQ Router" credential and creates the active, conversation-enabled configured
+- `provision_for_user/1` — resumes a recorded claim for the same validated email,
+  otherwise calls `client().onboard_user(email)`. A successful claim persists the
+  key and `metadata["user_portal_claim"] = %{"version" => 1, "email" => email}`
+  together through the existing confidential Engine credential operation. The key
+  remains in canonical Connect-backed authentication, never in the marker.
+  Bootstrap then creates the active, conversation-enabled configured
   agent `ZAQ Assistant`, using the router's default chat model and these tool keys:
   `answering.search_knowledge_base`, `answering.get_knowledge_base_chunks`.
   Its job defines its purpose only; search, chunk navigation and citation instructions
   remain in the tools. Retries reuse the named agent without overwriting user edits.
-  A global routing rule selects it only when no global rule exists; existing agent
-  assignments and explicit `None` rules are preserved. Agent/routing failures are
+  A global routing rule selects it using Engine's atomic insert-if-absent command;
+  existing and concurrently inserted agent assignments or explicit `None` rules
+  are preserved. Saving explicit Global **None** persists a terminal rule;
+  **Unconfigured** clears that root selection, allowing initial bootstrap.
+  Clearing a scoped override still means inheritance. Agent/routing failures are
   returned to onboarding, rather than reporting success for a partial setup.
   First-run `EmbeddingConfig` and `ImageToTextConfig` wiring remains best-effort
   and never overwrites existing configuration. No legacy `LLMConfig` is read or written.
+- Recorded matching claims survive local failures and successful bootstrap, so a
+  failed final user/consent write is also retryable without contacting the portal.
+  Unavailable canonical authentication returns `:portal_claim_credential_unavailable`
+  locally. Missing/malformed provenance or a different email uses the normal remote
+  claim/conflict path; a credential name or existing key alone does not prove a claim.
+  Unrelated credential metadata and agent customizations remain intact.
+- Existing unmarked credentials cannot be safely attributed to an email, and a
+  historical absent routing row cannot prove a previous None choice; neither is
+  guessed or backfilled. Remote success followed by failure before any local
+  persistence still needs portal-side recovery; local retry provenance does not
+  provide distributed exactly-once claims.
 - `ensure_offline_credential/0` — creates the "ZAQ Router" credential with **no**
   API key using explicit no-auth configuration (does not create an agent/routing,
   wire model configs, or overwrite an existing credential). A later successful claim updates the same

@@ -50,21 +50,46 @@ defmodule Zaq.Engine.IncomingMessageRouting do
     |> IncomingMessageRoutingRule.validate_policy(Repo)
   end
 
-  @doc "Creates or updates a rule struct, preserving loaded identity, or the rule at a scope."
-  def upsert_rule(%IncomingMessageRoutingRule{} = rule, attrs) do
-    rule
-    |> change_rule(attrs)
-    |> Repo.insert_or_update()
+  @doc """
+  Creates or updates a rule struct, preserving loaded identity, or the rule at a scope.
+  `on_conflict: :nothing` attempts a fresh insert without reading or updating an
+  existing rule. A conflict returns a rule with nil ID, as in `Repo.insert/2`.
+  The default `:update` policy preserves administrative upsert behavior.
+  """
+  def upsert_rule(rule_or_scope, attrs, opts \\ [])
+
+  def upsert_rule(%IncomingMessageRoutingRule{} = rule, attrs, opts) do
+    policy = Keyword.get(opts, :on_conflict, :update)
+
+    rule =
+      if policy == :nothing do
+        fields = Map.take(rule, @scope_keys ++ [:routing_mode, :configured_agent_id])
+
+        IncomingMessageRoutingRule
+        |> struct(fields)
+        |> Ecto.put_meta(prefix: Ecto.get_meta(rule, :prefix))
+      else
+        rule
+      end
+
+    changeset = change_rule(rule, attrs)
+
+    case policy do
+      :update -> Repo.insert_or_update(changeset)
+      :nothing -> Repo.insert(changeset, on_conflict: :nothing, returning: true)
+      other -> {:error, {:invalid_conflict_policy, other}}
+    end
   end
 
-  def upsert_rule(scope_attrs, route_attrs) when is_map(scope_attrs) and is_map(route_attrs) do
-    attrs = Map.merge(scope_attrs, route_attrs)
+  def upsert_rule(scope_attrs, route_attrs, opts)
+      when is_map(scope_attrs) and is_map(route_attrs) do
+    rule =
+      case Keyword.get(opts, :on_conflict, :update) do
+        :nothing -> %IncomingMessageRoutingRule{}
+        _ -> get_rule(scope_attrs) || %IncomingMessageRoutingRule{}
+      end
 
-    case get_rule(scope_attrs) do
-      nil -> %IncomingMessageRoutingRule{}
-      %IncomingMessageRoutingRule{} = rule -> rule
-    end
-    |> upsert_rule(attrs)
+    upsert_rule(rule, Map.merge(scope_attrs, route_attrs), opts)
   end
 
   @doc "Deletes the rule at the given scope, returning `{:ok, nil}` when absent."
@@ -75,7 +100,11 @@ defmodule Zaq.Engine.IncomingMessageRouting do
     end
   end
 
-  @doc "Applies incoming-message routing rule write commands in order."
+  @doc """
+  Applies routing commands in order. `write_mode: "insert_if_absent"` inserts
+  without updating a concurrent winner; omitted/`"upsert"` keeps normal writes.
+  Insert-only clear commands are invalid. Existing rules return a `"noop"` result.
+  """
   def apply_rule_commands(rules, opts \\ [])
 
   def apply_rule_commands(rules, opts) when is_list(rules) do
@@ -100,12 +129,32 @@ defmodule Zaq.Engine.IncomingMessageRouting do
 
   defp apply_rule_command(rule, opts) when is_map(rule) do
     with {:ok, scope} <- command_scope_attrs(rule),
-         {:ok, mode} <- command_routing_mode(rule) do
-      persist_rule_command(scope, mode, rule, opts)
+         {:ok, mode} <- command_routing_mode(rule),
+         {:ok, write_mode} <- command_write_mode(rule, mode) do
+      case write_mode do
+        :upsert ->
+          persist_rule_command(scope, mode, rule, opts)
+
+        :insert_if_absent ->
+          persist_rule_command(scope, mode, rule, Keyword.put(opts, :on_conflict, :nothing))
+      end
     end
   end
 
   defp apply_rule_command(_rule, _opts), do: {:error, "each rule must be a map"}
+
+  defp command_write_mode(rule, mode) do
+    case MapUtils.fetch(rule, :write_mode) do
+      value when value in [nil, :upsert, "upsert"] ->
+        {:ok, :upsert}
+
+      value when value in [:insert_if_absent, "insert_if_absent"] and mode != :clear ->
+        {:ok, :insert_if_absent}
+
+      value ->
+        {:error, "invalid write_mode #{inspect(value)} for #{mode} routing"}
+    end
+  end
 
   defp command_scope_attrs(rule) do
     scope =
@@ -161,13 +210,7 @@ defmodule Zaq.Engine.IncomingMessageRouting do
   end
 
   defp persist_rule_command(scope, :none, _rule, opts) do
-    case upsert_rule(scope, %{routing_mode: :none}) do
-      {:ok, %IncomingMessageRoutingRule{} = rule} ->
-        {:ok, %{status: "upserted", rule: rule_payload(rule)}}
-
-      {:error, reason} ->
-        {:error, format_command_error(reason, opts)}
-    end
+    persist_route(scope, %{routing_mode: :none}, opts)
   end
 
   defp persist_rule_command(scope, :agent, rule, opts) do
@@ -176,13 +219,30 @@ defmodule Zaq.Engine.IncomingMessageRouting do
         {:error, "configured_agent_id is required for agent routing"}
 
       configured_agent_id ->
-        case upsert_rule(scope, %{routing_mode: :agent, configured_agent_id: configured_agent_id}) do
-          {:ok, %IncomingMessageRoutingRule{} = rule} ->
-            {:ok, %{status: "upserted", rule: rule_payload(rule)}}
+        persist_route(
+          scope,
+          %{routing_mode: :agent, configured_agent_id: configured_agent_id},
+          opts
+        )
+    end
+  end
 
-          {:error, reason} ->
-            {:error, format_command_error(reason, opts)}
+  defp persist_route(scope, attrs, opts) do
+    policy = Keyword.get(opts, :on_conflict, :update)
+
+    case upsert_rule(scope, attrs, on_conflict: policy) do
+      {:ok, %IncomingMessageRoutingRule{id: nil}} ->
+        case get_rule(scope) do
+          nil -> {:error, :routing_conflict_retry}
+          existing -> {:ok, %{status: "noop", rule: rule_payload(existing)}}
         end
+
+      {:ok, %IncomingMessageRoutingRule{} = rule} ->
+        status = if policy == :nothing, do: "inserted", else: "upserted"
+        {:ok, %{status: status, rule: rule_payload(rule)}}
+
+      {:error, reason} ->
+        {:error, format_command_error(reason, opts)}
     end
   end
 

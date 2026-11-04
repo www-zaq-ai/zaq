@@ -19,9 +19,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   alias Zaq.Contracts.Record.Provenance
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
   alias Zaq.System
   alias Zaq.System.EmbeddingConfig
+  alias Zaq.UserPortal.{ClientMock, Onboarding}
 
   # Explicit non-mutating mount reads and the credential changeset builder; all other actions fail.
   @web_browsing_stub_read_actions [
@@ -4876,6 +4878,53 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
   end
 
   describe "global default agent saving" do
+    test "clearing leaves no selection and allows initial portal bootstrap", %{
+      conn: conn,
+      user: user
+    } do
+      assert {:ok, _} = IncomingMessageRouting.upsert_rule(%{}, %{routing_mode: :none})
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+      assert has_element?(view, "#global-default-agent-select input[value='none']")
+
+      assert render_submit(view, "save_global_default_agent", %{"global_default_agent_id" => ""}) =~
+               "Global default agent saved."
+
+      assert IncomingMessageRouting.get_rule(%{}) == nil
+
+      expect(ClientMock, :onboard_user, fn _ -> {:ok, %{litellm_api_key: "sk-cleared-root"}} end)
+      assert {:ok, _} = Onboarding.activate_portal(user, nil)
+
+      assert %{routing_mode: :agent, configured_agent_id: id} =
+               IncomingMessageRouting.get_rule(%{})
+
+      assert id == System.get_global_default_agent_id()
+    end
+
+    test "saved None survives reload and subsequent portal activation", %{conn: conn, user: user} do
+      {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
+
+      for _ <- 1..2 do
+        assert render_submit(view, "save_global_default_agent", %{
+                 "global_default_agent_id" => "none"
+               }) =~
+                 "Global default agent saved."
+      end
+
+      assert %{routing_mode: :none, configured_agent_id: nil} =
+               rule = IncomingMessageRouting.get_rule(%{})
+
+      {:ok, reloaded, _html} = live(conn, ~p"/bo/system-config?tab=global")
+      assert has_element?(reloaded, "#global-default-agent-select input[value='none']")
+
+      expect(ClientMock, :onboard_user, fn email ->
+        assert email == user.email
+        {:ok, %{litellm_api_key: "sk-explicit-none"}}
+      end)
+
+      assert {:ok, _} = Onboarding.activate_portal(user, nil)
+      assert IncomingMessageRouting.get_rule(%{}) == rule
+    end
+
     test "accepts empty global_default_agent_id and saves", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/system-config?tab=global")
 

@@ -158,6 +158,12 @@ column is not a runtime source.
 
 ### Connect-backed AI credentials
 
+Portal provisioning records non-secret claim provenance in the AI credential's
+`metadata["user_portal_claim"]` (version and validated email), atomically with the
+credential/authentication write. `UserPortal.Provisioner` owns its interpretation
+for local bootstrap retries; it is not an authentication mode or a secret store.
+See [onboarding](onboarding.md#provisioning-details-provisioner).
+
 Every AI provider credential has one unique `connect_credential_id`. System owns the
 AI-specific provider/endpoint record and maps administrator authentication writes to
 `Connect.save_credential_configuration/4`; Connect owns authentication configuration,

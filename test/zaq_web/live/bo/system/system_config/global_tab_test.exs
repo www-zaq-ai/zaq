@@ -5,7 +5,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTabTest do
 
   alias ZaqWeb.Live.BO.System.SystemConfig.GlobalTab
 
-  test "panel renders None when the former built-in global default is unset" do
+  test "panel distinguishes an unconfigured root from explicit NONE" do
     html =
       render_component(&GlobalTab.panel/1,
         global_agent_options: [],
@@ -33,7 +33,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.GlobalTabTest do
 
     assert LazyHTML.text(
              LazyHTML.query(document, "#global-default-agent-select [data-select-label]")
-           ) =~ "None"
+           ) =~ "Unconfigured"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(
+               document,
+               "#global-default-agent-select li[data-select-value='none']"
+             ),
+             "data-select-value"
+           ) == ["none"]
 
     assert LazyHTML.attribute(
              LazyHTML.query(document, "#global-language-select li[data-select-value='fr']"),

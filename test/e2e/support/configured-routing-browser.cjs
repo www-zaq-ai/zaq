@@ -14,7 +14,7 @@ async function main() {
     const page = await context.newPage()
     await loginToBackOffice(page, { username: opts.username, password: "StrongPass1!", returnTo: `${baseURL}/bo/system-config?tab=global` })
     const global = page.locator("#global-default-agent-select")
-    await expect(global).toContainText("None")
+    await expect(global).toContainText("Unconfigured")
     await expect(global).not.toContainText("Default Zaq Agent")
     await pickSearchableSelect(page, "#global-default-agent-select", opts.agent_name, { searchable: false })
     await page.locator("form[phx-submit='save_global_default_agent']").evaluate(form => form.requestSubmit())
@@ -32,13 +32,36 @@ async function main() {
 
     await page.goto(`${baseURL}/bo/system-config?tab=global`)
     await waitForLiveViewConnected(page)
+    await pickSearchableSelect(page, "#global-default-agent-select", "Unconfigured", { searchable: false })
+    await page.locator("form[phx-submit='save_global_default_agent']").evaluate(form => form.requestSubmit())
+    await waitForLiveViewSettled(page)
+    await page.reload()
+    await waitForLiveViewConnected(page)
+    await expect(page.locator("#global-default-agent-select-trigger")).toContainText("Unconfigured")
+    await checkpoint("global-clear")
+
+    // Explicit None is not the cleared root: it survives activation and a retry.
     await pickSearchableSelect(page, "#global-default-agent-select", "None", { searchable: false })
     await page.locator("form[phx-submit='save_global_default_agent']").evaluate(form => form.requestSubmit())
     await waitForLiveViewSettled(page)
     await page.reload()
     await waitForLiveViewConnected(page)
-    await expect(page.locator("#global-default-agent-select-trigger")).toContainText("None")
-    await checkpoint("global-none")
+    await expect(page.locator("#global-default-agent-select input[data-select-value]")).toHaveValue("none")
+    await checkpoint("explicit-global-none")
+
+    await page.goto(`${baseURL}/bo/dashboard`)
+    await waitForLiveViewConnected(page)
+    await page.locator("#portal-consent [phx-click='show_portal_consent']").click()
+    await page.locator("#portal-consent [phx-click='accept_portal_consent']").click()
+    await expect(page.locator("#portal-consent")).toContainText("Please try again later.")
+    await checkpoint("activation-failed")
+    await page.locator("#portal-consent [phx-click='accept_portal_consent']").click()
+    await expect(page.locator("#portal-consent [phx-click='close_post_accept_modal']")).toBeVisible()
+    await checkpoint("activation-recovered")
+
+    await page.goto(`${baseURL}/bo/system-config?tab=global`)
+    await waitForLiveViewConnected(page)
+    await expect(page.locator("#global-default-agent-select input[data-select-value]")).toHaveValue("none")
 
     // A deliberate configured selection still works even when the root is None.
     await page.goto(`${baseURL}/bo/chat`)

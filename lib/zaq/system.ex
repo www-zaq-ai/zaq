@@ -97,11 +97,12 @@ defmodule Zaq.System do
     )
   end
 
-  @doc "Returns globally configured default agent id, or nil when unset."
-  @spec get_global_default_agent_id() :: integer() | nil
-  def get_global_default_agent_id do
+  @doc "Returns the global agent ID, or nil; `include_none: true` distinguishes an explicit None rule."
+  @spec get_global_default_agent_id(keyword()) :: integer() | nil | :none
+  def get_global_default_agent_id(opts \\ []) do
     case IncomingMessageRouting.get_rule(%{}) do
       %{routing_mode: :agent, configured_agent_id: configured_agent_id} -> configured_agent_id
+      %{routing_mode: :none} -> if Keyword.get(opts, :include_none, false), do: :none
       _ -> nil
     end
   end
