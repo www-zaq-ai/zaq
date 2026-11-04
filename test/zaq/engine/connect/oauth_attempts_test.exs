@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.Connect.OAuthAttemptsTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: true, group: :people_permission_grants
   use ExUnitProperties
 
   alias Zaq.Accounts.{Person, PersonSession}

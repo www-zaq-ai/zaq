@@ -13,7 +13,8 @@ defmodule Zaq.Agent.Answering do
 
   @answering_tools [
     Zaq.Agent.Tools.SearchKnowledgeBase,
-    Zaq.Agent.Tools.KnowledgeBaseOverview
+    Zaq.Agent.Tools.KnowledgeBaseOverview,
+    Zaq.Agent.Tools.GetKnowledgeBaseChunks
   ]
 
   @no_answer_signals [
@@ -56,7 +57,8 @@ defmodule Zaq.Agent.Answering do
       strategy: "react",
       enabled_tool_keys: [
         "answering.search_knowledge_base",
-        "answering.knowledge_base_overview"
+        "answering.knowledge_base_overview",
+        "answering.get_knowledge_base_chunks"
       ],
       conversation_enabled: true,
       active: true,

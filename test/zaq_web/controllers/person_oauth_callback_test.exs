@@ -1,5 +1,5 @@
 defmodule ZaqWeb.PersonOAuthCallbackTest do
-  use ZaqWeb.ConnCase, async: true
+  use ZaqWeb.ConnCase, async: true, group: :people_permission_grants
   alias Zaq.Accounts.Person
   alias Zaq.Engine.Connect
   alias Zaq.Repo

@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.PeopleCredentials.AuthorizationTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: true, group: :people_permission_grants
   alias Zaq.Accounts.{PeoplePermissions, Person, PersonSession}
   alias Zaq.Engine.PeopleCredentials.Authorization
 

@@ -7,6 +7,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   alias Zaq.Accounts.People
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.Api
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor, FTSBackend}
   alias Zaq.Ingestion.Python.Runner
   alias Zaq.Repo
@@ -29,6 +30,45 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
   test "an empty candidate list does not load LLM configuration" do
     assert {[], []} = Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks([]) end)
+  end
+
+  test "final result limiting defaults to 100 and supports caller overrides" do
+    chunks = Enum.map(1..120, &%{"chunk_id" => &1})
+    assert DocumentProcessor.limit_chunks(chunks) == Enum.take(chunks, 100)
+    assert DocumentProcessor.limit_chunks(chunks, 3) == Enum.take(chunks, 3)
+    assert DocumentProcessor.limit_chunks(chunks, 120) == chunks
+  end
+
+  test "invalid maximum result counts are rejected without loading configuration" do
+    for maximum <- [0, -1, 1.5, "3", nil] do
+      assert {{:error, :invalid_max_total_results}, []} =
+               Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks([], maximum) end)
+    end
+  end
+
+  test "the final-limit Ingestion event validates and applies the caller maximum" do
+    event =
+      Zaq.Event.new(
+        %{chunks: [%{"chunk_id" => 1}, %{"chunk_id" => 2}], max_total_results: 1},
+        :ingestion
+      )
+
+    assert %{response: {:ok, [%{"chunk_id" => 1}]}} =
+             Api.handle_event(event, :limit_knowledge_results, %{})
+
+    invalid = %{event | request: %{chunks: [], max_total_results: 0}}
+
+    assert %{response: {:error, :invalid_max_total_results}} =
+             Api.handle_event(invalid, :limit_knowledge_results, %{})
+  end
+
+  property "final result count is globally bounded without reordering" do
+    check all(total <- integer(0..150), maximum <- integer(1..150)) do
+      chunks = Enum.map(Enum.take(1..151, total), &%{"chunk_id" => &1})
+      limited = DocumentProcessor.limit_chunks(chunks, maximum)
+      assert length(limited) <= maximum
+      assert limited == Enum.take(chunks, length(limited))
+    end
   end
 
   property "context limiting preserves the longest prefix strictly below the budget" do
@@ -1353,7 +1393,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       refute Enum.any?(results, &(&1["source"] == "volume-b/other.md"))
     end
 
-    test "section siblings do not inherit direct-match scores or measured vector distances" do
+    test "only direct matches are returned with explicit neighboring chunk IDs" do
       stub_embedding_success()
       doc = create_document()
       dim = embedding_dimension()
@@ -1373,19 +1413,18 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Repo.insert!()
       end
 
-      assert {:ok, [direct, sibling]} =
+      assert {:ok, [direct]} =
                DocumentProcessor.query_extraction("target", skip_permissions: true)
 
+      sibling = Chunk.get_by_index(doc.id, 2)
+      assert direct["chunk_id"] == Chunk.get_by_index(doc.id, 1).id
+      assert direct["previous_chunk_id"] == nil
+      assert direct["next_chunk_id"] == sibling.id
       assert direct["direct_match"]
       assert "vector" in direct["retrieval_legs"]
       assert is_number(direct["vector_distance"])
-      assert sibling["direct_match"] == false
-      assert sibling["vector_distance"] == nil
-      assert sibling["retrieval_legs"] == []
       assert is_number(direct["rrf_score"])
-      assert sibling["rrf_score"] == nil
       refute Map.has_key?(direct, "distance")
-      refute Map.has_key?(sibling, "distance")
     end
 
     test "lexical and vector hits in one section retain separate evidence after hydration" do
@@ -1448,6 +1487,54 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
                  skip_permissions: true,
                  lexical_terms: ["ZAQ-793"]
                )
+    end
+
+    test "semantic mode never returns keyword-only evidence or invokes fusion" do
+      stub_embedding_success()
+      doc = create_document()
+
+      for {index, content, value} <- [{1, "exclusivekeyword", -0.1}, {2, "vector evidence", 0.1}] do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          chunk_index: index,
+          content: content,
+          embedding: Pgvector.HalfVector.new(List.duplicate(value, embedding_dimension()))
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:ok, [only]} =
+               DocumentProcessor.query_extraction("exclusivekeyword",
+                 skip_permissions: true,
+                 search_mode: :semantic
+               )
+
+      assert only["chunk_index"] == 2
+      assert only["retrieval_legs"] == ["vector"]
+      assert only["rrf_score"] == nil
+      assert is_number(only["vector_distance"])
+    end
+
+    test "keyword mode works without a usable embedding provider and never fuses" do
+      stub_embedding_failure()
+      doc = create_document()
+
+      {:ok, stored} =
+        Chunk.create(%{document_id: doc.id, content: "exactkeyword", chunk_index: 1})
+
+      assert {:ok, [only]} =
+               DocumentProcessor.query_extraction("not embedded",
+                 search_mode: :keyword,
+                 lexical_terms: ["exactkeyword"],
+                 skip_permissions: true
+               )
+
+      assert only["chunk_id"] == stored.id
+      assert only["retrieval_legs"] == ["lexical"]
+      assert only["vector_distance"] == nil
+      assert only["rrf_score"] == nil
+      assert is_number(only["bm25_score"])
     end
 
     test "lexical clauses after the eighth reach full-text search untruncated" do

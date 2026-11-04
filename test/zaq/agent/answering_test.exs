@@ -33,7 +33,12 @@ defmodule Zaq.Agent.AnsweringTest do
       assert is_list(tools)
       assert Zaq.Agent.Tools.SearchKnowledgeBase in tools
       assert Zaq.Agent.Tools.KnowledgeBaseOverview in tools
+      assert Zaq.Agent.Tools.GetKnowledgeBaseChunks in tools
     end
+  end
+
+  test "default answering configuration enables explicit chunk retrieval" do
+    assert "answering.get_knowledge_base_chunks" in Answering.answering_configured_agent().enabled_tool_keys
   end
 
   describe "no_answer_signals/0" do

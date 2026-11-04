@@ -12,6 +12,8 @@ defmodule Zaq.Agent.PipelineTest do
   alias Zaq.Engine.Telemetry.Buffer
   alias Zaq.Engine.Telemetry.Point
   alias Zaq.Repo
+  alias Zaq.System, as: ZaqSystem
+  alias Zaq.SystemConfigFixtures
 
   alias Ecto.Adapters.SQL.Sandbox
 
@@ -20,6 +22,9 @@ defmodule Zaq.Agent.PipelineTest do
   # ---------------------------------------------------------------------------
 
   defmodule StubNodeRouter do
+    def dispatch(%Zaq.Event{request: %{semantic_chunks: chunks}} = event),
+      do: %{event | response: {:ok, %{chunks: chunks}}}
+
     def dispatch(
           %Zaq.Event{opts: [action: :list_chunk_languages, document_processor: _]} = event
         ),
@@ -156,6 +161,28 @@ defmodule Zaq.Agent.PipelineTest do
     def limit_chunks(chunks), do: chunks
   end
 
+  defmodule NavigationDocumentProcessor do
+    def query_extraction(_query, _opts),
+      do:
+        {:ok,
+         [
+           %{
+             "chunk_id" => 11,
+             "previous_chunk_id" => 10,
+             "next_chunk_id" => 12,
+             "content" => "context",
+             "source" => "doc.md",
+             "direct_match" => true
+           }
+         ]}
+
+    def limit_chunks(chunks), do: chunks
+  end
+
+  defmodule FailingReranker do
+    def rerank(_, _), do: {:error, :provider_unavailable}
+  end
+
   # Triggers the {:error, :no_results, negative_answer} branch inside
   # do_query_extraction, which dispatches pipeline_complete with chunks: [].
   defmodule StubEmptyDocumentProcessor do
@@ -289,6 +316,39 @@ defmodule Zaq.Agent.PipelineTest do
   # ---------------------------------------------------------------------------
 
   @incoming %Incoming{content: "What is the answer?", channel_id: "test", provider: :test}
+
+  test "initial answering context preserves chunk navigation for explicit context expansion" do
+    opts =
+      @base_opts
+      |> Keyword.put(:document_processor, NavigationDocumentProcessor)
+      |> Keyword.put(:answering, SpyAnswering)
+
+    Pipeline.run(@incoming, opts)
+    assert_receive {:answering_assigns, %{retrieved_data: retrieved_data}}, 1_000
+
+    assert [%{"chunk_id" => 11, "previous_chunk_id" => 10, "next_chunk_id" => 12}] =
+             Jason.decode!(retrieved_data)
+  end
+
+  test "configured reranking failure remains a pipeline error rather than a negative answer" do
+    credential =
+      SystemConfigFixtures.ai_credential_fixture(%{provider: "cohere", api_key: "test-key"})
+
+    assert {:ok, _} =
+             ZaqSystem.save_rag_model_config(
+               :reranking,
+               %{credential_id: credential.id, model: "rerank-v3.5"}
+             )
+
+    opts =
+      @base_opts
+      |> Keyword.put(:document_processor, NavigationDocumentProcessor)
+      |> Keyword.put(:reranker, FailingReranker)
+
+    result = Pipeline.run(@incoming, opts)
+    assert result.metadata.error == true
+    refute result.body == "negative answer"
+  end
 
   defmodule PublicStepsExecutor do
     alias Zaq.Agent.PipelineTest.StubExecutor

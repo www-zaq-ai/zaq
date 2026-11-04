@@ -6,6 +6,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   alias Zaq.TestSupport.OpenAIStub
 
   defmodule StubNodeRouter do
+    def dispatch(%Event{request: %{semantic_chunks: chunks}} = event),
+      do: %{event | response: {:ok, %{chunks: chunks}}}
+
     def dispatch(%Event{request: request} = event) when map_size(request) == 0,
       do: %{event | response: {:ok, ["simple"]}}
 
@@ -44,6 +47,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   # skip_permissions: false — any deviation causes the fallback to return an
   # error, which fails the test that asserts {:ok, _}.
   defmodule PermissionRouter do
+    def dispatch(%Event{request: %{semantic_chunks: chunks}} = event),
+      do: %{event | response: {:ok, %{chunks: chunks}}}
+
     def dispatch(%Event{request: request} = event) when map_size(request) == 0,
       do: %{event | response: {:ok, ["simple"]}}
 
@@ -59,8 +65,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                 team_ids: [1, 2],
                 skip_permissions: false,
                 language: "simple",
-                unbounded: true,
-                lexical_terms: ["test"]
+                search_mode: :semantic,
+                unbounded: true
               ]
             }
           } = event
@@ -68,12 +74,32 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       %{event | response: {:ok, []}}
     end
 
+    def dispatch(
+          %Event{
+            request: %{
+              access_opts: [
+                person_id: 42,
+                team_ids: [1, 2],
+                skip_permissions: false,
+                language: "simple",
+                lexical_terms: ["test"],
+                search_mode: :keyword,
+                unbounded: true
+              ]
+            }
+          } = event
+        ),
+        do: %{event | response: {:ok, []}}
+
     def dispatch(%Event{request: %{access_opts: opts}} = event) do
       %{event | response: {:error, {:unexpected_opts, opts}}}
     end
   end
 
   defmodule SkipPermissionsRouter do
+    def dispatch(%Event{request: %{semantic_chunks: chunks}} = event),
+      do: %{event | response: {:ok, %{chunks: chunks}}}
+
     def dispatch(%Event{request: request} = event) when map_size(request) == 0,
       do: %{event | response: {:ok, ["simple"]}}
 
@@ -94,6 +120,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   defmodule DefaultTeamIdsRouter do
+    def dispatch(%Event{request: %{semantic_chunks: chunks}} = event),
+      do: %{event | response: {:ok, %{chunks: chunks}}}
+
     def dispatch(%Event{request: request} = event) when map_size(request) == 0,
       do: %{event | response: {:ok, ["simple"]}}
 
@@ -112,6 +141,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   defmodule LongTermsRouter do
+    def dispatch(%Event{request: %{semantic_chunks: chunks}} = event),
+      do: %{event | response: {:ok, %{chunks: chunks}}}
+
     def dispatch(%Event{request: request} = event) when map_size(request) == 0,
       do: %{event | response: {:ok, ["simple"]}}
 
@@ -121,9 +153,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
     def dispatch(%Event{request: %{access_opts: opts}} = event) do
       expected = Enum.map(1..9, &"term#{&1}") ++ ["Saint-Saturnin"]
 
-      if Keyword.fetch!(opts, :lexical_terms) == expected,
-        do: %{event | response: {:ok, []}},
-        else: %{event | response: {:error, :truncated_or_rewritten}}
+      if Keyword.get(opts, :search_mode) == :semantic or
+           Keyword.fetch!(opts, :lexical_terms) == expected,
+         do: %{event | response: {:ok, []}},
+         else: %{event | response: {:error, :truncated_or_rewritten}}
     end
   end
 
@@ -149,6 +182,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   defmodule LimiterErrorRouter do
+    def dispatch(%Event{request: %{semantic_chunks: chunks}} = event),
+      do: %{event | response: {:ok, %{chunks: chunks}}}
+
     def dispatch(%Event{opts: [{:action, :list_chunk_languages} | _]} = event),
       do: %{event | response: {:ok, ["simple"]}}
 
@@ -157,7 +193,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
             event
         ) do
       if Keyword.get(opts, :language) == "simple" and
-           Keyword.get(opts, :lexical_terms) == ["known", "term"] do
+           (Keyword.get(opts, :search_mode) == :semantic or
+              Keyword.get(opts, :lexical_terms) == ["known", "term"]) do
         %{
           event
           | response: {:ok, [%{"document_id" => 7, "chunk_index" => 1, "rrf_score" => 0.5}]}
@@ -219,6 +256,9 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
   end
 
   defmodule MultilingualRouter do
+    def dispatch(%Event{request: %{semantic_chunks: chunks}} = event),
+      do: %{event | response: {:ok, %{chunks: chunks}}}
+
     def dispatch(%Event{request: request} = event) when map_size(request) == 0,
       do: %{event | response: {:ok, ["simple", "french"]}}
 
@@ -226,6 +266,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
       do: %{event | response: {:ok, chunks}}
 
     def dispatch(%Event{request: %{query: query, access_opts: opts}} = event) do
+      query =
+        if Keyword.get(opts, :search_mode) == :keyword and
+             Keyword.get(opts, :language) == "french", do: "voiture rouge", else: query
+
       response =
         case {Keyword.fetch!(opts, :language), query} do
           {"french", "voiture rouge"} ->
@@ -362,15 +406,12 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseTest do
                )
     end
 
-    test "reports global translation failure for every language on empty lexical terms" do
-      assert {:error, message} =
+    test "rejects empty hybrid lexical terms before discovery or translation" do
+      assert {:error, :invalid_lexical_terms} =
                SearchKnowledgeBase.run(
                  %{query: "find something", lexical_terms: []},
                  translation_context(TranslationFailureRouter, FrenchGeneration)
                )
-
-      assert message =~ "%{error: :translation_failed, language: \"simple\", stage: :translation}"
-      assert message =~ "%{error: :translation_failed, language: \"french\", stage: :translation}"
     end
 
     test "simple uses all supplied terms including the name after eight other terms" do
