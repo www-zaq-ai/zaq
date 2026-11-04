@@ -59,13 +59,15 @@ defmodule Zaq.Agent.AttachmentSelectionEventTest do
     event = selection(scope, "add-a", "add", [record("a")])
 
     for wrong_scope <- [nil, make_ref()] do
-      assert {:error, :invalid_attachment_selection, %{attachments: []}} =
+      assert {:ok,
+              %{answer: "Done", attachment_error: :invalid_attachment_selection, attachments: []}} =
                consume([event, completed()], wrong_scope)
     end
 
     OpaqueAliases.clear_scope(scope)
 
-    assert {:error, :invalid_attachment_selection, %{attachments: []}} =
+    assert {:ok,
+            %{answer: "Done", attachment_error: :invalid_attachment_selection, attachments: []}} =
              consume([event, completed()], scope)
   end
 
@@ -80,7 +82,8 @@ defmodule Zaq.Agent.AttachmentSelectionEventTest do
         ] do
       invalid = %{valid | tool_call_id: "invalid", data: %{result: {:ok, output, []}}}
 
-      assert {:error, :invalid_attachment_selection, %{attachments: []}} =
+      assert {:ok,
+              %{answer: "Done", attachment_error: :invalid_attachment_selection, attachments: []}} =
                consume([valid, invalid, completed()], scope)
     end
   end
@@ -115,7 +118,7 @@ defmodule Zaq.Agent.AttachmentSelectionEventTest do
 
   defp consume(events, scope) do
     StreamEvents.consume(
-      events,
+      Stream.filter(events, &(&1.request_id == "r")),
       %Incoming{content: "select", channel_id: "c", provider: :web, message_id: "r"},
       opaque_alias_scope: scope,
       request: %{id: "r"},

@@ -2477,7 +2477,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       log =
         capture_log(fn ->
-          assert {:error, :missing_connection_details} = JidoChatBridge.send_reply(outgoing, %{})
+          assert {:error, %Zaq.Channels.DeliveryError{reason: :missing_connection_details}} =
+                   JidoChatBridge.send_reply(outgoing, %{})
         end)
 
       assert log =~ "send_reply called without connection details"
@@ -2513,7 +2514,8 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{}
       }
 
-      assert {:error, {:unsupported_provider, :no_such_provider}} =
+      assert {:error,
+              %Zaq.Channels.DeliveryError{reason: {:unsupported_provider, :no_such_provider}}} =
                JidoChatBridge.do_send_reply(outgoing, %{
                  url: "https://mm.example.com",
                  token: "tok"
@@ -2645,7 +2647,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{}
       }
 
-      assert {:error, :send_failed} =
+      assert {:error, %Zaq.Channels.DeliveryError{reason: :send_failed}} =
                JidoChatBridge.do_send_reply(outgoing, %{
                  url: "https://mm.example.com",
                  token: "tok"
@@ -2761,7 +2763,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
         metadata: %{message_id: "msg-1", request_id: "req-1"}
       }
 
-      assert {:error, :edit_failed} =
+      assert {:error, %Zaq.Channels.DeliveryError{reason: :edit_failed}} =
                JidoChatBridge.do_send_reply(outgoing, %{
                  url: "https://mm.example.com",
                  token: "tok"

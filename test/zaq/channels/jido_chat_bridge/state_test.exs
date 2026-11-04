@@ -4,6 +4,7 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
   alias Jido.Chat.EventEnvelope
   alias Jido.Chat.Incoming, as: ChatIncoming
   alias Jido.Chat.ReactionEvent
+  alias Zaq.Channels.DeliveryError
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Engine.Messages.Outgoing
@@ -462,7 +463,12 @@ defmodule Zaq.Channels.JidoChatBridge.StateTest do
       metadata: %{}
     }
 
-    assert {:error, {:unsupported_provider, :no_such_provider}} =
+    assert {:error,
+            %DeliveryError{
+              reason: {:unsupported_provider, :no_such_provider},
+              stage: :transport,
+              delivery: :not_sent
+            }} =
              State.send_reply(pid, outgoing, %{url: "https://mm.example.com", token: "tok"})
   end
 

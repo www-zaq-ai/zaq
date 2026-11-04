@@ -1,6 +1,6 @@
 defmodule Zaq.Channels.DeliveryFiles do
   @moduledoc """
-  Prepares explicitly supplied file Records for a synchronous delivery consumer.
+  Prepares explicitly supplied file Records for delivery.
 
   Existing binary content is used directly. Lazy Records are redeemed through the
   registered materialization handlers with normalized trusted identity; returned
@@ -10,6 +10,8 @@ defmodule Zaq.Channels.DeliveryFiles do
   original source files deleted. Materialization still acquires whole content.
   """
 
+  alias Zaq.Agent.Tools.General.DecodeBase64
+  alias Zaq.Channels.DeliveryError
   alias Zaq.Contracts.Record
   alias Zaq.Events.TrustedContext
   alias Zaq.Materialization
@@ -22,38 +24,69 @@ defmodule Zaq.Channels.DeliveryFiles do
         }
 
   @doc """
-  Invokes the consumer once with prepared files, or returns a preparation error.
+  Returns prepared files in input order, or a preparation error.
 
-  Decodes only explicitly declared base64 content; nil or `"binary"` encoding
-  preserves bytes verbatim. Consumer returns and exceptions propagate unchanged.
-  Prepared binaries live only within this call unless the consumer retains them.
+  Decodes only explicitly declared standard base64 content through `DecodeBase64`,
+  accepting whitespace and optional padding; nil or `"binary"` encoding
+  preserves bytes verbatim. Empty attachments return `{:ok, []}` without source access.
   `:node_router` in opts is a local execution dependency, never an identity input.
   """
-  @spec with_prepared([Record.t()], map(), ([prepared()] -> result), keyword()) ::
-          result | {:error, term()}
-        when result: term()
-  def with_prepared(records, context, consumer, opts \\ [])
+  @spec prepare([Record.t()], map(), keyword()) :: {:ok, [prepared()]} | {:error, term()}
+  def prepare(records, context, opts \\ [])
 
-  def with_prepared(records, context, consumer, opts)
-      when is_list(records) and is_map(context) and is_function(consumer, 1) and is_list(opts) do
+  def prepare(records, context, opts)
+      when is_list(records) and is_map(context) and is_list(opts) do
     source_context =
       context
       |> TrustedContext.normalize()
       |> Map.from_struct()
       |> Map.merge(Map.new(Keyword.take(opts, [:node_router])))
 
-    with {:ok, files} <- prepare_all(records, source_context) do
-      consumer.(files)
-    end
+    prepare_all(records, source_context)
   end
 
-  def with_prepared(_records, _context, _consumer, _opts),
+  def prepare(_records, _context, _opts),
     do: {:error, :invalid_attachments}
+
+  @doc "Maps shared attachment selection and preparation failures before transport."
+  @spec delivery_error(term()) :: DeliveryError.t()
+  def delivery_error(:invalid_attachment_selection) do
+    %DeliveryError{
+      reason: :invalid_attachment_selection,
+      message: "The requested files could not be attached.",
+      stage: :selection,
+      delivery: :not_sent
+    }
+  end
+
+  def delivery_error(reason) do
+    %DeliveryError{
+      reason: reason,
+      message: preparation_message(reason),
+      stage: :preparation,
+      delivery: :not_sent
+    }
+  end
+
+  defp preparation_message(:invalid_attachment_base64),
+    do: "The attachment contains invalid Base64 content."
+
+  defp preparation_message(:invalid_attachment_encoding),
+    do: "The attachment encoding is not supported."
+
+  defp preparation_message(:invalid_attachment_metadata),
+    do: "The attachment filename or content type is invalid."
+
+  defp preparation_message(reason)
+       when reason in [:invalid_attachments, :invalid_attachment, :invalid_attachment_content],
+       do: "The attachment data is invalid."
+
+  defp preparation_message(_reason), do: "The attachment content could not be accessed."
 
   defp prepare_all(records, context) do
     records
     |> Enum.reduce_while({:ok, []}, fn record, {:ok, files} ->
-      case prepare(record, context) do
+      case prepare_record(record, context) do
         {:ok, file} -> {:cont, {:ok, [file | files]}}
         {:error, _} = error -> {:halt, error}
       end
@@ -64,7 +97,7 @@ defmodule Zaq.Channels.DeliveryFiles do
     end
   end
 
-  defp prepare(%Record{id: id, kind: :file, attributes: attrs} = record, context)
+  defp prepare_record(%Record{id: id, kind: :file, attributes: attrs} = record, context)
        when is_binary(id) and id != "" and is_map(attrs) do
     with :ok <- validate_metadata(record),
          {:ok, materialized} <- acquire(record, context),
@@ -80,7 +113,7 @@ defmodule Zaq.Channels.DeliveryFiles do
     end
   end
 
-  defp prepare(_record, _context), do: {:error, :invalid_attachment}
+  defp prepare_record(_record, _context), do: {:error, :invalid_attachment}
 
   defp acquire(%Record{content: content} = record, _context) when is_binary(content),
     do: {:ok, record}
@@ -106,9 +139,9 @@ defmodule Zaq.Channels.DeliveryFiles do
   defp decode_content(%Record{content: content, attributes: attrs}) when is_binary(content) do
     case Map.get(attrs, "encoding", Map.get(attrs, :encoding)) do
       "base64" ->
-        case Base.decode64(content) do
-          {:ok, bytes} -> {:ok, bytes}
-          :error -> {:error, :invalid_attachment_base64}
+        case Jido.Exec.run(DecodeBase64, %{data: content, variant: "standard"}, %{}) do
+          {:ok, %{decoded: bytes}} -> {:ok, bytes}
+          {:error, _reason} -> {:error, :invalid_attachment_base64}
         end
 
       encoding when encoding in [nil, "binary"] ->

@@ -536,13 +536,34 @@ file replies use attachment editing only when the adapter explicitly supports it
 Both text and file creation return Jido's `post.id`, preserving its generated-ID
 fallback when an adapter reports success without a provider message ID.
 Successful file delivery adds no status notice. Attachment edits retain the original
-post ID for delivery confirmation and reply callbacks. On failure,
-the answer is preserved with an appended safe reason, editing the existing
-placeholder or posting a text-only notice when no editable placeholder exists.
-The original error is returned; this notice neither retries files nor invokes
-reply callbacks for a failed file delivery. Recognized timeouts report uncertainty.
-Provider error bodies are not displayed. Shared upstream error classification is
-tracked in [#893](https://github.com/www-zaq-ai/zaq/issues/893). A provider upload may persist
+post ID for delivery confirmation and reply callbacks.
+
+Jido chat and email bridges return `{:error, %Zaq.Channels.DeliveryError{}}` with
+`reason` (the original internal error), `message` (safe presentation text),
+`stage` (`:selection`, `:preparation` or `:transport`) and `delivery` (`:not_sent` or
+`:unconfirmed`). The struct owns no mapping or delivery logic. `DeliveryFiles`
+maps shared selection and preparation errors; each bridge maps its own transport errors.
+SMTP mappings retain safe authentication, connection, rejection and timeout details.
+Jido transport failures use a generic unconfirmed message until shared upstream
+classification is available, tracked in [#893](https://github.com/www-zaq-ai/zaq/issues/893).
+Raw transport reasons are not displayed or included in the struct's inspection.
+
+`Zaq.Channels.Api` owns fallback policy. A rejected runtime selection arrives as
+`Outgoing.attachment_error`, independently of answer success. Channels maps it to
+a selection delivery error and sends the answer with a safe notice, without a file
+attempt. A later valid selection clears the runtime error before delivery.
+An attachment preparation failure may send the answer with the safe explanation
+and no attachments. Unconfirmed transport
+outcomes may only update an existing placeholder via the bridge's update callback;
+they never create a replacement post. SMTP transport failures never trigger another
+email send. Notice failures preserve the original structured error. Notices do not
+retry attachments, invoke reply callbacks or confirm successful attachment delivery.
+Confirmed notice receipts are recorded through the existing delivery confirmation
+path with the text-only notice and no attachments; the original attachment error
+remains the caller's result even if notice delivery or confirmation recording fails.
+Direct bridge calls return failures without initiating fallback operations.
+Legacy unstructured errors do not trigger automatic fallback.
+A provider upload may persist
 even if sending fails; there is no exactly-once guarantee and an explicit resubmit
 sends again. Confirmation or status bookkeeping failure does not retry the send.
 Email delivery builds in-memory Swoosh attachments and sends synchronously.

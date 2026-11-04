@@ -2,6 +2,9 @@ defmodule Zaq.Agent.StreamEvents do
   @moduledoc """
   Reduces Jido AI ask-stream events into ZAQ runtime output.
 
+  Events must already be scoped to one request, as provided by
+  `Jido.AI.Request.Stream`. Callers supplying other enumerables own that boundary.
+
   This module owns request-local stream concerns: realtime buffered broadcasts,
   per-turn trace capture, tool-call capture, and final usage/result extraction.
   Canonical `tool_calls` own private evidence, sequence and normalized outcome.
@@ -27,6 +30,8 @@ defmodule Zaq.Agent.StreamEvents do
   private traces retain the same aliased results as other document tools. Only
   successful terminal results expose selected files in `attachments`; failed,
   cancelled and incomplete streams return no selected files.
+  Rejected selection instructions clear the files and set `attachment_error`,
+  without failing the answer. A later valid instruction clears that error.
   """
 
   alias ReqLLM.Message.ContentPart
@@ -60,6 +65,7 @@ defmodule Zaq.Agent.StreamEvents do
           answer_published?: boolean(),
           pending_answer: String.t() | nil,
           attachments: [Record.t()],
+          attachment_error: :invalid_attachment_selection | nil,
           usage: map(),
           llm_calls: [map()],
           trace: [map()],
@@ -79,10 +85,9 @@ defmodule Zaq.Agent.StreamEvents do
       Enum.reduce_while(events, state, fn event, state ->
         state = handle_event(event, state)
 
-        if state.answer_binding_failed or
-             (matching_request?(event, state) and terminal_kind?(kind(event))),
-           do: {:halt, state},
-           else: {:cont, state}
+        if state.answer_binding_failed or terminal_kind?(kind(event)),
+          do: {:halt, state},
+          else: {:cont, state}
       end)
 
     final_state =
@@ -111,7 +116,6 @@ defmodule Zaq.Agent.StreamEvents do
       answer_binding_ready: false,
       answer_binding_failed: false,
       request_id: actual_request_id(Keyword.get(opts, :request), incoming),
-      native_request_id: field(Keyword.get(opts, :request), :id),
       actor: Keyword.get(opts, :actor),
       execution_scope: Keyword.get(opts, :execution_scope),
       execution_user_message_id: Keyword.get(opts, :execution_user_message_id),
@@ -141,6 +145,7 @@ defmodule Zaq.Agent.StreamEvents do
       published_tool_steps: nil,
       answer: nil,
       attachments: [],
+      attachment_error: nil,
       request_completed: false,
       usage: %{},
       llm_calls: %{},
@@ -151,27 +156,18 @@ defmodule Zaq.Agent.StreamEvents do
   end
 
   defp handle_event(event, state) do
-    if matching_request?(event, state) do
-      state = %{
-        state
-        | event_ms: field(event, :at_ms) || System.monotonic_time(:millisecond),
-          terminal_received: terminal_kind?(kind(event))
-      }
-
-      state = bind_selected_answer(kind(event), state)
-
-      if state.answer_binding_failed,
-        do: state,
-        else: handle_event(kind(event), event, state)
-    else
+    state = %{
       state
-    end
+      | event_ms: field(event, :at_ms) || System.monotonic_time(:millisecond),
+        terminal_received: terminal_kind?(kind(event))
+    }
+
+    state = bind_selected_answer(kind(event), state)
+
+    if state.answer_binding_failed,
+      do: state,
+      else: handle_event(kind(event), event, state)
   end
-
-  defp matching_request?(_event, %{native_request_id: nil}), do: true
-
-  defp matching_request?(event, state),
-    do: field(event, :request_id) in [nil, state.native_request_id]
 
   defp bind_selected_answer(
          kind,
@@ -470,14 +466,14 @@ defmodule Zaq.Agent.StreamEvents do
            }),
          {:ok, instruction} <- AttachDocuments.validate_output(expanded),
          {:ok, selected} <- AttachDocuments.reduce_selection(state.attachments, instruction) do
-      %{state | attachments: selected}
+      %{state | attachments: selected, attachment_error: nil}
     else
-      _ -> %{state | attachments: [], error: :invalid_attachment_selection}
+      _ -> %{state | attachments: [], attachment_error: :invalid_attachment_selection}
     end
   end
 
   defp select_attachments(state, "attach_documents", {:ok, _output, _effects}),
-    do: %{state | attachments: [], error: :invalid_attachment_selection}
+    do: %{state | attachments: [], attachment_error: :invalid_attachment_selection}
 
   defp select_attachments(state, _tool_name, _result), do: state
 
@@ -761,6 +757,7 @@ defmodule Zaq.Agent.StreamEvents do
       pending_answer: pending_answer(state),
       attachments:
         if(state.request_completed and is_nil(state.error), do: state.attachments, else: []),
+      attachment_error: state.attachment_error,
       usage: state.usage,
       llm_calls: public_llm_calls(state),
       trace: Enum.reverse(state.trace),

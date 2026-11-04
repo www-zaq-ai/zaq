@@ -13,6 +13,8 @@ defmodule Zaq.Engine.Messages.Outgoing do
   `attachments` contains explicitly requested `Zaq.Contracts.Record` values. Incoming
   attachments are never automatically echoed, and runtime attachment collections
   are excluded from metadata.
+  `attachment_error` carries a rejected selection independently of answer success,
+  so Channels can report it through the delivery policy.
 
   `thread_anchor` is the opaque prior-thread anchor resolved by the notification
   center (string keys: `"message_id"`, `"references"`, `"thread_id"`). It is
@@ -36,6 +38,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
     :provider,
     :in_reply_to,
     :thread_anchor,
+    :attachment_error,
     attachments: [],
     routing_context: %RoutingContext{},
     metadata: %{}
@@ -51,6 +54,7 @@ defmodule Zaq.Engine.Messages.Outgoing do
           in_reply_to: String.t() | integer() | nil,
           thread_anchor: map() | nil,
           attachments: [Record.t()],
+          attachment_error: :invalid_attachment_selection | nil,
           routing_context: RoutingContext.t() | nil,
           metadata: map()
         }
@@ -77,11 +81,12 @@ defmodule Zaq.Engine.Messages.Outgoing do
       provider: incoming.provider,
       in_reply_to: incoming.message_id,
       attachments: Map.get(result, :attachments, []),
+      attachment_error: Map.get(result, :attachment_error),
       routing_context: incoming.routing_context,
       metadata:
         incoming.metadata
         |> Map.merge(result)
-        |> Map.drop([:attachments, "attachments"])
+        |> Map.drop([:attachments, "attachments", :attachment_error, "attachment_error"])
         |> put_person(incoming.person)
     }
   end

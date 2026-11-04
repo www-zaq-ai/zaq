@@ -448,9 +448,7 @@ defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
 
     # Authoritative Storage permission checks still run at final redemption.
     assert {:error, _} =
-             DeliveryFiles.with_prepared(outgoing.attachments, %{}, fn _ ->
-               flunk("unauthorized consumer invoked")
-             end)
+             DeliveryFiles.prepare(outgoing.attachments, %{})
 
     smtp = smtp_config()
 
@@ -646,14 +644,12 @@ defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
     assert Enum.map(outgoing.metadata.tool_calls, & &1["outcome"]) == ["succeeded", "failed"]
 
     assert {:ok, [%{content: "B bytes"}]} =
-             DeliveryFiles.with_prepared(outgoing.attachments, %{actor: actor}, &{:ok, &1})
+             DeliveryFiles.prepare(outgoing.attachments, %{actor: actor})
 
     assert :ok = Permissions.revoke(%StorageEntry{id: b.id}, grant)
 
     assert {:error, _} =
-             DeliveryFiles.with_prepared(outgoing.attachments, %{actor: actor}, fn _ ->
-               flunk("revoked file delivered")
-             end)
+             DeliveryFiles.prepare(outgoing.attachments, %{actor: actor})
   end
 
   defp execution_event,

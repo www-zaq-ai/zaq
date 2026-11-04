@@ -11,8 +11,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   existing adapter uploads as documents. Capable adapters attach files to the
   existing streamed post; otherwise file deliveries create a final post;
   receipts and reply callbacks use Jido's returned post ID. Success adds no status notice.
-  File failures preserve the answer and append a best-effort delivery notice,
-  without changing the provider delivery result or retrying the upload.
+  Delivery failures retain their original reason inside `DeliveryError`; Channels API owns notices.
 
   `register_handlers/3` is called to attach function handlers per events
 
@@ -25,6 +24,8 @@ defmodule Zaq.Channels.JidoChatBridge do
   use Zaq.Channels.CommunicationBridge
 
   require Logger
+
+  alias Zaq.Channels.DeliveryError
 
   alias Jido.Chat
   alias Jido.Chat.Adapter
@@ -495,7 +496,7 @@ defmodule Zaq.Channels.JidoChatBridge do
   Also dispatches `:on_reply` Oban jobs when `outgoing.metadata` carries such
   instructions (used by the notification center for reply tracking).
   """
-  @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
+  @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, DeliveryError.t()}
   @impl true
   def send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection_details) do
     do_send_reply(outgoing, connection_details)
@@ -506,7 +507,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       "[JidoChatBridge] send_reply called without connection details for channel=#{outgoing.channel_id}"
     )
 
-    {:error, :missing_connection_details}
+    {:error, chat_delivery_error(:missing_connection_details, :not_sent, outgoing)}
   end
 
   @impl true
@@ -1865,22 +1866,42 @@ defmodule Zaq.Channels.JidoChatBridge do
   def do_send_reply(%Outgoing{} = outgoing, %{url: _, token: _} = connection_details) do
     case adapter_for(outgoing.provider) do
       {:ok, adapter_module} ->
-        result =
-          DeliveryFiles.with_prepared(
-            outgoing.attachments,
-            Map.get(connection_details, :trusted_context, %{}),
-            fn prepared ->
-              files = Enum.map(prepared, &prepared_upload/1)
-              handle_send_with_adapter(outgoing, adapter_module, connection_details, files)
-            end
-          )
+        case DeliveryFiles.prepare(
+               outgoing.attachments,
+               Map.get(connection_details, :trusted_context, %{})
+             ) do
+          {:ok, prepared} ->
+            send_prepared_reply(outgoing, adapter_module, connection_details, prepared)
 
-        report_file_failure(outgoing, adapter_module, connection_details, result)
-        result
+          {:error, reason} ->
+            {:error, DeliveryFiles.delivery_error(reason)}
+        end
 
       {:error, _reason} ->
-        {:error, {:unsupported_provider, outgoing.provider}}
+        {:error,
+         chat_delivery_error({:unsupported_provider, outgoing.provider}, :not_sent, outgoing)}
     end
+  end
+
+  defp send_prepared_reply(outgoing, adapter, details, prepared) do
+    files = Enum.map(prepared, &prepared_upload/1)
+
+    case handle_send_with_adapter(outgoing, adapter, details, files) do
+      {:error, reason} -> {:error, chat_delivery_error(reason, :unconfirmed, outgoing)}
+      success -> success
+    end
+  end
+
+  defp chat_delivery_error(reason, delivery, outgoing) do
+    subject = if outgoing.attachments == [], do: "Message", else: "Attachment"
+
+    %DeliveryError{
+      reason: reason,
+      message:
+        "#{subject} delivery was not confirmed. Check the conversation before sending again.",
+      stage: :transport,
+      delivery: delivery
+    }
   end
 
   defp prepared_upload(file) do
@@ -1892,51 +1913,6 @@ defmodule Zaq.Channels.JidoChatBridge do
       size_bytes: file.size
     }
   end
-
-  defp report_file_failure(%Outgoing{attachments: []}, _adapter, _details, _result), do: :ok
-
-  defp report_file_failure(%Outgoing{body: body} = outgoing, adapter, details, {:error, reason})
-       when is_binary(body) do
-    notice = %{
-      outgoing
-      | body: Enum.join(Enum.reject([body, file_failure_text(reason)], &(&1 == "")), "\n\n"),
-        attachments: [],
-        metadata: Map.drop(outgoing.metadata || %{}, [:on_reply, "on_reply"])
-    }
-
-    handle_send_with_adapter(notice, adapter, details, [])
-  rescue
-    _ -> Logger.warning("[JidoChatBridge] file delivery failure notice failed")
-  catch
-    _, _ -> Logger.warning("[JidoChatBridge] file delivery failure notice failed")
-  end
-
-  defp report_file_failure(_outgoing, _adapter, _details, _result), do: :ok
-
-  defp file_failure_text(reason) do
-    if unconfirmed_file_delivery?(reason),
-      do: "File delivery could not be confirmed: Check the conversation before sending again.",
-      else: "File delivery failed: #{delivery_failure_reason(reason)}"
-  end
-
-  # Temporary: translate existing error shapes until adapters share a delivery-error contract.
-  # Tracked: zaq-2v9
-  defp delivery_failure_reason(:multiple_attachments_unsupported),
-    do: "Sending multiple attachments together is not supported."
-
-  defp delivery_failure_reason(:unsupported), do: "Sending attachments is not supported."
-
-  defp delivery_failure_reason({status, _body}) when is_integer(status) and status in 400..599,
-    do: "The provider returned HTTP #{status}."
-
-  defp delivery_failure_reason(_reason), do: "The attachment could not be sent."
-
-  defp unconfirmed_file_delivery?(reason) when reason in [:timeout, :unconfirmed_delivery],
-    do: true
-
-  defp unconfirmed_file_delivery?({:timeout, _}), do: true
-  defp unconfirmed_file_delivery?(%{reason: :timeout}), do: true
-  defp unconfirmed_file_delivery?(_reason), do: false
 
   defp local_transport_opts(details) do
     details |> Map.take([:transport]) |> Map.to_list()

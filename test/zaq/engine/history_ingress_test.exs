@@ -6,6 +6,7 @@ defmodule Zaq.Engine.HistoryIngressTest do
   alias Jido.Chat.Telegram.Adapter, as: TelegramAdapter
   alias Zaq.Accounts.People
   alias Zaq.Channels.{CommunicationBridge, JidoChatBridge}
+  alias Zaq.Channels.DeliveryError
   alias Zaq.Channels.EmailBridge
   alias Zaq.Channels.EmailBridge.ImapAdapter.Parser
   alias Zaq.Contracts.Record
@@ -606,7 +607,10 @@ defmodule Zaq.Engine.HistoryIngressTest do
       )
 
     outgoing = Outgoing.from_pipeline_result(incoming, %{answer: "Must not be sent"})
-    assert {:error, :no_reply_recipients} = EmailBridge.send_reply(outgoing, %{})
+
+    assert {:error, %DeliveryError{reason: :no_reply_recipients}} =
+             EmailBridge.send_reply(outgoing, %{})
+
     refute_received {:email, _}
   end
 

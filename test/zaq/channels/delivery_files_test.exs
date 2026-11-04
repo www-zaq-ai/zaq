@@ -19,18 +19,42 @@ defmodule Zaq.Channels.DeliveryFilesTest do
     def get(:zaq, Zaq.Storage, _default, opts), do: Keyword.fetch!(opts, :storage_config)
   end
 
-  test "empty attachments invoke the consumer without source access" do
-    assert :sent = DeliveryFiles.with_prepared([], %{}, fn [] -> :sent end)
+  test "empty attachments return no files without source access" do
+    assert {:ok, []} = DeliveryFiles.prepare([], %{})
   end
 
   property "raw and declared base64 normalization preserve every byte and attachment order" do
     check all(bytes <- binary(max_length: 2_048)) do
       records = [file(bytes), file(Base.encode64(bytes), %{"encoding" => "base64"})]
 
-      assert [raw, decoded] = DeliveryFiles.with_prepared(records, %{}, & &1)
+      assert {:ok, [raw, decoded]} = DeliveryFiles.prepare(records, %{})
       assert raw == decoded
       assert raw.content == bytes
       assert raw.size == byte_size(bytes)
+    end
+  end
+
+  property "standard base64 with whitespace and optional padding preserves every byte" do
+    check all(bytes <- binary(max_length: 2_048)) do
+      encoded =
+        bytes
+        |> Base.encode64(padding: false)
+        |> String.graphemes()
+        |> Enum.chunk_every(7)
+        |> Enum.map_join("\r\n", &Enum.join/1)
+
+      record = file(" \t" <> encoded <> "\n", %{"encoding" => "base64"})
+
+      assert {:ok, [prepared]} = DeliveryFiles.prepare([record], %{})
+      assert prepared.content == bytes
+      assert prepared.size == byte_size(bytes)
+    end
+  end
+
+  test "malformed and URL-safe base64 retain the attachment error contract" do
+    for encoded <- ["%%%", "a", "-_8="] do
+      assert {:error, :invalid_attachment_base64} =
+               DeliveryFiles.prepare([file(encoded, %{"encoding" => "base64"})], %{})
     end
   end
 
@@ -48,7 +72,7 @@ defmodule Zaq.Channels.DeliveryFilesTest do
         materialization_handle: "unused"
     }
 
-    assert [prepared] = DeliveryFiles.with_prepared([record], %{}, & &1)
+    assert {:ok, [prepared]} = DeliveryFiles.prepare([record], %{})
 
     assert prepared == %{
              content: bytes,
@@ -61,11 +85,12 @@ defmodule Zaq.Channels.DeliveryFilesTest do
   test "missing display metadata receives safe defaults without guessing an encoding" do
     record = %{file("aGVsbG8=") | name: nil, mime_type: nil}
 
-    assert [%{content: "aGVsbG8=", name: "attachment", mime_type: "application/octet-stream"}] =
-             DeliveryFiles.with_prepared([record], %{}, & &1)
+    assert {:ok,
+            [%{content: "aGVsbG8=", name: "attachment", mime_type: "application/octet-stream"}]} =
+             DeliveryFiles.prepare([record], %{})
   end
 
-  test "invalid collections, Records, content, encoding and header metadata stop before consumption" do
+  test "invalid collections, Records, content, encoding and header metadata return preparation errors" do
     invalid = [
       nil,
       %{},
@@ -87,9 +112,7 @@ defmodule Zaq.Channels.DeliveryFilesTest do
 
     for records <- invalid do
       assert {:error, _reason} =
-               DeliveryFiles.with_prepared(records, %{}, fn _ ->
-                 flunk("invalid files consumed")
-               end)
+               DeliveryFiles.prepare(records, %{})
     end
   end
 
@@ -98,33 +121,30 @@ defmodule Zaq.Channels.DeliveryFilesTest do
     record = %{fixture.record | materialization_handle: nil, path: fixture.path}
 
     assert {:error, :attachment_content_unavailable} =
-             DeliveryFiles.with_prepared([record], %{}, fn _ -> flunk("path consumed") end)
+             DeliveryFiles.prepare([record], %{})
 
     assert File.read!(fixture.path) == fixture.bytes
   end
 
-  test "lazy disk files use real Storage authorization and materialize once before the consumer" do
+  test "lazy disk files use real Storage authorization and materialize once during preparation" do
     fixture = storage_fixture()
     expect_storage(fixture.opts)
 
-    assert {:ok, :sent} =
-             DeliveryFiles.with_prepared(
+    assert {:ok, [prepared]} =
+             DeliveryFiles.prepare(
                [fixture.record],
                %{
                  actor: fixture.actor,
                  token: "destination-secret",
                  incoming: %{author_id: "fake"}
                },
-               fn [prepared] ->
-                 assert prepared.content == fixture.bytes
-                 assert prepared.name == "report.bin"
-                 assert prepared.mime_type == "application/octet-stream"
-                 assert prepared.size == byte_size(fixture.bytes)
-                 {:ok, :sent}
-               end,
                node_router: Zaq.NodeRouterMock
              )
 
+    assert prepared.content == fixture.bytes
+    assert prepared.name == "report.bin"
+    assert prepared.mime_type == "application/octet-stream"
+    assert prepared.size == byte_size(fixture.bytes)
     assert File.read!(fixture.path) == fixture.bytes
   end
 
@@ -141,10 +161,9 @@ defmodule Zaq.Channels.DeliveryFilesTest do
       expect_storage(fixture.opts)
 
       assert {:error, "Attachment preparation failed: :unauthorized"} =
-               DeliveryFiles.with_prepared(
+               DeliveryFiles.prepare(
                  [fixture.record],
                  context,
-                 fn _ -> flunk("unauthorized files consumed") end,
                  node_router: Zaq.NodeRouterMock
                )
     end
@@ -154,8 +173,8 @@ defmodule Zaq.Channels.DeliveryFilesTest do
     fixture = storage_fixture()
     expect_storage(fixture.opts)
 
-    assert [_] =
-             DeliveryFiles.with_prepared([fixture.record], %{actor: fixture.actor}, & &1,
+    assert {:ok, [_]} =
+             DeliveryFiles.prepare([fixture.record], %{actor: fixture.actor},
                node_router: Zaq.NodeRouterMock
              )
 
@@ -163,21 +182,20 @@ defmodule Zaq.Channels.DeliveryFilesTest do
     expect_storage(fixture.opts)
 
     assert {:error, "Attachment preparation failed: :unauthorized"} =
-             DeliveryFiles.with_prepared([fixture.record], %{actor: fixture.actor}, & &1,
+             DeliveryFiles.prepare([fixture.record], %{actor: fixture.actor},
                node_router: Zaq.NodeRouterMock
              )
   end
 
-  test "removed source files fail without consuming partial prepared files" do
+  test "removed source files fail without returning partial prepared files" do
     fixture = storage_fixture()
     File.rm!(fixture.path)
     expect_storage(fixture.opts)
 
     assert {:error, _} =
-             DeliveryFiles.with_prepared(
+             DeliveryFiles.prepare(
                [file("first"), fixture.record],
                %{actor: fixture.actor},
-               fn _ -> flunk("partial files consumed") end,
                node_router: Zaq.NodeRouterMock
              )
   end
@@ -194,15 +212,14 @@ defmodule Zaq.Channels.DeliveryFilesTest do
           %{actor: nil, skip_permissions: "true"}
         ] do
       assert {:error, "Attachment preparation failed: :unauthorized_materialization_handle"} =
-               DeliveryFiles.with_prepared(
+               DeliveryFiles.prepare(
                  [%{file(nil) | materialization_handle: handle}],
-                 context,
-                 & &1
+                 context
                )
     end
   end
 
-  test "source failures and malformed source payloads return errors before the consumer" do
+  test "source failures and malformed source payloads return preparation errors" do
     assert {:ok, handle} = DiskDocument.issue("source-file")
     record = %{file(nil) | materialization_handle: handle}
 
@@ -214,10 +231,9 @@ defmodule Zaq.Channels.DeliveryFilesTest do
       expect(Zaq.NodeRouterMock, :dispatch, fn event -> %{event | response: response} end)
 
       assert {:error, _} =
-               DeliveryFiles.with_prepared(
+               DeliveryFiles.prepare(
                  [record],
                  %TrustedContext{},
-                 fn _ -> flunk("failed source consumed") end,
                  node_router: Zaq.NodeRouterMock
                )
     end
@@ -256,11 +272,10 @@ defmodule Zaq.Channels.DeliveryFilesTest do
       }
     end)
 
-    assert [%{name: "source.pdf", mime_type: "application/pdf", content: ^bytes, size: 3}] =
-             DeliveryFiles.with_prepared(
+    assert {:ok, [%{name: "source.pdf", mime_type: "application/pdf", content: ^bytes, size: 3}]} =
+             DeliveryFiles.prepare(
                [record],
                %{actor: %{person_id: 123}, credentials: "destination-secret"},
-               & &1,
                node_router: Zaq.NodeRouterMock
              )
   end
@@ -272,15 +287,14 @@ defmodule Zaq.Channels.DeliveryFilesTest do
       expect_storage(fixture.opts)
 
       result =
-        DeliveryFiles.with_prepared(
+        DeliveryFiles.prepare(
           [fixture.record],
           %{actor: nil, skip_permissions: bypass},
-          & &1,
           node_router: Zaq.NodeRouterMock
         )
 
       if bypass == true do
-        assert [%{content: content}] = result
+        assert {:ok, [%{content: content}]} = result
         assert content == fixture.bytes
       else
         assert {:error, "Attachment preparation failed: :unauthorized"} = result
@@ -291,12 +305,9 @@ defmodule Zaq.Channels.DeliveryFilesTest do
   test "invalid handles fail through the registered materialization boundary" do
     for handle <- ["forged-handle", ""] do
       assert {:error, _} =
-               DeliveryFiles.with_prepared(
+               DeliveryFiles.prepare(
                  [%{file(nil) | materialization_handle: handle}],
-                 %{},
-                 fn _ ->
-                   flunk("invalid handle consumed")
-                 end
+                 %{}
                )
     end
   end
@@ -305,24 +316,25 @@ defmodule Zaq.Channels.DeliveryFilesTest do
     fixture = storage_fixture()
     expect_storage(fixture.opts)
 
-    assert {:error, :transport_unavailable} =
-             DeliveryFiles.with_prepared(
-               [fixture.record],
-               %{actor: fixture.actor},
-               fn [_] -> {:error, :transport_unavailable} end,
+    result =
+      with {:ok, [_]} <-
+             DeliveryFiles.prepare([fixture.record], %{actor: fixture.actor},
                node_router: Zaq.NodeRouterMock
-             )
+             ) do
+        {:error, :transport_unavailable}
+      end
 
+    assert {:error, :transport_unavailable} = result
     assert File.read!(fixture.path) == fixture.bytes
     expect_storage(fixture.opts)
 
     assert_raise RuntimeError, "consumer failed", fn ->
-      DeliveryFiles.with_prepared(
-        [fixture.record],
-        %{actor: fixture.actor},
-        fn [_] -> raise "consumer failed" end,
-        node_router: Zaq.NodeRouterMock
-      )
+      with {:ok, [_]} <-
+             DeliveryFiles.prepare([fixture.record], %{actor: fixture.actor},
+               node_router: Zaq.NodeRouterMock
+             ) do
+        raise "consumer failed"
+      end
     end
 
     assert File.read!(fixture.path) == fixture.bytes

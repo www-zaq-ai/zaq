@@ -140,8 +140,7 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
       namespace = "attachment-#{@scenario}-#{Ecto.UUID.generate()}"
       {:ok, person} = People.create_person(%{full_name: namespace})
       {disk, files, root} = documents!(namespace, person)
-      connections = if @scenario == :revoke, do: 1, else: 2
-      destination = destination!(@provider, namespace, self(), connections)
+      destination = destination!(@provider, namespace, self(), 2)
 
       script =
         [get_document(disk, files.b.id), &select_documents(&1, "add", [0])] ++
@@ -294,15 +293,19 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
   defp assert_interrupted_delivery(:steer, destination, namespace, _file),
     do: assert_delivery(destination, namespace, nil)
 
-  defp assert_interrupted_delivery(:revoke, %{provider: :email}, _namespace, _file) do
-    refute_receive {:delivery_boundary, _, _, _}
+  defp assert_interrupted_delivery(:revoke, %{provider: :email}, namespace, _file) do
+    assert_receive {:delivery_boundary, ^namespace, provider, capture}, 10_000
+    mail = Mail.parse(capture.raw)
+    assert Mail.get_attachments(mail) == []
+    assert Mail.get_text(mail).body =~ "Here is B."
+    assert Mail.get_text(mail).body =~ "The attachment content could not be accessed."
+    send(provider, :accept_delivery)
   end
 
   defp assert_interrupted_delivery(:revoke, %{provider: :mattermost}, _namespace, _file) do
     assert_receive {:history_update,
                     %{
-                      "message" =>
-                        "Here is B.\n\nFile delivery failed: The attachment could not be sent."
+                      "message" => "Here is B.\n\nThe attachment content could not be accessed."
                     }},
                    10_000
   end

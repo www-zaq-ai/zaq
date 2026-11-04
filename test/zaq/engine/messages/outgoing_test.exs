@@ -20,6 +20,28 @@ defmodule Zaq.Engine.Messages.OutgoingTest do
     end
   end
 
+  test "only the runtime result supplies attachment errors and metadata cannot inject them" do
+    incoming = %{
+      incoming()
+      | metadata: %{
+          :attachment_error => :invalid_attachment_selection,
+          "attachment_error" => "invalid_attachment_selection"
+        }
+    }
+
+    for error <- [nil, :invalid_attachment_selection] do
+      outgoing =
+        Outgoing.from_pipeline_result(incoming, %{answer: "ok", attachment_error: error})
+
+      assert outgoing.attachment_error == error
+      assert outgoing.body == "ok"
+      refute Map.has_key?(outgoing.metadata, :attachment_error)
+      refute Map.has_key?(outgoing.metadata, "attachment_error")
+    end
+
+    assert Outgoing.from_pipeline_result(incoming, %{answer: "ok"}).attachment_error == nil
+  end
+
   test "only explicit result records become outbound attachments" do
     received = %Record{id: "received", kind: :file, name: "received.txt"}
     requested = %Record{id: "requested", kind: :file, content: "report", name: "report.txt"}

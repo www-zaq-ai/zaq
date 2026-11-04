@@ -7,7 +7,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
   alias Jido.Chat.Mattermost.Adapter
   alias Zaq.Accounts.{People, PeopleAuth, PeoplePermissions, PersonLoginChallenge}
   alias Zaq.Channels.Api
-  alias Zaq.Channels.{EmailBridge, JidoChatBridge}
+  alias Zaq.Channels.{DeliveryError, EmailBridge, JidoChatBridge}
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Contracts.Record
   alias Zaq.Engine.{ChannelConfig, Events, PeopleAuthGateway}
@@ -48,6 +48,20 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
         "/missing_post_id" -> {:ok, %{"channel_id" => channel}}
         _ -> {:ok, %{"id" => "final-post-id", "channel_id" => channel}}
       end
+    end
+  end
+
+  defmodule DeliveryBridge do
+    alias Zaq.Channels.Bridge
+    alias Zaq.Channels.JidoChatDeliveryTest.FileTransport
+
+    defdelegate bridge_for(provider), to: Bridge
+    defdelegate fetch_channel_config(provider, id), to: Bridge
+
+    def fetch_connection_details_for_config(config) do
+      config
+      |> Bridge.fetch_connection_details_for_config()
+      |> Map.put(:transport, FileTransport)
     end
   end
 
@@ -359,27 +373,30 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
         metadata: %{message_id: "status-id"}
     }
 
-    assert {:error, :multiple_attachments_unsupported} =
-             JidoChatBridge.send_reply(outgoing, file_connection())
+    assert {:error, %DeliveryError{reason: :multiple_attachments_unsupported}} =
+             deliver_outgoing(outgoing, file_connection())
 
     assert_received {:file_status, _, "status-id", status, _}
 
     assert status ==
-             "File caption\n\nFile delivery failed: Sending multiple attachments together is not supported."
+             "File caption\n\nAttachment delivery was not confirmed. Check the conversation before sending again."
 
     refute_received {:file_upload, _, _, _}
     refute_received {:file_post, _, _, _}
   end
 
-  test "provider rejection preserves the answer and HTTP status without exposing response details" do
+  test "provider rejection preserves the answer and original error without exposing response details" do
     outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
 
-    assert {:error, {413, _}} =
-             JidoChatBridge.send_reply(outgoing, file_connection("size_rejected"))
+    assert {:error, %DeliveryError{reason: {413, _}}} =
+             deliver_outgoing(outgoing, file_connection("size_rejected"))
 
     assert_received {:file_upload, _, _, _}
     assert_received {:file_status, _, _, status, _}
-    assert status == "File caption\n\nFile delivery failed: The provider returned HTTP 413."
+
+    assert status ==
+             "File caption\n\nAttachment delivery was not confirmed. Check the conversation before sending again."
+
     refute status =~ "private-provider-detail"
     refute_received {:file_post, _, _, _}
     refute_received {:file_upload, _, _, _}
@@ -388,11 +405,14 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
   test "upload and attachment update failures retain errors and report only generic safe status" do
     for failure <- ["upload_failed", "post_failed"] do
       outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
-      assert {:error, _} = JidoChatBridge.send_reply(outgoing, file_connection(failure))
+      assert {:error, _} = deliver_outgoing(outgoing, file_connection(failure))
       assert_received {:file_upload, _, _, _}
       if failure == "post_failed", do: assert_received({:file_edit, _, "status-id", _, _})
       assert_received {:file_status, _, _, status, _}
-      assert String.starts_with?(status, "File caption\n\nFile delivery failed: ")
+
+      assert status ==
+               "File caption\n\nAttachment delivery was not confirmed. Check the conversation before sending again."
+
       refute status =~ "private-provider-detail"
       refute_received {:file_upload, _, _, _}
       refute_received {:file_post, _, _, _}
@@ -403,13 +423,13 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
   test "ambiguous upload or attachment update timeouts report uncertainty and never send again" do
     for failure <- ["upload_timeout", "post_timeout"] do
       outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
-      assert {:error, _} = JidoChatBridge.send_reply(outgoing, file_connection(failure))
+      assert {:error, _} = deliver_outgoing(outgoing, file_connection(failure))
       assert_received {:file_upload, _, _, _}
       if failure == "post_timeout", do: assert_received({:file_edit, _, "status-id", _, _})
       assert_received {:file_status, _, _, status, _}
 
       assert status ==
-               "File caption\n\nFile delivery could not be confirmed: Check the conversation before sending again."
+               "File caption\n\nAttachment delivery was not confirmed. Check the conversation before sending again."
 
       refute_received {:file_upload, _, _, _}
       refute_received {:file_post, _, _, _}
@@ -503,12 +523,21 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     ]
 
     for {outgoing, reason} <- cases do
-      assert {:error, ^reason} = JidoChatBridge.send_reply(outgoing, file_connection())
+      assert {:error, %DeliveryError{reason: ^reason}} =
+               deliver_outgoing(outgoing, file_connection())
+
       refute_received {:file_upload, _, _, _}
 
       if is_binary(outgoing.body) do
         assert_received {:file_post, _, text, opts}
-        assert text == "File caption\n\nFile delivery failed: The attachment could not be sent."
+
+        expected =
+          if reason == :invalid_attachments,
+            do: "File caption\n\nThe attachment data is invalid.",
+            else: "File caption\n\nThe attachment content could not be accessed."
+
+        assert text == expected
+
         assert opts[:file_ids] == nil
       end
 
@@ -516,20 +545,16 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     end
   end
 
-  test "failure without a placeholder sends the answer and reason once without attachments or callback" do
+  test "unconfirmed delivery without a placeholder never reposts the answer or invokes callbacks" do
     outgoing = %{
       file_outgoing()
       | metadata: %{"on_reply" => %{"module" => Atom.to_string(FileReplyWorker), "args" => %{}}}
     }
 
-    assert {:error, :upload_failed} =
-             JidoChatBridge.send_reply(outgoing, file_connection("upload_failed"))
+    assert {:error, %DeliveryError{reason: :upload_failed}} =
+             deliver_outgoing(outgoing, file_connection("upload_failed"))
 
     assert_received {:file_upload, _, _, _}
-    assert_received {:file_post, "private-room", text, opts}
-    assert text == "File caption\n\nFile delivery failed: The attachment could not be sent."
-    assert opts[:thread_id] == "root-post"
-    assert opts[:file_ids] == nil
     assert Oban.Testing.all_enqueued(repo: Repo, worker: FileReplyWorker) == []
     refute_received {:file_upload, _, _, _}
     refute_received {:file_post, _, _, _}
@@ -552,9 +577,11 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
           attachments: attachments
         })
 
-      assert {:error, _} = JidoChatBridge.send_reply(outgoing, connection)
+      assert {:error, _} = deliver_outgoing(outgoing, connection)
       assert_received {:file_post, "private-room", text, opts}
-      assert text == "Keep this answer\n\nFile delivery failed: The attachment could not be sent."
+
+      assert text == "Keep this answer\n\nThe attachment data is invalid."
+
       assert opts[:file_ids] == nil
       refute_received {:file_upload, _, _, _}
       refute_received {:file_post, _, _, _}
@@ -569,21 +596,22 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       Application.put_env(:zaq, :channels, put_in(registry, [:mattermost, :adapter], adapter))
       outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
 
-      {original_error, notice} =
-        if scenario == "notice_failed" do
-          {{400, %{"message" => "private-provider-detail"}}, "The provider returned HTTP 400."}
-        else
-          {:upload_failed, "The attachment could not be sent."}
-        end
+      original_error =
+        if scenario == "notice_failed",
+          do: {400, %{"message" => "private-provider-detail"}},
+          else: :upload_failed
 
       capture_log(fn ->
-        assert {:error, ^original_error} =
-                 JidoChatBridge.send_reply(outgoing, file_connection(scenario))
+        assert {:error, %DeliveryError{reason: ^original_error}} =
+                 deliver_outgoing(outgoing, file_connection(scenario))
       end)
 
       assert_received {:file_upload, _, _, _}
       assert_received {:file_status, _, "status-id", text, _}
-      assert text == "File caption\n\nFile delivery failed: " <> notice
+
+      assert text ==
+               "File caption\n\nAttachment delivery was not confirmed. Check the conversation before sending again."
+
       refute_received {:file_upload, _, _, _}
       refute_received {:file_post, _, _, _}
       refute_received {:file_status, _, _, _, _}
@@ -596,16 +624,54 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     check all(body <- one_of([constant(""), string(:printable, max_length: 256)])) do
       outgoing = %{file_outgoing() | body: body, metadata: %{message_id: "status-id"}}
 
-      assert {:error, {400, %{"message" => "private-provider-detail"}}} =
-               JidoChatBridge.send_reply(outgoing, connection)
+      assert {:error, %DeliveryError{reason: {400, %{"message" => "private-provider-detail"}}}} =
+               deliver_outgoing(outgoing, connection)
 
       assert_received {:file_upload, _, _, _}
       assert_received {:file_status, _, "status-id", text, _}
-      notice = "File delivery failed: The provider returned HTTP 400."
+
+      notice =
+        "Attachment delivery was not confirmed. Check the conversation before sending again."
+
       assert text == if(body == "", do: notice, else: body <> "\n\n" <> notice)
       refute_received {:file_upload, _, _, _}
       refute_received {:file_post, _, _, _}
     end
+  end
+
+  test "direct bridge failures return the original error without a fallback operation" do
+    outgoing = %{file_outgoing() | metadata: %{message_id: "status-id"}}
+
+    assert {:error,
+            %DeliveryError{
+              reason: {413, %{"message" => "private-provider-detail"}},
+              stage: :transport,
+              delivery: :unconfirmed
+            }} =
+             JidoChatBridge.send_reply(outgoing, file_connection("size_rejected"))
+
+    assert_received {:file_upload, _, _, _}
+    refute_received {:file_upload, _, _, _}
+    refute_received {:file_status, _, _, _, _}
+    refute_received {:file_post, _, _, _}
+  end
+
+  defp deliver_outgoing(outgoing, connection) do
+    assert {:ok, config} =
+             ChannelConfig.upsert_by_provider("mattermost", %{
+               name: "Attachment failure notice",
+               kind: "retrieval",
+               enabled: true,
+               url: connection.url,
+               token: connection.token
+             })
+
+    event =
+      Event.new(%{outgoing | routing_context: %{channel_config_id: config.id}}, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: DeliveryBridge]
+      )
+
+    Api.handle_event(event, :deliver_outgoing, nil).response
   end
 
   defp file_outgoing(content \\ <<255, 0, 128>>) do
@@ -701,7 +767,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     for provider <- [unknown, nil, :unsupported] do
       outgoing = %Outgoing{provider: provider, channel_id: "private-room", body: "Harmless"}
 
-      assert {:error, {:unsupported_provider, ^provider}} =
+      assert {:error, %DeliveryError{reason: {:unsupported_provider, ^provider}}} =
                JidoChatBridge.send_reply(outgoing, %{url: "http://unused.invalid", token: "test"})
     end
 

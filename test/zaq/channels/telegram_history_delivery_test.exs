@@ -343,7 +343,7 @@ defmodule Zaq.Channels.TelegramHistoryDeliveryTest do
           )
     }
 
-    assert {:error, %ExGram.Error{}} = deliver(outgoing)
+    assert {:error, %Zaq.Channels.DeliveryError{reason: %ExGram.Error{}}} = deliver(outgoing)
     assert Repo.get!(Message, ctx.persisted.assistant_message_id)
     refute Repo.get_by(TranscriptMessage, message_id: ctx.persisted.assistant_message_id)
     assert Repo.aggregate(TranscriptMessage, :count) == 1

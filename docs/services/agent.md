@@ -92,7 +92,9 @@ mutation. Standalone/workflow calls without that native context are rejected.
 The runner executes tools concurrently and emits their results in declaration
 order. The existing tool-completion handler suppresses duplicate invocation IDs
 before applying each successful selection instruction, including an old add
-replayed after removal. Events carrying a different request ID are ignored.
+replayed after removal. Native `Jido.AI.Request.Stream` scopes events by the request
+handle ID before they reach the reducer; alternate enumerable callers must supply
+an already scoped stream.
 Active-request steering can revise the same collection. Every new consume starts
 empty; only successful terminal results expose selected files. Failure,
 cancellation and incomplete streams expose no selected files. Later requests
@@ -110,7 +112,11 @@ attachment outputs are expanded and schema/provenance-validated before trace
 serialization can discard or truncate data. Missing, foreign or retired aliases
 reject selection with a bounded error and prevent final attachment delivery.
 Alias lifetime follows the existing runtime lifecycle; no additional store is
-created. Executor preserves the final selection as `Outgoing.attachments`, outside
+created. Rejected instructions clear selected files and set a bounded
+`attachment_error` without failing a completed answer. A later valid instruction
+clears that error. Executor carries it into `Outgoing.attachment_error` for Channels
+to report through its delivery policy. Genuine request failures still fail the run.
+Executor preserves the final selection as `Outgoing.attachments`, outside
 metadata and public tool-step projections. The default Answering/Pipeline path
 does not enable or propagate selection. Incoming files are never auto-selected.
 
