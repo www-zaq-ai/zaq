@@ -70,6 +70,21 @@ defmodule Zaq.Agent.RequestInspectionTest do
     assert {:error, :stale_runtime} = Factory.request_state(pid, "absent")
   end
 
+  test "request state rejects invalid runtime and request identifiers" do
+    pid = self()
+
+    assert {:error, :stale_runtime} = Factory.request_state(:not_a_pid, "request")
+    assert {:error, :stale_runtime} = Factory.request_state(pid, :not_a_request_id)
+  end
+
+  test "idle inspection reports unavailable native state after runtime termination" do
+    pid = spawn(fn -> :ok end)
+    monitor = Process.monitor(pid)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, _}
+
+    assert {:error, :native_state_unavailable} = Factory.history_runtime_idle(pid)
+  end
+
   @tag :native
   @tag timeout: 180_000
   test "a real native stream beyond trace capacity returns the complete answer without an archive",

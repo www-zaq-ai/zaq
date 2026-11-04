@@ -561,10 +561,10 @@ defmodule Zaq.Agent.ProviderSpecTest do
       refute opts[:api_key] == db_credential.api_key
     end
 
-    test "returns empty list when no credential and no credential_id" do
+    test "returns agent sampling when no credential and no credential_id" do
       agent = %{agent_base() | credential: nil, credential_id: nil}
       opts = ProviderSpec.llm_opts(agent)
-      assert opts == []
+      assert opts == [temperature: 0.0, top_p: 0.9]
     end
 
     test "nil credential values are omitted from opts" do
@@ -601,17 +601,17 @@ defmodule Zaq.Agent.ProviderSpecTest do
       assert opts[:provider_options][:chatgpt_account_id] == "acct_123"
     end
 
-    test "atom keys in advanced_options are included" do
+    test "dedicated sampling overrides overlapping atom keys in advanced_options" do
       agent = %{agent_base() | advanced_options: %{temperature: 0.5, top_p: 0.8}}
       opts = ProviderSpec.llm_opts(agent)
-      assert opts[:temperature] == 0.5
-      assert opts[:top_p] == 0.8
+      assert opts[:temperature] == 0.0
+      assert opts[:top_p] == 0.9
     end
 
-    test "string keys in advanced_options are converted to atoms" do
+    test "dedicated sampling overrides overlapping string keys in advanced_options" do
       agent = %{agent_base() | advanced_options: %{"temperature" => 0.3}}
       opts = ProviderSpec.llm_opts(agent)
-      assert opts[:temperature] == 0.3
+      assert opts[:temperature] == 0.0
     end
 
     test "unknown string keys in advanced_options are silently dropped" do
@@ -626,13 +626,13 @@ defmodule Zaq.Agent.ProviderSpecTest do
       }
 
       opts = ProviderSpec.llm_opts(agent)
-      assert opts == []
+      assert opts == [temperature: 0.0, top_p: 0.9]
     end
 
-    test "nil advanced_options returns empty list (plus any credential keys)" do
+    test "nil advanced_options retains explicit agent sampling" do
       agent = %{agent_base() | advanced_options: nil, credential: nil, credential_id: nil}
       opts = ProviderSpec.llm_opts(agent)
-      assert opts == []
+      assert opts == [temperature: 0.0, top_p: 0.9]
     end
   end
 

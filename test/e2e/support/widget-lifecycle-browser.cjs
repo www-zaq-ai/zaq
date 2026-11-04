@@ -67,6 +67,28 @@ async function main() {
     if (opts.scenario === "rejection") await checkpoint("revoke-sender")
     await composer.fill("Please add 2 and 3")
     await composer.press("Enter")
+    if (opts.scenario === "stream-policy") {
+      await checkpoint("policy-pending")
+      await expect(widget.locator(".zaq-working")).toBeVisible()
+      await expect(widget.locator("[data-step-id][data-kind='tool_call']")).toHaveCount(0)
+      await expect(widget.locator(".zaq-answer-content")).not.toContainText(opts.answer)
+      await checkpoint("policy-release")
+      await expect(widget.getByText(opts.answer, { exact: true })).toBeVisible({ timeout: 20000 })
+      await expect(widget.locator("[data-role='assistant']")).toHaveAttribute("data-running", "false")
+      const steps = widget.locator("[data-step-id][data-kind='tool_call']")
+      await expect(steps).toHaveCount(1)
+      await expect(steps.first()).toHaveAttribute("data-status", "complete")
+      const saved = await checkpoint("policy-saved")
+      await page.reload()
+      await expect.poll(() => page.evaluate(() => window.zaq?.widget.isReady())).toBe(true)
+      const restored = await page.evaluate(id => window.zaq.widget.updateContext({ conversation_id: id }), saved.conversation_id)
+      expect(restored.ok).toBe(true)
+      await expect(widget.getByText(opts.answer, { exact: true })).toBeVisible()
+      await expect(steps.first()).toHaveAttribute("data-status", "complete")
+      expect(errors).toEqual([])
+      console.log("history journey passed")
+      return
+    }
     if (opts.scenario === "rejection") {
       await expect(widget.locator(".zaq-widget-error")).toBeVisible({ timeout: 20000 })
       await expect(composer).toHaveValue("Please add 2 and 3")

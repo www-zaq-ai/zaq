@@ -1,5 +1,20 @@
 const { expect } = require("@playwright/test");
 const path = require("path");
+const { installFlashObserver } = require("./flash-observer");
+const flashObserverPages = new WeakSet();
+
+// Observes actual rendered notifications before the action, retaining evidence
+// after auto-dismissal. The collector lives only for this test's page lifetime.
+async function expectFlashDuringAction(page, text, action, { timeout = process.env.CI ? 20_000 : 15_000, exact = false } = {}) {
+  if (!flashObserverPages.has(page)) {
+    await page.addInitScript(installFlashObserver);
+    flashObserverPages.add(page);
+  }
+  await page.evaluate(installFlashObserver);
+  await page.evaluate(() => window.__e2eArmFlashes());
+  await action();
+  await page.waitForFunction(({ text, exact }) => window.__e2eFlashes?.some(message => exact ? message === text : message.includes(text)), { text, exact }, { timeout });
+}
 
 const DEFAULT_BASE_URL = process.env.E2E_BASE_URL || "http://localhost:4002";
 const DEFAULT_ADMIN_USERNAME = process.env.E2E_ADMIN_USERNAME || "e2e_admin";
@@ -175,7 +190,8 @@ async function waitForServerRoundTrip(page) {
   await waitForLiveViewSettled(page);
 }
 
-async function pickSearchableSelect(page, containerSel, optionLabel) {
+// ZaqWeb.Select uses the same hook with search disabled; existing searchable callers keep filtering.
+async function pickSearchableSelect(page, containerSel, optionLabel, { searchable = true } = {}) {
   const trigger = page.locator(`${containerSel} [data-select-trigger]`)
   const panel = page.locator(`${containerSel} [data-select-panel]`)
   const search = page.locator(`${containerSel} [data-select-search]`)
@@ -190,7 +206,7 @@ async function pickSearchableSelect(page, containerSel, optionLabel) {
     await trigger.click({ force: true })
     try {
       await expect(panel).toBeVisible({ timeout: 600 })
-      await expect(search).toBeVisible({ timeout: 600 })
+      if (searchable) await expect(search).toBeVisible({ timeout: 600 })
       opened = true
       break
     } catch (_error) {
@@ -199,7 +215,7 @@ async function pickSearchableSelect(page, containerSel, optionLabel) {
   }
 
   expect(opened).toBeTruthy()
-  await search.fill(optionLabel)
+  if (searchable) await search.fill(optionLabel)
   await expect(option).toBeVisible({ timeout: process.env.CI ? 10_000 : 5_000 })
   await option.click()
 }
@@ -494,6 +510,7 @@ async function openPromptTemplate(page, slug) {
 }
 
 module.exports = {
+  expectFlashDuringAction,
   seedE2EPromptTemplateDefaults,
   publishE2EPromptTemplateDefaults,
   openPromptTemplate,

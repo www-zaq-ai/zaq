@@ -10,6 +10,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Accounts.People
   alias Zaq.Channels.Events, as: ChannelsEvents
   alias Zaq.Contracts.Record
+  alias Zaq.Engine.Actions.ManageLiveUpdateSettings
   alias Zaq.Engine.Actions.ManageWidgetConnector
   alias Zaq.Engine.Actions.SaveEmailConnector
   alias Zaq.Engine.ChannelConfig
@@ -28,6 +29,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.HistoryIngress
   alias Zaq.Engine.IncomingMessageRouter
   alias Zaq.Engine.IncomingMessageRouting
+  alias Zaq.Engine.LiveUpdateSettings
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Engine.Notifications
   alias Zaq.Engine.Notifications.NotificationLog
@@ -45,6 +47,33 @@ defmodule Zaq.Engine.Api do
   alias Zaq.System
 
   @impl true
+  def handle_event(%Event{} = event, :manage_live_update_settings, _context) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           {:ok, %{result: result}} <-
+             Jido.Exec.run(ManageLiveUpdateSettings, %{request: event.request}, %{
+               actor: event.actor
+             }) do
+        result
+      else
+        _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :resolve_live_update_policy, _context) do
+    response =
+      with true <- Keyword.get(event.opts, :confidential) == true,
+           {:ok, _actor} <- ExecutionActor.validate(event.actor) do
+        LiveUpdateSettings.resolve(event.request)
+      else
+        _ -> {:error, :unauthorized}
+      end
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, :widget_connector_settings, _context) do
     response =
       with true <- Keyword.get(event.opts, :confidential) == true,
@@ -878,6 +907,56 @@ defmodule Zaq.Engine.Api do
 
   def handle_event(%Event{} = event, :system_config_get_embedding_config, _context),
     do: %{event | response: System.get_embedding_config()}
+
+  def handle_event(%Event{} = event, :system_config_save_retrieval_config, _context) do
+    case event.request do
+      %{attrs: attrs} when is_map(attrs) ->
+        %{event | response: System.save_retrieval_config(attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_get_rag_model_config, _context) do
+    case event.request do
+      %{kind: kind} when kind in [:reranking, :decision] ->
+        %{event | response: System.get_rag_model_config(kind)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_save_rag_model_config, _context) do
+    case event.request do
+      %{kind: kind, attrs: attrs} when kind in [:reranking, :decision] and is_map(attrs) ->
+        %{event | response: System.save_rag_model_config(kind, attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_get_operation_model_config, _context) do
+    case event.request do
+      %{kind: kind} when kind in [:translation, :small] ->
+        %{event | response: System.get_operation_model_config(kind)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
+
+  def handle_event(%Event{} = event, :system_config_save_operation_model_config, _context) do
+    case event.request do
+      %{kind: kind, attrs: attrs} when kind in [:translation, :small] and is_map(attrs) ->
+        %{event | response: System.save_operation_model_config(kind, attrs)}
+
+      other ->
+        %{event | response: {:error, {:invalid_request, other}}}
+    end
+  end
 
   def handle_event(%Event{} = event, :system_config_save_embedding_config, _context) do
     case event.request do

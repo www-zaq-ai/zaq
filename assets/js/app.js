@@ -54,6 +54,8 @@ const liveSocket = new LiveSocket("/live", Socket, {
       liveViewHooks["ZaqWeb.Components.DesignSystem.PersonProfile.ProfileFocus"],
     "ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure":
       liveViewHooks["ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure"],
+    "ZaqWeb.Components.DesignSystem.ModelModalities.ModalityTooltips":
+      liveViewHooks["ZaqWeb.Components.DesignSystem.ModelModalities.ModalityTooltips"],
     PeopleBulkDeleteDialog: liveViewHooks.DialogOverlay,
     PeoplePermissions,
     PeopleAuthForm,
@@ -285,11 +287,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
         })
       }
     },
-    DetailsKeepOpen: {
-      mounted() { this._open = this.el.open },
-      updated() { this.el.open = this._open },
-      beforeUpdate() { this._open = this.el.open }
-    },
+    DetailsKeepOpen: liveViewHooks.DetailsKeepOpen,
     AutoExpand: {
       mounted() {
         const el = this.el

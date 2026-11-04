@@ -1357,7 +1357,16 @@
           <span class="text-red-400">✗</span> {err}
         </p>
       </div>
+      <ZaqWeb.Components.LiveUpdateSettings.fields
+        :if={@modal == :edit && @kind == :retrieval}
+        id={"stream-updates-#{@changeset.data.id}"}
+        policy={@live_update_policy}
+        errors={@live_update_errors}
+        load_error={@live_update_load_error}
+      />
+    </.form>
 
+    <:actions>
       <div class="flex items-center justify-end gap-3">
         <button
           type="button"
@@ -1368,12 +1377,13 @@
         </button>
         <button
           type="submit"
+          form="config-form"
           class="font-mono text-[0.75rem] tracking-wide px-5 py-2.5 rounded-xl font-bold bg-[#03b6d4] text-white hover:bg-[#03b6d4]/90 transition-all"
         >
           {if @modal == :new, do: "Create", else: "Update"}
         </button>
       </div>
-    </.form>
+    </:actions>
   </ZaqWeb.Components.BOModal.form_dialog>
 
   <ZaqWeb.Components.BOModal.modal_shell

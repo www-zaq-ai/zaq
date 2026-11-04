@@ -1,4 +1,5 @@
 const { test, expect, request: apiRequest } = require("@playwright/test")
+const { expectFlashDuringAction } = require("../support/bo")
 const {
   gotoBackOfficeLive,
   loginToBackOffice,
@@ -239,6 +240,7 @@ test.describe("People", () => {
       "ToolStepTimer", "WorkflowExport", "ZaqWeb.Components.DesignSystem.AccountMenu.AccountDisclosure",
       "ZaqWeb.Components.DesignSystem.ChannelPriorityList.PriorityDrag",
       "ZaqWeb.Components.DesignSystem.Checkbox.MixedCheckbox",
+      "ZaqWeb.Components.DesignSystem.ModelModalities.ModalityTooltips",
       "ZaqWeb.Components.DesignSystem.PersonProfile.ProfileFocus", "liveViewHooks",
     ].sort())
     expect(registered).not.toContain("DetectTimezone")
@@ -520,11 +522,10 @@ test.describe("People", () => {
 
     // Confirm merge button should appear
     await expect(page.locator(SEL.confirmMergeButton)).toBeVisible()
-    await page.locator(SEL.confirmMergeButton).click()
+    await expectFlashDuringAction(page, "Persons merged successfully", () => page.locator(SEL.confirmMergeButton).click())
 
     // Modal closes, success flash
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
-    await expect(page.getByText("Persons merged successfully")).toBeVisible()
 
     // Loser no longer in people list
     await expect(page.locator("#people-table").getByText(nameLoser)).not.toBeVisible()
@@ -841,10 +842,9 @@ test.describe("People", () => {
 
     await page.locator(SEL.mergeSearchInput).fill(loserName)
     await page.locator('[phx-click="select_merge_loser"]').first().click()
-    await page.locator(SEL.confirmMergeButton).click()
+    await expectFlashDuringAction(page, "Persons merged successfully", () => page.locator(SEL.confirmMergeButton).click())
 
     await expect(page.locator(SEL.modalOverlay)).not.toBeVisible()
-    await expect(page.getByText("Persons merged successfully")).toBeVisible()
 
     // Survivor should now carry both teams (detail panel already open)
     await selectPerson(page, survivorName)

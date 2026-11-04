@@ -1,6 +1,7 @@
 defmodule Zaq.IngestionTest do
   # async: false — tests override Application env via put_env; concurrent runs cause flaky reads.
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   import Mox
 
@@ -767,6 +768,101 @@ defmodule Zaq.IngestionTest do
   end
 
   describe "retry_job/1" do
+    property "active document workers block retries for their full lifetime by job identity" do
+      check all(
+              age <- integer(121..86_400),
+              previous_chunk_retry? <- boolean(),
+              max_runs: 20
+            ) do
+        for state <- Oban.Job.unique_states(:incomplete) do
+          completed_at = DateTime.utc_now()
+
+          job =
+            create_job(%{status: "failed", error: "previous failure", completed_at: completed_at})
+
+          worker =
+            %{"job_id" => job.id, "retry_failed_chunks" => previous_chunk_retry?}
+            |> IngestWorker.new()
+            |> Oban.insert!()
+            |> Ecto.Changeset.change(
+              state: to_string(state),
+              inserted_at: DateTime.add(DateTime.utc_now(), -age, :second)
+            )
+            |> Repo.update!()
+
+          assert {:error, :already_queued} = Ingestion.retry_job(job.id)
+          assert Repo.get!(IngestJob, job.id) == job
+
+          assert Repo.all(
+                   from(j in Oban.Job,
+                     where: fragment("?->>'job_id' = ?", j.args, ^job.id),
+                     select: {j.id, j.state, j.args, j.inserted_at}
+                   )
+                 ) == [{worker.id, worker.state, worker.args, worker.inserted_at}]
+        end
+      end
+    end
+
+    test "does not report a retry as queued when a document worker is already active" do
+      completed_at = DateTime.utc_now()
+      job = create_job(%{status: "failed", error: "previous failure", completed_at: completed_at})
+
+      worker =
+        %{"job_id" => job.id}
+        |> IngestWorker.new()
+        |> Oban.insert!()
+
+      Ingestion.subscribe()
+
+      assert {:error, :already_queued} = Ingestion.retry_job(job.id)
+      assert Repo.get!(IngestJob, job.id).status == "failed"
+      assert Repo.get!(IngestJob, job.id).error == "previous failure"
+      assert Repo.get!(IngestJob, job.id).completed_at == completed_at
+      assert Repo.aggregate(from(j in Oban.Job, where: j.args == ^worker.args), :count) == 1
+      assert_receive {:job_updated, %{id: id, status: "failed"}}
+      assert id == job.id
+    end
+
+    test "queues a fresh retry even when the previous document worker recently completed" do
+      job = create_job(%{status: "failed", error: "chunk processing failed"})
+
+      previous =
+        %{"job_id" => job.id}
+        |> IngestWorker.new()
+        |> Oban.insert!()
+        |> Ecto.Changeset.change(state: "completed")
+        |> Repo.update!()
+
+      assert {:ok, %{status: "pending"}} = Ingestion.retry_job(job.id)
+
+      assert Repo.aggregate(
+               from(j in Oban.Job, where: j.args == ^previous.args and j.state == "available"),
+               :count
+             ) == 1
+
+      assert Repo.get!(Oban.Job, previous.id).state == "completed"
+    end
+
+    test "cancelling and retrying the same job queues a replacement document worker" do
+      job = create_job(%{status: "processing"})
+
+      previous =
+        %{"job_id" => job.id}
+        |> IngestWorker.new()
+        |> Oban.insert!()
+        |> Ecto.Changeset.change(state: "executing")
+        |> Repo.update!()
+
+      assert {:ok, %{status: "failed"}} = Ingestion.cancel_job(job.id)
+      assert {:ok, %{status: "pending", error: nil}} = Ingestion.retry_job(job.id)
+      assert Repo.get!(Oban.Job, previous.id).state == "cancelled"
+
+      assert Repo.aggregate(
+               from(j in Oban.Job, where: j.args == ^previous.args and j.state == "available"),
+               :count
+             ) == 1
+    end
+
     test "retries a failed job" do
       job = create_job(%{status: "failed", error: "something broke"})
       Ingestion.subscribe()
@@ -871,6 +967,95 @@ defmodule Zaq.IngestionTest do
   end
 
   describe "cancel_job/1" do
+    test "cancels executing document and chunk workers and sends Oban termination signals" do
+      job = create_job(%{status: "processing"})
+
+      workers =
+        for {queue, worker} <- [
+              {"ingestion", "Zaq.Ingestion.IngestWorker"},
+              {"ingestion_chunks", "Zaq.Ingestion.IngestChunkWorker"}
+            ] do
+          Repo.insert!(%Oban.Job{
+            queue: queue,
+            worker: worker,
+            args: %{"job_id" => job.id},
+            state: "executing"
+          })
+        end
+
+      handler_id = {__MODULE__, make_ref()}
+      owner = self()
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:oban, :notifier, :notify, :start],
+          fn _event, _measurements, metadata, _config ->
+            if metadata.channel == :signal, do: send(owner, {:oban_signal, metadata.payload})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      assert {:ok, _} = Ingestion.cancel_job(job.id)
+      assert_receive {:oban_signal, signals}
+
+      for worker <- workers do
+        cancelled = Repo.get!(Oban.Job, worker.id)
+        assert cancelled.state == "cancelled"
+        assert cancelled.cancelled_at
+        assert %{action: :pkill, job_id: worker.id} in signals
+      end
+    end
+
+    property "cancellation preserves terminal workers and workers for other ingestion jobs" do
+      check all(
+              states <-
+                list_of(
+                  member_of(
+                    ~w(available scheduled retryable executing completed cancelled discarded)
+                  ),
+                  min_length: 1,
+                  max_length: 7
+                ),
+              max_runs: 12
+            ) do
+        job = create_job(%{status: "processing"})
+        other_job = create_job(%{status: "processing"})
+
+        workers =
+          for queue <- ["ingestion", "ingestion_chunks"], state <- states do
+            worker =
+              if queue == "ingestion",
+                do: "Zaq.Ingestion.IngestWorker",
+                else: "Zaq.Ingestion.IngestChunkWorker"
+
+            for target <- [job, other_job] do
+              Repo.insert!(%Oban.Job{
+                queue: queue,
+                worker: worker,
+                args: %{"job_id" => target.id},
+                state: state
+              })
+            end
+          end
+          |> List.flatten()
+
+        assert {:ok, _} = Ingestion.cancel_job(job.id)
+
+        for worker <- workers do
+          expected =
+            if worker.args["job_id"] == job.id and
+                 worker.state in ~w(available scheduled retryable executing),
+               do: "cancelled",
+               else: worker.state
+
+          assert Repo.get!(Oban.Job, worker.id).state == expected
+        end
+      end
+    end
+
     test "cancels a pending job" do
       job = create_job(%{status: "pending"})
       Ingestion.subscribe()

@@ -62,6 +62,8 @@ defmodule Zaq.Agent.Answering do
       active: true,
       advanced_options: ProviderSpec.default_advanced_options(cfg),
       model: cfg.model,
+      temperature: cfg.temperature,
+      top_p: cfg.top_p,
       model_max_context_tokens: cfg.max_context_window,
       credential_id: cfg.credential_id,
       credential: nil

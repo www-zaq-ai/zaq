@@ -18,8 +18,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
   alias Zaq.System.LLMConfig
+  alias Zaq.System.OperationModelConfig
   alias Zaq.System.OutboundHttpPolicy, as: SystemOutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
+  alias Zaq.System.RAGModelConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.System.WebBrowsingConfig
   alias Zaq.Utils.Map, as: MapUtils
@@ -143,8 +145,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:studio_running, StudioRuntime.running?())}
   end
 
+  def handle_params(%{"tab" => tab}, _uri, socket) when tab in ~w(rag embedding image_to_text) do
+    {:noreply, socket |> assign(:active_tab, :rag) |> load_rag_forms() |> load_operation_forms()}
+  end
+
+  def handle_params(%{"tab" => "global"}, _uri, socket) do
+    {:noreply, socket |> assign(:active_tab, :global) |> load_operation_forms()}
+  end
+
   def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ~w(ai_credentials auth_credentials outbound_http mcps global skills llm embedding image_to_text telemetry) do
+      when tab in ~w(ai_credentials auth_credentials outbound_http mcps global skills llm telemetry) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
   end
 
@@ -836,11 +846,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         end
       )
 
-    prev_bm25 = to_string(socket.assigns.llm_form[:fusion_bm25_weight].value)
-    prev_vector = to_string(socket.assigns.llm_form[:fusion_vector_weight].value)
-
-    params = LLMEvents.adjust_fusion_weights(params, prev_bm25, prev_vector, &clamp_weight/1)
-
     changeset =
       engine_get_llm_config()
       |> LLMConfig.changeset(params)
@@ -887,6 +892,92 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
 
   # ── Embedding ─────────────────────────────────────────────────────────
 
+  def handle_event("validate_retrieval", %{"retrieval_config" => params}, socket) do
+    previous = socket.assigns.retrieval_form
+
+    params =
+      LLMEvents.adjust_fusion_weights(
+        params,
+        to_string(previous[:fusion_bm25_weight].value),
+        to_string(previous[:fusion_vector_weight].value),
+        &clamp_weight/1
+      )
+
+    cs = LLMConfig.retrieval_changeset(engine_get_llm_config(), params)
+
+    {:noreply,
+     assign(socket, :retrieval_form, to_form(cs, as: :retrieval_config, action: :validate))}
+  end
+
+  def handle_event("save_retrieval", %{"retrieval_config" => params}, socket) do
+    case dispatch_engine(:system_config_save_retrieval_config, %{attrs: params}) do
+      {:ok, config} ->
+        {:noreply,
+         socket
+         |> assign(
+           :retrieval_form,
+           to_form(LLMConfig.retrieval_changeset(config, %{}), as: :retrieval_config)
+         )
+         |> put_flash(:info, "Retrieval settings saved.")}
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        {:noreply,
+         assign(socket, :retrieval_form, to_form(cs, as: :retrieval_config, action: :validate))}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Could not save retrieval settings. Please retry.")}
+    end
+  end
+
+  def handle_event(event, %{"kind" => kind, "operation_model_config" => params}, socket)
+      when event in ["validate_operation_model", "save_operation_model"] and
+             kind in ["translation", "small"] do
+    kind = String.to_existing_atom(kind)
+    previous = socket.assigns.operation_model_forms[kind]
+
+    changed? =
+      to_string(previous[:credential_id].value || "") != to_string(params["credential_id"] || "")
+
+    params =
+      if event == "validate_operation_model" and changed?,
+        do: Map.put(params, "model", ""),
+        else: params
+
+    options = operation_model_options(params["credential_id"])
+    config = dispatch_engine(:system_config_get_operation_model_config, %{kind: kind})
+    cs = OperationModelConfig.changeset(config, params)
+    socket = assign_operation_form(socket, kind, cs, options, :validate)
+
+    if event == "save_operation_model" and cs.valid? do
+      save_operation_model(socket, kind, params, options)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event(event, %{"kind" => kind, "rag_model_config" => params}, socket)
+      when event in ["validate_rag_model", "save_rag_model"] and kind in ["reranking", "decision"] do
+    kind = String.to_existing_atom(kind)
+    previous = socket.assigns.rag_model_forms[kind]
+    options = rag_model_options(params["credential_id"], kind)
+    changed? = to_string(previous[:credential_id].value || "") != params["credential_id"]
+
+    params =
+      if event == "validate_rag_model" and changed?,
+        do: Map.put(params, "model", ""),
+        else: params
+
+    config = %RAGModelConfig{}
+    cs = RAGModelConfig.changeset(config, params)
+    socket = assign_rag_model_form(socket, kind, cs, options)
+
+    if event == "save_rag_model" and cs.valid? do
+      save_rag_model(socket, kind, params)
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("unlock_embedding", _params, socket) do
     {:noreply, assign(socket, :embedding_unlock_modal, true)}
   end
@@ -900,6 +991,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("validate_embedding", %{"embedding_config" => params}, socket) do
+    params = locked_embedding_params(socket, params)
     provider_id = provider_from_credential_id(params["credential_id"])
 
     previous_provider =
@@ -915,6 +1007,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
         previous_provider,
         previous_model
       )
+      |> then(&locked_embedding_params(socket, &1))
 
     changeset =
       engine_get_embedding_config()
@@ -935,6 +1028,13 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("save_embedding", %{"embedding_config" => params}, socket) do
+    params = locked_embedding_params(socket, params)
+
+    changed? =
+      embedding_model_changed?(params, socket.assigns.saved_model, socket.assigns.saved_dimension)
+
+    socket = assign(socket, :model_changed, changed?)
+
     case EmbeddingEvents.maybe_open_save_confirm(socket, params) do
       {:confirm, socket} ->
         {:noreply, socket}
@@ -1306,6 +1406,14 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
+  defp locked_embedding_params(%{assigns: %{embedding_locked: true}} = socket, params) do
+    params
+    |> Map.put("model", socket.assigns.saved_model)
+    |> Map.put("dimension", to_string(socket.assigns.saved_dimension))
+  end
+
+  defp locked_embedding_params(_socket, params), do: params
+
   defp load_telemetry_form(socket) do
     changeset = TelemetryConfig.changeset(engine_get_telemetry_config(), %{})
     assign(socket, :telemetry_form, to_form(changeset, as: :telemetry_config))
@@ -1437,6 +1545,137 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     |> assign(:image_to_text_form, to_form(changeset, as: :image_to_text_config))
   end
 
+  defp load_rag_forms(socket) do
+    retrieval = LLMConfig.retrieval_changeset(engine_get_llm_config(), %{})
+
+    socket =
+      assign(socket,
+        retrieval_form: to_form(retrieval, as: :retrieval_config),
+        rag_model_forms: %{},
+        rag_model_options: %{}
+      )
+
+    Enum.reduce([:reranking, :decision], socket, fn kind, acc ->
+      config = dispatch_engine(:system_config_get_rag_model_config, %{kind: kind})
+      cs = RAGModelConfig.changeset(config, %{})
+      assign_rag_model_form(acc, kind, cs, rag_model_options(config.credential_id, kind), nil)
+    end)
+  end
+
+  defp load_operation_forms(socket) do
+    socket =
+      assign(socket,
+        operation_model_forms: %{},
+        operation_model_options: %{},
+        operation_model_manual: %{}
+      )
+
+    Enum.reduce([:translation, :small], socket, fn kind, acc ->
+      config = dispatch_engine(:system_config_get_operation_model_config, %{kind: kind})
+
+      assign_operation_form(
+        acc,
+        kind,
+        OperationModelConfig.changeset(config, %{}),
+        operation_model_options(config.credential_id),
+        nil
+      )
+    end)
+  end
+
+  defp operation_model_options(credential_id) do
+    provider = provider_from_credential_id(credential_id)
+    credential = credential_from_id(credential_id)
+    models = credential_models(credential, provider)
+
+    %{
+      options:
+        models
+        |> Enum.filter(&OperationModelConfig.supports?/1)
+        |> Enum.map(&{&1.name || &1.id, &1.id})
+        |> Enum.sort_by(&elem(&1, 0)),
+      manual?: not is_nil(credential) and models == []
+    }
+  end
+
+  defp save_operation_model(socket, kind, params, options) do
+    case dispatch_engine(:system_config_save_operation_model_config, %{kind: kind, attrs: params}) do
+      {:ok, saved} ->
+        {:noreply,
+         socket
+         |> assign_operation_form(kind, OperationModelConfig.changeset(saved, %{}), options, nil)
+         |> put_flash(:info, "Model settings saved.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign_operation_form(socket, kind, changeset, options, :validate)}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Could not save model settings. Please retry.")}
+    end
+  end
+
+  defp assign_operation_form(socket, kind, cs, options, action) do
+    socket
+    |> assign(
+      :operation_model_forms,
+      Map.put(
+        socket.assigns.operation_model_forms,
+        kind,
+        to_form(cs, as: :operation_model_config, action: action)
+      )
+    )
+    |> assign(
+      :operation_model_options,
+      Map.put(socket.assigns.operation_model_options, kind, options.options)
+    )
+    |> assign(
+      :operation_model_manual,
+      Map.put(socket.assigns.operation_model_manual, kind, options.manual?)
+    )
+  end
+
+  defp rag_model_options(credential_id, kind) do
+    provider = provider_from_credential_id(credential_id)
+    model_options_for_credential_id(credential_id, provider, &RAGModelConfig.supports?(&1, kind))
+  end
+
+  defp assign_rag_model_form(socket, kind, cs, options, action \\ :validate) do
+    socket
+    |> assign(
+      :rag_model_forms,
+      Map.put(
+        socket.assigns.rag_model_forms,
+        kind,
+        to_form(cs, as: :rag_model_config, action: action)
+      )
+    )
+    |> assign(:rag_model_options, Map.put(socket.assigns.rag_model_options, kind, options))
+  end
+
+  defp save_rag_model(socket, kind, params) do
+    case dispatch_engine(:system_config_save_rag_model_config, %{kind: kind, attrs: params}) do
+      {:ok, config} ->
+        socket =
+          assign_rag_model_form(
+            socket,
+            kind,
+            RAGModelConfig.changeset(config, %{}),
+            socket.assigns.rag_model_options[kind],
+            nil
+          )
+
+        {:noreply,
+         put_flash(socket, :info, "RAG model settings saved. Not active in the pipeline.")}
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        {:noreply,
+         assign_rag_model_form(socket, kind, cs, socket.assigns.rag_model_options[kind])}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Could not save RAG model settings. Please retry.")}
+    end
+  end
+
   defp llm_model_capabilities_for_credential_id(credential_id, provider_id, model_id) do
     case credential_model(credential_id, provider_id, model_id) do
       %{capabilities: caps} when is_map(caps) ->
@@ -1522,12 +1761,17 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     |> Enum.sort_by(&elem(&1, 0))
   end
 
-  defp model_options_for_credential_id(credential_id, provider_id, model_filter) do
+  defp model_options_for_credential_id(
+         credential_id,
+         provider_id,
+         model_filter,
+         option_mapper \\ &{&1.name || &1.id, &1.id}
+       ) do
     credential_id
     |> credential_from_id()
     |> credential_models(provider_id)
     |> Enum.filter(model_filter)
-    |> Enum.map(&{&1.name || &1.id, &1.id})
+    |> Enum.map(option_mapper)
     |> Enum.sort_by(&elem(&1, 0))
   end
 
@@ -1760,11 +2004,29 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   # ── Image-to-Text-specific helpers ────────────────────────────────────
 
   defp image_to_text_model_options_for_credential_id(credential_id, provider_id),
-    do: model_options_for_credential_id(credential_id, provider_id, &image_input_model?/1)
+    do:
+      model_options_for_credential_id(
+        credential_id,
+        provider_id,
+        &image_input_model?/1,
+        &image_to_text_model_option/1
+      )
 
   defp image_input_model?(m) do
-    input = (m.modalities && m.modalities.input) || []
-    :image in input
+    modalities = m.modalities || %{}
+    input = Map.get(modalities, :input) || []
+    output = Map.get(modalities, :output) || []
+    :image in input and (output == [] or :text in output)
+  end
+
+  defp image_to_text_model_option(m) do
+    label = m.name || m.id
+
+    if (Map.get(m.modalities || %{}, :output) || []) == [] do
+      {label, m.id, "Compatibility unconfirmed"}
+    else
+      {label, m.id}
+    end
   end
 
   defp save_ai_credential(socket, params) do

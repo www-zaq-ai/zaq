@@ -17,6 +17,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
   alias Zaq.Utils.ParseUtils
   alias ZaqWeb.ChangesetErrors
   alias ZaqWeb.Components.DesignSystem.ChannelConnectorCard
+  alias ZaqWeb.Components.LiveUpdateSettings
   alias ZaqWeb.Helpers.Timezone
   alias ZaqWeb.Live.BO.AI.BOActor
   alias ZaqWeb.Live.BO.Communication.AgentRoutingOptions
@@ -189,6 +190,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         {:noreply,
          socket
          |> assign(:modal, :edit)
+         |> load_live_updates(config)
          |> assign(:changeset, changeset)
          |> assign(:form, to_form(changeset, as: :form))
          |> assign(:modal_errors, [])}
@@ -290,7 +292,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
     end
   end
 
-  def handle_event("validate", %{"form" => params}, socket) do
+  def handle_event("validate", %{"form" => params} = event, socket) do
+    socket = update_live_update_draft(socket, event)
     raw_token = Map.get(params, "token")
 
     params =
@@ -313,7 +316,9 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
      |> assign(:form, to_form(changeset, as: :form))}
   end
 
-  def handle_event("save", %{"form" => params}, socket) do
+  def handle_event("save", %{"form" => params} = event, socket) do
+    socket = update_live_update_draft(socket, event)
+
     previous_config =
       if socket.assigns.modal == :edit, do: socket.assigns.changeset.data, else: nil
 
@@ -325,19 +330,7 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
         _ -> params
       end
 
-    result =
-      ChannelConfigPersistence.persist(
-        socket.assigns.modal,
-        socket.assigns.changeset.data,
-        params,
-        socket.assigns.provider,
-        fn changeset, provider ->
-          changeset
-          |> maybe_validate_connect_credential_provider(provider)
-          |> maybe_validate_global_base_url_requirement(socket.assigns.kind, provider)
-        end,
-        actor: BOActor.build(socket.assigns[:current_user])
-      )
+    result = persist_modal_configuration(socket, params)
 
     case result do
       {:ok, %ChannelConfig{} = config} ->
@@ -360,30 +353,8 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
          |> schedule_ingress_status_refresh(configs)
          |> maybe_put_runtime_sync_flash(sync_result, "Channel config saved.")}
 
-      {:error, %Ecto.Changeset{} = changeset} ->
-        changeset = with_visible_token(changeset, raw_token)
-
-        {:noreply,
-         socket
-         |> assign(:changeset, changeset)
-         |> assign(:form, to_form(changeset, as: :form))
-         |> assign(:modal_errors, format_errors(changeset))}
-
       {:error, reason} ->
-        changeset =
-          socket.assigns.changeset.data
-          |> ChannelConfig.changeset(params)
-          |> with_visible_token(raw_token)
-          |> Map.put(:action, :validate)
-
-        error_message = format_engine_error("Failed to save channel config", reason)
-
-        {:noreply,
-         socket
-         |> assign(:changeset, changeset)
-         |> assign(:form, to_form(changeset, as: :form))
-         |> assign(:modal_errors, [error_message])
-         |> put_flash(:error, error_message)}
+        {:noreply, configuration_save_error(socket, reason, params, raw_token)}
     end
   end
 
@@ -1375,6 +1346,147 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLive do
       )
 
     NodeRouter.dispatch(event).response
+  end
+
+  defp configuration_save_error(socket, %Ecto.Changeset{} = changeset, _params, raw_token) do
+    changeset = with_visible_token(changeset, raw_token)
+
+    socket
+    |> assign(:changeset, changeset)
+    |> assign(:form, to_form(changeset, as: :form))
+    |> assign(:modal_errors, format_errors(changeset))
+  end
+
+  defp configuration_save_error(socket, {:validation, errors}, _params, _token),
+    do: assign(socket, :live_update_errors, errors)
+
+  defp configuration_save_error(socket, {:configuration, errors}, _params, _token) do
+    assign(
+      socket,
+      :modal_errors,
+      Enum.flat_map(errors, fn {key, messages} -> Enum.map(messages, &"#{key}: #{&1}") end)
+    )
+  end
+
+  defp configuration_save_error(
+         socket,
+         {:service_unavailable, :engine} = reason,
+         params,
+         raw_token
+       ) do
+    changeset =
+      socket.assigns.changeset.data
+      |> ChannelConfig.changeset(params)
+      |> with_visible_token(raw_token)
+      |> Map.put(:action, :validate)
+
+    error_message = format_engine_error("Failed to save channel config", reason)
+
+    socket
+    |> assign(:changeset, changeset)
+    |> assign(:form, to_form(changeset, as: :form))
+    |> assign(:modal_errors, [error_message])
+    |> put_flash(:error, error_message)
+  end
+
+  defp configuration_save_error(socket, _reason, _params, _token) do
+    assign(socket, :modal_errors, [
+      "Unable to save configuration. It may have changed since this editor was opened. Reload and try again."
+    ])
+  end
+
+  defp load_live_updates(socket, config) do
+    socket =
+      assign(socket,
+        live_update_policy: nil,
+        live_update_errors: %{},
+        live_update_load_error: nil,
+        live_update_revision: nil
+      )
+
+    if socket.assigns.kind == :retrieval do
+      case dispatch_live_update_settings(socket, %{op: :snapshot, id: config.id}) do
+        {:ok, %{policy: policy, revision: revision}} ->
+          assign(socket, live_update_policy: policy, live_update_revision: revision)
+
+        _ ->
+          assign(socket, :live_update_load_error, "Unable to load streamed-update settings")
+      end
+    else
+      socket
+    end
+  end
+
+  defp update_live_update_draft(socket, event) do
+    if socket.assigns.modal == :edit and socket.assigns.kind == :retrieval do
+      policy =
+        LiveUpdateSettings.merge_params(
+          socket.assigns.live_update_policy,
+          Map.get(event, "live_updates", %{})
+        )
+
+      assign(socket,
+        live_update_policy: policy,
+        live_update_errors: LiveUpdateSettings.errors(policy)
+      )
+    else
+      socket
+    end
+  end
+
+  defp persist_modal_configuration(socket, params) do
+    validate = fn changeset, provider ->
+      changeset
+      |> maybe_validate_connect_credential_provider(provider)
+      |> maybe_validate_global_base_url_requirement(socket.assigns.kind, provider)
+    end
+
+    if socket.assigns.modal == :edit and socket.assigns.kind == :retrieval do
+      changeset =
+        socket.assigns.changeset.data
+        |> ChannelConfig.changeset(params)
+        |> validate.(socket.assigns.provider)
+
+      if changeset.valid?,
+        do: persist_grouped_configuration(socket, params),
+        else: {:error, changeset}
+    else
+      ChannelConfigPersistence.persist(
+        socket.assigns.modal,
+        socket.assigns.changeset.data,
+        params,
+        socket.assigns.provider,
+        validate,
+        actor: BOActor.build(socket.assigns[:current_user])
+      )
+    end
+  end
+
+  defp persist_grouped_configuration(socket, params) do
+    request = %{
+      op: :save_configuration,
+      id: socket.assigns.changeset.data.id,
+      revision: socket.assigns.live_update_revision,
+      params: params,
+      policy: socket.assigns.live_update_policy
+    }
+
+    with {:ok, %{id: id}} <- dispatch_live_update_settings(socket, request) do
+      case dispatch_channel_config(%{action: :get!, id: id}) do
+        %ChannelConfig{} = config -> {:ok, config}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp dispatch_live_update_settings(socket, request) do
+    request
+    |> Event.new(:engine,
+      actor: BOActor.build(socket.assigns[:current_user]),
+      opts: [action: :manage_live_update_settings, confidential: true]
+    )
+    |> NodeRouter.dispatch()
+    |> Map.fetch!(:response)
   end
 
   defp dispatch_engine(action, request \\ %{}) do

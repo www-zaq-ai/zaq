@@ -2,7 +2,7 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
   @moduledoc """
   Generates a short title for a conversation from the first user message.
 
-  Modelled after `Zaq.Agent.ChunkTitle` — calls the configured LLM with a
+  Calls the configured LLM with a
   tightly constrained prompt and returns a 6-word-maximum plain-text title.
 
   The call is cheap (one short user turn) and is always performed
@@ -70,17 +70,15 @@ defmodule Zaq.Engine.Conversations.TitleGenerator do
     #{user_message}
     """
 
-    cfg = System.get_llm_config()
-    gen_opts = ProviderSpec.generation_opts(cfg) |> Keyword.delete(:top_p)
+    cfg =
+      Keyword.get_lazy(opts, :small_model_config, fn ->
+        System.get_operation_model_config(:small)
+      end)
 
-    model_spec =
-      case Keyword.fetch(opts, :model) do
-        {:ok, model} -> ProviderSpec.build(cfg) |> Map.put(:id, model)
-        :error -> ProviderSpec.build(cfg)
-      end
-
-    case Generation.generate_text(model_spec, [Context.user(prompt)], gen_opts) do
-      {:ok, response} -> response |> Response.text() |> build_title(user_message)
+    with {:ok, model_spec, gen_opts} <- ProviderSpec.operation_runtime(cfg),
+         {:ok, response} <- Generation.generate_text(model_spec, [Context.user(prompt)], gen_opts) do
+      response |> Response.text() |> build_title(user_message)
+    else
       {:error, reason} -> fallback(user_message, reason)
     end
   rescue

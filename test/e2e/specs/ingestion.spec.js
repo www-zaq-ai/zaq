@@ -1,4 +1,5 @@
 const { test, expect } = require("@playwright/test")
+const { expectFlashDuringAction } = require("../support/bo")
 const fs = require("fs")
 const os = require("os")
 const path = require("path")
@@ -60,8 +61,7 @@ function minimalPdfBuffer() {
 // After an unlock → change model → save cycle, wait for the "Delete All Embeddings?" modal.
 async function confirmDestructiveSave(page) {
   await expect(page.getByRole("heading", { name: "Delete All Embeddings?" })).toBeVisible()
-  await page.locator(SEL.confirmSave).click()
-  await expect(page.getByText("Embedding settings saved.")).toBeVisible()
+  await expectFlashDuringAction(page, "Embedding settings saved.", () => page.locator(SEL.confirmSave).click())
   await dismissFlash(page)
 }
 
@@ -335,9 +335,9 @@ test.describe("Ingestion", () => {
     await modelTextInput.press("Tab")
 
     // Wait for the server to process validate_embedding and set model_changed: true,
-    // which turns the save button red.
+    // which gives the save button the Design System destructive state.
     const saveBtn = page.getByRole("button", { name: "Save Embedding Settings" })
-    await expect(saveBtn).toHaveClass(/bg-red-500/, { timeout: 5_000 })
+    await expect(saveBtn).toHaveClass(/\bzaq-btn-danger\b/, { timeout: 5_000 })
     await saveBtn.click()
 
     await confirmDestructiveSave(page)

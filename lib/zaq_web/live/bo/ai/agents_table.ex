@@ -7,6 +7,8 @@ defmodule ZaqWeb.Live.BO.AI.AgentsTable do
 
   import ZaqWeb.Components.DesignSystem.StatusDot, only: [status_dot: 1]
 
+  alias ZaqWeb.Components.DesignSystem.ModelModalities
+
   import ZaqWeb.Components.DesignSystem.Table,
     only: [
       table: 1,
@@ -21,6 +23,7 @@ defmodule ZaqWeb.Live.BO.AI.AgentsTable do
 
   attr :agents, :list, required: true
   attr :selected_agent_id, :any, default: nil
+  attr :modalities, :map, default: %{}
 
   def agents_table(assigns) do
     ~H"""
@@ -72,7 +75,13 @@ defmodule ZaqWeb.Live.BO.AI.AgentsTable do
             </.table_media>
           </.table_cell>
           <.table_cell>
-            <.table_text label={agent.model} tone={:secondary} />
+            <div class="zaq-layout-inline-compact flex-wrap">
+              <.table_text label={agent.model} tone={:secondary} />
+              <ModelModalities.model_modalities
+                id={"agent-#{agent.id}-modalities"}
+                modalities={Map.get(@modalities, agent.id)}
+              />
+            </div>
           </.table_cell>
           <.table_cell>
             <div class="flex flex-col gap-1">

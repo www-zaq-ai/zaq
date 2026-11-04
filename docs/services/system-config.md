@@ -45,6 +45,62 @@ direct page access from lazily starting persistence while Studio is disabled.
 AI model settings are configured in Back Office at `/bo/system-config` and
 persisted in `system_configs`.
 
+The **RAG** tab groups embeddings and chunking, image-to-text, Retrieval, and saved-only
+re-ranking and decision model selections. Retrieval sits below Image to text and
+contains the Knowledge-query translation credential/model selection. Retrieval tuning
+(maximum cosine distance and hybrid BM25/vector fusion weights) is under its collapsed
+**Advanced settings** and saves independently of embedding or translation changes.
+Embedding model/dimension locking, unlock acknowledgement and destructive-save
+confirmation remain in place. The former embedding and image-to-text tab URLs
+continue to open RAG.
+
+Specialized selectors use saved AI provider credentials and filter their models
+by catalog metadata: `capabilities.rerank` for re-ranking and `decisions` output
+modality for decision models. Changing credentials clears the model selection;
+incompatible submissions are rejected by System persistence for both BO and Engine callers. These selections
+are persisted as `rag.reranking.credential_id`, `rag.reranking.model`,
+`rag.decision.credential_id` and `rag.decision.model`; they **do not activate**
+re-ranking or decision inference in the pipeline. Referenced AI credentials cannot
+be deleted until the selection is cleared.
+
+Retrieval settings retain their existing `llm.max_cosine_distance`,
+`llm.fusion_bm25_weight` and `llm.fusion_vector_weight` keys for runtime
+compatibility. Retrieval-only saves do not require a configured chat credential
+and do not overwrite chat settings.
+
+### Dedicated text-generation models
+
+`Zaq.System.get_operation_model_config/1` and `save_operation_model_config/2` own
+the `:translation` and `:small` selections. Translation uses `rag.translation.*`;
+Global settings' **Small model** uses `global.small_model.*` for conversation titles.
+Each stores `credential_id`, `model`, `temperature` and `top_p`. Sampling belongs to
+the operation, not the global LLM, and is not exposed as extra controls in this UI.
+Text-output catalog models are eligible; catalog-free custom endpoints accept a
+model ID. A catalog with no eligible text models displays an empty selector, not
+manual entry. Pair saves are atomic; operation and specialized RAG selections are
+read in a single database snapshot. Referenced credentials cannot be deleted.
+
+The rollout snapshots configured legacy global pairs and sampling once, without
+overwriting existing dedicated settings. Fresh installations remain unconfigured.
+Subsequent global changes do not affect these operations. Unconfigured translation
+reports failed target languages while preserving simple-language searches; title
+generation returns its deterministic first-message fallback. Neither falls back to
+the global model. Runtime authentication uses the existing confidential System/Engine
+credential boundary and ProviderSpec adapters, including no-auth and OAuth handling.
+ReqLLM's provider/model parameter profiles own sampling restrictions (such as dropping
+unsupported parameters); these consumers do not add provider-specific branches.
+
+The global LLM provider/model remains for legacy retrieval preparation and synthetic
+default-agent answering only. Configured agents persist their own sampling values;
+new agents receive temperature `0.0` and top_p `0.9` without requiring user input.
+Existing agents snapshot JSON overrides, or legacy global values when an override
+key is absent. Each field accepts finite numeric values and numeric strings within
+its range (`temperature`: 0–2 inclusive; `top_p`: greater than 0 through 1).
+Malformed, null, non-finite and out-of-range values become the fixed defaults
+`0.0`/`0.9`, independently; values are never clamped. Invalid explicit overrides
+do not inherit global settings. Migrated JSON retains unrelated options. Dedicated
+fields take precedence over duplicate Advanced options JSON keys at runtime.
+
 - LLM config is read via `Zaq.System.get_llm_config/0`
 - Embedding config is read via `Zaq.System.get_embedding_config/0`
 - Image-to-text config is read via `Zaq.System.get_image_to_text_config/0`

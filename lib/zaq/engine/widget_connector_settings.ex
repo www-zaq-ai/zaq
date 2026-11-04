@@ -11,8 +11,8 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
   """
 
   alias Zaq.Channels.AgentRouting
-  alias Zaq.ConnectorConfig.WidgetSettings
-  alias Zaq.Engine.{ChannelConfig, ConnectorLifecycle, IncomingMessageRouting}
+  alias Zaq.ConnectorConfig.{LiveUpdates, WidgetSettings}
+  alias Zaq.Engine.{ChannelConfig, ConnectorLifecycle, IncomingMessageRouting, LiveUpdateSettings}
   alias Zaq.Event
   alias Zaq.NodeRouter
   alias Zaq.Repo
@@ -20,7 +20,7 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
   alias Zaq.Utils.ParseUtils
 
   @provider "web_widget"
-  @fields ~w(name enabled display_name allowed_domains agent_id identity_issuer identity_audience same_site)
+  @fields ~w(name enabled display_name allowed_domains agent_id identity_issuer identity_audience same_site live_updates)
 
   @doc "Executes an authenticated management request through the owning BO Action."
   def execute(request, opts \\ [])
@@ -150,7 +150,33 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
            ),
          {:ok, saved} <- persist_changeset(ChannelConfig.changeset(config, attrs)),
          :ok <- persist_routing(saved.id, params) do
-      {:ok, saved}
+      persist_live_updates(saved, params)
+    end
+  end
+
+  defp persist_live_updates(config, %{"live_updates" => policy}) do
+    with {:ok, normalized} <- normalize_live_updates(policy) do
+      persist_normalized_live_updates(config, normalized)
+    end
+  end
+
+  defp persist_live_updates(config, _params), do: {:ok, config}
+
+  defp persist_normalized_live_updates(config, normalized) do
+    if LiveUpdates.from_settings(config.settings) == {:ok, normalized} do
+      {:ok, config}
+    else
+      with {:ok, _result} <-
+             LiveUpdateSettings.execute(%{op: :save, id: config.id, policy: normalized}) do
+        {:ok, Repo.get!(ChannelConfig, config.id)}
+      end
+    end
+  end
+
+  defp normalize_live_updates(policy) do
+    case LiveUpdates.normalize_form(policy) do
+      {:ok, policy} -> {:ok, policy}
+      {:error, errors} -> {:error, {:validation, errors}}
     end
   end
 
@@ -271,11 +297,19 @@ defmodule Zaq.Engine.WidgetConnectorSettings do
       identity_issuer: Map.get(config.settings || %{}, "identity_issuer"),
       identity_audience: Map.get(config.settings || %{}, "identity_audience"),
       same_site: Map.get(config.settings || %{}, "same_site"),
+      live_updates: projected_live_updates(config.settings),
       key_present?: key_present?(config),
       key_rotated_at: Map.get(config.settings || %{}, "key_rotated_at"),
       revision: descriptor.revision,
       agent_id: config |> ChannelConfig.get_provider_agent_choice() |> AgentRouting.select_value()
     }
+  end
+
+  defp projected_live_updates(settings) do
+    case LiveUpdates.from_settings(settings || %{}) do
+      {:ok, policy} -> policy
+      {:error, _} -> nil
+    end
   end
 
   defp key_present?(config), do: is_binary(config.token) and config.token != ""

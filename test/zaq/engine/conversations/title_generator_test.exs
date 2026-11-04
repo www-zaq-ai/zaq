@@ -13,7 +13,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:ok, "Admin Panel Password Reset Steps"} =
                TitleGenerator.generate("How do I reset my password in the admin panel?")
@@ -27,17 +27,18 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:ok, "One Two Three Four Five Six"} =
                TitleGenerator.generate("Please summarize this long conversation")
     end
 
-    test "uses model override payload and omits top_p" do
+    test "uses dedicated model and operation-owned sampling" do
       handler = fn _conn, body ->
         payload = Jason.decode!(body)
         assert payload["model"] == "custom-model"
-        refute Map.has_key?(payload, "top_p")
+        assert payload["top_p"] == 0.9
+        assert payload["temperature"] == 0.0
 
         {200, OpenAIStub.chat_completion("Custom Model Title")}
       end
@@ -45,10 +46,12 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      OpenAIStub.seed_llm_config(endpoint, model: "base-model")
+      OpenAIStub.seed_operation_model_config(:small, endpoint, model: "custom-model")
+      Zaq.System.set_config("llm.model", "must-not-use-global-model")
+      Zaq.System.set_config("llm.temperature", "1.2")
 
       assert {:ok, "Custom Model Title"} =
-               TitleGenerator.generate("How should model override work?", model: "custom-model")
+               TitleGenerator.generate("How should model override work?")
 
       assert_receive {:openai_request, "POST", "/v1/chat/completions", "", _body}
     end
@@ -61,7 +64,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self())
       start_supervised!(child_spec)
 
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:fallback, "Can You Help Me With Account", "Empty assistant response content"} =
                TitleGenerator.generate("Can you help me with account settings?")
@@ -75,7 +78,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self(), retry_after: 0)
       start_supervised!(child_spec)
 
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:fallback, "Please Generate A Title", reason} =
                TitleGenerator.generate("Please generate a title")
@@ -91,7 +94,7 @@ defmodule Zaq.Engine.Conversations.TitleGeneratorTest do
       {child_spec, endpoint} = OpenAIStub.server(handler, self(), retry_after: 0)
       start_supervised!(child_spec)
 
-      OpenAIStub.seed_llm_config(endpoint)
+      OpenAIStub.seed_operation_model_config(:small, endpoint)
 
       assert {:fallback, "New Conversation", _reason} = TitleGenerator.generate("   ")
     end

@@ -28,7 +28,7 @@ defmodule Zaq.Engine.ConversationsTitleGenerationIntegrationTest do
 
     {child_spec, endpoint} = OpenAIStub.server(handler, self())
     start_supervised!(child_spec)
-    OpenAIStub.seed_llm_config(endpoint)
+    OpenAIStub.seed_operation_model_config(:small, endpoint)
 
     {:ok, conv} =
       Conversations.create_conversation(%{channel_type: "bo", channel_user_id: "title-success"})
@@ -52,7 +52,7 @@ defmodule Zaq.Engine.ConversationsTitleGenerationIntegrationTest do
 
     {child_spec, endpoint} = OpenAIStub.server(handler, self(), retry_after: 0)
     start_supervised!(child_spec)
-    OpenAIStub.seed_llm_config(endpoint)
+    OpenAIStub.seed_operation_model_config(:small, endpoint)
 
     {:ok, conv} =
       Conversations.create_conversation(%{channel_type: "bo", channel_user_id: "title-error"})
@@ -87,7 +87,7 @@ defmodule Zaq.Engine.ConversationsTitleGenerationIntegrationTest do
 
     {child_spec, endpoint} = OpenAIStub.server(handler, self())
     start_supervised!(child_spec)
-    OpenAIStub.seed_llm_config(endpoint)
+    OpenAIStub.seed_operation_model_config(:small, endpoint)
 
     {:ok, conv} =
       Conversations.create_conversation(%{channel_type: "bo", channel_user_id: "title-deleted"})
