@@ -19,7 +19,8 @@ defmodule Zaq.Ingestion.Document do
   import Ecto.Changeset
   import Ecto.Query
 
-  alias Zaq.Ingestion.Chunk
+  alias Zaq.Ingestion.{Chunk, Labels}
+  alias Zaq.Ingestion.Labels.AssignmentValue
   alias Zaq.Permissions.DocumentPermission, as: Permission
   alias Zaq.Repo
 
@@ -208,4 +209,113 @@ defmodule Zaq.Ingestion.Document do
         changeset
     end
   end
+
+  @max_label_id 9_223_372_036_854_775_807
+
+  @doc "Validates label ID, value and any/all filters for document queries."
+  @spec validate_label_filters(map() | nil) :: :ok | {:error, term()}
+  def validate_label_filters(nil), do: :ok
+
+  def validate_label_filters(filters) when is_map(filters) do
+    ids = fetch(filters, "label_ids")
+    match = fetch(filters, "label_match")
+    values = fetch(filters, "label_values")
+
+    cond do
+      ids != :error and not valid_ids?(ids) ->
+        {:error, {:invalid_filter, "label_ids"}}
+
+      values != :error and not valid_values?(values) ->
+        {:error, {:invalid_filter, "label_values"}}
+
+      invalid_match?(match, ids, values) ->
+        {:error, {:invalid_filter, "label_match"}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp invalid_match?(match, ids, values) do
+    match not in [:error, {:ok, "any"}, {:ok, "all"}] or
+      (match != :error and ids == :error and values == :error)
+  end
+
+  @doc """
+  Applies validated label filters to an already authorized document query.
+
+  Only selected assignments match. Subqueries preserve unique documents before
+  counting and pagination; empty lists match none and omitted lists do not filter.
+  """
+  @spec filter_by_labels(Ecto.Queryable.t(), map()) :: Ecto.Query.t()
+  def filter_by_labels(query, filters) do
+    query =
+      case fetch(filters, "label_ids") do
+        :error -> query
+        {:ok, ids} -> matching_documents(query, Enum.uniq(ids), fetch(filters, "label_match"))
+      end
+
+    case fetch(filters, "label_values") do
+      :error ->
+        query
+
+      {:ok, pairs} ->
+        matching_values(query, normalized_pairs(pairs), fetch(filters, "label_match"))
+    end
+  end
+
+  defp matching_documents(query, ids, match) do
+    assignments = Labels.matching_document_ids(ids, match)
+    from d in query, where: d.id in subquery(assignments)
+  end
+
+  defp matching_values(query, pairs, match) do
+    assignments = Labels.matching_document_value_ids(pairs, match)
+    from d in query, where: d.id in subquery(assignments)
+  end
+
+  defp valid_values?({:ok, pairs}) when is_list(pairs) and length(pairs) <= 100,
+    do: Enum.all?(pairs, &valid_pair?/1)
+
+  defp valid_values?(_), do: false
+
+  defp valid_pair?(pair) when is_map(pair) do
+    with true <- Enum.all?(Map.keys(pair), &(&1 in ["label_id", "value", :label_id, :value])),
+         {:ok, id} <- fetch(pair, "label_id"),
+         {:ok, value} <- fetch(pair, "value") do
+      valid_ids?({:ok, [id]}) and AssignmentValue.valid?(value)
+    else
+      _ -> false
+    end
+  end
+
+  defp valid_pair?(_), do: false
+
+  defp normalized_pairs(pairs) do
+    pairs
+    |> Enum.map(fn pair ->
+      {:ok, id} = fetch(pair, "label_id")
+      {:ok, value} = fetch(pair, "value")
+      {id, AssignmentValue.normalize(value)}
+    end)
+    |> Enum.uniq()
+  end
+
+  defp valid_ids?({:ok, ids}) when is_list(ids) and length(ids) <= 100,
+    do: Enum.all?(ids, &(is_integer(&1) and &1 > 0 and &1 <= @max_label_id))
+
+  defp valid_ids?(_), do: false
+
+  defp fetch(filters, key) do
+    case Map.fetch(filters, key) do
+      :error -> Map.fetch(filters, key_atom(key))
+      value -> value
+    end
+  end
+
+  defp key_atom("label_ids"), do: :label_ids
+  defp key_atom("label_values"), do: :label_values
+  defp key_atom("label_match"), do: :label_match
+  defp key_atom("label_id"), do: :label_id
+  defp key_atom("value"), do: :value
 end

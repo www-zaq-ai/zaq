@@ -41,6 +41,7 @@ defmodule Zaq.Repo.Migrations.CreateResourceLabels do
         add :origin, :string, null: false, default: "manual"
         add :lock_version, :integer, null: false, default: 1
         timestamps(type: :utc_datetime_usec)
+        add :value, :text
       end
 
       create unique_index(table, [foreign_key, :label_id])

@@ -35,6 +35,8 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLive do
   @impl true
   def handle_info(:label_values_updated, socket), do: {:noreply, load_labels(socket)}
 
+  def handle_info(:addons_updated, socket), do: {:noreply, socket}
+
   @impl true
   def handle_event("manage_label_values", %{"id" => id}, socket),
     do: {:noreply, assign(socket, usage_label: Map.get(socket.assigns.labels_by_id, id))}

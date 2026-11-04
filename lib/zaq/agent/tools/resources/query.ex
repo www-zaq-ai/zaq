@@ -1,6 +1,6 @@
 defmodule Zaq.Agent.Tools.Resources.Query do
   @moduledoc """
-  Safe Ecto query builder for the `resources.query` tool.
+  Routes Ingestion resources to their owning role and queries other tool resources locally.
 
   All dynamic behavior is driven by `Resources.Registry` descriptors. The LLM can
   choose resource keys and field names, but only allowlisted fields become Ecto
@@ -8,18 +8,18 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   """
 
   import Ecto.Query
+  import Zaq.Resources.QuerySupport, except: [authorized_query: 2]
 
   alias Zaq.Accounts.People
   alias Zaq.Accounts.PersonChannel
-  alias Zaq.Agent.Tools.Resources.{DocumentFilters, Registry}
   alias Zaq.Channels.RetrievalChannel
-  alias Zaq.Identity.ActorNormalizer
-  alias Zaq.Ingestion.Labels.{DocumentAssignment, Target}
-  alias Zaq.Permissions
-  alias Zaq.Permissions.ResourcePermission
   alias Zaq.Repo
 
-  @default_limit 20
+  alias Zaq.Ingestion.Events, as: IngestionEvents
+  alias Zaq.NodeRouter
+  alias Zaq.Resources.QuerySupport
+
+  @query_keys ~w(mode resource_type id query filters fields sort_by sort_dir limit offset)a
 
   @type query_result ::
           {:ok, map()} | {:error, term()}
@@ -29,71 +29,32 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   authorization enforced by `resources.query`.
   """
   @spec authorized_query(map(), map()) :: {:ok, Ecto.Query.t()} | {:error, term()}
-  def authorized_query(%{key: "label", module: module}, context) do
-    if skip_permissions?(context) do
-      {:ok, from(row in module)}
-    else
-      {:ok, descriptor} = Registry.get("document")
-      {:ok, documents} = authorized_query(descriptor, context)
+  def authorized_query(%{key: key}, _context) when key in ["document", "label"],
+    do: {:error, :resource_requires_ingestion}
 
-      label_ids =
-        from a in DocumentAssignment,
-          join: d in subquery(documents),
-          on: d.id == a.document_id,
-          where: a.selected,
-          select: a.label_id
-
-      {:ok, from(row in module, where: row.id in subquery(label_ids))}
-    end
-  end
-
-  def authorized_query(%{public?: true, module: module}, _context),
-    do: {:ok, from(row in module)}
-
-  def authorized_query(%{module: module} = descriptor, context) do
-    if skip_permissions?(context) do
-      {:ok, from(row in module)}
-    else
-      {:ok, private_authorized_query(descriptor, context)}
-    end
-  end
-
-  defp private_authorized_query(%{module: module} = descriptor, context) do
-    {person_id, team_ids} = authorization_subject(context)
-    resource_type = resource_type(descriptor.module)
-    subject_condition = permission_subject_condition(person_id, team_ids)
-
-    permission_condition =
-      dynamic(
-        [perm],
-        perm.resource_type == ^resource_type and
-          fragment("? = ANY(?)", "read", perm.access_rights) and ^subject_condition
-      )
-
-    permissions =
-      from perm in ResourcePermission,
-        where: ^permission_condition
-
-    authorized_resources =
-      from perm in subquery(permissions),
-        join: row in ^module,
-        on: field(row, :id) == fragment("?::bigint", perm.resource_id),
-        select: row,
-        distinct: true
-
-    from(row in subquery(authorized_resources))
-  end
-
-  defp permission_subject_condition(nil, team_ids), do: dynamic([perm], perm.team_id in ^team_ids)
-
-  defp permission_subject_condition(person_id, team_ids),
-    do: dynamic([perm], perm.person_id == ^person_id or perm.team_id in ^team_ids)
+  def authorized_query(descriptor, context),
+    do: QuerySupport.authorized_query(descriptor, context)
 
   @spec run(map(), map(), map()) :: query_result()
+  def run(%{key: key}, params, context) when key in ["document", "label"] do
+    params
+    |> Map.take(@query_keys)
+    |> Map.put(:resource_type, key)
+    |> IngestionEvents.build_and_dispatch_query_resources_event(
+      actor: Map.get(context, :actor) || Map.get(context, "actor"),
+      node_router: Map.get(context, :node_router, NodeRouter),
+      event_opts: [
+        skip_permissions: skip_permissions?(context),
+        person_id: Map.get(context, :person_id),
+        team_ids: Map.get(context, :team_ids) || Map.get(context, "team_ids")
+      ]
+    )
+    |> Map.fetch!(:response)
+  end
+
   def run(descriptor, params, context) do
     with :ok <- validate_requested_fields(descriptor, params),
          :ok <- validate_filter_fields(descriptor, params),
-         :ok <- validate_document_filters(descriptor, params),
          :ok <- validate_sort_field(descriptor, params) do
       if present?(Map.get(params, :id)) do
         get_resource(descriptor, params, context)
@@ -110,43 +71,15 @@ defmodule Zaq.Agent.Tools.Resources.Query do
       {:error, reason} ->
         {:error, reason}
 
-      :filtered_out ->
-        {:ok, base_response(descriptor, params, %{resource: nil, found: false})}
-
       nil ->
-        if resource_exists?(descriptor, id) do
-          {:error, :unauthorized}
-        else
-          {:ok, base_response(descriptor, params, %{resource: nil, found: false})}
-        end
+        if resource_exists?(descriptor, id),
+          do: {:error, :unauthorized},
+          else: get_response(descriptor, params, nil)
 
       resource ->
         fields = requested_fields(descriptor, params)
         resource = preload_for_fields(resource, descriptor, fields)
-        resource_map = serialize(resource, descriptor, fields)
-
-        {:ok,
-         base_response(descriptor, params, %{
-           resource: resource_map,
-           found: true,
-           count: 1,
-           total_count: 1
-         })}
-    end
-  end
-
-  defp get_authorized_resource(%{key: "document"} = descriptor, id, context, params) do
-    with {:ok, query} <- authorized_query(descriptor, context) do
-      authorized = where(query, [row], row.id == ^id)
-
-      resource =
-        authorized
-        |> apply_search(descriptor, Map.get(params, :query))
-        |> apply_filters(descriptor, Map.get(params, :filters, %{}))
-        |> project_resource_fields(descriptor, requested_fields(descriptor, params))
-        |> Repo.one()
-
-      if is_nil(resource) and Repo.exists?(authorized), do: :filtered_out, else: resource
+        get_response(descriptor, params, serialize(resource, descriptor, fields))
     end
   end
 
@@ -156,11 +89,10 @@ defmodule Zaq.Agent.Tools.Resources.Query do
   defp get_authorized_resource(%{public?: true, module: module}, id, _context, _params),
     do: Repo.get(module, id)
 
-  defp get_authorized_resource(%{module: _module} = descriptor, id, context, params) do
+  defp get_authorized_resource(%{module: _module} = descriptor, id, context, _params) do
     with {:ok, query} <- authorized_query(descriptor, context) do
       query
       |> where([row], row.id == ^id)
-      |> project_resource_fields(descriptor, requested_fields(descriptor, params))
       |> Repo.one()
     end
   end
@@ -183,7 +115,6 @@ defmodule Zaq.Agent.Tools.Resources.Query do
         |> apply_sort(descriptor, params)
         |> limit(^page_limit)
         |> offset(^page_offset)
-        |> project_resource_fields(descriptor, fields)
         |> Repo.all()
         |> preload_for_fields(descriptor, fields)
         |> Enum.map(&serialize(&1, descriptor, fields))
@@ -272,22 +203,6 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     Enum.reduce(conditions, condition, fn condition, acc -> dynamic(^acc or ^condition) end)
   end
 
-  defp apply_filters(query, %{key: "document"} = descriptor, filters) when is_map(filters) do
-    ordinary_filters =
-      Map.drop(filters, [
-        "label_ids",
-        "label_values",
-        "label_match",
-        :label_ids,
-        :label_values,
-        :label_match
-      ])
-
-    query
-    |> DocumentFilters.apply(filters)
-    |> apply_exact_filters(descriptor, ordinary_filters)
-  end
-
   defp apply_filters(query, descriptor, filters) when is_map(filters),
     do: apply_exact_filters(query, descriptor, filters)
 
@@ -322,72 +237,13 @@ defmodule Zaq.Agent.Tools.Resources.Query do
 
     direction = if Map.get(params, :sort_dir) == "desc", do: :desc, else: :asc
 
-    query = order_by(query, [row], [{^direction, field(row, ^field)}])
-
-    if descriptor.key in ["document", "label"] and field != :id,
-      do: order_by(query, [row], asc: row.id),
-      else: query
+    order_by(query, [row], [{^direction, field(row, ^field)}])
   end
 
   defp count(query) do
     query
     |> exclude(:order_by)
     |> Repo.aggregate(:count, :id)
-  end
-
-  defp validate_requested_fields(descriptor, params) do
-    validate_field_names(descriptor.fields, Map.get(params, :fields, []), :unsupported_field)
-  end
-
-  defp validate_filter_fields(descriptor, params) do
-    filters = Map.get(params, :filters, %{}) || %{}
-
-    if is_map(filters) do
-      validate_field_names(descriptor.filter_fields, Map.keys(filters), :unsupported_filter)
-    else
-      {:error, :invalid_filters}
-    end
-  end
-
-  defp validate_document_filters(%{key: "document"}, params),
-    do: DocumentFilters.validate(Map.get(params, :filters, %{}))
-
-  defp validate_document_filters(_descriptor, _params), do: :ok
-
-  defp validate_sort_field(descriptor, params) do
-    case Map.get(params, :sort_by) do
-      nil -> :ok
-      field -> validate_field_names(descriptor.sort_fields, [field], :unsupported_sort)
-    end
-  end
-
-  defp validate_field_names(_allowed, [], _error), do: :ok
-
-  defp validate_field_names(allowed, requested, error) when is_list(requested) do
-    allowed_names = MapSet.new(Enum.map(allowed, &to_string/1))
-
-    case Enum.reject(requested, &(to_string(&1) in allowed_names)) do
-      [] -> :ok
-      fields -> {:error, {error, Enum.map(fields, &to_string/1)}}
-    end
-  end
-
-  defp validate_field_names(_allowed, _requested, error), do: {:error, error}
-
-  defp requested_fields(descriptor, params) do
-    case Map.get(params, :fields, []) do
-      [] -> descriptor.fields
-      fields -> Enum.map(fields, &field_atom!(descriptor.fields, &1))
-    end
-  end
-
-  defp field_atom!(allowed, field) when is_atom(field) do
-    if field in allowed, do: field, else: raise(ArgumentError, "unsupported field")
-  end
-
-  defp field_atom!(allowed, field) do
-    Enum.find(allowed, &(to_string(&1) == to_string(field))) ||
-      raise(ArgumentError, "unsupported field")
   end
 
   defp serialize(resource, descriptor, fields) do
@@ -401,9 +257,6 @@ defmodule Zaq.Agent.Tools.Resources.Query do
     |> Map.get(:channels, [])
     |> serialize_channels()
   end
-
-  defp serialize_field(resource, %{key: "label"}, :resource_types),
-    do: Enum.map(resource.targets, & &1.resource_type)
 
   defp serialize_field(resource, %{key: "channel_config"}, :retrieval_channels) do
     resource
@@ -476,39 +329,7 @@ defmodule Zaq.Agent.Tools.Resources.Query do
       else: resource
   end
 
-  defp preload_for_fields(resources, %{key: "label"}, fields) do
-    if :resource_types in fields,
-      do: Repo.preload(resources, targets: from(t in Target, order_by: t.resource_type)),
-      else: resources
-  end
-
-  defp preload_for_fields(resources, %{key: "document"}, fields) when is_list(resources) do
-    if :labels in fields do
-      labels =
-        resources
-        |> Enum.map(& &1.id)
-        |> DocumentAssignment.selected_labels_query()
-        |> Repo.all()
-        |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-
-      Enum.map(resources, &Map.put(&1, :labels, Map.get(labels, &1.id, [])))
-    else
-      resources
-    end
-  end
-
-  defp preload_for_fields(resource, %{key: "document"} = descriptor, fields) do
-    [resource] |> preload_for_fields(descriptor, fields) |> hd()
-  end
-
   defp preload_for_fields(resources_or_resource, _descriptor, _fields), do: resources_or_resource
-
-  defp project_resource_fields(query, %{key: key}, fields) when key in ["document", "label"] do
-    fields = Enum.uniq([:id | fields -- [:resource_types, :labels]])
-    select(query, [row], struct(row, ^fields))
-  end
-
-  defp project_resource_fields(query, _descriptor, _fields), do: query
 
   defp channels_query do
     from(channel in PersonChannel, order_by: channel.weight)
@@ -516,108 +337,5 @@ defmodule Zaq.Agent.Tools.Resources.Query do
 
   defp retrieval_channels_query do
     from(channel in RetrievalChannel, order_by: [asc: channel.channel_name, asc: channel.id])
-  end
-
-  defp normalize_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp normalize_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
-  defp normalize_value(value), do: value
-
-  defp base_response(descriptor, params, values) do
-    %{
-      resource_type: descriptor.key,
-      mode: if(present?(Map.get(params, :id)), do: "get", else: "query"),
-      resource: nil,
-      resources: [],
-      descriptions: [],
-      found: false,
-      count: 0,
-      total_count: 0,
-      limit: page_limit(params, descriptor),
-      offset: page_offset(params)
-    }
-    |> Map.merge(values)
-  end
-
-  defp page_limit(params, descriptor) do
-    params
-    |> Map.get(:limit, @default_limit)
-    |> clamp_integer(@default_limit, 1, descriptor.max_limit)
-  end
-
-  defp page_offset(params) do
-    params
-    |> Map.get(:offset, 0)
-    |> clamp_integer(0, 0, 1_000_000)
-  end
-
-  defp clamp_integer(value, _default, min, max) when is_integer(value) do
-    value |> max(min) |> min(max)
-  end
-
-  defp clamp_integer(value, default, min, max) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, ""} -> clamp_integer(int, default, min, max)
-      _ -> default
-    end
-  end
-
-  defp clamp_integer(_value, default, _min, _max), do: default
-
-  defp authorization_subject(context) do
-    actor = Map.get(context, :actor) || Map.get(context, "actor")
-
-    case ActorNormalizer.person_id(actor) ||
-           ActorNormalizer.normalize_id(Map.get(context, :person_id)) do
-      nil -> {nil, effective_team_ids(context, actor, nil)}
-      person_id -> {person_id, effective_team_ids(context, actor, person_id)}
-    end
-  end
-
-  defp effective_team_ids(context, actor, person_id) do
-    actor_team_ids(actor, person_id)
-    |> case do
-      [] -> context_team_ids(context)
-      ids -> ids
-    end
-    |> Permissions.with_everyone_team_ids()
-  end
-
-  defp actor_team_ids(actor, nil), do: ActorNormalizer.team_ids(actor)
-
-  defp actor_team_ids(actor, person_id) do
-    case ActorNormalizer.team_ids(actor) do
-      [] -> person_id |> People.get_person() |> person_team_ids()
-      ids -> ids
-    end
-  end
-
-  defp context_team_ids(context) do
-    case Map.get(context, :team_ids) || Map.get(context, "team_ids") do
-      ids when is_list(ids) -> ids
-      _ -> []
-    end
-  end
-
-  defp person_team_ids(%{team_ids: ids}) when is_list(ids), do: ids
-  defp person_team_ids(_), do: []
-
-  defp skip_permissions?(context) do
-    Map.get(context, :skip_permissions) == true or Map.get(context, "skip_permissions") == true
-  end
-
-  defp resource_type(module) do
-    module
-    |> Module.split()
-    |> List.last()
-    |> Macro.underscore()
-  end
-
-  defp present?(value), do: value not in [nil, ""]
-
-  defp escape_like(value) do
-    value
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
   end
 end

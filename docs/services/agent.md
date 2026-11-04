@@ -614,6 +614,18 @@ permissions and exposes the full label catalog; tool arguments cannot request it
 The two resources use ID as a stable sort tie-breaker and retain the existing
 default page size of 20 and cap of 100. No mutation or additional tool key is added.
 
+Document and label queries dispatch a confidential `:query_resources` Event via
+`Zaq.Ingestion.Events` and `NodeRouter` to the Ingestion role. Ingestion resolves
+its own static descriptor allowlist and executes authorization, SQL filtering,
+counts, pagination and label projection in `Zaq.Ingestion.ResourceQuery`.
+`Zaq.Ingestion.Document` validates and composes label filters using assignment
+matching subqueries owned by `Zaq.Ingestion.Labels`. Agent shares
+only the static discovery descriptors; `describe` requires no database access.
+Identity and explicit bypass travel in the event envelope, never query parameters.
+Router failures are returned without falling back to local database reads.
+`Zaq.Resources.QuerySupport` shares field validation, read-grant semantics and
+response conventions with the existing queries for other resource types.
+
 ### BO User Notification Tool (`Zaq.Agent.Tools.Accounts.NotifyUsers`, key `accounts.notify_users`)
 - Sends one subject/body to BO users selected with `resources.query` by dispatching a `:notify_users` event to the Engine node.
 - The tool accepts the `resources` list from `resources.query` with `resource_type: "user"`; only each user's `id` is trusted, and Engine resolves canonical account emails before Channels delivery.

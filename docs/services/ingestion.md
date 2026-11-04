@@ -423,6 +423,17 @@ If a change touches one of these areas and no property test is added, document t
 
 ## Manual category labels
 
+Agent metadata discovery reads use the confidential `:query_resources` Event.
+`Zaq.Ingestion.ResourceQuery` accepts only `document` and `label` resource keys,
+resolves server-owned descriptors and executes the complete query on Ingestion.
+The request contains query parameters only; authorization uses the event actor
+and allowlisted identity/permission options. Request fields and actor fields
+cannot enable a permission bypass: only explicit `event.opts[:skip_permissions]`
+does so for this endpoint. Shared `Zaq.Resources.QuerySupport` preserves the
+existing person, team and Everyone read-grant semantics, field allowlists and
+response format. The tool contract is documented in the
+[Agent resource query guide](agent.md#resource-queries-zaqagenttoolsresourcesqueryresources-key-resourcesquery).
+
 `Zaq.Ingestion.Labels` owns category definitions and typed document/chunk
 assignments. BO uses confidential Ingestion Events: `:list_labels`,
 `:save_label_definition`, `:get_resource_labels`, `:edit_resource_labels`, and

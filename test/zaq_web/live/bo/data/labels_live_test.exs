@@ -381,10 +381,24 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLiveTest do
       }
     end
 
+    test "addon updates preserve the label catalog and selection", ctx do
+      {:ok, view, _} = live(ctx.conn, ~p"/bo/labels")
+      view |> element("#select-all-labels") |> render_click()
+      initial_version = :sys.get_state(view.pid).socket.assigns.features_version
+
+      send(view.pid, :addons_updated)
+      render(view)
+
+      assert :sys.get_state(view.pid).socket.assigns.features_version == initial_version + 1
+      assert has_element?(view, "#labels-#{ctx.label.id}.zaq-table-row--selected")
+      assert has_element?(view, "#label-values-#{ctx.label.id}", "1 / 2")
+      assert has_element?(view, "#delete-selected-labels", "Delete (1)")
+    end
+
     test "catalog usage opens matching resources and changes only the selection after confirmation",
          ctx do
       {:ok, view, _} = live(ctx.conn, ~p"/bo/labels")
-      assert has_element?(view, "#label-values-#{ctx.label.id}", "1 value")
+      assert has_element?(view, "#label-values-#{ctx.label.id}", "1 / 2")
       view |> element("#label-values-#{ctx.label.id}") |> render_click()
       assert has_element?(view, "#label-usage", "Paris")
       view |> element("button[phx-click=show_value_resources]", "Paris") |> render_click()
@@ -399,7 +413,7 @@ defmodule ZaqWeb.Live.BO.Data.LabelsLiveTest do
       assert Repo.get_by!(DocumentAssignment, document_id: List.last(ctx.docs).id).value ==
                "Paris"
 
-      assert has_element?(view, "#label-values-#{ctx.label.id}", "2 values")
+      assert has_element?(view, "#label-values-#{ctx.label.id}", "2 / 2")
     end
 
     test "clear retains label assignments, cancel does not write and empty usage is discoverable",

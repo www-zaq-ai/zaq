@@ -18,12 +18,24 @@ defmodule Zaq.Ingestion.Api do
     UpdateLabelValues
   }
 
-  alias Zaq.Ingestion.{ChunkLanguages, Document, DocumentProcessor, Labels}
+  alias Zaq.Ingestion.{ChunkLanguages, Document, DocumentProcessor, Labels, ResourceQuery}
   alias Zaq.InternalBoundaries
   alias Zaq.Permissions
 
   @impl true
   def handle_event(event, action, context), do: dispatch_event(action, event, context)
+
+  defp dispatch_event(:query_resources, %Event{} = event, _context) do
+    # Query parameters and actor fields cannot opt into a permission bypass.
+    context = %{
+      actor: event.actor,
+      person_id: Keyword.get(event.opts, :person_id),
+      team_ids: Keyword.get(event.opts, :team_ids),
+      skip_permissions: Keyword.get(event.opts, :skip_permissions) == true
+    }
+
+    %{event | response: ResourceQuery.run(event.request, context)}
+  end
 
   # Matching the action first avoids excessive Elixir 1.20 type-inference memory
   # across the overlapping event/request patterns below.

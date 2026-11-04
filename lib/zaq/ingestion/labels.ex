@@ -272,4 +272,49 @@ defmodule Zaq.Ingestion.Labels do
   end
 
   defp attr(attrs, key), do: Map.get(attrs, key, Map.get(attrs, Atom.to_string(key)))
+
+  @doc "Builds a document-ID subquery matching selected label assignments."
+  @spec matching_document_ids([pos_integer()], term()) :: Ecto.Query.t()
+  def matching_document_ids(ids, match) do
+    assignments =
+      from a in DocumentAssignment,
+        where: a.selected and a.label_id in ^ids,
+        group_by: a.document_id,
+        select: a.document_id
+
+    assignments =
+      if match == {:ok, "all"},
+        do: from(a in assignments, having: count(a.label_id, :distinct) == ^length(ids)),
+        else: assignments
+
+    assignments
+  end
+
+  @doc "Builds a document-ID subquery matching normalized selected label/value pairs."
+  @spec matching_document_value_ids([{pos_integer(), term()}], term()) :: Ecto.Query.t()
+  def matching_document_value_ids(pairs, match) do
+    condition =
+      Enum.reduce(pairs, dynamic(false), fn {id, value}, condition ->
+        pair =
+          if is_nil(value),
+            do: dynamic([a], a.label_id == ^id and is_nil(a.value)),
+            else: dynamic([a], a.label_id == ^id and a.value == ^value)
+
+        dynamic(^condition or ^pair)
+      end)
+
+    assignments =
+      from a in DocumentAssignment,
+        where: a.selected,
+        where: ^condition,
+        group_by: a.document_id,
+        select: a.document_id
+
+    assignments =
+      if match == {:ok, "all"},
+        do: from(a in assignments, having: count(a.label_id, :distinct) == ^length(pairs)),
+        else: assignments
+
+    assignments
+  end
 end

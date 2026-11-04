@@ -6,8 +6,10 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
 
   alias Zaq.Accounts.People
   alias Zaq.Agent.Tools.Resources.QueryResources
-  alias Zaq.Ingestion.{Document, Labels}
+  alias Zaq.Ingestion.{Api, Document, Labels}
   alias Zaq.Permissions
+
+  setup :verify_on_exit!
 
   setup do
     user = super_admin_fixture(%{must_change_password: false})
@@ -389,6 +391,77 @@ defmodule Zaq.Agent.Tools.Resources.LabelQueriesTest do
 
       assert ids(result) == expected
       assert result.total_count == length(expected)
+    end
+  end
+
+  test "document and label queries dispatch only query params and trusted context to Ingestion",
+       ctx do
+    for type <- ["document", "label"] do
+      expect(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event ->
+        assert event.next_hop.destination == :ingestion
+        assert event.opts[:action] == :query_resources
+        assert event.opts[:confidential] == true
+        assert event.opts[:skip_permissions] == false
+        assert event.opts[:person_id] == ctx.person.id
+        assert event.opts[:team_ids] == [17]
+        assert event.actor == ctx.context.actor
+        assert event.request == %{mode: "query", resource_type: type, fields: ["id"]}
+        %{event | response: {:error, {:service_unavailable, :ingestion}}}
+      end)
+
+      assert {:error, {:service_unavailable, :ingestion}} =
+               query(
+                 type,
+                 %{
+                   fields: ["id"],
+                   skip_permissions: true,
+                   actor: %{person_id: 999},
+                   module: Zaq.Accounts.User
+                 },
+                 Map.merge(ctx.context, %{
+                   node_router: Zaq.NodeRouterMock,
+                   person_id: ctx.person.id,
+                   team_ids: [17]
+                 })
+               )
+    end
+  end
+
+  test "Ingestion query boundary ignores request and actor permission bypass", ctx do
+    request = %{
+      resource_type: "document",
+      fields: ["id"],
+      skip_permissions: true,
+      context: %{skip_permissions: true},
+      actor: %{skip_permissions: true}
+    }
+
+    event =
+      Zaq.Event.new(request, :ingestion,
+        actor: Map.put(ctx.context.actor, :skip_permissions, true),
+        opts: [action: :query_resources, confidential: true]
+      )
+
+    assert %{response: {:ok, result}} =
+             Api.handle_event(event, :query_resources, nil)
+
+    refute ctx.private.id in ids(result)
+    assert ctx.both.id in ids(result)
+
+    trusted = %{event | opts: Keyword.put(event.opts, :skip_permissions, true)}
+
+    assert %{response: {:ok, result}} =
+             Api.handle_event(trusted, :query_resources, nil)
+
+    assert ctx.private.id in ids(result)
+  end
+
+  property "Ingestion query boundary rejects resource keys outside its own allowlist" do
+    check all(type <- string(:alphanumeric, min_length: 1), type not in ["document", "label"]) do
+      event = Zaq.Event.new(%{resource_type: type}, :ingestion, opts: [skip_permissions: true])
+
+      assert %{response: {:error, {:unknown_resource_type, ^type}}} =
+               Api.handle_event(event, :query_resources, nil)
     end
   end
 
