@@ -271,7 +271,8 @@ defmodule Zaq.Engine.LiveUpdateSettingsTest do
                  config,
                  %{settings: submitted},
                  config.provider,
-                 fn changeset, _provider -> changeset end
+                 fn changeset, _provider -> changeset end,
+                 actor: actor
                )
 
       assert saved.settings["live_updates"] == policy
