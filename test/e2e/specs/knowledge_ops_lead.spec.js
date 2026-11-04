@@ -3,7 +3,8 @@ const {
   gotoBackOfficeLive,
   loginToBackOffice,
   resetE2EState,
-  setE2ESystemConfig,
+  createE2EAnsweringAgent,
+  selectE2EChatAgent,
   touchE2EFile,
   writeE2EFile,
   dismissFlash,
@@ -69,7 +70,7 @@ async function ingestSelectedAsync(page, fileName) {
   await expect(fileRow(page, fileName)).toContainText("ingested", { timeout: 30_000 });
 }
 
-async function askQuestion(page, question) {
+async function askQuestion(page, question, agent) {
   await gotoBackOfficeLive(page, "/bo/chat");
   await expect(page.locator("#chat-form")).toBeVisible();
   await page.locator("#new-chat-button").click();
@@ -78,6 +79,8 @@ async function askQuestion(page, question) {
   // Without this, the fill() below can race with a pending phx-click-loading
   // cycle and the message buffer is repopulated with the stale conversation.
   await waitForLiveViewSettled(page);
+
+  await selectE2EChatAgent(page, agent);
 
   await page.locator("#chat-input").fill(question);
   await page.locator("#chat-form button[type='submit']").click();
@@ -96,15 +99,17 @@ async function openFirstSourcePreviewModal(page) {
 }
 
 test.describe("Knowledge Ops Lead journeys", () => {
+  let agent;
   test.beforeAll(async () => {
     const req = await apiRequest.newContext();
     await resetE2EState(req);
-    await setE2ESystemConfig(req, "llm.max_context_window", "128000");
+    agent = undefined;
     await req.dispose();
   });
 
   test.beforeEach(async ({ page }) => {
     await loginToBackOffice(page);
+    if (!agent) agent = await createE2EAnsweringAgent(page);
   });
 
   test("Journey 1: ingest new knowledge and confirm it is queryable", async ({ page }) => {
@@ -136,7 +141,7 @@ test.describe("Knowledge Ops Lead journeys", () => {
     await expect(rawPage.locator("body")).toContainText(queryToken);
     await rawPage.close();
 
-    await askQuestion(page, `What do you know about ${queryToken}?`);
+    await askQuestion(page, `What do you know about ${queryToken}?`, agent);
     await expect(page.locator("#chat-messages")).toContainText(
       "Baseline response generated from the default prompt template.",
       { timeout: 30_000 }

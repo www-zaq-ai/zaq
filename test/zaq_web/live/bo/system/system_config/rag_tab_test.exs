@@ -5,9 +5,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTabTest do
   alias Zaq.System.{
     EmbeddingConfig,
     ImageToTextConfig,
-    LLMConfig,
     OperationModelConfig,
-    RAGModelConfig
+    RAGModelConfig,
+    RetrievalConfig
   }
 
   alias ZaqWeb.Live.BO.System.SystemConfig.RAGTab
@@ -24,7 +24,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTabTest do
             as: :image_to_text_config
           ),
         retrieval_form:
-          Phoenix.Component.to_form(LLMConfig.retrieval_changeset(%LLMConfig{}, %{}),
+          Phoenix.Component.to_form(RetrievalConfig.changeset(%RetrievalConfig{}, %{}),
             as: :retrieval_config
           ),
         model_forms:

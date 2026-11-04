@@ -3,12 +3,6 @@ defmodule Zaq.TestSupport.OpenAIStubTest do
 
   alias Zaq.TestSupport.OpenAIStub
 
-  test "llm_config/2 merges overrides" do
-    cfg = OpenAIStub.llm_config("http://example.test/v1", model: "override-model")
-    assert cfg[:endpoint] == "http://example.test/v1"
-    assert cfg[:model] == "override-model"
-  end
-
   test "chat_completion/2 includes optional logprobs" do
     logprobs = %{"content" => [%{"token" => "ok", "logprob" => -0.1}]}
     completion = OpenAIStub.chat_completion("hello", logprobs: logprobs)

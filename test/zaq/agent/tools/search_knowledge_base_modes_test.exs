@@ -68,7 +68,14 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseModesTest do
   end
 
   defp context(extra) do
-    Map.merge(%{node_router: Router, reranking_config: %RAGModelConfig{}}, extra)
+    Map.merge(
+      %{
+        node_router: Router,
+        reranking_config: %RAGModelConfig{},
+        context_window: %{max_context_tokens: 128_000}
+      },
+      extra
+    )
   end
 
   test "hybrid is the default, shares one global cap, and starts both legs concurrently" do

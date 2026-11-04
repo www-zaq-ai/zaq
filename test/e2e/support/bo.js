@@ -398,6 +398,32 @@ async function createE2EAgent(request, attrs, options = {}) {
   return res.json();
 }
 
+// Answering journeys opt in explicitly; the reset baseline must remain unconfigured.
+async function createE2EAnsweringAgent(page) {
+  const credential = await createE2EAiCredential(page, {
+    name: `E2E Chat Credential ${Date.now()}`,
+    provider: "custom",
+    endpoint: `${normalizeBaseURL()}/e2e/llm/v1`,
+    api_key: "e2e-fake-key",
+  });
+  return createE2EAgent(page.request, {
+    name: `E2E Chat Agent ${Date.now()}`,
+    job: "Search the knowledge base before answering. Cite returned documents with [[source:path]].",
+    credential_id: credential.id,
+    model: "e2e-fake",
+    model_max_context_tokens: 128000,
+    enabled_tool_keys: ["answering.search_knowledge_base"],
+    conversation_enabled: true,
+    active: true,
+    advanced_options: { stream: true },
+  });
+}
+
+async function selectE2EChatAgent(page, agent) {
+  await pickSearchableSelect(page, "#chat-agent-select", agent.name, { searchable: false });
+  await waitForLiveViewSettled(page);
+}
+
 // Seed a conversation for the E2E admin (see POST /e2e/conversations).
 // Required: channel_type. Optional: title, channel_user_id, status ("active" | "archived"), user_id.
 async function createE2EConversation(request, attrs, options = {}) {
@@ -532,6 +558,8 @@ module.exports = {
   createE2EAiCredential,
   createE2EMcpEndpoint,
   createE2EAgent,
+  createE2EAnsweringAgent,
+  selectE2EChatAgent,
   createE2EConversation,
   seedE2EChannelHistory,
   createE2EBootstrapAdmin,

@@ -13,6 +13,27 @@ defmodule Zaq.Agent.Tools.GetKnowledgeBaseChunksTest do
     end
   end
 
+  defmodule SourcesRouter do
+    def dispatch(event),
+      do: %{
+        event
+        | response: {:ok, %{chunks: [%{"source" => "doc.md"}], count: 1, unavailable_ids: [7]}}
+      }
+  end
+
+  test "exact reads declare sources without changing the returned chunks or unavailable IDs" do
+    assert {:ok,
+            %{
+              chunks: [%{"source" => "doc.md"}],
+              sources: ["doc.md"],
+              count: 1,
+              unavailable_ids: [7]
+            }} =
+             Jido.Exec.run(GetKnowledgeBaseChunks, %{chunk_ids: [3, 7]}, %{
+               node_router: SourcesRouter
+             })
+  end
+
   test "validated action fetches one or many IDs with trusted access context" do
     assert {:ok, %{count: 0, unavailable_ids: [3, 7]}} =
              Jido.Exec.run(GetKnowledgeBaseChunks, %{chunk_ids: [3, 7, 3]}, %{

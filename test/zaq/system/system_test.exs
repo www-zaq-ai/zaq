@@ -14,7 +14,6 @@ defmodule Zaq.SystemTest do
     Config,
     EmbeddingConfig,
     ImageToTextConfig,
-    LLMConfig,
     TelemetryConfig
   }
 
@@ -293,126 +292,6 @@ defmodule Zaq.SystemTest do
       assert {:error, changeset} = System.set_system_timezone("GMT+03:00")
       assert "has already been taken" in errors_on(changeset).key
       assert System.get_config("system.global.timezone") == nil
-    end
-  end
-
-  # ── LLM ───────────────────────────────────────────────────────────────
-
-  describe "get_llm_config/0" do
-    test "returns LLMConfig defaults when no rows exist" do
-      config = System.get_llm_config()
-      assert %LLMConfig{} = config
-      assert config.provider == "custom"
-      assert config.model == "llama-3.3-70b-instruct"
-      assert config.temperature == 0.0
-      assert config.top_p == 0.9
-      assert config.supports_logprobs == true
-      assert config.supports_json_mode == true
-      assert config.max_cosine_distance == 0.45
-    end
-
-    test "returns stored values from DB" do
-      credential =
-        SystemConfigFixtures.ai_credential_fixture(%{
-          provider: "openai",
-          endpoint: "https://api.openai.com/v1"
-        })
-
-      System.set_config("llm.model", "gpt-4o")
-      System.set_config("llm.credential_id", credential.id)
-      System.set_config("llm.temperature", "0.7")
-      System.set_config("llm.top_p", "0.8")
-      System.set_config("llm.max_context_window", "8000")
-      System.set_config("llm.distance_threshold", "1.0")
-
-      config = System.get_llm_config()
-      assert config.model == "gpt-4o"
-      assert config.endpoint == "https://api.openai.com/v1"
-      assert config.temperature == 0.7
-      assert config.top_p == 0.8
-      assert config.max_context_window == 8000
-      assert config.distance_threshold == 1.0
-      assert config.max_cosine_distance == 0.45
-    end
-
-    test "falls back to defaults when credential no longer exists" do
-      System.set_config("llm.credential_id", 999_999)
-
-      config = System.get_llm_config()
-      assert config.credential_id == 999_999
-      assert config.provider == "custom"
-      assert config.endpoint == "http://localhost:11434/v1"
-    end
-
-    test "falls back to defaults for blank and invalid float values" do
-      System.set_config("llm.temperature", "")
-      System.set_config("llm.top_p", "not-a-number")
-      System.set_config("llm.max_cosine_distance", "invalid")
-
-      config = System.get_llm_config()
-      assert config.temperature == 0.0
-      assert config.top_p == 0.9
-      assert config.max_cosine_distance == 0.45
-    end
-
-    test "preserves a stored cosine cutoff instead of replacing it with the default" do
-      System.set_config("llm.max_cosine_distance", "0.62")
-
-      assert System.get_llm_config().max_cosine_distance == 0.62
-      assert System.get_config("llm.max_cosine_distance") == "0.62"
-    end
-  end
-
-  describe "save_llm_config/1" do
-    test "persists valid changeset to DB" do
-      credential =
-        SystemConfigFixtures.ai_credential_fixture(%{
-          provider: "openai",
-          endpoint: "https://api.openai.com/v1"
-        })
-
-      changeset =
-        LLMConfig.changeset(%LLMConfig{}, %{
-          credential_id: credential.id,
-          model: "gpt-4o",
-          temperature: "0.5"
-        })
-
-      assert {:ok, saved} = System.save_llm_config(changeset)
-      assert saved.model == "gpt-4o"
-      assert saved.credential_id == credential.id
-      assert saved.provider == "openai"
-      assert saved.endpoint == "https://api.openai.com/v1"
-      assert System.get_config("llm.model") == "gpt-4o"
-      assert System.get_config("llm.credential_id") == Integer.to_string(credential.id)
-    end
-
-    test "returns merged connection fields from selected credential" do
-      credential =
-        SystemConfigFixtures.ai_credential_fixture(%{
-          provider: "anthropic",
-          endpoint: "https://api.anthropic.com/v1"
-        })
-
-      System.set_config("llm.credential_id", credential.id)
-      System.set_config("llm.model", "claude-sonnet-4-20250514")
-
-      config = System.get_llm_config()
-
-      assert config.credential_id == credential.id
-      assert config.provider == "anthropic"
-      assert config.endpoint == "https://api.anthropic.com/v1"
-    end
-
-    test "returns error for invalid changeset" do
-      changeset =
-        LLMConfig.changeset(%LLMConfig{}, %{
-          credential_id: nil,
-          model: "",
-          temperature: "5.0"
-        })
-
-      assert {:error, %Ecto.Changeset{valid?: false}} = System.save_llm_config(changeset)
     end
   end
 

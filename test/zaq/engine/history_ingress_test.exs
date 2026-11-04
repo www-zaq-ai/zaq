@@ -366,14 +366,11 @@ defmodule Zaq.Engine.HistoryIngressTest do
                  message_id: "smtp-root@example.com"
              })
 
-    previous_pipeline = Application.fetch_env(:zaq, :email_bridge_pipeline_module)
     previous_router = Application.fetch_env(:zaq, :email_bridge_node_router_module)
-    Application.put_env(:zaq, :email_bridge_pipeline_module, Zaq.Agent.Pipeline)
     Application.put_env(:zaq, :email_bridge_node_router_module, EmailIngressRouter)
 
     on_exit(fn ->
       for {key, previous} <- [
-            email_bridge_pipeline_module: previous_pipeline,
             email_bridge_node_router_module: previous_router
           ] do
         case previous do

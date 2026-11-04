@@ -3,8 +3,8 @@
 ## Overview
 
 The Hooks service is ZAQ's internal event pipeline. It lets any module register
-handlers that fire at named points in the agent pipeline, ingestion, and
-conversation flows — without coupling producers to consumers.
+handlers that fire at named points in ingestion, channel, and conversation flows
+without coupling producers to consumers. Legacy Agent Pipeline stage hooks are retired.
 
 Hooks are registered at startup (or dynamically at runtime) and dispatched
 either synchronously (allowing payload mutation and halting) or asynchronously
@@ -35,15 +35,15 @@ Async hooks with a `node_role` other than `:local` are dispatched via
 
 ### `Zaq.Hooks` — public dispatch API
 
-The top-level module used by pipeline producers (e.g. `Zaq.Agent.Pipeline`).
+The top-level module used by shared event producers such as `Zaq.Ingestion.Chunk`.
 
 ```elixir
-@spec dispatch_before(atom(), map(), map()) :: {:ok, map()} | {:halt, map()}
-@spec dispatch_after(atom(), map(), map()) :: :ok
+@spec dispatch_sync(atom(), map(), map()) :: {:ok, map()} | {:halt, map()}
+@spec dispatch_async(atom(), map(), map()) :: :ok
 ```
 
-- `dispatch_before/3` — runs all `:sync` hooks for `event` in priority order, threading `payload` through the chain. Returns `{:ok, payload}` or `{:halt, payload}`.
-- `dispatch_after/3` — dispatches `event` to all hooks. Sync hooks run in-process (return value ignored). Async hooks are spawned in Tasks. Always returns `:ok`.
+- `dispatch_sync/3` — runs all `:sync` hooks for `event` in priority order, threading `payload` through the chain. Returns `{:ok, payload}` or `{:halt, payload}`.
+- `dispatch_async/3` — dispatches `event` to all hooks. Sync hooks run in-process (return value ignored). Async hooks are spawned in Tasks. Always returns `:ok`.
 
 Both functions emit Telemetry events:
 
@@ -105,7 +105,7 @@ Every hook handler must implement:
 ```elixir
 @callback handle(event(), payload(), context()) ::
   {:ok, payload()}    # continue with (possibly mutated) payload
-  | {:halt, payload()} # stop chain; dispatch_before returns {:halt, payload}
+  | {:halt, payload()} # stop chain; dispatch_sync returns {:halt, payload}
   | {:error, term()}   # skip this handler, log warning, continue chain
   | :ok                # observer acknowledgement (async/after hooks)
 ```
@@ -119,19 +119,11 @@ Starts `Zaq.Hooks.Registry` and `Zaq.DynamicSupervisor`.
 
 ## Hook Events
 
-### Agent Pipeline (`Zaq.Agent.Pipeline`)
-
-Context for all agent events: `%{trace_id: String.t(), node: node()}`
-
-| Event | Mode | Payload fields |
-|---|---|---|
-| `:before_retrieval` | sync (mutatable) | `%{question: String.t()}` |
-| `:after_retrieval` | async (observer) | `%{query, language, positive_answer, negative_answer}` |
-| `:before_answering` | sync (mutatable) | `%{query, language, positive_answer, negative_answer}` |
-| `:after_answer_generated` | async (observer) | `%{answer: %Zaq.Agent.Answering.Result{}}` |
-| `:after_pipeline_complete` | async (observer) | `%{answer, confidence_score, latency_ms, prompt_tokens, completion_tokens, total_tokens, error, chunks}` |
-
-`chunks` is `[]` when the pipeline produced no retrieval results.
+The supported event catalogue is `Zaq.Hooks.documented_events/0`; payloads are
+documented in that module. The removed Pipeline's `retrieval`, `retrieval_complete`,
+`answering`, `answer_generated` and `pipeline_complete` stages no longer dispatch.
+Installed add-on packages must not rely on them. See the
+[configured-only upgrade guide](../operations/deployment.md#upgrading-to-configured-only-agent-execution).
 
 ### Ingestion (`Zaq.Ingestion.Chunk`)
 
@@ -139,7 +131,7 @@ Context: `%{}`
 
 | Event | Mode | Payload fields |
 |---|---|---|
-| `:after_embedding_reset` | async (observer) | `%{new_dimension: integer()}` |
+| `:embedding_reset` | async (observer) | `%{new_dimension: integer()}` |
 
 Fired after `Chunk.reset_table/1` drops and recreates the chunks table with a
 new embedding dimension. Features maintaining their own embedding columns should
@@ -163,7 +155,7 @@ always contains all messages in the conversation ordered by insertion time.
 ```elixir
 Zaq.Hooks.Registry.register(%Zaq.Hooks.Hook{
   handler:   MyAuditHook,
-  events:    [:after_pipeline_complete],
+  events:    [:feedback_provided],
   mode:      :async,
   node_role: :agent
 })
@@ -176,7 +168,7 @@ defmodule MyAuditHook do
   @behaviour Zaq.Hooks.Handler
 
   @impl true
-  def handle(:after_pipeline_complete, payload, _context) do
+  def handle(:feedback_provided, _payload, _context) do
     # fire-and-forget observer
     :ok
   end
@@ -188,7 +180,7 @@ end
 ## Files
 
 ```
-lib/zaq/hooks.ex        # Public dispatch API: dispatch_before/3, dispatch_after/3
+lib/zaq/hooks.ex        # Public dispatch API: dispatch_sync/3, dispatch_async/3
 lib/zaq/hooks/
 ├── hook.ex             # Hook struct and type
 ├── registry.ex         # GenServer + ETS registry (register/unregister/lookup)

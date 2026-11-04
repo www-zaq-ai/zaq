@@ -34,7 +34,9 @@ defmodule Zaq.System.OperationModelConfigTest do
   end
 
   test "unconfigured operations do not inherit an otherwise usable global model" do
-    seed_llm_config(%{model: "gpt-4o"})
+    credential = ai_credential_fixture()
+    System.set_config("llm.credential_id", credential.id)
+    System.set_config("llm.model", "gpt-4o")
 
     assert {:error, :model_not_configured} =
              ProviderSpec.operation_runtime(System.get_operation_model_config(:translation))

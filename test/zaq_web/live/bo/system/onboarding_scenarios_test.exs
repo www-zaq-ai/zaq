@@ -19,6 +19,8 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
 
   alias Zaq.Accounts
   alias Zaq.Accounts.User
+  alias Zaq.Agent
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Repo
 
   setup :verify_on_exit!
@@ -73,7 +75,8 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       assert is_nil(credential.api_key)
 
       # No model configs wired to the keyless credential
-      assert is_nil(Zaq.System.get_llm_config().credential_id)
+      assert {:error, :agent_not_found} = Agent.get_agent_by_name("ZAQ Assistant")
+      assert is_nil(IncomingMessageRouting.get_rule(%{}))
       assert is_nil(Zaq.System.get_embedding_config().credential_id)
       assert is_nil(Zaq.System.get_image_to_text_config().credential_id)
 
@@ -91,7 +94,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
   # ---------------------------------------------------------------------------
   # Admin fills change-password, sees the consent modal, accepts. Provisioning
   # succeeds. Redirected to ingestion with a welcome flash. ZAQ Router has a
-  # real API key and all three model configs are wired. Dashboard shows no banner.
+  # real API key, configured assistant and model configs. Dashboard shows no banner.
   # ---------------------------------------------------------------------------
 
   describe "Scenario 2 — user accepts portal consent at bootstrap" do
@@ -128,8 +131,8 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       assert credential != nil
       assert credential.api_key == "sk-test-key"
 
-      # All three model configs wired to the new credential
-      assert Zaq.System.get_llm_config().credential_id == credential.id
+      # Configured assistant and model configs use the new credential
+      assert_provisioned_agent(credential)
       assert Zaq.System.get_embedding_config().credential_id == credential.id
       assert Zaq.System.get_image_to_text_config().credential_id == credential.id
 
@@ -176,7 +179,8 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       keyless_cred = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
       assert keyless_cred != nil
       assert is_nil(keyless_cred.api_key)
-      assert is_nil(Zaq.System.get_llm_config().credential_id)
+      assert {:error, :agent_not_found} = Agent.get_agent_by_name("ZAQ Assistant")
+      assert is_nil(IncomingMessageRouting.get_rule(%{}))
 
       # Dashboard: Activate banner present with offer copy (fetched async).
       {:ok, view2, _html2} = live(fresh_conn(user), ~p"/bo/dashboard")
@@ -195,7 +199,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
       credential = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
       assert credential != nil
       assert credential.api_key == "sk-test-key"
-      assert Zaq.System.get_llm_config().credential_id == credential.id
+      assert_provisioned_agent(credential)
     end
   end
 
@@ -258,7 +262,7 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
 
       credential = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
       assert credential.api_key == "sk-corrected-key"
-      assert Zaq.System.get_llm_config().credential_id == credential.id
+      assert_provisioned_agent(credential)
     end
   end
 
@@ -328,13 +332,24 @@ defmodule ZaqWeb.Live.BO.System.OnboardingScenariosTest do
 
       credential = Zaq.System.get_ai_provider_credential_by_name("ZAQ Router")
       assert credential.api_key == "sk-new-email-key"
-      assert Zaq.System.get_llm_config().credential_id == credential.id
+      assert_provisioned_agent(credential)
     end
   end
 
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  defp assert_provisioned_agent(credential) do
+    assert {:ok, agent} = Agent.get_agent_by_name("ZAQ Assistant")
+    assert agent.credential_id == credential.id
+    assert agent.active and agent.conversation_enabled
+
+    assert Enum.sort(agent.enabled_tool_keys) ==
+             ["answering.get_knowledge_base_chunks", "answering.search_knowledge_base"]
+
+    assert IncomingMessageRouting.get_rule(%{}).configured_agent_id == agent.id
+  end
 
   # Unique integer suffix for usernames to avoid conflicts within a test run.
   defp uid, do: :erlang.unique_integer([:positive])

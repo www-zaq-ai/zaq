@@ -29,72 +29,6 @@ defmodule Zaq.Hooks do
   `mix hooks.verify` (run automatically in `mix precommit`) will fail if an event
   is dispatched from `lib/` but not present in `documented_events/0`.
 
-  ### Agent Pipeline — `Zaq.Agent.Pipeline`
-
-  Context for all pipeline events: `%{trace_id: String.t(), node: node()}`
-
-  #### `:retrieval` — `dispatch_sync` (intercepting)
-
-  Fired before the knowledge-base retrieval step. Handlers may rewrite the
-  content before it reaches the retriever.
-
-      %{
-        content: String.t()   # sanitised user input; mutate to override
-      }
-
-  #### `:retrieval_complete` — `dispatch_async` (observer)
-
-  Fired after retrieval succeeds with the raw retrieval result.
-
-      %{
-        query:           String.t(),  # generated search query
-        language:        String.t(),
-        positive_answer: String.t(),  # retriever's positive passage
-        negative_answer: String.t()   # retriever's fallback passage
-      }
-
-  #### `:answering` — `dispatch_sync` (intercepting)
-
-  Fired after retrieval and before the LLM answering step. Handlers may
-  augment or replace the retrieval payload passed to the answerer.
-
-      %{
-        query:           String.t(),
-        language:        String.t(),
-        positive_answer: String.t(),
-        negative_answer: String.t()
-      }
-
-  #### `:answer_generated` — `dispatch_async` (observer)
-
-  Fired immediately after the LLM produces an answer, before pipeline
-  post-processing (confidence scoring, no-answer detection).
-
-      %{
-        answer: %Zaq.Agent.Answering.Result{}
-      }
-
-  #### `:pipeline_complete` — `dispatch_async` (observer)
-
-  Fired at the very end of a successful pipeline run with the final result
-  map returned to the caller.
-
-      %{
-        answer:             String.t(),
-        confidence_score:   float(),
-        latency_ms:         non_neg_integer(),
-        prompt_tokens:      non_neg_integer(),
-        completion_tokens:  non_neg_integer(),
-        total_tokens:       non_neg_integer(),
-        error:              false,
-        chunks:             [%{"content" => String.t(), "source" => String.t(), "metadata" => map()}]
-      }
-
-  `chunks` contains the retrieved chunks used to generate the answer.
-  It is `[]` when the pipeline produced no retrieval results.
-
-  ---
-
   ### Ingestion — `Zaq.Ingestion.Chunk`
 
   Context for ingestion system events: `%{}`
@@ -174,11 +108,6 @@ defmodule Zaq.Hooks do
   alias Zaq.Hooks.Hook
 
   @documented_events [
-    :retrieval,
-    :retrieval_complete,
-    :answering,
-    :answer_generated,
-    :pipeline_complete,
     :embedding_reset,
     :feedback_provided,
     :reply_received

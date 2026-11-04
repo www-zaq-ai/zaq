@@ -17,9 +17,14 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     meaningful independent words or phrases, preserving names and identifiers;
     clauses match independently (OR), without splitting the question into filler.
     All modes re-rank when the RAG model is configured. max_total_results defaults
-    to 100 globally; the context-token budget may return fewer. Results contain
-    chunk_id and previous_chunk_id/next_chunk_id; use get_knowledge_base_chunks
-    to fetch additional context rather than assuming surrounding chunks are included.
+    to 100 globally; the context-token budget may return fewer. Accessible results
+    already contain usable content, not just references; use that content directly.
+    For missing context, pass returned previous_chunk_id/next_chunk_id values to
+    get_knowledge_base_chunks; surrounding chunks are not automatically included.
+    Avoid near-identical parallel searches unless each serves a distinct information need.
+    Stop retrieving once you have sufficient evidence to answer.
+    Cite sources used in your answer as [[source:path]], using paths from sources.
+    A returned source may identify a document requiring access; do not infer its content.
     """,
     schema:
       Zoi.object(%{
@@ -34,6 +39,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     output_schema:
       Zoi.object(%{
         chunks: Zoi.list(Zoi.map()),
+        sources: Zoi.list(Zoi.string()),
         count: Zoi.integer(),
         errors:
           Zoi.list(
@@ -55,6 +61,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   }
 
   alias Zaq.Agent.Status
+  alias Zaq.Agent.Tools.KnowledgeSources
   alias Zaq.Event
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
@@ -75,10 +82,19 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
         System.monotonic_time(:millisecond) + tool_timeout_ms()
       )
 
-    with :ok <- validate_input(params) do
-      bounded_search(params, context)
+    with :ok <- validate_input(params),
+         {:ok, token_budget} <- result_token_budget(context) do
+      bounded_search(params, Map.put(context, :result_token_budget, token_budget))
     end
   end
+
+  # Temporary: allocate a fixed share until the runtime can reserve available space.
+  # Tracked: https://github.com/www-zaq-ai/zaq/issues/915
+  defp result_token_budget(%{context_window: %{max_context_tokens: maximum}})
+       when is_integer(maximum) and maximum > 0,
+       do: {:ok, div(maximum, 5)}
+
+  defp result_token_budget(_context), do: {:error, :context_budget_unavailable}
 
   defp validate_input(%{query: query, search_mode: mode, max_total_results: maximum} = params) do
     cond do
@@ -128,7 +144,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     )
 
     case dispatch(:list_chunk_languages, %{}, context) do
-      {:ok, []} -> {:ok, %{chunks: [], count: 0, errors: [], partial: false}}
+      {:ok, []} -> {:ok, %{chunks: [], sources: [], count: 0, errors: [], partial: false}}
       {:ok, languages} when is_list(languages) -> search_languages(params, languages, context)
       {:error, reason} -> {:error, "Knowledge base language discovery failed: #{inspect(reason)}"}
     end
@@ -167,11 +183,22 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   defp limit_results(chunks, maximum, errors, context) do
     case dispatch(
            :limit_knowledge_results,
-           %{chunks: chunks, max_total_results: maximum},
+           %{
+             chunks: chunks,
+             max_total_results: maximum,
+             token_budget: context.result_token_budget
+           },
            context
          ) do
       {:ok, limited} when is_list(limited) ->
-        {:ok, %{chunks: limited, count: length(limited), errors: errors, partial: errors != []}}
+        {:ok,
+         %{
+           chunks: limited,
+           sources: KnowledgeSources.from_chunks(limited),
+           count: length(limited),
+           errors: errors,
+           partial: errors != []
+         }}
 
       {:error, reason} ->
         {:error, "Knowledge base context limiting failed: #{inspect(reason)}"}

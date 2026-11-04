@@ -155,8 +155,8 @@ defmodule Mix.Tasks.Hooks.VerifyTest do
       on_exit(fn -> File.rm_rf!(dir) end)
 
       write_fixture(dir, "pipeline.ex", """
-      Hooks.dispatch_sync(:retrieval, payload, ctx)
-      Hooks.dispatch_async(:retrieval_complete, result, ctx)
+      Hooks.dispatch_sync(:embedding_reset, payload, ctx)
+      Hooks.dispatch_async(:feedback_provided, result, ctx)
       """)
 
       with_glob("#{dir}/*.ex", fn ->
@@ -193,8 +193,8 @@ defmodule Mix.Tasks.Hooks.VerifyTest do
 
       on_exit(fn -> File.rm_rf!(dir) end)
 
-      write_fixture(dir, "module_a.ex", "Hooks.dispatch_sync(:retrieval, p, c)\n")
-      write_fixture(dir, "module_b.ex", "Hooks.dispatch_sync(:retrieval, p, c)\n")
+      write_fixture(dir, "module_a.ex", "Hooks.dispatch_sync(:feedback_provided, p, c)\n")
+      write_fixture(dir, "module_b.ex", "Hooks.dispatch_sync(:feedback_provided, p, c)\n")
 
       with_glob("#{dir}/*.ex", fn ->
         assert_raise Mix.Error, ~r/hooks.verify failed/, fn ->

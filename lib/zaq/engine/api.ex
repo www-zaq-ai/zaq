@@ -825,8 +825,10 @@ defmodule Zaq.Engine.Api do
     end
   end
 
-  def handle_event(%Event{} = event, :system_config_get_global_default_agent_id, _context),
-    do: %{event | response: System.get_global_default_agent_id()}
+  def handle_event(%Event{} = event, :system_config_get_global_default_agent_id, _context) do
+    include_none = is_map(event.request) and Map.get(event.request, :include_none, false) == true
+    %{event | response: System.get_global_default_agent_id(include_none: include_none)}
+  end
 
   def handle_event(%Event{} = event, :system_config_set_global_default_agent_id, _context) do
     case event.request do
@@ -894,15 +896,8 @@ defmodule Zaq.Engine.Api do
     end
   end
 
-  def handle_event(%Event{} = event, :system_config_get_llm_config, _context),
-    do: %{event | response: System.get_llm_config()}
-
-  def handle_event(%Event{} = event, :system_config_save_llm_config, _context) do
-    case event.request do
-      %{changeset: changeset} -> %{event | response: System.save_llm_config(changeset)}
-      other -> %{event | response: {:error, {:invalid_request, other}}}
-    end
-  end
+  def handle_event(%Event{} = event, :system_config_get_retrieval_config, _context),
+    do: %{event | response: System.get_retrieval_config()}
 
   def handle_event(%Event{} = event, :system_config_get_embedding_config, _context),
     do: %{event | response: System.get_embedding_config()}

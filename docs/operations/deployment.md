@@ -68,7 +68,9 @@ Migrations seed default roles and a bootstrap Back Office account named `admin`.
 1. Complete first-login setup.
 2. Configure AI provider credentials and model settings in Back Office **System Config** (`/bo/system-config`). LLM, embedding, and image-to-text settings are database-backed, not `LLM_*` environment variables. Configure embedding settings before ingesting documents.
 3. For mounted files, open **Data Sources → Disk** (`/bo/channels/data_source/disk`). Save a volume with **Name** `documents`, **Relative path** `documents`, and select it as the **Default**. Ensure the data source is enabled.
-4. Configure a conversation-enabled agent under **Agents**, then open **Chat**. Add knowledge and tools appropriate to its task.
+4. Configure a conversation-enabled agent under **Agents**, enable its required tools,
+   and select it in Chat or assign it through incoming-message routing. Unassigned
+   routes no longer start a built-in Default Agent.
 
 ### Persistent storage
 
@@ -117,6 +119,39 @@ Defaults below refer to the repository Compose file and [production runtime conf
 Not every runtime setting is passed through by the supplied Compose file. For example, to change chunk concurrency, add `OBAN_INGESTION_CHUNKS_CONCURRENCY: "${OBAN_INGESTION_CHUNKS_CONCURRENCY:-6}"` under the `zaq` service's `environment` block. A shell variable or `.env` entry has no effect unless Compose passes it into the container.
 
 Disk declarations belong in **Data Sources → Disk**, not System Config. Model and provider settings belong in **System Config**, not infrastructure environment variables.
+
+### Upgrading to configured-only agent execution
+
+The built-in Default Agent and its separate retrieval/answering modules are removed.
+Before upgrading, review global, connector, channel/topic and Person routing choices.
+Keep existing configured assignments; explicitly choose a conversation-enabled agent
+for each route that needs automated answers. Enable its knowledge-search and optional
+exact-chunk tools as appropriate. The upgrade does not provision a replacement agent
+or silently grant tools.
+
+`Default` on a scoped rule still means inheritance. `None` stops agent routing;
+exhausted inheritance now also ends at `None`, retaining applicable history capture
+and workflow-only triggers. The former empty Global `Default Zaq Agent` choice is
+displayed as `None`. This schema has no separate persisted synthetic-agent ID:
+there is no data rewrite of absent/blank rules or configured IDs. Do not bulk-convert
+inherited rules into explicit None overrides.
+
+Use a coordinated release across roles: pause new agent-directed ingress, allow
+in-flight built-in answering requests to finish, deploy the new code to every role,
+then resume ingress. Do not run old/new Agent nodes concurrently while admitting
+unassigned work. Verify one configured route, one inherited configured route, an
+explicit None override and an exhausted hierarchy after cutover. This guide does
+not authorize a production deployment or stopping unrelated configured runtimes.
+
+Add-ons must no longer depend on the retired `retrieval`, `retrieval_complete`,
+`answering`, `answer_generated` or `pipeline_complete` hooks. External installed
+packages require their own compatibility check; the shared hook registry and
+embedding-reset, conversation-feedback and channel-reply events remain.
+
+No credentials, shared retrieval/context-budget settings or historical conversations
+are deleted. A code rollback can restore the old implicit Default Agent behavior;
+review routing before resuming ingress and do not invent previous selection intent
+or overwrite configured assignments during rollback.
 
 ### Upgrading legacy storage configuration
 

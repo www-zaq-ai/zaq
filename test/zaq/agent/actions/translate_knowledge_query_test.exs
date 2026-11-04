@@ -10,7 +10,16 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryTest do
       OpenAIStub.server(fn _conn, _body -> flunk("global model must not be called") end, self())
 
     start_supervised!(child)
-    OpenAIStub.seed_llm_config(endpoint)
+
+    credential =
+      Zaq.SystemConfigFixtures.ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "test-key"
+      })
+
+    Zaq.System.set_config("llm.credential_id", credential.id)
+    Zaq.System.set_config("llm.model", "test-model")
 
     assert {:ok,
             %{
