@@ -5,6 +5,13 @@ defmodule Zaq.Agent.Tools.Workflow.LuaEvalTest do
   alias Zaq.Agent.Tools.Workflow.LuaEval
   alias Zaq.Engine.Workflows.Action
 
+  setup_all do
+    # Lua loads its compiler and shared sandbox template lazily. Prepare them
+    # before the per-evaluation deadline used by the conversion assertions.
+    assert {[true], _lua} = Lua.eval!(Lua.new(), "return true")
+    :ok
+  end
+
   test "satisfies the workflow Action contract" do
     assert :ok = Action.validate(LuaEval)
   end
