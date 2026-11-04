@@ -17,11 +17,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias Zaq.Event
   alias Zaq.System.EmbeddingConfig
   alias Zaq.System.ImageToTextConfig
-  alias Zaq.System.LLMConfig
   alias Zaq.System.OperationModelConfig
   alias Zaq.System.OutboundHttpPolicy, as: SystemOutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
   alias Zaq.System.RAGModelConfig
+  alias Zaq.System.RetrievalConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.System.WebBrowsingConfig
   alias Zaq.Utils.Map, as: MapUtils
@@ -37,9 +37,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   alias ZaqWeb.Live.BO.System.SystemConfig.EmbeddingEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.GlobalEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.ImageToTextEvents
-  alias ZaqWeb.Live.BO.System.SystemConfig.LLMEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.MCPRows
+  alias ZaqWeb.Live.BO.System.SystemConfig.RetrievalEvents
   alias ZaqWeb.Live.BO.System.SystemConfig.SkillsTab
   alias ZaqWeb.Live.BO.System.SystemConfig.TelemetryEvents
   alias ZaqWeb.Live.DeviceSignInPolling
@@ -125,7 +125,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> load_http_credential_provider_form()
      |> load_http_credential_providers()
      |> load_telemetry_form()
-     |> load_llm_form()
+     |> assign(:model_credential_options, credential_options())
      |> load_embedding_form()
      |> load_image_to_text_form()}
   end
@@ -145,6 +145,10 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
      |> assign(:studio_running, StudioRuntime.running?())}
   end
 
+  def handle_params(%{"tab" => "llm"}, _uri, socket) do
+    {:noreply, push_patch(socket, to: ~p"/bo/system-config?tab=rag")}
+  end
+
   def handle_params(%{"tab" => tab}, _uri, socket) when tab in ~w(rag embedding image_to_text) do
     {:noreply, socket |> assign(:active_tab, :rag) |> load_rag_forms() |> load_operation_forms()}
   end
@@ -154,7 +158,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ~w(ai_credentials auth_credentials outbound_http mcps global skills llm telemetry) do
+      when tab in ~w(ai_credentials auth_credentials outbound_http mcps global skills telemetry) do
     {:noreply, assign(socket, :active_tab, String.to_existing_atom(tab))}
   end
 
@@ -752,7 +756,9 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   def handle_event("save_global_default_agent", %{"global_default_agent_id" => raw_id}, socket) do
-    case engine_set_global_default_agent_id(ParseUtils.parse_optional_int(raw_id)) do
+    selection = if raw_id == "none", do: :none, else: ParseUtils.parse_optional_int(raw_id)
+
+    case engine_set_global_default_agent_id(selection) do
       :ok ->
         {:noreply,
          socket
@@ -826,84 +832,20 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  # ── LLM ───────────────────────────────────────────────────────────────
-
-  def handle_event("validate_llm", %{"llm_config" => params}, socket) do
-    credential_id = params["credential_id"]
-    provider_id = provider_from_credential_id(credential_id)
-    model_id = params["model"]
-    previous_provider = provider_from_credential_id(socket.assigns.llm_form[:credential_id].value)
-    previous_model = socket.assigns.llm_form[:model].value
-
-    params =
-      LLMEvents.maybe_update_path(
-        params,
-        provider_id,
-        previous_provider,
-        model_id,
-        fn provider, model ->
-          llm_provider_path_for_credential_id(credential_id, provider, model)
-        end
-      )
-
-    changeset =
-      engine_get_llm_config()
-      |> LLMConfig.changeset(params)
-      |> Map.put(:action, :validate)
-
-    capabilities =
-      LLMEvents.resolve_capabilities(
-        provider_id,
-        model_id,
-        previous_provider,
-        previous_model,
-        socket.assigns.llm_capabilities,
-        fn provider, model ->
-          llm_model_capabilities_for_credential_id(credential_id, provider, model)
-        end
-      )
-
-    {:noreply,
-     socket
-     |> assign(
-       :llm_model_options,
-       llm_model_options_for_credential_id(credential_id, provider_id)
-     )
-     |> assign(:llm_capabilities, capabilities)
-     |> assign(:llm_form, to_form(changeset, as: :llm_config))}
-  end
-
-  def handle_event("save_llm", %{"llm_config" => params}, socket) do
-    changeset = LLMConfig.changeset(engine_get_llm_config(), params)
-
-    case engine_save_llm_config(changeset) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> load_llm_form()
-         |> put_flash(:info, "LLM settings saved.")}
-
-      {:error, %Ecto.Changeset{} = cs} ->
-        {:noreply,
-         socket
-         |> assign(:llm_form, to_form(Map.put(cs, :action, :validate), as: :llm_config))}
-    end
-  end
-
   # ── Embedding ─────────────────────────────────────────────────────────
 
   def handle_event("validate_retrieval", %{"retrieval_config" => params}, socket) do
     previous = socket.assigns.retrieval_form
 
     params =
-      LLMEvents.adjust_fusion_weights(
+      RetrievalEvents.adjust_fusion_weights(
         params,
         to_string(previous[:fusion_bm25_weight].value),
         to_string(previous[:fusion_vector_weight].value),
         &clamp_weight/1
       )
 
-    cs = LLMConfig.retrieval_changeset(engine_get_llm_config(), params)
+    cs = RetrievalConfig.changeset(engine_get_retrieval_config(), params)
 
     {:noreply,
      assign(socket, :retrieval_form, to_form(cs, as: :retrieval_config, action: :validate))}
@@ -916,7 +858,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          socket
          |> assign(
            :retrieval_form,
-           to_form(LLMConfig.retrieval_changeset(config, %{}), as: :retrieval_config)
+           to_form(RetrievalConfig.changeset(config, %{}), as: :retrieval_config)
          )
          |> put_flash(:info, "Retrieval settings saved.")}
 
@@ -1191,7 +1133,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          |> AICredentialEvents.close_modal()
          |> load_ai_credentials()
          |> load_ai_grants()
-         |> load_llm_form()
+         |> assign(:model_credential_options, credential_options())
          |> load_embedding_form()
          |> load_image_to_text_form()
          |> put_flash(:info, "AI credential deleted.")}
@@ -1501,24 +1443,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     Application.get_env(:zaq, :mcp_test_module, MCP)
   end
 
-  defp load_llm_form(socket) do
-    cfg = engine_get_llm_config()
-    provider_id = provider_from_credential_id(cfg.credential_id)
-    changeset = LLMConfig.changeset(cfg, %{})
-
-    socket
-    |> assign(:llm_credential_options, credential_options())
-    |> assign(
-      :llm_model_options,
-      llm_model_options_for_credential_id(cfg.credential_id, provider_id)
-    )
-    |> assign(
-      :llm_capabilities,
-      llm_model_capabilities_for_credential_id(cfg.credential_id, provider_id, cfg.model)
-    )
-    |> assign(:llm_form, to_form(changeset, as: :llm_config))
-  end
-
   defp load_embedding_form(socket) do
     cfg = engine_get_embedding_config()
     provider_id = provider_from_credential_id(cfg.credential_id)
@@ -1553,7 +1477,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   end
 
   defp load_rag_forms(socket) do
-    retrieval = LLMConfig.retrieval_changeset(engine_get_llm_config(), %{})
+    retrieval = RetrievalConfig.changeset(engine_get_retrieval_config(), %{})
 
     socket =
       assign(socket,
@@ -1683,17 +1607,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   end
 
-  defp llm_model_capabilities_for_credential_id(credential_id, provider_id, model_id) do
-    case credential_model(credential_id, provider_id, model_id) do
-      %{capabilities: caps} when is_map(caps) ->
-        json = Map.get(caps, :json) || %{}
-        %{json_mode: Map.get(json, :native), logprobs: nil}
-
-      _ ->
-        %{json_mode: nil, logprobs: nil}
-    end
-  end
-
   # ── Shared provider/model helpers ──────────────────────────────────────
 
   # Returns the base_url for any provider, or "" for "custom".
@@ -1712,16 +1625,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
     end
   rescue
     ArgumentError -> ""
-  end
-
-  defp provider_path_for_credential_id(credential_id, provider_id, model_id) do
-    model = credential_model(credential_id, provider_id, model_id)
-
-    path =
-      model
-      |> then(fn m -> m && m.execution && m.execution[:text] && m.execution[:text][:path] end)
-
-    if is_binary(path), do: path, else: "/chat/completions"
   end
 
   # Returns [{display_name, provider_id_string}] for runnable ReqLLM providers whose
@@ -1920,23 +1823,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp ai_credential_for_action(:edit, id), do: engine_get_ai_provider_credential!(id)
   defp ai_credential_for_action(_, _), do: %Zaq.System.AIProviderCredential{}
 
-  # ── LLM-specific helpers ───────────────────────────────────────────────
-
-  defp llm_model_options_for_credential_id(credential_id, provider_id),
-    do: model_options_for_credential_id(credential_id, provider_id, &tool_calling_model?/1)
-
-  defp tool_calling_model?(m) do
-    caps = m.capabilities || %{}
-
-    case Map.get(caps, :tools) do
-      %{enabled: true} -> true
-      _ -> false
-    end
-  end
-
-  defp llm_provider_path_for_credential_id(credential_id, provider_id, model_id),
-    do: provider_path_for_credential_id(credential_id, provider_id, model_id)
-
   defp clamp_weight(val) when is_binary(val) do
     case Float.parse(val) do
       {f, _} -> f |> max(0.0) |> min(1.0) |> Float.round(2)
@@ -2054,7 +1940,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
          |> AICredentialEvents.close_modal()
          |> load_ai_credentials()
          |> load_ai_grants()
-         |> load_llm_form()
+         |> assign(:model_credential_options, credential_options())
          |> load_embedding_form()
          |> load_image_to_text_form()
          |> put_flash(:info, "AI credential saved.")}
@@ -2341,13 +2227,18 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp unwrap_ok!({:ok, value}), do: value
   defp unwrap_ok!(value), do: value
 
-  defp engine_get_global_default_agent_id,
-    do: dispatch_engine(:system_config_get_global_default_agent_id)
+  defp engine_get_global_default_agent_id do
+    case dispatch_engine(:system_config_get_global_default_agent_id, %{include_none: true}) do
+      :none -> "none"
+      id -> id
+    end
+  end
 
   defp engine_set_global_default_agent_id(id) do
     rule =
       case id do
         nil -> %{routing_mode: :clear}
+        :none -> %{routing_mode: :none}
         id -> %{routing_mode: :agent, configured_agent_id: id}
       end
 
@@ -2686,10 +2577,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLive do
   defp engine_save_telemetry_config(changeset),
     do: dispatch_engine(:system_config_save_telemetry_config, %{changeset: changeset})
 
-  defp engine_get_llm_config, do: dispatch_engine(:system_config_get_llm_config)
-
-  defp engine_save_llm_config(changeset),
-    do: dispatch_engine(:system_config_save_llm_config, %{changeset: changeset})
+  defp engine_get_retrieval_config, do: dispatch_engine(:system_config_get_retrieval_config)
 
   defp engine_get_embedding_config, do: dispatch_engine(:system_config_get_embedding_config)
 

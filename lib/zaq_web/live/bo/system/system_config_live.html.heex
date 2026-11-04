@@ -27,7 +27,6 @@
                 global: "Global",
                 web_browsing: "Web browsing",
                 skills: "Skills",
-                llm: "LLM",
                 rag: "RAG",
                 telemetry: "Telemetry"
               ]
@@ -131,7 +130,7 @@
             options={@operation_model_options[:small]}
             manual_model={@operation_model_manual[:small]}
             model_catalogs={@model_catalogs}
-            credential_options={@llm_credential_options}
+            credential_options={@model_credential_options}
           />
         </div>
       </ZaqWeb.Components.DesignSystem.CardShell.card_shell>
@@ -161,14 +160,6 @@
         folder_error={@web_browsing_folder_error}
         modal_error={@modal_error}
         modal_name={@modal_name}
-      />
-      <ZaqWeb.Live.BO.System.SystemConfig.LLMTab.panel
-        :if={@active_tab == :llm}
-        form={@llm_form}
-        credential_options={@llm_credential_options}
-        model_options={@llm_model_options}
-        capabilities={@llm_capabilities}
-        model_catalogs={@model_catalogs}
       />
       <ZaqWeb.Live.BO.System.SystemConfig.RAGTab.panel
         :if={@active_tab == :rag}

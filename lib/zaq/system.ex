@@ -24,11 +24,11 @@ defmodule Zaq.System do
   alias Zaq.System.HttpCredentialProvider
   alias Zaq.System.HttpCredentialProviderRef
   alias Zaq.System.ImageToTextConfig
-  alias Zaq.System.LLMConfig
   alias Zaq.System.OperationModelConfig
   alias Zaq.System.OutboundHttpPolicy
   alias Zaq.System.PeopleAccessConfig
   alias Zaq.System.RAGModelConfig
+  alias Zaq.System.RetrievalConfig
   alias Zaq.System.TelemetryConfig
   alias Zaq.System.WebBrowsingConfig
   alias Zaq.Types.EncryptedString
@@ -42,8 +42,6 @@ defmodule Zaq.System do
     no_answer_alert_threshold_percent
     conversation_response_sla_ms
   )
-  @llm_read_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold max_cosine_distance fusion_bm25_weight fusion_vector_weight)
-  @llm_write_fields ~w(credential_id model temperature top_p path supports_logprobs supports_json_mode max_context_window distance_threshold max_cosine_distance fusion_bm25_weight fusion_vector_weight)
   @embedding_read_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @embedding_write_fields ~w(credential_id model dimension chunk_min_tokens chunk_max_tokens)
   @image_to_text_read_fields ~w(credential_id model)
@@ -99,11 +97,12 @@ defmodule Zaq.System do
     )
   end
 
-  @doc "Returns globally configured default agent id, or nil when unset."
-  @spec get_global_default_agent_id() :: integer() | nil
-  def get_global_default_agent_id do
+  @doc "Returns the global agent ID, or nil; `include_none: true` distinguishes an explicit None rule."
+  @spec get_global_default_agent_id(keyword()) :: integer() | nil | :none
+  def get_global_default_agent_id(opts \\ []) do
     case IncomingMessageRouting.get_rule(%{}) do
       %{routing_mode: :agent, configured_agent_id: configured_agent_id} -> configured_agent_id
+      %{routing_mode: :none} -> if Keyword.get(opts, :include_none, false), do: :none
       _ -> nil
     end
   end
@@ -513,12 +512,7 @@ defmodule Zaq.System do
     end
   end
 
-  # ── LLM ───────────────────────────────────────────────────────────────
-
-  @doc "Loads LLM configuration from DB as `%LLMConfig{}`."
-  def get_llm_config do
-    "llm" |> read_config_fields(@llm_read_fields) |> build_llm_config()
-  end
+  # ── Model and retrieval settings ──────────────────────────────────────
 
   # One statement gives related keys the same database snapshot during saves.
   defp read_config_fields(namespace, fields) do
@@ -528,41 +522,23 @@ defmodule Zaq.System do
     |> Map.new(fn row -> {String.replace_prefix(row.key, namespace <> ".", ""), row.value} end)
   end
 
-  defp build_llm_config(raw) do
-    config =
-      %LLMConfig{
-        credential_id: ParseUtils.parse_int(raw["credential_id"], nil),
-        provider: "custom",
-        endpoint: "http://localhost:11434/v1",
-        api_key: "",
-        model: raw["model"] || "llama-3.3-70b-instruct",
-        temperature: ParseUtils.parse_float(raw["temperature"], 0.0),
-        top_p: ParseUtils.parse_float(raw["top_p"], 0.9),
-        path: raw["path"] || "/chat/completions",
-        supports_logprobs: ParseUtils.parse_bool(raw["supports_logprobs"], true),
-        supports_json_mode: ParseUtils.parse_bool(raw["supports_json_mode"], true),
-        max_context_window: ParseUtils.parse_int(raw["max_context_window"], 5_000),
-        distance_threshold: ParseUtils.parse_float(raw["distance_threshold"], 1.2),
-        max_cosine_distance: ParseUtils.parse_float(raw["max_cosine_distance"], 0.45),
-        fusion_bm25_weight: ParseUtils.parse_float(raw["fusion_bm25_weight"], 0.5),
-        fusion_vector_weight: ParseUtils.parse_float(raw["fusion_vector_weight"], 0.5)
-      }
+  @doc "Loads retrieval tuning without resolving legacy chat credentials."
+  @spec get_retrieval_config() :: RetrievalConfig.t()
+  def get_retrieval_config do
+    raw =
+      read_config_fields("llm", ~w(max_cosine_distance fusion_bm25_weight fusion_vector_weight))
 
-    merge_connection_fields_from_credential(config)
+    %RetrievalConfig{
+      max_cosine_distance: ParseUtils.parse_float(raw["max_cosine_distance"], 0.45),
+      fusion_bm25_weight: ParseUtils.parse_float(raw["fusion_bm25_weight"], 0.5),
+      fusion_vector_weight: ParseUtils.parse_float(raw["fusion_vector_weight"], 0.5)
+    }
   end
 
-  @doc "Persists LLM settings from a validated `%LLMConfig{}` changeset."
-  def save_llm_config(%Ecto.Changeset{valid?: true} = changeset) do
-    config = Ecto.Changeset.apply_changes(changeset)
-    persist_config_values(@llm_write_fields, "llm", config)
-    {:ok, get_llm_config()}
-  end
-
-  def save_llm_config(%Ecto.Changeset{valid?: false} = changeset), do: {:error, changeset}
-
-  @doc "Persists retrieval tuning without changing the configured chat model."
+  @doc "Persists retrieval tuning without changing legacy model configuration."
+  @spec save_retrieval_config(map()) :: {:ok, RetrievalConfig.t()} | {:error, Ecto.Changeset.t()}
   def save_retrieval_config(attrs) when is_map(attrs) do
-    changeset = LLMConfig.retrieval_changeset(get_llm_config(), attrs)
+    changeset = RetrievalConfig.changeset(get_retrieval_config(), attrs)
 
     if changeset.valid? do
       config = Ecto.Changeset.apply_changes(changeset)
@@ -573,7 +549,7 @@ defmodule Zaq.System do
                "llm",
                config
              ) do
-        {:ok, get_llm_config()}
+        {:ok, get_retrieval_config()}
       end
     else
       {:error, changeset}
@@ -1109,7 +1085,6 @@ defmodule Zaq.System do
     id_value = to_string(id)
 
     [
-      "llm.credential_id",
       "embedding.credential_id",
       "image_to_text.credential_id",
       "rag.reranking.credential_id",

@@ -749,7 +749,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
            ) == {:error, {:service_unavailable, :engine}}
   end
 
-  test "cannot delete credential currently used by system configuration" do
+  test "cannot delete credential currently used by active embedding configuration" do
     assert {:ok, credential} =
              System.create_ai_provider_credential(%{
                name: "In Use Credential",
@@ -758,7 +758,7 @@ defmodule Zaq.System.AIProviderCredentialTest do
                auth_kind: "none"
              })
 
-    System.set_config("llm.credential_id", credential.id)
+    System.set_config("embedding.credential_id", credential.id)
 
     assert {:error, %Ecto.Changeset{} = changeset} =
              System.delete_ai_provider_credential(credential)
@@ -769,6 +769,15 @@ defmodule Zaq.System.AIProviderCredentialTest do
 
     id = credential.id
     assert %AIProviderCredential{id: ^id} = System.get_ai_provider_credential!(id)
+  end
+
+  test "obsolete global LLM references do not block credential deletion" do
+    credential = Zaq.SystemConfigFixtures.ai_credential_fixture()
+    System.set_config("llm.credential_id", credential.id)
+
+    assert {:ok, _} = System.delete_ai_provider_credential(credential)
+    assert System.get_ai_provider_credential(credential.id) == nil
+    assert System.get_config("llm.credential_id") == to_string(credential.id)
   end
 
   defp create_connect_token_credential(provider) do

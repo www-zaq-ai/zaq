@@ -4,6 +4,11 @@ defmodule Zaq.HooksTest do
   alias Zaq.Hooks
   alias Zaq.Hooks.{Hook, Registry}
 
+  test "the event catalogue retains shared hooks without retired Pipeline stages" do
+    assert Enum.sort(Hooks.documented_events()) ==
+             Enum.sort([:embedding_reset, :feedback_provided, :reply_received])
+  end
+
   # ---------------------------------------------------------------------------
   # Inline handler stubs
   # ---------------------------------------------------------------------------
@@ -516,11 +521,11 @@ defmodule Zaq.HooksTest do
   # Scenario 37
   test "documented_events/0 includes all known dispatch sites" do
     events = Hooks.documented_events()
-    assert :retrieval in events
-    assert :retrieval_complete in events
-    assert :answering in events
-    assert :answer_generated in events
-    assert :pipeline_complete in events
+    refute :retrieval in events
+    refute :retrieval_complete in events
+    refute :answering in events
+    refute :answer_generated in events
+    refute :pipeline_complete in events
     assert :embedding_reset in events
     assert :feedback_provided in events
     assert :reply_received in events

@@ -2,7 +2,7 @@ defmodule Zaq.SystemConfigFixtures do
   @moduledoc false
 
   alias Zaq.System
-  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, LLMConfig}
+  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig}
 
   def ai_credential_fixture(attrs \\ %{}) do
     unique = Ecto.UUID.generate()
@@ -104,34 +104,6 @@ defmodule Zaq.SystemConfigFixtures do
 
     changeset = ImageToTextConfig.changeset(%ImageToTextConfig{}, params)
     {:ok, _} = System.save_image_to_text_config(changeset)
-    credential
-  end
-
-  def seed_llm_config(attrs \\ %{}) do
-    credential =
-      ai_credential_fixture(%{
-        endpoint: Map.get(attrs, :endpoint, "http://localhost:11434/v1"),
-        api_key: Map.get(attrs, :api_key, ""),
-        provider: Map.get(attrs, :provider, "custom")
-      })
-
-    params =
-      Map.merge(
-        %{
-          credential_id: credential.id,
-          model: "test-model",
-          temperature: 0.0,
-          top_p: 0.9,
-          supports_logprobs: false,
-          supports_json_mode: false,
-          max_context_window: 5000,
-          distance_threshold: 1.2
-        },
-        Map.drop(attrs, [:api_key, :endpoint, :provider])
-      )
-
-    changeset = LLMConfig.changeset(%LLMConfig{}, params)
-    {:ok, _} = System.save_llm_config(changeset)
     credential
   end
 end

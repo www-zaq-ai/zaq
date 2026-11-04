@@ -27,9 +27,8 @@ defmodule Zaq.Agent.Factory do
   3. The request runs through Jido with the resolved tools, model opts, and
      synchronized prompt.
 
-  The built-in default answering configuration is provided by
-  `Zaq.Agent.Answering`; this module executes that config exactly like any other
-  configured agent.
+  Every run uses an explicitly selected configured agent; this module does not
+  create a built-in fallback configuration.
   """
 
   use Jido.AI.Agent,

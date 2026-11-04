@@ -8,7 +8,7 @@ defmodule Zaq.Agent.RequestControl do
   report uncertainty until native execution and finalization have settled.
   """
 
-  alias Zaq.Agent.{Answering, Factory, HistorySync, InputPrompt, ServerManager}
+  alias Zaq.Agent.{Factory, HistorySync, InputPrompt, ServerManager}
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
@@ -207,7 +207,6 @@ defmodule Zaq.Agent.RequestControl do
         agent_id
       ) do
     scope = "history:#{transcript_id}:person:#{ActorNormalizer.person_id(event.actor)}"
-    agent_id = agent_id || Answering.answering_configured_agent().id
 
     case find_native_request(scope, event.actor, %{agent_id: agent_id}) do
       {:ok, {request_id, _state}} ->

@@ -17,7 +17,7 @@ defmodule ZaqWeb.Chat.Header do
       assign(
         assigns,
         :agent_select_options,
-        [{"Default pipeline", ""} | Enum.map(assigns.available_agents, &{&1.name, &1.id})]
+        [{"Default (routing)", ""} | Enum.map(assigns.available_agents, &{&1.name, &1.id})]
       )
 
     ~H"""
@@ -31,7 +31,7 @@ defmodule ZaqWeb.Chat.Header do
             id="chat-agent-select"
             name="agent_id"
             value={@selected_agent_id || ""}
-            empty_label="Default pipeline"
+            empty_label="Default (routing)"
             searchable={false}
             compact={true}
             options={@agent_select_options}

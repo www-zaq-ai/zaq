@@ -27,7 +27,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.AICredentialsTab do
         <div>
           <h2 class="font-mono text-[0.95rem] font-bold text-black">AI Credentials</h2>
           <p class="font-mono text-[0.75rem] text-black/40 mt-0.5">
-            Reusable AI provider credentials used by LLM, Embedding, and Image to Text.
+            Reusable AI provider credentials used by configured agents and RAG operations.
           </p>
         </div>
         <button

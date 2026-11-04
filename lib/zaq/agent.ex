@@ -114,6 +114,7 @@ defmodule Zaq.Agent do
       %ConfiguredAgent{active: true} = agent -> {:ok, agent}
       %ConfiguredAgent{} -> {:error, :inactive_agent}
       nil -> {:error, :agent_not_found}
+      :error -> {:error, :agent_not_found}
     end
   end
 
