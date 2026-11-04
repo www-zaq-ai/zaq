@@ -110,6 +110,7 @@ including empty and all-failed batches; local item aliases do not escape the Bat
 Lua nodes can receive the cascade explicitly with `"mapping": {"data": "__cascade__"}`
 and read named outputs from `data`. LuaEval does not inject request/input globals
 or fetch workflow state.
+In workflow JSON, LuaEval accepts `"return_mode": "first"` (the default) or `"return_mode": "list"` to expose one or all returned values under `result`.
 
 **Edge fields:**
 - `"from"` / `"to"` — node names (strings, matched to node `"name"` field).
