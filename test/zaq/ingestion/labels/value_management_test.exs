@@ -1,5 +1,6 @@
 defmodule Zaq.Ingestion.Labels.ValueManagementTest do
-  use Zaq.DataCase, async: true
+  # The chunk usage test creates its dynamic table inside the SQL Sandbox.
+  use Zaq.DataCase, async: false
   use ExUnitProperties
   import Zaq.AccountsFixtures
   import Zaq.LabelFixtures
@@ -31,6 +32,7 @@ defmodule Zaq.Ingestion.Labels.ValueManagementTest do
 
   test "usage groups assigned values including empty and chunks; resource identities stay typed",
        ctx do
+    assert :ok = Chunk.create_table(1536)
     doc = hd(ctx.docs)
     chunk = Repo.insert!(%Chunk{document_id: doc.id, content: "Paris", chunk_index: 0})
 
