@@ -18,7 +18,15 @@ defmodule Zaq.Ingestion.Api do
     UpdateLabelValues
   }
 
-  alias Zaq.Ingestion.{ChunkLanguages, Document, DocumentProcessor, Labels, ResourceQuery}
+  alias Zaq.Ingestion.{
+    ChunkLanguages,
+    Document,
+    DocumentProcessor,
+    KnowledgeChunks,
+    Labels,
+    ResourceQuery
+  }
+
   alias Zaq.InternalBoundaries
   alias Zaq.Permissions
 
@@ -160,6 +168,24 @@ defmodule Zaq.Ingestion.Api do
   end
 
   defp dispatch_event(
+         :get_knowledge_base_chunks,
+         %Event{request: %{chunk_ids: ids, access_opts: access_opts}} = event,
+         _context
+       )
+       when is_list(access_opts) do
+    %{event | response: KnowledgeChunks.fetch(ids, access_opts)}
+  end
+
+  defp dispatch_event(
+         :fuse_knowledge_results,
+         %Event{request: %{keyword_chunks: lexical, semantic_chunks: vector}} = event,
+         _context
+       )
+       when is_list(lexical) and is_list(vector) do
+    %{event | response: DocumentProcessor.fuse_chunks(lexical, vector)}
+  end
+
+  defp dispatch_event(
          :get_ingestion_details,
          %Event{request: %{source: source}, actor: actor} = event,
          _context
@@ -188,12 +214,21 @@ defmodule Zaq.Ingestion.Api do
 
   defp dispatch_event(
          :limit_knowledge_results,
-         %Event{request: %{chunks: chunks}} = event,
+         %Event{
+           request: %{chunks: chunks, max_total_results: maximum, token_budget: token_budget}
+         } = event,
          _context
        )
        when is_list(chunks) do
     processor = Keyword.get(event.opts, :document_processor, DocumentProcessor)
-    %{event | response: {:ok, processor.limit_chunks(chunks)}}
+
+    response =
+      case processor.limit_chunks(chunks, maximum, token_budget) do
+        {:error, _} = error -> error
+        limited when is_list(limited) -> {:ok, limited}
+      end
+
+    %{event | response: response}
   end
 
   defp dispatch_event(

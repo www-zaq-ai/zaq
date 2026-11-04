@@ -1,5 +1,5 @@
 defmodule Zaq.Engine.PeopleGatewayTest do
-  use Zaq.DataCase, async: true
+  use Zaq.DataCase, async: true, group: :people_permission_grants
   use ExUnitProperties
   import Zaq.CommunicationFixtures
 

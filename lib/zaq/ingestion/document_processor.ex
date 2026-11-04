@@ -7,11 +7,10 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   the `Zaq.Ingestion.Chunk` Ecto schema.
 
   Exposes BM25+vector hybrid search via parallel `Task.async` with Elixir-side
-  RRF fusion, and token-limited query extraction for the answering agent.
+  RRF fusion, and query extraction with optional caller-owned token budgets.
 
   ## Configuration (read from `config :zaq, Zaq.Ingestion`)
 
-    * `:max_context_window` - token limit for query extraction (default `5_000`)
     * `:max_cosine_distance` - vector distance cutoff (default `0.45`)
     * `:hybrid_search_limit` - max rows per search leg (default `20`)
   """
@@ -28,7 +27,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     DocumentAccess,
     DocumentChunker,
     DocumentIngestionSummary,
-    FTSBackend
+    FTSBackend,
+    KnowledgeChunks
   }
 
   alias Zaq.Ingestion.LanguageDetector
@@ -38,13 +38,11 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   require Logger
 
-  @access_denied_message "You don't have access to this chunk."
-
   @doc """
   Returns the message used to replace chunk content when a user lacks access.
   Referenced in tests and the answering prompt migration.
   """
-  def access_denied_message, do: @access_denied_message
+  defdelegate access_denied_message(), to: KnowledgeChunks
 
   NimbleCSV.define(Zaq.Ingestion.CSVParser, separator: ",", escape: "\"")
   alias Zaq.Ingestion.CSVParser
@@ -57,12 +55,8 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   # Config helpers
   # ---------------------------------------------------------------------------
 
-  defp max_context_window do
-    Zaq.System.get_llm_config().max_context_window
-  end
-
   defp max_cosine_distance do
-    Zaq.System.get_llm_config().max_cosine_distance
+    Zaq.System.get_retrieval_config().max_cosine_distance
   end
 
   # Check the stored precision rather than the source floats: a small nonzero
@@ -840,12 +834,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   @doc """
   Extracts token-limited chunks for a given query.
-  Ranks direct chunks by fused lexical/vector evidence, then includes their
-  section context without attributing match scores to contextual siblings.
+  Ranks direct chunks by fused lexical/vector evidence. Surrounding context is
+  available through each accessible chunk's previous/next IDs, not enrichment.
 
   Returns a list of maps with `"content"`, `"source"`, `"rrf_score"`, and
-  `"vector_distance"`. Contextual siblings have neither direct-match score
-  nor measured vector distance.
+  `"vector_distance"` and chunk/navigation IDs. Only direct matches are returned;
+  measured distance is present only for vector matches.
 
   ## Options
 
@@ -854,28 +848,36 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     * `:team_ids` - list of team IDs the person belongs to (default `[]`).
     * `:skip_permissions` - when `true`, bypasses all permission filtering.
       Intended for internal/admin queries only (default `false`).
+    * `:token_budget` - optional non-negative token limit supplied by the caller.
+      Without it, only the retrieval candidate limits apply; no global LLM limit is read.
   """
   @spec query_extraction(String.t(), keyword()) :: {:ok, list(map())} | {:error, term()}
   def query_extraction(query, access_opts \\ []) do
-    person_id = Keyword.get(access_opts, :person_id)
-    team_ids = Keyword.get(access_opts, :team_ids, [])
-    skip_permissions = Keyword.get(access_opts, :skip_permissions, false)
     source_filter = Keyword.get(access_opts, :source_filter, [])
     language = Keyword.get(access_opts, :language)
     lexical_terms = lexical_input(Keyword.get(access_opts, :lexical_terms), query)
+    mode = Keyword.get(access_opts, :search_mode, :hybrid)
 
-    with {:ok, grouped} <- retrieve(query, lexical_terms, source_filter, language),
-         sections = build_query_sections(grouped),
-         {:ok, data} <- fetch_sections_with_source(sections, language) do
-      filtered = apply_permission_filter(data, skip_permissions, person_id, team_ids)
+    with {:ok, grouped} <- retrieve(query, lexical_terms, source_filter, language, mode) do
+      filtered = KnowledgeChunks.hydrate(ranked_matches(grouped, mode), access_opts)
 
       if Keyword.get(access_opts, :unbounded, false) do
         {:ok, filtered}
       else
-        {:ok, limit_to_context_window(filtered)}
+        {:ok, limit_to_context_window(filtered, Keyword.get(access_opts, :token_budget))}
       end
     end
   end
+
+  defp ranked_matches(grouped, mode) do
+    grouped
+    |> Enum.flat_map(fn {_doc_id, paths} -> Enum.flat_map(paths, &elem(&1, 1)) end)
+    |> Enum.sort_by(&{match_score(&1, mode), &1.document_id, &1.section_path, &1.chunk_index})
+  end
+
+  defp match_score(match, :semantic), do: match.vector_distance
+  defp match_score(match, :keyword), do: -match.bm25_score
+  defp match_score(match, :hybrid), do: -match.rrf_score
 
   defp lexical_input(nil, query), do: query
 
@@ -889,7 +891,21 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp lexical_input(_invalid, _query), do: []
 
-  defp retrieve(query, lexical_terms, source_filter, language) do
+  defp retrieve(query, _terms, source_filter, language, :semantic) do
+    similarity_search_group_by(query, source_filter, language)
+  end
+
+  defp retrieve(_query, terms, source_filter, language, :keyword) do
+    with {:ok, grouped} <-
+           bm25_search_group_by(terms, hybrid_search_limit(), source_filter, language) do
+      {:ok,
+       Map.new(grouped, fn {doc_id, paths} ->
+         {doc_id, mark_lexical_matches(paths)}
+       end)}
+    end
+  end
+
+  defp retrieve(query, lexical_terms, source_filter, language, :hybrid) do
     limit = hybrid_search_limit()
 
     bm25_task =
@@ -903,34 +919,18 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     end
   end
 
-  defp build_query_sections(ss) do
-    ss
-    |> Enum.flat_map(fn {doc_id, paths} ->
-      Enum.flat_map(paths, fn
-        {_path, []} ->
-          []
+  defp retrieve(_query, _terms, _source_filter, _language, _mode),
+    do: {:error, :invalid_search_mode}
 
-        {path, matches} ->
-          [
-            {doc_id, path,
-             %{
-               matches: Map.new(matches, &{&1.chunk_index, &1}),
-               rrf_score: Enum.max_by(matches, & &1.rrf_score).rrf_score
-             }}
-          ]
-      end)
+  defp mark_lexical_matches(paths) do
+    Map.new(paths, fn {path, matches} ->
+      {path, Enum.map(matches, &Map.put(&1, :lexical_match, true))}
     end)
-    |> Enum.sort_by(fn {doc_id, path, item} -> {-score_of(item), doc_id, path} end)
-    |> Enum.uniq_by(fn {doc_id, path, _} -> {doc_id, path} end)
   end
 
-  defp score_of(%{rrf_score: s}), do: s
+  defp limit_to_context_window(data, nil), do: data
 
-  defp limit_to_context_window([]), do: []
-
-  defp limit_to_context_window(data) do
-    budget = max_context_window()
-
+  defp limit_to_context_window(data, budget) when is_integer(budget) and budget >= 0 do
     {answer, _} =
       Enum.reduce_while(data, {[], 0}, fn chunk, {acc, acc_tokens} ->
         output_tokens = chunk |> Jason.encode!() |> TokenEstimator.estimate()
@@ -945,8 +945,19 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     Enum.reverse(answer)
   end
 
-  @doc "Applies the ingestion-owned context budget after cross-language merging."
-  def limit_chunks(chunks) when is_list(chunks), do: limit_to_context_window(chunks)
+  @doc "Applies the caller's result-count ceiling and optional token budget after ranking."
+  def limit_chunks(chunks, max_total_results \\ 100, token_budget \\ nil)
+
+  def limit_chunks(chunks, maximum, token_budget)
+      when is_list(chunks) and is_integer(maximum) and maximum > 0 and
+             (is_nil(token_budget) or (is_integer(token_budget) and token_budget >= 0)),
+      do: chunks |> Enum.take(maximum) |> limit_to_context_window(token_budget)
+
+  def limit_chunks(_chunks, maximum, _token_budget)
+      when not is_integer(maximum) or maximum <= 0,
+      do: {:error, :invalid_max_total_results}
+
+  def limit_chunks(_chunks, _maximum, _token_budget), do: {:error, :invalid_token_budget}
 
   defp similarity_search_group_by(query_text, source_filter, language) do
     with {:ok, embedding} <- EmbeddingClient.embed(query_text),
@@ -964,6 +975,7 @@ defmodule Zaq.Ingestion.DocumentProcessor do
           asc: c.chunk_index
         )
         |> select([c, _d], %{
+          chunk_id: c.id,
           document_id: c.document_id,
           section_path: c.section_path,
           chunk_index: c.chunk_index,
@@ -1051,10 +1063,12 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
         %{
           document_id: doc_id,
+          chunk_id: Map.get(match, :chunk_id),
           section_path: match.section_path,
           chunk_index: chunk_index,
           rrf_score: bm25_contrib + vector_contrib,
           lexical_match: not is_nil(bm25_match),
+          bm25_score: if(bm25_match, do: Map.get(bm25_match, :bm25_score, 0.0)),
           vector_distance: if(vector_match, do: vector_match.vector_distance)
         }
       end)
@@ -1075,8 +1089,124 @@ defmodule Zaq.Ingestion.DocumentProcessor do
   end
 
   defp fusion_weights do
-    cfg = Zaq.System.get_llm_config()
+    cfg = Zaq.System.get_retrieval_config()
     {cfg.fusion_bm25_weight, cfg.fusion_vector_weight}
+  end
+
+  @doc """
+  Fuses ordered, already hydrated retrieval legs without fetching content again.
+
+  Uses ordinal ranks to retain the rank of redacted matches without disclosing
+  their measured scores. Only the RRF score is taken from the existing merger;
+  original measured scores and metadata are never replaced by ordinal surrogates.
+  """
+  def fuse_chunks(lexical, vector) do
+    if valid_fusion_chunks?(lexical ++ vector) do
+      lexical = Enum.uniq_by(lexical, &fusion_identity/1)
+      vector = Enum.uniq_by(vector, &fusion_identity/1)
+
+      originals =
+        Enum.group_by(
+          tag_leg(lexical, "lexical") ++ tag_leg(vector, "vector"),
+          &fusion_identity/1
+        )
+
+      with {:ok, fused} <- rrf_merge(ranked_leg(lexical, :lexical), ranked_leg(vector, :vector)) do
+        {:ok, %{chunks: fused_payload(fused, originals)}}
+      end
+    else
+      {:error, :invalid_fusion_chunks}
+    end
+  end
+
+  defp fused_payload(fused, originals) do
+    fused
+    |> ranked_matches(:hybrid)
+    |> Enum.map(fn match ->
+      originals[{match.document_id, match.chunk_index}]
+      |> merge_fusion_evidence()
+      |> Map.put("rrf_score", match.rrf_score)
+    end)
+  end
+
+  defp valid_fusion_chunk?(%{
+         "document_id" => doc_id,
+         "chunk_index" => index,
+         "section_path" => path
+       }),
+       do: is_integer(doc_id) and is_integer(index) and is_list(path)
+
+  defp valid_fusion_chunk?(_chunk), do: false
+
+  defp valid_fusion_chunks?(chunks) do
+    Enum.all?(chunks, &valid_fusion_chunk?/1) and
+      consistent_match_ids?(chunks) and consistent_chunk_locations?(chunks)
+  end
+
+  defp consistent_match_ids?(chunks) do
+    chunks
+    |> Enum.group_by(&fusion_identity/1)
+    |> Enum.all?(fn {_identity, matches} ->
+      paths = matches |> Enum.map(& &1["section_path"]) |> Enum.uniq()
+      ids = matches |> Enum.map(& &1["chunk_id"]) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+      length(paths) == 1 and length(ids) <= 1
+    end)
+  end
+
+  defp consistent_chunk_locations?(chunks) do
+    chunks
+    |> Enum.reject(&is_nil(&1["chunk_id"]))
+    |> Enum.group_by(& &1["chunk_id"])
+    |> Enum.all?(fn {_id, matches} ->
+      matches |> Enum.map(&fusion_identity/1) |> Enum.uniq() |> length() == 1
+    end)
+  end
+
+  defp fusion_identity(chunk), do: {chunk["document_id"], chunk["chunk_index"]}
+
+  defp tag_leg(chunks, leg) do
+    Enum.map(chunks, fn chunk ->
+      if is_integer(chunk["chunk_id"]), do: Map.put(chunk, "retrieval_legs", [leg]), else: chunk
+    end)
+  end
+
+  defp ranked_leg(chunks, leg) do
+    chunks
+    |> Enum.with_index(1)
+    |> Enum.map(fn {chunk, rank} ->
+      %{
+        document_id: chunk["document_id"],
+        section_path: chunk["section_path"],
+        chunk_index: chunk["chunk_index"],
+        chunk_id: chunk["chunk_id"],
+        bm25_score: if(leg == :lexical, do: -rank),
+        vector_distance: if(leg == :vector, do: rank)
+      }
+    end)
+    |> Enum.group_by(& &1.document_id)
+    |> Map.new(fn {doc_id, matches} -> {doc_id, Enum.group_by(matches, & &1.section_path)} end)
+  end
+
+  defp merge_fusion_evidence(chunks) do
+    case Enum.find(chunks, &(not is_integer(&1["chunk_id"]))) do
+      nil ->
+        base = hd(chunks)
+
+        legs =
+          Enum.flat_map(chunks, &Map.get(&1, "retrieval_legs", [])) |> Enum.uniq() |> Enum.sort()
+
+        measured = Enum.reduce(chunks, %{}, &merge_measured_scores/2)
+        base |> Map.merge(measured) |> Map.put("retrieval_legs", legs)
+
+      denied ->
+        denied
+    end
+  end
+
+  defp merge_measured_scores(chunk, scores) do
+    Enum.reduce(["bm25_score", "vector_distance"], scores, fn key, acc ->
+      if is_number(chunk[key]), do: Map.put(acc, key, chunk[key]), else: acc
+    end)
   end
 
   defp rank_chunks(grouped, score_key, order) do
@@ -1101,79 +1231,6 @@ defmodule Zaq.Ingestion.DocumentProcessor do
     |> Enum.with_index(1)
     |> Map.new(fn {{key, match}, rank} -> {key, {rank, match}} end)
   end
-
-  defp fetch_sections_with_source([], _language), do: {:ok, []}
-
-  defp fetch_sections_with_source(sections, language) do
-    section_map = Map.new(sections, fn {doc_id, path, item} -> {{doc_id, path}, item} end)
-
-    or_filter =
-      Enum.reduce(sections, dynamic(false), fn {doc_id, path, _dist}, acc ->
-        dynamic([c], ^acc or (c.document_id == ^doc_id and c.section_path == ^path))
-      end)
-
-    results =
-      Chunk
-      |> join(:inner, [c], d in Document, on: c.document_id == d.id)
-      |> where([c, _d], ^or_filter)
-      |> FTSBackend.maybe_filter_language(language)
-      |> select([c, d], %{
-        content: c.content,
-        metadata: c.metadata,
-        language: c.language,
-        source: d.source,
-        title: d.title,
-        watch_status: d.watch_status,
-        document_inserted_at: d.inserted_at,
-        document_updated_at: d.updated_at,
-        document_id: c.document_id,
-        section_path: c.section_path,
-        chunk_index: c.chunk_index
-      })
-      |> Repo.all()
-      |> Enum.sort_by(&chunk_rank(&1, section_map))
-      |> Enum.map(&hydrate_chunk(&1, section_map))
-
-    {:ok, results}
-  end
-
-  defp chunk_rank(chunk, section_map) do
-    section = section_map[{chunk.document_id, chunk.section_path}]
-    direct = Map.get(section.matches, chunk.chunk_index)
-
-    {if(direct, do: 0, else: 1), -((direct && direct.rrf_score) || section.rrf_score),
-     chunk.document_id, chunk.section_path, chunk.chunk_index}
-  end
-
-  defp hydrate_chunk(chunk, section_map) do
-    section = section_map[{chunk.document_id, chunk.section_path}]
-    match = Map.get(section.matches, chunk.chunk_index)
-    lexical? = match && match.lexical_match
-    vector_distance = match && match.vector_distance
-    rrf_score = match && match.rrf_score
-
-    %{
-      "content" => chunk.content,
-      "source" => chunk.source,
-      "rrf_score" => rrf_score,
-      "vector_distance" => vector_distance,
-      "retrieval_legs" =>
-        Enum.filter([if(lexical?, do: "lexical"), if(vector_distance, do: "vector")], & &1),
-      "direct_match" => not is_nil(match),
-      "document_id" => chunk.document_id,
-      "chunk_index" => chunk.chunk_index,
-      "section_path" => chunk.section_path,
-      "title" => chunk.title,
-      "watch_status" => chunk.watch_status,
-      "inserted_at" => serialize_timestamp(chunk.document_inserted_at),
-      "updated_at" => serialize_timestamp(chunk.document_updated_at),
-      "metadata" => chunk.metadata,
-      "language" => chunk.language
-    }
-  end
-
-  defp serialize_timestamp(nil), do: nil
-  defp serialize_timestamp(timestamp), do: DateTime.to_iso8601(timestamp)
 
   # ---------------------------------------------------------------------------
   # Similarity search (vector only)
@@ -1244,37 +1301,5 @@ defmodule Zaq.Ingestion.DocumentProcessor do
 
   defp fts_count_query(query_text, limit) do
     FTSBackend.impl().fts_count_query(query_text, limit)
-  end
-
-  # ---------------------------------------------------------------------------
-  # Permission filter
-  # ---------------------------------------------------------------------------
-
-  # skip_permissions: true  → admin, explicitly granted upstream (e.g. BO user without person record)
-  # person_id set           → filter by person + teams
-  # person_id nil           → public data only (via_public branch in list_permitted_document_ids)
-  defp apply_permission_filter(data, true, _person_id, _team_ids), do: data
-
-  defp apply_permission_filter(data, false, person_id, team_ids) do
-    doc_ids = data |> Enum.map(& &1["document_id"]) |> Enum.uniq()
-
-    permitted =
-      doc_ids
-      |> Enum.chunk_every(500)
-      |> Enum.flat_map(&DocumentAccess.list_permitted_document_ids(person_id, team_ids, &1))
-
-    permitted_set = MapSet.new(permitted)
-
-    Enum.map(data, fn chunk ->
-      if MapSet.member?(permitted_set, chunk["document_id"]) do
-        chunk
-      else
-        chunk
-        |> Map.drop(
-          ~w(title watch_status inserted_at updated_at metadata language vector_distance retrieval_legs direct_match)
-        )
-        |> Map.put("content", @access_denied_message)
-      end
-    end)
   end
 end

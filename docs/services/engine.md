@@ -1700,11 +1700,40 @@ Routing precedence:
 7. Topic rule
 8. Provider rule
 9. Global rule
-10. Default ZAQ agent
+10. None (workflow-only, source `no_matching_rule`)
 
 Agent-targeting rules and explicit selections must resolve to agents that are active and conversation-enabled; invalid configured-agent references are skipped during resolution.
 
+`Default` in a scoped selector still means inheritance: clearing that rule allows
+broader configured-agent rules to apply. It is not the removed built-in Default
+Agent. Explicit `None` is terminal. When no eligible rule remains, the router fires
+the existing workflow-only event, retains applicable history capture, and does not
+admit an agent execution or manufacture an assistant response. Existing configured
+assignments and absent/inherited rules are not rewritten by this cutover.
+
+Global settings displays an unset root selection as `Unconfigured`, separately
+from the explicit `None` choice. Neither is the removed `Default Zaq Agent`.
+BO chat's empty transient selection is `Default (routing)`:
+it still follows persisted routing rules, not a synthetic agent. Scoped selectors
+retain `Default` (clear/inherit) and their explicit `NONE` override.
+Saving Global `None` (value `"none"`) persists a terminal `:none` rule so later
+portal bootstrap cannot mistake the deliberate choice for uninitialized routing.
+Selecting `Unconfigured` (empty value), generic clear commands and
+`System.set_global_default_agent_id(nil)` remove the rule. The default global-ID
+getter still returns nil for both absent and None rules; BO opts into
+`include_none: true` to project an explicit None separately.
+
 Rule write commands accept a required `rules` list. Each rule carries optional scope keys (`person_id`, `channel_config_id`, `retrieval_channel_id`, `topic_id`), `routing_mode: "agent" | "none" | "clear"`, and `configured_agent_id` for agent mode. Example: `%{rules: [%{channel_config_id: 12, topic_id: "INBOX", routing_mode: "agent", configured_agent_id: 34}]}`. Single-rule updates submit a one-item list; IMAP mailbox saves use the same batch form so selected mailbox rules are updated through one standardized action call.
+
+A rule may specify `write_mode: "insert_if_absent"` for bootstrap. Engine uses the
+existing `upsert_rule/3` operation with `on_conflict: :nothing`, the same
+changeset/policy validation and a database insert with conflict-do-nothing,
+never a read followed by an upsert. Inserted rules return status `"inserted"`;
+an existing/concurrent winner returns `"noop"` without being changed. If that
+winner disappears before it can be read, `:routing_conflict_retry` is returned.
+Unknown write modes and insert-only clear commands are rejected. Omitted or
+`"upsert"` write mode retains normal administrative update semantics. This command
+extension does not expose another agent tool.
 
 ### Messages — Outgoing (`Zaq.Engine.Messages.Outgoing`)
 

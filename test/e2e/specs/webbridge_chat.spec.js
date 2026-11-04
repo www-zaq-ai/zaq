@@ -2,15 +2,17 @@ const { test, expect, request: apiRequest } = require("@playwright/test");
 const {
   loginToBackOffice,
   resetE2EState,
-  setE2ESystemConfig,
+  createE2EAnsweringAgent,
+  selectE2EChatAgent,
   waitForLiveViewSettled,
 } = require("../support/bo");
 
-async function startNewChat(page) {
+async function startNewChat(page, agent) {
   await page.locator("#new-chat-button").click();
   await waitForLiveViewSettled(page);
   await expect(page.locator("#chat-messages")).toContainText("Welcome to ZAQ Chat!");
   await expect(page.locator('[data-testid="chat-assistant-bubble"]')).toHaveCount(1);
+  await selectE2EChatAgent(page, agent);
 }
 
 async function ask(page, question) {
@@ -23,20 +25,29 @@ async function ask(page, question) {
 }
 
 test.describe("Shared WebBridge BO chat", () => {
+  let agent;
   test.beforeAll(async () => {
     const req = await apiRequest.newContext();
     try {
       await resetE2EState(req);
-      // Match the chat journeys' budget for the real prompt and tool schemas.
-      await setE2ESystemConfig(req, "llm.max_context_window", "128000");
+      agent = undefined;
     } finally {
       await req.dispose();
     }
   });
 
+  test.beforeEach(async ({ page }) => {
+    await loginToBackOffice(page, { returnTo: "/bo/chat" });
+    if (!agent) {
+      agent = await createE2EAnsweringAgent(page);
+      await page.reload();
+      await waitForLiveViewSettled(page);
+    }
+  });
+
   test("send, resume, citations, message information and new chat preserve BO behavior", async ({ page }) => {
     await loginToBackOffice(page, { returnTo: "/bo/chat" });
-    await startNewChat(page);
+    await startNewChat(page, agent);
     const question = `WebBridge resume ${Date.now()}`;
     await ask(page, question);
 
@@ -48,7 +59,7 @@ test.describe("Shared WebBridge BO chat", () => {
     await expect(page.getByText("openai:e2e-fake", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Close", exact: true }).click();
 
-    await startNewChat(page);
+    await startNewChat(page, agent);
     await expect(page.locator("#chat-messages")).not.toContainText(question);
     await page.locator('button[phx-click="load_conversation"]').first().click();
     await waitForLiveViewSettled(page);
@@ -61,8 +72,8 @@ test.describe("Shared WebBridge BO chat", () => {
     const other = await context.newPage();
     await loginToBackOffice(page, { returnTo: "/bo/chat" });
     await loginToBackOffice(other, { returnTo: "/bo/chat" });
-    await startNewChat(page);
-    await startNewChat(other);
+    await startNewChat(page, agent);
+    await startNewChat(other, agent);
 
     const question = `WebBridge isolated ${Date.now()}`;
     await ask(page, question);
@@ -78,7 +89,7 @@ test.describe("Shared WebBridge BO chat", () => {
 
   test("new chat ignores a late result while the previous conversation still completes", async ({ page, context }) => {
     await loginToBackOffice(page, { returnTo: "/bo/chat" });
-    await startNewChat(page);
+    await startNewChat(page, agent);
     const question = `E2E_DELAYED_WEBBRIDGE ${Date.now()}`;
     await page.locator("#chat-input").fill(question);
     let conversationId;
@@ -92,7 +103,7 @@ test.describe("Shared WebBridge BO chat", () => {
       }).toBe(true);
       await expect(page.locator("#chat-messages")).toContainText(question);
       await expect(page.locator('[data-testid="source-chip"]')).toHaveCount(0);
-      await startNewChat(page);
+      await startNewChat(page, agent);
       // The sending view refreshes its sidebar on completion. A fresh view can
       // already see the persisted pending conversation; verify its unique question.
       await loginToBackOffice(history, { returnTo: "/bo/chat" });

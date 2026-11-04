@@ -19,12 +19,12 @@ defmodule Zaq.Hooks.Registry do
 
       Zaq.Hooks.Registry.register(%Zaq.Hooks.Hook{
         handler:   MyAuditHook,
-        events:    [:after_answer_generated],
+        events:    [:feedback_provided],
         mode:      :async,
         node_role: :agent
       })
 
-      Zaq.Hooks.Registry.lookup(:after_answer_generated)
+      Zaq.Hooks.Registry.lookup(:feedback_provided)
       #=> [%Zaq.Hooks.Hook{handler: MyAuditHook, ...}]
   """
 

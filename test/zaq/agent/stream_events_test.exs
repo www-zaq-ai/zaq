@@ -35,6 +35,57 @@ defmodule Zaq.Agent.StreamEventsTest do
     end
   end
 
+  test "declared sources accumulate per request without inspecting chunks or permissions" do
+    completed = fn id, result ->
+      event(:tool_completed, 1, %{tool_name: "knowledge", result: result}, tool_call_id: id)
+    end
+
+    first =
+      completed.(
+        "a",
+        {:ok,
+         %{
+           sources: ["public.md", "denied.md", "public.md"],
+           chunks: [%{"source" => "not-declared.md"}]
+         }, []}
+      )
+
+    events = [
+      first,
+      first,
+      completed.(
+        "b",
+        {:ok, %ToolResult{output: %{"sources" => ["other.md", "denied.md", "", nil, 42]}}, []}
+      ),
+      completed.("c", {:error, %{sources: ["failed.md"]}, []}),
+      completed.("d", {:ok, %{chunks: [%{"source" => "implicit.md"}]}, []}),
+      event(:request_completed, 2, %{result: "Cited [[source:denied.md]]"})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+    assert result.sources == ["public.md", "denied.md", "other.md"]
+    assert {:ok, next} = StreamEvents.consume([], incoming(), status_module: FakeStatus)
+    assert next.sources == []
+  end
+
+  property "source union is stable under repeated completions" do
+    check all(
+            paths <- list_of(string(:alphanumeric, min_length: 1, max_length: 20), max_length: 15)
+          ) do
+      events =
+        for {path, index} <- Enum.with_index(paths) do
+          event(:tool_completed, index, %{result: {:ok, %{sources: [path]}}},
+            tool_call_id: "call-#{index}"
+          )
+        end
+
+      assert {:ok, result} =
+               StreamEvents.consume(events ++ events, incoming(), status_module: FakeStatus)
+
+      assert result.sources == Enum.uniq(paths)
+    end
+  end
+
   test "settles snapshots in evidence without forcing publication and suppresses public step replay" do
     start = event(:tool_started, 1, %{tool_name: "search"}, tool_call_id: "a")
     events = [start, start, event(:request_failed, 2, %{error: {:react_worker_exit, :killed}})]

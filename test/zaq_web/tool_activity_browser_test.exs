@@ -145,7 +145,7 @@ defmodule ZaqWeb.ToolActivityBrowserTest do
   end
 
   defp restore_runtime_dependencies do
-    keys = [:chat_live_node_router_module, :pipeline_executor_module, :pipeline_hooks_module]
+    keys = [:chat_live_node_router_module, :pipeline_hooks_module]
     previous = Map.new(keys, &{&1, Application.fetch_env(:zaq, &1)})
     Enum.each(keys, &Application.delete_env(:zaq, &1))
 

@@ -102,6 +102,7 @@ defmodule Zaq.Ingestion.FTSBackend.Native do
 
     projection =
       dynamic([c], %{
+        chunk_id: c.id,
         document_id: c.document_id,
         section_path: c.section_path,
         chunk_index: c.chunk_index,

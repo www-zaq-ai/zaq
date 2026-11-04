@@ -13,6 +13,7 @@ Sourced from service docs `What's Left` sections. Updated continuously.
 - [ ] Implement query extraction integration — connect Retrieval output → DocumentProcessor → Answering
 
 ### Should Do
+- [ ] Replace the fixed 20% search-result budget with shared request-scoped tool-result allocation, accounting for parallel tools and truncation visibility ([#915](https://github.com/www-zaq-ai/zaq/issues/915)).
 - [ ] Knowledge gap tracking — detect unanswered questions, store for review
 - [ ] Classifier module — route questions to different agents or topics
 - [ ] Add Agent GenServers to `Zaq.Agent.Supervisor` when stateful components are needed
