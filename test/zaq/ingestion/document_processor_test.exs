@@ -7,6 +7,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
   alias Zaq.Accounts.People
   alias Zaq.Agent.TokenEstimator
   alias Zaq.Ingestion
+  alias Zaq.Ingestion.Api
   alias Zaq.Ingestion.{Chunk, Document, DocumentChunker, DocumentProcessor, FTSBackend}
   alias Zaq.Ingestion.Python.Runner
   alias Zaq.Repo
@@ -17,24 +18,68 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
 
   setup :verify_on_exit!
 
-  test "context limiting loads the LLM budget once for all candidates" do
+  test "context limiting uses the caller budget without reading configuration" do
     chunks = Enum.map(1..20, &%{content: "chunk #{&1}"})
 
     {limited, queries} =
-      Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks(chunks) end)
+      Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks(chunks, 100, 5_000) end)
 
     assert limited == chunks
-    assert Enum.count(queries, &(&1.source == "system_configs")) == 1
+    assert queries == []
   end
 
   test "an empty candidate list does not load LLM configuration" do
     assert {[], []} = Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks([]) end)
   end
 
-  property "context limiting preserves the longest prefix strictly below the budget" do
-    budget = Zaq.System.get_llm_config().max_context_window
+  test "final result limiting defaults to 100 and supports caller overrides" do
+    chunks = Enum.map(1..120, &%{"chunk_id" => &1})
+    assert DocumentProcessor.limit_chunks(chunks) == Enum.take(chunks, 100)
+    assert DocumentProcessor.limit_chunks(chunks, 3) == Enum.take(chunks, 3)
+    assert DocumentProcessor.limit_chunks(chunks, 120) == chunks
+  end
 
-    check all(contents <- list_of(string(:alphanumeric, max_length: 500), max_length: 40)) do
+  test "invalid maximum result counts are rejected without loading configuration" do
+    for maximum <- [0, -1, 1.5, "3", nil] do
+      assert {{:error, :invalid_max_total_results}, []} =
+               Zaq.QueryRecorder.capture(fn -> DocumentProcessor.limit_chunks([], maximum) end)
+    end
+  end
+
+  test "the final-limit Ingestion event validates and applies the caller maximum" do
+    event =
+      Zaq.Event.new(
+        %{
+          chunks: [%{"chunk_id" => 1}, %{"chunk_id" => 2}],
+          max_total_results: 1,
+          token_budget: 100
+        },
+        :ingestion
+      )
+
+    assert %{response: {:ok, [%{"chunk_id" => 1}]}} =
+             Api.handle_event(event, :limit_knowledge_results, %{})
+
+    invalid = %{event | request: %{chunks: [], max_total_results: 0, token_budget: 100}}
+
+    assert %{response: {:error, :invalid_max_total_results}} =
+             Api.handle_event(invalid, :limit_knowledge_results, %{})
+  end
+
+  property "final result count is globally bounded without reordering" do
+    check all(total <- integer(0..150), maximum <- integer(1..150)) do
+      chunks = Enum.map(Enum.take(1..151, total), &%{"chunk_id" => &1})
+      limited = DocumentProcessor.limit_chunks(chunks, maximum)
+      assert length(limited) <= maximum
+      assert limited == Enum.take(chunks, length(limited))
+    end
+  end
+
+  property "context limiting preserves the longest prefix strictly below the budget" do
+    check all(
+            budget <- integer(0..10_000),
+            contents <- list_of(string(:alphanumeric, max_length: 500), max_length: 40)
+          ) do
       chunks = Enum.map(contents, &%{content: &1})
 
       {expected, _tokens} =
@@ -46,8 +91,16 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
             else: {:halt, {prefix, tokens}}
         end)
 
-      assert DocumentProcessor.limit_chunks(chunks) == Enum.reverse(expected)
+      assert DocumentProcessor.limit_chunks(chunks, 100, budget) == Enum.reverse(expected)
     end
+  end
+
+  test "invalid token budgets are rejected and zero budget returns no chunks" do
+    for budget <- [-1, 1.5, "100", :invalid] do
+      assert {:error, :invalid_token_budget} = DocumentProcessor.limit_chunks([], 100, budget)
+    end
+
+    assert DocumentProcessor.limit_chunks([%{content: "hello"}], 100, 0) == []
   end
 
   setup do
@@ -889,7 +942,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       assert {:error, _} = DocumentProcessor.similarity_search_count("query")
     end
 
-    test "query_extraction/1 returns empty when max_context_window is too small" do
+    test "query_extraction returns empty when the explicit caller budget is too small" do
       stub_embedding_success()
       doc = create_document()
 
@@ -907,9 +960,11 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       })
       |> Repo.insert!()
 
-      Zaq.System.set_config("llm.max_context_window", 1)
-
-      assert {:ok, []} = DocumentProcessor.query_extraction("token heavy", skip_permissions: true)
+      assert {:ok, []} =
+               DocumentProcessor.query_extraction("token heavy",
+                 skip_permissions: true,
+                 token_budget: 1
+               )
     end
   end
 
@@ -1231,15 +1286,17 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Jason.encode!()
         |> TokenEstimator.estimate()
 
-      Zaq.System.set_config("llm.max_context_window", boundary_tokens)
-
       assert {:ok, []} =
-               DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
-
-      Zaq.System.set_config("llm.max_context_window", boundary_tokens + 1)
+               DocumentProcessor.query_extraction("deterministic payload",
+                 skip_permissions: true,
+                 token_budget: boundary_tokens
+               )
 
       assert {:ok, [first | _]} =
-               DocumentProcessor.query_extraction("deterministic payload", skip_permissions: true)
+               DocumentProcessor.query_extraction("deterministic payload",
+                 skip_permissions: true,
+                 token_budget: boundary_tokens + 1
+               )
 
       assert first["content"] == "Boundary-only chunk with deterministic payload."
     end
@@ -1353,7 +1410,7 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
       refute Enum.any?(results, &(&1["source"] == "volume-b/other.md"))
     end
 
-    test "section siblings do not inherit direct-match scores or measured vector distances" do
+    test "only direct matches are returned with explicit neighboring chunk IDs" do
       stub_embedding_success()
       doc = create_document()
       dim = embedding_dimension()
@@ -1373,19 +1430,18 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
         |> Repo.insert!()
       end
 
-      assert {:ok, [direct, sibling]} =
+      assert {:ok, [direct]} =
                DocumentProcessor.query_extraction("target", skip_permissions: true)
 
+      sibling = Chunk.get_by_index(doc.id, 2)
+      assert direct["chunk_id"] == Chunk.get_by_index(doc.id, 1).id
+      assert direct["previous_chunk_id"] == nil
+      assert direct["next_chunk_id"] == sibling.id
       assert direct["direct_match"]
       assert "vector" in direct["retrieval_legs"]
       assert is_number(direct["vector_distance"])
-      assert sibling["direct_match"] == false
-      assert sibling["vector_distance"] == nil
-      assert sibling["retrieval_legs"] == []
       assert is_number(direct["rrf_score"])
-      assert sibling["rrf_score"] == nil
       refute Map.has_key?(direct, "distance")
-      refute Map.has_key?(sibling, "distance")
     end
 
     test "lexical and vector hits in one section retain separate evidence after hydration" do
@@ -1448,6 +1504,54 @@ defmodule Zaq.Ingestion.DocumentProcessorTest do
                  skip_permissions: true,
                  lexical_terms: ["ZAQ-793"]
                )
+    end
+
+    test "semantic mode never returns keyword-only evidence or invokes fusion" do
+      stub_embedding_success()
+      doc = create_document()
+
+      for {index, content, value} <- [{1, "exclusivekeyword", -0.1}, {2, "vector evidence", 0.1}] do
+        %Chunk{}
+        |> Chunk.changeset(%{
+          document_id: doc.id,
+          chunk_index: index,
+          content: content,
+          embedding: Pgvector.HalfVector.new(List.duplicate(value, embedding_dimension()))
+        })
+        |> Repo.insert!()
+      end
+
+      assert {:ok, [only]} =
+               DocumentProcessor.query_extraction("exclusivekeyword",
+                 skip_permissions: true,
+                 search_mode: :semantic
+               )
+
+      assert only["chunk_index"] == 2
+      assert only["retrieval_legs"] == ["vector"]
+      assert only["rrf_score"] == nil
+      assert is_number(only["vector_distance"])
+    end
+
+    test "keyword mode works without a usable embedding provider and never fuses" do
+      stub_embedding_failure()
+      doc = create_document()
+
+      {:ok, stored} =
+        Chunk.create(%{document_id: doc.id, content: "exactkeyword", chunk_index: 1})
+
+      assert {:ok, [only]} =
+               DocumentProcessor.query_extraction("not embedded",
+                 search_mode: :keyword,
+                 lexical_terms: ["exactkeyword"],
+                 skip_permissions: true
+               )
+
+      assert only["chunk_id"] == stored.id
+      assert only["retrieval_legs"] == ["lexical"]
+      assert only["vector_distance"] == nil
+      assert only["rrf_score"] == nil
+      assert is_number(only["bm25_score"])
     end
 
     test "lexical clauses after the eighth reach full-text search untruncated" do

@@ -581,21 +581,15 @@ defmodule Zaq.Channels.CommunicationBridge do
   def route_incoming_message(%Incoming{} = msg, pipeline_opts, actor, opts \\ [])
       when is_list(pipeline_opts) and is_map(actor) and is_list(opts) do
     node_router_module = Keyword.get(opts, :node_router, NodeRouter)
-    pipeline_module = Keyword.get(opts, :pipeline_module, Zaq.Agent.Pipeline)
 
     msg =
       msg
       |> put_routing_context(opts)
       |> put_conversation_identity()
 
-    route_resolved_incoming_message(
-      msg,
-      pipeline_opts,
-      actor,
-      opts,
-      node_router_module,
-      pipeline_module
-    )
+    msg
+    |> build_incoming_routing_event(pipeline_opts, actor, opts)
+    |> dispatch_incoming_routing_event(node_router_module, opts)
   end
 
   @doc "Delivers a normalized message to Engine without requesting an automated response."
@@ -617,30 +611,6 @@ defmodule Zaq.Channels.CommunicationBridge do
       %Event{response: {:error, reason}} -> {:error, reason}
       _ -> {:error, :incoming_message_failed}
     end
-  end
-
-  defp route_resolved_incoming_message(
-         %Incoming{} = msg,
-         pipeline_opts,
-         actor,
-         opts,
-         node_router_module,
-         Zaq.Agent.Pipeline
-       ) do
-    msg
-    |> build_incoming_routing_event(pipeline_opts, actor, opts)
-    |> dispatch_incoming_routing_event(node_router_module, opts)
-  end
-
-  defp route_resolved_incoming_message(
-         %Incoming{} = msg,
-         pipeline_opts,
-         _actor,
-         _opts,
-         _node_router_module,
-         pipeline_module
-       ) do
-    pipeline_module.run(msg, pipeline_opts)
   end
 
   @doc "Builds the canonical Engine request for channel-originated incoming routing."

@@ -1,12 +1,43 @@
 defmodule Zaq.E2E.ResetTest do
   use Zaq.DataCase, async: false
 
+  alias Zaq.Agent.ConfiguredAgent
   alias Zaq.E2E.Reset
   alias Zaq.Engine.Connect
+  alias Zaq.Engine.{IncomingMessageRouting, IncomingMessageRoutingRule}
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Telemetry.{Buffer, Rollup}
   alias Zaq.Engine.Telemetry.Workers.AggregateRollupsWorker
   alias Zaq.System
+
+  test "reset clears configured routing before deleting its agent and can run repeatedly" do
+    credential = Zaq.SystemConfigFixtures.ai_credential_fixture()
+
+    agent =
+      %ConfiguredAgent{}
+      |> ConfiguredAgent.changeset(%{
+        name: "Reset routing agent",
+        job: "Answer fixture queries",
+        model: "gpt-4.1-mini",
+        credential_id: credential.id,
+        strategy: "react",
+        conversation_enabled: true,
+        active: true
+      })
+      |> Repo.insert!()
+
+    assert {:ok, rule} =
+             IncomingMessageRouting.upsert_rule(%{}, %{
+               routing_mode: :agent,
+               configured_agent_id: agent.id
+             })
+
+    Reset.reset_system_config!()
+    refute Repo.get(IncomingMessageRoutingRule, rule.id)
+    refute Repo.get(ConfiguredAgent, agent.id)
+    Reset.reset_system_config!()
+    assert Zaq.Agent.list_agents() == []
+  end
 
   test "reset preserves aggregation progress while retaining raw telemetry" do
     Telemetry.record("qa.llm.call.count", 1, %{"model" => "e2e-fake"})
@@ -38,6 +69,9 @@ defmodule Zaq.E2E.ResetTest do
              Connect.list_grant_summaries(credential_id: connect_credential_id)
 
     assert %{} = Reset.reset_system_config!()
+    assert System.get_config("llm.credential_id") == nil
+    assert System.get_config("llm.model") == nil
+    assert Zaq.Agent.list_agents() == []
     assert System.get_ai_provider_credential_by_name("ZAQ Router") == nil
     assert Connect.fetch_credential(connect_credential_id) == {:error, :not_found}
     assert Connect.list_grant_summaries(credential_id: connect_credential_id) == []

@@ -390,7 +390,7 @@ defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
   use Zaq.DataCase, async: false
 
   alias Zaq.Accounts.People
-  alias Zaq.Agent.{Answering, Executor, Pipeline, ServerManager}
+  alias Zaq.Agent.Executor
   alias Zaq.Agent.Tools.DataSource.GetDocument
   alias Zaq.Channels.{DeliveryFiles, EmailBridge, JidoChatBridge}
   alias Zaq.Contracts.Record
@@ -400,7 +400,6 @@ defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
   alias Zaq.Permissions
   alias Zaq.Storage.StorageEntry
   alias Zaq.Storage.VolumeConfig
-  alias Zaq.SystemConfigFixtures
 
   alias Zaq.TestSupport.{
     AttachmentSelectionLLMStub,
@@ -468,43 +467,6 @@ defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
     assert Swoosh.Attachment.get_content(attachment) == "B bytes"
     assert email.text_body =~ outgoing.body
     refute_receive {:email, _}
-  end
-
-  test "legacy default Pipeline does not expose configured attachment selection" do
-    {a, b} = documents()
-
-    script = [
-      {:tool, "add", [model_record(a)]},
-      {:tool, "add", [model_record(b)]},
-      {:tool, "remove", [model_record(a)]},
-      {:text, "Selected B."}
-    ]
-
-    {child, endpoint} = AttachmentSelectionLLMStub.server(script, self())
-    start_supervised!(child)
-
-    SystemConfigFixtures.seed_llm_config(%{
-      endpoint: endpoint,
-      provider: "openai",
-      api_key: "test-key",
-      model: "gpt-4.1-mini",
-      max_context_window: 128_000
-    })
-
-    configured = Answering.answering_configured_agent()
-    on_exit(fn -> ServerManager.stop_server(configured) end)
-    scope = "default-selection-#{Ecto.UUID.generate()}"
-
-    outgoing =
-      Pipeline.run(incoming(), scope: scope, skip_permissions: true, event: execution_event())
-
-    refute outgoing.metadata.error
-    assert outgoing.body == "Selected B."
-    assert outgoing.attachments == []
-    assert_receive {:attachment_model_request, 0, request}
-    refute Enum.any?(request["tools"], &(&1["name"] == "attach_documents"))
-
-    refute_received {:email, _}
   end
 
   test "Mattermost uploads only final B with the answer in the selected channel and thread" do

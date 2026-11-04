@@ -496,7 +496,8 @@ defmodule Zaq.Channels.WebBridge do
 
   defp route_message(message, context, sink_opts, actor) do
     with {:ok, incoming, actor} <- prepare_message(message, context, sink_opts, actor) do
-      opts = node_router_opts(sink_opts, message.mode)
+      opts =
+        Keyword.put(node_router_opts(sink_opts, message.mode), :include_routing_disposition, true)
 
       opts =
         if context.consumer == :widget,
@@ -506,18 +507,34 @@ defmodule Zaq.Channels.WebBridge do
             ),
           else: opts
 
-      CommunicationBridge.route_incoming_message(
-        incoming,
+      incoming
+      |> CommunicationBridge.route_incoming_message(
         pipeline_opts(context, sink_opts),
         actor,
         opts
       )
+      |> complete_bo_routing(message, context)
     end
   rescue
     _error -> {:error, :dispatch_error}
   catch
     _kind, _reason -> {:error, :dispatch_error}
   end
+
+  defp complete_bo_routing({:ok, :no_answer}, _message, %Context{delivery: nil}), do: :ok
+
+  defp complete_bo_routing({:ok, :no_answer}, message, context) do
+    with {:ok, _} <-
+           do_deliver_status(
+             %{intent_meta: %{stage: :idle}},
+             message.request_id,
+             "",
+             context.delivery
+           ),
+         do: :ok
+  end
+
+  defp complete_bo_routing(result, _message, _context), do: result
 
   defp prepare_message(message, %Context{consumer: :bo} = context, _opts, actor),
     do: {:ok, to_internal(message, context), actor}

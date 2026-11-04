@@ -2,10 +2,8 @@ defmodule Zaq.Agent.Executor do
   @moduledoc """
   Single execution boundary for all agent runs.
 
-  This module orchestrates the full request lifecycle for both:
-
-  - the default answering configuration (`Zaq.Agent.Answering`) and
-  - explicitly selected BO-configured agents.
+  This module orchestrates the full request lifecycle for explicitly selected
+  configured agents. A missing agent ID is rejected, never replaced by a default.
 
   Key concerns handled here:
 
@@ -38,7 +36,6 @@ defmodule Zaq.Agent.Executor do
   alias Zaq.Agent
 
   alias Zaq.Agent.{
-    Answering,
     ErrorMessage,
     Factory,
     HistoryLoader,
@@ -145,19 +142,20 @@ defmodule Zaq.Agent.Executor do
   @doc """
   Runs the full agent execution pipeline for an incoming message.
 
-  Loads the configured agent (or the default answering agent when no `:agent_id` opt is
-  given), ensures its Jido server is running, sends a typing indicator, submits the
+  Loads the explicitly selected configured agent, ensures its Jido server is
+  running, sends a typing indicator, submits the
   question via `Factory.ask_with_config/4`, consumes stream events for realtime
   updates and trace capture, then records telemetry and returns a normalized
   `Outgoing.t()`.
 
   On any `{:error, reason}` in the pipeline the error is logged, an error telemetry
   event is emitted, and a safe fallback `Outgoing.t()` is returned — this function
-  never raises.
+  does not raise for execution failures. Callers must supply the required agent ID;
+  the Agent API validates selection before entering this execution boundary.
 
   ## Options
 
-  - `:agent_id` — integer ID of the configured agent to use; omit for the default answering agent
+  - `:agent_id` — required ID of the configured agent to use
   - `:scope` — explicit server scope string; defaults to the trusted conversation binding when present, otherwise `derive_scope/1`
   - `:conversation_binding` — trusted Engine-issued conversation and user-message references
   - `:question` — override the question text; defaults to `incoming.content`
@@ -167,10 +165,10 @@ defmodule Zaq.Agent.Executor do
   - `:context` — a pre-built `Jido.AI.Context` used as the agent's cold-start context (e.g. `RunAgent`'s step turns); when present the server spawns with it and skips history loading. Only consumed on cold start
   - `:config` — optional configuration provider for the runtime's cold-start drain timeout
   - `:event` — the dispatching `%Zaq.Event{}`; its validated actor binds the server lifecycle and is exposed to tools. Without an event actor, a trusted Incoming Person is required; missing identity never becomes anonymous implicitly
-  - `:agent_module`, `:server_manager_module`, `:factory_module`, `:answering_module`, `:node_router` — injectable dependencies for testing
+  - `:agent_module`, `:server_manager_module`, `:factory_module`, `:node_router` — injectable runtime dependencies
   """
   @spec run(Incoming.t(), keyword()) :: Outgoing.t() | RequestControl.handoff()
-  def run(%Incoming{} = incoming, opts \\ []) do
+  def run(%Incoming{} = incoming, opts) do
     if is_reference(Keyword.get(opts, :history_session)) do
       do_run(incoming, opts)
     else
@@ -186,7 +184,7 @@ defmodule Zaq.Agent.Executor do
     server_manager_module = Keyword.get(opts, :server_manager_module, ServerManager)
     factory_module = Keyword.get(opts, :factory_module, Factory)
     actor_result = execution_actor(opts, incoming)
-    selected_agent_result = load_selected_agent(opts, agent_module, factory_module)
+    selected_agent_result = agent_module.get_active_agent(Keyword.fetch!(opts, :agent_id))
     dims = telemetry_dimensions(incoming, selected_agent_result)
 
     :ok = Telemetry.record("qa.message.count", 1, dims)
@@ -515,15 +513,6 @@ defmodule Zaq.Agent.Executor do
     )
   end
 
-  defp load_selected_agent(opts, agent_module, _factory_module) do
-    answering_module = Keyword.get(opts, :answering_module, Answering)
-
-    case Keyword.get(opts, :agent_id) do
-      nil -> {:ok, answering_module.answering_configured_agent()}
-      agent_id -> agent_module.get_active_agent(agent_id)
-    end
-  end
-
   defp ensure_scope_for_answering_path(opts, incoming, actor) do
     cond do
       not is_nil(Keyword.get(opts, :scope)) ->
@@ -797,7 +786,7 @@ defmodule Zaq.Agent.Executor do
       llm_calls: Map.get(stream_result, :llm_calls, []),
       trace: stream_result.trace,
       trace_artifacts: Map.get(stream_result, :trace_artifacts, []),
-      sources: []
+      sources: Map.get(stream_result, :sources, [])
     }
   end
 
@@ -847,6 +836,7 @@ defmodule Zaq.Agent.Executor do
       :trace,
       :trace_artifacts,
       :tool_calls,
+      :sources,
       :llm_calls,
       :termination_reason,
       :measurements,

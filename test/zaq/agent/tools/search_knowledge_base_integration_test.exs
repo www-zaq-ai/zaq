@@ -50,8 +50,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseIntegrationTest do
   defp translation_context(extra \\ %{}) do
     Map.merge(
       %{
+        context_window: %{max_context_tokens: 128_000},
         generation: TranslationGeneration,
-        llm_config: OpenAIStub.llm_config("http://example.test/v1") |> Map.new()
+        translation_config:
+          OpenAIStub.seed_operation_model_config(:translation, "http://example.test/v1")
       },
       extra
     )

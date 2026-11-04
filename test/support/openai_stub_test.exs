@@ -7,7 +7,7 @@ defmodule Zaq.TestSupport.OpenAIStubTest do
     servers =
       for index <- 1..8 do
         {server, endpoint} =
-          OpenAIStub.start_server!(fn _conn, _body -> {200, %{"index" => index}} end, self())
+          OpenAIStub.start!(fn _conn, _body -> {200, %{"index" => index}} end, self())
 
         {:ok, {{127, 0, 0, 1}, port}} = ThousandIsland.listener_info(server)
         assert URI.parse(endpoint).port == port
@@ -21,12 +21,6 @@ defmodule Zaq.TestSupport.OpenAIStubTest do
       assert {:ok, %Req.Response{status: 200, body: %{"index" => ^index}}} =
                Req.get(endpoint <> "/probe")
     end
-  end
-
-  test "llm_config/2 merges overrides" do
-    cfg = OpenAIStub.llm_config("http://example.test/v1", model: "override-model")
-    assert cfg[:endpoint] == "http://example.test/v1"
-    assert cfg[:model] == "override-model"
   end
 
   test "chat_completion/2 includes optional logprobs" do

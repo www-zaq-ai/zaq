@@ -71,46 +71,6 @@ defmodule Zaq.TestSupport.OpenAIStub do
      port: port}
   end
 
-  @doc "Starts a supervised stub and discovers its port after the listener owns it."
-  def start_server!(handler, test_pid) do
-    server =
-      ExUnit.Callbacks.start_supervised!(
-        {Bandit,
-         plug: {__MODULE__, test_pid: test_pid, handler: handler},
-         scheme: :http,
-         ip: {127, 0, 0, 1},
-         port: 0},
-        id: make_ref()
-      )
-
-    {:ok, {_, port}} = ThousandIsland.listener_info(server)
-    {server, "http://127.0.0.1:#{port}/v1"}
-  end
-
-  def llm_config(endpoint, overrides \\ []) do
-    [
-      provider: "openai",
-      endpoint: endpoint,
-      api_key: "test-key",
-      model: "test-model",
-      temperature: 0.0,
-      top_p: 0.9,
-      supports_logprobs: false,
-      supports_json_mode: false
-    ]
-    |> Keyword.merge(overrides)
-  end
-
-  def seed_llm_config(endpoint, overrides \\ []) do
-    params =
-      llm_config(endpoint, overrides)
-      |> Map.new()
-      |> Map.merge(%{max_context_window: 5000, distance_threshold: 1.2})
-
-    SystemConfigFixtures.seed_llm_config(params)
-    :ok
-  end
-
   def chat_completion(content, opts \\ []) do
     logprobs = Keyword.get(opts, :logprobs)
 

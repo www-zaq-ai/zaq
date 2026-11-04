@@ -92,19 +92,27 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   defmodule NilPipeline do
-    def run(%Incoming{}, _opts), do: nil
+    def dispatch(event), do: %{event | response: nil}
   end
 
   defmodule OkTuplePipeline do
-    def run(%Incoming{}, _opts), do: {:ok, %{meta: true}}
+    def dispatch(event) do
+      outgoing = %Outgoing{
+        body: "ok",
+        channel_id: event.request.channel_id,
+        provider: event.request.provider
+      }
+
+      %{event | response: {:ok, outgoing}}
+    end
   end
 
   defmodule ErrorTuplePipeline do
-    def run(%Incoming{}, _opts), do: {:error, :pipeline_failed}
+    def dispatch(event), do: %{event | response: {:error, :pipeline_failed}}
   end
 
   defmodule InvalidPipeline do
-    def run(%Incoming{}, _opts), do: :unexpected
+    def dispatch(event), do: %{event | response: :unexpected}
   end
 
   defmodule StubRouter do
@@ -127,12 +135,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       response =
         case event.opts[:action] do
           :route_incoming_message ->
-            %Outgoing{
-              body: "stub from node router",
-              channel_id: event.request.channel_id,
-              provider: event.request.provider,
-              metadata: %{answer: "stub"}
-            }
+            StubPipeline.run(event.request, event.opts[:pipeline_opts] || [])
 
           :run_pipeline ->
             %Outgoing{
@@ -144,6 +147,9 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
           :deliver_outgoing ->
             :ok
+
+          :receive_incoming_message ->
+            {:ok, %{message_id: "stored"}}
 
           _ ->
             {:error, :unsupported}
@@ -637,19 +643,17 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
   setup do
     Application.put_env(:zaq, :pipeline_hooks_module, StubHooks)
-    Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
     Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
     Application.put_env(:zaq, :chat_bridge_accounts_module, StubAccounts)
     Application.put_env(:zaq, :chat_bridge_permissions_module, StubPermissions)
     Application.put_env(:zaq, :communication_bridge_identity_resolver, UnresolvedIdentityResolver)
-    Application.delete_env(:zaq, :chat_bridge_node_router_module)
+    Application.put_env(:zaq, :chat_bridge_node_router_module, StubNodeRouter)
     Application.delete_env(:zaq, :chat_bridge_supervisor_module)
     Application.delete_env(:zaq, :chat_bridge_oban_module)
     Application.delete_env(:zaq, :chat_bridge_chat_module)
 
     on_exit(fn ->
       Application.delete_env(:zaq, :pipeline_hooks_module)
-      Application.delete_env(:zaq, :chat_bridge_pipeline_module)
       Application.delete_env(:zaq, :chat_bridge_router_module)
       Application.delete_env(:zaq, :chat_bridge_accounts_module)
       Application.delete_env(:zaq, :chat_bridge_permissions_module)
@@ -1143,10 +1147,10 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "non-reply message treats nil pipeline result as :ok" do
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, NilPipeline)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, NilPipeline)
 
       on_exit(fn ->
-        Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
+        Application.put_env(:zaq, :chat_bridge_node_router_module, StubNodeRouter)
       end)
 
       incoming = %ChatIncoming{
@@ -1163,10 +1167,10 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "non-reply message accepts {:ok, _} pipeline result" do
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, OkTuplePipeline)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, OkTuplePipeline)
 
       on_exit(fn ->
-        Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
+        Application.put_env(:zaq, :chat_bridge_node_router_module, StubNodeRouter)
       end)
 
       incoming = %ChatIncoming{
@@ -1204,7 +1208,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
 
       on_exit(fn -> :telemetry.detach("jido-chat-bridge-failed-telemetry") end)
 
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, ErrorTuplePipeline)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, ErrorTuplePipeline)
 
       error_log =
         capture_log(fn ->
@@ -1217,11 +1221,11 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert error_log =~ "Failed to process message"
       assert error_log =~ "channel=chan-1"
 
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, InvalidPipeline)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, InvalidPipeline)
 
       invalid_log =
         capture_log(fn ->
-          assert {:error, {:invalid_pipeline_response, :unexpected}} =
+          assert {:error, {:unexpected_response, :unexpected}} =
                    JidoChatBridge.handle_from_listener(@config, incoming, [])
         end)
 
@@ -1229,7 +1233,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert invalid_meta.provider == :mattermost
       assert invalid_log =~ "Failed to process message"
 
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, StubPipeline)
+      Application.put_env(:zaq, :chat_bridge_node_router_module, StubNodeRouter)
     end
 
     test "thread reply does NOT run the pipeline" do
@@ -1270,7 +1274,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       {mcp_child_spec, mcp_endpoint} = mcp_timeout_server(self())
       start_supervised!(mcp_child_spec)
 
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_node_router_module, RealRunPipelineNodeRouter)
 
@@ -1389,7 +1392,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       {mcp_child_spec, mcp_endpoint} = mcp_server(self(), timeout_ms: 0, tool_name: "lookup_tool")
       start_supervised!(mcp_child_spec)
 
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, RealAllActionsNodeRouter)
@@ -1537,7 +1539,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       {mcp_child_spec, mcp_endpoint} = mcp_server(self(), timeout_ms: 0, tool_name: "lookup_tool")
       start_supervised!(mcp_child_spec)
 
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, RealAllActionsNodeRouter)
@@ -1673,7 +1674,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "uses NodeRouter dispatch path when bridge modules are defaults" do
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, StubNodeRouter)
@@ -1691,7 +1691,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "run_pipeline event carries normalized actor" do
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+      :ok = Zaq.System.set_global_default_agent_id(insert_configured_agent(true).id)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
@@ -1719,7 +1719,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "channel assignment wins over provider and global defaults in NodeRouter dispatch" do
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
@@ -1769,7 +1768,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "falls back to provider default when channel assignment agent is inactive" do
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
@@ -1816,7 +1814,6 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
     end
 
     test "falls back to provider default when channel assignment is conversation-disabled" do
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
@@ -1862,8 +1859,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert selected_id == provider_agent.id
     end
 
-    test "routes through default ZAQ agent when no explicit or global selection is configured" do
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
+    test "routes to none when no explicit or inherited configured agent is available" do
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
@@ -1891,13 +1887,14 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       }
 
       assert :ok = JidoChatBridge.handle_from_listener(config, incoming, [])
-      assert_received {:node_router_run_pipeline_event, event}
-      assert get_in(event.assigns, ["incoming_message_routing", "source"]) == "default_zaq_agent"
+      assert_received {:node_router_fire_event, event}
+      assert get_in(event.assigns, ["incoming_message_routing", "source"]) == "no_matching_rule"
+      assert get_in(event.assigns, ["incoming_message_routing", "mode"]) == "none"
+      refute_received {:node_router_run_pipeline_event, _}
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
     end
 
     test "channel assignment populates routing context without agent dispatch in Channels" do
-      Application.put_env(:zaq, :chat_bridge_pipeline_module, Zaq.Agent.Pipeline)
       Application.put_env(:zaq, :chat_bridge_router_module, StubRouter)
       Application.put_env(:zaq, :chat_bridge_conversations_module, Zaq.Engine.Conversations)
       Application.put_env(:zaq, :chat_bridge_node_router_module, CapturingNodeRouter)
@@ -1937,10 +1934,11 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
       assert event.request.routing_context.retrieval_channel_id == retrieval_channel.id
       refute Map.has_key?(event.assigns || %{}, "agent_selection")
 
-      assert_received {:node_router_run_pipeline_event, routed_event}
+      assert_received {:node_router_fire_event, routed_event}
       assert routed_event.request.routing_context.channel_config_id == config.id
       assert routed_event.request.routing_context.retrieval_channel_id == retrieval_channel.id
       refute Map.has_key?(routed_event.assigns || %{}, "agent_selection")
+      refute_received {:node_router_run_pipeline_event, _}
     end
 
     test "uses incoming channel adapter when present, even if unsupported" do

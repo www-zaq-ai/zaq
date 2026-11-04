@@ -269,6 +269,26 @@ this is not proof of cross-site third-party-cookie or external HTTPS acceptance.
 Failure screenshots are written to `test/e2e/test-results/widget-lifecycle-*.png`.
 Synchronous waiting remains covered by the separate `Web.SyncReply` integration tests.
 
+### Configured-only routing (isolated, no reset)
+
+After the completed-UX approval recorded in `zaq-nnx.9`, run:
+
+```sh
+mix test test/zaq_web/configured_routing_browser_test.exs --include real_browser --include paradedb --timeout 180000
+mix test test/zaq_web/widget_lifecycle_browser_test.exs --only routing_inheritance --timeout 180000
+```
+
+These journeys reuse the ephemeral Endpoint/SQL Sandbox browser harness, regular
+BO login, real Engine routing and native configured Agent execution. Only external
+LLM HTTP is stubbed. Chromium, Firefox and WebKit check Global save/reload, chat
+inheritance, explicit configured selection, actual persisted keyword-search results
+before answer generation, deleted selections, exhausted routing without model or
+assistant execution, and the removed diagnostics probe. The Chromium widget journey
+proves explicit NONE overrides a configured global, captures the unanswered input,
+and clearing the scoped rule resumes inherited real tool execution and durable
+history. No new production endpoint or database reset is used. There is no separate
+stored built-in ID in this schema, so no synthetic conversion fixture is created.
+
 ### BO tool activity continuity (isolated, no reset)
 
 After building assets and installing the Playwright engines from `test/e2e`:

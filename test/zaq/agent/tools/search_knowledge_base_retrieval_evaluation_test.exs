@@ -124,7 +124,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseRetrievalEvaluationTest do
       dimension: @dimension
     })
 
-    SystemConfigFixtures.seed_llm_config(%{max_cosine_distance: @evaluation_threshold})
+    assert {:ok, _} =
+             Zaq.System.save_retrieval_config(%{max_cosine_distance: @evaluation_threshold})
 
     doc_ids = seed_documents!(fixtures.documents)
     ChunkLanguages.invalidate()
@@ -168,6 +169,7 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBaseRetrievalEvaluationTest do
                  SearchKnowledgeBase,
                  %{query: question["question"], lexical_terms: lexical_terms},
                  %{
+                   context_window: %{max_context_tokens: 25_000},
                    generation: FixtureGeneration,
                    translation_config: config,
                    person_id: nil

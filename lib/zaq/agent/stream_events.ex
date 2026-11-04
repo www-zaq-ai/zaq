@@ -71,6 +71,7 @@ defmodule Zaq.Agent.StreamEvents do
           trace: [map()],
           trace_artifacts: [map()],
           tool_calls: [map()],
+          sources: [String.t()],
           termination_reason: term(),
           incoming: Incoming.t(),
           runtime_pid: pid() | nil
@@ -433,6 +434,7 @@ defmodule Zaq.Agent.StreamEvents do
         "content" => tool_name || "tool",
         "name" => tool_name,
         "response" => json_safe(trace_result),
+        "sources" => declared_sources(data_get(data, :result)),
         "duration_ms" => data_get(data, :duration_ms),
         "ended_at" => timestamp(event),
         "ended_at_ms" => field(event, :at_ms),
@@ -750,7 +752,22 @@ defmodule Zaq.Agent.StreamEvents do
 
   defp public_tool_steps(state), do: ToolStep.project(Map.values(state.tool_calls))
 
+  defp declared_sources({:ok, output, _effects}), do: declared_sources(output)
+  defp declared_sources({:ok, output}), do: declared_sources(output)
+  defp declared_sources(%ToolResult{output: output}), do: declared_sources(output)
+
+  defp declared_sources(output) when is_map(output) do
+    case Map.get(output, :sources, Map.get(output, "sources")) do
+      sources when is_list(sources) -> Enum.filter(sources, &(is_binary(&1) and &1 != ""))
+      _ -> []
+    end
+  end
+
+  defp declared_sources(_output), do: []
+
   defp result(state) do
+    tool_calls = state.tool_calls |> Map.values() |> Enum.sort_by(& &1["sequence"])
+
     %{
       answer: state.answer || state.latest_answer || state.current_full,
       answer_published?: not is_nil(state.published_answer),
@@ -762,7 +779,11 @@ defmodule Zaq.Agent.StreamEvents do
       llm_calls: public_llm_calls(state),
       trace: Enum.reverse(state.trace),
       trace_artifacts: state.trace_artifacts,
-      tool_calls: state.tool_calls |> Map.values() |> Enum.sort_by(& &1["sequence"]),
+      tool_calls: tool_calls,
+      sources:
+        tool_calls
+        |> Enum.flat_map(&Map.get(&1, "sources", []))
+        |> Enum.uniq(),
       termination_reason: state.termination_reason,
       measurements: measurements(state),
       model: model(state),
@@ -1021,7 +1042,7 @@ defmodule Zaq.Agent.StreamEvents do
 
   @doc """
   Sources the trace/agent/model/measurements fields from an `Outgoing`'s
-  metadata, so chat results (`Zaq.Agent.Pipeline`) and workflow step results
+  metadata, so chat results (`Zaq.Agent.Executor`) and workflow step results
   (`Zaq.Agent.Tools.Workflow.RunAgent`) surface the same telemetry fields.
 
   With `json_safe: true`, present values are passed through `json_safe/1` for

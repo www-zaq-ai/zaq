@@ -217,7 +217,7 @@ Association recovery uses `HistoryDeliveryWorker` only after recorded confirmati
 and never resends transport. The real Mattermost/Jido integration suite exercises
 delayed success, gateway failure and the native HTTP receive deadline with a full
 Arabic answer; synchronous status regressions cover blocked partial/final ordering.
-Pipeline replies carry the incoming routing context separately from metadata;
+Agent replies carry the incoming routing context separately from metadata;
 delivery selects the matching connector credentials. A provider-only reply is
 allowed only when the provider has one unambiguous active connector.
 Intermediate status upserts use the same ingress routing context, rather than
@@ -497,7 +497,10 @@ the receiving `email:imap` config, not `email:smtp` delivery config.
 
 ### `Zaq.Engine.Messages.Outgoing`
 
-Canonical struct for all outbound messages. Produced by `Zaq.Agent.Pipeline.run/2` and by the Notification center. Delivered through `Zaq.Channels.Events.build_and_dispatch_deliver_outgoing_event/2` to `Zaq.Channels.Api` (`:deliver_outgoing`).
+Canonical struct for all outbound messages. Produced by configured-agent execution
+and the Notification center. Delivered through
+`Zaq.Channels.Events.build_and_dispatch_deliver_outgoing_event/2` to
+`Zaq.Channels.Api` (`:deliver_outgoing`).
 
 When routed across nodes, this payload is typically returned in `%Zaq.Event.response`.
 
@@ -1084,14 +1087,22 @@ All cross-service calls are overridable via Application env:
 
 | Key                                 | Default                            |
 | ----------------------------------- | ---------------------------------- |
-| `:chat_bridge_pipeline_module`      | `Zaq.Agent.Pipeline`               |
+| `:chat_bridge_node_router_module`   | `Zaq.NodeRouter`                   |
 | `:chat_bridge_router_module`        | `Zaq.Channels.CommunicationBridge` |
 | `:chat_bridge_accounts_module`      | `Zaq.Accounts`                     |
 | `:chat_bridge_permissions_module`   | `Zaq.Accounts.Permissions`         |
 | `:pipeline_hooks_module`            | `Zaq.Hooks`                        |
 
-When using the real modules, cross-node calls route through `Zaq.NodeRouter`.
-Use `NodeRouter.dispatch/1` with `%Zaq.Event{}`.
+Incoming channel requests always enter Engine routing through `NodeRouter` with
+`%Zaq.Event{}`; the former direct Pipeline module override is no longer supported.
+Configured-agent selection and `Default` inheritance stay Engine-owned. An explicit
+`None` or exhausted hierarchy requests no automated agent response, while history
+capture and workflow triggers retain their existing behavior.
+
+For BO web chat, a no-answer routing receipt releases the composer through the
+existing correlated idle-status response without creating an assistant message or
+starting a runtime. BO callers without a delivery descriptor still receive the
+plain acknowledgement. Widget no-answer acknowledgements keep their own protocol.
 
 ---
 
