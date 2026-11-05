@@ -15,6 +15,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   setup :verify_on_exit!
 
   setup %{conn: conn} do
+    owner = self()
     user = user_fixture(%{username: "wf-run-test-#{System.unique_integer([:positive])}"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
@@ -27,6 +28,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
         %{action: action} when is_binary(action) ->
           Api.handle_event(event, :workflow, nil)
 
+        {:broadcast, _topic, {:run_updated, %{id: id, status: "running"}}}
+        when self() != owner ->
+          send(owner, {:workflow_task_started, id, self()})
+          event
+
         _ ->
           event
       end
@@ -34,6 +40,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
 
     conn = init_test_session(conn, %{user_id: user.id})
     %{conn: conn, user: user}
+  end
+
+  # Observe the real engine's running broadcast, then wait for its task to exit
+  # before releasing SQL ownership. No production notification or fake run needed.
+  defp await_workflow_task(run_id) do
+    assert_receive {:workflow_task_started, ^run_id, task}, 5_000
+    monitor = Process.monitor(task)
+    assert_receive {:DOWN, ^monitor, :process, ^task, reason}, 5_000
+    assert reason in [:normal, :noproc]
   end
 
   @valid_node %{
@@ -1359,7 +1374,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "Resume"
 
       view |> element("button[phx-click='resume_run']") |> render_click()
-      assert render(view) =~ "paused"
+
+      try do
+        assert render(view) =~ "paused"
+      after
+        await_workflow_task(run.id)
+      end
     end
   end
 
