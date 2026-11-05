@@ -626,6 +626,62 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   end
 
   describe "agent trace panel on a step card" do
+    test "step children expand and survive reload and delayed active snapshots without changing the broadcast contract",
+         %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+      step = step_run_fixture(run, %{step_name: "fetch", status: "completed"})
+      root = "workflow_step:#{step.id}"
+
+      start = %{
+        "id" => "start",
+        "kind" => "tool_started",
+        "tool_call_id" => "child",
+        "tool_name" => "nested_lookup",
+        "data" => %{
+          "origin" => "zaq_action",
+          "invocation_path" => [root, "a"],
+          "parent_id" => root,
+          "arguments" => %{"query" => "example"}
+        }
+      }
+
+      done = %{
+        start
+        | "id" => "done",
+          "kind" => "tool_completed",
+          "data" =>
+            Map.merge(start["data"], %{
+              "outcome" => "succeeded",
+              "result" => ["ok", %{"value" => 42}, []]
+            })
+      }
+
+      step = step |> StepRun.changeset(%{trace_events: [start, done]}) |> Repo.update!()
+      {:ok, view, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      assert has_element?(view, "[data-testid=workflow-action-traces-#{step.id}]")
+
+      assert render_click(view, "toggle_step_trace_details", %{
+               "step_run_id" => step.id,
+               "trace_id" => "child"
+             }) =~ "trace-details-child"
+
+      Phoenix.PubSub.broadcast(
+        Zaq.PubSub,
+        "workflow_run:#{run.id}",
+        {:step_updated, %{step | status: "running", trace_events: [start]}}
+      )
+
+      html = render(view)
+      assert html =~ "Succeeded"
+      assert html =~ "trace-details-child"
+      assert html =~ "completed"
+      {:ok, refreshed, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(refreshed, "select_step", %{"step_name" => "fetch"})
+      assert render(refreshed) =~ "Succeeded"
+    end
+
     test "renders agent/model/trace detail for a step whose results carry them", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       run = run_fixture(workflow)

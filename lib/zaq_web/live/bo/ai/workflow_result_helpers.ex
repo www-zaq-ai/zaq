@@ -1,5 +1,10 @@
 defmodule ZaqWeb.Live.BO.AI.WorkflowResultHelpers do
-  @moduledoc false
+  @moduledoc """
+  Pure presentation adapters for workflow results and persisted child evidence.
+
+  Step trace projection groups already-recorded lifecycle facts by invocation ID;
+  it neither interprets Agent streams nor executes/settles workflow business state.
+  """
 
   @trace_keys ["trace", :trace, "agent", :agent, "model", :model, "measurements", :measurements]
 
@@ -40,5 +45,88 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowResultHelpers do
 
     info.agent not in [nil, %{}] or info.model not in [nil, ""] or
       info.traces != [] or map_size(info.measurements) > 0
+  end
+
+  @doc "Projects persisted step child events into the shared trace-row shape."
+  def step_trace_info(step, run_status \\ nil) do
+    events = Map.get(step, :trace_events) || []
+
+    terminal =
+      step.status in ~w(completed failed failed_fatal skipped cancelled interrupted) or
+        run_status in ~w(completed failed incomplete cancelled interrupted)
+
+    traces =
+      events
+      |> Enum.reduce(%{}, &project_step_event/2)
+      |> Map.values()
+      |> Enum.map(fn
+        %{"outcome" => "running"} = row when terminal -> Map.put(row, "outcome", "unknown")
+        row -> row
+      end)
+      |> Enum.sort_by(& &1["sequence"])
+
+    root = if id = Map.get(step, :id), do: "workflow_step:#{id}"
+    %{root_invocation_id: root, agent: nil, model: nil, measurements: %{}, traces: traces}
+  end
+
+  defp project_step_event(
+         %{"tool_call_id" => id, "kind" => kind, "data" => %{"origin" => "zaq_action"} = data} =
+           event,
+         rows
+       )
+       when is_binary(id) and kind in ["tool_started", "tool_completed"] do
+    existing = Map.get(rows, id, %{})
+
+    base = %{
+      "id" => id,
+      "invocation_id" => id,
+      "type" => "tool_call",
+      "name" => event["tool_name"],
+      "content" => event["tool_name"],
+      "origin" => "zaq_action",
+      "invocation_path" => data["invocation_path"],
+      "parent_id" => data["parent_id"],
+      "sequence" => Map.get(existing, "sequence", map_size(rows) + 1)
+    }
+
+    Map.put(rows, id, project_step_lifecycle(kind, base, existing, event))
+  end
+
+  defp project_step_event(_event, rows), do: rows
+
+  defp project_step_lifecycle("tool_started", base, existing, event) do
+    base
+    |> Map.merge(%{
+      "arguments" => event["data"]["arguments"],
+      "started_at_ms" => event["at_ms"],
+      "status" => "started",
+      "outcome" => "running"
+    })
+    |> Map.merge(existing)
+  end
+
+  defp project_step_lifecycle(
+         "tool_completed",
+         base,
+         %{"status" => "completed"} = existing,
+         _event
+       ),
+       do: Map.merge(base, existing)
+
+  defp project_step_lifecycle("tool_completed", base, existing, event) do
+    data = event["data"]
+
+    outcome =
+      if data["outcome"] in ~w(succeeded failed unknown), do: data["outcome"], else: "unknown"
+
+    existing
+    |> Map.merge(base)
+    |> Map.merge(%{
+      "response" => data["result"],
+      "duration_ms" => data["duration_ms"],
+      "ended_at_ms" => event["at_ms"],
+      "status" => "completed",
+      "outcome" => outcome
+    })
   end
 end

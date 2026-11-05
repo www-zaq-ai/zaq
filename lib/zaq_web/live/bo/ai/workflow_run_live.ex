@@ -87,7 +87,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   def handle_info({:step_updated, step_run}, socket) do
     step_runs =
       Enum.map(socket.assigns.step_runs, fn sr ->
-        if sr.id == step_run.id, do: step_run, else: sr
+        if sr.id == step_run.id, do: merge_step_snapshot(sr, step_run), else: sr
       end)
 
     step_runs =
@@ -101,7 +101,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
     # A running fork sub-step focuses its parent node so the iteration shows inside
     # that node's batch card instead of as a standalone per-fork card.
     socket =
-      if step_run.status == "running" do
+      if Enum.any?(step_runs, &(&1.id == step_run.id and &1.status == "running")) do
         assign(socket, selected_step: parent_node_name(step_run.step_name))
       else
         socket
@@ -116,6 +116,21 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # Keep the snapshot broadcast contract. The engine owns all persistence;
+  # presentation only unions monotonic diagnostic evidence and retains a known
+  # settled/suspended snapshot over a delayed running snapshot of the same row.
+  # Resume creates a distinct step row, so it is not suppressed by this guard.
+  defp merge_step_snapshot(current, incoming) do
+    base =
+      if current.status != "running" and incoming.status == "running", do: current, else: incoming
+
+    events =
+      ((Map.get(current, :trace_events) || []) ++ (Map.get(incoming, :trace_events) || []))
+      |> Enum.uniq_by(& &1["id"])
+
+    Map.put(base, :trace_events, events)
+  end
 
   # ── Events ──────────────────────────────────────────────────────
 
@@ -640,6 +655,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                     <.batch_step_card
                       step={step}
                       batch_progress={Map.get(@batch_progress, step.step_name)}
+                      expanded_trace_ids={@expanded_trace_ids}
+                      run_status={@run.status}
                       step_runs={@step_runs}
                       node_params={Map.get(info, :params, %{})}
                       now={@now}
@@ -647,6 +664,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                   <% Map.get(info, :is_map) -> %>
                     <.map_step_card
                       step={step}
+                      expanded_trace_ids={@expanded_trace_ids}
+                      run_status={@run.status}
                       step_runs={@step_runs}
                       node_params={Map.get(info, :params, %{})}
                       now={@now}
@@ -720,6 +739,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
                           />
                         </div>
                       </div>
+
+                      <.step_action_traces
+                        step={step}
+                        run_status={@run.status}
+                        expanded_trace_ids={@expanded_trace_ids}
+                      />
 
                       <%!-- Agent trace (inline, always visible when present) --%>
                       <div

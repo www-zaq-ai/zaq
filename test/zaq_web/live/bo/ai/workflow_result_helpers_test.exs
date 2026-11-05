@@ -1,7 +1,88 @@
 defmodule ZaqWeb.Live.BO.AI.WorkflowResultHelpersTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ZaqWeb.Live.BO.AI.WorkflowResultHelpers, as: Helpers
+
+  property "replayed starts and completions cannot downgrade an explicit outcome" do
+    check all(
+            outcome <- member_of(~w(succeeded failed unknown)),
+            repetitions <- integer(1..5),
+            max_runs: 20
+          ) do
+      data = %{
+        "origin" => "zaq_action",
+        "invocation_path" => ["workflow_step:step", "a"],
+        "parent_id" => "workflow_step:step"
+      }
+
+      started = %{
+        "id" => "start",
+        "kind" => "tool_started",
+        "tool_call_id" => "child",
+        "data" => data
+      }
+
+      done = %{
+        started
+        | "id" => "done",
+          "kind" => "tool_completed",
+          "data" => Map.put(data, "outcome", outcome)
+      }
+
+      events = [done] ++ List.duplicate(started, repetitions) ++ List.duplicate(done, repetitions)
+      info = Helpers.step_trace_info(%{id: "step", status: "failed", trace_events: events})
+      assert [%{"outcome" => ^outcome, "sequence" => 1}] = info.traces
+    end
+  end
+
+  test "step events project completion-only, late starts, explicit outcomes and interrupted children" do
+    hierarchy = %{
+      "origin" => "zaq_action",
+      "invocation_path" => ["workflow_step:step", "a"],
+      "parent_id" => "workflow_step:step"
+    }
+
+    done = %{
+      "id" => "done",
+      "kind" => "tool_completed",
+      "tool_call_id" => "child",
+      "tool_name" => "lookup",
+      "data" =>
+        Map.merge(hierarchy, %{
+          "outcome" => "succeeded",
+          "result" => ["ok", %{"error" => "incidental payload"}, []],
+          "duration_ms" => 2
+        })
+    }
+
+    start = %{
+      "id" => "start",
+      "kind" => "tool_started",
+      "tool_call_id" => "child",
+      "tool_name" => "lookup",
+      "data" => Map.put(hierarchy, "arguments", %{"query" => "example"})
+    }
+
+    pending = %{start | "id" => "pending", "tool_call_id" => "unfinished"}
+    step = %{id: "step", status: "failed", trace_events: [done, start, done, pending]}
+
+    assert %{root_invocation_id: "workflow_step:step", traces: [child, unfinished]} =
+             Helpers.step_trace_info(step)
+
+    assert child["outcome"] == "succeeded"
+    assert child["arguments"] == %{"query" => "example"}
+    assert child["sequence"] == 1
+    assert unfinished["outcome"] == "unknown"
+
+    assert Helpers.step_trace_info(%{step | status: "running"}).traces
+           |> List.last()
+           |> Map.fetch!("outcome") == "running"
+
+    assert Helpers.step_trace_info(%{step | status: "running"}, "cancelled").traces
+           |> List.last()
+           |> Map.fetch!("outcome") == "unknown"
+  end
 
   describe "clean_results/1" do
     test "returns an empty map for nil" do

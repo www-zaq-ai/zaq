@@ -959,7 +959,8 @@ defmodule Zaq.Engine.Workflows do
   ID. A row lock protects concurrent appends; lifecycle state/results/logs are
   untouched, including for late valid evidence. Only supported metadata enters
   JSON; runtime objects are discarded and secrets redacted. Broadcasts occur
-  after commit, and consumers must refresh authoritative state on invalidation.
+  after commit and retain the existing step-snapshot contract. Presentation can
+  merge diagnostic events by ID without taking ownership of persistence.
   """
   @spec record_step_event(binary(), RuntimeEvent.t()) :: {:ok, StepRun.t()} | {:error, term()}
   def record_step_event(step_id, %RuntimeEvent{} = event) when is_binary(step_id) do

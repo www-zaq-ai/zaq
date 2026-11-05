@@ -162,9 +162,17 @@ Recording never changes step outcome, including for valid late evidence. It
 retains explicit child outcome through JSON conversion and redacts payloads;
 callbacks and materialized resource bytes are excluded. Lifecycle functions return
 and broadcast reloaded rows, preserving child evidence written after execution
-started. Broadcasts are post-commit invalidations, not a database ordering fence;
-BO consumers must refresh authoritative state through NodeRouter when applying
-overlapping updates. StepRunner remains the owner of normal step auditing.
+started. Broadcasts retain the existing post-commit step-snapshot contract; no
+per-broadcast reload is required. The BO viewer merges child events by ID and
+retains a settled/suspended snapshot over a delayed running snapshot of that same
+row. Resume creates a new step row. Mount/reload data access still goes through
+NodeRouter; the workflow engine remains the sole persistence owner.
+
+`WorkflowResultHelpers.step_trace_info/2` projects persisted starts/completions
+using explicit outcomes, preserving completion-only and late-start evidence.
+Unresolved children become unknown when the enclosing step/run is terminal.
+Generic steps and map/batch forks reuse AgentTracePanel with the existing step
+card as their root; independently configured-agent traces remain separate.
 
 ## Crash-Safe Cursor (Step.Run)
 

@@ -18,7 +18,7 @@ defmodule Storybook.Chat.AgentTracePanel do
         message_info: %{agent: "Answering Agent", model: "Local fake provider", measurements: %{tool_call_count: 1}, traces: [root, child, grandchild, parallel]},
         expanded_ids: MapSet.new(["translation"]), toggle_event: "toggle_trace_details"}},
       %Variation{id: :workflow_children, description: "Selected step card is the root; no duplicate fake root Action", attributes: %{
-        message_info: %{root_invocation_id: "native.root", traces: [child, grandchild, parallel]}, toggle_event: "toggle_trace_details"}},
+        message_info: %{root_invocation_id: "native.root", traces: [child, grandchild, parallel]}, show_summary: false, toggle_event: "toggle_trace_details"}},
       %Variation{id: :legacy_and_unattached, description: "Legacy flat entry beside interrupted, running and unattached evidence", attributes: %{
         message_info: %{traces: [%{"id" => "legacy", "type" => "content", "content" => "Legacy answer"}, unknown, child("running", ["absent", "b"], "absent", "running")]}, toggle_event: "toggle_trace_details"}}
     ]

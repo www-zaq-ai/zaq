@@ -20,6 +20,7 @@ defmodule ZaqWeb.Components.AgentTracePanel do
   attr :toggle_event, :string, required: true
   attr :testid, :string, default: "agent-trace-panel"
   attr :artifact_url, :any, default: nil, doc: "Trusted caller-owned artifact route builder."
+  attr :show_summary, :boolean, default: true
   attr :rest, :global, doc: "forwarded onto each trace-row button, e.g. phx-value-step_run_id"
 
   def agent_trace_panel(assigns) do
@@ -37,7 +38,7 @@ defmodule ZaqWeb.Components.AgentTracePanel do
 
     ~H"""
     <div id={@rest[:id]} data-testid={@testid}>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+      <div :if={@show_summary} class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
         <div class="rounded-xl border border-[#e8e6e1] bg-[#fcfcfb] px-3 py-2">
           <p class="font-mono text-[0.62rem] uppercase tracking-widest text-[#9e9b94]">Agent</p>
           <p class="font-mono text-[0.75rem] text-[#2c2b28] truncate">{@agent_name}</p>
@@ -48,7 +49,7 @@ defmodule ZaqWeb.Components.AgentTracePanel do
         </div>
       </div>
 
-      <div class="mb-4">
+      <div :if={@show_summary} class="mb-4">
         <p class="font-mono text-[0.68rem] font-bold text-[#7f7c76] mb-2">Measurements</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div
