@@ -697,6 +697,11 @@ activity does not change public status labels, root tool counts, or source/resul
 aggregation. Consumed completions survive request failure; unresolved starts become
 unknown at termination. The consumer never waits for events emitted after closure.
 Nested document Records are externalized through the existing trace artifact path.
+
+`ToolStep.project/1` and `from_trace/1` omit explicit nested diagnostics before
+applying public identity/display limits. Both live and final publication and
+history reload therefore retain root-only public steps. Classification uses
+hierarchy/origin metadata, never a native ID prefix or a tool-name guess.
 - Reduces `Jido.AI.Agent.ask_stream/3` events into one request result consumed by `Executor`.
 - `tool_calls` is the sole request-local invocation collection. Its records keep
   private arguments/results/timestamps alongside explicit native `invocation_id`,

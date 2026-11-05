@@ -127,6 +127,8 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
     assert Enum.all?(children, &(&1["turn_id"] == root["turn_id"]))
     assert Enum.all?(children, &(&1["response"] == ["ok", %{"value" => 42}, []]))
     assert result.measurements["tool_call_count"] == 1
+    assert [%{"id" => "native.root"}] = ToolStep.project(result.tool_calls)
+    assert ToolStep.from_trace(result.trace) == ToolStep.project(result.tool_calls)
     assert Enum.count(result.trace, &(&1["type"] == "tool_call")) == 3
   end
 
