@@ -20,6 +20,12 @@ the dev server watches both. Storybook loads `app.dev.css`, so the production
 asset build performed by `npm test` cannot overwrite its sandbox/theme styles.
 Keep those output paths separate when changing asset profiles.
 
+The dev-only Storybook entry also guards PhoenixStorybook 1.3's delayed iframe
+height measurement against frames removed by LiveView patches. It preserves
+per-variation iframe isolation and replaces only the upstream inline resizer;
+JavaScript errors are not suppressed. Its lifecycle checks use a controlled
+scheduler in `test/e2e/support/storybook-iframes.test.cjs`.
+
 ```
 test/e2e/
 ├── playwright.config.js     # Playwright config (port, timeout, browser)
@@ -278,7 +284,7 @@ After building assets and installing the Playwright engines from `test/e2e`:
 ```sh
 mix assets.build
 mix test test/zaq_web/tool_activity_browser_test.exs --include real_browser --timeout 180000
-node --test test/e2e/support/tool-step-timer.test.cjs test/e2e/support/layout-state.test.cjs
+node --test test/e2e/support/tool-step-timer.test.cjs test/e2e/support/layout-state.test.cjs test/e2e/support/storybook-iframes.test.cjs
 ```
 
 The browser journey reuses the sandboxed ephemeral Endpoint and private process

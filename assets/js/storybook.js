@@ -2,6 +2,9 @@
 // see https://hexdocs.pm/phoenix_storybook/sandboxing.html — otherwise search, sidebar, and color
 // mode hooks break (double LiveSocket / view binding races).
 import { liveViewHooks } from "./liveview_hooks"
+import { installStorybookIframeResize } from "./storybook_iframes"
+
+installStorybookIframeResize(document)
 
 window.storybook = {
   Hooks: { ...liveViewHooks }
