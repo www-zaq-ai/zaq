@@ -14,6 +14,12 @@ must preserve assertions and intent, never weaken them to hide regressions.
 The separate [real browser-tool integration](#real-browser-tool-integration-flow-3)
 uses ExUnit and the production `agent-browser` CLI, not the Playwright journey suite.
 
+Storybook checks use the dev server on port `4000`. In dev, `mix assets.build`
+builds both the production `app.css` and the separate `app.dev.css` preview bundle;
+the dev server watches both. Storybook loads `app.dev.css`, so the production
+asset build performed by `npm test` cannot overwrite its sandbox/theme styles.
+Keep those output paths separate when changing asset profiles.
+
 ```
 test/e2e/
 ├── playwright.config.js     # Playwright config (port, timeout, browser)

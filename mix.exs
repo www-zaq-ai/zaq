@@ -226,7 +226,7 @@ defmodule Zaq.MixProject do
       e2e: ["cmd npm --prefix test/e2e run test:journeys --"],
       storybook: ["cmd npm --prefix test/e2e run test:storybook"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind #{tailwind_build()}", "esbuild zaq"],
+      "assets.build": ["compile"] ++ tailwind_builds() ++ ["esbuild zaq"],
       "assets.deploy": [
         "tailwind zaq --minify",
         "esbuild zaq --minify",
@@ -302,7 +302,11 @@ defmodule Zaq.MixProject do
     ]
   end
 
-  defp tailwind_build, do: if(Mix.env() == :dev, do: "zaq_dev", else: "zaq")
+  defp tailwind_builds do
+    if Mix.env() == :dev,
+      do: ["tailwind zaq", "tailwind zaq_dev"],
+      else: ["tailwind zaq"]
+  end
 
   defp setup_branch(args) do
     source_db =
