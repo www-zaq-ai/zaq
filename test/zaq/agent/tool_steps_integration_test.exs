@@ -7,6 +7,7 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.TestSupport.{BudgetProbeTool, IntegrationAgent, MultiAgentOpenAIStub, OpenAIStub}
+  alias Zaq.TestSupport.NestedActionProbe
 
   defmodule RecordingRouter do
     def dispatch(event) do
@@ -24,6 +25,53 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
       send(outgoing.metadata.session_id, {:final_tool_publication, outgoing})
       :ok
     end
+  end
+
+  test "native invocation identity and inherited callback survive real supervised execution" do
+    owner = self()
+
+    handler = fn _conn, body ->
+      body = Jason.decode!(body)
+
+      if Enum.any?(body["input"] || [], &(&1["type"] == "function_call_output")) do
+        {200, MultiAgentOpenAIStub.text_sse("Done", "gpt-4.1-mini")}
+      else
+        {200,
+         MultiAgentOpenAIStub.tool_call_sse("nested_action_probe", %{depth: 0},
+           call_id: "native.probe",
+           fc_id: "fc_probe"
+         )}
+      end
+    end
+
+    {child, endpoint} = OpenAIStub.server(handler, owner)
+    start_supervised!(child)
+    scope = "nested-#{Ecto.UUID.generate()}"
+    configured = IntegrationAgent.create!(endpoint, scope, "Use the probe.", [])
+
+    assert {:ok, server} =
+             ServerManager.ensure_server(configured, "#{configured.name}:#{scope}", nil,
+               actor: %{kind: :system, subject: "nested-trace-test"}
+             )
+
+    assert {:ok, _} = Jido.AI.register_tool(server, NestedActionProbe)
+    callback = fn _event -> :ok end
+
+    assert {:ok, %{request: request, events: events}} =
+             Factory.ask_with_config(server, "Use the probe", configured,
+               tool_context: %{test_pid: owner, on_tool_event: callback}
+             )
+
+    captured = Enum.to_list(events)
+    assert_receive {:nested_probe, worker, context, true}, 5_000
+    assert worker != owner
+    assert context.tool_call_id == "native.probe"
+    assert context.request_id == request.id
+    completed = Enum.find(captured, &(&1.kind == :tool_completed))
+    assert completed.tool_call_id == context.tool_call_id
+    assert completed.request_id == context.request_id
+    assert completed.run_id == context.run_id
+    assert {:ok, %{value: 42}, []} = completed.data.result
   end
 
   test "native worker exit leaves batch outcomes unknown even when one tool actually finished" do
