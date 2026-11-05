@@ -5,6 +5,12 @@ defmodule ZaqWeb.Components.AgentTracePanel do
 
   Rendered in the chat message info popin (`ZaqWeb.Components.ChatMessage`)
   and inline on workflow run step cards.
+
+  Hierarchy is derived from explicit invocation paths, never opaque ID prefixes.
+  Rows remain flat evidence; the display walks parents before children, preserving
+  sibling observation order and stable expansion keys. Invalid/missing parents
+  remain visible as unattached roots. Workflow cards may supply an external
+  `root_invocation_id` without manufacturing a second root Action.
   """
 
   use Phoenix.Component
@@ -24,9 +30,13 @@ defmodule ZaqWeb.Components.AgentTracePanel do
       |> assign(:measurements, measurements(assigns.message_info))
       |> assign(:agent_name, agent_name(assigns.message_info))
       |> assign(:model_name, model_name(assigns.message_info))
+      |> assign(
+        :root_id,
+        trace_value(assigns.message_info, [:root_invocation_id, "root_invocation_id"])
+      )
 
     ~H"""
-    <div data-testid={@testid}>
+    <div id={@rest[:id]} data-testid={@testid}>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
         <div class="rounded-xl border border-[#e8e6e1] bg-[#fcfcfb] px-3 py-2">
           <p class="font-mono text-[0.62rem] uppercase tracking-widest text-[#9e9b94]">Agent</p>
@@ -61,19 +71,25 @@ defmodule ZaqWeb.Components.AgentTracePanel do
       </p>
       <ul class="space-y-2">
         <li
-          :for={{trace, row_id} <- trace_rows(@traces)}
-          class="border border-[#e8e6e1] rounded-xl overflow-hidden"
+          :for={{trace, row_id, depth, unattached?} <- trace_rows(@traces, @root_id)}
+          class={[
+            "border border-[#e8e6e1] rounded-xl overflow-hidden",
+            depth > 0 && "zaq-trace-nested zaq-trace-depth-#{min(depth, 6)}"
+          ]}
+          data-trace-depth={depth}
+          data-trace-unattached={unattached? && "true"}
         >
           <button
             type="button"
             phx-click={@toggle_event}
             phx-value-trace_id={row_id}
+            aria-expanded={to_string(MapSet.member?(@expanded_ids, row_id))}
             class="w-full text-left px-3 py-2.5 flex items-center justify-between hover:bg-[#faf9f7]"
             data-testid={"trace-row-#{row_id}"}
-            {@rest}
+            {Map.delete(@rest, :id)}
           >
             <span class="font-mono text-[0.75rem] text-[#2c2b28] truncate">
-              {trace_label(trace)}
+              {if unattached?, do: "Unattached · "}{trace_label(trace)}{nested_outcome(trace)}
             </span>
             <span class="font-mono text-[0.62rem] text-[#9e9b94]">
               {format_response_time(trace_duration_ms(trace))}
@@ -233,21 +249,102 @@ defmodule ZaqWeb.Components.AgentTracePanel do
   # so trace ids can collide and toggling one row would expand/collapse the
   # other. Suffix only colliding ids so every unique id (and its testid) keeps
   # its persisted shape.
-  defp trace_rows(traces) do
+  defp trace_rows(traces, external_root) do
     sorted = sort_traces_chronologically(traces)
     ids = Enum.map(sorted, &trace_id/1)
     frequencies = Enum.frequencies(ids)
 
-    sorted
-    |> Enum.zip(ids)
-    |> Enum.with_index()
-    |> Enum.map(fn {{trace, id}, index} ->
-      if frequencies[id] > 1 do
-        {trace, "#{id}:#{trace_value(trace, [:type, "type"]) || index}"}
-      else
-        {trace, id}
-      end
+    type_frequencies =
+      Enum.frequencies_by(sorted, fn trace ->
+        {trace_id(trace), trace_value(trace, [:type, "type"])}
+      end)
+
+    rows =
+      sorted
+      |> Enum.zip(ids)
+      |> Enum.with_index()
+      |> Enum.map(fn {{trace, id}, index} ->
+        if frequencies[id] > 1 do
+          type = trace_value(trace, [:type, "type"])
+
+          suffix = collision_suffix(type, type_frequencies[{id, type}], index)
+
+          {trace, "#{id}:#{suffix}"}
+        else
+          {trace, id}
+        end
+      end)
+
+    by_path = Enum.group_by(rows, fn {trace, _id} -> invocation_path(trace) end)
+
+    parents =
+      Map.new(rows, fn {trace, row_id} ->
+        {row_id, trace_parent(trace, by_path, external_root)}
+      end)
+
+    grouped = Enum.group_by(rows, fn {_trace, row_id} -> elem(parents[row_id], 0) end)
+    walk_trace_rows(grouped, parents, nil, 0)
+  end
+
+  defp collision_suffix(type, count, index) when count > 1, do: "#{type}:#{index}"
+  defp collision_suffix(type, _count, index), do: type || index
+
+  defp invocation_path(trace) do
+    case trace_value(trace, [:invocation_path, "invocation_path"]) do
+      [root | _] = path when is_binary(root) ->
+        if Enum.all?(path, &is_binary/1), do: path
+
+      _ ->
+        [trace_id(trace)]
+    end
+  end
+
+  defp trace_parent(trace, by_path, external_root) do
+    path = invocation_path(trace)
+    nested? = trace_value(trace, [:origin, "origin"]) == "zaq_action" or match?([_, _ | _], path)
+    parent_id = trace_value(trace, [:parent_id, "parent_id"])
+
+    cond do
+      not nested? ->
+        {nil, false}
+
+      match?([_, _], path) and hd(path) == external_root and parent_id == external_root ->
+        {nil, false}
+
+      is_list(path) and length(path) > 1 ->
+        parent_for_path(Enum.drop(path, -1), parent_id, by_path)
+
+      true ->
+        {nil, true}
+    end
+  end
+
+  defp parent_for_path(path, parent_id, by_path) do
+    case Map.get(by_path, path) do
+      [{trace, row_id}] -> if trace_id(trace) == parent_id, do: {row_id, false}, else: {nil, true}
+      _ -> {nil, true}
+    end
+  end
+
+  defp walk_trace_rows(grouped, parents, parent, depth) do
+    Enum.flat_map(Map.get(grouped, parent, []), fn {trace, id} ->
+      [
+        {trace, id, depth, elem(parents[id], 1)}
+        | walk_trace_rows(grouped, parents, id, depth + 1)
+      ]
     end)
+  end
+
+  defp nested_outcome(trace) do
+    if trace_value(trace, [:origin, "origin"]) == "zaq_action" do
+      case trace_value(trace, [:outcome, "outcome"]) do
+        state when state in ~w(running succeeded failed unknown) ->
+          " · #{String.capitalize(state)}"
+
+        _ ->
+          ""
+      end
+    end
   end
 
   defp trace_id(trace) do
@@ -307,6 +404,7 @@ defmodule ZaqWeb.Components.AgentTracePanel do
   end
 
   defp trace_value(map, keys) when is_map(map), do: Enum.find_value(keys, &Map.get(map, &1))
+  defp trace_value(_map, _keys), do: nil
 
   defp numeric_timestamp_sort_key(ms) when is_integer(ms), do: {0, ms}
   defp numeric_timestamp_sort_key(ms) when is_float(ms), do: {0, trunc(ms)}
