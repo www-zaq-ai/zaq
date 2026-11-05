@@ -5,6 +5,7 @@ defmodule Zaq.UserPortal.ProvisionerTest do
   alias Zaq.Agent.Actions.RerankKnowledgeResults
   alias Zaq.Agent.Api, as: AgentApi
   alias Zaq.Agent.ProviderSpec
+  alias Zaq.Agent.ZAQRouter
   alias Zaq.Engine.Api
   alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.Event
@@ -55,6 +56,28 @@ defmodule Zaq.UserPortal.ProvisionerTest do
   end
 
   describe "provision_with_key/1" do
+    test "initializes assistant context from catalog metadata and preserves customized limits on retry" do
+      snapshot = LLMDB.Store.snapshot()
+      previous_opts = LLMDB.Store.last_opts()
+      on_exit(fn -> LLMDB.Store.put!(snapshot, previous_opts) end)
+
+      opts = ZAQRouter.llmdb_opts()
+      custom = opts[:custom]
+      model_id = ZAQRouter.default_chat_model()
+      custom = put_in(custom, [:zaq_router, :models, model_id, :limits, :context], 98_765)
+      assert {:ok, _} = LLMDB.load(Keyword.put(opts, :custom, custom))
+
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-context"})
+      assert {:ok, agent} = Agent.get_agent_by_name("ZAQ Assistant")
+      assert agent.model_max_context_tokens == 98_765
+
+      assert {:ok, _} = Agent.update_agent(agent, %{model_max_context_tokens: 12_345})
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-context-retry"})
+      assert {:ok, existing} = Agent.get_agent_by_name("ZAQ Assistant")
+      assert existing.id == agent.id
+      assert existing.model_max_context_tokens == 12_345
+    end
+
     test "routes secret-bearing create and update mutations through Engine" do
       opts = [node_router_module: EngineRouter]
 

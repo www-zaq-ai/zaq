@@ -203,19 +203,27 @@ defmodule Zaq.UserPortal.Provisioner do
 
     case dispatch(request, :agent, :invoke, opts) do
       {:error, :agent_not_found} ->
-        attrs = %{
-          name: @agent_name,
-          job: "Help users answer questions using the company knowledge base.",
-          credential_id: credential_id,
-          model: ZAQRouter.default_chat_model(),
-          conversation_enabled: true,
-          enabled_tool_keys: [
-            "answering.search_knowledge_base",
-            "answering.get_knowledge_base_chunks"
-          ]
-        }
+        with {:ok, model} <- LLMDB.model(:zaq_router, ZAQRouter.default_chat_model()) do
+          attrs = %{
+            name: @agent_name,
+            job: "Help users answer questions using the company knowledge base.",
+            credential_id: credential_id,
+            model: model.id,
+            model_max_context_tokens: model.limits.context,
+            conversation_enabled: true,
+            enabled_tool_keys: [
+              "answering.search_knowledge_base",
+              "answering.get_knowledge_base_chunks"
+            ]
+          }
 
-        dispatch(%{module: Agent, function: :create_agent, args: [attrs]}, :agent, :invoke, opts)
+          dispatch(
+            %{module: Agent, function: :create_agent, args: [attrs]},
+            :agent,
+            :invoke,
+            opts
+          )
+        end
 
       result ->
         result
