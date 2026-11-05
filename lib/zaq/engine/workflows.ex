@@ -13,6 +13,8 @@ defmodule Zaq.Engine.Workflows do
 
   require Logger
 
+  alias Jido.AI.Observe
+  alias Jido.AI.Runtime.Event, as: RuntimeEvent
   alias Zaq.Engine.EventRegistry
 
   alias Zaq.Engine.Workflows.{
@@ -951,6 +953,118 @@ defmodule Zaq.Engine.Workflows do
   # --- Step runs ---
 
   @doc """
+  Records one nested Action lifecycle event under its captured step-run root.
+
+  This internal, local execution-fact API is synchronous and idempotent by event
+  ID. A row lock protects concurrent appends; lifecycle state/results/logs are
+  untouched, including for late valid evidence. Only supported metadata enters
+  JSON; runtime objects are discarded and secrets redacted. Broadcasts occur
+  after commit, and consumers must refresh authoritative state on invalidation.
+  """
+  @spec record_step_event(binary(), RuntimeEvent.t()) :: {:ok, StepRun.t()} | {:error, term()}
+  def record_step_event(step_id, %RuntimeEvent{} = event) when is_binary(step_id) do
+    if valid_step_event?(step_id, event) do
+      record_valid_step_event(step_id, event)
+    else
+      {:error, :invalid_trace_event}
+    end
+  end
+
+  def record_step_event(_step_id, _event), do: {:error, :invalid_trace_event}
+
+  defp record_valid_step_event(step_id, event) do
+    result =
+      Repo.transaction(fn ->
+        step = Repo.one(from s in StepRun, where: s.id == ^step_id, lock: "FOR UPDATE")
+        if is_nil(step), do: Repo.rollback(:step_not_found)
+        if event.request_id != step.workflow_run_id, do: Repo.rollback(:invalid_trace_event)
+
+        if Enum.any?(step.trace_events, &(&1["id"] == event.id)) do
+          {:duplicate, step}
+        else
+          evidence = step_event_evidence(event)
+
+          updated =
+            step
+            |> StepRun.changeset(%{trace_events: step.trace_events ++ [evidence]})
+            |> Repo.update!()
+
+          {:inserted, updated}
+        end
+      end)
+
+    case result do
+      {:ok, {:inserted, step}} -> broadcast_step({:ok, step})
+      {:ok, {:duplicate, step}} -> {:ok, step}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp valid_step_event?(step_id, event) do
+    root = "workflow_step:#{step_id}"
+    path = event.data[:invocation_path]
+
+    with true <- event.kind in [:tool_started, :tool_completed],
+         true <- is_binary(event.id) and event.id != "",
+         true <- event.data[:origin] == "zaq_action",
+         [^root, segment | rest] <- path,
+         true <- Enum.all?([segment | rest], &match?({:ok, _}, Ecto.UUID.cast(&1))) do
+      prefix = "zaq.#{Base.url_encode64(root, padding: false)}"
+      id = Enum.join([prefix, segment | rest], ".")
+
+      parent =
+        if rest == [],
+          do: root,
+          else: path |> Enum.drop(-1) |> tl() |> then(&Enum.join([prefix | &1], "."))
+
+      event.tool_call_id == id and event.data[:parent_id] == parent
+    else
+      _ -> false
+    end
+  rescue
+    _ -> false
+  end
+
+  defp step_event_evidence(event) do
+    data =
+      Map.take(event.data, [
+        :origin,
+        :invocation_path,
+        :parent_id,
+        :arguments,
+        :result,
+        :outcome,
+        :duration_ms
+      ])
+
+    event
+    |> Map.from_struct()
+    |> Map.take([:id, :kind, :at_ms, :request_id, :run_id, :tool_call_id, :tool_name])
+    |> Map.put(:data, data)
+    |> trace_json_value()
+    |> Observe.sanitize_transport_payload()
+    |> Jason.encode!()
+    |> Jason.decode!()
+  end
+
+  # Callback evidence already excludes artifact bytes. Reject unexpected typed
+  # runtime values instead of converting arbitrary structs or inspecting secrets.
+  defp trace_json_value(%_{}), do: nil
+
+  defp trace_json_value(map) when is_map(map),
+    do: Map.new(map, fn {k, v} -> {k, trace_json_value(v)} end)
+
+  defp trace_json_value(tuple) when is_tuple(tuple),
+    do: tuple |> Tuple.to_list() |> trace_json_value()
+
+  defp trace_json_value(list) when is_list(list), do: Enum.map(list, &trace_json_value/1)
+
+  defp trace_json_value(value)
+       when is_pid(value) or is_reference(value) or is_function(value) or is_port(value), do: nil
+
+  defp trace_json_value(value), do: value
+
+  @doc """
   Creates a step run row with `status: running` before a step executes.
   This is the crash-safe cursor — on node restart, the agent queries these rows
   to resume from the correct step.
@@ -1692,10 +1806,11 @@ defmodule Zaq.Engine.Workflows do
 
   defp broadcast_run(result), do: result
 
-  defp broadcast_step({:ok, step_run} = result) do
+  defp broadcast_step({:ok, step_run}) do
+    step_run = Repo.reload!(step_run)
     normalized = %{step_run | logs: stringify_log_keys(step_run.logs)}
     dispatch_async("workflow_run:#{step_run.workflow_run_id}", {:step_updated, normalized})
-    result
+    {:ok, step_run}
   end
 
   defp broadcast_step(result), do: result

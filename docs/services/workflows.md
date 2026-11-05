@@ -137,6 +137,25 @@ The triggering event's payload is preserved through the fact flow as `params.eve
 
 ---
 
+## Nested Action evidence
+
+`Step.Run.trace_events` stores JSON-safe child lifecycle events separately from
+replaceable `logs`, business `results`, cascade, and run `log_summary`. Existing
+rows default to `[]`; deploy the additive `AddWorkflowStepTraceEvents` migration
+before running code that reads this field. Rolling back that migration removes
+diagnostic child evidence, not workflow business results or lifecycle logs.
+
+The local `Workflows.record_step_event/2` API validates the captured
+`workflow_step:<step_run_uuid>` root, child identity/path and lifecycle kind, then
+locks the latest step row to deduplicate by event ID and append atomically.
+Recording never changes step outcome, including for valid late evidence. It
+retains explicit child outcome through JSON conversion and redacts payloads;
+callbacks and materialized resource bytes are excluded. Lifecycle functions return
+and broadcast reloaded rows, preserving child evidence written after execution
+started. Broadcasts are post-commit invalidations, not a database ordering fence;
+BO consumers must refresh authoritative state through NodeRouter when applying
+overlapping updates. StepRunner remains the owner of normal step auditing.
+
 ## Crash-Safe Cursor (Step.Run)
 
 `StepRunner` implements a write-before/update-after pattern:
