@@ -138,7 +138,8 @@ defmodule Zaq.MixProject do
       # {:jido_chat_mattermost,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat_mattermost",
       #  override: true},
-      {:jido_chat_mattermost, github: "www-zaq-ai/jido_chat_mattermost", branch: "main"},
+      {:jido_chat_mattermost,
+       github: "jat10/jido_chat_mattermost", branch: "fix/attachment-edit-history"},
       # {:nostrum, "~> 0.10", only: [:dev, :prod]}
       # {:jido_chat_telegram,
       #  path: "/Users/julien/Documents/Repos/Github/OSS/jido/chat/jido_chat_telegram",

@@ -20,6 +20,7 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
   use Zaq.DataCase, async: true
 
   alias Zaq.Channels.Api
+  alias Zaq.Channels.DeliveryError
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Messages.Outgoing
   alias Zaq.Event
@@ -203,7 +204,10 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
       insert_smtp_channel("second@example.com")
       Repo.update_all(ChannelConfig, set: [notification_default: false])
 
-      assert {:error, :ambiguous_connector} = deliver("hello", %{"subject" => "Ambiguous"})
+      assert {:error,
+              %DeliveryError{reason: :ambiguous_connector, stage: :transport, delivery: :not_sent}} =
+               deliver("hello", %{"subject" => "Ambiguous"})
+
       refute_received {:email, _}
     end
 
@@ -213,7 +217,12 @@ defmodule Zaq.Channels.EmailHtmlDeliveryTest do
       assert {:ok, _} = ChannelConfig.archive(first)
       insert_smtp_channel("second@example.com")
 
-      assert {:error, :missing_default_smtp_connector} =
+      assert {:error,
+              %DeliveryError{
+                reason: :missing_default_smtp_connector,
+                stage: :transport,
+                delivery: :not_sent
+              }} =
                deliver("hello", %{"subject" => "Archived default"})
 
       refute_received {:email, _}

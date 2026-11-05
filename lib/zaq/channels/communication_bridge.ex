@@ -32,6 +32,15 @@ defmodule Zaq.Channels.CommunicationBridge do
   # `{:ok, receipt}` carries channel-assigned threading pointers (the delivered
   # message's id/anchor) back to the caller; bridges without receipts return `:ok`,
   # which `Zaq.Channels.Api` normalizes to `{:ok, %{}}`.
+  @doc """
+  Sends an outgoing message and returns its receipt or failure.
+
+  Jido chat and email bridges map failures to `Zaq.Channels.DeliveryError`:
+  the original reason is internal, the message is safe for presentation, and
+  stage/delivery describe the failure without choosing fallback policy.
+  Other bridges may retain legacy error reasons; callers must not infer delivery
+  certainty or retry eligibility from an arbitrary error term.
+  """
   @callback send_reply(term(), map()) :: :ok | {:ok, receipt :: map()} | {:error, term()}
   @callback upsert_message(map() | atom() | String.t(), map(), map()) ::
               {:ok, map()} | {:error, term()}

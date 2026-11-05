@@ -504,22 +504,84 @@ and the Notification center. Delivered through
 
 When routed across nodes, this payload is typically returned in `%Zaq.Event.response`.
 
-```elixir
-@enforce_keys [:body, :channel_id, :provider]
+`Outgoing.from_pipeline_result/2` copies routing fields and merges metadata from
+an `%Incoming{}` and pipeline result. Its explicit atom-keyed `:attachments`
+result is copied unchanged; omission defaults to `[]`. Producers own the list-of-Records
+contract, while chat and email validate attachments through `DeliveryFiles` during
+preparation. The builder does not reject the answer for malformed attachments. Incoming
+attachments are never echoed automatically. Attachment collections are excluded
+from metadata, so file bytes and handles do not travel there.
 
-defstruct [
-  :body,          # String — response text
-  :channel_id,    # String
-  :thread_id,     # String | nil
-  :author_id,     # String | nil
-  :author_name,   # String | nil
-  :provider,      # atom | String
-  :in_reply_to,   # String | nil — message_id being replied to
-  metadata: %{}
-]
-```
+`Zaq.Channels.DeliveryFiles` prepares supplied files in memory for both chat and
+email. Lazy materialization requires trusted Event actor or bypass context; source
+paths, handles and credentials are not forwarded to the transport. Preparation
+creates no temporary files and never deletes source files. It acquires whole file
+contents in memory; acquisition budgets are tracked separately in [#875](https://github.com/www-zaq-ai/zaq/issues/875).
+Delivery confirmation forwards an outgoing copy with each attachment Record's
+`content` cleared; all other Record fields, including materialization handles,
+are preserved in that transient copy. Mattermost receipts additionally carry
+content-free descriptors of the delivered channel files, normalized through the
+same media path as incoming attachments. Engine persists those descriptors on
+the existing assistant message and includes them in confirmation replay checks.
+History hydration uses the existing canonical transcript authorization path;
+source Disk handles and file contents are not stored as channel attachments.
+Providers without normalized delivered-media evidence do not fabricate channel
+attachment references.
 
-`Outgoing.from_pipeline_result/2` builds an `%Outgoing{}` from an `%Incoming{}` and a pipeline result map, copying routing fields and merging metadata.
+Chat sends files as documents. With an existing streamed message ID, adapters
+declaring native `edit_attachments` update that post with the answer and file;
+otherwise delivery creates a final post. Mattermost uploads the file and patches
+the existing post, requiring the returned file IDs to confirm attachment delivery.
+Text-only edits preserve attachments. Adapter/provider errors own
+file count and size restrictions: current Jido core rejects multiple attachments,
+while SMTP accepts a list. Text and file replies share preparation and sending;
+file replies use attachment editing only when the adapter explicitly supports it.
+Both text and file creation return Jido's `post.id`, preserving its generated-ID
+fallback when an adapter reports success without a provider message ID.
+Successful file delivery adds no status notice. Attachment edits retain the original
+post ID for delivery confirmation and reply callbacks.
+
+Jido chat and email bridges return `{:error, %Zaq.Channels.DeliveryError{}}` with
+`reason` (the original internal error), `message` (safe presentation text),
+`stage` (`:selection`, `:preparation` or `:transport`) and `delivery` (`:not_sent` or
+`:unconfirmed`). The struct owns no mapping or delivery logic. `DeliveryFiles`
+maps shared selection and preparation errors; each bridge maps its own transport errors.
+SMTP mappings retain safe authentication, connection, rejection and timeout details.
+Jido transport failures use a generic unconfirmed message until shared upstream
+classification is available, tracked in [#893](https://github.com/www-zaq-ai/zaq/issues/893).
+Raw transport reasons are not displayed or included in the struct's inspection.
+
+`Zaq.Channels.Api` owns fallback policy. A rejected runtime selection arrives as
+`Outgoing.attachment_error`, independently of answer success. Channels maps it to
+a selection delivery error and sends the answer with a safe notice, without a file
+attempt. A later valid selection clears the runtime error before delivery.
+An attachment preparation failure may send the answer with the safe explanation
+and no attachments. Unconfirmed transport
+outcomes may only update an existing placeholder via the bridge's update callback;
+they never create a replacement post. SMTP transport failures never trigger another
+email send. Notice failures preserve the original structured error. Notices do not
+retry attachments, invoke reply callbacks or confirm successful attachment delivery.
+Confirmed notice receipts are recorded through the existing delivery confirmation
+path with the text-only notice and no attachments; the original attachment error
+remains the caller's result even if notice delivery or confirmation recording fails.
+Direct bridge calls return failures without initiating fallback operations.
+Legacy unstructured errors do not trigger automatic fallback.
+A provider upload may persist
+even if sending fails; there is no exactly-once guarantee and an explicit resubmit
+sends again. Confirmation or status bookkeeping failure does not retry the send.
+Email delivery builds in-memory Swoosh attachments and sends synchronously.
+
+Channels regression scenarios enter through an authorized Outgoing Event and run
+in the normal test suite: `disk_file_delivery_integration_test.exs` and
+`email_file_delivery_integration_test.exs`. Private loopback Mattermost HTTP and
+SMTP stubs capture actual multipart uploads, final posts, envelopes and raw MIME.
+A barrier holds final transport responses until every concurrent journey reaches
+its boundary; assertions cover selected bytes, filename/MIME, threading, receipts,
+source preservation and independent cleanup. These tests require only ZAQ’s test
+database, with no external provider containers or bootstrap credentials. Stub
+acceptance is contract evidence, not actual recipient inbox acceptance. Real
+Mattermost server compatibility belongs in `jido_chat_mattermost`. Later Agent
+journeys extend these same two Channels modules while retaining the scenarios.
 
 Agent failure payloads use the canonical `Zaq.Agent.ErrorMessage` mapping. Their
 metadata may include an allowlisted reason, recovery category and retryability flag,
@@ -993,7 +1055,7 @@ Called by channels delivery routing (`Channels.Api` -> bridge-specific `send_rep
 
 1. `send_reply/2` receives `%Outgoing{}` and connection details `%{url, token}`.
 2. Resolves the adapter module for the provider.
-3. Builds a `Jido.Chat.Thread` and calls `Chat.Thread.post/3`.
+3. Builds a `Jido.Chat.Thread` and calls `Chat.Thread.post/3`; file delivery uses a new post.
 4. If `outgoing.metadata` contains an `"on_reply"` key, dispatches an Oban job for reply tracking (used by the Notification center).
 
 ### Thread watch management

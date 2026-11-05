@@ -50,6 +50,20 @@ defmodule Zaq.Agent.OpaqueAliases do
 
   def alias_tool_result(_tool_call, result, _context), do: {:ok, result}
 
+  @doc "Expands an Action's schema-declared output aliases before private runtime consumption."
+  @spec expand_tool_output(module(), term(), map()) :: {:ok, term()} | {:error, term()}
+  def expand_tool_output(action_module, output, context) do
+    with {:ok, schema} <- action_schema(action_module, :output_schema) do
+      maybe_map_scoped(
+        output,
+        alias_paths(schema),
+        context,
+        &expand_value/3,
+        &Function.identity/1
+      )
+    end
+  end
+
   @doc false
   @spec clear_scope(term()) :: :ok
   def clear_scope(scope) do

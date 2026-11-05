@@ -37,6 +37,25 @@ defmodule Zaq.Agent.ExecutorTest do
     end
   end
 
+  defmodule RejectedAttachmentFactory do
+    def ask_with_config(_server, _content, _agent, _opts) do
+      events = [
+        %{
+          kind: :tool_completed,
+          at_ms: 1,
+          tool_call_id: "rejected-attachment",
+          data: %{
+            tool_name: "attach_documents",
+            result: {:ok, %ReqLLM.ToolResult{output: %{operation: "invalid", records: []}}, []}
+          }
+        },
+        %{kind: :request_completed, at_ms: 2, data: %{result: "Here is your summary."}}
+      ]
+
+      {:ok, %{request: :request, events: events}}
+    end
+  end
+
   defmodule CoverageStubAgent do
     def get_active_agent(_agent_id),
       do: {:ok, %{id: 77, name: "Stub Agent", job: "Configured job"}}
@@ -477,6 +496,41 @@ defmodule Zaq.Agent.ExecutorTest do
         refute outgoing.metadata[:suppressed]
       end
     end
+  end
+
+  test "rejected attachment selection preserves the answer through Executor and Channels delivery" do
+    outgoing =
+      Executor.run(
+        @incoming,
+        Keyword.merge(@base_opts,
+          factory_module: RejectedAttachmentFactory,
+          status_module: ToolStepStatus
+        )
+      )
+
+    assert outgoing.body == "Here is your summary."
+    assert outgoing.attachments == []
+    assert outgoing.attachment_error == :invalid_attachment_selection
+    assert outgoing.metadata.error == false
+    refute Map.has_key?(outgoing.metadata, :attachment_error)
+
+    event =
+      Zaq.Event.new(outgoing, :channels,
+        opts: [action: :deliver_outgoing, bridge_module: PartialDeliveryBridge]
+      )
+
+    assert {:error,
+            %Zaq.Channels.DeliveryError{
+              reason: :invalid_attachment_selection,
+              stage: :selection,
+              delivery: :not_sent
+            }} = ChannelsApi.handle_event(event, :deliver_outgoing, nil).response
+
+    assert_received {:terminal_publication, notice}
+    assert notice.body == "Here is your summary.\n\nThe requested files could not be attached."
+    assert notice.attachments == []
+    assert notice.attachment_error == nil
+    refute_received {:terminal_publication, _}
   end
 
   test "no-tool and pre-stream error results carry an empty canonical collection" do

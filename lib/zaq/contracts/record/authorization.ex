@@ -69,7 +69,9 @@ defmodule Zaq.Contracts.Record.Authorization do
   defp person_channels(%Person{channels: channels}) when is_list(channels), do: channels
   defp person_channels(_person), do: []
 
-  defp principal(attrs) do
+  @doc "Returns the effective permission principal using the authorization precedence rules."
+  @spec principal(map()) :: {String.t(), String.t()} | nil
+  def principal(attrs) do
     case get(attrs, "principal") do
       %{} = principal ->
         channel = get(principal, "channel") || get(principal, "type")

@@ -7,7 +7,11 @@ defmodule Zaq.Channels.JidoChatBridge do
   Jido.Chat event handling happen atomically.
 
   `send_reply/2` is called by Channels API for outbound delivery to any
-  jido_chat-backed platform.
+  jido_chat-backed platform. Explicit file Records use shared preparation and
+  existing adapter uploads as documents. Capable adapters attach files to the
+  existing streamed post; otherwise file deliveries create a final post;
+  receipts and reply callbacks use Jido's returned post ID. Success adds no status notice.
+  Delivery failures retain their original reason inside `DeliveryError`; Channels API owns notices.
 
   `register_handlers/3` is called to attach function handlers per events
 
@@ -21,14 +25,18 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   require Logger
 
+  alias Zaq.Channels.DeliveryError
+
   alias Jido.Chat
   alias Jido.Chat.Adapter
   alias Jido.Chat.Capabilities
+  alias Jido.Chat.FileUpload
   alias Jido.Chat.Media
   alias Jido.Chat.Thread
 
   alias Zaq.Channels.{
     Bridge,
+    DeliveryFiles,
     RetrievalChannel,
     Supervisor,
     WebhookUrl
@@ -488,10 +496,10 @@ defmodule Zaq.Channels.JidoChatBridge do
   Also dispatches `:on_reply` Oban jobs when `outgoing.metadata` carries such
   instructions (used by the notification center for reply tracking).
   """
-  @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
+  @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, DeliveryError.t()}
   @impl true
-  def send_reply(%Outgoing{} = outgoing, %{url: url, token: token}) do
-    do_send_reply(outgoing, %{url: url, token: token})
+  def send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection_details) do
+    do_send_reply(outgoing, connection_details)
   end
 
   def send_reply(%Outgoing{} = outgoing, _connection_details) do
@@ -499,7 +507,7 @@ defmodule Zaq.Channels.JidoChatBridge do
       "[JidoChatBridge] send_reply called without connection details for channel=#{outgoing.channel_id}"
     )
 
-    {:error, :missing_connection_details}
+    {:error, chat_delivery_error(:missing_connection_details, :not_sent, outgoing)}
   end
 
   @impl true
@@ -1847,18 +1855,69 @@ defmodule Zaq.Channels.JidoChatBridge do
   end
 
   @doc "Sends a reply outbound via the provider adapter. Called by the bridge state process."
-  def do_send_reply(%Outgoing{} = outgoing, %{url: _url, token: _token} = connection) do
+  def do_send_reply(%Outgoing{} = outgoing, %{url: _, token: _} = connection_details) do
     case adapter_for(outgoing.provider) do
       {:ok, adapter_module} ->
-        handle_send_with_adapter(outgoing, adapter_module, connection)
+        case DeliveryFiles.prepare(
+               outgoing.attachments,
+               Map.get(connection_details, :trusted_context, %{})
+             ) do
+          {:ok, prepared} ->
+            send_prepared_reply(outgoing, adapter_module, connection_details, prepared)
+
+          {:error, reason} ->
+            {:error, DeliveryFiles.delivery_error(reason)}
+        end
 
       {:error, _reason} ->
-        {:error, {:unsupported_provider, outgoing.provider}}
+        {:error,
+         chat_delivery_error({:unsupported_provider, outgoing.provider}, :not_sent, outgoing)}
     end
   end
 
-  defp handle_send_with_adapter(%Outgoing{} = outgoing, adapter_module, connection) do
+  defp send_prepared_reply(outgoing, adapter, details, prepared) do
+    files = Enum.map(prepared, &prepared_upload/1)
+
+    case handle_send_with_adapter(outgoing, adapter, details, files) do
+      {:error, reason} -> {:error, chat_delivery_error(reason, :unconfirmed, outgoing)}
+      success -> success
+    end
+  end
+
+  defp chat_delivery_error(reason, delivery, outgoing) do
+    subject = if outgoing.attachments == [], do: "Message", else: "Attachment"
+
+    %DeliveryError{
+      reason: reason,
+      message:
+        "#{subject} delivery was not confirmed. Check the conversation before sending again.",
+      stage: :transport,
+      delivery: delivery
+    }
+  end
+
+  defp prepared_upload(file) do
+    %FileUpload{
+      kind: :file,
+      data: file.content,
+      filename: file.name,
+      media_type: file.mime_type,
+      size_bytes: file.size
+    }
+  end
+
+  defp local_transport_opts(details) do
+    details |> Map.take([:transport]) |> Map.to_list()
+  end
+
+  defp handle_send_with_adapter(
+         %Outgoing{} = outgoing,
+         adapter_module,
+         details,
+         files
+       ) do
     metadata = outgoing.metadata || %{}
+    opts = [files: files] ++ local_transport_opts(details)
 
     with {:use_update, message_id} <- send_mode(outgoing, adapter_module),
          {:ok, receipt} <-
@@ -1868,12 +1927,18 @@ defmodule Zaq.Channels.JidoChatBridge do
              outgoing.channel_id,
              message_id,
              outgoing.body,
-             connection,
-             %{request_id: metadata[:request_id], metadata: metadata}
+             details,
+             %{
+               request_id: metadata[:request_id],
+               metadata: metadata,
+               files: files,
+               outgoing: outgoing
+             }
            ) do
+      if files != [], do: dispatch_on_reply(metadata, receipt.message_id)
       {:ok, Map.put(receipt, :confirmation, :confirmed)}
     else
-      :create -> create_and_dispatch_reply(outgoing, adapter_module, connection)
+      :create -> create_and_dispatch_reply(outgoing, adapter_module, details, opts)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -1881,17 +1946,23 @@ defmodule Zaq.Channels.JidoChatBridge do
   defp send_mode(%Outgoing{} = outgoing, adapter_module) do
     case metadata_message_id(outgoing.metadata) do
       message_id when is_present_message_id(message_id) ->
-        if supports_message_updates?(adapter_module), do: {:use_update, message_id}, else: :create
+        attachment_edit? =
+          outgoing.attachments == [] or
+            declared_adapter_capabilities(adapter_module)[:edit_attachments] == :native
+
+        if supports_message_updates?(adapter_module) and attachment_edit?,
+          do: {:use_update, message_id},
+          else: :create
 
       _ ->
         :create
     end
   end
 
-  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, connection) do
+  defp create_and_dispatch_reply(%Outgoing{} = outgoing, adapter_module, connection, opts) do
     metadata = outgoing.metadata || %{}
 
-    with {:ok, %{message_id: post_id}} <-
+    with {:ok, %{message_id: post_id} = receipt} <-
            create_message(
              outgoing.provider,
              adapter_module,
@@ -1899,13 +1970,44 @@ defmodule Zaq.Channels.JidoChatBridge do
              outgoing.thread_id,
              outgoing.body,
              connection,
-             metadata
+             metadata,
+             Keyword.put(opts, :outgoing, outgoing)
            ) do
       canonical_id = ConversationIdentity.normalize(post_id)
       dispatch_on_reply(outgoing.metadata, canonical_id)
-      {:ok, %{confirmation: :confirmed, action: :created, message_id: canonical_id}}
+
+      {:ok,
+       receipt
+       |> Map.put(:message_id, canonical_id)
+       |> Map.put(:confirmation, :confirmed)}
     end
   end
+
+  defp delivery_attachments(receipt, {:ok, %{metadata: metadata}}, %Outgoing{} = outgoing)
+       when is_map(metadata) do
+    author_id = metadata[:source_author_id]
+    config_id = Map.get(outgoing.routing_context, :channel_config_id)
+
+    if is_binary(author_id) and author_id != "" and not is_nil(config_id) and
+         metadata[:media] not in [nil, []] do
+      attachments =
+        metadata.media
+        |> media_records(
+          outgoing.provider,
+          to_string(config_id),
+          receipt.message_id,
+          author_id,
+          outgoing.channel_id
+        )
+        |> Enum.map(&Record.attachment_metadata/1)
+
+      Map.put(receipt, :attachments, attachments)
+    else
+      receipt
+    end
+  end
+
+  defp delivery_attachments(receipt, _result, _outgoing), do: receipt
 
   defp thread_reply?(%Chat.Incoming{external_thread_id: id}) when is_binary(id) and id != "",
     do: true
@@ -1968,6 +2070,8 @@ defmodule Zaq.Channels.JidoChatBridge do
       Logger.warning(
         "[JidoChatBridge] on_reply dispatch failed for #{inspect(mod_str)}: #{Exception.message(e)}"
       )
+  catch
+    _, _ -> Logger.warning("[JidoChatBridge] on_reply dispatch failed")
   end
 
   defp dispatch_on_reply(_metadata, _post_id), do: :ok
@@ -1979,7 +2083,8 @@ defmodule Zaq.Channels.JidoChatBridge do
          thread_id,
          body,
          %{url: url, token: token} = connection,
-         metadata
+         metadata,
+         opts \\ []
        ) do
     effective_thread_id = thread_id || channel_id
 
@@ -1993,34 +2098,44 @@ defmodule Zaq.Channels.JidoChatBridge do
         metadata: %{url: url, token: token}
       })
 
-    post_body = build_post_body(body, metadata)
+    with {:ok, post_body} <- build_post_body(body, metadata, Keyword.get(opts, :files, [])),
+         {:ok, post} <-
+           Chat.Thread.post(
+             thread,
+             post_body,
+             format_delivery_opts(provider, connection, metadata) ++
+               Keyword.take(opts, [:transport])
+           ) do
+      receipt = %{action: :created, message_id: post.id}
 
-    case Chat.Thread.post(thread, post_body, format_delivery_opts(provider, connection, metadata)) do
-      {:ok, post} ->
-        {:ok,
-         %{
-           action: :created,
-           message_id: post.id
-         }}
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, delivery_attachments(receipt, {:ok, post.response}, opts[:outgoing])}
     end
   end
 
-  defp edit_message(provider, adapter_module, channel_id, message_id, body, connection, request) do
+  defp edit_message(
+         provider,
+         adapter_module,
+         channel_id,
+         message_id,
+         body,
+         connection,
+         request
+       ) do
     metadata = Map.get(request, :metadata, %{})
 
     opts =
       (AdapterOptions.build(provider, connection) ++
          [update_intent: Map.get(request, :update_intent)])
+      |> Keyword.put(:files, Map.get(request, :files, []))
       |> maybe_put_format_from_metadata(metadata)
 
     result = adapter_module.edit_message(channel_id, message_id, body, opts)
 
     case DeliveryResult.normalize_edit(adapter_module, result) do
       :ok ->
-        {:ok, %{action: :updated, message_id: ConversationIdentity.normalize(message_id)}}
+        receipt = %{action: :updated, message_id: ConversationIdentity.normalize(message_id)}
+
+        {:ok, delivery_attachments(receipt, result, request[:outgoing])}
 
       {:error, reason} ->
         {:error, reason}
@@ -2043,11 +2158,13 @@ defmodule Zaq.Channels.JidoChatBridge do
     |> maybe_put_format_from_metadata(metadata)
   end
 
-  defp build_post_body(body, metadata) when is_binary(body) do
-    %{text: body, formatted: body, metadata: post_metadata(metadata)}
+  defp build_post_body(body, metadata, files) when is_binary(body) do
+    payload = %{text: body, formatted: body, metadata: post_metadata(metadata)}
+    {:ok, if(files == [], do: payload, else: Map.put(payload, :files, files))}
   end
 
-  defp build_post_body(body, _metadata), do: body
+  defp build_post_body(body, _metadata, []), do: {:ok, body}
+  defp build_post_body(_body, _metadata, _files), do: {:error, :invalid_postable}
 
   defp post_metadata(metadata) when is_map(metadata) do
     case Map.get(metadata, :format) || Map.get(metadata, "format") do

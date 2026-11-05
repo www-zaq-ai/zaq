@@ -6,6 +6,9 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
   comes from the `identifier` argument. SMTP settings are read from
   `channel_configs.settings` under provider `email:smtp` (same source as the
   SMTP configuration UI).
+
+  Attachment payloads contain prepared binary content, filenames, MIME types and
+  byte sizes from `DeliveryFiles`; paths and URLs are never opened here.
   """
 
   import Swoosh.Email
@@ -89,9 +92,11 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
       |> apply_custom_headers(payload, metadata)
 
     result =
-      if email.to == [] and email.cc == [],
-        do: {:error, :no_reply_recipients},
-        else: Mailer.deliver(email, delivery_opts)
+      with {:ok, email} <- apply_attachments(email, Map.get(payload, "attachments", [])) do
+        if email.to == [] and email.cc == [],
+          do: {:error, :no_reply_recipients},
+          else: Mailer.deliver(email, delivery_opts)
+      end
 
     case result do
       {:ok, _} ->
@@ -106,6 +111,25 @@ defmodule Zaq.Channels.EmailBridge.SmtpSender do
         {:error, reason}
     end
   end
+
+  defp apply_attachments(email, files) when is_list(files) do
+    files
+    |> Enum.reverse()
+    |> Enum.reduce_while({:ok, email}, fn
+      %{content: content, name: name, mime_type: mime_type, size: size}, {:ok, email}
+      when is_binary(content) and is_binary(name) and is_binary(mime_type) and
+             is_integer(size) and size == byte_size(content) ->
+        prepared =
+          Swoosh.Attachment.new({:data, content}, filename: name, content_type: mime_type)
+
+        {:cont, {:ok, attachment(email, prepared)}}
+
+      _, _ ->
+        {:halt, {:error, :invalid_prepared_attachment}}
+    end)
+  end
+
+  defp apply_attachments(_email, _files), do: {:error, :invalid_prepared_attachment}
 
   defp apply_recipients(email, identifier, payload, own_addresses) do
     case Map.get(payload, "reply_targets") do

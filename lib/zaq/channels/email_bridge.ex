@@ -20,6 +20,8 @@ defmodule Zaq.Channels.EmailBridge do
   require Logger
 
   alias Zaq.Channels.Bridge
+  alias Zaq.Channels.DeliveryError
+  alias Zaq.Channels.DeliveryFiles
   alias Zaq.Channels.EmailBridge.ImapConfigHelpers
   alias Zaq.Channels.EmailBridge.SelfAddresses
   alias Zaq.Contracts.Record
@@ -211,16 +213,19 @@ defmodule Zaq.Channels.EmailBridge do
 
   Reads subject and html_body from `outgoing.metadata` (keys `:subject` / `"subject"`
   and `:html_body` / `"html_body"`). Falls back to a default subject if missing.
+  Prepares all attachments with the connection's trusted context before delivery,
+  retaining their bytes until the synchronous SMTP sender returns.
   """
-  @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, term()}
+  @spec send_reply(Outgoing.t(), map()) :: {:ok, map()} | {:error, DeliveryError.t()}
   @impl true
-  def send_reply(%Outgoing{} = outgoing, _connection_details) do
-    with {:ok, smtp_config_id} <- reply_smtp_config_id(outgoing) do
-      send_reply_with_smtp(outgoing, smtp_config_id)
+  def send_reply(%Outgoing{} = outgoing, connection_details) do
+    case reply_smtp_config_id(outgoing) do
+      {:ok, smtp_config_id} -> send_reply_with_smtp(outgoing, smtp_config_id, connection_details)
+      {:error, reason} -> {:error, smtp_delivery_error(reason)}
     end
   end
 
-  defp send_reply_with_smtp(outgoing, smtp_config_id) do
+  defp send_reply_with_smtp(outgoing, smtp_config_id, connection_details) do
     # Two independent predicates. `inbound_reply?` is about *provenance* (are we
     # answering an email someone sent us) and drives the `Re:` prefix. Continuity
     # (do we have a parent to point at) comes from `thread_anchor`/`in_reply_to`
@@ -251,7 +256,20 @@ defmodule Zaq.Channels.EmailBridge do
       |> maybe_put("from_email", from_email)
       |> maybe_put("from_name", from_name)
 
-    case deliver_email_reply(outgoing, payload, smtp_config_id) do
+    result =
+      case DeliveryFiles.prepare(
+             outgoing.attachments,
+             Map.get(connection_details, :trusted_context, %{}),
+             connection_details |> Map.take([:node_router]) |> Map.to_list()
+           ) do
+        {:ok, files} ->
+          deliver_email_reply(outgoing, Map.put(payload, "attachments", files), smtp_config_id)
+
+        {:error, reason} ->
+          {:error, DeliveryFiles.delivery_error(reason)}
+      end
+
+    case result do
       :ok ->
         {:ok, delivery_receipt(threading)}
 
@@ -283,21 +301,85 @@ defmodule Zaq.Channels.EmailBridge do
     Code.ensure_loaded!(sender)
     arity = if is_nil(smtp_config_id), do: 3, else: 4
 
-    cond do
-      function_exported?(sender, :send_notification_with_receipt, arity) and
-          is_nil(smtp_config_id) ->
-        sender.send_notification_with_receipt(outgoing.channel_id, payload, %{})
+    result =
+      cond do
+        function_exported?(sender, :send_notification_with_receipt, arity) and
+            is_nil(smtp_config_id) ->
+          sender.send_notification_with_receipt(outgoing.channel_id, payload, %{})
 
-      function_exported?(sender, :send_notification_with_receipt, arity) ->
-        sender.send_notification_with_receipt(outgoing.channel_id, payload, %{}, smtp_config_id)
+        function_exported?(sender, :send_notification_with_receipt, arity) ->
+          sender.send_notification_with_receipt(outgoing.channel_id, payload, %{}, smtp_config_id)
 
-      is_nil(smtp_config_id) ->
-        sender.send_notification(outgoing.channel_id, payload, %{})
+        is_nil(smtp_config_id) ->
+          sender.send_notification(outgoing.channel_id, payload, %{})
 
-      true ->
-        sender.send_notification(outgoing.channel_id, payload, %{}, smtp_config_id)
+        true ->
+          sender.send_notification(outgoing.channel_id, payload, %{}, smtp_config_id)
+      end
+
+    case result do
+      {:error, reason} -> {:error, smtp_delivery_error(reason)}
+      success -> success
     end
   end
+
+  defp smtp_delivery_error(reason) do
+    {message, delivery} = smtp_failure_details(reason)
+    %DeliveryError{reason: reason, message: message, stage: :transport, delivery: delivery}
+  end
+
+  defp smtp_failure_details({wrapper, {kind, _host, detail}})
+       when wrapper in [:no_more_hosts, :retries_exceeded, :send],
+       do: smtp_failure_details({kind, detail})
+
+  defp smtp_failure_details({:permanent_failure, :auth_failed}),
+    do: {"SMTP authentication failed.", :not_sent}
+
+  defp smtp_failure_details({:permanent_failure, :ssl_not_started}),
+    do: {"The secure SMTP connection could not be initialized.", :not_sent}
+
+  defp smtp_failure_details({:temporary_failure, :tls_failed}),
+    do: {"A secure SMTP connection could not be established.", :not_sent}
+
+  defp smtp_failure_details({:missing_requirement, :auth}),
+    do: {"The SMTP server does not support the required authentication.", :not_sent}
+
+  defp smtp_failure_details({:missing_requirement, :tls}),
+    do: {"The SMTP server does not support the required secure connection.", :not_sent}
+
+  defp smtp_failure_details({:network_failure, {:error, :timeout}}),
+    do: {"SMTP delivery timed out; delivery could not be confirmed.", :unconfirmed}
+
+  defp smtp_failure_details({:network_failure, {:error, reason}})
+       when reason in [:econnrefused, :nxdomain, :enetunreach, :ehostunreach],
+       do: {"The SMTP server could not be reached.", :not_sent}
+
+  defp smtp_failure_details({:network_failure, _}),
+    do: {"The SMTP connection failed; delivery could not be confirmed.", :unconfirmed}
+
+  defp smtp_failure_details({kind, _}) when kind in [:permanent_failure, :temporary_failure],
+    do: {"The SMTP server rejected the email.", :not_sent}
+
+  defp smtp_failure_details(:no_reply_recipients),
+    do: {"No email recipients are available.", :not_sent}
+
+  defp smtp_failure_details(reason)
+       when reason in [:no_relay, :invalid_port, :no_credentials, :ssl_not_started],
+       do: {"The SMTP connection settings are incomplete or invalid.", :not_sent}
+
+  defp smtp_failure_details(reason)
+       when reason in [
+              :ambiguous_connector,
+              :missing_default_smtp_connector,
+              :missing_smtp_binding,
+              :connector_mismatch,
+              :invalid_connector_id,
+              :not_found
+            ],
+       do: {"A valid SMTP connector could not be selected.", :not_sent}
+
+  defp smtp_failure_details(_reason),
+    do: {"Email delivery could not be confirmed.", :unconfirmed}
 
   defp delivery_conversation_id(outgoing, threading) do
     Map.get(outgoing.routing_context || %{}, :conversation_id) ||

@@ -2757,8 +2757,7 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
       {200, streamed_reply(conn.request_path, "Authorized", "gpt-4.1-mini")}
     end
 
-    {child_spec, endpoint} = OpenAIStub.server(handler, test_pid)
-    start_supervised!(child_spec)
+    {_server, endpoint} = OpenAIStub.start!(handler, test_pid)
 
     credential =
       ai_credential_fixture(%{

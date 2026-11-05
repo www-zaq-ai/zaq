@@ -2,6 +2,8 @@ defmodule Zaq.Agent.StreamEventsTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias Jido.AI.Request.Handle
+  alias Jido.AI.Request.Stream, as: RequestStream
   alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
   alias Zaq.Agent.StreamEvents
@@ -33,6 +35,159 @@ defmodule Zaq.Agent.StreamEventsTest do
       send(self(), {:snapshot, stage, message, Keyword.get(opts, :tool_steps)})
       incoming
     end
+  end
+
+  property "native streams isolate interleaved attachment and terminal events by handle ID" do
+    check all(
+            [request_id, other_id] <-
+              uniq_list_of(string(:alphanumeric, min_length: 1), length: 2)
+          ) do
+      request = %Handle{id: request_id, server: self(), query: "question"}
+      other_request = %Handle{id: other_id, server: self(), query: "other question"}
+
+      events = [
+        event(:tool_completed, 1, %{tool_name: "attach_documents", result: {:ok, nil, []}},
+          tool_call_id: "other-attachment"
+        )
+        |> Map.put(:request_id, other_id),
+        event(:request_failed, 2, %{error: :other_request_failure})
+        |> Map.put(:request_id, other_id),
+        event(:request_completed, 3, %{result: "The requested answer."})
+        |> Map.put(:request_id, request_id)
+      ]
+
+      Enum.each(events, &RequestStream.send_event({:pid, self()}, &1))
+
+      assert {:ok,
+              %{
+                answer: "The requested answer.",
+                attachments: [],
+                attachment_error: nil,
+                tool_calls: []
+              }} =
+               StreamEvents.consume(
+                 RequestStream.events(request, stream_event_timeout_ms: 100),
+                 incoming(),
+                 request: request,
+                 status_module: FakeStatus
+               )
+
+      assert {:error, :other_request_failure, %{attachment_error: :invalid_attachment_selection}} =
+               StreamEvents.consume(
+                 RequestStream.events(other_request, stream_event_timeout_ms: 100),
+                 incoming(),
+                 request: other_request,
+                 status_module: FakeStatus
+               )
+    end
+  end
+
+  for {scenario, output} <- [
+        {"rejected instruction", %{operation: "unsupported", records: []}},
+        {"malformed output", "not an attachment instruction"}
+      ] do
+    @attachment_output output
+
+    test "preserves a completed answer after attachment selection receives #{scenario}" do
+      completion = event(:request_completed, 3, %{result: "Here is your summary."})
+
+      assert {:ok, %{answer: "Here is your summary.", attachments: []}} =
+               StreamEvents.consume([completion], incoming(), status_module: FakeStatus)
+
+      events = [
+        event(:tool_started, 1, %{tool_name: "attach_documents"}, tool_call_id: "attachment-1"),
+        event(
+          :tool_completed,
+          2,
+          %{tool_name: "attach_documents", result: {:ok, @attachment_output, []}},
+          tool_call_id: "attachment-1"
+        ),
+        completion
+      ]
+
+      assert {:ok, %{answer: "Here is your summary.", attachments: []}} =
+               StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+    end
+  end
+
+  property "malformed attachment outputs preserve arbitrary completed answers with a separate failure" do
+    check all(
+            answer <- string(:printable, min_length: 1),
+            output <- one_of([integer(), string(:printable), list_of(integer()), constant(nil)])
+          ) do
+      events = [
+        event(:tool_completed, 1, %{tool_name: "attach_documents", result: {:ok, output, []}},
+          tool_call_id: "invalid-selection"
+        ),
+        event(:request_completed, 2, %{result: answer})
+      ]
+
+      assert {:ok,
+              %{
+                answer: ^answer,
+                attachments: [],
+                attachment_error: :invalid_attachment_selection
+              }} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+    end
+  end
+
+  test "a valid selection instruction clears a prior selection error" do
+    events = [
+      event(:tool_completed, 1, %{tool_name: "attach_documents", result: {:ok, nil, []}},
+        tool_call_id: "invalid-selection"
+      ),
+      event(
+        :tool_completed,
+        2,
+        %{tool_name: "attach_documents", result: {:ok, %{operation: "replace", records: []}, []}},
+        tool_call_id: "corrected-selection"
+      ),
+      event(:request_completed, 3, %{result: "No files needed."})
+    ]
+
+    assert {:ok, %{answer: "No files needed.", attachments: [], attachment_error: nil}} =
+             StreamEvents.consume(events, incoming(),
+               status_module: FakeStatus,
+               opaque_alias_scope: self()
+             )
+  end
+
+  test "output validation failure preserves the answer when an alias scope is available" do
+    events = [
+      event(
+        :tool_completed,
+        1,
+        %{
+          tool_name: "attach_documents",
+          result: {:ok, %{operation: "unsupported", records: []}, []}
+        },
+        tool_call_id: "invalid-selection"
+      ),
+      event(:request_completed, 2, %{result: "Here is your summary."})
+    ]
+
+    assert {:ok,
+            %{
+              answer: "Here is your summary.",
+              attachments: [],
+              attachment_error: :invalid_attachment_selection
+            }} =
+             StreamEvents.consume(events, incoming(),
+               status_module: FakeStatus,
+               opaque_alias_scope: self()
+             )
+  end
+
+  test "attachment selection failure does not hide a genuine request failure" do
+    events = [
+      event(:tool_completed, 1, %{tool_name: "attach_documents", result: {:ok, nil, []}},
+        tool_call_id: "invalid-selection"
+      ),
+      event(:request_failed, 2, %{error: :provider_unavailable})
+    ]
+
+    assert {:error, :provider_unavailable, %{attachments: []}} =
+             StreamEvents.consume(events, incoming(), status_module: FakeStatus)
   end
 
   test "declared sources accumulate per request without inspecting chunks or permissions" do

@@ -3,6 +3,26 @@ defmodule Zaq.TestSupport.OpenAIStubTest do
 
   alias Zaq.TestSupport.OpenAIStub
 
+  test "started stubs keep distinct listener ports and serve their own responses" do
+    servers =
+      for index <- 1..8 do
+        {server, endpoint} =
+          OpenAIStub.start!(fn _conn, _body -> {200, %{"index" => index}} end, self())
+
+        {:ok, {{127, 0, 0, 1}, port}} = ThousandIsland.listener_info(server)
+        assert URI.parse(endpoint).port == port
+        assert port > 0
+        {endpoint, index}
+      end
+
+    assert length(Enum.uniq_by(servers, &elem(&1, 0))) == length(servers)
+
+    for {endpoint, index} <- servers do
+      assert {:ok, %Req.Response{status: 200, body: %{"index" => ^index}}} =
+               Req.get(endpoint <> "/probe")
+    end
+  end
+
   test "chat_completion/2 includes optional logprobs" do
     logprobs = %{"content" => [%{"token" => "ok", "logprob" => -0.1}]}
     completion = OpenAIStub.chat_completion("hello", logprobs: logprobs)

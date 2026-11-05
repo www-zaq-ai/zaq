@@ -2,6 +2,9 @@ defmodule Zaq.Agent.StreamEvents do
   @moduledoc """
   Reduces Jido AI ask-stream events into ZAQ runtime output.
 
+  Events must already be scoped to one request, as provided by
+  `Jido.AI.Request.Stream`. Callers supplying other enumerables own that boundary.
+
   This module owns request-local stream concerns: realtime buffered broadcasts,
   per-turn trace capture, tool-call capture, and final usage/result extraction.
   Canonical `tool_calls` own private evidence, sequence and normalized outcome.
@@ -21,11 +24,21 @@ defmodule Zaq.Agent.StreamEvents do
   Meaningful published answer content is tracked separately from reasoning. A
   failed stream returns any outstanding answer snapshot for Executor's terminal
   delivery without admitting another intermediate publication.
+
+  Successful attachment-tool completions update this stream's selection before
+  trace serialization. Scoped aliases are expanded only for delivery; ordinary
+  private traces retain the same aliased results as other document tools. Only
+  successful terminal results expose selected files in `attachments`; failed,
+  cancelled and incomplete streams return no selected files.
+  Rejected selection instructions clear the files and set `attachment_error`,
+  without failing the answer. A later valid instruction clears that error.
   """
 
   alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
+  alias Zaq.Agent.OpaqueAliases
   alias Zaq.Agent.Status
+  alias Zaq.Agent.Tools.DataSource.AttachDocuments
   alias Zaq.ConnectorConfig.LiveUpdates
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.ToolStep
@@ -51,6 +64,8 @@ defmodule Zaq.Agent.StreamEvents do
           answer: term(),
           answer_published?: boolean(),
           pending_answer: String.t() | nil,
+          attachments: [Record.t()],
+          attachment_error: :invalid_attachment_selection | nil,
           usage: map(),
           llm_calls: [map()],
           trace: [map()],
@@ -107,6 +122,7 @@ defmodule Zaq.Agent.StreamEvents do
       execution_user_message_id: Keyword.get(opts, :execution_user_message_id),
       execution_id: Keyword.get(opts, :execution_id),
       runtime_pid: Keyword.get(opts, :runtime_pid),
+      opaque_alias_scope: Keyword.get(opts, :opaque_alias_scope),
       agent: Keyword.get(opts, :agent),
       started_at: started_at,
       last_flush_ms: started_at,
@@ -129,6 +145,9 @@ defmodule Zaq.Agent.StreamEvents do
       tool_calls: %{},
       published_tool_steps: nil,
       answer: nil,
+      attachments: [],
+      attachment_error: nil,
+      request_completed: false,
       usage: %{},
       llm_calls: %{},
       llm_call_order: [],
@@ -398,6 +417,7 @@ defmodule Zaq.Agent.StreamEvents do
   defp complete_tool_call(event, state, tool_call_id, invocation_id, existing) do
     data = data(event)
     tool_name = field(event, :tool_name) || data_get(data, :tool_name) || existing["name"]
+    state = select_attachments(state, tool_name, data_get(data, :result))
 
     {trace_result, trace_artifacts} =
       externalize_trace_artifacts(data_get(data, :result), tool_call_id, tool_name)
@@ -432,6 +452,32 @@ defmodule Zaq.Agent.StreamEvents do
 
     broadcast_tool(state, tool_call, :completed)
   end
+
+  defp select_attachments(
+         state,
+         "attach_documents",
+         {:ok, %ToolResult{output: output}, _effects}
+       ),
+       do: select_attachments(state, "attach_documents", {:ok, output, []})
+
+  defp select_attachments(state, "attach_documents", {:ok, output, _effects})
+       when is_map(output) do
+    with {:ok, expanded} <-
+           OpaqueAliases.expand_tool_output(AttachDocuments, output, %{
+             opaque_alias_scope: state.opaque_alias_scope
+           }),
+         {:ok, instruction} <- AttachDocuments.validate_output(expanded),
+         {:ok, selected} <- AttachDocuments.reduce_selection(state.attachments, instruction) do
+      %{state | attachments: selected, attachment_error: nil}
+    else
+      _ -> %{state | attachments: [], attachment_error: :invalid_attachment_selection}
+    end
+  end
+
+  defp select_attachments(state, "attach_documents", {:ok, _output, _effects}),
+    do: %{state | attachments: [], attachment_error: :invalid_attachment_selection}
+
+  defp select_attachments(state, _tool_name, _result), do: state
 
   defp put_tool_trace(trace, tool_call) do
     tool_call = Map.take(tool_call, @tool_trace_fields)
@@ -586,6 +632,7 @@ defmodule Zaq.Agent.StreamEvents do
     %{
       state
       | answer: data_get(data, :result),
+        request_completed: true,
         usage: usage,
         termination_reason: data_get(data, :termination_reason) || :complete
     }
@@ -725,6 +772,9 @@ defmodule Zaq.Agent.StreamEvents do
       answer: state.answer || state.latest_answer || state.current_full,
       answer_published?: not is_nil(state.published_answer),
       pending_answer: pending_answer(state),
+      attachments:
+        if(state.request_completed and is_nil(state.error), do: state.attachments, else: []),
+      attachment_error: state.attachment_error,
       usage: state.usage,
       llm_calls: public_llm_calls(state),
       trace: Enum.reverse(state.trace),

@@ -15,6 +15,7 @@ defmodule Zaq.Channels.Api do
     credential themselves.
   - Resolve provider bridge modules through `Zaq.Channels.Bridge`.
   - Delegate transport-specific behavior to bridge callbacks.
+  - Preserve answers with a best-effort notice when attachment delivery fails.
   - Derive public tool-step snapshots from canonical invocation facts on final
     delivery copies, after Engine finalization has consumed private evidence.
 
@@ -23,6 +24,8 @@ defmodule Zaq.Channels.Api do
   """
 
   @behaviour Zaq.InternalBoundaries
+
+  require Logger
 
   alias Zaq.Channels.{
     Bridge,
@@ -33,6 +36,8 @@ defmodule Zaq.Channels.Api do
   }
 
   alias Zaq.Channels.DeliveryConfirmation
+  alias Zaq.Channels.DeliveryError
+  alias Zaq.Channels.DeliveryFiles
   alias Zaq.Channels.HttpClient
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Channels.MessageFormatter
@@ -206,10 +211,13 @@ defmodule Zaq.Channels.Api do
         |> maybe_attach_status_message_id()
         |> MessageFormatter.format_outgoing()
 
+      details = delivery_context(connection_details, outgoing, event)
+
       response =
         formatted_outgoing
-        |> bridge.send_reply(connection_details)
+        |> deliver_reply(bridge, details)
         |> normalize_delivery_response()
+        |> report_file_failure(formatted_outgoing, bridge, details, bridge_module, event.opts)
         |> DeliveryConfirmation.record(outgoing, event.opts)
 
       %{event | response: response}
@@ -1062,6 +1070,94 @@ defmodule Zaq.Channels.Api do
       {:ok, config, bridge_module.fetch_connection_details(provider)}
     end
   end
+
+  defp deliver_reply(
+         %Outgoing{attachment_error: :invalid_attachment_selection},
+         _bridge,
+         _details
+       ),
+       do: {:error, DeliveryFiles.delivery_error(:invalid_attachment_selection)}
+
+  defp deliver_reply(outgoing, bridge, details), do: bridge.send_reply(outgoing, details)
+
+  defp report_file_failure(
+         response,
+         %Outgoing{attachments: [], attachment_error: nil},
+         _bridge,
+         _details,
+         _resolver,
+         _opts
+       ),
+       do: response
+
+  defp report_file_failure(
+         {:error, %DeliveryError{} = error} = response,
+         %Outgoing{body: body} = outgoing,
+         bridge,
+         details,
+         resolver,
+         opts
+       )
+       when is_binary(body) do
+    notice = %{
+      outgoing
+      | body: Enum.join(Enum.reject([body, error.message], &(&1 == "")), "\n\n"),
+        attachments: [],
+        attachment_error: nil,
+        metadata:
+          Map.drop(outgoing.metadata || %{}, [:on_reply, "on_reply", :html_body, "html_body"])
+    }
+
+    deliver_failure_notice(error, notice, bridge, details, resolver)
+    |> normalize_delivery_response()
+    |> DeliveryConfirmation.record(notice, opts)
+
+    response
+  rescue
+    _ ->
+      Logger.warning("[Channels.Api] attachment delivery notice failed")
+      response
+  catch
+    _, _ ->
+      Logger.warning("[Channels.Api] attachment delivery notice failed")
+      response
+  end
+
+  defp report_file_failure(response, _outgoing, _bridge, _details, _resolver, _opts), do: response
+
+  defp deliver_failure_notice(
+         %DeliveryError{stage: stage, delivery: :not_sent},
+         outgoing,
+         bridge,
+         details,
+         _resolver
+       )
+       when stage in [:selection, :preparation] do
+    bridge.send_reply(outgoing, details)
+  end
+
+  defp deliver_failure_notice(
+         %DeliveryError{stage: :transport, delivery: :unconfirmed},
+         outgoing,
+         bridge,
+         details,
+         resolver
+       ) do
+    request = outgoing_to_upsert_request(outgoing)
+
+    with true <- is_present_message_id(request.message_id),
+         true <- supports_callback?(bridge, :upsert_message, 3),
+         {:ok, config, _connection} <- upsert_connection(resolver, outgoing) do
+      bridge.upsert_message(config, Map.put(request, :metadata, outgoing.metadata), details)
+    end
+  end
+
+  defp deliver_failure_notice(_error, _outgoing, _bridge, _details, _resolver), do: :ok
+
+  defp delivery_context(details, %Outgoing{attachments: []}, _event), do: details
+
+  defp delivery_context(details, %Outgoing{}, event),
+    do: Map.put(details, :trusted_context, TrustedContext.from_event(event))
 
   defp delivery_connection(bridge_module, %Outgoing{provider: provider}, _opts)
        when provider in [:web, "web"],
