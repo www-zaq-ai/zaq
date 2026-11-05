@@ -1,7 +1,8 @@
 defmodule Zaq.Agent.CitationNormalizer do
   @moduledoc false
 
-  @marker_regex ~r/\[\[(source|memory):([^\]]+)\]\]/u
+  # Branch reset keeps kind/value captures identical for both paired bracket styles.
+  @marker_regex ~r/(?|\[\[(source|memory):([^\]]+)\]\]|【(source|memory):([^】]+)】)/u
   @default_memory_labels MapSet.new([
                            "llm-general-knowledge",
                            "llm-reasoning-inference",

@@ -29,6 +29,7 @@
   "/storybook/components/design_system/tab_nav",
   "/storybook/components/design_system/toggle",
   "/storybook/components/feedback/flash",
+  "/storybook/components/forms/ai_model_selector",
   "/storybook/components/forms/button",
   "/storybook/components/forms/checkbox",
   "/storybook/components/forms/input",

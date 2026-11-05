@@ -223,10 +223,9 @@ test.describe("System Config", () => {
 
       await page.locator("#rag-reranking-section").scrollIntoViewIfNeeded()
       await pickSearchableSelect(page, "#rag-reranking-credential-select", seededCredential.name)
-      await expect(page.locator("#rag-reranking-model-select input[data-select-value]")).toHaveValue("")
-      await expect(page.locator("#rag-reranking-section")).toContainText("No compatible models.")
-      await expect(page.locator("#rag-reranking-model-select li[data-select-option]")).toHaveCount(0)
-      await expect(page.locator('#rag-reranking-form input[type="text"][name="rag_model_config[model]"]')).toHaveCount(0)
+      await expect(page.locator('#rag-reranking-form input[type="text"][name="rag_model_config[model]"]')).toHaveValue("")
+      await expect(page.locator("#rag-reranking-section")).not.toContainText("No compatible models.")
+      await expect(page.locator("#rag-reranking-model-select")).toHaveCount(0)
       await pickSearchableSelect(page, "#rag-reranking-credential-select", "Not configured")
       await page.locator("#rag-reranking-form").getByRole("button", { name: "Save Re-ranking Settings" }).click()
       await expect(page.getByText("RAG model settings saved. Not active in the pipeline.")).toBeVisible()

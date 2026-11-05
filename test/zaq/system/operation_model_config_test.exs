@@ -7,6 +7,20 @@ defmodule Zaq.System.OperationModelConfigTest do
   alias Zaq.System.OperationModelConfig
   import Zaq.SystemConfigFixtures
 
+  test "initialization distinguishes absent settings from partial or explicitly cleared choices" do
+    for kind <- [:translation, :reranking, :decision] do
+      refute System.model_config_initialized?(kind)
+    end
+
+    assert {:ok, _} = System.set_config("rag.translation.temperature", "0.4")
+    assert System.model_config_initialized?(:translation)
+
+    for kind <- [:reranking, :decision] do
+      assert {:ok, _} = System.save_rag_model_config(kind, %{credential_id: nil, model: nil})
+      assert System.model_config_initialized?(kind)
+    end
+  end
+
   test "atomic pairs persist independently and protect referenced credentials" do
     credential = ai_credential_fixture(%{provider: "openai"})
 
