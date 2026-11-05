@@ -4,6 +4,9 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
   alias Zaq.Agent.{Factory, ServerManager, StreamEvents}
   alias Zaq.Channels.Api, as: ChannelsApi
   alias Zaq.Contracts.ToolStep
+  alias Zaq.ConversationLifecycleFixtures
+  alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.Message
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.TestSupport.{BudgetProbeTool, IntegrationAgent, MultiAgentOpenAIStub, OpenAIStub}
@@ -130,6 +133,32 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
     assert [%{"id" => "native.root"}] = ToolStep.project(result.tool_calls)
     assert ToolStep.from_trace(result.trace) == ToolStep.project(result.tool_calls)
     assert Enum.count(result.trace, &(&1["type"] == "tool_call")) == 3
+
+    user = user_fixture()
+
+    assert {:ok, conversation} =
+             Conversations.create_conversation(%{
+               user_id: user.id,
+               channel_type: "bo",
+               channel_user_id: "nested-trace-#{user.id}"
+             })
+
+    persisted_incoming = %{
+      incoming
+      | author_id: to_string(user.id),
+        metadata: %{conversation_id: conversation.id}
+    }
+
+    assert {:ok, %{assistant_message_id: message_id}} =
+             ConversationLifecycleFixtures.complete_exchange(persisted_incoming, result)
+
+    reloaded = Repo.get!(Message, message_id)
+    persisted_children = Enum.filter(reloaded.trace, &(&1["origin"] == "zaq_action"))
+
+    assert Enum.map(persisted_children, & &1["invocation_path"]) ==
+             Enum.map(children, & &1["invocation_path"])
+
+    assert ToolStep.from_trace(reloaded.trace) == ToolStep.project(result.tool_calls)
   end
 
   test "native worker exit leaves batch outcomes unknown even when one tool actually finished" do

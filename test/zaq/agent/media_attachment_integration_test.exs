@@ -5,14 +5,98 @@ defmodule Zaq.Agent.MediaAttachmentIntegrationTest do
   alias ReqLLM.ToolResult
   alias Zaq.Accounts
   alias Zaq.Agent.{MediaResultTransformer, StreamEvents}
+  alias Zaq.Agent.Tools.ActionContract
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Contracts.Record
+  alias Zaq.ConversationLifecycleFixtures
   alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.Message
+  alias Zaq.Engine.Conversations.MessageTraceArtifact
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.TestSupport.NoopAgentStatus
 
   setup :verify_on_exit!
+
+  defmodule NestedRecord do
+    use Jido.Action,
+      name: "nested_record",
+      description: "Returns a materialized record",
+      schema: [record: [type: :any]]
+
+    def run(%{record: record}, _context), do: {:ok, %{record: record}}
+  end
+
+  test "nested default-route artifacts survive authorized persistence without leaking resource bytes or capabilities" do
+    bytes = <<0, 4, 8, 16>>
+    record = %{media_record(bytes) | materialization_handle: "PRIVATE_CAPABILITY"}
+
+    ctx = %{
+      tool_call_id: "root",
+      request_id: "nested-media",
+      run_id: "nested-media",
+      tool_event_sink: {:pid, self()}
+    }
+
+    assert {:ok, %{record: ^record}} =
+             ActionContract.execute(NestedRecord, %{record: record}, ctx)
+
+    assert_receive {:jido_ai_request_event, started}
+    assert_receive {:jido_ai_request_event, completed}
+    root = %{id: "root", name: "parent"}
+
+    events = [
+      event(:tool_started, 10, %{}, root),
+      started,
+      completed,
+      event(:tool_completed, 20, %{result: {:ok, %{value: 42}, []}}, root),
+      event(:request_completed, 30, %{result: "Done"}, root)
+    ]
+
+    incoming = %Incoming{
+      content: "Nested media",
+      provider: :mattermost,
+      channel_id: "nested-media"
+    }
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming, status_module: NoopAgentStatus)
+    assert [%{content: ^bytes}] = result.trace_artifacts
+    refute inspect(result.trace) =~ "PRIVATE_CAPABILITY"
+    refute inspect(result.trace) =~ inspect(bytes)
+    owner = user_fixture()
+
+    {:ok, conversation} =
+      Conversations.create_conversation(%{
+        user_id: owner.id,
+        channel_type: "mattermost",
+        channel_user_id: "nested-#{owner.id}"
+      })
+
+    incoming = %{
+      incoming
+      | author_id: to_string(owner.id),
+        metadata: %{conversation_id: conversation.id}
+    }
+
+    assert {:ok, %{assistant_message_id: id}} =
+             ConversationLifecycleFixtures.complete_exchange(incoming, result)
+
+    message = Repo.get!(Message, id)
+    child = Enum.find(message.trace, &(&1["origin"] == "zaq_action"))
+    assert child["invocation_path"] == completed.data.invocation_path
+    assert [descriptor] = child["artifacts"]
+
+    assert {:ok, artifact} =
+             Conversations.get_authorized_trace_artifact(
+               descriptor["id"],
+               Accounts.get_user(owner.id)
+             )
+
+    assert artifact.content == bytes
+
+    refute Jason.encode!(Repo.get!(MessageTraceArtifact, descriptor["id"]).record) =~
+             "PRIVATE_CAPABILITY"
+  end
 
   test "accessed lazy media flows from hydration through authorized trace persistence" do
     bytes = <<0, 1, 2, 3>>

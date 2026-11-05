@@ -2,6 +2,7 @@ defmodule Zaq.Agent.Tools.ActionContractTraceTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias Jido.Agent.StateOp.SetState
   alias Jido.AI.Observe
 
   alias Zaq.Agent.Tools.ActionContract
@@ -133,6 +134,16 @@ defmodule Zaq.Agent.Tools.ActionContractTraceTest do
     refute encoded =~ "RAW_RESOURCE_BYTES"
     refute encoded =~ "#Function"
     refute inspect(started.data.arguments) =~ "PRIVATE_KEY"
+  end
+
+  test "nonempty Jido effects remain exact caller values without exposing runtime effect internals" do
+    effect = %SetState{attrs: %{secret: "private-effect-value"}}
+    result = {:ok, %{value: 42}, [effect]}
+    assert ActionContract.execute(ResultAction, %{result: result}, context()) == result
+    assert_receive {:trace, _}
+    assert_receive {:trace, done}
+    refute inspect(done.data.result) =~ "private-effect-value"
+    assert done.data.outcome == "succeeded"
   end
 
   test "normalization failures still have one failed span" do
