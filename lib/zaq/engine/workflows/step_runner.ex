@@ -37,6 +37,12 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   and BO manual runs), `false` otherwise. A missing actor never implies the
   bypass.
 
+  After the step row exists, context also receives `tool_call_id` rooted at
+  `workflow_step:<step_run_uuid>`, its `tool_invocation_path`, and an inherited
+  `on_tool_event` callback capturing only that row ID. The local callback records
+  nested Action evidence synchronously through Workflows with existing database
+  timeout/failure handling. It is runtime-only, never part of snapshots or results.
+
   ## Resume idempotency
 
   On resume after a pause, `run/2` checks for an existing `"completed"` `StepRun`
@@ -252,7 +258,10 @@ defmodule Zaq.Engine.Workflows.StepRunner do
         input: json_safe(action_params)
       })
 
-    enriched_context = enrich_context(context, run_id, step_name, step_index, prev_cascade)
+    enriched_context =
+      context
+      |> enrich_context(run_id, step_name, step_index, prev_cascade)
+      |> put_step_trace_context(step_run)
 
     try do
       case call_with_strategy(mod, action_params, enriched_context, timeout_ms, strategy) do
@@ -374,6 +383,23 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
         reraise e, __STACKTRACE__
     end
+  end
+
+  defp put_step_trace_context(context, %StepRun{id: step_id, workflow_run_id: run_id}) do
+    root = "workflow_step:#{step_id}"
+
+    Map.merge(context, %{
+      tool_call_id: root,
+      tool_invocation_path: [root],
+      request_id: run_id,
+      run_id: run_id,
+      on_tool_event: fn event ->
+        case Workflows.record_step_event(step_id, event) do
+          {:ok, _step} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+      end
+    })
   end
 
   defp enrich_context(context, run_id, step_name, step_index, prev_cascade) do

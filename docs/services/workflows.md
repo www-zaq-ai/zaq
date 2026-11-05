@@ -145,6 +145,16 @@ rows default to `[]`; deploy the additive `AddWorkflowStepTraceEvents` migration
 before running code that reads this field. Rolling back that migration removes
 diagnostic child evidence, not workflow business results or lifecycle logs.
 
+After creating its step row, StepRunner supplies `tool_call_id` and
+`tool_invocation_path` rooted at that persisted UUID plus a local `on_tool_event`
+callback capturing only the step ID. Nested ActionContract executions inherit it
+and record synchronously using ordinary database timeouts, without a tracing wait
+budget. Existing step retries/timeouts, map-fork identity, HITL and pause/resume
+semantics remain authoritative. Cached terminal replay emits no new invocations;
+interruption can leave a persisted start without a completion, displayed as unknown
+once the enclosing execution is terminal. Callback failures do not replace Action
+outcomes, and closures never enter workflow snapshots or service events.
+
 The local `Workflows.record_step_event/2` API validates the captured
 `workflow_step:<step_run_uuid>` root, child identity/path and lifecycle kind, then
 locks the latest step row to deduplicate by event ID and append atomically.
