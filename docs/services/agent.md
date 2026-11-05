@@ -595,6 +595,76 @@ without safe permission mutation support return `:unsupported`.
   exception module and source module/function/arity; raw reasons and arguments are omitted.
   They return safe, non-retryable structured execution errors. Ordinary error strings remain compatible.
 
+### Resource queries (`Zaq.Agent.Tools.Resources.QueryResources`, key `resources.query`)
+
+The existing read-only Action supports `describe`, get by ID, text search, exact
+filters, field selection, sorting and pagination over the resource allowlist in
+`Zaq.Agent.Tools.Resources.Registry`. It also supports these Ingestion resources:
+
+- `label`: category ID, name, description, resource types and timestamps. Search
+  matches name/description; an exact `name` filter is available. Ordinary callers
+  can discover only labels currently selected on at least one document they can
+  read. Unassigned labels and labels only on unreadable documents are hidden.
+- `document`: indexed-document metadata (ID, title, source, content type and
+  timestamps), plus selected `labels` as `{id, name, value}` entries. Values are
+  per-document; valueless assignments return `value: null`. The label projection
+  is batched for the authorized result page. Search matches title/source, with
+  exact source/content-type filters.
+  Content, arbitrary metadata, watch errors and chunk data are not exposed.
+  Document IDs are local Ingestion IDs, not provider file IDs.
+
+Document filters additionally accept `label_ids` (at most 100 positive integer
+IDs), `label_values` (at most 100 `{label_id, value}` pairs), and `label_match`
+(`any` by default, or `all`). Values match exactly and case-sensitively after the
+same trim/NFC normalization used on assignment writes. Null/blank values match
+valueless assignments. Duplicate normalized pairs do not affect matching.
+When both ID and value filters are supplied, both groups must match, with
+`label_match` applied within each group. Duplicate IDs do not affect
+matching. An omitted ID list leaves results unfiltered by label; an empty list
+matches nothing. Unknown IDs cannot broaden results. Manual exclusions
+(`selected: false`) and chunk assignments never count as document labels.
+`label_match` without either label filter, invalid modes, and malformed IDs/pairs return filter
+errors. Document get-by-ID also respects supplied search and label filters.
+
+```json
+{
+  "resource_type": "document",
+  "filters": {"label_ids": [12, 18], "label_match": "all"},
+  "fields": ["id", "title", "source"],
+  "limit": 20
+}
+```
+
+To find documents with `Location: Paris`, first discover the Location label ID,
+then query:
+
+```json
+{
+  "resource_type": "document",
+  "filters": {"label_values": [{"label_id": 12, "value": "Paris"}]},
+  "fields": ["id", "title", "labels"]
+}
+```
+
+Read grants for the trusted person, teams, and Everyone are applied before
+filtering, counts and pagination. Update-only grants do not permit reads.
+Only explicit `skip_permissions: true` in trusted execution context bypasses
+permissions and exposes the full label catalog; tool arguments cannot request it.
+The two resources use ID as a stable sort tie-breaker and retain the existing
+default page size of 20 and cap of 100. No mutation or additional tool key is added.
+
+Document and label queries dispatch a confidential `:query_resources` Event via
+`Zaq.Ingestion.Events` and `NodeRouter` to the Ingestion role. Ingestion resolves
+its own static descriptor allowlist and executes authorization, SQL filtering,
+counts, pagination and label projection in `Zaq.Ingestion.ResourceQuery`.
+`Zaq.Ingestion.Document` validates and composes label filters using assignment
+matching subqueries owned by `Zaq.Ingestion.Labels`. Agent shares
+only the static discovery descriptors; `describe` requires no database access.
+Identity and explicit bypass travel in the event envelope, never query parameters.
+Router failures are returned without falling back to local database reads.
+`Zaq.Resources.QuerySupport` shares field validation, read-grant semantics and
+response conventions with the existing queries for other resource types.
+
 ### BO User Notification Tool (`Zaq.Agent.Tools.Accounts.NotifyUsers`, key `accounts.notify_users`)
 - Sends one subject/body to BO users selected with `resources.query` by dispatching a `:notify_users` event to the Engine node.
 - The tool accepts the `resources` list from `resources.query` with `resource_type: "user"`; only each user's `id` is trusted, and Engine resolves canonical account emails before Channels delivery.

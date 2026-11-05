@@ -12,18 +12,33 @@ export const SearchableSelectHook = {
     const list = () => root.querySelector("[data-select-list]")
     const labelEl = () => root.querySelector("[data-select-label]")
     const createBtn = () => root.querySelector("[data-select-create]")
+    const clearBtn = () => root.querySelector("[data-select-clear]")
+
+    const pushScopedEvent = (event, payload) => {
+      const context = JSON.parse(root.dataset.eventContext || "{}")
+      const params = { ...context, ...payload }
+      const target = root.dataset.eventTarget
+      if (target) {
+        this.pushEventTo(/^\d+$/.test(target) ? Number(target) : target, event, params)
+      } else {
+        this.pushEvent(event, params)
+      }
+    }
 
     const filter = (q) => {
       this._search = q
       let visibleCount = 0
+      let exactMatch = false
       list().querySelectorAll("[data-select-option]").forEach((opt) => {
         const visible = opt.dataset.selectOption.toLowerCase().includes(q.toLowerCase())
         opt.style.display = visible ? "" : "none"
         if (visible) visibleCount++
+        if (opt.dataset.selectOption.toLowerCase() === q.toLowerCase()) exactMatch = true
       })
       const btn = createBtn()
       if (btn) {
-        if (q.length > 0 && visibleCount === 0) {
+        const canCreate = root.dataset.createOnNoExactMatch === "true" ? !exactMatch : visibleCount === 0
+        if (q.trim().length > 0 && canCreate) {
           btn.classList.remove("hidden")
           const lbl = btn.querySelector("[data-create-label]")
           if (lbl) lbl.textContent = `+ Add "${q}"`
@@ -77,6 +92,7 @@ export const SearchableSelectHook = {
     }
 
     const openPanel = () => {
+      if (trigger().disabled) return
       this._open = true
       panel().classList.remove("hidden")
       positionPanel()
@@ -86,6 +102,7 @@ export const SearchableSelectHook = {
         search().focus()
       }
       filter("")
+      if (root.dataset.serverSearch) pushScopedEvent(root.dataset.serverSearch, { query: "" })
     }
 
     const closePanel = () => {
@@ -109,6 +126,7 @@ export const SearchableSelectHook = {
 
     const selectOption = (value, label) => {
       hidden().value = value
+      if (clearBtn()) clearBtn().hidden = value === ""
       labelEl().textContent = label
       closePanel()
       const opts = { bubbles: true }
@@ -121,6 +139,17 @@ export const SearchableSelectHook = {
       this._open ? closePanel() : openPanel()
     })
 
+    clearBtn()?.addEventListener("click", (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (trigger().disabled) return
+      const empty = [...list().querySelectorAll("[data-select-option]")].find(
+        (option) => option.dataset.selectValue === ""
+      )
+      selectOption("", empty?.dataset.selectOption || root.dataset.emptyLabel || "Select...")
+      trigger().focus()
+    })
+
     this._outsideClick = (e) => {
       // Flash auto-dismiss clicks its close button programmatically, not as user intent.
       if (e.isTrusted && !root.contains(e.target)) closePanel()
@@ -131,14 +160,16 @@ export const SearchableSelectHook = {
       search().addEventListener("input", (e) => {
         e.stopPropagation()
         this._search = search().value
+        // Empty/unchanged server results may produce no LiveView DOM patch.
+        // Keep filtering and the create action responsive without waiting for updated().
+        filter(this._search)
+        positionPanel()
         const serverSearch = root.dataset.serverSearch
         if (serverSearch) {
           clearTimeout(this._searchTimer)
           this._searchTimer = setTimeout(() => {
-            this.pushEvent(serverSearch, { query: this._search })
+            pushScopedEvent(serverSearch, { query: this._search })
           }, 300)
-        } else {
-          filter(this._search)
         }
       })
       search().addEventListener("change", (e) => {
@@ -155,15 +186,15 @@ export const SearchableSelectHook = {
           const visible = [...list().querySelectorAll("[data-select-option]")].find(
             (o) => o.style.display !== "none" && o.dataset.selectDisabled !== "true"
           )
-          if (visible) {
+          const btn = createBtn()
+          const canCreate = btn && !btn.classList.contains("hidden") && this._search.trim().length > 0
+          // Opt-in value pickers must not replace typed values with a partial match.
+          if (canCreate && (root.dataset.createOnNoExactMatch === "true" || !visible)) {
+            const eventName = btn.dataset.createEvent || "create_and_assign_team"
+            pushScopedEvent(eventName, { name: this._search })
+            closePanel()
+          } else if (visible) {
             selectOption(visible.dataset.selectValue, visible.dataset.selectOption)
-          } else {
-            const btn = createBtn()
-            if (btn && !btn.classList.contains("hidden") && this._search.length > 0) {
-              const eventName = btn.dataset.createEvent || "create_and_assign_team"
-              this.pushEvent(eventName, { name: this._search })
-              closePanel()
-            }
           }
         }
       })
@@ -181,7 +212,7 @@ export const SearchableSelectHook = {
         e.preventDefault()
         e.stopPropagation()
         const eventName = btn.dataset.createEvent || "create_and_assign_team"
-        this.pushEvent(eventName, { name: this._search })
+        pushScopedEvent(eventName, { name: this._search })
         closePanel()
       })
     }
@@ -198,8 +229,8 @@ export const SearchableSelectHook = {
 
     if (this._open && panel) {
       panel.classList.remove("hidden")
-      if (this._positionPanel) this._positionPanel()
       if (this._filter) this._filter(this._search || "")
+      if (this._positionPanel) this._positionPanel()
     }
 
     const hidden = this._hidden && this._hidden()

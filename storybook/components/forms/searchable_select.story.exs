@@ -45,6 +45,17 @@ defmodule Storybook.Components.Forms.SearchableSelect do
         />
       </.variation>
 
+      <.variation label="Clearable label value">
+        <ZaqWeb.Components.SearchableSelect.searchable_select
+          id="select-clearable-value"
+          name="location"
+          value="Paris"
+          clearable
+          compact
+          options={[{"No value", ""}, {"Paris", "Paris"}, {"London", "London"}]}
+        />
+      </.variation>
+
       <.variation label="Compact">
         <ZaqWeb.Components.SearchableSelect.searchable_select
           id="select-compact"

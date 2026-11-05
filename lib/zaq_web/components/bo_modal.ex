@@ -111,6 +111,7 @@ defmodule ZaqWeb.Components.BOModal do
   attr :max_width_class, :string, default: "zaq-modal--width-sm"
   attr :confirm_button_id, :string, default: nil
   attr :confirm_value_id, :string, default: nil
+  slot :details, doc: "Optional structured confirmation details, before the action buttons."
 
   def confirm_dialog(assigns) do
     ~H"""
@@ -128,6 +129,9 @@ defmodule ZaqWeb.Components.BOModal do
         <p class="zaq-text-body-sm" style="color: var(--zaq-text-color-body-tertiary)">
           {@message}
         </p>
+      </div>
+      <div :if={@details != []} class="w-full text-left">
+        {render_slot(@details)}
       </div>
       <div class="zaq-modal-confirm-actions">
         <button

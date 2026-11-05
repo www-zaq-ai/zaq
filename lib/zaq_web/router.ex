@@ -140,6 +140,7 @@ defmodule ZaqWeb.Router do
       live "/triggers", Live.BO.AI.TriggersLive, :index
       live "/skills", Live.BO.AI.SkillsLive
       live "/ingestion", Live.BO.AI.IngestionLive
+      live "/labels", Live.BO.Data.LabelsLive
       live "/ingestion/:provider", Live.BO.AI.IngestionLive
       live "/ontology", Live.BO.AI.OntologyLive
       live "/knowledge-gap", Live.BO.AI.KnowledgeGapLive
