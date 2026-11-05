@@ -628,6 +628,14 @@ Result tuples are normalized only in evidence; outcome and duration are explicit
 Unknown runtime objects are omitted, not inspected. Missing tracing context keeps
 execution untraced; callback errors never replace the Action result.
 
+Knowledge search preserves its supervised deadline and zero-retry/inline child
+execution options while forwarding only tracing keys through its existing narrow
+context allowlists. Browsing uses the same boundary for screenshot folder/file
+creation. Skill resource loading uses it for GetDocument/DownloadDocument without
+changing the scoped permission bypass, actor, resource selection or decoded bytes.
+Trace evidence redacts materialization handles and provenance capabilities; custom
+workflow-style callbacks receive metadata, never inline loaded resource content.
+
 ### Runtime Factory (`Zaq.Agent.Factory`)
 - Standard runtime agent for all configured agents
 - Supports per-request runtime tool/module selection and LLM options

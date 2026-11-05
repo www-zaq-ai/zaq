@@ -227,7 +227,11 @@ defmodule Zaq.Agent.Tools.ActionContract do
   defp trace_value(_value, _artifacts?, depth) when depth >= 16, do: "[omitted]"
 
   defp trace_value(%Record{} = record, artifacts?, depth) do
-    fields = record |> Map.from_struct() |> Map.put(:content, nil)
+    fields =
+      record
+      |> Map.from_struct()
+      |> Map.merge(%{content: nil, materialization_handle: nil, provenance_ref: nil})
+
     safe = trace_map(fields, artifacts?, depth)
     if artifacts?, do: %{struct(Record, safe) | content: record.content}, else: safe
   end
@@ -275,7 +279,17 @@ defmodule Zaq.Agent.Tools.ActionContract do
   defp trace_map(map, artifacts?, depth) do
     map
     |> Enum.take(100)
-    |> Map.new(fn {key, _value} -> {key, nil} end)
+    |> Map.new(fn {key, _value} ->
+      capability? =
+        key in [
+          :materialization_handle,
+          "materialization_handle",
+          :provenance_ref,
+          "provenance_ref"
+        ]
+
+      {key, if(capability?, do: "[REDACTED]", else: nil)}
+    end)
     |> Observe.sanitize_sensitive()
     |> Map.new(fn {key, redaction} ->
       value =

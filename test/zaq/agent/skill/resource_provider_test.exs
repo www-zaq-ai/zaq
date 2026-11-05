@@ -223,6 +223,47 @@ defmodule Zaq.Agent.Skill.ResourceProviderTest do
              )
   end
 
+  test "resource document Actions retain identity and permissions without persisting handles or bytes",
+       %{spec: spec} do
+    set_router_responses(%{})
+    owner = self()
+    actor = %{person: %{id: Ecto.UUID.generate()}}
+
+    context = %{
+      node_router: Router,
+      actor: actor,
+      skip_permissions: false,
+      tool_call_id: "skill-root",
+      on_tool_event: fn event ->
+        send(owner, {:resource_trace, event})
+        :ok
+      end
+    }
+
+    assert {:ok, %{content: "Hello skill!", resource_id: "doc-1"}} =
+             ResourceProvider.handle(
+               %{operation: :load, skill: spec, resource_id: "doc-1"},
+               context
+             )
+
+    assert_receive {:resource_trace, get_start}
+    assert_receive {:resource_trace, get_done}
+    assert_receive {:resource_trace, download_start}
+    assert_receive {:resource_trace, download_done}
+    assert get_start.tool_call_id != download_start.tool_call_id
+
+    assert Enum.all?(
+             [get_start, get_done, download_start, download_done],
+             &(&1.data.parent_id == "skill-root")
+           )
+
+    assert download_start.data.arguments.materialization_handle == "[REDACTED]"
+    refute inspect(download_done.data.result) =~ "Hello skill!"
+    assert_received {:resource_access, :data_source_get_file, ^actor, true}
+    assert_received {:resource_access, :data_source_download_document, ^actor, true}
+    refute context.skip_permissions
+  end
+
   test "resource reads explicitly bypass permissions while preserving the actor", %{spec: spec} do
     set_router_responses(%{})
     actor = %{person: %{id: Ecto.UUID.generate()}}
