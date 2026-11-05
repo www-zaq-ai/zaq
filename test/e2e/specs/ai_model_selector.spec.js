@@ -12,7 +12,6 @@ const {
 } = require("../support/bo")
 
 const selectors = [
-  { id: "llm", tab: "llm", key: "llm", form: "llm-config-form" },
   { id: "small", tab: "global", key: "global.small_model", form: "small-model-form" },
   { id: "embedding", tab: "rag", key: "embedding", form: "embedding-config-form" },
   { id: "image-to-text", tab: "rag", key: "image_to_text", form: "image-to-text-config-form" },
