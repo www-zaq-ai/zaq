@@ -6,6 +6,18 @@ defmodule Zaq.Ingestion.Python.Pipeline do
   conditionally skipped. Steps 4 and 5 (image descriptions) are
   skipped when no Scaleway API key is configured.
 
+  Optional `opts[:on_preparation_outcome]` is a 1-arity function invoked
+  only on successful pipeline completion with a map of Elixir-observed
+  optional-step outcomes:
+
+      %{image_to_text: :skipped | :completed, inject: :skipped | :completed}
+
+  Hard step failures still return `{:error, reason}` and do not invoke the
+  callback. That includes provider failures recorded as `ERROR:` values in
+  `descriptions.json` even when the Python process exits successfully
+  (`{:error, :image_extraction_failed}`). Success remains `{:ok, md_path}`
+  regardless of the callback.
+
   ## Usage
 
       Pipeline.run("/path/to/report.pdf")
@@ -57,7 +69,7 @@ defmodule Zaq.Ingestion.Python.Pipeline do
         with {:ok, _} <- PdfToMd.run(pipeline_pdf_path, md_path, images_dir),
              {:ok, _} <- ImageDedup.run(images_folder),
              {:ok, _} <- CleanMd.run(md_path, images_folder),
-             {:ok, _} <-
+             {:ok, image_to_text_result} <-
                maybe_image_to_text(
                  api_key,
                  images_folder,
@@ -65,7 +77,14 @@ defmodule Zaq.Ingestion.Python.Pipeline do
                  resolve_image_to_text_prompt(),
                  image_to_text_opts
                ),
-             {:ok, _} <- maybe_inject_descriptions(api_key, md_path, descriptions_json) do
+             :ok <- reject_provider_description_errors(image_to_text_result, descriptions_json),
+             {:ok, inject_result} <-
+               maybe_inject_descriptions(api_key, md_path, descriptions_json) do
+          report_preparation_outcome(opts[:on_preparation_outcome], %{
+            image_to_text: normalize_step_outcome(image_to_text_result),
+            inject: normalize_step_outcome(inject_result)
+          })
+
           {:ok, md_path}
         end
       after
@@ -148,6 +167,55 @@ defmodule Zaq.Ingestion.Python.Pipeline do
       {:ok, :skipped}
     end
   end
+
+  defp normalize_step_outcome(:skipped), do: :skipped
+  defp normalize_step_outcome(_result), do: :completed
+
+  # Python image_to_text catches per-image provider failures, writes
+  # "ERROR: ..." values, and still exits 0. Treat those as hard step
+  # failure so callers do not classify the run as :completed emptiness.
+  defp reject_provider_description_errors(:skipped, _descriptions_json), do: :ok
+
+  defp reject_provider_description_errors(_image_to_text_result, descriptions_json) do
+    with {:ok, body} <- File.read(descriptions_json),
+         {:ok, decoded} <- Jason.decode(body),
+         true <- Enum.any?(description_texts(decoded), &provider_error_description?/1) do
+      Logger.warning(
+        "[Pipeline] image-to-text reported provider ERROR entries in descriptions.json"
+      )
+
+      {:error, :image_extraction_failed}
+    else
+      {:error, :enoent} -> :ok
+      {:error, _} -> :ok
+      false -> :ok
+    end
+  end
+
+  defp description_texts(%{"images" => images}) when is_list(images) do
+    Enum.map(images, fn
+      %{"description" => description} when is_binary(description) -> description
+      _ -> nil
+    end)
+  end
+
+  defp description_texts(map) when is_map(map) do
+    Map.values(map)
+  end
+
+  defp description_texts(_), do: []
+
+  defp provider_error_description?(text) when is_binary(text),
+    do: String.starts_with?(text, "ERROR:")
+
+  defp provider_error_description?(_), do: false
+
+  defp report_preparation_outcome(fun, outcome) when is_function(fun, 1) do
+    fun.(outcome)
+    :ok
+  end
+
+  defp report_preparation_outcome(_fun, _outcome), do: :ok
 
   # Removes markdown image references pointing to local absolute paths (e.g. /tmp/...).
   # These are left behind when the image-to-text step is skipped (no API key).
