@@ -608,6 +608,26 @@ without safe permission mutation support return `:unsupported`.
 - Defaults the stored message role to `"assistant"` so workflows can persist assistant-initiated notifications or follow-ups without creating a fake user turn.
 - Conversation creation/reuse is delegated to `Zaq.Engine.Conversations.persist_message_history/2`, which consumes the same Channels-computed conversation identity as admission.
 
+### Composed Action execution (`Zaq.Agent.Tools.ActionContract`)
+
+`execute/4` normalizes parameters and delegates validation, retries, timeouts, and
+execution to `Jido.Exec.run/4`, preserving the original result/effects. When trusted
+context contains `tool_call_id` and a trace destination, each call creates a UUID
+child segment and inherits `tool_invocation_path` and `on_tool_event`. Native root
+IDs remain opaque; child IDs are `zaq.<base64url(root)>.<UUID>...` with the explicit
+path retained as the structural source of truth. Internal Jido retries share that
+invocation; separate executions get distinct child IDs.
+
+An arity-one `on_tool_event` receives existing Jido `tool_started` / `tool_completed`
+envelopes. The default sends to `tool_event_sink: {:pid, consumer}` with Jido's
+request/run correlation, without acknowledgements or tracing waits. Custom
+callbacks override that route and receive redacted metadata-only evidence suitable
+for synchronous workflow recording. The default route preserves supported typed
+artifact payloads until the existing trace artifact projection externalizes them.
+Result tuples are normalized only in evidence; outcome and duration are explicit.
+Unknown runtime objects are omitted, not inspected. Missing tracing context keeps
+execution untraced; callback errors never replace the Action result.
+
 ### Runtime Factory (`Zaq.Agent.Factory`)
 - Standard runtime agent for all configured agents
 - Supports per-request runtime tool/module selection and LLM options
