@@ -14,6 +14,12 @@ defmodule Zaq.Agent.StreamEvents do
   Existing private trace entries retain these normalized facts, including starts
   settled to unknown, so authorized presentation can use the same projector on reload.
 
+  Nested ZAQ Action events share this collection and retain explicit hierarchy.
+  They cannot change public status labels, source aggregation or model tool counts.
+  The stream is nonblocking: cancellation settles consumed starts to unknown and
+  does not wait for late producer events. Supported nested Record payloads use the
+  existing artifact projection rather than persisting inline resource bytes.
+
   Answer, reasoning and tool events share an event-driven publication interval in
   this reducer. Trigger switches select publication opportunities, not snapshot
   visibility or trace collection. Lifecycle status bypasses this policy and does
@@ -32,7 +38,7 @@ defmodule Zaq.Agent.StreamEvents do
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
 
-  @tool_trace_fields ~w(id type turn_id content name arguments response duration_ms started_at started_at_ms ended_at ended_at_ms status invocation_id sequence outcome)
+  @tool_trace_fields ~w(id type turn_id content name arguments response duration_ms started_at started_at_ms ended_at ended_at_ms status invocation_id sequence outcome invocation_path parent_id origin)
 
   @flush_chars 20
   @terminal_kinds [:request_completed, :request_failed, :request_cancelled]
@@ -342,6 +348,16 @@ defmodule Zaq.Agent.StreamEvents do
     tool_call_id = invocation_id || field(event, :id)
     existing = Map.get(state.tool_calls, tool_call_id, %{})
 
+    if compatible_hierarchy?(existing, data) do
+      start_tool_call(event, state, tool_call_id, invocation_id, existing)
+    else
+      state
+    end
+  end
+
+  defp start_tool_call(event, state, tool_call_id, invocation_id, existing) do
+    data = data(event)
+
     tool_call = %{
       "id" => tool_call_id,
       "invocation_id" => invocation_id,
@@ -357,7 +373,7 @@ defmodule Zaq.Agent.StreamEvents do
       "status" => "started"
     }
 
-    tool_call = normalize_tool_arguments(tool_call)
+    tool_call = tool_call |> normalize_tool_arguments() |> put_hierarchy(data, state)
 
     # Duplicate/late starts may carry less evidence than an earlier event. They
     # must not erase arguments or downgrade an already completed native call.
@@ -388,7 +404,7 @@ defmodule Zaq.Agent.StreamEvents do
     tool_call_id = invocation_id || field(event, :id)
     existing = Map.get(state.tool_calls, tool_call_id, %{})
 
-    if existing["status"] == "completed" do
+    if existing["status"] == "completed" or not compatible_hierarchy?(existing, data) do
       state
     else
       complete_tool_call(event, state, tool_call_id, invocation_id, existing)
@@ -400,7 +416,12 @@ defmodule Zaq.Agent.StreamEvents do
     tool_name = field(event, :tool_name) || data_get(data, :tool_name) || existing["name"]
 
     {trace_result, trace_artifacts} =
-      externalize_trace_artifacts(data_get(data, :result), tool_call_id, tool_name)
+      externalize_trace_artifacts(
+        data_get(data, :result),
+        tool_call_id,
+        tool_name,
+        data_get(data, :origin) == "zaq_action"
+      )
 
     tool_call =
       existing
@@ -408,7 +429,7 @@ defmodule Zaq.Agent.StreamEvents do
         "id" => tool_call_id,
         "invocation_id" => invocation_id,
         "sequence" => Map.get(existing, "sequence", map_size(state.tool_calls) + 1),
-        "outcome" => tool_outcome(data_get(data, :result)),
+        "outcome" => data_get(data, :outcome) || tool_outcome(data_get(data, :result)),
         "type" => "tool_call",
         "turn_id" => to_string(field(event, :iteration) || 0),
         "content" => tool_name || "tool",
@@ -420,6 +441,7 @@ defmodule Zaq.Agent.StreamEvents do
         "ended_at_ms" => field(event, :at_ms),
         "status" => "completed"
       })
+      |> put_hierarchy(data, state)
       |> reject_nil_values()
       |> json_safe()
 
@@ -441,12 +463,45 @@ defmodule Zaq.Agent.StreamEvents do
     if Enum.any?(trace, same_call?), do: updated, else: [tool_call | trace]
   end
 
+  defp put_hierarchy(call, data, state) do
+    if data_get(data, :origin) == "zaq_action" do
+      parent = data_get(data, :parent_id)
+      parent_call = Map.get(state.tool_calls, parent, %{})
+
+      Map.merge(call, %{
+        "origin" => "zaq_action",
+        "invocation_path" => data_get(data, :invocation_path),
+        "parent_id" => parent,
+        "turn_id" => parent_call["turn_id"] || call["turn_id"]
+      })
+    else
+      call
+    end
+  end
+
+  defp nested?(%{"origin" => "zaq_action"}), do: true
+  defp nested?(_call), do: false
+
+  defp compatible_hierarchy?(existing, _data) when map_size(existing) == 0, do: true
+
+  defp compatible_hierarchy?(existing, data) do
+    existing["origin"] == data_get(data, :origin) and
+      existing["invocation_path"] == data_get(data, :invocation_path) and
+      existing["parent_id"] == data_get(data, :parent_id)
+  end
+
   defp externalize_trace_artifacts(
          {:ok, %ToolResult{} = tool_result, effects},
          tool_call_id,
-         tool_name
+         tool_name,
+         nested?
        ) do
-    case externalize_trace_artifacts({:ok, tool_result.output, effects}, tool_call_id, tool_name) do
+    case externalize_trace_artifacts(
+           {:ok, tool_result.output, effects},
+           tool_call_id,
+           tool_name,
+           nested?
+         ) do
       {{:ok, output, _effects}, artifacts} ->
         {{:ok, %{tool_result | output: output, content: nil}, effects}, artifacts}
 
@@ -455,7 +510,14 @@ defmodule Zaq.Agent.StreamEvents do
     end
   end
 
-  defp externalize_trace_artifacts({:ok, payload, effects}, tool_call_id, tool_name)
+  defp externalize_trace_artifacts({:ok, %Record{} = record, effects}, id, name, true) do
+    {{:ok, %{record: safe}, effects}, artifacts} =
+      externalize_record_artifact(%{record: record}, effects, id, name, true)
+
+    {{:ok, safe, effects}, artifacts}
+  end
+
+  defp externalize_trace_artifacts({:ok, payload, effects}, tool_call_id, tool_name, nested?)
        when is_map(payload) do
     case skill_resource_parts(payload) do
       {[_ | _] = parts, safe_payload} ->
@@ -463,16 +525,16 @@ defmodule Zaq.Agent.StreamEvents do
         {{:ok, safe_payload, effects}, artifacts}
 
       {[], _safe_payload} ->
-        externalize_record_artifact(payload, effects, tool_call_id, tool_name)
+        externalize_record_artifact(payload, effects, tool_call_id, tool_name, nested?)
     end
   end
 
-  defp externalize_trace_artifacts(result, _tool_call_id, _tool_name), do: {result, []}
+  defp externalize_trace_artifacts(result, _tool_call_id, _tool_name, _nested?), do: {result, []}
 
-  defp externalize_record_artifact(payload, effects, tool_call_id, tool_name) do
+  defp externalize_record_artifact(payload, effects, tool_call_id, tool_name, nested?) do
     case payload_record(payload) do
       {key, %Record{} = record} ->
-        case trace_media_artifact(record, tool_call_id, tool_name) do
+        case trace_media_artifact(record, tool_call_id, tool_name, nested?) do
           {:ok, artifact} ->
             safe_record = %{record | content: nil}
             {{:ok, Map.put(payload, key, safe_record), effects}, [artifact]}
@@ -535,10 +597,11 @@ defmodule Zaq.Agent.StreamEvents do
   defp trace_media_artifact(
          %Record{content: content, attributes: attributes} = record,
          tool_call_id,
-         tool_name
+         tool_name,
+         nested?
        )
        when is_binary(content) and is_map(attributes) do
-    if source_type(attributes) == "communication_media" do
+    if nested? or source_type(attributes) == "communication_media" do
       case decode_record_content(record, content) do
         {:ok, decoded_content} ->
           {:ok,
@@ -560,7 +623,7 @@ defmodule Zaq.Agent.StreamEvents do
     end
   end
 
-  defp trace_media_artifact(_record, _tool_call_id, _tool_name), do: :not_media
+  defp trace_media_artifact(_record, _tool_call_id, _tool_name, _nested?), do: :not_media
 
   defp decode_record_content(%Record{attributes: attributes}, content) do
     if encoding(attributes) == "base64" do
@@ -649,6 +712,8 @@ defmodule Zaq.Agent.StreamEvents do
       (not policy["throttle_enabled"] or now - state.last_flush_ms >= policy["min_interval_ms"])
   end
 
+  defp broadcast_tool(state, %{"origin" => "zaq_action"}, _status), do: state
+
   defp broadcast_tool(state, tool_call, status) do
     steps = public_tool_steps(state)
     projected? = Enum.any?(steps, &(&1["id"] == tool_call["invocation_id"]))
@@ -719,7 +784,13 @@ defmodule Zaq.Agent.StreamEvents do
   defp declared_sources(_output), do: []
 
   defp result(state) do
-    tool_calls = state.tool_calls |> Map.values() |> Enum.sort_by(& &1["sequence"])
+    tool_calls =
+      state.tool_calls
+      |> Map.values()
+      |> Enum.map(&associate_tool_turn(&1, state.tool_calls))
+      |> Enum.sort_by(& &1["sequence"])
+
+    trace = Enum.reduce(tool_calls, state.trace, &put_tool_trace(&2, &1))
 
     %{
       answer: state.answer || state.latest_answer || state.current_full,
@@ -727,11 +798,12 @@ defmodule Zaq.Agent.StreamEvents do
       pending_answer: pending_answer(state),
       usage: state.usage,
       llm_calls: public_llm_calls(state),
-      trace: Enum.reverse(state.trace),
+      trace: Enum.reverse(trace),
       trace_artifacts: state.trace_artifacts,
       tool_calls: tool_calls,
       sources:
         tool_calls
+        |> Enum.reject(&nested?/1)
         |> Enum.flat_map(&Map.get(&1, "sources", []))
         |> Enum.uniq(),
       termination_reason: state.termination_reason,
@@ -743,6 +815,15 @@ defmodule Zaq.Agent.StreamEvents do
       execution_scope: state.execution_scope
     }
   end
+
+  defp associate_tool_turn(%{"invocation_path" => [root | _]} = call, calls) do
+    case Map.get(calls, root) do
+      %{"turn_id" => turn} -> Map.put(call, "turn_id", turn)
+      _ -> call
+    end
+  end
+
+  defp associate_tool_turn(call, _calls), do: call
 
   defp pending_answer(%{published_answer: nil}), do: nil
 
@@ -801,7 +882,7 @@ defmodule Zaq.Agent.StreamEvents do
       "output_tokens" => usage_value(state.usage, [:output_tokens, :completion_tokens]),
       "turn_count" => measured_turn_count(state),
       "llm_call_count" => measured_llm_call_count(state),
-      "tool_call_count" => map_size(state.tool_calls)
+      "tool_call_count" => Enum.count(state.tool_calls, fn {_id, call} -> not nested?(call) end)
     }
     |> reject_nil_values()
     |> json_safe()

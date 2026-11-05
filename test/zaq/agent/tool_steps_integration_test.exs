@@ -74,6 +74,62 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
     assert {:ok, %{value: 42}, []} = completed.data.result
   end
 
+  test "a real request collects three levels without changing native roots or model results" do
+    owner = self()
+
+    handler = fn _conn, raw_body ->
+      body = Jason.decode!(raw_body)
+
+      if Enum.any?(body["input"] || [], &(&1["type"] == "function_call_output")) do
+        {200, MultiAgentOpenAIStub.text_sse("Done", "gpt-4.1-mini")}
+      else
+        {200,
+         MultiAgentOpenAIStub.tool_call_sse("nested_action_probe", %{depth: 2},
+           call_id: "native.root"
+         )}
+      end
+    end
+
+    {child, endpoint} = OpenAIStub.server(handler, owner)
+    start_supervised!(child)
+    scope = "nested-stream-#{Ecto.UUID.generate()}"
+    configured = IntegrationAgent.create!(endpoint, scope, "Use the probe.", [])
+
+    assert {:ok, server} =
+             ServerManager.ensure_server(configured, "#{configured.name}:#{scope}", nil,
+               actor: %{kind: :system, subject: "nested-stream-test"}
+             )
+
+    assert {:ok, _} = Jido.AI.register_tool(server, NestedActionProbe)
+
+    assert {:ok, %{request: request, events: events}} =
+             Factory.ask_with_config(server, "Use the probe", configured)
+
+    incoming = %Incoming{
+      content: "probe",
+      provider: :web,
+      channel_id: "bo",
+      metadata: %{session_id: owner}
+    }
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, incoming,
+               request: request,
+               node_router: RecordingRouter
+             )
+
+    assert result.answer == "Done"
+    assert length(result.tool_calls) == 3
+    {children, [root]} = Enum.split_with(result.tool_calls, &(&1["origin"] == "zaq_action"))
+    assert root["invocation_id"] == "native.root"
+    assert Enum.map(children, &length(&1["invocation_path"])) == [2, 3]
+    assert Enum.all?(children, &(&1["origin"] == "zaq_action" and &1["outcome"] == "succeeded"))
+    assert Enum.all?(children, &(&1["turn_id"] == root["turn_id"]))
+    assert Enum.all?(children, &(&1["response"] == ["ok", %{"value" => 42}, []]))
+    assert result.measurements["tool_call_count"] == 1
+    assert Enum.count(result.trace, &(&1["type"] == "tool_call")) == 3
+  end
+
   test "native worker exit leaves batch outcomes unknown even when one tool actually finished" do
     owner = self()
 

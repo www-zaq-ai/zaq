@@ -35,6 +35,69 @@ defmodule Zaq.Agent.StreamEventsTest do
     end
   end
 
+  test "nested diagnostics retain hierarchy but cannot publish labels, sources or root counts" do
+    hierarchy = %{origin: "zaq_action", invocation_path: ["root", "child"], parent_id: "root"}
+
+    start =
+      event(:tool_started, 1, Map.put(hierarchy, :arguments, %{value: 42}), tool_call_id: "child")
+
+    done =
+      event(
+        :tool_completed,
+        2,
+        Map.merge(hierarchy, %{
+          outcome: "failed",
+          result: {:error, %{sources: ["private.md"]}, []}
+        }),
+        tool_call_id: "child"
+      )
+
+    root =
+      event(:tool_completed, 3, %{result: {:ok, %{sources: ["public.md"]}, []}},
+        tool_call_id: "root"
+      )
+
+    events = [start, done, done, start, root, event(:request_completed, 4, %{result: "done"})]
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: SnapshotStatus)
+    assert [child, _root] = result.tool_calls
+    assert child["invocation_path"] == ["root", "child"]
+    assert child["parent_id"] == "root"
+    assert child["outcome"] == "failed"
+    assert result.sources == ["public.md"]
+    assert result.measurements["tool_call_count"] == 1
+    refute_received {:snapshot, :tool_call, "Using tool", _}
+  end
+
+  test "nested document results use existing artifact storage without inline trace bytes" do
+    record = %Record{
+      id: "document",
+      kind: :document,
+      name: "example",
+      content: Base.encode64("raw bytes"),
+      attributes: %{"encoding" => "base64"}
+    }
+
+    for payload <- [record, %{record: record}, %ToolResult{output: %{record: record}}] do
+      data = %{
+        origin: "zaq_action",
+        invocation_path: ["root", "child"],
+        parent_id: "root",
+        result: {:ok, payload, []},
+        outcome: "succeeded"
+      }
+
+      events = [
+        event(:tool_completed, 1, data, tool_call_id: "child"),
+        event(:request_completed, 2, %{result: "done"})
+      ]
+
+      assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+      assert [%{content: "raw bytes", tool_call_id: "child"}] = result.trace_artifacts
+      refute Jason.encode!(result.trace) =~ record.content
+      refute Jason.encode!(result.trace) =~ "raw bytes"
+    end
+  end
+
   test "declared sources accumulate per request without inspecting chunks or permissions" do
     completed = fn id, result ->
       event(:tool_completed, 1, %{tool_name: "knowledge", result: result}, tool_call_id: id)

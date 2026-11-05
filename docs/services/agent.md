@@ -687,6 +687,16 @@ execution untraced; callback errors never replace the Action result.
 - These checks are implemented in `Zaq.Agent.MCP.Runtime` and must remain centralized there.
 
 ### Stream Events (`Zaq.Agent.StreamEvents`)
+
+Nested Action lifecycle events enter the same request stream as native tool events.
+The canonical collection retains `invocation_path`, `parent_id`, and `origin` on
+both starts and completions; no second child collection or ID reconciliation is
+used. Child sequence/iteration envelopes use zero as a synthetic fallback, with
+first-observed collection order and the parent's displayed turn retained. Nested
+activity does not change public status labels, root tool counts, or source/result
+aggregation. Consumed completions survive request failure; unresolved starts become
+unknown at termination. The consumer never waits for events emitted after closure.
+Nested document Records are externalized through the existing trace artifact path.
 - Reduces `Jido.AI.Agent.ask_stream/3` events into one request result consumed by `Executor`.
 - `tool_calls` is the sole request-local invocation collection. Its records keep
   private arguments/results/timestamps alongside explicit native `invocation_id`,
