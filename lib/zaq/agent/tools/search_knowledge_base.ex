@@ -6,6 +6,8 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   results, then re-ranks the combined candidate set before global count/token
   limiting. Ingestion owns content, permissions and source/language filtering.
   Only direct matches are returned; agents fetch neighboring chunk IDs explicitly.
+  Composed Actions execute through ActionContract with narrow trusted trace context;
+  the supervised search tree retains ownership of deadlines and retries.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -61,12 +63,22 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   }
 
   alias Zaq.Agent.Status
+  alias Zaq.Agent.Tools.ActionContract
   alias Zaq.Agent.Tools.KnowledgeSources
   alias Zaq.Event
   alias Zaq.Ingestion.DocumentProcessor
   alias Zaq.NodeRouter
 
   require Logger
+
+  @trace_context_keys [
+    :tool_call_id,
+    :tool_invocation_path,
+    :on_tool_event,
+    :tool_event_sink,
+    :request_id,
+    :run_id
+  ]
 
   def tool_timeout_ms, do: 120_000
 
@@ -212,7 +224,10 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
     case execute(
            TranslateKnowledgeQuery,
            input,
-           Map.take(context, [:translation_config, :generation, :retrieval_deadline])
+           Map.take(
+             context,
+             [:translation_config, :generation, :retrieval_deadline] ++ @trace_context_keys
+           )
          ) do
       {:ok, %{queries: queries, errors: invalid}} -> {queries, translation_errors(invalid)}
       {:error, _} -> {%{}, translation_errors(languages)}
@@ -347,22 +362,26 @@ defmodule Zaq.Agent.Tools.SearchKnowledgeBase do
   # timeout workers. Pass only the native operation's trusted context contract.
   defp execute(action, input, context) do
     action_context =
-      Map.take(context, [
-        :person_id,
-        :team_ids,
-        :skip_permissions,
-        :source_filter,
-        :node_router,
-        :document_processor,
-        :execution_actor,
-        :translation_config,
-        :generation,
-        :reranking_config,
-        :reranker,
-        :retrieval_deadline
-      ])
+      Map.take(
+        context,
+        @trace_context_keys ++
+          [
+            :person_id,
+            :team_ids,
+            :skip_permissions,
+            :source_filter,
+            :node_router,
+            :document_processor,
+            :execution_actor,
+            :translation_config,
+            :generation,
+            :reranking_config,
+            :reranker,
+            :retrieval_deadline
+          ]
+      )
 
-    Jido.Exec.run(action, input, action_context, timeout: 0, max_retries: 0)
+    ActionContract.execute(action, input, action_context, timeout: 0, max_retries: 0)
   end
 
   defp dispatch(action, request, context) do
