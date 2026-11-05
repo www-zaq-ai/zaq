@@ -566,6 +566,17 @@ defmodule Zaq.System do
     }
   end
 
+  @doc "Whether a dedicated RAG selection has been saved, including an explicit empty selection."
+  @spec model_config_initialized?(:translation | :reranking | :decision) :: boolean()
+  def model_config_initialized?(kind) when kind in [:translation, :reranking, :decision] do
+    fields =
+      if kind == :translation,
+        do: ~w(credential_id model temperature top_p),
+        else: ~w(credential_id model)
+
+    map_size(read_config_fields("rag.#{kind}", fields)) > 0
+  end
+
   @doc "Saves a specialized RAG model selection without invoking it."
   def save_rag_model_config(kind, attrs) when kind in [:reranking, :decision] and is_map(attrs) do
     changeset = RAGModelConfig.changeset(get_rag_model_config(kind), attrs)

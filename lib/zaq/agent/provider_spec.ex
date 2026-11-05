@@ -72,7 +72,13 @@ defmodule Zaq.Agent.ProviderSpec do
   defp operation_options(:generation, spec, opts), do: {:ok, spec, opts}
 
   defp operation_options(:reranking, spec, opts) do
-    with {:ok, model} <- ReqLLM.Rerank.validate_model(spec) do
+    catalog_spec =
+      case LLMDB.model(spec.provider, spec.id) do
+        {:ok, model} -> Map.merge(Map.from_struct(model), spec)
+        {:error, _} -> spec
+      end
+
+    with {:ok, model} <- ReqLLM.Rerank.validate_model(catalog_spec) do
       {:ok, model, Keyword.drop(opts, [:temperature, :top_p])}
     end
   end

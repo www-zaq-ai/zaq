@@ -258,6 +258,23 @@ defmodule Zaq.UserPortal.Provisioner do
       |> log_config_result("image-to-text")
     end
 
+    unless System.model_config_initialized?(:translation) do
+      System.save_operation_model_config(:translation, %{
+        credential_id: cred_id,
+        model: ZAQRouter.default_translation_model()
+      })
+      |> log_config_result("translation")
+    end
+
+    for {kind, model} <- [
+          reranking: ZAQRouter.default_reranking_model(),
+          decision: ZAQRouter.default_decision_model()
+        ],
+        not System.model_config_initialized?(kind) do
+      System.save_rag_model_config(kind, %{credential_id: cred_id, model: model})
+      |> log_config_result(Atom.to_string(kind))
+    end
+
     :ok
   end
 

@@ -4,23 +4,47 @@ defmodule Zaq.Agent.ZAQRouterTest do
 
   alias Zaq.Agent.ProviderModels
   alias Zaq.Agent.ZAQRouter
+  alias Zaq.System.OperationModelConfig
+  alias Zaq.System.RAGModelConfig
   alias Zaq.TestSupport.ModelCatalogFixture
 
   @catalog_metadata %{
     "openai/gpt-oss-120b" => {131_072, true},
     "qwen/qwen3-235b-a22b-2507" => {262_144, true},
-    "mistralai/mistral-small-2603" => {262_144, true},
+    "google/gemma-4-31b-it" => {262_144, true},
     "deepseek/deepseek-v4-pro" => {1_048_576, true},
     "moonshotai/kimi-k3" => {1_048_576, true},
     "deepseek/deepseek-v4.1-flash" => {1_048_576, true},
-    "nvidia/nemotron-nano-12b-v2-vl" => {131_072, true},
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" => {256_000, true},
     "google/gemma-3-27b-it" => {131_072, true},
     "google/gemini-2.5-flash-lite" => {1_048_576, true},
     "qwen/qwen3-vl-235b-a22b-instruct" => {262_144, true},
     "nvidia/llama-nemotron-embed-vl-1b-v2" => {10_240, false},
     "openai/text-embedding-3-small" => {8192, false},
     "google/gemini-embedding-001" => {2048, false},
-    "openai/text-embedding-3-large" => {8192, false}
+    "openai/text-embedding-3-large" => {8192, false},
+    "openai/gpt-oss-20b" => {131_072, true},
+    "baai/bge-m3" => {8192, false},
+    "typesafe/jev-1.14" => {65_536, false},
+    "Qwen/Qwen3-Reranker-0.6B" => {32_768, false},
+    "moonshotai/kimi-k3.1-pro" => {1_048_576, true},
+    "z-ai/glm-5.3-flash" => {1_048_576, true}
+  }
+
+  @generation_inputs %{
+    "openai/gpt-oss-120b" => [:text],
+    "openai/gpt-oss-20b" => [:text],
+    "qwen/qwen3-235b-a22b-2507" => [:text],
+    "deepseek/deepseek-v4-pro" => [:text],
+    "deepseek/deepseek-v4.1-flash" => [:text, :image],
+    "google/gemma-3-27b-it" => [:text, :image],
+    "qwen/qwen3-vl-235b-a22b-instruct" => [:text, :image],
+    "google/gemma-4-31b-it" => [:text, :image, :video],
+    "moonshotai/kimi-k3" => [:text, :image, :video],
+    "moonshotai/kimi-k3.1-pro" => [:text, :image, :video],
+    "z-ai/glm-5.3-flash" => [:text, :image, :video],
+    "google/gemini-2.5-flash-lite" => [:text, :image, :audio, :video, :file],
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning" => [:text, :image, :audio, :video]
   }
 
   setup tags do
@@ -38,6 +62,81 @@ defmodule Zaq.Agent.ZAQRouterTest do
   end
 
   describe "llmdb_opts/0" do
+    test "advertises exact modalities and generation capabilities" do
+      assert {:ok, _} = LLMDB.load(ZAQRouter.llmdb_opts())
+
+      for {id, input} <- @generation_inputs do
+        assert {:ok, model} = LLMDB.model(:zaq_router, id)
+        assert model.modalities == %{input: input, output: [:text]}
+        assert model.capabilities.chat
+        assert model.capabilities.tools.enabled
+        assert model.capabilities.streaming == %{text: true, tool_calls: true}
+        refute model.capabilities.embeddings
+        refute model.capabilities.rerank
+
+        reasoning? =
+          id not in [
+            "qwen/qwen3-235b-a22b-2507",
+            "qwen/qwen3-vl-235b-a22b-instruct",
+            "google/gemma-3-27b-it"
+          ]
+
+        assert model.capabilities.reasoning.enabled == reasoning?
+        json? = id != "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+        assert model.capabilities.json.native == json?
+        assert model.capabilities.json.schema == json?
+        assert is_nil(model.capabilities.json.strict)
+      end
+    end
+
+    test "specialized models cannot leak into generation selectors" do
+      assert {:ok, _} = LLMDB.load(ZAQRouter.llmdb_opts())
+
+      embeddings = [
+        {"nvidia/llama-nemotron-embed-vl-1b-v2", [:text, :image], 2048, 2048},
+        {"openai/text-embedding-3-large", [:text], 1, 3072},
+        {"openai/text-embedding-3-small", [:text], 1, 1536},
+        {"google/gemini-embedding-001", [:text], 128, 3072},
+        {"baai/bge-m3", [:text], 1024, 1024}
+      ]
+
+      for {id, input, min, dimensions} <- embeddings do
+        assert {:ok, model} = LLMDB.model(:zaq_router, id)
+        assert model.modalities == %{input: input, output: [:embeddings]}
+
+        assert model.capabilities.embeddings == %{
+                 min_dimensions: min,
+                 max_dimensions: dimensions,
+                 default_dimensions: dimensions
+               }
+      end
+
+      for id <- Map.keys(@catalog_metadata) -- Map.keys(@generation_inputs) do
+        assert {:ok, model} = LLMDB.model(:zaq_router, id)
+        refute model.capabilities.chat
+        refute model.capabilities.tools.enabled
+        assert model.capabilities.streaming == %{text: false, tool_calls: false}
+        refute OperationModelConfig.supports?(model)
+      end
+
+      assert {:ok, reranker} = LLMDB.model(:zaq_router, "Qwen/Qwen3-Reranker-0.6B")
+      assert reranker.modalities == %{input: [:text], output: [:rerank]}
+      assert RAGModelConfig.supports?(reranker, :reranking)
+      assert {:ok, decision} = LLMDB.model(:zaq_router, "typesafe/jev-1.14")
+      assert decision.modalities == %{input: [:text, :image], output: [:decisions]}
+      assert decision.capabilities.evaluate
+      assert RAGModelConfig.supports?(decision, :decision)
+    end
+
+    test "all six provisioning defaults are advertised" do
+      assert ZAQRouter.default_chat_model() == "openai/gpt-oss-120b"
+      assert ZAQRouter.default_embedding_model() == {"baai/bge-m3", 1024}
+      assert ZAQRouter.default_image_model() == "deepseek/deepseek-v4.1-flash"
+      assert ZAQRouter.default_translation_model() == "openai/gpt-oss-20b"
+      assert ZAQRouter.default_reranking_model() == "Qwen/Qwen3-Reranker-0.6B"
+      assert ZAQRouter.default_decision_model() == "typesafe/jev-1.14"
+    end
+
     test "advertises context limits and tool support for every default model" do
       assert {:ok, _snapshot} = LLMDB.load(ZAQRouter.llmdb_opts())
 

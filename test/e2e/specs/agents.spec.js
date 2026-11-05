@@ -147,8 +147,8 @@ test.describe("Agents", () => {
     expect(arrowColor).not.toBe(iconColor)
 
     await selectModelFromPicker(page, TOOL_MODEL)
-    await expect(modalities.getByRole("button", { name: "Input: Unknown", exact: true })).toBeVisible()
-    await expect(modalities.getByRole("button", { name: "Output: Unknown", exact: true })).toBeVisible()
+    await expect(modalities.getByRole("button", { name: "Input: Text", exact: true })).toBeVisible()
+    await expect(modalities.getByRole("button", { name: "Output: Text", exact: true })).toBeVisible()
     await selectModelFromPicker(page, VISION_MODEL)
     await expect(image).toBeVisible()
 
