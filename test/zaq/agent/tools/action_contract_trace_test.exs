@@ -4,6 +4,8 @@ defmodule Zaq.Agent.Tools.ActionContractTraceTest do
 
   alias Jido.Agent.StateOp.SetState
   alias Jido.AI.Observe
+  alias ReqLLM.Message.ContentPart
+  alias ReqLLM.ToolResult
 
   alias Zaq.Agent.Tools.ActionContract
   alias Zaq.Contracts.Record
@@ -227,5 +229,125 @@ defmodule Zaq.Agent.Tools.ActionContractTraceTest do
     assert_receive {:trace, _}
     assert_receive {:trace, _}
     refute_received {:jido_ai_request_event, _}
+  end
+
+  test "malformed invocation paths execute without trace or caller mutation" do
+    for path <- [[], ["other"], ["root", "not-a-uuid"], ["root" | 42]] do
+      supplied = Map.merge(context(), %{tool_call_id: "root", tool_invocation_path: path})
+      original = supplied
+
+      assert {:ok, %{value: 42}} =
+               ActionContract.execute(ResultAction, %{result: {:ok, %{value: 42}}}, supplied)
+
+      assert supplied == original
+      refute_received {:trace, _}
+    end
+  end
+
+  test "missing trace destination does not create a span" do
+    assert {:ok, %{value: 42}} =
+             ActionContract.execute(ResultAction, %{result: {:ok, %{value: 42}}}, %{
+               tool_call_id: "root"
+             })
+
+    refute_received {:trace, _}
+    refute_received {:jido_ai_request_event, _}
+
+    assert {:ok, %{value: 42}} =
+             ActionContract.execute(ResultAction, %{result: {:ok, %{value: 42}}}, %{
+               tool_call_id: "root",
+               on_tool_event: nil
+             })
+
+    refute_received {:trace, _}
+    refute_received {:jido_ai_request_event, _}
+  end
+
+  test "deep evidence is bounded without truncating the Action result" do
+    nested = Enum.reduce(1..20, :deepest_marker, fn _, value -> [value] end)
+    result = {:ok, %{deep: nested}}
+    assert ActionContract.execute(ResultAction, %{result: result}, context()) == result
+    assert_receive {:trace, %{kind: :tool_started}}
+    assert_receive {:trace, %{kind: :tool_completed, data: %{outcome: "succeeded"}} = completed}
+    assert inspect(completed.data.result) =~ "[omitted]"
+    refute inspect(completed.data.result) =~ "deepest_marker"
+  end
+
+  test "typed media evidence differs by destination, never by returned value" do
+    record = %Record{
+      id: "media-evidence",
+      kind: :document,
+      name: "distinctive",
+      content: "RECORD_BYTES",
+      materialization_handle: "HANDLE_SENTINEL",
+      provenance_ref: "PROVENANCE_SENTINEL"
+    }
+
+    part = ContentPart.image("PART_BYTES", "image/png")
+
+    tool_result = %ToolResult{
+      output: %{record: record, __content_parts__: [part]},
+      content: [part]
+    }
+
+    result = {:ok, tool_result}
+
+    assert ActionContract.execute(ResultAction, %{result: result}, context()) == result
+    assert_receive {:trace, %{kind: :tool_started} = custom_started}
+    assert_receive {:trace, %{kind: :tool_completed} = custom_done}
+    refute inspect(custom_started.data.arguments) =~ "PART_BYTES"
+    refute inspect(custom_started.data.arguments) =~ "RECORD_BYTES"
+    assert {:ok, custom_evidence, []} = custom_done.data.result
+    assert is_map(custom_evidence)
+    assert custom_evidence.content == nil
+    custom_record = custom_evidence.output.record
+    assert is_map(custom_record)
+    assert custom_record.content == nil
+    assert custom_record.materialization_handle == "[REDACTED]"
+    assert custom_record.provenance_ref == "[REDACTED]"
+    [custom_part] = custom_evidence.output.__content_parts__
+    assert is_map(custom_part)
+    refute Map.has_key?(custom_part, :data)
+    refute Map.has_key?(custom_part, :url)
+
+    sink_context = %{
+      tool_call_id: "root",
+      request_id: "request",
+      run_id: "run",
+      tool_event_sink: {:pid, self()}
+    }
+
+    assert ActionContract.execute(ResultAction, %{result: result}, sink_context) == result
+    assert_receive {:jido_ai_request_event, %{kind: :tool_started} = native_started}
+    assert inspect(native_started) |> String.contains?("PART_BYTES") == false
+    assert inspect(native_started) |> String.contains?("RECORD_BYTES") == false
+    assert_receive {:jido_ai_request_event, %{kind: :tool_completed} = native_done}
+    assert {:ok, %ToolResult{content: nil} = native_evidence, []} = native_done.data.result
+
+    assert %Record{
+             content: "RECORD_BYTES",
+             materialization_handle: "[REDACTED]",
+             provenance_ref: "[REDACTED]"
+           } = native_evidence.output.record
+
+    assert [%ContentPart{data: "PART_BYTES"}] = native_evidence.output.__content_parts__
+  end
+
+  test "unusual envelopes retain Jido's actual result" do
+    for result <- [{:error, :failure, []}, :unclassified] do
+      untraced = ActionContract.execute(ResultAction, %{result: result})
+      traced = ActionContract.execute(ResultAction, %{result: result}, context())
+      assert traced == untraced
+      assert_receive {:trace, _}
+      assert_receive {:trace, completed}
+
+      case traced do
+        {:error, _} -> assert completed.data.outcome == "failed"
+        {:error, _, _} -> assert completed.data.outcome == "failed"
+        {:ok, _} -> assert completed.data.outcome == "succeeded"
+        {:ok, _, _} -> assert completed.data.outcome == "succeeded"
+        other -> assert completed.data.outcome == "unknown" and completed.data.result == other
+      end
+    end
   end
 end
