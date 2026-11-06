@@ -5,6 +5,9 @@
 - PR number/link: not opened; this is a local branch review, not a GitHub approval.
 - Linked work: `zaq-1dq`, children `.1`–`.17`; related decisions in `zaq-vhs` and `zaq-zmu`.
 - Reviewer: coding agent applying `pr-review` and `pr-review-agent`; automated self-review, not an independent human review.
+- Coverage follow-up: the two test-only additions were reviewed and approved after
+  fixture corrections; measurement and remaining defensive/legacy branches are
+  recorded in [the coverage report](nested-action-traces-coverage.md).
 
 ## A — Inline review comments
 
@@ -27,8 +30,9 @@ findings or implicit waivers:
   uncommitted dependency selection. The committed GitHub dependency is not claimed
   to provide that prerequisite. Upstream contribution and the subsequently approved
   portable dependency switch remain separate delivery work.
-- Coverage handoff and final `mix precommit` have not run at this review point.
-  This review does not grant final human landing approval or authorize a merge.
+- Coverage handoff subsequently completed as documented in the linked report;
+  final `mix precommit` remains pending. This review does not grant final human
+  landing approval or authorize a merge.
 
 ## C — Final recap
 
