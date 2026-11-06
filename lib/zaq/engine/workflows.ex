@@ -1104,17 +1104,31 @@ defmodule Zaq.Engine.Workflows do
     |> broadcast_step()
   end
 
-  @doc "Marks a step run as failed, recording the error map, optional logs, and finished_at."
+  @doc """
+  Marks a step run as failed, recording the error map, optional logs, and finished_at.
+
+  The optional `:results` value retains diagnostic output supplied by a failed
+  Action. It does not complete the step or add the output to downstream cascade.
+  Without this option, existing results remain untouched.
+  """
   @spec fail_step_run(StepRun.t(), map(), [map()], keyword()) ::
           {:ok, StepRun.t()} | {:error, Ecto.Changeset.t()}
   def fail_step_run(%StepRun{} = step_run, errors, logs \\ [], opts \\ []) do
-    step_run
-    |> StepRun.changeset(%{
+    attrs = %{
       status: Keyword.get(opts, :status, "failed"),
       errors: errors,
       logs: logs,
       finished_at: DateTime.utc_now(:second)
-    })
+    }
+
+    attrs =
+      case Keyword.fetch(opts, :results) do
+        {:ok, results} -> Map.put(attrs, :results, results)
+        :error -> attrs
+      end
+
+    step_run
+    |> StepRun.changeset(attrs)
     |> Repo.update()
     |> broadcast_step()
   end

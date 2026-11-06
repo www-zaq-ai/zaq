@@ -118,3 +118,40 @@ workflow step was a new-test interaction error, not a production rendering defec
 Rough review-pass estimate: **20,000 input tokens**, **1,400 output tokens**,
 **21,400 total**. Actual per-review runtime token metrics are not exposed; these
 estimates are not a measurement of the overall implementation conversation.
+
+## Human-validation follow-up — failed Run Agent diagnostics
+
+Julien's final validation exposed a real gap not covered by the initial review:
+`RunAgent` discarded partial agent telemetry on an error response, StepRunner
+persisted only the error, and the BO hid its agent panel for failed steps. The
+reported run's stored reason was `agent_failed::provider_rate_limited`; preserving
+diagnostics does not bypass that provider failure or recover already-lost data.
+
+The `zaq-1dq.18` repair extends the existing `ExecutionFailureError` envelope with
+an explicit generic `details.workflow_results` contract. RunAgent supplies only
+its existing JSON-safe telemetry allowlist. Engine code treats that map as opaque
+and stores it through `fail_step_run`'s optional results argument; it imports no
+Agent implementation and does not forward closures across dispatch. Failed status,
+public message, native identity, and retry/timeout policy remain intact; StepRunner
+returns the supplied error unchanged. Diagnostic output is not cascaded, promoted to successful business
+output, or printed in failure logs. Errors without observed telemetry retain the
+old string shape. The UI correction reuses the existing panel and only removes its
+success/waiting-only visibility guard, leaving business-output guards unchanged.
+
+Self-review approves this repair for the renewed coverage handoff. A generic
+confidentiality/cascade property and real Jido error roundtrip cover the transport;
+real native integration covers success, rate limiting after nested work, and
+pre-tool rate limiting. New LiveView cases prove failed/isolated-failure expansion
+and reload. All **216 focused checks** pass (**6 properties, 210 tests**), as does
+`mix q`. Julien subsequently approved the corrected workflow UI in the revalidation
+form. Only then were the Run Agent browser cases authored; the expanded existing
+journey passes in **Chromium, Firefox and WebKit** (**3 test journeys**), retaining
+all prior chat/direct-Action checks, waits, timeouts and zero retries.
+
+New fixture corrections were limited to supported Outgoing fields, existing
+`failed_fatal` map semantics, dynamic helper dispatch to avoid compile warnings,
+owned workflow-task teardown, and the existing native root row's label (known
+success is asserted through the backend projection; nested rows retain explicit
+outcome labels). No existing test assertions were weakened. User-owned dependency
+and workflow fixture files remain outside this repair. Fresh coverage and final
+`mix precommit` must be repeated; the earlier passing final gate is historical.

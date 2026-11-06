@@ -28,6 +28,10 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   from params before the wrapped module is called, so the wrapped module only sees
   its own domain params.
 
+  The Action contract may attach diagnostic results to an execution failure.
+  Those opaque results are stored on the failed row, never injected into cascade
+  or included in the step failure log. The original error is returned unchanged.
+
   ## Context injection
 
     Each step's context is enriched with `run_id`, `step_name`, `step_index`, the run's
@@ -55,6 +59,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
 
   use Jido.Action, name: "workflow_step_runner", schema: []
 
+  alias Jido.Action.Error.ExecutionFailureError
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
@@ -233,7 +238,21 @@ defmodule Zaq.Engine.Workflows.StepRunner do
   # A binary error reason is already user-facing prose; keep it verbatim. Everything
   # else (atoms, tuples, exceptions) is inspected for a readable representation.
   defp reason_text(reason) when is_binary(reason), do: reason
+
+  defp reason_text(%ExecutionFailureError{
+         message: message,
+         details: %{workflow_results: results}
+       })
+       when is_binary(message) and is_map(results),
+       do: message
+
   defp reason_text(reason), do: inspect(reason)
+
+  defp failure_options(%ExecutionFailureError{details: %{workflow_results: results}}, status)
+       when is_map(results),
+       do: [status: status, results: results]
+
+  defp failure_options(_reason, status), do: [status: status]
 
   defp execute_step(mod, run_id, step_name, step_index, params, context, map_index, strategy) do
     t0 = Action.log_start()
@@ -332,8 +351,11 @@ defmodule Zaq.Engine.Workflows.StepRunner do
           reason_text = reason_text(reason)
           step_log = Action.log_entry(:step_failed, t0, %{reason: reason_text})
 
-          Workflows.fail_step_run(step_run, %{reason: reason_text}, [step_log],
-            status: failure_status(map_index, strategy)
+          Workflows.fail_step_run(
+            step_run,
+            %{reason: reason_text},
+            [step_log],
+            failure_options(reason, failure_status(map_index, strategy))
           )
 
           Workflows.tick_log_summary(run_id)
@@ -342,7 +364,7 @@ defmodule Zaq.Engine.Workflows.StepRunner do
             run_id: run_id,
             step_name: step_name,
             step_index: step_index,
-            error: inspect(reason),
+            error: reason_text,
             duration_ms: System.monotonic_time(:millisecond) - t0
           )
 

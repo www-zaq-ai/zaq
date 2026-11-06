@@ -174,6 +174,19 @@ Unresolved children become unknown when the enclosing step/run is terminal.
 Generic steps and map/batch forks reuse AgentTracePanel with the existing step
 card as their root; independently configured-agent traces remain separate.
 
+`RunAgent` also retains observed agent telemetry when an agent response fails.
+It uses the generic Action failure-results contract documented in
+`Zaq.Engine.Workflows.Action`: an ordinary `ExecutionFailureError` carries a
+JSON-safe `workflow_results` map. StepRunner stores that opaque map through
+`fail_step_run`'s `:results` option and keeps the same failure message and status.
+Diagnostic fields are neither cascaded as successful output nor dumped into step
+failure logs. Errors without observed telemetry retain their plain-string reason.
+The BO agent panel displays available evidence even on failed steps; business
+output remains limited to successful/waiting steps. Native agent roots and known
+child outcomes are preserved independently of the enclosing failure. A failure
+before any tool work does not manufacture tool spans. Previously discarded
+diagnostics cannot be recovered from an old step by reloading it.
+
 ## Crash-Safe Cursor (Step.Run)
 
 `StepRunner` implements a write-before/update-after pattern:

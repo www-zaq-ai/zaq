@@ -748,10 +748,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
                       <%!-- Agent trace (inline, always visible when present) --%>
                       <div
-                        :if={
-                          step.status in ["completed", "waiting"] and
-                            agent_trace_available?(step.results)
-                        }
+                        :if={agent_trace_available?(step.results)}
                         class="border-b border-black/[0.06] px-5 py-3"
                       >
                         <ZaqWeb.Components.AgentTracePanel.agent_trace_panel

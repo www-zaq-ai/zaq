@@ -641,6 +641,56 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   end
 
   describe "agent trace panel on a step card" do
+    for status <- ["failed", "failed_fatal"] do
+      test "#{status} step retains expandable agent evidence on reload", %{conn: conn} do
+        workflow = workflow_fixture(%{nodes: [@valid_node]})
+        run = run_fixture(workflow, %{status: "failed"})
+
+        step =
+          step_run_fixture(run, %{
+            status: unquote(status),
+            errors: %{"reason" => "agent_failed::provider_rate_limited"},
+            results: %{
+              "agent" => %{"name" => "Workflow diagnostic agent"},
+              "model" => "fixture-model",
+              "trace" => [
+                %{
+                  "id" => "native.failed.root",
+                  "type" => "tool_call",
+                  "invocation_path" => ["native.failed.root"],
+                  "outcome" => "succeeded"
+                },
+                %{
+                  "id" => "known-child",
+                  "type" => "tool_call",
+                  "origin" => "zaq_action",
+                  "parent_id" => "native.failed.root",
+                  "invocation_path" => ["native.failed.root", Ecto.UUID.generate()],
+                  "outcome" => "succeeded",
+                  "response" => %{"observed" => 42}
+                }
+              ]
+            }
+          })
+
+        {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+        render_click(view, "select_step", %{"step_name" => "fetch"})
+        assert has_element?(view, "[data-testid=agent-trace-panel-#{step.id}]")
+        assert render(view) =~ "fixture-model"
+        assert render(view) =~ "Succeeded"
+        refute has_element?(view, "#step-output-#{step.id}")
+
+        assert render_click(view, "toggle_step_trace_details", %{
+                 "step_run_id" => step.id,
+                 "trace_id" => "known-child"
+               }) =~ "trace-details-known-child"
+
+        {:ok, reloaded, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+        render_click(reloaded, "select_step", %{"step_name" => "fetch"})
+        assert has_element?(reloaded, "[data-testid=agent-trace-panel-#{step.id}]")
+      end
+    end
+
     test "step children expand and survive reload and delayed active snapshots without changing the broadcast contract",
          %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
