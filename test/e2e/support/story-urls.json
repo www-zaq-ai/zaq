@@ -12,7 +12,6 @@
   "/storybook/chat/tool_activity",
   "/storybook/chat/transcript",
   "/storybook/chat/user_bubble",
-  "/storybook/chat/workflow_action_traces",
   "/storybook/components/cards/card_shell",
   "/storybook/components/cards/channel_connector_card",
   "/storybook/components/cards/diagnostic_card",
@@ -101,5 +100,6 @@
   "/storybook/semantic/layout",
   "/storybook/semantic/shadows",
   "/storybook/semantic/text_styles",
-  "/storybook/semantic/text_styles_deprecated"
+  "/storybook/semantic/text_styles_deprecated",
+  "/storybook/workflows/action_traces"
 ]

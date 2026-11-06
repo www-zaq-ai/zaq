@@ -5,7 +5,8 @@ defmodule Storybook.Chat.AgentTracePanel do
 
   def description,
     do:
-      "Shared nested agent/workflow trace viewer; existing legacy chrome retained, token migration out of scope."
+      "Nested agent trace viewer; workflow step examples live under Workflows / Action Traces. " <>
+        "Existing legacy chrome retained, token migration out of scope."
 
   def variations do
     root = %{
@@ -33,18 +34,6 @@ defmodule Storybook.Chat.AgentTracePanel do
             traces: [root, child, grandchild, parallel]
           },
           expanded_ids: MapSet.new(["translation"]),
-          toggle_event: "toggle_trace_details"
-        }
-      },
-      %Variation{
-        id: :workflow_children,
-        description: "Selected step card is the root; no duplicate fake root Action",
-        attributes: %{
-          message_info: %{
-            root_invocation_id: "native.root",
-            traces: [child, grandchild, parallel]
-          },
-          show_summary: false,
           toggle_event: "toggle_trace_details"
         }
       },
