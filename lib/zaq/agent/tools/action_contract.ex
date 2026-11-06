@@ -21,8 +21,11 @@ defmodule Zaq.Agent.Tools.ActionContract do
       `:on_tool_event` callback and receive their own `:tool_call_id` and
       `:tool_invocation_path`. Without a callback the default sends lifecycle
       events to `:tool_event_sink` using Jido's native request/run correlation.
-      Missing tracing context keeps execution untraced. Trace failures never
-      replace the Action result; workflow callbacks record synchronously.
+       Missing tracing context keeps execution untraced. Trace failures never
+       replace the Action result; workflow callbacks record synchronously.
+
+  `Zaq.Contracts.ActionInvocation` owns the shared identity mapping;
+  `Zaq.Agent.TraceEvidence` prepares metadata or artifact-bearing evidence.
 
   The caller identifies the action by module. This module is deliberately not a
   registry: `Zaq.Agent.Tools.Registry` stays the allowlist of actions exposed as
@@ -41,13 +44,10 @@ defmodule Zaq.Agent.Tools.ActionContract do
 
   alias Jido.Action.Schema, as: ActionSchema
   alias Jido.Action.Tool
-  alias Jido.AI.Observe
   alias Jido.AI.Request.Stream, as: RequestStream
   alias Jido.AI.Runtime.Event
-  alias ReqLLM.Message.ContentPart
-  alias ReqLLM.ToolResult
-  alias Zaq.Agent.Tools.Error, as: ToolError
-  alias Zaq.Contracts.Record
+  alias Zaq.Agent.TraceEvidence
+  alias Zaq.Contracts.ActionInvocation
 
   require Logger
 
@@ -120,12 +120,12 @@ defmodule Zaq.Agent.Tools.ActionContract do
   defp invocation(%{tool_call_id: id} = context) when is_binary(id) and byte_size(id) > 0 do
     path = Map.get(context, :tool_invocation_path, [id])
 
-    with true <- valid_path?(path, id),
+    with true <- ActionInvocation.valid_path?(path, id),
          {callback, artifacts?} <- destination(context) do
       child_path = path ++ [Ecto.UUID.generate()]
 
       %{
-        tool_call_id: path_id(child_path),
+        tool_call_id: ActionInvocation.id(child_path),
         tool_invocation_path: child_path,
         parent_id: id,
         request_id: Map.get(context, :request_id) || hd(path),
@@ -141,17 +141,6 @@ defmodule Zaq.Agent.Tools.ActionContract do
   end
 
   defp invocation(_context), do: nil
-
-  defp valid_path?([root | segments] = path, id) when is_binary(root) and root != "" do
-    Enum.all?(segments, &match?({:ok, _}, Ecto.UUID.cast(&1))) and path_id(path) == id
-  end
-
-  defp valid_path?(_path, _id), do: false
-
-  defp path_id([root]), do: root
-
-  defp path_id([root | segments]),
-    do: Enum.join(["zaq", Base.url_encode64(root, padding: false) | segments], ".")
 
   defp destination(%{on_tool_event: callback}) when is_function(callback, 1),
     do: {callback, false}
@@ -185,7 +174,12 @@ defmodule Zaq.Agent.Tools.ActionContract do
       data
       |> Map.new(fn {key, value} ->
         # Arguments never carry artifact bytes, even on the agent route.
-        {key, trace_value(value, key == :result and invocation.artifacts?, 0)}
+        evidence =
+          if key == :result and invocation.artifacts?,
+            do: TraceEvidence.result(value),
+            else: TraceEvidence.metadata(value)
+
+        {key, evidence}
       end)
       |> Map.merge(%{
         invocation_path: invocation.tool_invocation_path,
@@ -222,87 +216,6 @@ defmodule Zaq.Agent.Tools.ActionContract do
   end
 
   defp trace_failure, do: Logger.warning("Nested Action trace delivery failed")
-
-  # Keep only the supported artifact shapes on the default runtime route. A
-  # custom callback (including workflow storage) receives metadata, never bytes.
-  defp trace_value(_value, _artifacts?, depth) when depth >= 16, do: "[omitted]"
-
-  defp trace_value(%Record{} = record, artifacts?, depth) do
-    fields =
-      record
-      |> Record.metadata()
-      # The metadata contract owns this allowlist; its keys are existing Record fields.
-      |> Map.new(fn {key, value} -> {String.to_existing_atom(key), value} end)
-      |> Map.merge(%{content: nil, materialization_handle: nil, provenance_ref: nil})
-
-    safe = trace_map(fields, artifacts?, depth)
-    if artifacts?, do: %{struct(Record, safe) | content: record.content}, else: safe
-  end
-
-  defp trace_value(%ToolResult{} = result, artifacts?, depth) do
-    fields = result |> Map.from_struct() |> Map.put(:content, nil) |> trace_map(artifacts?, depth)
-    if artifacts?, do: struct(ToolResult, fields), else: fields
-  end
-
-  defp trace_value(%ContentPart{} = part, true, depth) do
-    fields = part |> Map.from_struct() |> Map.put(:data, nil) |> trace_map(false, depth)
-    %{struct(ContentPart, fields) | data: part.data}
-  end
-
-  defp trace_value(%ContentPart{} = part, false, depth),
-    do: part |> Map.from_struct() |> Map.drop([:data, :url]) |> trace_map(false, depth)
-
-  defp trace_value(%_{} = value, _artifacts?, _depth),
-    do: ToolError.trace_summary(value)
-
-  defp trace_value(value, artifacts?, depth) when is_map(value),
-    do: trace_map(value, artifacts?, depth)
-
-  defp trace_value(value, artifacts?, depth) when is_tuple(value),
-    do:
-      value
-      |> Tuple.to_list()
-      |> Enum.map(&trace_value(&1, artifacts?, depth + 1))
-      |> List.to_tuple()
-
-  defp trace_value(value, artifacts?, depth) when is_list(value),
-    do: value |> Enum.take(100) |> Enum.map(&trace_value(&1, artifacts?, depth + 1))
-
-  defp trace_value(value, _artifacts?, _depth)
-       when is_nil(value) or is_boolean(value) or is_number(value) or is_atom(value), do: value
-
-  defp trace_value(value, _artifacts?, _depth) when is_binary(value) do
-    if String.valid?(value),
-      do: Observe.sanitize_transport_payload(value),
-      else: "[binary omitted]"
-  end
-
-  defp trace_value(_value, _artifacts?, _depth), do: "[runtime value omitted]"
-
-  defp trace_map(map, artifacts?, depth) do
-    map
-    |> Enum.take(100)
-    |> Map.new(fn {key, _value} ->
-      capability? =
-        key in [
-          :materialization_handle,
-          "materialization_handle",
-          :provenance_ref,
-          "provenance_ref"
-        ]
-
-      {key, if(capability?, do: "[REDACTED]", else: nil)}
-    end)
-    |> Observe.sanitize_sensitive()
-    |> Map.new(fn {key, redaction} ->
-      value =
-        if is_nil(redaction),
-          do: trace_value(Map.get(map, key), artifacts?, depth + 1),
-          else: redaction
-
-      {key, value}
-    end)
-  end
 
   defp ensure_loaded(module) do
     case Code.ensure_loaded(module) do

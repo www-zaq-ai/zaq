@@ -72,7 +72,8 @@ Use this to decide where new code belongs. When a function would violate the "Do
 | `ProviderSpec.Registry` and provider implementations | Static provider selection and pure provider-specific ReqLLM translation | Credential lookup/selection, authorization, OAuth protocol, HTTP, persistence |
 | `Factory` | Model spec assembly (`build_model_spec/0,1`), `ask/ask_with_config`, generation opts | Provider/URL logic (delegated to `ProviderSpec`), credential resolution, pipeline orchestration |
 | `Executor` | Configured-agent lifecycle, config loading, factory delegation, `:answering` status broadcast | LLM call details, response struct construction |
-| `StreamEvents` | Request-local stream reduction, accepted-answer correlation and native-input evidence dispatch, buffered updates, trace/tool capture, model/measurement extraction | Server lifecycle, provider config, database persistence or outcome finalization |
+| `StreamEvents` | Request-local stream reduction, accepted-answer correlation and native-input evidence dispatch, buffered updates, trace/tool capture, model/measurement extraction | Typed evidence conversion, artifact extraction (delegated to `TraceEvidence`), server lifecycle, provider config, database persistence or outcome finalization |
+| `TraceEvidence` | Bounded metadata/result preparation, supported artifact externalization, legacy JSON persistence conversion | Action execution, event collection/correlation, authorization or database persistence |
 | `ServerManager` | `AgentServer` start/stop/lookup per configured agent id | Provider logic, URL handling, answer building, branching by agent type |
 | `Api` | `NodeRouter` dispatch entrypoint, PromptGuard gate, `:validating` status broadcast, route decision | Business logic beyond routing |
 | `Status` | Ordered intermediate upserts routed via NodeRouter to Channels | Orchestration, agent lifecycle, UI logic, PubSub subscription |
@@ -616,7 +617,9 @@ context contains `tool_call_id` and a trace destination, each call creates a UUI
 child segment and inherits `tool_invocation_path` and `on_tool_event`. Native root
 IDs remain opaque; child IDs are `zaq.<base64url(root)>.<UUID>...` with the explicit
 path retained as the structural source of truth. Internal Jido retries share that
-invocation; separate executions get distinct child IDs.
+invocation; separate executions get distinct child IDs. The pure
+`Zaq.Contracts.ActionInvocation` contract owns the shared path/ID mapping used by
+this boundary and workflow admission; it neither executes nor authorizes calls.
 
 An arity-one `on_tool_event` receives existing Jido `tool_started` / `tool_completed`
 envelopes. The default sends to `tool_event_sink: {:pid, consumer}` with Jido's
@@ -627,6 +630,12 @@ artifact payloads until the existing trace artifact projection externalizes them
 Result tuples are normalized only in evidence; outcome and duration are explicit.
 Unknown runtime objects are omitted, not inspected. Missing tracing context keeps
 execution untraced; callback errors never replace the Action result.
+
+`TraceEvidence.metadata/1` prepares arguments and custom-callback evidence;
+`TraceEvidence.result/1` retains supported typed bytes for the native stream only.
+Their shared bounded traversal reuses Observe redaction, Record metadata and tool
+error summaries without changing tagged envelopes. Generic transport sanitization
+is not interchangeable: its tuple, struct and truncation contracts differ.
 
 Knowledge search preserves its supervised deadline and zero-retry/inline child
 execution options while forwarding only tracing keys through its existing narrow
@@ -709,7 +718,11 @@ first-observed collection order and the parent's displayed turn retained. Nested
 activity does not change public status labels, root tool counts, or source/result
 aggregation. Consumed completions survive request failure; unresolved starts become
 unknown at termination. The consumer never waits for events emitted after closure.
-Nested document Records are externalized through the existing trace artifact path.
+Nested document Records are externalized by `TraceEvidence.externalize/4` through
+the existing trace artifact path. StreamEvents retains flat relationships and turn
+correlation; presentation owns tree construction. `StreamEvents.json_safe/1` remains
+a compatibility delegate to the helper's unchanged legacy serializer, including
+struct tags and inspection fallbacks; it is not a security sanitizer.
 Content-part and Record extraction compose for mixed payloads, and content-part
 artifact metadata is built only after Record bytes have been removed. Nested
 artifacts are marked optional diagnostics; Engine owns their limit/validation
@@ -1063,6 +1076,7 @@ lib/zaq/agent/
 ├── server_manager.ex           # Ensures one AgentServer per configured agent id
 ├── status.ex                   # Fire-and-forget PubSub status broadcast
 ├── supervisor.ex               # Agent role supervisor with dynamic AgentServer tree
+├── trace_evidence.ex           # Typed diagnostic preparation, artifact and legacy JSON conversion
 ├── tools/
 │   ├── list_knowledge_base_files.ex # Built-in tool: list KB files
 │   ├── registry.ex             # Code-defined tool allowlist and capability checks

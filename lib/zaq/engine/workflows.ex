@@ -15,6 +15,7 @@ defmodule Zaq.Engine.Workflows do
 
   alias Jido.AI.Observe
   alias Jido.AI.Runtime.Event, as: RuntimeEvent
+  alias Zaq.Contracts.ActionInvocation
   alias Zaq.Engine.EventRegistry
 
   alias Zaq.Engine.Workflows.{
@@ -1008,17 +1009,9 @@ defmodule Zaq.Engine.Workflows do
     with true <- event.kind in [:tool_started, :tool_completed],
          true <- is_binary(event.id) and event.id != "",
          true <- event.data[:origin] == "zaq_action",
-         [^root, segment | rest] <- path,
-         true <- Enum.all?([segment | rest], &match?({:ok, _}, Ecto.UUID.cast(&1))) do
-      prefix = "zaq.#{Base.url_encode64(root, padding: false)}"
-      id = Enum.join([prefix, segment | rest], ".")
-
-      parent =
-        if rest == [],
-          do: root,
-          else: path |> Enum.drop(-1) |> tl() |> then(&Enum.join([prefix | &1], "."))
-
-      event.tool_call_id == id and event.data[:parent_id] == parent
+         [^root, _segment | _rest] <- path,
+         true <- ActionInvocation.valid_path?(path, event.tool_call_id) do
+      event.data[:parent_id] == ActionInvocation.id(Enum.drop(path, -1))
     else
       _ -> false
     end

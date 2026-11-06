@@ -158,6 +158,9 @@ outcomes, and closures never enter workflow snapshots or service events.
 The local `Workflows.record_step_event/2` API validates the captured
 `workflow_step:<step_run_uuid>` root, child identity/path and lifecycle kind, then
 locks the latest step row to deduplicate by event ID and append atomically.
+Child path/ID validation reuses `Zaq.Contracts.ActionInvocation`; workflow root,
+parent, lifecycle and run admission remain Engine checks. Persistence retains its
+stricter opaque-value rejection rather than using the legacy agent JSON serializer.
 Recording never changes step outcome, including for valid late evidence. It
 retains explicit child outcome through JSON conversion and redacts payloads;
 callbacks and materialized resource bytes are excluded. Lifecycle functions return

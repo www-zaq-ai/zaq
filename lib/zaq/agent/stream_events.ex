@@ -18,7 +18,9 @@ defmodule Zaq.Agent.StreamEvents do
   They cannot change public status labels, source aggregation or model tool counts.
   The stream is nonblocking: cancellation settles consumed starts to unknown and
   does not wait for late producer events. Supported nested Record payloads use the
-  existing artifact projection rather than persisting inline resource bytes.
+  artifact projection in `Zaq.Agent.TraceEvidence` rather than persisting inline
+  resource bytes. That helper owns typed evidence conversion; this module retains
+  flat invocation relationships, replay handling and native-root turn correlation.
 
   Answer, reasoning and tool events share an event-driven publication interval in
   this reducer. Trigger switches select publication opportunities, not snapshot
@@ -29,11 +31,10 @@ defmodule Zaq.Agent.StreamEvents do
   delivery without admitting another intermediate publication.
   """
 
-  alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
   alias Zaq.Agent.Status
+  alias Zaq.Agent.TraceEvidence
   alias Zaq.ConnectorConfig.LiveUpdates
-  alias Zaq.Contracts.Record
   alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Messages.Incoming
   alias Zaq.Event
@@ -416,17 +417,12 @@ defmodule Zaq.Agent.StreamEvents do
     tool_name = field(event, :tool_name) || data_get(data, :tool_name) || existing["name"]
 
     {trace_result, trace_artifacts} =
-      externalize_trace_artifacts(
+      TraceEvidence.externalize(
         data_get(data, :result),
         tool_call_id,
         tool_name,
         data_get(data, :origin) == "zaq_action"
       )
-
-    trace_artifacts =
-      if data_get(data, :origin) == "zaq_action",
-        do: Enum.map(trace_artifacts, &Map.put(&1, :optional, true)),
-        else: trace_artifacts
 
     tool_call =
       existing
@@ -494,164 +490,6 @@ defmodule Zaq.Agent.StreamEvents do
       existing["invocation_path"] == data_get(data, :invocation_path) and
       existing["parent_id"] == data_get(data, :parent_id)
   end
-
-  defp externalize_trace_artifacts(
-         {:ok, %ToolResult{} = tool_result, effects},
-         tool_call_id,
-         tool_name,
-         nested?
-       ) do
-    case externalize_trace_artifacts(
-           {:ok, tool_result.output, effects},
-           tool_call_id,
-           tool_name,
-           nested?
-         ) do
-      {{:ok, output, _effects}, artifacts} ->
-        {{:ok, %{tool_result | output: output, content: nil}, effects}, artifacts}
-
-      {result, artifacts} ->
-        {result, artifacts}
-    end
-  end
-
-  defp externalize_trace_artifacts({:ok, %Record{} = record, effects}, id, name, true) do
-    {{:ok, %{record: safe}, effects}, artifacts} =
-      externalize_record_artifact(%{record: record}, effects, id, name, true)
-
-    {{:ok, safe, effects}, artifacts}
-  end
-
-  defp externalize_trace_artifacts({:ok, payload, effects}, tool_call_id, tool_name, nested?)
-       when is_map(payload) do
-    {parts, payload} = skill_resource_parts(payload)
-
-    {{:ok, safe_payload, effects}, record_artifacts} =
-      externalize_record_artifact(payload, effects, tool_call_id, tool_name, nested?)
-
-    part_artifacts = skill_resource_artifacts(parts, safe_payload, tool_call_id, tool_name)
-    {{:ok, safe_payload, effects}, record_artifacts ++ part_artifacts}
-  end
-
-  defp externalize_trace_artifacts(result, _tool_call_id, _tool_name, _nested?), do: {result, []}
-
-  defp externalize_record_artifact(payload, effects, tool_call_id, tool_name, nested?) do
-    case payload_record(payload) do
-      {key, %Record{} = record} ->
-        case trace_media_artifact(record, tool_call_id, tool_name, nested?) do
-          {:ok, artifact} ->
-            safe_record = %{record | content: nil}
-            {{:ok, Map.put(payload, key, safe_record), effects}, [artifact]}
-
-          {:error, _reason} ->
-            safe_record = %{record | content: nil}
-            {{:ok, Map.put(payload, key, safe_record), effects}, []}
-
-          :not_media ->
-            {{:ok, payload, effects}, []}
-        end
-
-      nil ->
-        {{:ok, payload, effects}, []}
-    end
-  end
-
-  defp skill_resource_parts(payload) do
-    case Map.get(payload, :__content_parts__) || Map.get(payload, "__content_parts__") do
-      parts when is_list(parts) ->
-        {parts, Map.drop(payload, [:__content_parts__, "__content_parts__"])}
-
-      _parts ->
-        {[], payload}
-    end
-  end
-
-  defp skill_resource_artifacts(parts, payload, tool_call_id, tool_name) do
-    Enum.flat_map(parts, fn
-      %ContentPart{type: type, data: content} = part
-      when type in [:image, :file] and is_binary(content) ->
-        [
-          %{
-            record: json_safe(payload),
-            content: content,
-            name: artifact_text([part.filename, map_value(payload, :filename)], "skill-resource"),
-            mime_type:
-              artifact_text(
-                [part.media_type, map_value(payload, :mime_type)],
-                "application/octet-stream"
-              ),
-            size: byte_size(content),
-            tool_call_id: tool_call_id,
-            tool_name: tool_name || "tool"
-          }
-        ]
-
-      _part ->
-        []
-    end)
-  end
-
-  defp map_value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
-
-  defp artifact_text(values, fallback) do
-    Enum.find(values, fallback, &(is_binary(&1) and String.trim(&1) != ""))
-  end
-
-  defp payload_record(payload) do
-    cond do
-      match?(%Record{}, Map.get(payload, :record)) -> {:record, Map.get(payload, :record)}
-      match?(%Record{}, Map.get(payload, "record")) -> {"record", Map.get(payload, "record")}
-      true -> nil
-    end
-  end
-
-  defp trace_media_artifact(
-         %Record{content: content, attributes: attributes} = record,
-         tool_call_id,
-         tool_name,
-         nested?
-       )
-       when is_binary(content) and is_map(attributes) do
-    if nested? or source_type(attributes) == "communication_media" do
-      case decode_record_content(record, content) do
-        {:ok, decoded_content} ->
-          {:ok,
-           %{
-             record: Record.metadata(record),
-             content: decoded_content,
-             name: artifact_text([record.name], "attachment"),
-             mime_type: artifact_text([record.mime_type], "application/octet-stream"),
-             size: byte_size(decoded_content),
-             tool_call_id: tool_call_id,
-             tool_name: tool_name || "tool"
-           }}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-    else
-      :not_media
-    end
-  end
-
-  defp trace_media_artifact(_record, _tool_call_id, _tool_name, _nested?), do: :not_media
-
-  defp decode_record_content(%Record{attributes: attributes}, content) do
-    if encoding(attributes) == "base64" do
-      case Base.decode64(content) do
-        {:ok, decoded} -> {:ok, decoded}
-        :error -> {:error, :invalid_encoding}
-      end
-    else
-      {:ok, content}
-    end
-  end
-
-  defp source_type(attributes),
-    do: Map.get(attributes, "source_type") || Map.get(attributes, :source_type)
-
-  defp encoding(attributes),
-    do: Map.get(attributes, "encoding") || Map.get(attributes, :encoding)
 
   defp handle_request_completed(state, event) do
     data = data(event)
@@ -1073,14 +911,7 @@ defmodule Zaq.Agent.StreamEvents do
   defp timestamp(_), do: nil
 
   @doc "Returns a value safe to store in JSON/map database fields."
-  def json_safe(value) do
-    safe = do_json_safe(value)
-
-    case Jason.encode(safe) do
-      {:ok, _encoded} -> safe
-      {:error, _reason} -> inspect(value)
-    end
-  end
+  defdelegate json_safe(value), to: TraceEvidence
 
   @doc """
   Sources the trace/agent/model/measurements fields from an `Outgoing`'s
@@ -1237,39 +1068,4 @@ defmodule Zaq.Agent.StreamEvents do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
-
-  defp do_json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp do_json_safe(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
-  defp do_json_safe(%Date{} = value), do: Date.to_iso8601(value)
-  defp do_json_safe(%Time{} = value), do: Time.to_iso8601(value)
-
-  defp do_json_safe(%_{} = struct) do
-    struct
-    |> Map.from_struct()
-    |> Map.new(fn {key, value} -> {safe_key(key), json_safe(value)} end)
-    |> Map.put("__struct__", Atom.to_string(struct.__struct__))
-  end
-
-  defp do_json_safe(map) when is_map(map) do
-    Map.new(map, fn {key, value} -> {safe_key(key), json_safe(value)} end)
-  end
-
-  defp do_json_safe(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> do_json_safe()
-  defp do_json_safe(list) when is_list(list), do: Enum.map(list, &json_safe/1)
-  defp do_json_safe(value) when is_atom(value), do: Atom.to_string(value)
-
-  defp do_json_safe(value)
-       when is_binary(value) or is_integer(value) or is_boolean(value) or is_nil(value), do: value
-
-  defp do_json_safe(value) when is_float(value), do: value
-
-  defp do_json_safe(value)
-       when is_pid(value) or is_reference(value) or is_port(value) or is_function(value),
-       do: inspect(value)
-
-  defp do_json_safe(value), do: inspect(value)
-
-  defp safe_key(key) when is_binary(key), do: key
-  defp safe_key(key) when is_atom(key), do: Atom.to_string(key)
-  defp safe_key(key), do: inspect(key)
 end

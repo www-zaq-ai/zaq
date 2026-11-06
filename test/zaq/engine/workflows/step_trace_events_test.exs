@@ -96,6 +96,39 @@ defmodule Zaq.Engine.Workflows.StepTraceEventsTest do
     assert Repo.get!(StepRun, step.id).trace_events == []
   end
 
+  property "descendant admission preserves UUID spelling and requires the exact parent", %{
+    step: step
+  } do
+    check all(depth <- integer(2..5), uppercase? <- boolean(), max_runs: 10) do
+      root = "workflow_step:#{step.id}"
+
+      segments =
+        for _ <- 1..depth do
+          segment = Ecto.UUID.generate()
+          if uppercase?, do: String.upcase(segment), else: segment
+        end
+
+      prefix = "zaq.#{Base.url_encode64(root, padding: false)}"
+      id = Enum.join([prefix | segments], ".")
+      parent = Enum.join([prefix | Enum.drop(segments, -1)], ".")
+      base = event(step)
+
+      trace = %{
+        base
+        | tool_call_id: id,
+          data: %{base.data | invocation_path: [root | segments], parent_id: root}
+      }
+
+      assert {:error, :invalid_trace_event} = Workflows.record_step_event(step.id, trace)
+      trace = %{trace | data: %{trace.data | parent_id: parent}}
+      assert {:ok, recorded} = Workflows.record_step_event(step.id, trace)
+      stored = List.last(recorded.trace_events)
+      assert stored["tool_call_id"] == id
+      assert stored["data"]["invocation_path"] == [root | segments]
+      assert stored["data"]["parent_id"] == parent
+    end
+  end
+
   test "event correlated to another workflow run rolls back without poisoning later writes", %{
     run: run,
     step: step
