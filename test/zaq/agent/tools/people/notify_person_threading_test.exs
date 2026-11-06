@@ -11,6 +11,7 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias Jido.Action.Schema
   alias Zaq.Agent.Tools.People.NotifyPerson
 
   defmodule StubRouter do
@@ -154,7 +155,9 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonThreadingTest do
     end
 
     test "declares the generic threading fields and no email-specific one" do
-      keys = NotifyPerson.__action_metadata__()[:output_schema] |> Keyword.keys()
+      keys =
+        NotifyPerson.__action_metadata__()[:output_schema]
+        |> Schema.known_keys()
 
       assert :message_id in keys
       assert :thread_id in keys

@@ -45,7 +45,7 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     use Jido.Action,
       name: "e2e_list_contacts",
       schema: [source: [type: :string, required: false, doc: "Optional data source label."]],
-      output_schema: [contacts: [type: :list, required: true]]
+      output_schema: [contacts: [type: {:list, :any}, required: true]]
 
     use Zaq.Engine.Workflows.Action
 
@@ -76,8 +76,8 @@ defmodule Zaq.Engine.Workflows.Steps.BatchIterateE2ETest do
     @moduledoc false
     use Jido.Action,
       name: "e2e_dispatch_contact",
-      schema: [input: [type: :map, required: true]],
-      output_schema: [dispatched: [type: :map, required: true]]
+      schema: [input: [type: {:map, :any, :any}, required: true]],
+      output_schema: [dispatched: [type: {:map, :any, :any}, required: true]]
 
     use Zaq.Engine.Workflows.Action
 

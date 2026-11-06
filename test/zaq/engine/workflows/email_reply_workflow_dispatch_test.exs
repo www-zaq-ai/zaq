@@ -30,8 +30,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
     EnsurePersonStub,
     InboxEmpty,
     InboxWithResults,
-    SendReplyStub,
-    WaitingAction
+    SendReplyStub
   }
 
   setup do
@@ -98,7 +97,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
       %{
         name: "review_draft",
         type: "action",
-        module: inspect(WaitingAction),
+        module: "Zaq.Engine.Workflows.Steps.HumanInTheLoop",
         params: %{},
         index: 2
       },
@@ -397,7 +396,8 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
       # draft: timed out
       assert by_name["draft"].status == "failed"
-      assert by_name["draft"].errors["reason"] == "timeout"
+      assert by_name["draft"].errors["type"] == "timeout"
+      assert by_name["draft"].errors["reason"] =~ "timed out after 200ms"
 
       # log_summary: 4 steps, draft failure recorded
       log = run.log_summary
@@ -426,7 +426,8 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
       # draft: timeout error stored
       assert by_name["draft"].status == "failed"
-      assert by_name["draft"].errors["reason"] == "timeout"
+      assert by_name["draft"].errors["type"] == "timeout"
+      assert by_name["draft"].errors["reason"] =~ "timed out after 200ms"
       assert by_name["draft"].results == nil
 
       # log_summary: draft appears as failed
@@ -447,7 +448,8 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
       # fetch still recorded its results before draft failed
       assert by_name["fetch"].results["count"] == 1
-      assert by_name["draft"].errors["reason"] == "timeout"
+      assert by_name["draft"].errors["type"] == "timeout"
+      assert by_name["draft"].errors["reason"] =~ "timed out after 200ms"
 
       # log_summary: no step left in "running"
       lt = log_timeline(run)
@@ -482,7 +484,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
       # draft: failed with the error reason, no results stored
       assert by_name["draft"].status == "failed"
-      assert by_name["draft"].errors["reason"] == ":internal_server_error"
+      assert by_name["draft"].errors["reason"] == "internal_server_error"
       assert by_name["draft"].results == nil
 
       # downstream steps never executed
@@ -518,7 +520,7 @@ defmodule Zaq.Engine.Workflows.EmailReplyWorkflowDispatchTest do
 
       # draft has no results — error only
       assert by_name["draft"].results == nil
-      assert by_name["draft"].errors["reason"] == ":internal_server_error"
+      assert by_name["draft"].errors["reason"] == "internal_server_error"
 
       # log_summary: no step stuck in "running"
       lt = log_timeline(run)

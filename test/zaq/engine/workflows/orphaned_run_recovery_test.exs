@@ -33,6 +33,7 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
 
   use Zaq.DataCase, async: false
 
+  alias Runic.Workflow.Step
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Test.SignalListener
   alias Zaq.Engine.Workflows.WorkflowRunAgent
@@ -254,14 +255,102 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
     assert finished.status == "completed"
   end
 
-  # cancel_run/1 and pause_run/1 both hard-kill the driver (via
-  # `Registry.lookup(RunRegistry, run.id)` + `Process.exit(pid, :kill)`) and
-  # then commit their own status update — the exact race RunWatcher's grace
-  # period exists to lose gracefully. These prove it with a *real* driver
+  # cancel_run/1 and pause_run/1 persist their status before hard-killing the
+  # driver (via `Registry.lookup(RunRegistry, run.id)` + `Process.exit(pid, :kill)`).
+  # These prove it with a *real* driver
   # process (registered via the real `Registry.register/3` call inside
   # `WorkflowRunAgent.execute/2`), not the synthetic one in
   # `run_watcher_test.exs`.
   describe "cancel_run/1 and pause_run/1 race RunWatcher — the intentional kill must win" do
+    for {operation, expected} <- [{:pause_run, "paused"}, {:cancel_run, "cancelled"}] do
+      test "#{operation} cannot lose when persistence is held beyond watcher recovery" do
+        wf = sleep_workflow(2_000)
+        {:ok, run} = Workflows.create_run(wf, @source_event)
+        driver = spawn_driver(run)
+        assert :ok = wait_until_running(run.id, "sleep_step", 1_000)
+        assert :ok = await_driver_parked_in_sleep(driver)
+
+        parent = self()
+
+        stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+          send(parent, {:lifecycle_event, event})
+          event
+        end)
+
+        {:monitored_by, driver_monitors} = Process.info(driver, :monitored_by)
+
+        watcher =
+          Zaq.TaskSupervisor
+          |> Task.Supervisor.children()
+          |> Enum.find(&(&1 in driver_monitors))
+
+        assert is_pid(watcher)
+        watcher_ref = Process.monitor(watcher)
+        callers = [parent | Process.get(:"$callers", [])]
+        operation = unquote(operation)
+        handler_id = "workflow-settle-#{System.unique_integer([:positive])}"
+
+        :ok =
+          :telemetry.attach(
+            handler_id,
+            [:zaq, :repo, :query],
+            fn _event, _measurements, metadata, _config ->
+              if Process.get(:hold_workflow_settle) &&
+                   String.starts_with?(metadata.query, "UPDATE") &&
+                   String.contains?(metadata.query, "workflow_action_results") do
+                count = Process.get(:workflow_step_updates, 0) + 1
+                Process.put(:workflow_step_updates, count)
+
+                if count == 2 do
+                  send(parent, {:held_after_driver_kill, self()})
+
+                  receive do
+                    :release_persistence -> :ok
+                  end
+                end
+              end
+            end,
+            nil
+          )
+
+        api =
+          spawn(fn ->
+            Process.put(:"$callers", callers)
+            Process.put(:hold_workflow_settle, true)
+
+            receive do
+              :go -> :ok
+            end
+
+            send(parent, {:api_result, apply(Workflows, operation, [Workflows.get_run!(run.id)])})
+          end)
+
+        :erlang.trace_pattern({Workflows, :get_run, 1}, true, [:local])
+        :erlang.trace(watcher, true, [:call, {:tracer, self()}])
+        send(api, :go)
+
+        try do
+          assert_receive {:held_after_driver_kill, ^api}, 1_000
+          assert_receive {:trace, ^watcher, :call, {Workflows, :get_run, [run_id]}}, 1_000
+          assert run_id == run.id
+          send(api, :release_persistence)
+          assert_receive {:api_result, result}, 1_000
+          assert match?({:ok, %{status: unquote(expected)}}, result)
+          assert_receive {:DOWN, ^watcher_ref, :process, ^watcher, :normal}, 1_000
+          assert Workflows.get_run!(run.id).status == unquote(expected)
+
+          assert Enum.find(Workflows.list_step_runs(run.id), &(&1.step_name == "sleep_step")).status ==
+                   unquote(expected)
+
+          refute_received {:lifecycle_event, %{request: %{action: "run.interrupted"}}}
+        after
+          if Process.alive?(api), do: send(api, :release_persistence)
+          :erlang.trace_pattern({Workflows, :get_run, 1}, false, [:local])
+          :telemetry.detach(handler_id)
+        end
+      end
+    end
+
     test "cancel_run/1 during a live step ends the run cancelled, not interrupted" do
       wf = sleep_workflow(2_000)
       {:ok, run} = Workflows.create_run(wf, @source_event)
@@ -348,6 +437,76 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
     assert recovered_step.errors["reason"] == "process_terminated"
     assert recovered_step.errors["message"] =~ "killed"
     assert recovered_run.status == "interrupted"
+  end
+
+  test "an internal Runic exit keeps RunWatcher armed to recover the run" do
+    {:ok, wf} =
+      Workflows.create_workflow(%{
+        name: "Internal Runic Exit #{System.unique_integer()}",
+        status: "active",
+        nodes: [%{name: "boom", type: "action", module: @ok_module, params: %{}, index: 0}],
+        edges: []
+      })
+
+    {:ok, run} = Workflows.create_run(wf, @source_event)
+    test_pid = self()
+
+    exit_step =
+      Step.new(%{
+        name: :internal_exit,
+        work: fn _input ->
+          {:ok, _step_run} =
+            Workflows.create_step_run(run, %{
+              step_name: "internal_exit",
+              step_index: 0,
+              status: "running"
+            })
+
+          send(test_pid, {:runic_step_ready, self()})
+
+          receive do
+            :exit_from_runic -> exit(:internal_runic_exit)
+          end
+        end
+      })
+
+    prepared_dag =
+      Runic.Workflow.new(:workflow)
+      |> Runic.Workflow.add(exit_step)
+
+    driver = spawn_driver(%{run | prepared_dag: prepared_dag})
+    driver_ref = Process.monitor(driver)
+
+    assert_receive {:runic_step_ready, ^driver}, 1_000
+
+    {:monitored_by, driver_monitors} = Process.info(driver, :monitored_by)
+
+    watcher =
+      Zaq.TaskSupervisor
+      |> Task.Supervisor.children()
+      |> Enum.find(&(&1 in driver_monitors))
+
+    assert is_pid(watcher), "expected RunWatcher to monitor the workflow driver"
+    watcher_ref = Process.monitor(watcher)
+
+    send(driver, :exit_from_runic)
+
+    assert_receive {:DOWN, ^driver_ref, :process, ^driver, :internal_runic_exit}, 1_000
+    assert_receive {:DOWN, ^watcher_ref, :process, ^watcher, :normal}, 1_000
+
+    recovered_run = Workflows.get_run!(run.id)
+
+    recovered_step =
+      run.id
+      |> Workflows.list_step_runs()
+      |> Enum.find(&(&1.step_name == "internal_exit"))
+
+    assert recovered_run.status == "interrupted"
+    assert recovered_run.finished_at
+    assert recovered_step.status == "failed"
+    assert recovered_step.errors["reason"] == "process_terminated"
+    assert recovered_step.errors["message"] =~ "internal_runic_exit"
+    assert recovered_step.finished_at
   end
 
   test "a realistic multi-fork batch run completes normally — RunWatcher never fires" do
@@ -593,7 +752,33 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
           status: "running"
         })
 
+      test_pid = self()
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn event ->
+        case event.request do
+          {:broadcast, _, {:step_updated, %{step_name: "abandoned_step", status: status}}} ->
+            send(test_pid, {:orphan_step_broadcast, status})
+
+          {:broadcast, _, {:run_updated, %{status: "failed"}}} ->
+            status =
+              run.id
+              |> Workflows.list_step_runs()
+              |> Enum.find(&(&1.step_name == "abandoned_step"))
+              |> Map.fetch!(:status)
+
+            send(test_pid, {:step_status_at_failed_broadcast, status})
+
+          _ ->
+            :ok
+        end
+
+        event
+      end)
+
       assert {:ok, finished_run} = WorkflowRunAgent.execute(run)
+      assert_received {:orphan_step_broadcast, "failed"}
+      refute_received {:step_status_at_failed_broadcast, "running"}
+      assert_received {:step_status_at_failed_broadcast, "failed"}
 
       # finalize/2 notices the stray "running" row and correctly fails the run
       # because of it ("crash cursor")...
@@ -614,6 +799,10 @@ defmodule Zaq.Engine.Workflows.OrphanedRunRecoveryTest do
       assert reloaded_stray.status == "failed"
       assert reloaded_stray.errors["reason"] == "orphaned_step"
       refute is_nil(reloaded_stray.finished_at)
+
+      assert Enum.any?(Workflows.get_run!(run.id).log_summary["timeline"], fn entry ->
+               entry["step_name"] == "abandoned_step" and entry["status"] == "failed"
+             end)
     end
   end
 end

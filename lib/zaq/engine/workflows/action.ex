@@ -28,6 +28,7 @@ defmodule Zaq.Engine.Workflows.Action do
 
   A conforming module must:
 
+  - export Jido's `run/2`, `validate_params/1`, and `__action_metadata__/0`
   - export `on_success/2` and `on_failure/2` (always provided by this macro)
   - declare a **non-empty** input `schema/0` (provided by `use Jido.Action`)
   - declare a **non-empty** `output_schema/0` (provided by `use Jido.Action`)
@@ -45,7 +46,8 @@ defmodule Zaq.Engine.Workflows.Action do
   `validate/1` for every `action` / `agent` node and refuses to build the DAG
   when a module does not conform, returning
   `{:error, {:contract_violation, module, missing}}` where `missing` is a subset
-  of `[:on_success, :on_failure, :schema, :output_schema]`.
+  of `[:on_success, :on_failure, :schema, :output_schema, :run,
+  :validate_params, :__action_metadata__]`.
 
   Edge guard nodes (`Steps.EdgeStep`) are infrastructure and are intentionally
   **not** subject to this contract.
@@ -208,7 +210,14 @@ defmodule Zaq.Engine.Workflows.Action do
   end
 
   @typedoc "A piece of the contract a module failed to satisfy."
-  @type missing :: :on_success | :on_failure | :schema | :output_schema
+  @type missing ::
+          :on_success
+          | :on_failure
+          | :schema
+          | :output_schema
+          | :run
+          | :validate_params
+          | :__action_metadata__
 
   @doc """
   Invoked by callers after the action's `run/2` returns successfully.
@@ -226,7 +235,15 @@ defmodule Zaq.Engine.Workflows.Action do
   """
   @callback on_failure(error :: term(), context :: map()) :: :ok | {:error, term()}
 
-  @required_pieces [:on_success, :on_failure, :schema, :output_schema]
+  @required_pieces [
+    :on_success,
+    :on_failure,
+    :schema,
+    :output_schema,
+    :run,
+    :validate_params,
+    :__action_metadata__
+  ]
 
   @doc """
   Inspects the input schema of `module` and returns the field name and delivery
@@ -375,6 +392,11 @@ defmodule Zaq.Engine.Workflows.Action do
   defp satisfies?(module, :on_failure), do: function_exported?(module, :on_failure, 2)
   defp satisfies?(module, :schema), do: non_empty_schema?(module, :schema)
   defp satisfies?(module, :output_schema), do: non_empty_schema?(module, :output_schema)
+  defp satisfies?(module, :run), do: function_exported?(module, :run, 2)
+  defp satisfies?(module, :validate_params), do: function_exported?(module, :validate_params, 1)
+
+  defp satisfies?(module, :__action_metadata__),
+    do: function_exported?(module, :__action_metadata__, 0)
 
   defp non_empty_schema?(module, fun) do
     function_exported?(module, fun, 0) and apply(module, fun, []) not in [nil, []]

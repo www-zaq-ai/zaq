@@ -167,7 +167,7 @@ defmodule Zaq.Engine.Workflows.Test.UseCaseStubs do
         event_name: [type: :string, required: true],
         machine: [type: :boolean, required: false, default: false]
       ],
-      output_schema: [dispatched: [type: :map, required: true]]
+      output_schema: [dispatched: [type: {:map, :any, :any}, required: true]]
 
     alias Zaq.Agent.Tools.Workflow.DispatchEvent
 

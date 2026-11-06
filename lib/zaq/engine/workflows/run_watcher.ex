@@ -20,15 +20,16 @@ defmodule Zaq.Engine.Workflows.RunWatcher do
   ## Lifecycle
 
   The sentinel's job ends the instant either:
-  - `done/1` is called — the run's own `execute/2` call reached a normal,
-    finalized outcome (completed, failed-via-`finalize/2`, waiting for
-    approval, or paused). None of those are orphans; stop watching.
+  - `done/1` is called — the run's own `execute/2` call reached a durable,
+    handled outcome (completed, failed-via-`finalize/2`, waiting for approval,
+    paused, or explicitly interrupted after a rescued exception). None of
+    those are orphans; stop watching.
   - the driver dies unexpectedly (a `:DOWN` with any reason other than a
-    `done/1` signal) — after a short grace window (to let a concurrent,
-    *intentional* kill — `Workflows.cancel_run/1` / `pause_run/1` also
-    hard-kill the driver, then immediately commit their own status update — win
-    the race), it re-checks the run's live status and calls
-    `Workflows.interrupt_run/1` only if the run is still non-terminal.
+    `done/1` signal) — after a short grace window it re-checks the run's live
+    status and calls
+    `Workflows.interrupt_run/1` only if the run is still `"pending"` or
+    `"running"`. Intentional pause/cancel commits under the run row lock before
+    the watcher can change that row; the grace window only debounces recovery.
 
   Either way the sentinel terminates immediately after — it is scoped to *this
   invocation's* outcome, not to the calling process's entire remaining
@@ -36,8 +37,9 @@ defmodule Zaq.Engine.Workflows.RunWatcher do
   `WorkflowRunAgent` deliberately lets an unexpected Runic-level crash
   propagate to its caller uncaught (see its moduledoc), and if `done/1` fired
   unconditionally on that unwind, orphan-recovery would be defeated for
-  exactly the case it exists to catch. `done/1` is therefore only called from
-  `WorkflowRunAgent`'s normal, non-raising return points.
+  exactly the case it exists to catch. `done/1` is therefore only called after
+  `WorkflowRunAgent` has produced a handled outcome or durably recovered a
+  rescued exception.
   """
 
   require Logger
@@ -97,9 +99,8 @@ defmodule Zaq.Engine.Workflows.RunWatcher do
   end
 
   defp handle_driver_down(run_id, reason) do
-    # `cancel_run/1` and `pause_run/1` also hard-kill the driver, then commit
-    # their own status update immediately after, synchronously. Give that
-    # legitimate path a moment to land before treating this as an orphan.
+    # Intentional pause/cancel commits under the row lock while terminating
+    # the driver. The delay remains a recovery debounce, not the correctness boundary.
     Process.sleep(@grace_period_ms)
 
     case Workflows.get_run(run_id) do

@@ -1,6 +1,7 @@
 defmodule Zaq.Agent.Tools.Workflow.ToUtcDateTimeTest do
   use ExUnit.Case, async: true
 
+  alias Jido.Action.Schema
   alias Zaq.Agent.Tools.Workflow.ToUtcDateTime
 
   test "converts an offset datetime to UTC" do
@@ -21,7 +22,10 @@ defmodule Zaq.Agent.Tools.Workflow.ToUtcDateTimeTest do
   end
 
   test "documents delay input with an example" do
-    delay_doc = ToUtcDateTime.schema() |> Keyword.fetch!(:delay) |> Keyword.fetch!(:doc)
+    delay_doc =
+      ToUtcDateTime.schema()
+      |> Schema.to_json_schema()
+      |> get_in([:properties, :delay, :description])
 
     assert delay_doc =~ "%{amount: 15, unit: \"minutes\"}"
   end
