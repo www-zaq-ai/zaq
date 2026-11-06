@@ -2,7 +2,46 @@
 
 Tracking: `zaq-1dq.16`, per-file slices `zaq-1dq.16.1` and `zaq-1dq.16.2`.
 
-## Fresh baseline
+## Current coverage — Run Agent failure follow-up
+
+After the reviewed `zaq-1dq.18` repair (`2f9f73426`), renewed human UX approval,
+and expanded three-engine browser verification (`7e551d3c2`), a new
+`mix coveralls.json` completed successfully within 600,000 ms:
+
+- **11,900 passed**: 48 doctests, 323 properties, 11,529 tests; 1 skipped,
+  164 excluded under the normal suite policy.
+- **97.2% overall coverage**. This is a fresh full-suite result, not the earlier
+  same-source coverage union documented below.
+- Subsequent `mix coverup` succeeded with **no changed production files below 95%**.
+  No additional planner/worker slices or metric-only tests were required.
+
+| Follow-up production file | Fresh observed hits | Coverage |
+| --- | ---: | ---: |
+| `lib/zaq/agent/tools/workflow/run_agent.ex` | 98/100 | 98.00% |
+| `lib/zaq/engine/workflows.ex` | 403/420 | 95.95% |
+| `lib/zaq/engine/workflows/action.ex` | 65/65 | 100.00% |
+| `lib/zaq/engine/workflows/step_runner.ex` | 119/122 | 97.54% |
+| `lib/zaq_web/live/bo/ai/workflow_run_live.ex` | 370/387 | 95.61% |
+| `lib/zaq/agent/tools/action_contract.ex` | 108/109 | 99.08% |
+
+Report source matches the current production files apart from the exporter's
+omitted final newline. The current full report is `cover/excoveralls.json`; a
+preserved copy is named `nested-traces-post-feedback-full-coverage.json` in the
+approved session temporary directory. No production source changed after this
+measurement. The run emitted one SQL Sandbox owner-exit diagnostic despite
+passing; this result is not a claim of a log-clean run or an established root cause.
+
+Issue-level verification also passed **216 focused checks** (6 properties,
+210 tests), `mix q`/commit-hook `qf`, and **3 expanded browser journeys** across
+Chromium, Firefox and WebKit. The user-selected dependency now points to the
+`jfayad/jido_ai` fork at the same verified `4cb999e1` revision; user-owned Mix and
+workflow JSON changes remain outside these feature commits. Neither a portable
+release nor final human landing approval is implied. Final `mix precommit` must
+still pass after these report updates.
+
+The remaining sections retain the earlier coverage round as historical evidence.
+
+## Earlier fresh baseline
 
 After the branch review, `mix coveralls.json` completed successfully within its
 600,000 ms timeout: **11,883 passed** (48 doctests, 322 properties, 11,513 tests),
@@ -12,7 +51,7 @@ ordinary exclusions, not the explicitly enabled real-browser journeys.
 Only after that success, `mix coverup` identified two changed production files
 below 95%: `ActionContract` and `Workflows`. No older report was substituted.
 
-## Focused additions and review
+## Earlier focused additions and review
 
 Separate source-only worktrees were used for the two read-only planning tasks and
 their scoped test workers. Complete per-file plans were passed to the workers;
@@ -39,7 +78,7 @@ production APIs remain unchanged. Action reuse is not applicable: no operation o
 tool was introduced. No test-only production hook or private function exposure
 was added. This follow-up self-review approves the coverage additions.
 
-## Targeted measurement
+## Earlier targeted measurement
 
 Commands passed:
 

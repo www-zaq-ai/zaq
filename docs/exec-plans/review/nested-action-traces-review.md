@@ -153,5 +153,7 @@ New fixture corrections were limited to supported Outgoing fields, existing
 owned workflow-task teardown, and the existing native root row's label (known
 success is asserted through the backend projection; nested rows retain explicit
 outcome labels). No existing test assertions were weakened. User-owned dependency
-and workflow fixture files remain outside this repair. Fresh coverage and final
-`mix precommit` must be repeated; the earlier passing final gate is historical.
+and workflow fixture files remain outside this repair. Subsequent fresh coverage
+passed **11,900 checks** at **97.2% overall coverage**, with no changed production
+file below 95%; details are in the linked coverage report. Final `mix precommit`
+must still be repeated; the earlier passing final gate is historical.
