@@ -5,6 +5,7 @@ defmodule Zaq.Engine.Workflows.StepTraceEventsTest do
   alias Jido.AI.Runtime.Event
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Step.Run, as: StepRun
+  alias Zaq.Engine.Workflows.Workflow
 
   setup do
     owner = self()
@@ -93,6 +94,100 @@ defmodule Zaq.Engine.Workflows.StepTraceEventsTest do
 
     assert {:error, :invalid_trace_event} = Workflows.record_step_event(step.id, %{})
     assert Repo.get!(StepRun, step.id).trace_events == []
+  end
+
+  test "event correlated to another workflow run rolls back without poisoning later writes", %{
+    run: run,
+    step: step
+  } do
+    workflow = Repo.get!(Workflow, run.workflow_id)
+    {:ok, other_run} = Workflows.create_run(workflow, %{"request" => nil, "assigns" => %{}})
+    trace = event(step, %{request_id: other_run.id})
+
+    assert {:error, :invalid_trace_event} = Workflows.record_step_event(step.id, trace)
+    stored = Repo.get!(StepRun, step.id)
+    assert stored.trace_events == []
+    assert stored.status == step.status
+    assert stored.results == step.results
+
+    step_id = step.id
+    rejected_event_id = trace.id
+
+    refute_received {:workflow_broadcast,
+                     {:broadcast, _,
+                      {:step_updated,
+                       %{id: ^step_id, trace_events: [%{"id" => ^rejected_event_id}]}}}}
+
+    valid = event(step)
+    assert {:ok, recorded} = Workflows.record_step_event(step.id, valid)
+    assert length(recorded.trace_events) == 1
+  end
+
+  test "malformed metadata is rejected without raising or broadcasting", %{step: step} do
+    trace = %{event(step) | data: 42}
+
+    assert {:error, :invalid_trace_event} = Workflows.record_step_event(step.id, trace)
+    assert Repo.get!(StepRun, step.id).trace_events == []
+
+    step_id = step.id
+    rejected_event_id = trace.id
+
+    refute_received {:workflow_broadcast,
+                     {:broadcast, _,
+                      {:step_updated,
+                       %{id: ^step_id, trace_events: [%{"id" => ^rejected_event_id}]}}}}
+  end
+
+  test "unsupported evidence is removed while safe lifecycle identity remains", %{step: step} do
+    canary = "TRACE_SECRET_CANARY"
+
+    base = event(step)
+
+    trace =
+      %{
+        base
+        | data:
+            Map.merge(base.data, %{
+              origin: "zaq_action",
+              invocation_path: base.data.invocation_path,
+              parent_id: "workflow_step:#{step.id}",
+              outcome: "succeeded",
+              result: %{
+                safe: "kept",
+                typed: %URI{userinfo: canary},
+                nested: [%{pid: self(), ref: make_ref(), callback: fn -> canary end}],
+                password: canary
+              },
+              callback: canary,
+              artifact: canary
+            })
+      }
+
+    assert {:ok, recorded} = Workflows.record_step_event(step.id, trace)
+    persisted = Repo.get!(StepRun, step.id)
+    [entry] = persisted.trace_events
+    assert entry["tool_call_id"] == base.tool_call_id
+    data = entry["data"]
+    assert data["origin"] == "zaq_action"
+    assert data["invocation_path"] == base.data.invocation_path
+    assert data["parent_id"] == "workflow_step:#{step.id}"
+    assert data["outcome"] == "succeeded"
+    assert data["result"]["safe"] == "kept"
+    assert data["result"]["typed"] == nil
+    assert data["result"]["nested"] == [%{"pid" => nil, "ref" => nil, "callback" => nil}]
+    refute Map.has_key?(data, "callback")
+    refute Map.has_key?(data, "artifact")
+    refute Jason.encode!(data) =~ canary
+    refute Jason.encode!(data) =~ "#PID"
+    refute Jason.encode!(data) =~ "#Reference"
+    refute Jason.encode!(persisted.trace_events) =~ canary
+
+    assert_receive {:workflow_broadcast,
+                    {:broadcast, _, {:step_updated, %{id: id, trace_events: [snapshot]}}}}
+
+    assert id == step.id
+    assert snapshot == hd(recorded.trace_events)
+    refute Jason.encode!(snapshot) =~ canary
   end
 
   property "duplicate event IDs never append again and leave business fields untouched", %{
