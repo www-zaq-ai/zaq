@@ -85,6 +85,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
   end
 
   def handle_info({:step_updated, step_run}, socket) do
+    previous = Enum.find(socket.assigns.step_runs, &(&1.id == step_run.id))
+
     step_runs =
       Enum.map(socket.assigns.step_runs, fn sr ->
         if sr.id == step_run.id, do: merge_step_snapshot(sr, step_run), else: sr
@@ -97,11 +99,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLive do
 
     step_runs = Enum.sort_by(step_runs, & &1.step_index)
 
-    # Auto-focus the currently running step; manual selection is preserved otherwise.
+    # Focus only on entry to running, never on diagnostic updates to the same row.
     # A running fork sub-step focuses its parent node so the iteration shows inside
     # that node's batch card instead of as a standalone per-fork card.
     socket =
-      if Enum.any?(step_runs, &(&1.id == step_run.id and &1.status == "running")) do
+      if (is_nil(previous) or previous.status != "running") and
+           Enum.any?(step_runs, &(&1.id == step_run.id and &1.status == "running")) do
         assign(socket, selected_step: parent_node_name(step_run.step_name))
       else
         socket

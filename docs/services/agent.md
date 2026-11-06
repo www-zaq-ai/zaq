@@ -635,6 +635,11 @@ creation. Skill resource loading uses it for GetDocument/DownloadDocument withou
 changing the scoped permission bypass, actor, resource selection or decoded bytes.
 Trace evidence redacts materialization handles and provenance capabilities; custom
 workflow-style callbacks receive metadata, never inline loaded resource content.
+Record evidence reuses `Record.metadata/1`'s public-field projection, excluding
+provider `raw` payloads even when they contain a second copy of resource content.
+Known Jido Action errors retain their bounded message through the shared tool
+error formatter; exception details, workflow diagnostics and unknown struct
+internals are not included in child error evidence.
 
 ### Runtime Factory (`Zaq.Agent.Factory`)
 - Standard runtime agent for all configured agents
@@ -705,6 +710,10 @@ activity does not change public status labels, root tool counts, or source/resul
 aggregation. Consumed completions survive request failure; unresolved starts become
 unknown at termination. The consumer never waits for events emitted after closure.
 Nested document Records are externalized through the existing trace artifact path.
+Content-part and Record extraction compose for mixed payloads, and content-part
+artifact metadata is built only after Record bytes have been removed. Nested
+artifacts are marked optional diagnostics; Engine owns their limit/validation
+policy and records omission reasons without failing an otherwise valid answer.
 
 `ToolStep.project/1` and `from_trace/1` omit explicit nested diagnostics before
 applying public identity/display limits. Both live and final publication and

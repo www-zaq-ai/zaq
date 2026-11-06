@@ -423,6 +423,11 @@ defmodule Zaq.Agent.StreamEvents do
         data_get(data, :origin) == "zaq_action"
       )
 
+    trace_artifacts =
+      if data_get(data, :origin) == "zaq_action",
+        do: Enum.map(trace_artifacts, &Map.put(&1, :optional, true)),
+        else: trace_artifacts
+
     tool_call =
       existing
       |> Map.merge(%{
@@ -519,14 +524,13 @@ defmodule Zaq.Agent.StreamEvents do
 
   defp externalize_trace_artifacts({:ok, payload, effects}, tool_call_id, tool_name, nested?)
        when is_map(payload) do
-    case skill_resource_parts(payload) do
-      {[_ | _] = parts, safe_payload} ->
-        artifacts = skill_resource_artifacts(parts, safe_payload, tool_call_id, tool_name)
-        {{:ok, safe_payload, effects}, artifacts}
+    {parts, payload} = skill_resource_parts(payload)
 
-      {[], _safe_payload} ->
-        externalize_record_artifact(payload, effects, tool_call_id, tool_name, nested?)
-    end
+    {{:ok, safe_payload, effects}, record_artifacts} =
+      externalize_record_artifact(payload, effects, tool_call_id, tool_name, nested?)
+
+    part_artifacts = skill_resource_artifacts(parts, safe_payload, tool_call_id, tool_name)
+    {{:ok, safe_payload, effects}, record_artifacts ++ part_artifacts}
   end
 
   defp externalize_trace_artifacts(result, _tool_call_id, _tool_name, _nested?), do: {result, []}
@@ -570,9 +574,12 @@ defmodule Zaq.Agent.StreamEvents do
           %{
             record: json_safe(payload),
             content: content,
-            name: part.filename || map_value(payload, :filename) || "skill-resource",
+            name: artifact_text([part.filename, map_value(payload, :filename)], "skill-resource"),
             mime_type:
-              part.media_type || map_value(payload, :mime_type) || "application/octet-stream",
+              artifact_text(
+                [part.media_type, map_value(payload, :mime_type)],
+                "application/octet-stream"
+              ),
             size: byte_size(content),
             tool_call_id: tool_call_id,
             tool_name: tool_name || "tool"
@@ -585,6 +592,10 @@ defmodule Zaq.Agent.StreamEvents do
   end
 
   defp map_value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp artifact_text(values, fallback) do
+    Enum.find(values, fallback, &(is_binary(&1) and String.trim(&1) != ""))
+  end
 
   defp payload_record(payload) do
     cond do
@@ -608,8 +619,8 @@ defmodule Zaq.Agent.StreamEvents do
            %{
              record: Record.metadata(record),
              content: decoded_content,
-             name: record.name || "attachment",
-             mime_type: record.mime_type || "application/octet-stream",
+             name: artifact_text([record.name], "attachment"),
+             mime_type: artifact_text([record.mime_type], "application/octet-stream"),
              size: byte_size(decoded_content),
              tool_call_id: tool_call_id,
              tool_name: tool_name || "tool"

@@ -46,6 +46,7 @@ defmodule Zaq.Agent.Tools.ActionContract do
   alias Jido.AI.Runtime.Event
   alias ReqLLM.Message.ContentPart
   alias ReqLLM.ToolResult
+  alias Zaq.Agent.Tools.Error, as: ToolError
   alias Zaq.Contracts.Record
 
   require Logger
@@ -229,7 +230,9 @@ defmodule Zaq.Agent.Tools.ActionContract do
   defp trace_value(%Record{} = record, artifacts?, depth) do
     fields =
       record
-      |> Map.from_struct()
+      |> Record.metadata()
+      # The metadata contract owns this allowlist; its keys are existing Record fields.
+      |> Map.new(fn {key, value} -> {String.to_existing_atom(key), value} end)
       |> Map.merge(%{content: nil, materialization_handle: nil, provenance_ref: nil})
 
     safe = trace_map(fields, artifacts?, depth)
@@ -250,7 +253,7 @@ defmodule Zaq.Agent.Tools.ActionContract do
     do: part |> Map.from_struct() |> Map.drop([:data, :url]) |> trace_map(false, depth)
 
   defp trace_value(%_{} = value, _artifacts?, _depth),
-    do: %{type: Atom.to_string(value.__struct__)}
+    do: ToolError.trace_summary(value)
 
   defp trace_value(value, artifacts?, depth) when is_map(value),
     do: trace_map(value, artifacts?, depth)

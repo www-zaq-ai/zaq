@@ -52,8 +52,8 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowResultHelpers do
     events = Map.get(step, :trace_events) || []
 
     terminal =
-      step.status in ~w(completed failed failed_fatal skipped cancelled interrupted) or
-        run_status in ~w(completed failed incomplete cancelled interrupted)
+      step.status in ~w(completed failed failed_fatal skipped cancelled interrupted paused) or
+        run_status in ~w(completed failed incomplete cancelled interrupted paused)
 
     traces =
       events

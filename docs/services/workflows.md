@@ -170,7 +170,11 @@ NodeRouter; the workflow engine remains the sole persistence owner.
 
 `WorkflowResultHelpers.step_trace_info/2` projects persisted starts/completions
 using explicit outcomes, preserving completion-only and late-start evidence.
-Unresolved children become unknown when the enclosing step/run is terminal.
+Unresolved children become unknown when the enclosing step/run is terminal or
+paused: pausing ends that execution, and resume creates a distinct step row.
+Known child completions are retained. Diagnostic-only snapshots of an already
+running step do not override the viewer's manually selected node; auto-focus is
+reserved for a newly running step (including its fork parent).
 Generic steps and map/batch forks reuse AgentTracePanel with the existing step
 card as their root; independently configured-agent traces remain separate.
 

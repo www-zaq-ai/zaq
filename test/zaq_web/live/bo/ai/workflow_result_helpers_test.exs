@@ -4,6 +4,37 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowResultHelpersTest do
 
   alias ZaqWeb.Live.BO.AI.WorkflowResultHelpers, as: Helpers
 
+  property "pausing settles unfinished child evidence without changing known outcomes" do
+    check all(
+            outcome <- member_of(~w(succeeded failed unknown)),
+            step_status <- member_of(~w(running paused)),
+            run_status <- member_of(~w(running paused)),
+            max_runs: 20
+          ) do
+      started = %{
+        "id" => "start",
+        "kind" => "tool_started",
+        "tool_call_id" => "unfinished",
+        "data" => %{"origin" => "zaq_action"}
+      }
+
+      completed = %{
+        "id" => "done",
+        "kind" => "tool_completed",
+        "tool_call_id" => "known",
+        "data" => %{"origin" => "zaq_action", "outcome" => outcome}
+      }
+
+      step = %{id: "step", status: step_status, trace_events: [started, completed]}
+      info = Helpers.step_trace_info(step, run_status)
+      assert [unfinished, known] = info.traces
+      expected = if "paused" in [step_status, run_status], do: "unknown", else: "running"
+      assert unfinished["outcome"] == expected
+      assert known["outcome"] == outcome
+      assert step.trace_events == [started, completed]
+    end
+  end
+
   property "replayed starts and completions cannot downgrade an explicit outcome" do
     check all(
             outcome <- member_of(~w(succeeded failed unknown)),

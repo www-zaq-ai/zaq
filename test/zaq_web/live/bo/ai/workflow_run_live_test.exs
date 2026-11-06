@@ -641,6 +641,110 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   end
 
   describe "agent trace panel on a step card" do
+    test "child snapshots preserve manual selection while newly running steps still focus", %{
+      conn: conn
+    } do
+      nodes = [
+        @valid_node,
+        %{@valid_node | name: "active", index: 1},
+        %{@valid_node | name: "next", index: 2}
+      ]
+
+      workflow =
+        workflow_fixture(%{
+          nodes: nodes,
+          edges: [
+            %{from: "fetch", to: "active"},
+            %{from: "active", to: "next"}
+          ]
+        })
+
+      run = run_fixture(workflow)
+      prior = step_run_fixture(run, %{results: %{"output" => "previous output"}})
+
+      active =
+        step_run_fixture(run, %{
+          step_name: "active",
+          step_index: 1,
+          status: "running",
+          finished_at: nil
+        })
+
+      {:ok, view, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      assert has_element?(view, "#step-output-#{prior.id}")
+
+      for kind <- ["tool_started", "tool_completed"] do
+        trace = %{
+          "id" => kind,
+          "kind" => kind,
+          "tool_call_id" => "child",
+          "data" => %{"origin" => "zaq_action", "outcome" => "succeeded"}
+        }
+
+        send(view.pid, {:step_updated, %{active | trace_events: [trace]}})
+        assert has_element?(view, "#step-output-#{prior.id}")
+      end
+
+      next =
+        step_run_fixture(run, %{
+          step_name: "next",
+          step_index: 2,
+          status: "running",
+          input: %{"target" => "next"},
+          finished_at: nil
+        })
+
+      send(view.pid, {:step_updated, next})
+      assert has_element?(view, "#step-input-#{next.id}")
+      refute has_element?(view, "#step-output-#{prior.id}")
+    end
+
+    test "paused child evidence stays unknown after reload and does not contaminate the resumed row",
+         %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+      step = step_run_fixture(run, %{status: "running", finished_at: nil})
+
+      trace = %{
+        "id" => "start",
+        "kind" => "tool_started",
+        "tool_call_id" => "paused-child",
+        "tool_name" => "paused_lookup",
+        "data" => %{
+          "origin" => "zaq_action",
+          "invocation_path" => ["workflow_step:#{step.id}", Ecto.UUID.generate()],
+          "parent_id" => "workflow_step:#{step.id}"
+        }
+      }
+
+      step |> StepRun.changeset(%{trace_events: [trace]}) |> Repo.update!()
+      assert {:ok, paused_run} = Workflows.pause_run(run)
+
+      {:ok, view, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      assert element(view, "[data-testid=trace-row-paused-child]") |> render() =~ "Unknown"
+
+      {:ok, _} = Workflows.update_run(paused_run, %{status: "running"})
+      {:ok, resumed} = Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0})
+
+      resumed_trace = %{
+        trace
+        | "id" => "resumed-start",
+          "tool_call_id" => "resumed-child",
+          "data" =>
+            Map.merge(trace["data"], %{
+              "parent_id" => "workflow_step:#{resumed.id}",
+              "invocation_path" => ["workflow_step:#{resumed.id}", Ecto.UUID.generate()]
+            })
+      }
+
+      resumed |> StepRun.changeset(%{trace_events: [resumed_trace]}) |> Repo.update!()
+      {:ok, refreshed, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      assert element(refreshed, "[data-testid=trace-row-paused-child]") |> render() =~ "Unknown"
+      assert element(refreshed, "[data-testid=trace-row-resumed-child]") |> render() =~ "Running"
+    end
+
     for status <- ["failed", "failed_fatal"] do
       test "#{status} step retains expandable agent evidence on reload", %{conn: conn} do
         workflow = workflow_fixture(%{nodes: [@valid_node]})

@@ -2,6 +2,7 @@ defmodule Zaq.Agent.Tools.ActionContractTraceTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias Jido.Action.Error, as: ActionError
   alias Jido.Agent.StateOp.SetState
   alias Jido.AI.Observe
   alias ReqLLM.Message.ContentPart
@@ -136,6 +137,69 @@ defmodule Zaq.Agent.Tools.ActionContractTraceTest do
     refute encoded =~ "RAW_RESOURCE_BYTES"
     refute encoded =~ "#Function"
     refute inspect(started.data.arguments) =~ "PRIVATE_KEY"
+  end
+
+  property "Record evidence uses public metadata rather than provider raw fields" do
+    check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 20), max_runs: 15) do
+      private = "RAW_CONTENT_#{suffix}"
+
+      record = %Record{
+        id: "record",
+        kind: :file,
+        name: "public-name",
+        content: private,
+        raw: %{"content" => private, "content_base64" => Base.encode64(private)},
+        materialization_handle: "PRIVATE_HANDLE",
+        provenance_ref: "PRIVATE_PROVENANCE"
+      }
+
+      result = {:ok, %{record: record}}
+
+      for ctx <- [
+            context(),
+            %{
+              tool_call_id: "root",
+              request_id: "request",
+              run_id: "run",
+              tool_event_sink: {:pid, self()}
+            }
+          ] do
+        assert ActionContract.execute(ResultAction, %{result: result}, ctx) == result
+        assert_receive {_, started}
+        assert_receive {_, completed}
+        assert {:ok, %{record: evidence}, []} = completed.data.result
+        assert evidence.name == "public-name"
+        assert Map.get(evidence, :raw, %{}) == %{}
+        refute inspect(started.data.arguments) =~ private
+        refute inspect(completed) =~ Base.encode64(private)
+        refute inspect(completed) =~ "PRIVATE_HANDLE"
+        refute inspect(completed) =~ "PRIVATE_PROVENANCE"
+
+        if is_struct(evidence),
+          do: assert(evidence.content == private),
+          else: refute(inspect(completed) =~ private)
+      end
+    end
+  end
+
+  test "child execution failures retain a bounded message without exception details" do
+    failure =
+      ActionError.execution_error("permission denied for document", %{
+        workflow_results: %{secret: "PRIVATE_DIAGNOSTIC"},
+        context: %{password: "PRIVATE_PASSWORD"}
+      })
+
+    assert {:error, ^failure} =
+             ActionContract.execute(ResultAction, %{result: {:error, failure}}, context(),
+               max_retries: 0
+             )
+
+    assert_receive {:trace, _}
+    assert_receive {:trace, completed}
+    assert {:error, evidence, []} = completed.data.result
+    assert evidence.message == "permission denied for document"
+    assert evidence.type == Atom.to_string(failure.__struct__)
+    refute inspect(completed) =~ "PRIVATE_"
   end
 
   test "nonempty Jido effects remain exact caller values without exposing runtime effect internals" do
