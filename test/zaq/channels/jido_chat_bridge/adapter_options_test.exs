@@ -2,12 +2,31 @@ defmodule Zaq.Channels.JidoChatBridge.AdapterOptionsTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
+  alias Zaq.Channels.Bridge
   alias Zaq.Channels.JidoChatBridge.AdapterOptions
   alias Zaq.Engine.ChannelConfig
 
   @default_providers [:mattermost, :discord, :telegram, "mattermost", "discord", "telegram"]
 
   describe "build/2 default credential shape" do
+    test "connector file limit reaches adapter opts for every provider" do
+      for provider <- @default_providers do
+        config = %ChannelConfig{
+          provider: to_string(provider),
+          url: "https://example.test",
+          token: "test-token",
+          settings: %{"max_file_size" => 307_200}
+        }
+
+        details = Bridge.fetch_connection_details_for_config(config)
+        opts = AdapterOptions.build(provider, details)
+        assert opts[:max_file_size] == 307_200
+        assert opts[:url] == config.url
+        assert opts[:token] == config.token
+        assert AdapterOptions.build(provider, config) == opts
+      end
+    end
+
     test "default providers always receive exactly url then token" do
       check all(
               provider <- member_of(@default_providers),

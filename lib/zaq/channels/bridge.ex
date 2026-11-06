@@ -383,7 +383,8 @@ defmodule Zaq.Channels.Bridge do
 
     %{
       url: Map.get(runtime_config, :url) || Map.get(runtime_config, "url"),
-      token: Map.get(runtime_config, :token) || Map.get(runtime_config, "token")
+      token: Map.get(runtime_config, :token) || Map.get(runtime_config, "token"),
+      settings: Map.get(runtime_config, :settings) || Map.get(runtime_config, "settings") || %{}
     }
   end
 

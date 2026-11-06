@@ -184,7 +184,8 @@ defmodule Zaq.TestSupport.ChannelFileDelivery do
     config =
       config!("mattermost", scope.namespace, %{
         url: String.trim_trailing(endpoint, "/v1"),
-        token: "token-#{scope.namespace}"
+        token: "token-#{scope.namespace}",
+        settings: %{"max_file_size" => 307_200}
       })
 
     %{

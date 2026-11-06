@@ -1332,6 +1332,38 @@
         </p>
       </div>
 
+      <details
+        :if={@provider == "mattermost"}
+        id="mattermost-advanced-settings"
+        phx-mounted={JS.ignore_attributes("open")}
+        class="mb-6 rounded-xl border p-4"
+        style="background: var(--zaq-surface-color-elevated); border-color: var(--zaq-border-color-default)"
+      >
+        <summary class="zaq-text-body-sm cursor-pointer">Advanced settings</summary>
+        <div class="mt-4">
+          <ZaqWeb.Components.DesignSystem.Input.input
+            id="mattermost-file-max-size"
+            name="form[settings][max_file_size]"
+            label="Maximum file size (bytes)"
+            type="number"
+            min="1"
+            step="1"
+            value={
+              Map.get(Ecto.Changeset.get_field(@changeset, :settings) || %{}, "max_file_size")
+            }
+            aria-describedby="mattermost-file-max-size-help"
+          />
+          <p
+            id="mattermost-file-max-size-help"
+            class="zaq-text-body-sm mt-2"
+            style="color: var(--zaq-text-color-body-secondary)"
+          >
+            Match this value to your Mattermost server’s maximum file size.
+            For example, 300 KiB is 307200 bytes. Leaving it blank keeps the limit unconfigured.
+          </p>
+        </div>
+      </details>
+
       <div class="flex items-center gap-3 mb-6">
         <input type="hidden" name="form[enabled]" value="false" />
         <input

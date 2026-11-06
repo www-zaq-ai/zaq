@@ -802,6 +802,57 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsLiveTest do
     assert state.socket.assigns.posts == []
   end
 
+  test "Mattermost advanced file limit saves as bytes and can be edited or cleared", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#new-config-button") |> render_click()
+    assert has_element?(view, "#mattermost-advanced-settings", "Advanced settings")
+
+    view
+    |> form("#config-form", %{
+      "form" => %{
+        "provider" => "mattermost",
+        "kind" => "retrieval",
+        "name" => "File limit config",
+        "url" => "https://mm.local",
+        "token" => "test-token",
+        "settings" => %{"max_file_size" => "307200"}
+      }
+    })
+    |> render_submit()
+
+    config = Repo.get_by!(ChannelConfig, name: "File limit config")
+    assert config.settings["max_file_size"] == 307_200
+
+    for limit <- ["614400", ""] do
+      view |> element("#edit-config-#{config.id}") |> render_click()
+      stored_limit = Repo.get!(ChannelConfig, config.id).settings["max_file_size"]
+      assert has_element?(view, "#mattermost-file-max-size[value='#{stored_limit}']")
+
+      view
+      |> form("#config-form", %{"form" => %{"settings" => %{"max_file_size" => limit}}})
+      |> render_submit()
+
+      expected = if limit == "", do: nil, else: String.to_integer(limit)
+      assert Repo.get!(ChannelConfig, config.id).settings["max_file_size"] == expected
+    end
+  end
+
+  test "Mattermost advanced file limit rejects invalid sizes without saving", %{conn: conn} do
+    config = insert_channel_config(%{settings: %{"max_file_size" => 307_200}})
+    {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
+    view |> element("#edit-config-#{config.id}") |> render_click()
+
+    for invalid <- ["0", "-1", "1.5", "300KB"] do
+      html =
+        view
+        |> element("#config-form")
+        |> render_submit(%{"form" => %{"settings" => %{"max_file_size" => invalid}}})
+
+      assert html =~ "max_file_size must be a positive integer in bytes"
+      assert Repo.get!(ChannelConfig, config.id).settings["max_file_size"] == 307_200
+    end
+  end
+
   test "save supports happy paths for new and edit", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/channels/retrieval/mattermost")
 

@@ -114,6 +114,164 @@ defmodule Zaq.Engine.HistoryIngressTest do
     assert Repo.get!(Message, assistant_id).external_message_id == "query-response"
   end
 
+  test "delivery continuations have separate canonical history entries and replay is idempotent" do
+    config = connector("mattermost")
+    person = author("Split author", "mattermost", "split-author", config.id)
+
+    incoming =
+      Incoming.new(%{
+        content: "files please",
+        channel_id: "split-room",
+        author_id: "split-author",
+        message_id: "split-input",
+        provider: :mattermost,
+        person: person,
+        routing_context: %{channel_config_id: config.id, conversation_type: :room}
+      })
+
+    assert {:ok, _} = HistoryIngress.capture(incoming)
+    assert {:ok, binding} = Conversations.admit_incoming(incoming)
+
+    assert {:ok, %{assistant_message_id: assistant_id}} =
+             Conversations.finalize_incoming(
+               binding.user_message_id,
+               binding.finalization_token,
+               %{answer: "Files", error: false},
+               actor: %{person: %{id: person.id}}
+             )
+
+    first = %{
+      confirmation: :confirmed,
+      provider: "mattermost",
+      kind: :channel,
+      channel_config_id: config.id,
+      channel_id: "split-room",
+      message_id: "split-first",
+      content: "Files",
+      user_message_id: binding.user_message_id,
+      assistant_message_id: assistant_id,
+      delivery_part_index: 0
+    }
+
+    second = %{
+      first
+      | message_id: "split-second",
+        content: "Additional files (2/2).",
+        delivery_part_index: 1
+    }
+
+    assert {:ok, ^assistant_id} = HistoryIngress.record_confirmation(first)
+    assert {:ok, continuation_id} = HistoryIngress.record_confirmation(second)
+    assert continuation_id != assistant_id
+    assert {:ok, ^continuation_id} = HistoryIngress.record_confirmation(second)
+    assert {:ok, ^assistant_id} = HistoryIngress.record_confirmation(first)
+
+    for id <- [assistant_id, continuation_id] do
+      assert {:ok, :ok} = HistoryIngress.associate_confirmation(id)
+      assert {:ok, :ok} = HistoryIngress.associate_confirmation(id)
+      assert Repo.aggregate(from(p in TranscriptMessage, where: p.message_id == ^id), :count) == 1
+    end
+
+    continuation = Repo.get!(Message, continuation_id)
+    assert continuation.content == "Additional files (2/2)."
+    assert continuation.metadata["delivery_continuation_of"] == assistant_id
+    assert continuation.external_message_id == "split-second"
+    assert Repo.get!(Message, assistant_id).external_message_id == "split-first"
+
+    assert {:error, :invalid_execution_response} =
+             HistoryIngress.record_confirmation(%{
+               second
+               | assistant_message_id: Ecto.UUID.generate(),
+                 message_id: "unrelated"
+             })
+  end
+
+  for original_thread <- [nil, "existing-root"] do
+    @original_thread original_thread
+    test "delivery continuation uses thread history with original thread #{inspect(original_thread)}" do
+      config = connector("mattermost")
+      person = author("Thread author", "mattermost", "thread-author", config.id)
+
+      incoming =
+        Incoming.new(%{
+          content: "send files",
+          channel_id: "thread-room",
+          author_id: "thread-author",
+          message_id: "thread-input",
+          thread_id: @original_thread,
+          provider: :mattermost,
+          person: person,
+          routing_context: %{channel_config_id: config.id, conversation_type: :room}
+        })
+
+      assert {:ok, _} = HistoryIngress.capture(incoming)
+      assert {:ok, binding} = Conversations.admit_incoming(incoming)
+
+      assert {:ok, %{assistant_message_id: assistant_id}} =
+               Conversations.finalize_incoming(
+                 binding.user_message_id,
+                 binding.finalization_token,
+                 %{answer: "Files", error: false},
+                 actor: %{person: %{id: person.id}}
+               )
+
+      outgoing = %Outgoing{
+        provider: :mattermost,
+        channel_id: "thread-room",
+        body: "Files",
+        thread_id: @original_thread,
+        routing_context: %{channel_config_id: config.id, conversation_type: :room},
+        metadata: %{user_message_id: binding.user_message_id, assistant_message_id: assistant_id}
+      }
+
+      first = %{
+        confirmation: :confirmed,
+        message_id: "thread-first",
+        thread_id: @original_thread,
+        delivery_part_index: 0
+      }
+
+      second = %{
+        confirmation: :confirmed,
+        message_id: "thread-second",
+        thread_id: @original_thread || "thread-first",
+        delivery_part_index: 1
+      }
+
+      for _ <- 1..2 do
+        assert {:ok, %{history_capture: :stored}} = Delivery.capture({:ok, first}, outgoing)
+
+        assert {:ok, %{history_capture: :stored}} =
+                 Delivery.capture({:ok, second}, %{
+                   outgoing
+                   | body: "Additional files (2/2).",
+                     thread_id: second.thread_id
+                 })
+      end
+
+      continuation = Repo.get_by!(Message, external_message_id: "thread-second")
+      [placement] = Repo.all(from p in TranscriptMessage, where: p.message_id == ^continuation.id)
+      thread = Repo.get!(Transcript, placement.transcript_id)
+      assert thread.external_thread_id == second.thread_id
+      assert thread.parent_id != nil
+      parent = Repo.get!(Transcript, thread.parent_id)
+      assert parent.external_thread_id == nil
+      assert parent.external_channel_id == "thread-room"
+      assert parent.channel_config_id == config.id
+      assert continuation.metadata["delivery_confirmation"]["thread_id"] == second.thread_id
+
+      [first_placement] =
+        Repo.all(from p in TranscriptMessage, where: p.message_id == ^assistant_id)
+
+      assert first_placement.transcript_id == if(@original_thread, do: thread.id, else: parent.id)
+
+      refute Repo.exists?(
+               from p in TranscriptMessage,
+                 where: p.message_id == ^continuation.id and p.transcript_id == ^parent.id
+             )
+    end
+  end
+
   test "confirmed outgoing attachments bind to the existing answer without bytes or handles" do
     config = connector("mattermost")
     person = author("Attachment author", "mattermost", "attachment-author", config.id)

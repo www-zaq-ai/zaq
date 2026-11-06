@@ -18,7 +18,9 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
   alias Zaq.TestSupport.OpenAIStub
 
   defmodule FileTransport do
-    def upload_file(channel, file, opts) do
+    alias Jido.Chat.Mattermost.Transport.ReqClient
+
+    def upload_files(channel, [file], opts) do
       send(self(), {:file_upload, channel, file, opts})
 
       case URI.parse(opts[:url]).path do
@@ -31,12 +33,19 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
         "/upload_timeout" ->
           {:error, :timeout}
 
-        path when path in ["/notice_failed", "/notice_raised", "/notice_exit"] ->
+        path when path in ["/notice_failed", "/http_upload_failed"] ->
+          {:error, {400, %{"message" => "private-provider-detail"}}}
+
+        path when path in ["/notice_raised", "/notice_exit"] ->
           {:error, :upload_failed}
 
         _ ->
           {:ok, %{"file_infos" => [%{"id" => "upload-id", "name" => file.filename}]}}
       end
+    end
+
+    def edit_message(channel, id, text, opts) do
+      ReqClient.edit_message(channel, id, text, opts)
     end
 
     def send_message(channel, text, opts) do
@@ -139,7 +148,13 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
              JidoChatBridge.send_reply(outgoing, connection)
 
     assert_received {:openai_request, "PUT", "/api/v4/posts/status-post", "", body}
-    assert Jason.decode!(body) == %{"id" => "status-post", "message" => "Updated answer"}
+
+    assert Jason.decode!(body) == %{
+             "id" => "status-post",
+             "channel_id" => "private-room",
+             "message" => "Updated answer"
+           }
+
     refute_received {:openai_request, "POST", _, _, _}
   end
 
@@ -190,7 +205,12 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       )
 
     start_supervised!(child)
-    connection = %{url: String.trim_trailing(endpoint, "/v1"), token: "synthetic-token"}
+
+    connection = %{
+      url: String.trim_trailing(endpoint, "/v1"),
+      max_file_size: 307_200,
+      token: "synthetic-token"
+    }
 
     for metadata <- [%{}, %{message_id: "delivered-post"}] do
       outgoing = %{
@@ -239,7 +259,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
               id = if payload["file_ids"], do: "duplicate-post", else: "streamed-post"
               {201, Map.put(payload, "id", id)}
 
-            {"PUT", "/api/v4/posts/streamed-post/patch"} ->
+            {"PUT", "/api/v4/posts/streamed-post"} ->
               {200, Map.put(Jason.decode!(body), "id", "streamed-post")}
           end
         end,
@@ -247,7 +267,13 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       )
 
     start_supervised!(child)
-    connection = %{url: String.trim_trailing(endpoint, "/v1"), token: "synthetic-token"}
+
+    connection = %{
+      url: String.trim_trailing(endpoint, "/v1"),
+      max_file_size: 307_200,
+      token: "synthetic-token"
+    }
+
     outgoing = file_outgoing()
 
     assert {:ok, %{message_id: "streamed-post"}} =
@@ -278,7 +304,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
 
     assert_received {:openai_request, "POST", "/api/v4/files", "", _upload}
     refute_received {:openai_request, "POST", "/api/v4/posts", "", _duplicate}
-    assert_received {:openai_request, "PUT", "/api/v4/posts/streamed-post/patch", "", final_body}
+    assert_received {:openai_request, "PUT", "/api/v4/posts/streamed-post", "", final_body}
     assert Jason.decode!(final_body)["message"] == outgoing.body
     assert Jason.decode!(final_body)["file_ids"] == ["uploaded-file"]
     assert receipt.message_id == "streamed-post"
@@ -305,9 +331,11 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     assert {:ok, config} =
              ChannelConfig.upsert_by_provider("mattermost", %{
                name: "File confirmation lifecycle",
+               settings: %{"max_file_size" => 307_200},
                kind: "retrieval",
                enabled: true,
                url: String.trim_trailing(endpoint, "/v1"),
+               max_file_size: 307_200,
                token: "synthetic-token"
              })
 
@@ -364,25 +392,49 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     refute_received {:file_status, _, _, _, _}
   end
 
-  test "real adapter collection rejection is reported without sending a subset" do
-    outgoing = file_outgoing()
+  test "configured limit reaches the adapter for create and edit without bridge file planning" do
+    connection =
+      batch_connection()
+      |> Map.delete(:max_file_size)
+      |> Map.put(:settings, %{"max_file_size" => 307_200})
 
-    outgoing = %{
-      outgoing
-      | attachments: outgoing.attachments ++ outgoing.attachments,
-        metadata: %{message_id: "status-id"}
-    }
+    for metadata <- [%{}, %{message_id: "existing-post"}] do
+      outgoing = %{batch_outgoing(10) | metadata: metadata}
+      assert {:ok, receipt} = JidoChatBridge.send_reply(outgoing, connection)
+      assert length(receipt.attachments) == 10
+      refute Map.has_key?(receipt, :messages)
+    end
 
-    assert {:error, %DeliveryError{reason: :multiple_attachments_unsupported}} =
-             deliver_outgoing(outgoing, file_connection())
+    assert_received {:batch_post, _, ids, _}
+    assert length(ids) == 10
+    assert_received {:batch_edit, "existing-post", ids}
+    assert length(ids) == 10
+    refute_received {:batch_post, _, _, _}
+  end
 
-    assert_received {:file_status, _, "status-id", status, _}
+  test "adapter-owned splitting returns separate receipts for all fifteen files" do
+    assert {:ok, %{confirmation: :confirmed, messages: [first, second]}} =
+             JidoChatBridge.send_reply(batch_outgoing(15), batch_connection())
 
-    assert status ==
-             "File caption\n\nAttachment delivery was not confirmed. Check the conversation before sending again."
+    assert length(first.attachments) == 10
+    assert length(second.attachments) == 5
+    assert first.message_id != second.message_id
+    assert second.body == "Additional files (2/2)."
+    assert_received {:batch_post, _, first_ids, _}
+    assert length(first_ids) == 10
+    assert_received {:batch_post, _, second_ids, _}
+    assert length(second_ids) == 5
+  end
 
-    refute_received {:file_upload, _, _, _}
-    refute_received {:file_post, _, _, _}
+  test "adapter partial delivery remains partial through the bridge" do
+    Process.put(:fail_batch_post, 2)
+
+    assert {:ok, %{confirmation: :partial, messages: [first], failed_files: failures}} =
+             JidoChatBridge.send_reply(batch_outgoing(15), batch_connection())
+
+    assert length(first.attachments) == 10
+    assert length(failures) == 5
+    assert Enum.all?(failures, &(&1.reason == :timeout))
   end
 
   test "provider rejection preserves the answer and original error without exposing response details" do
@@ -619,7 +671,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
   end
 
   property "a failure notice preserves the complete answer, including an empty answer" do
-    connection = file_connection("upload_failed")
+    connection = file_connection("http_upload_failed")
 
     check all(body <- one_of([constant(""), string(:printable, max_length: 256)])) do
       outgoing = %{file_outgoing() | body: body, metadata: %{message_id: "status-id"}}
@@ -656,6 +708,77 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     refute_received {:file_post, _, _, _}
   end
 
+  defmodule BatchTransport do
+    def upload_files(_channel, files, _opts) do
+      send(self(), {:batch_upload, files})
+
+      {:ok,
+       %{
+         "file_infos" =>
+           Enum.map(
+             files,
+             &%{
+               "id" => &1.filename,
+               "name" => &1.filename,
+               "size" => byte_size(&1.body),
+               "mime_type" => "text/plain"
+             }
+           )
+       }}
+    end
+
+    def send_message(channel, text, opts) do
+      count = Process.get(:batch_post_count, 0) + 1
+      Process.put(:batch_post_count, count)
+      send(self(), {:batch_post, text, opts[:file_ids], opts})
+
+      if Process.get(:fail_batch_post) == count,
+        do: {:error, :timeout},
+        else:
+          {:ok,
+           %{
+             "id" => "post-#{count}",
+             "channel_id" => channel,
+             "user_id" => "bot",
+             "file_ids" => opts[:file_ids]
+           }}
+    end
+
+    def edit_message(channel, id, _text, opts) do
+      send(self(), {:batch_edit, id, opts[:file_ids]})
+
+      {:ok,
+       %{"id" => id, "channel_id" => channel, "user_id" => "bot", "file_ids" => opts[:file_ids]}}
+    end
+  end
+
+  defp batch_outgoing(count) do
+    %{
+      file_outgoing()
+      | routing_context: %{channel_config_id: 10},
+        attachments:
+          for(
+            i <- 1..count,
+            do: %Record{
+              id: "record-#{i}",
+              kind: :file,
+              content: "contents",
+              name: "file-#{i}.txt",
+              mime_type: "text/plain"
+            }
+          )
+    }
+  end
+
+  defp batch_connection,
+    do: %{
+      url: "https://example.test",
+      token: "test-token",
+      max_file_size: 307_200,
+      transport: BatchTransport,
+      trusted_context: %TrustedContext{}
+    }
+
   defp deliver_outgoing(outgoing, connection) do
     assert {:ok, config} =
              ChannelConfig.upsert_by_provider("mattermost", %{
@@ -663,7 +786,8 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
                kind: "retrieval",
                enabled: true,
                url: connection.url,
-               token: connection.token
+               token: connection.token,
+               settings: %{"max_file_size" => 307_200}
              })
 
     event =
@@ -708,6 +832,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
 
     %{
       url: String.trim_trailing(endpoint, "/v1") <> "/#{scenario}",
+      max_file_size: 307_200,
       token: "synthetic-token",
       transport: FileTransport,
       trusted_context: %TrustedContext{}
@@ -902,7 +1027,12 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       )
 
     start_supervised!(child)
-    %{url: String.trim_trailing(endpoint, "/v1"), token: "synthetic-token"}
+
+    %{
+      url: String.trim_trailing(endpoint, "/v1"),
+      max_file_size: 307_200,
+      token: "synthetic-token"
+    }
   end
 
   defp authentication_person(connection) do
@@ -912,7 +1042,8 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
         kind: "retrieval",
         enabled: true,
         url: connection.url,
-        token: connection.token
+        token: connection.token,
+        settings: %{"max_file_size" => 307_200}
       })
 
     {:ok, person} =

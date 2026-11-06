@@ -436,6 +436,20 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
   defp destination!(provider, namespace, owner, connections \\ 2)
 
+  defp attachment_edit_response(%{"file_ids" => _} = payload, _conn, _body, owner, namespace) do
+    send(owner, {:delivery_boundary, namespace, self(), %{post: payload}})
+
+    receive do
+      :accept_delivery ->
+        {200, Map.merge(payload, %{"id" => "bot-response", "user_id" => "bot"})}
+    after
+      10_000 -> flunk("attachment edit not accepted")
+    end
+  end
+
+  defp attachment_edit_response(_payload, conn, body, owner, _namespace),
+    do: MattermostHistoryFixture.http(conn, body, owner)
+
   defp destination!(:mattermost, namespace, owner, _connections) do
     posts = :atomics.new(1, [])
 
@@ -449,16 +463,8 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
         {"POST", "/api/v4/files"} ->
           MattermostHistoryFixture.delivery_http(conn, body, owner, namespace)
 
-        {"PUT", "/api/v4/posts/bot-response/patch"} ->
-          payload = Jason.decode!(body)
-          send(owner, {:delivery_boundary, namespace, self(), %{post: payload}})
-
-          receive do
-            :accept_delivery ->
-              {200, Map.merge(payload, %{"id" => "bot-response", "user_id" => "bot"})}
-          after
-            10_000 -> flunk("attachment edit not accepted")
-          end
+        {"PUT", "/api/v4/posts/bot-response"} ->
+          attachment_edit_response(Jason.decode!(body), conn, body, owner, namespace)
 
         _ ->
           MattermostHistoryFixture.http(conn, body, owner)
@@ -472,7 +478,10 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
       config!("mattermost", namespace, %{
         url: String.trim_trailing(endpoint, "/v1"),
         token: "test-token",
-        settings: %{"jido_chat" => %{"bot_user_id" => "bot", "bot_name" => "zaq"}}
+        settings: %{
+          "max_file_size" => 307_200,
+          "jido_chat" => %{"bot_user_id" => "bot", "bot_name" => "zaq"}
+        }
       })
 
     on_exit(fn ->

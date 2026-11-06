@@ -279,11 +279,24 @@ defmodule Zaq.Engine.HistoryIngress do
         audience -> Map.from_struct(audience)
       end
     )
+    |> confirmation_thread(delivery)
+    |> confirmation_part(delivery)
     |> confirmation_attachments(delivery)
     |> Jason.encode!()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode64()
   end
+
+  defp confirmation_thread(fingerprint, %{thread_id: id}) when is_binary(id) and id != "",
+    do: Map.put(fingerprint, :thread_id, id)
+
+  defp confirmation_thread(fingerprint, _delivery), do: fingerprint
+
+  defp confirmation_part(fingerprint, %{delivery_part_index: index})
+       when is_integer(index) and index > 0,
+       do: Map.put(fingerprint, :delivery_part_index, index)
+
+  defp confirmation_part(fingerprint, _delivery), do: fingerprint
 
   defp confirmation_attachments(fingerprint, delivery) do
     case Enum.map(Map.get(delivery, :attachments, []), &attachment_descriptor/1) do
@@ -296,6 +309,13 @@ defmodule Zaq.Engine.HistoryIngress do
     do: :crypto.hash(:sha256, content) |> Base.encode64()
 
   defp content_digest(_), do: nil
+
+  defp confirmed_message(%{delivery_part_index: index} = delivery)
+       when is_integer(index) and index > 0 do
+    delivery
+    |> Map.drop([:assistant_message_id, :delivery_part_index])
+    |> confirmed_message()
+  end
 
   defp confirmed_message(%{assistant_message_id: id}) when is_binary(id) do
     case Ecto.UUID.cast(id) do
@@ -339,6 +359,7 @@ defmodule Zaq.Engine.HistoryIngress do
           [:provider, :channel_config_id, :channel_id, :conversation_id, :message_id],
           &{Atom.to_string(&1), delivery[&1]}
         )
+        |> confirmation_thread_receipt(delivery)
 
       case message.metadata["delivery_confirmation"] do
         nil -> :ok
@@ -359,6 +380,25 @@ defmodule Zaq.Engine.HistoryIngress do
     else
       {:error, reason} -> Repo.rollback(reason)
       _ -> Repo.rollback(:invalid_delivery_scope)
+    end
+  end
+
+  defp confirmation_thread_receipt(receipt, %{thread_id: id}) when is_binary(id) and id != "",
+    do: Map.put(receipt, "thread_id", id)
+
+  defp confirmation_thread_receipt(receipt, _delivery), do: receipt
+
+  defp prepare_delivery(%{kind: kind, delivery_part_index: index} = delivery, nil)
+       when kind in [:direct, :channel] and is_integer(index) and index > 0 do
+    with {:ok, id} <- Ecto.UUID.cast(delivery[:assistant_message_id]),
+         %Message{} = original <- Repo.get(Message, id) do
+      TranscriptHistory.prepare_execution_continuation(
+        delivery[:user_message_id],
+        original,
+        delivery
+      )
+    else
+      _ -> {:error, :invalid_execution_response}
     end
   end
 

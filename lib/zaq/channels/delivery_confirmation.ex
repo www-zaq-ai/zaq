@@ -12,6 +12,17 @@ defmodule Zaq.Channels.DeliveryConfirmation do
   alias Zaq.NodeRouter
 
   @doc "Forwards a confirmed receipt and outgoing copy with content-free attachment Records to Engine."
+  def record({:ok, %{messages: messages} = report}, outgoing, opts) when is_list(messages) do
+    receipts =
+      Enum.map(messages, fn receipt ->
+        part = %{outgoing | body: receipt.body, thread_id: receipt[:thread_id], attachments: []}
+        {:ok, recorded} = record({:ok, receipt}, part, opts)
+        recorded
+      end)
+
+    {:ok, Map.put(report, :messages, receipts)}
+  end
+
   def record({:ok, %{confirmation: :confirmed} = receipt}, outgoing, opts) do
     router = Keyword.get(opts, :delivery_node_router, NodeRouter)
 

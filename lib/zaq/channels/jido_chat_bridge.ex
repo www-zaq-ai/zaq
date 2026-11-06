@@ -1936,7 +1936,7 @@ defmodule Zaq.Channels.JidoChatBridge do
              }
            ) do
       if files != [], do: dispatch_on_reply(metadata, receipt.message_id)
-      {:ok, Map.put(receipt, :confirmation, :confirmed)}
+      {:ok, Map.put_new(receipt, :confirmation, :confirmed)}
     else
       :create -> create_and_dispatch_reply(outgoing, adapter_module, details, opts)
       {:error, reason} -> {:error, reason}
@@ -1979,8 +1979,29 @@ defmodule Zaq.Channels.JidoChatBridge do
       {:ok,
        receipt
        |> Map.put(:message_id, canonical_id)
-       |> Map.put(:confirmation, :confirmed)}
+       |> Map.put_new(:confirmation, :confirmed)}
     end
+  end
+
+  defp delivery_attachments(
+         receipt,
+         {:ok, %{metadata: %{delivery_report: %{messages: messages} = report}}},
+         %Outgoing{} = outgoing
+       )
+       when is_list(messages) and messages != [] do
+    receipts =
+      Enum.map(messages, fn message ->
+        delivery_attachments(
+          Map.delete(message, :metadata),
+          {:ok, %{metadata: message.metadata}},
+          outgoing
+        )
+      end)
+
+    receipt
+    |> Map.put(:confirmation, report.confirmation)
+    |> Map.put(:messages, receipts)
+    |> Map.put(:failed_files, Map.get(report, :failed_files, []))
   end
 
   defp delivery_attachments(receipt, {:ok, %{metadata: metadata}}, %Outgoing{} = outgoing)

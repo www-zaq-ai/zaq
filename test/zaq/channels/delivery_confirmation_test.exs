@@ -77,6 +77,34 @@ defmodule Zaq.Channels.DeliveryConfirmationTest do
     end
   end
 
+  test "each confirmed message is recorded separately even when overall delivery is partial" do
+    parts =
+      for index <- 0..1,
+          do: %{
+            confirmation: :confirmed,
+            message_id: "post-#{index}",
+            body: "part #{index}",
+            delivery_part_index: index,
+            thread_id: "root"
+          }
+
+    report = %{confirmation: :partial, messages: parts, failed_files: [%{filename: "failed.txt"}]}
+
+    for part <- parts do
+      expect(Zaq.NodeRouterMock, :dispatch, fn event ->
+        assert event.request.receipt == part
+        assert event.request.outgoing.body == part.body
+        assert event.request.outgoing.attachments == []
+        %{event | response: {:ok, part}}
+      end)
+    end
+
+    assert {:ok, ^report} =
+             DeliveryConfirmation.record({:ok, report}, outgoing(),
+               delivery_node_router: Zaq.NodeRouterMock
+             )
+  end
+
   test "unconfirmed transport outcomes pass through without dispatching a recording event" do
     for response <- [
           {:error, :preparation_failed},

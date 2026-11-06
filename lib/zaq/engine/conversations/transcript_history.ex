@@ -372,12 +372,37 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
   defp prepare_or_append(transcript, message, _source, :prepare),
     do: {:ok, %{message_id: message.id, transcript_id: transcript.id, position: nil}}
 
+  @doc "Prepares a separate canonical assistant message for a confirmed delivery continuation."
+  def prepare_execution_continuation(input_id, %Message{} = original, delivery) do
+    input = Repo.get(Message, input_id)
+
+    if match?(%Message{}, input) and matching_execution_pair?(input, original) do
+      metadata = %{
+        "in_reply_to_message_id" => input.id,
+        "delivery_continuation_of" => original.id
+      }
+
+      with {:ok, response} <-
+             %Message{conversation_id: original.conversation_id, metadata: metadata}
+             |> Message.canonical_changeset(%{
+               role: "assistant",
+               content: delivery[:content],
+               attachments: delivery[:attachments] || []
+             })
+             |> Repo.insert() do
+        prepare_execution_response(input_id, response, delivery)
+      end
+    else
+      {:error, :invalid_execution_response}
+    end
+  end
+
   @doc "Prepares the fixed Direct/Shared targets of a verified execution response."
   def prepare_execution_response(input_id, %Message{} = response, delivery) do
     input = Repo.get(Message, input_id)
 
     if match?(%Message{}, input) and matching_execution_pair?(input, response) do
-      ids =
+      transcripts =
         Repo.all(
           from p in TranscriptMessage,
             join: t in Transcript,
@@ -388,10 +413,11 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
                 t.channel_config_id == ^delivery.channel_config_id and
                 t.external_channel_id == ^delivery.channel_id,
             order_by: t.id,
-            select: t.id
+            select: t
         )
 
-      with false <- ids == [],
+      with false <- transcripts == [],
+           {:ok, ids} <- execution_target_ids(transcripts, delivery),
            {:ok, response} <- bind_response_source(response, delivery) do
         {:ok, %{message_id: response.id, transcript_ids: ids, message: response}}
       else
@@ -401,6 +427,38 @@ defmodule Zaq.Engine.Conversations.TranscriptHistory do
     else
       {:error, :invalid_execution_response}
     end
+  end
+
+  defp execution_target_ids(transcripts, %{thread_id: id}) when is_binary(id) and id != "" do
+    Enum.reduce_while(transcripts, {:ok, []}, fn transcript, {:ok, ids} ->
+      case execution_thread(transcript, id) do
+        {:ok, thread, _created?} -> {:cont, {:ok, Enum.uniq([thread.id | ids])}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp execution_target_ids(transcripts, _delivery), do: {:ok, Enum.map(transcripts, & &1.id)}
+
+  defp execution_thread(%Transcript{external_thread_id: id} = transcript, id),
+    do: {:ok, transcript, false}
+
+  defp execution_thread(transcript, thread_id) do
+    parent =
+      if transcript.parent_id, do: Repo.get!(Transcript, transcript.parent_id), else: transcript
+
+    facts = %Facts{
+      provider: parent.provider,
+      channel_config_id: parent.channel_config_id,
+      channel_id: parent.external_channel_id,
+      parent: parent
+    }
+
+    # The verified execution pair's existing placement supplies the scope and
+    # inherited permission resource. Delivery supplies only the provider thread ID.
+    facts
+    |> Strategy.grant_target(parent.strategy, thread_id)
+    |> ensure_transcript()
   end
 
   # Runs inside HistoryIngress's locked confirmation transaction. Bind the

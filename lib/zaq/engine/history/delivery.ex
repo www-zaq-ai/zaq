@@ -55,6 +55,8 @@ defmodule Zaq.Engine.History.Delivery do
       source_scope:
         Map.get(receipt, :source_scope, Map.get(outgoing.routing_context, :source_scope)),
       message_id: receipt[:message_id],
+      delivery_part_index: receipt[:delivery_part_index],
+      thread_id: Map.get(receipt, :thread_id, outgoing.thread_id),
       attachments:
         Enum.map(Map.get(receipt, :attachments, []), &Zaq.Contracts.Record.attachment_metadata/1),
       content: outgoing.body

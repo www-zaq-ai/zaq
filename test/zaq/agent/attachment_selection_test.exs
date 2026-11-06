@@ -523,6 +523,7 @@ defmodule Zaq.Agent.AttachmentSelectionDeliveryTest do
         JidoChatBridge.send_reply(outgoing, %{
           url: String.trim_trailing(endpoint, "/v1"),
           token: "fixture-token",
+          max_file_size: 307_200,
           trusted_context: %{skip_permissions: true}
         })
       end)
