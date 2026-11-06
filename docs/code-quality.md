@@ -1,5 +1,38 @@
 # Code Quality
 
+## Write for Humans
+
+Write code for the next maintainer, not only the compiler. Someone familiar with
+the language should understand its intent without reconstructing hidden assumptions.
+Prefer straightforward, idiomatic code over cleverness or terseness.
+
+- Use domain language and intent-revealing names under the [naming conventions](conventions.md#naming).
+  Make the operation and relevant distinctions clear at the call site.
+- Keep each function focused on a recognizable task. Extract helpers when they name
+  a meaningful step or isolate complexity, not merely to meet a line-count target.
+- Make success and failure paths easy to follow. Limit nesting and name complex
+  conditions when that clarifies their meaning. Choose pattern matching, `case`,
+  `cond`, or `with` to suit the flow; do not force one construct everywhere.
+  Pipelines should read as a clear sequence of transformations.
+- Make units, identifiers, optional values, defaults, and side effects explicit
+  where they affect understanding. Prefer named options or domain values over
+  ambiguous boolean arguments. Name unexplained domain literals; ordinary literals
+  whose meaning is clear in context do not require constants or module attributes.
+- Keep related logic together and variables near their use. Avoid changing a
+  variable's conceptual meaning or making readers traverse trivial wrappers to
+  understand one operation. Preserve required architectural boundaries.
+- Improve confusing names and structure before adding explanatory prose. Retain
+  comments that explain real reasons or constraints under the [writing rules](documentation.md#writing-comments-and-documentation).
+
+Review question: can the next maintainer explain what this code does, why each step
+exists, and how it fails without unnecessary detective work?
+
+Apply this standard within the requested change. Readability findings must identify
+a concrete ambiguity or source of complexity and its consequence for understanding
+or maintenance. Do not demand personal naming preferences, unrelated renaming, or
+mechanical syntax changes. Respect [minimal change surface](#minimal-change-surface)
+and the [function reuse decision](#function-reuse-decision).
+
 ## Minimal Change Surface
 
 - Prefer the smallest coherent change that fully satisfies the request and preserves architectural boundaries. Minimize unnecessary scope, not merely changed lines or file count.
@@ -28,6 +61,49 @@
 - Prefer extending established project patterns instead of creating competing variants without a strong reason.
 - Avoid catch-all utility modules. Helpers should be domain-scoped and intent-revealing.
 - Prefer shared utility packages over hand-rolled helpers to keep invariants centralized.
+
+### Function Reuse Decision
+
+Apply this decision procedure when adding or adapting functions, including private
+helpers. For executable operations, also apply the [Action reuse gate](action-reuse.md);
+this procedure does not replace its ownership or execution constraints.
+
+1. **Discover before adding.** Search by intent and domain; inspect candidate
+   implementations, module responsibilities, contracts, relevant tests, and callers.
+   Include external consumers and dynamic invocation where applicable; an empty
+   reference search does not prove a public API has no consumers.
+2. **Reuse as-is.** If an existing function satisfies the required semantics through
+   a supported architectural boundary, call it rather than duplicating its logic.
+3. **Prefer a backward-compatible extension.** When adjustment is needed, first
+   evaluate a cohesive extension that preserves existing callers' behavior and
+   defaults without editing them. Do not force compatibility through a confusing
+   abstraction, caller-specific branches, or an accumulation of mode flags.
+4. **Compare alternatives when extension requires caller changes or adds complexity.**
+   Evaluate migrating callers, adding a focused function, and retaining the existing
+   API as a delegating wrapper around shared implementation. A new entry point need
+   not duplicate logic; share the common implementation where responsibilities align.
+5. **Choose risk first, churn second.** Choose the lowest-risk coherent solution;
+   when risk is comparable, choose the least code churn. Assess regression blast
+   radius, contract and boundary changes, abstraction complexity, migration and
+   rollback difficulty, and ongoing maintenance risk. Include affected callers,
+   tests, documentation, migrations, and downstream consumers when estimating churn.
+   Fewer changed lines today do not outweigh future divergence of fixes or checks.
+
+Compatibility covers input acceptance, defaults, return shapes, errors, side effects,
+authorization, ordering, and relevant performance characteristics—not just signatures.
+Share domain meaning and invariants, not merely similar syntax: functions with
+different responsibilities may appropriately remain separate. Do not expose private
+internals or cross ownership boundaries just to eliminate similar-looking code.
+
+Verify preserved behavior with existing regression coverage, adding focused cases
+where needed, and verify the new capability. Follow the [testing handbook](testing-approach.md),
+including approval for changes to existing test behavior.
+
+For nontrivial choices, record the candidates, semantic fit or mismatch, affected
+consumers, and risk/churn rationale in the existing issue or PR assessment. Reviewers
+must apply this procedure to changed functions and cite concrete reusable functions
+and contract evidence when requesting changes; do not demand speculative abstractions
+or unrelated refactors. Keep evidence proportional to the change.
 
 ---
 
