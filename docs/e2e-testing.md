@@ -303,6 +303,29 @@ catch sidebar collapse loss during LiveView patches. Screenshots are written to
 Set `TOOL_ACTIVITY_SCREENSHOTS` to retain these in a chosen artifact directory.
 The Node commands are clock-controlled hook/layout unit tests, not browser journeys.
 
+### Nested Action traces (isolated, no reset)
+
+After the UX approval recorded in `zaq-1dq.13`, run:
+
+```sh
+mix test test/zaq_web/nested_action_traces_browser_test.exs --include real_browser --include paradedb --timeout 180000
+```
+
+This reuses `HistoryBrowser`'s ephemeral Endpoint and SQL Sandbox without E2E
+endpoints or a database reset. Chromium, Firefox and WebKit execute a real native
+configured-agent keyword search, expand nested evidence and reload it as an admin.
+Downgrading that user's role proves fresh authorization returns public root-only
+history, and a tampered conversation ID cannot expose another owner's history.
+
+A real workflow DAG runs composed test Actions through `StepRunner` and
+`ActionContract`. The existing local HTTP fixture gates an external-I/O sibling
+while the browser inspects a successful child/grandchild, then checks live
+completion or actual UI cancellation and reload. Capability sentinels in child
+arguments/results must remain redacted; an unfinished cancelled sibling must be
+unknown rather than successful. The active step is selected automatically on
+mount; terminal steps are selected explicitly after reload. Provider HTTP and
+the gated external dependency are local fixtures, not mocked trace collectors.
+
 ### People authentication journey (isolated, no reset)
 
 After `mix assets.build` and installing `test/e2e` Playwright dependencies plus
