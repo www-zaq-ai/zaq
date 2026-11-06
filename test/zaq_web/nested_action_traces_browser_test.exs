@@ -12,6 +12,7 @@ defmodule ZaqWeb.NestedActionTracesBrowserTest do
 
   alias Zaq.Accounts
   alias Zaq.Agent.ServerManager
+  alias Zaq.Agent.Tools.Workflow.RunAgent
   alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.Conversations
   alias Zaq.Engine.Conversations.{Conversation, Message}
@@ -189,6 +190,8 @@ defmodule ZaqWeb.NestedActionTracesBrowserTest do
           {mode, run}
         end)
 
+      runs = Map.merge(runs, agent_workflow_runs(agent.id))
+
       try do
         HistoryBrowser.run!(
           %{
@@ -231,6 +234,28 @@ defmodule ZaqWeb.NestedActionTracesBrowserTest do
                        Accounts.update_user(Accounts.get_user!(user.id), %{role_id: user.role_id})
 
               {%{}, state}
+
+            mode, state when mode in ["agent-completed", "agent-failed", "agent-early-failed"] ->
+              run = runs[mode]
+
+              assert {:ok, finished} =
+                       Task.async(fn -> Workflows.start_run(run) end) |> Task.await(10_000)
+
+              expected_status = if mode == "agent-completed", do: "completed", else: "failed"
+              assert finished.status == expected_status
+              [step] = Workflows.list_step_runs(run.id)
+              assert step.status == expected_status
+              trace = step.results["trace"]
+              assert is_list(trace)
+              children = Enum.filter(trace, &(&1["origin"] == "zaq_action"))
+              assert_agent_workflow_evidence(mode, step, trace, children)
+
+              {%{
+                 workflow_id: run.workflow_id,
+                 run_id: run.id,
+                 step_id: step.id,
+                 child_id: List.first(children) && hd(children)["id"]
+               }, state}
 
             stage, state when stage in ["workflow-complete-start", "workflow-cancel-start"] ->
               run =
@@ -302,6 +327,14 @@ defmodule ZaqWeb.NestedActionTracesBrowserTest do
   defp provider_reply(body, chunk) do
     request = MultiAgentOpenAIStub.decode_request!(body)
 
+    if body =~ "TRACE_AGENT_EARLY_FAIL" do
+      rate_limit_reply()
+    else
+      search_provider_reply(request, body, chunk)
+    end
+  end
+
+  defp search_provider_reply(request, body, chunk) do
     case MultiAgentOpenAIStub.tool_results(request) do
       [] ->
         {200,
@@ -323,7 +356,76 @@ defmodule ZaqWeb.NestedActionTracesBrowserTest do
                    Enum.any?(result.output["result"]["chunks"], &(&1["chunk_id"] == chunk.id))
                end)
 
-        {200, MultiAgentOpenAIStub.text_sse("Nested trace answer", request["model"])}
+        final_provider_reply(body, request["model"])
+    end
+  end
+
+  defp final_provider_reply(body, model) do
+    if body =~ "TRACE_AGENT_FAIL" do
+      rate_limit_reply()
+    else
+      {200, MultiAgentOpenAIStub.text_sse("Nested trace answer", model)}
+    end
+  end
+
+  defp rate_limit_reply do
+    {429,
+     Jason.encode!(%{error: %{type: "rate_limit_error", message: "Fixture provider rate limit"}})}
+  end
+
+  defp agent_workflow_runs(agent_id) do
+    Map.new(
+      [
+        {"agent-completed", "Find nestedneedle"},
+        {"agent-failed", "TRACE_AGENT_FAIL Find nestedneedle"},
+        {"agent-early-failed", "TRACE_AGENT_EARLY_FAIL Find nestedneedle"}
+      ],
+      fn {mode, input} ->
+        {:ok, workflow} =
+          Workflows.create_workflow(%{
+            name: "Configured #{mode}",
+            nodes: [
+              %{
+                name: "configured_agent",
+                type: "agent",
+                module: inspect(RunAgent),
+                params: %{agent_id: agent_id, input: input},
+                index: 0
+              }
+            ],
+            edges: []
+          })
+
+        {:ok, run} =
+          Workflows.create_run(workflow, %{
+            "request" => nil,
+            "actor" => %{kind: :system, subject: "nested-agent-browser-fixture"},
+            "assigns" => %{}
+          })
+
+        {mode, run}
+      end
+    )
+  end
+
+  defp assert_agent_workflow_evidence("agent-early-failed", step, trace, children) do
+    assert step.errors["reason"] == "agent_failed::provider_rate_limited"
+    assert children == []
+    assert ToolStep.project(trace) == []
+    refute Map.has_key?(step.results, "output")
+  end
+
+  defp assert_agent_workflow_evidence(mode, step, trace, children) do
+    assert [%{"id" => "opaque.native.root", "state" => "succeeded"}] = ToolStep.project(trace)
+    assert length(children) >= 3
+    assert Enum.all?(children, &(&1["outcome"] == "succeeded"))
+
+    if mode == "agent-failed" do
+      assert step.errors["reason"] == "agent_failed::provider_rate_limited"
+      refute Map.has_key?(step.results, "output")
+      refute Map.has_key?(step.results, "__cascade__")
+    else
+      assert step.results["output"] == "Nested trace answer"
     end
   end
 

@@ -326,6 +326,14 @@ unknown rather than successful. The active step is selected automatically on
 mount; terminal steps are selected explicitly after reload. Provider HTTP and
 the gated external dependency are local fixtures, not mocked trace collectors.
 
+After renewed UX approval for `zaq-1dq.18`, the same journey also executes real
+configured `RunAgent` workflow nodes: successful nested work, provider rate-limit
+failure after nested work, and provider failure before any tool starts. Failed
+steps keep their failure reason and expandable agent evidence on reload; known
+child outcomes stay successful, and pre-tool failures invent no child spans.
+These runs use owned tasks that finish before sandbox teardown. The original
+chat/direct-Action assertions, waits, timeouts, and zero retries are unchanged.
+
 ### People authentication journey (isolated, no reset)
 
 After `mix assets.build` and installing `test/e2e` Playwright dependencies plus

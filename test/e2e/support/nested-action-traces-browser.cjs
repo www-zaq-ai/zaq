@@ -91,6 +91,18 @@ async function main() {
       await expect(page.locator("body")).not.toContainText("PRIVATE_CHILD_RESULT")
     }
 
+    for (const mode of ["agent-completed", "agent-failed", "agent-early-failed"]) {
+      const run = await checkpoint(mode)
+      await page.goto(`${baseURL}/bo/workflows/${run.workflow_id}/runs/${run.run_id}`)
+      await waitForLiveViewConnected(page)
+      await page.locator('[phx-click="select_step"][phx-value-step_name="configured_agent"]').click()
+      await inspectAgentWorkflow(page, run, mode)
+      await page.reload()
+      await waitForLiveViewConnected(page)
+      await page.locator('[phx-click="select_step"][phx-value-step_name="configured_agent"]').click()
+      await inspectAgentWorkflow(page, run, mode)
+    }
+
     expect(errors).toEqual([])
     console.log(`${opts.engine}: nested agent/workflow history journey passed`)
   } finally {
@@ -121,6 +133,31 @@ async function inspectWorkflow(panel, run, siblingOutcome) {
   const sibling = panel.locator(`[data-testid='trace-row-${run.sibling_id}']`)
   await expect(sibling).toContainText(siblingOutcome)
   await expect(sibling.locator("..")).toHaveAttribute("data-trace-depth", "0")
+}
+
+async function inspectAgentWorkflow(page, run, mode) {
+  const panel = page.locator(`[data-testid='agent-trace-panel-${run.step_id}']`)
+  await expect(panel).toBeVisible()
+  await expect(panel).toContainText("gpt-4.1-mini")
+
+  if (mode !== "agent-completed") {
+    await expect(page.locator("body")).toContainText("agent_failed::provider_rate_limited")
+    await expect(page.locator(`#step-output-${run.step_id}`)).toHaveCount(0)
+  }
+
+  if (mode === "agent-early-failed") {
+    await expect(panel.locator('[data-trace-depth="1"]')).toHaveCount(0)
+    await expect(panel.locator('[data-testid="trace-row-opaque.native.root"]')).toHaveCount(0)
+    return
+  }
+
+  await expect(panel.locator('[data-testid="trace-row-opaque.native.root"]')).toContainText("Search Knowledge Base")
+  const child = panel.locator(`[data-testid='trace-row-${run.child_id}']`)
+  await expect(child).toContainText("Succeeded")
+  await expect(child.locator("..")).toHaveAttribute("data-trace-depth", "1")
+  await child.click()
+  await expect(panel.locator(`[data-testid='trace-details-${run.child_id}']`)).toContainText('"invocation_path"')
+  await expect(panel.locator(`[data-testid='trace-details-${run.child_id}']`)).toContainText("opaque.native.root")
 }
 
 main().then(() => process.exit(0)).catch(error => { console.error(error.stack || error); process.exit(1) })
