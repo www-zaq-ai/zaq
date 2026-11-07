@@ -840,10 +840,19 @@ hierarchy/origin metadata, never a native ID prefix or a tool-name guess.
 
 ### Provider Spec (`Zaq.Agent.ProviderSpec`)
 - Generic facade for provider normalization, model specs and runtime options
+- `known_provider?/1` owns catalog/adapter recognition separately from execution
+  fallback, so telemetry consumers do not inspect LLMDB or ReqLLM registries
 - Selects pure Agent-owned implementations through `Zaq.Agent.ProviderSpec.Registry`;
   adding provider-specific ReqLLM behavior does not add branches to the facade
 - Keeps OAuth protocol and selected-grant identity in Connect's separate OAuth behavior
 - Builds provider spec maps and generation options consumed by `Factory`
+- Dedicated reranking resolves catalog models before generation-provider fallback,
+  retaining provider identity, aliases and execution contracts for ReqLLM's shared
+  adapters. Generation rejects catalog models explicitly marked non-chat; native
+  ReqLLM adapters retain their identity, while catalog-only chat models may use the
+  existing OpenAI-compatible path with an explicit configured endpoint, even when
+  their provider supports a different operation natively. Agent runtime preflight
+  delegates to the same model-spec resolution
 - Resolves configured-agent provider configuration through
   `Zaq.System.get_ai_provider_credential/1` only on legacy/local paths; during lifecycle
   startup it translates Engine's secret-free provider projection plus the already-resolved

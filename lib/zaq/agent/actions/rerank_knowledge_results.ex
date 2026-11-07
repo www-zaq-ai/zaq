@@ -6,6 +6,9 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
   sanitized hard errors. Retrieval scores and original chunk metadata survive;
   provider document echoes never replace trusted content. Denied placeholders
   remain in their original positions and never leave for model inference.
+
+  Failure messages retain only a fixed stage/reason and typed HTTP status.
+  Raw provider errors, response bodies and authentication never enter diagnostics.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -15,6 +18,8 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
     schema: Zoi.object(%{query: Zoi.string() |> Zoi.min(1), chunks: Zoi.list(Zoi.map())}),
     output_schema: Zoi.object(%{chunks: Zoi.list(Zoi.map())})
 
+  alias Jido.Action.Error, as: ActionError
+  alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.ProviderSpec
   alias Zaq.System
 
@@ -29,7 +34,7 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
       rerank(query, chunks, config, context)
     end
   rescue
-    _error -> {:error, :knowledge_reranking_failed}
+    _error -> failure(:runtime, :unexpected_exception)
   end
 
   defp rerank(query, chunks, config, context) do
@@ -38,13 +43,16 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
     if eligible == [] do
       {:ok, %{chunks: chunks}}
     else
-      with {:ok, model, opts} <- ProviderSpec.operation_runtime(config, :reranking),
-           {:ok, timeout} <- remaining_timeout(context),
-           {:ok, response} <- request(model, opts, query, eligible, timeout, context),
-           {:ok, ranked} <- ranked_chunks(response, eligible) do
+      with {:runtime, {:ok, model, opts}} <-
+             {:runtime, ProviderSpec.operation_runtime(config, :reranking)},
+           {:deadline, {:ok, timeout}} <- {:deadline, remaining_timeout(context)},
+           {:request, {:ok, response}} <-
+             {:request, request(model, opts, query, eligible, timeout, context)},
+           {:response, {:ok, ranked}} <- {:response, ranked_chunks(response, eligible)} do
         {:ok, %{chunks: restore_placeholders(chunks, ranked)}}
       else
-        _error -> {:error, :knowledge_reranking_failed}
+        {stage, {:error, reason}} -> failure(stage, reason)
+        {stage, _unexpected} -> failure(stage, :unexpected_result)
       end
     end
   end
@@ -70,14 +78,15 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
       )
 
     client.rerank(model, opts)
+  rescue
+    _error -> {:error, :unexpected_exception}
   end
 
   defp ranked_chunks(%{results: results}, chunks) when is_list(results) do
     expected = MapSet.new(0..(length(chunks) - 1))
-    valid = Enum.all?(results, &valid_result?/1)
-    indexes = Enum.map(results, &Map.get(&1, :index))
 
-    if valid and length(results) == length(chunks) and MapSet.new(indexes) == expected do
+    if Enum.all?(results, &valid_result?/1) and length(results) == length(chunks) and
+         MapSet.new(results, & &1.index) == expected do
       by_index = chunks |> Enum.with_index() |> Map.new(fn {chunk, index} -> {index, chunk} end)
 
       ranked =
@@ -89,16 +98,23 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
 
       {:ok, ranked}
     else
-      {:error, :invalid_reranking_response}
+      {:error, :invalid_response}
     end
   end
 
-  defp ranked_chunks(_response, _chunks), do: {:error, :invalid_reranking_response}
+  defp ranked_chunks(_response, _chunks), do: {:error, :invalid_response}
 
   defp valid_result?(%{index: index, relevance_score: score}),
     do: is_integer(index) and is_number(score)
 
   defp valid_result?(_result), do: false
+
+  defp failure(stage, reason) do
+    diagnostic = ErrorMessage.diagnostic_for(reason)
+    status = if diagnostic[:http_status], do: " (HTTP #{diagnostic.http_status})", else: ""
+    message = "knowledge_reranking_failed: #{stage}/#{diagnostic.reason}#{status}"
+    {:error, ActionError.execution_error(message)}
+  end
 
   defp restore_placeholders(chunks, ranked) do
     {restored, []} =
