@@ -604,7 +604,7 @@ defmodule Zaq.Channels.Api do
       | response:
           data_source_module.download_document(
             provider,
-            params,
+            put_materialization_sink(params, event.opts),
             TrustedContext.from_event(event)
           )
     }
@@ -1289,4 +1289,15 @@ defmodule Zaq.Channels.Api do
     do: {:ok, %{provider: "web"}}
 
   defp normalize_upsert_config(_provider, config), do: config
+
+  # The sink is a consumer-owned write capability. It travels in trusted event options only;
+  # a request-supplied value is discarded so a handle or tool argument can never select one.
+  defp put_materialization_sink(params, opts) do
+    params = Map.drop(params, [:materialization_sink, "materialization_sink"])
+
+    case Keyword.get(opts, :materialization_sink) do
+      sink when is_pid(sink) -> Map.put(params, :materialization_sink, sink)
+      _ -> params
+    end
+  end
 end

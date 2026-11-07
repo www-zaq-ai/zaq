@@ -141,6 +141,73 @@ going back through Channels. Provider-plus-id consumers still use the generic
 record carrying the `disk_document` handle, and `Zaq.Materialization` redeems that second
 handle against Storage.
 
+## Acquisition: streaming, sinks and quotas
+
+Redeeming a handle never needs to hold a whole source in memory. Consumers pick one of two
+entry points:
+
+- `Zaq.Materialization.materialize_file/5` — for consumers that need a **file** (ingestion).
+  Returns the record without content plus `file: %{path, size, binary?, sink}`. The sink keeps
+  owning the finished file until the caller adopts it and calls `complete_file/1` (or gives it
+  up with `discard_file/1`); only then does the caller own the file and its directory. `file`
+  is `nil` when the producer cannot stream and returned
+  `content` inline (rows, small provider attachments); that content stays in
+  `record.content` after a post-hoc size check.
+- `Zaq.Materialization.materialize/4` — the **bounded bytes** API for consumers that need the
+  bytes themselves (model tool results, previews). Unchanged result shape. Acquisition
+  stops at `config :zaq, :materialization_max_bytes` (default 50 MiB) instead of buffering
+  an unbounded body.
+
+Both open a consumer-owned `Zaq.Materialization.Sink` and pass its pid to producers as a
+trusted event option (`materialization_sink`, in the handler context under the same key). The
+sink is a write capability for one consumer-owned file (or memory buffer) with a hard byte
+quota:
+
+- Chunks are written with synchronous calls, so a producer cannot outrun the consumer (one
+  chunk in flight). The same sink flows through nested handles, so nested materialization
+  shares one quota and cannot reset it.
+- Exactly `max_bytes` is accepted, one more is rejected without storing the chunk. A known
+  source size (stat, `content-length`) rejects early; the running count is what is enforced,
+  so missing or stale length metadata is covered.
+- The consumer's node is the only place a path exists. A producer on another node only sends
+  chunks to the sink pid over the normal distribution link; paths, `File.Stream`s and open
+  devices are never serialized and the sink is never read from handles, tool options or
+  request params (`Channels.Api` drops a request-supplied value).
+- Overflow, source errors, failed writes, `discard/1` and **consumer exit** (the sink monitors
+  its owner) close the device and delete the partial `.part` file. A *finished* file is not
+  unowned either: `finish/1` keeps the sink alive and monitoring until the caller confirms
+  the hand-over with `release/1` (`Materialization.complete_file/1`), so a consumer dying
+  between completion and adoption leaves nothing behind. With `own_dir: true` (a directory made
+  for this acquisition alone, as ingestion does) cleanup removes the whole directory, which
+  covers a file already renamed inside it. Source files are never touched. Errors report only `materialization size limit exceeded (N bytes)` — no handle,
+  credential or path.
+
+Producers: Storage (`:materialize_document`) streams the volume file in 256 KiB reads;
+`Zaq.Channels.JidoConnectBridge` hands Google Drive downloads/exports to
+`StreamingDriveClient` through the dependency's `google_drive_client` credential seam, which
+writes each chunk of a 2xx body to the sink. Transient GET retries stay on, except after body
+bytes reached the sink. Provider error bodies keep their shape (capped at 64 KiB); non-identity
+`content-encoding` is rejected.
+
+JSON that `Req` would decode keeps its decoded meaning in both modes. The bytes API buffers it
+up to *that call's* quota and the dependency normalizes it as before. A file sink receives a
+top-level JSON array as the Markdown table ingestion builds from decoded rows
+(`Zaq.Materialization.RowsMarkdown`, the single implementation of that conversion), rendered
+row by row with the standard library's resumable decoder (`Zaq.Materialization.JsonArrayRows`),
+so the array is never held: memory is one row, and the body and the rendered file are both held
+to the quota. Any other JSON value (an object, which the dependency rejects, or a scalar) is
+buffered up to the in-memory cap and handled by the dependency exactly as before. Producers that ignore the sink (other
+bridges, Slack/Telegram/IMAP attachments) keep returning inline content. Inline content is
+checked by byte length after it has already been acquired; Base64 is counted as decoded bytes,
+including the effect of padding, without decoding another copy. This post-hoc check cannot bound
+the producer's initial allocation.
+
+The quota is a resource guard, not a substitute for streaming: file mode memory is one chunk
+per acquisition, but disk use is up to `config :zaq, :materialization_max_file_bytes`
+(default 2 GiB) per concurrent acquisition, and the in-memory API can hold up to
+`:materialization_max_bytes` per concurrent call. A per-file budget alone is not a global
+bound; size worker concurrency accordingly.
+
 ## Extension Rules
 
 To add a new materializable source:
