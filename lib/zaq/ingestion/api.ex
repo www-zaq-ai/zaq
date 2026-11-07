@@ -44,6 +44,16 @@ defmodule Zaq.Ingestion.Api do
     %{event | response: {:ok, inventory.list()}}
   end
 
+  def handle_event(%Event{} = event, :count_documents, _context) do
+    ingestion_module = Keyword.get(event.opts, :ingestion_module, Ingestion)
+    %{event | response: ingestion_module.count_documents()}
+  end
+
+  def handle_event(%Event{} = event, :count_chunks, _context) do
+    ingestion_module = Keyword.get(event.opts, :ingestion_module, Ingestion)
+    %{event | response: ingestion_module.count_chunks()}
+  end
+
   def handle_event(
         %Event{request: %{chunk_ids: ids, access_opts: access_opts}} = event,
         :get_knowledge_base_chunks,

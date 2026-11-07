@@ -275,6 +275,32 @@ defmodule ZaqWeb.Live.BO.Communication.ChannelsIndexLiveTest do
     end
   end
 
+  test "renders unavailable flash and safe empty state when engine service is down during mount",
+       %{conn: conn} do
+    insert_channel_config(%{provider: "mattermost", name: "MM Config"})
+
+    pid = Process.whereis(Zaq.Engine.Supervisor)
+
+    on_exit(fn ->
+      if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+        Process.register(pid, Zaq.Engine.Supervisor)
+      end
+    end)
+
+    if pid, do: Process.unregister(Zaq.Engine.Supervisor)
+
+    try do
+      {:ok, view, html} = live(conn, ~p"/bo/channels/retrieval")
+
+      assert html =~ "Engine service is unavailable."
+      refute has_element?(view, "#ingress-status-dot-mattermost")
+    after
+      if pid && Process.whereis(Zaq.Engine.Supervisor) == nil do
+        Process.register(pid, Zaq.Engine.Supervisor)
+      end
+    end
+  end
+
   defp insert_channel_config(attrs) do
     params =
       %{

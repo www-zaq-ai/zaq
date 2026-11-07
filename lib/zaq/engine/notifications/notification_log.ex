@@ -212,6 +212,40 @@ defmodule Zaq.Engine.Notifications.NotificationLog do
   defp to_anchor(%{"message_id" => message_id} = anchor) when is_binary(message_id), do: anchor
   defp to_anchor(_threading), do: nil
 
+  @doc "Fetches a single notification log by primary key."
+  def get_log(id), do: Repo.get(__MODULE__, id)
+
+  @doc """
+  Lists paginated notification logs ordered newest-first, optionally filtered by
+  recipient name (`:recipient_filter`). Returns `%{logs: [t()], total: non_neg_integer()}`.
+  """
+  def list_logs(opts \\ []) when is_list(opts) do
+    page = Keyword.get(opts, :page, 1)
+    per_page = Keyword.get(opts, :per_page, 20)
+    offset = (page - 1) * per_page
+    filter = opts |> Keyword.get(:recipient_filter, "") |> to_string() |> String.trim()
+
+    base_query =
+      if filter == "" do
+        from(l in __MODULE__)
+      else
+        pattern = "%#{filter}%"
+        from(l in __MODULE__, where: ilike(l.recipient_name, ^pattern))
+      end
+
+    total = Repo.aggregate(base_query, :count)
+
+    logs =
+      from(l in base_query,
+        order_by: [desc: l.inserted_at, desc: l.id],
+        limit: ^per_page,
+        offset: ^offset
+      )
+      |> Repo.all()
+
+    %{logs: logs, total: total}
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------

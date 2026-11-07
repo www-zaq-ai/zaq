@@ -2,15 +2,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   use ZaqWeb, :live_view
   on_mount {ZaqWeb.Live.BO.Communication.ServiceGate, [:channels]}
 
-  import Ecto.Query
-
   alias Zaq.Channels.{Bridge, DataSourceBridge}
   alias Zaq.Channels.ProviderCatalog
   alias Zaq.Engine.ChannelConfig
   alias Zaq.Engine.Connect.Credential
   alias Zaq.Event
   alias Zaq.NodeRouter
-  alias Zaq.Repo
   alias Zaq.Storage.VolumeConfig
   alias Zaq.Utils.ParseUtils
   alias Zaq.Utils.Scopes
@@ -29,7 +26,9 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def mount(%{"provider" => provider}, _session, socket) do
     label = ProviderCatalog.label(provider)
 
-    configs = if socket.assigns.service_available, do: list_configs(provider), else: []
+    {configs, configs_error} =
+      if socket.assigns.service_available, do: fetch_configs(provider), else: {[], nil}
+
     grants = grants_by_config(configs)
     root_folders = seed_root_folders_by_config(configs)
     root_folder_meta = seed_root_folder_meta_by_config(configs)
@@ -38,6 +37,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
     {:ok,
      socket
+     |> maybe_put_engine_error_flash(configs_error)
      |> assign(:current_path, ~p"/bo/channels/data_source")
      |> assign(:page_title, label)
      |> assign(:provider, provider)
@@ -187,19 +187,29 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   end
 
   def handle_event("open_modal", %{"action" => "edit", "id" => id}, socket) do
-    config = Repo.get!(ChannelConfig, id)
-    changeset = ChannelConfig.changeset(config, %{})
+    case dispatch_channel_config(%{action: :get!, id: id}) do
+      %ChannelConfig{} = config ->
+        changeset = ChannelConfig.changeset(config, %{})
 
-    {:noreply,
-     socket
-     |> assign(:modal, :edit)
-     |> assign(
-       :native_export_options,
-       export_options_for_provider(socket.assigns.provider, config.id)
-     )
-     |> assign(:changeset, changeset)
-     |> assign(:form, to_form(changeset, as: :form))
-     |> assign(:modal_errors, [])}
+        {:noreply,
+         socket
+         |> assign(:modal, :edit)
+         |> assign(
+           :native_export_options,
+           export_options_for_provider(socket.assigns.provider, config.id)
+         )
+         |> assign(:changeset, changeset)
+         |> assign(:form, to_form(changeset, as: :form))
+         |> assign(:modal_errors, [])}
+
+      {:error, reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           format_engine_error("Failed to load data source config", reason)
+         )}
+    end
   end
 
   def handle_event("close_modal", _params, socket) do
@@ -259,11 +269,12 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
         socket.assigns.changeset.data,
         params,
         socket.assigns.provider,
-        &validate_channel_config/2
+        &validate_channel_config/2,
+        actor: BOActor.build(socket.assigns[:current_user])
       )
 
     case result do
-      {:ok, config} ->
+      {:ok, %ChannelConfig{} = config} ->
         _sync = sync_channel_runtime(previous_config, config)
 
         socket =
@@ -281,23 +292,44 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
         {:noreply, refresh_provider_page(socket, "Data source config saved.")}
 
-      {:error, changeset} ->
+      {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply,
          socket
          |> assign(:changeset, changeset)
          |> assign(:form, to_form(changeset, as: :form))
          |> assign(:modal_errors, format_errors(changeset))}
+
+      {:error, reason} ->
+        changeset =
+          socket.assigns.changeset.data
+          |> ChannelConfig.changeset(params)
+          |> Map.put(:action, :validate)
+
+        error_message = format_engine_error("Failed to save data source config", reason)
+
+        {:noreply,
+         socket
+         |> assign(:changeset, changeset)
+         |> assign(:form, to_form(changeset, as: :form))
+         |> assign(:modal_errors, [error_message])
+         |> put_flash(:error, error_message)}
     end
   end
 
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
-    previous_config = Repo.get!(ChannelConfig, id)
+    case dispatch_channel_config(%{action: :get!, id: id}) do
+      %ChannelConfig{} = previous_config ->
+        if previous_config.archived_at || previous_config.provider != socket.assigns.provider ||
+             previous_config.kind != "data_source" do
+          {:noreply,
+           put_flash(socket, :error, "Connector is not available on this provider page.")}
+        else
+          toggle_live_config(socket, previous_config)
+        end
 
-    if previous_config.archived_at || previous_config.provider != socket.assigns.provider ||
-         previous_config.kind != "data_source" do
-      {:noreply, put_flash(socket, :error, "Connector is not available on this provider page.")}
-    else
-      toggle_live_config(socket, previous_config)
+      {:error, reason} ->
+        {:noreply,
+         put_flash(socket, :error, format_engine_error("Failed to toggle connector", reason))}
     end
   end
 
@@ -367,74 +399,22 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   end
 
   def handle_event("open_test", %{"id" => id}, socket) do
-    config = Repo.get!(ChannelConfig, id)
+    case dispatch_channel_config(%{action: :get!, id: id}) do
+      %ChannelConfig{} = config ->
+        root_selector = root_selector_for_config(config, socket.assigns.provider)
+        max_pages = max_pages_for_config(config)
 
-    root_selector = root_selector_for_config(config, socket.assigns.provider)
-    max_pages = max_pages_for_config(config)
-
-    {folders, error, meta} =
-      root_folders_for_provider(socket.assigns.provider, config.id, root_selector,
-        max_pages: max_pages,
-        current_user: socket.assigns.current_user
-      )
-
-    {:noreply,
-     socket
-     |> assign(
-       :root_folders_by_config,
-       Map.put(socket.assigns.root_folders_by_config, config.id, folders)
-     )
-     |> assign(
-       :stats_errors_by_config,
-       Map.put(socket.assigns.stats_errors_by_config, config.id, error)
-     )
-     |> assign(
-       :root_folder_meta_by_config,
-       Map.put(socket.assigns.root_folder_meta_by_config, config.id, meta)
-     )
-     |> put_flash(
-       :info,
-       "#{config.name} refreshed: #{meta.scanned_entries} items scanned, #{meta.matched_folders} root folders matched (#{meta.pages_loaded} pages loaded)."
-     )}
-  end
-
-  def handle_event("fetch_more", %{"id" => id}, socket) do
-    config = Repo.get!(ChannelConfig, id)
-    root_selector = root_selector_for_config(config, socket.assigns.provider)
-    max_pages = max_pages_for_config(config)
-
-    previous_folders = Map.get(socket.assigns.root_folders_by_config, config.id, [])
-    previous_meta = Map.get(socket.assigns.root_folder_meta_by_config, config.id, %{})
-
-    case Map.get(previous_meta, :next_page_token) do
-      token when is_binary(token) and token != "" ->
-        {new_folders, error, new_meta} =
+        {folders, error, meta} =
           root_folders_for_provider(socket.assigns.provider, config.id, root_selector,
             max_pages: max_pages,
-            page_token: token,
             current_user: socket.assigns.current_user
           )
-
-        merged_folders =
-          merge_records(root_folders(previous_folders), root_folders(new_folders))
-
-        merged_meta = %{
-          pages_loaded:
-            Map.get(previous_meta, :pages_loaded, 0) + Map.get(new_meta, :pages_loaded, 0),
-          scanned_entries:
-            Map.get(previous_meta, :scanned_entries, 0) + Map.get(new_meta, :scanned_entries, 0),
-          matched_folders: length(merged_folders),
-          has_more?: Map.get(new_meta, :has_more?, false),
-          next_page_token: Map.get(new_meta, :next_page_token),
-          truncated: Map.get(new_meta, :has_more?, false),
-          max_pages_per_batch: max_pages
-        }
 
         {:noreply,
          socket
          |> assign(
            :root_folders_by_config,
-           Map.put(socket.assigns.root_folders_by_config, config.id, merged_folders)
+           Map.put(socket.assigns.root_folders_by_config, config.id, folders)
          )
          |> assign(
            :stats_errors_by_config,
@@ -442,15 +422,35 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
          )
          |> assign(
            :root_folder_meta_by_config,
-           Map.put(socket.assigns.root_folder_meta_by_config, config.id, merged_meta)
+           Map.put(socket.assigns.root_folder_meta_by_config, config.id, meta)
          )
          |> put_flash(
            :info,
-           "#{config.name}: loaded #{Map.get(new_meta, :pages_loaded, 0)} more pages (#{Map.get(new_meta, :scanned_entries, 0)} items scanned)."
+           "#{config.name} refreshed: #{meta.scanned_entries} items scanned, #{meta.matched_folders} root folders matched (#{meta.pages_loaded} pages loaded)."
          )}
 
-      _ ->
-        {:noreply, socket |> put_flash(:info, "No more pages to fetch for #{config.name}.")}
+      {:error, reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           format_engine_error("Failed to load data source config", reason)
+         )}
+    end
+  end
+
+  def handle_event("fetch_more", %{"id" => id}, socket) do
+    case dispatch_channel_config(%{action: :get!, id: id}) do
+      %ChannelConfig{} = config ->
+        fetch_more_for_config(socket, config)
+
+      {:error, reason} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           format_engine_error("Failed to load data source config", reason)
+         )}
     end
   end
 
@@ -496,7 +496,7 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
     event =
       Event.new(request, :engine,
-        actor: BOActor.build(socket.assigns.current_user),
+        actor: BOActor.build(socket.assigns[:current_user]),
         opts: [action: :archive_channel_connector, confidential: true]
       )
 
@@ -554,18 +554,23 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   end
 
   defp toggle_config_enabled(socket, previous_config) do
-    config =
-      previous_config
-      |> Ecto.Changeset.change(enabled: !previous_config.enabled)
-      |> Repo.update!()
+    case dispatch_channel_config(
+           %{action: :toggle_enabled!, config: previous_config},
+           actor: BOActor.build(socket.assigns[:current_user])
+         ) do
+      %ChannelConfig{} = config ->
+        _sync = sync_channel_runtime(previous_config, config)
 
-    _sync = sync_channel_runtime(previous_config, config)
+        {:noreply,
+         refresh_provider_page_without_folder_listing(
+           socket,
+           "#{config.name} #{if previous_config.enabled, do: "disabled", else: "enabled"}."
+         )}
 
-    {:noreply,
-     refresh_provider_page_without_folder_listing(
-       socket,
-       "#{config.name} #{if previous_config.enabled, do: "disabled", else: "enabled"}."
-     )}
+      {:error, reason} ->
+        {:noreply,
+         put_flash(socket, :error, format_engine_error("Failed to toggle connector", reason))}
+    end
   end
 
   def disk_provider?(provider), do: provider == "disk"
@@ -689,10 +694,91 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   def oauth_claim_state_for_changeset(_), do: OAuthClaimState.for_changeset(nil)
 
   defp list_configs(provider) do
-    ChannelConfig
-    |> where([c], c.provider == ^provider and c.kind == "data_source" and is_nil(c.archived_at))
-    |> order_by(asc: :name)
-    |> Repo.all()
+    {configs, _error} = fetch_configs(provider)
+    configs
+  end
+
+  defp fetch_more_for_config(socket, %ChannelConfig{} = config) do
+    root_selector = root_selector_for_config(config, socket.assigns.provider)
+    max_pages = max_pages_for_config(config)
+
+    previous_folders = Map.get(socket.assigns.root_folders_by_config, config.id, [])
+    previous_meta = Map.get(socket.assigns.root_folder_meta_by_config, config.id, %{})
+
+    case Map.get(previous_meta, :next_page_token) do
+      token when is_binary(token) and token != "" ->
+        {new_folders, error, new_meta} =
+          root_folders_for_provider(socket.assigns.provider, config.id, root_selector,
+            max_pages: max_pages,
+            page_token: token,
+            current_user: socket.assigns.current_user
+          )
+
+        merged_folders =
+          merge_records(root_folders(previous_folders), root_folders(new_folders))
+
+        merged_meta = %{
+          pages_loaded:
+            Map.get(previous_meta, :pages_loaded, 0) + Map.get(new_meta, :pages_loaded, 0),
+          scanned_entries:
+            Map.get(previous_meta, :scanned_entries, 0) + Map.get(new_meta, :scanned_entries, 0),
+          matched_folders: length(merged_folders),
+          has_more?: Map.get(new_meta, :has_more?, false),
+          next_page_token: Map.get(new_meta, :next_page_token),
+          truncated: Map.get(new_meta, :has_more?, false),
+          max_pages_per_batch: max_pages
+        }
+
+        {:noreply,
+         socket
+         |> assign(
+           :root_folders_by_config,
+           Map.put(socket.assigns.root_folders_by_config, config.id, merged_folders)
+         )
+         |> assign(
+           :stats_errors_by_config,
+           Map.put(socket.assigns.stats_errors_by_config, config.id, error)
+         )
+         |> assign(
+           :root_folder_meta_by_config,
+           Map.put(socket.assigns.root_folder_meta_by_config, config.id, merged_meta)
+         )
+         |> put_flash(
+           :info,
+           "#{config.name}: loaded #{Map.get(new_meta, :pages_loaded, 0)} more pages (#{Map.get(new_meta, :scanned_entries, 0)} items scanned)."
+         )}
+
+      _ ->
+        {:noreply, socket |> put_flash(:info, "No more pages to fetch for #{config.name}.")}
+    end
+  end
+
+  defp fetch_configs(provider) do
+    case dispatch_channel_config(%{
+           action: :list_by_provider_named,
+           provider: provider,
+           kind: "data_source"
+         }) do
+      configs when is_list(configs) -> {configs, nil}
+      {:error, reason} -> {[], reason}
+      other -> {[], {:unexpected_response, other}}
+    end
+  end
+
+  defp dispatch_channel_config(request, opts \\ []) when is_map(request) and is_list(opts) do
+    EngineDispatch.dispatch_confidential(:channel_config, request, opts)
+  end
+
+  defp maybe_put_engine_error_flash(socket, reason) do
+    EngineDispatch.maybe_put_error_flash(
+      socket,
+      reason,
+      "Failed to load data source configuration"
+    )
+  end
+
+  defp format_engine_error(prefix, reason) do
+    EngineDispatch.format_error(prefix, reason)
   end
 
   defp grants_by_config(configs) do
@@ -704,14 +790,17 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
         end
 
       grant =
-        engine_connect_get_active_grant(%{
-          credential_id: credential_id,
-          provider: config.provider,
-          resource_type: "data_source",
-          resource_id: config.id,
-          owner_type: "org",
-          owner_id: nil
-        })
+        case engine_connect_get_active_grant(%{
+               credential_id: credential_id,
+               provider: config.provider,
+               resource_type: "data_source",
+               resource_id: config.id,
+               owner_type: "org",
+               owner_id: nil
+             }) do
+          {:error, _} -> nil
+          active_grant -> active_grant
+        end
 
       {config.id, grant}
     end)
@@ -977,8 +1066,13 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
   defp connect_credentials_for(provider) do
     expected_provider = credential_provider_for(provider)
 
-    engine_connect_list_credentials()
-    |> Enum.filter(&(&1.provider == expected_provider))
+    case engine_connect_list_credentials() do
+      credentials when is_list(credentials) ->
+        Enum.filter(credentials, &(&1.provider == expected_provider))
+
+      _ ->
+        []
+    end
   end
 
   defp credential_provider_for(provider),
@@ -1064,6 +1158,9 @@ defmodule ZaqWeb.Live.BO.DataSources.ProviderLive do
 
           {:error, :not_found} ->
             Ecto.Changeset.add_error(changeset, :settings, "Selected credential was not found.")
+
+          _ ->
+            changeset
         end
     end
   end

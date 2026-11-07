@@ -2514,4 +2514,75 @@ defmodule Zaq.Channels.ApiTest do
                {:error, {:unsupported_action, :broadcast}}
     end
   end
+
+  describe "retrieval_channel action" do
+    test "requires confidential event and handles retrieval_channel operations" do
+      config = insert_config("mattermost")
+      unique = System.unique_integer([:positive])
+
+      unconfidential_event =
+        Event.new(%{action: :list_by_config, config_id: config.id}, :channels)
+
+      assert {:error, :confidential_event_required} =
+               Api.handle_event(unconfidential_event, :retrieval_channel, nil).response
+
+      create_event =
+        Event.new(
+          %{
+            action: :create,
+            attrs: %{
+              channel_config_id: config.id,
+              channel_id: "ch-#{unique}",
+              channel_name: "Channel #{unique}",
+              team_id: "tm-1",
+              team_name: "Team 1",
+              active: true
+            }
+          },
+          :channels,
+          opts: [confidential: true]
+        )
+
+      assert {:ok, channel} = Api.handle_event(create_event, :retrieval_channel, nil).response
+
+      list_event =
+        Event.new(%{action: :list_by_config, config_id: config.id}, :channels,
+          opts: [confidential: true]
+        )
+
+      assert [%{id: listed_id}] = Api.handle_event(list_event, :retrieval_channel, nil).response
+      assert listed_id == channel.id
+
+      get_event =
+        Event.new(%{action: :get, id: channel.id}, :channels, opts: [confidential: true])
+
+      assert %{id: fetched_id} = Api.handle_event(get_event, :retrieval_channel, nil).response
+      assert fetched_id == channel.id
+
+      get_bang_event =
+        Event.new(%{action: :get!, id: channel.id}, :channels, opts: [confidential: true])
+
+      assert %{id: ^fetched_id} =
+               Api.handle_event(get_bang_event, :retrieval_channel, nil).response
+
+      toggle_event =
+        Event.new(%{action: :toggle_active!, channel: channel}, :channels,
+          opts: [confidential: true]
+        )
+
+      toggled = Api.handle_event(toggle_event, :retrieval_channel, nil).response
+      assert toggled.active == false
+
+      delete_event =
+        Event.new(%{action: :delete!, channel: toggled}, :channels, opts: [confidential: true])
+
+      assert %{id: ^fetched_id} = Api.handle_event(delete_event, :retrieval_channel, nil).response
+      assert Api.handle_event(get_event, :retrieval_channel, nil).response == nil
+
+      bad_event = Event.new(%{action: :unknown}, :channels, opts: [confidential: true])
+
+      assert {:error, {:invalid_request, %{action: :unknown}}} =
+               Api.handle_event(bad_event, :retrieval_channel, nil).response
+    end
+  end
 end

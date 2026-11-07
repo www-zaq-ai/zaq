@@ -36,6 +36,7 @@ defmodule Zaq.Channels.Api do
   alias Zaq.Channels.HttpClient
   alias Zaq.Channels.Materializers.CommunicationMedia
   alias Zaq.Channels.MessageFormatter
+  alias Zaq.Channels.RetrievalChannel
   alias Zaq.Channels.Web.{Command, Context, Message}
   alias Zaq.ConnectorConfig.Settings
   alias Zaq.Contracts.Record
@@ -995,6 +996,15 @@ defmodule Zaq.Channels.Api do
   def handle_event(%Event{} = event, :invoke, _context),
     do: InternalBoundaries.invoke_request(event)
 
+  def handle_event(%Event{} = event, :retrieval_channel, _context) do
+    response =
+      if Keyword.get(event.opts, :confidential) == true,
+        do: handle_retrieval_channel_request(event.request),
+        else: {:error, :confidential_event_required}
+
+    %{event | response: response}
+  end
+
   def handle_event(%Event{} = event, action, _context) do
     %{event | response: {:error, {:unsupported_action, action}}}
   end
@@ -1289,4 +1299,28 @@ defmodule Zaq.Channels.Api do
     do: {:ok, %{provider: "web"}}
 
   defp normalize_upsert_config(_provider, config), do: config
+
+  defp handle_retrieval_channel_request(%{action: :get, id: id}),
+    do: RetrievalChannel.get(id)
+
+  defp handle_retrieval_channel_request(%{action: :get!, id: id}),
+    do: RetrievalChannel.get!(id)
+
+  defp handle_retrieval_channel_request(%{action: :list_by_config, config_id: config_id}),
+    do: RetrievalChannel.list_by_config(config_id)
+
+  defp handle_retrieval_channel_request(%{action: :create, attrs: attrs}) when is_map(attrs),
+    do: RetrievalChannel.create(attrs)
+
+  defp handle_retrieval_channel_request(%{
+         action: :toggle_active!,
+         channel: %RetrievalChannel{} = rc
+       }),
+       do: RetrievalChannel.toggle_active!(rc)
+
+  defp handle_retrieval_channel_request(%{action: :delete!, channel: %RetrievalChannel{} = rc}),
+    do: RetrievalChannel.delete!(rc)
+
+  defp handle_retrieval_channel_request(other),
+    do: {:error, {:invalid_request, other}}
 end
