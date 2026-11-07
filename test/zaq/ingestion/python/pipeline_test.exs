@@ -164,6 +164,170 @@ defmodule Zaq.Ingestion.Python.PipelineTest do
       refute File.exists?(images_dir)
     end
 
+    test "on_preparation_outcome reports skipped when image steps are not run",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts()
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:ok, ^md_path} =
+               Pipeline.run(pdf_path,
+                 api_key: "",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      assert_receive {:preparation_outcome, %{image_to_text: :skipped, inject: :skipped}}
+    end
+
+    test "on_preparation_outcome reports completed when image steps run",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts()
+      ensure_image_to_text_prompt!("Describe test images")
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:ok, ^md_path} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 endpoint: "https://vision.example.test/v1",
+                 model: "vision-model",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      assert_receive {:preparation_outcome, %{image_to_text: :completed, inject: :completed}}
+    end
+
+    test "on_preparation_outcome reports inject skipped when descriptions file is missing",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts(%{
+        "image_to_text.py" => """
+        import sys
+
+        if "--ping" in sys.argv:
+            print("pong")
+            sys.exit(0)
+
+        print("image text ok without descriptions")
+        """
+      })
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:ok, ^md_path} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 output: md_path,
+                 endpoint: "",
+                 model: "",
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      assert_receive {:preparation_outcome, %{image_to_text: :completed, inject: :skipped}}
+    end
+
+    test "hard image-to-text failure returns error without preparation outcome callback",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts(%{
+        "image_to_text.py" => """
+        import sys
+
+        if "--ping" in sys.argv:
+            print("pong")
+            sys.exit(0)
+
+        print("boom")
+        sys.exit(1)
+        """
+      })
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:error, _reason} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 endpoint: "https://vision.example.test/v1",
+                 model: "vision-model",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      refute_receive {:preparation_outcome, _}, 50
+    end
+
+    test "provider ERROR entries in descriptions.json fail as image_extraction_failed",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts(%{
+        "image_to_text.py" => """
+        import json
+        import os
+        import sys
+
+        if "--ping" in sys.argv:
+            print("pong")
+            sys.exit(0)
+
+        output = sys.argv[sys.argv.index("--output") + 1]
+        os.makedirs(os.path.dirname(output), exist_ok=True)
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump({"page-1.png": "ERROR: 401 Unauthorized"}, f)
+
+        print("image text wrote provider errors but exits 0")
+        """
+      })
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+      test_pid = self()
+
+      assert {:error, :image_extraction_failed} =
+               Pipeline.run(pdf_path,
+                 api_key: "inline-key",
+                 endpoint: "https://vision.example.test/v1",
+                 model: "vision-model",
+                 output: md_path,
+                 on_preparation_outcome: fn outcome ->
+                   send(test_pid, {:preparation_outcome, outcome})
+                 end
+               )
+
+      refute_receive {:preparation_outcome, _}, 50
+      refute File.read!(md_path) =~ "Injected descriptions"
+    end
+
+    test "callers without on_preparation_outcome still succeed with {:ok, md_path}",
+         %{tmp_dir: tmp_dir} do
+      with_fake_pipeline_scripts()
+
+      pdf_path = Path.join(tmp_dir, "report.pdf")
+      md_path = Path.join(tmp_dir, "report.md")
+      File.write!(pdf_path, "%PDF-1.4")
+
+      assert {:ok, ^md_path} = Pipeline.run(pdf_path, api_key: "", output: md_path)
+    end
+
     test "cleans up temporary alias when pdf filename contains spaces", %{tmp_dir: tmp_dir} do
       pdf_path = Path.join(tmp_dir, "Deck With Spaces.pdf")
       alias_path = Path.join(tmp_dir, "Deck_With_Spaces.pdf")
