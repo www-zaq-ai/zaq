@@ -18,6 +18,29 @@ defmodule Zaq.Agent.ProviderSpec do
   require Logger
 
   @doc """
+  Returns whether a provider is catalogued or has a registered runtime adapter.
+
+  Accepts case-insensitive strings and atoms without creating atoms. Recognition
+  does not imply model support; an unknown custom endpoint can still use a
+  compatibility adapter without becoming a known provider.
+  """
+  @spec known_provider?(term()) :: boolean()
+  def known_provider?(provider) when is_atom(provider),
+    do: known_provider?(Atom.to_string(provider))
+
+  def known_provider?(provider) when is_binary(provider) do
+    case provider_atom(provider) do
+      {:ok, atom} ->
+        match?({:ok, _}, LLMDB.provider(atom)) or match?({:ok, _}, ReqLLM.provider(atom))
+
+      {:error, _} ->
+        false
+    end
+  end
+
+  def known_provider?(_provider), do: false
+
+  @doc """
   Maps a provider string or atom to the atom ReqLLM expects.
 
   Looks up the provider in the llm_db catalog. If found and not `catalog_only`,
@@ -165,7 +188,7 @@ defmodule Zaq.Agent.ProviderSpec do
 
   defp resolve_generation_provider(%{provider: provider} = credential, id)
        when is_binary(provider) do
-    case generation_provider_atom(provider) do
+    case provider_atom(provider) do
       {:ok, provider} -> generation_adapter(provider, catalog_model(provider, id), credential)
       {:error, :provider_not_found} -> openai_if_custom_endpoint(credential)
     end
@@ -173,8 +196,10 @@ defmodule Zaq.Agent.ProviderSpec do
 
   defp resolve_generation_provider(_credential, _id), do: {:error, :invalid_provider}
 
-  defp generation_provider_atom(provider) do
-    case LLMDB.Spec.parse_provider(String.downcase(provider)) do
+  defp provider_atom(provider) do
+    provider = String.downcase(provider)
+
+    case LLMDB.Spec.parse_provider(provider) do
       {:ok, _} = found -> found
       {:error, _} -> {:ok, String.to_existing_atom(provider)}
     end

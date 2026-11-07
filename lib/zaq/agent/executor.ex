@@ -42,6 +42,7 @@ defmodule Zaq.Agent.Executor do
     HistorySync,
     InputPrompt,
     LogprobsAnalyzer,
+    ProviderSpec,
     RequestControl,
     ServerManager,
     StreamEvents
@@ -1022,9 +1023,7 @@ defmodule Zaq.Agent.Executor do
 
   defp configured_provider(%Zaq.Agent.ConfiguredAgent{} = configured_agent) do
     with provider when is_binary(provider) <- Agent.provider_for_agent(configured_agent),
-         true <-
-           match?({:ok, _}, LLMDB.Spec.parse_provider(provider)) or
-             Enum.any?(ReqLLM.Providers.list(), &(Atom.to_string(&1) == provider)),
+         true <- ProviderSpec.known_provider?(provider),
          {:ok, runtime_provider} <- Agent.runtime_provider_for_agent(configured_agent) do
       to_string(runtime_provider)
     else

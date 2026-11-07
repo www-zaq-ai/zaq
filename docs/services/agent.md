@@ -840,6 +840,8 @@ hierarchy/origin metadata, never a native ID prefix or a tool-name guess.
 
 ### Provider Spec (`Zaq.Agent.ProviderSpec`)
 - Generic facade for provider normalization, model specs and runtime options
+- `known_provider?/1` owns catalog/adapter recognition separately from execution
+  fallback, so telemetry consumers do not inspect LLMDB or ReqLLM registries
 - Selects pure Agent-owned implementations through `Zaq.Agent.ProviderSpec.Registry`;
   adding provider-specific ReqLLM behavior does not add branches to the facade
 - Keeps OAuth protocol and selected-grant identity in Connect's separate OAuth behavior

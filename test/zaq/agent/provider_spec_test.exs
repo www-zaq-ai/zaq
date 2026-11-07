@@ -219,6 +219,67 @@ defmodule Zaq.Agent.ProviderSpecTest do
     }
   end
 
+  describe "known_provider?/1" do
+    test "recognizes catalog identities independently of generation adapter fallback" do
+      assert ProviderSpec.known_provider?(:openai)
+      assert ProviderSpec.known_provider?("OpenAI")
+      assert ProviderSpec.known_provider?(:albert)
+      assert ProviderSpec.known_provider?("AlBeRt")
+
+      agent = %ConfiguredAgent{
+        model: "openweight-large",
+        credential: %{provider: "AlBeRt", endpoint: "https://albert.api.etalab.gouv.fr/v1"}
+      }
+
+      assert {:ok, %{provider: :openai}} = ProviderSpec.build(agent)
+    end
+
+    test "recognizes registered providers that are absent from the catalog" do
+      assert {:error, _} = LLMDB.provider(:openai_codex)
+
+      for provider <- [:openai_codex, "openai_codex", "OPENAI_CODEX", :zaq_router] do
+        assert ProviderSpec.known_provider?(provider)
+      end
+    end
+
+    test "an unknown custom endpoint can execute without becoming a known provider" do
+      provider = "unregistered-provider-spec-#{System.unique_integer([:positive, :monotonic])}"
+
+      agent = %ConfiguredAgent{
+        model: "custom-model",
+        credential: %{provider: provider, endpoint: "https://custom.example/v1"}
+      }
+
+      refute ProviderSpec.known_provider?(provider)
+      assert {:ok, %{provider: :openai}} = ProviderSpec.build(agent)
+      assert_raise ArgumentError, fn -> String.to_existing_atom(provider) end
+    end
+
+    test "existing atoms and invalid inputs are not sufficient for recognition" do
+      for provider <- [:unregistered_provider_spec_atom, nil, "", 42, %{}, ["openai"]] do
+        refute ProviderSpec.known_provider?(provider)
+      end
+    end
+
+    property "catalog and registered identities are recognized across input forms" do
+      providers = Enum.map(LLMDB.providers(), & &1.id) ++ ReqLLM.Providers.list()
+
+      check all(provider <- member_of(providers)) do
+        assert ProviderSpec.known_provider?(provider)
+        assert ProviderSpec.known_provider?(Atom.to_string(provider))
+        assert ProviderSpec.known_provider?(provider |> Atom.to_string() |> String.upcase())
+      end
+    end
+
+    property "unknown provider recognition never creates atoms" do
+      check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 40)) do
+        provider = "unregistered-provider-spec-#{suffix}"
+        refute ProviderSpec.known_provider?(provider)
+        assert_raise ArgumentError, fn -> String.to_existing_atom(provider) end
+      end
+    end
+  end
+
   describe "reqllm_provider/1" do
     test "known native provider returns its catalog atom" do
       assert ProviderSpec.reqllm_provider("openai") == :openai
