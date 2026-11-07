@@ -19,6 +19,79 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
   @noop_module "Zaq.Engine.Workflows.Test.Noop"
   @emit_gender_module "Zaq.Engine.Workflows.Test.EmitGender"
 
+  defmodule StorageRouter do
+    @moduledoc false
+
+    def dispatch(event) do
+      entry = %Zaq.Storage.FileExplorer.Entry{
+        id: "archives/manuals",
+        name: "manuals",
+        type: :directory,
+        volume: "archives",
+        relative_path: "manuals",
+        source: "archives/manuals"
+      }
+
+      %{event | response: {:ok, %{entries: [entry], scanned: 1}}}
+    end
+  end
+
+  defmodule ListDiskRecords do
+    @moduledoc false
+
+    alias Zaq.Channels.DiskBridge
+
+    use Zaq.Engine.Workflows.Action,
+      name: "regression_list_disk_records",
+      schema: [input: [type: :any]],
+      output_schema: [records: [type: {:list, :any}]]
+
+    @impl true
+    def run(_params, _context) do
+      config = %{
+        "id" => 42,
+        "provider" => "disk",
+        "node_router" => Zaq.Engine.Workflows.WorkflowRunAgentTest.StorageRouter,
+        "storage_config" => [base_path: "priv/documents"],
+        "settings" => %{"volumes" => [%{"name" => "archives", "path" => "archives"}]}
+      }
+
+      # Exercise the bridge's real Record construction, including raw.local_entry.
+      with {:ok, page} <- DiskBridge.list_files(config, %{}) do
+        {:ok, %{records: page.records}}
+      end
+    end
+  end
+
+  defmodule NonportableRecord do
+    @moduledoc false
+
+    alias Zaq.Contracts.Record
+
+    use Zaq.Engine.Workflows.Action,
+      name: "nonportable_record",
+      schema: [input: [type: :any]],
+      output_schema: [record: [type: :any]]
+
+    @impl true
+    def run(_params, _context) do
+      {:ok, %{record: %Record{id: "nonportable", kind: :file, raw: %{process: self()}}}}
+    end
+  end
+
+  defmodule TypedDate do
+    @moduledoc false
+
+    use Zaq.Engine.Workflows.Action,
+      name: "typed_date",
+      schema: [kind: [type: :string, required: true]],
+      output_schema: [due: [type: :any]]
+
+    @impl true
+    def run(%{kind: "date"}, _context), do: {:ok, %{due: ~D[2026-11-01]}}
+    def run(%{kind: "datetime"}, _context), do: {:ok, %{due: ~N[2026-11-01 10:00:00]}}
+  end
+
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     start_supervised!(ParamCapture)
@@ -86,7 +159,85 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgentTest do
     }
   end
 
+  describe "execute/1 — identity encoding failures" do
+    test "fails the run when an action's completed result cannot become a fact" do
+      run = create_run(Atom.to_string(NonportableRecord))
+
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
+      assert finished.status == "failed"
+
+      persisted = Workflows.get_run!(run.id)
+      assert persisted.status == "failed"
+      assert persisted.finished_at != nil
+      assert persisted.log_summary["execution_error"]["type"] == "identity_encoding"
+      assert persisted.log_summary["execution_error"]["message"] =~ "unsupported pid"
+
+      # The action succeeded; the failure belongs to the driver, not its StepRun.
+      assert [%{step_name: "step", status: "completed"}] = Workflows.list_step_runs(run.id)
+    end
+
+    test "fails the run when initial input cannot become a fact before any action starts" do
+      run = create_run()
+      source_event = %{run.source_event | assigns: %{input: %{process: self()}}}
+
+      assert {:ok, finished} = WorkflowRunAgent.execute(%{run | source_event: source_event})
+      assert finished.status == "failed"
+
+      persisted = Workflows.get_run!(run.id)
+      assert persisted.status == "failed"
+      assert persisted.finished_at != nil
+      assert persisted.log_summary["execution_error"]["type"] == "identity_encoding"
+      assert persisted.log_summary["execution_error"]["message"] =~ "unsupported pid"
+      assert Workflows.list_step_runs(run.id) == []
+    end
+  end
+
   describe "execute/1 — happy path" do
+    test "typed dates reach date conditions and complete the selected branch" do
+      for {kind, expected} <- [{"date", "2026-11-07"}, {"datetime", "2026-11-07T00:00:00Z"}] do
+        {:ok, workflow} =
+          Workflows.create_workflow(%{
+            name: "Typed date #{System.unique_integer()}",
+            status: "active",
+            nodes: [
+              %{
+                name: "emit",
+                type: "action",
+                module: Atom.to_string(TypedDate),
+                params: %{"kind" => kind},
+                index: 0
+              },
+              %{name: "done", type: "action", module: @noop_module, params: %{}, index: 1}
+            ],
+            edges: [
+              %{
+                from: "emit",
+                to: "done",
+                condition: %{"field" => "due", "type" => kind, "op" => "lt", "value" => expected}
+              }
+            ]
+          })
+
+        assert {:ok, finished} = Workflows.create_and_start_run(workflow, @source_event)
+        assert finished.status == "completed"
+        assert Workflows.get_run!(finished.id).status == "completed"
+        assert Workflows.get_step_run_by_name(finished.id, "done").status == "completed"
+      end
+    end
+
+    test "disk records with nested provider structs complete workflow execution" do
+      run = create_run(Atom.to_string(ListDiskRecords))
+
+      assert {:ok, finished} = WorkflowRunAgent.execute(run)
+      assert finished.status == "completed"
+      assert Workflows.get_run!(run.id).status == "completed"
+
+      assert [%{step_name: "step", status: "completed", results: results}] =
+               Workflows.list_step_runs(run.id)
+
+      assert [%{"id" => "archives/manuals", "name" => "manuals"}] = results["records"]
+    end
+
     test "transitions WorkflowRun to completed" do
       run = create_run()
 

@@ -1,18 +1,19 @@
 defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   @moduledoc """
-  Infrastructure Jido.Action injected by `DagBuilder` on edges that carry a
-  `condition` and/or a `mapping`.
+  Infrastructure Jido.Action that maps edge facts and records edge outcomes.
+
+  `DagBuilder` evaluates conditional edges through `EdgeGate`'s native Runic
+  condition before this action runs. The action retains its condition-checking
+  contract for direct callers and explicitly constructed ActionNode graphs.
 
   ## Contract (D-1)
 
   - **Input**: the upstream node's output fact (atom-keyed map), merged with the
     edge's static metadata keys (`__edge_condition__`, `__edge_mapping__`,
     `__edge_name__`) by Runic's ActionNode execution.
-  - **Condition present and false**: raises `ConditionNotMet` — Runic marks this
-    step `:failed` and prunes the downstream subgraph via `skip_downstream_subgraph`.
-    The downstream action node's `StepRunner` never runs → no failed `StepRun`
-    row → `finalize/2` sees the run as `"completed"` (or `"incomplete"` when no
-    leaf is ever reached).
+  - **Condition supplied directly and false**: records a skipped edge and raises
+    `ConditionNotMet`. Compiled DAGs instead use `EdgeGate`, where a false native
+    predicate leaves sibling work runnable without reporting an execution failure.
   - **Mapping**: source keys listed as mapping values are consumed (removed from the
     output); all other keys are passed through unchanged; target keys are added.
     A mapped value that is (or contains) a struct passes through unnormalized —
@@ -34,9 +35,9 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   An unexpected raise (anything other than `ConditionNotMet`) is caught, an
   idempotent `failed` `StepRun` row is written (same idempotency guard as the
   `completed`/`skipped` writers — safe under Jido retry), and the exception is
-  reraised unchanged. Runic still prunes the downstream subgraph either way; the
-  row is what lets `finalize/2` tell an infrastructure crash apart from a
-  legitimate pruned branch.
+  reraised unchanged. Jido reports the error as a failed Runic runnable, stopping
+  admission; the row lets `finalize/2` distinguish the infrastructure crash from
+  a legitimately rejected branch.
 
   This module is NOT wrapped by `StepRunner` (see D-3). It is infrastructure;
   it never appears in `StepRun` rows except via the `failed`/`skipped`/`completed`
@@ -80,16 +81,12 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
       {:ok, output}
     rescue
       e in ConditionNotMet ->
-        # Existing skip semantics: write_skip_trace/5 already ran inside
-        # maybe_check_condition/5 — reraise unchanged.
+        # Direct-call skip semantics: maybe_check_condition/5 recorded the skip.
         reraise e, __STACKTRACE__
 
       e ->
-        # Any other raise is infrastructure-level and otherwise invisible: Runic
-        # prunes the downstream subgraph silently (same as ConditionNotMet) with
-        # no failed row and no log. Write a failed StepRun row so `finalize/2`
-        # marks the run `"failed"` (with this edge in `failed_steps`) instead of
-        # a silent `"incomplete"`, then reraise — Runic still prunes downstream.
+        # Record the failure before Jido returns it to Runic, so finalization
+        # can identify the failed edge after the driver stops admission.
         write_fail_trace(run_id, edge_name, source_index, e)
 
         reraise e, __STACKTRACE__
@@ -99,22 +96,48 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStep do
   defp maybe_check_condition(nil, _fact, _name, _run_id, _source_index), do: :ok
 
   defp maybe_check_condition(condition, fact, edge_name, run_id, source_index) do
+    unless condition_matches?(condition, fact) do
+      raise skip_condition(condition, fact, edge_name, run_id, source_index)
+    end
+  end
+
+  @doc "Evaluates an edge predicate without recording or raising on a normal mismatch."
+  @spec condition_matches?(map(), map()) :: boolean()
+  def condition_matches?(condition, fact) do
+    {_field, op, actual, expected, type} = condition_details(condition, fact)
+    EdgeCondition.evaluate(op, actual, expected, type: type)
+  end
+
+  @doc "Records a false predicate and returns its condition-mismatch exception for direct callers."
+  @spec skip_condition(map(), map(), String.t(), String.t() | nil, non_neg_integer()) ::
+          Exception.t()
+  def skip_condition(condition, fact, edge_name, run_id, source_index) do
+    {field, op, actual, expected, _type} = condition_details(condition, fact)
+    write_skip_trace(run_id, edge_name, source_index, field, op, actual, expected)
+
+    ConditionNotMet.exception(
+      condition_name: edge_name,
+      field: field,
+      op: op,
+      actual: actual,
+      expected: expected
+    )
+  end
+
+  @doc "Records a genuine native predicate failure using the edge's existing trace identity."
+  @spec fail_condition(String.t() | nil, String.t(), non_neg_integer(), Exception.t()) :: term()
+  def fail_condition(run_id, edge_name, source_index, exception) do
+    write_fail_trace(run_id, edge_name, source_index, exception)
+  end
+
+  defp condition_details(condition, fact) do
     field = condition["field"] || condition[:field]
     op = to_op(condition["op"] || condition[:op])
     expected = Map.get(condition, "value", Map.get(condition, :value))
     type = condition["type"] || condition[:type]
     actual = lookup(fact, field)
 
-    unless EdgeCondition.evaluate(op, actual, expected, type: type) do
-      write_skip_trace(run_id, edge_name, source_index, field, op, actual, expected)
-
-      raise ConditionNotMet,
-        condition_name: edge_name,
-        field: field,
-        op: op,
-        actual: actual,
-        expected: expected
-    end
+    {field, op, actual, expected, type}
   end
 
   # Writes a Step.Run row with status "completed" when a condition passes (or no
