@@ -10,7 +10,16 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryTest do
       OpenAIStub.server(fn _conn, _body -> flunk("global model must not be called") end, self())
 
     start_supervised!(child)
-    OpenAIStub.seed_llm_config(endpoint)
+
+    credential =
+      Zaq.SystemConfigFixtures.ai_credential_fixture(%{
+        provider: "openai",
+        endpoint: endpoint,
+        api_key: "test-key"
+      })
+
+    Zaq.System.set_config("llm.credential_id", credential.id)
+    Zaq.System.set_config("llm.model", "test-model")
 
     assert {:ok,
             %{
@@ -165,6 +174,43 @@ defmodule Zaq.Agent.Actions.TranslateKnowledgeQueryTest do
                %{query: "mayor", lexical_terms: terms, languages: ["french"]},
                %{}
              )
+  end
+
+  test "semantic preparation accepts no lexical terms and only validates semantic translations" do
+    stub_llm(~s({"french":{"semantic_query":"question sémantique"}}))
+
+    assert {:ok, %{queries: queries, errors: []}} =
+             Jido.Exec.run(
+               TranslateKnowledgeQuery,
+               %{
+                 query: "semantic question",
+                 search_mode: "semantic",
+                 languages: ["simple", "french"]
+               },
+               %{}
+             )
+
+    assert queries["simple"] == %{semantic_query: "semantic question", lexical_terms: []}
+    assert queries["french"] == %{semantic_query: "question sémantique", lexical_terms: []}
+  end
+
+  test "keyword preparation accepts lexical-only translation output" do
+    stub_llm(~s({"french":{"lexical_terms":["identifiant","nom propre"]}}))
+
+    assert {:ok,
+            %{queries: %{"french" => %{semantic_query: "", lexical_terms: terms}}, errors: []}} =
+             Jido.Exec.run(
+               TranslateKnowledgeQuery,
+               %{
+                 query: "question",
+                 search_mode: "keyword",
+                 lexical_terms: ["identifier", "proper name"],
+                 languages: ["french"]
+               },
+               %{}
+             )
+
+    assert terms == ["identifiant", "nom propre"]
   end
 
   property "simple lexical terms keep their first occurrence and do not lose late entries" do

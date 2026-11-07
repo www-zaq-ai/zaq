@@ -38,6 +38,9 @@ defmodule Zaq.Agent.ErrorMessage do
   def from_reason(:provider_not_supported, _fallback),
     do: "The selected AI provider is not supported. Please check your agent configuration."
 
+  def from_reason(:configured_agent_required, _fallback),
+    do: "Select a configured agent to answer this request."
+
   def from_reason(%{reason: reason} = failure, _fallback) when reason in @credential_reasons,
     do: credential_message(reason, Map.get(failure, :owner_type))
 

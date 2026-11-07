@@ -4,14 +4,19 @@ defmodule Zaq.UserPortal.OnboardingTest do
   # races other async tests that encrypt credentials, causing intermittent
   # "missing SYSTEM_CONFIG_ENCRYPTION_KEY" failures (e.g. ProviderSpecTest).
   use Zaq.DataCase, async: false
+  use ExUnitProperties
 
   import Mox
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
+  alias Zaq.Agent
+  alias Zaq.Engine.IncomingMessageRouting
   alias Zaq.System
+  alias Zaq.SystemConfigFixtures
   alias Zaq.UserPortal.ClientMock
   alias Zaq.UserPortal.Onboarding
+  alias Zaq.UserPortal.Provisioner
 
   setup :verify_on_exit!
 
@@ -189,7 +194,8 @@ defmodule Zaq.UserPortal.OnboardingTest do
       assert is_nil(credential.api_key)
 
       # Provider is listed, but not wired as the active model configuration.
-      assert is_nil(System.get_llm_config().credential_id)
+      assert {:error, :agent_not_found} = Agent.get_agent_by_name("ZAQ Assistant")
+      assert is_nil(IncomingMessageRouting.get_rule(%{}))
       assert is_nil(System.get_embedding_config().credential_id)
       assert is_nil(System.get_image_to_text_config().credential_id)
     end
@@ -211,6 +217,111 @@ defmodule Zaq.UserPortal.OnboardingTest do
   end
 
   describe "activate_portal/2" do
+    test "bootstrap failure retains the claim for the subsequent dashboard retry" do
+      credential = SystemConfigFixtures.ai_credential_fixture()
+
+      assert {:ok, agent} =
+               Agent.create_agent(%{
+                 name: "ZAQ Assistant",
+                 job: "Keep",
+                 model: "test-model",
+                 credential_id: credential.id,
+                 conversation_enabled: false
+               })
+
+      user = user_fixture(%{email: "bootstrap-retry@zaq.local"})
+
+      expect(ClientMock, :onboard_user, 1, fn "bootstrap-retry@zaq.local" ->
+        {:ok, %{litellm_api_key: "sk-bootstrap-retry"}}
+      end)
+
+      assert {:error, {:provisioning_failed, _}} =
+               Onboarding.complete_bootstrap_onboarding(
+                 user,
+                 %{password: "StrongPass1!"},
+                 :accepted
+               )
+
+      registered = Accounts.get_user!(user.id)
+      refute registered.must_change_password
+      assert registered.portal_consent == "declined"
+      assert {:ok, _} = Agent.update_agent(agent, %{conversation_enabled: true})
+      assert {:ok, activated} = Onboarding.activate_portal(registered, nil)
+      assert activated.portal_consent == "accepted"
+    end
+
+    test "a persisted claim resumes local bootstrap from a fresh process without reclaiming" do
+      user = declined_user(%{email: "resume@zaq.local"})
+      credential = SystemConfigFixtures.ai_credential_fixture()
+
+      assert {:ok, agent} =
+               Agent.create_agent(%{
+                 name: "ZAQ Assistant",
+                 job: "Keep my customization",
+                 model: "test-model",
+                 credential_id: credential.id,
+                 conversation_enabled: false
+               })
+
+      expect(ClientMock, :onboard_user, 1, fn "resume@zaq.local" ->
+        {:ok, %{litellm_api_key: "sk-durable-claim"}}
+      end)
+
+      assert {:error, _} = Onboarding.activate_portal(user, nil)
+      assert Accounts.get_user!(user.id).portal_consent == "declined"
+      assert IncomingMessageRouting.get_rule(%{}) == nil
+      router = System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert router.metadata["user_portal_claim"] == %{"version" => 1, "email" => user.email}
+      assert System.resolve_ai_provider_api_key(router) == "sk-durable-claim"
+      assert {:ok, _} = Agent.update_agent(agent, %{conversation_enabled: true})
+
+      assert {:ok, activated} =
+               Task.async(fn ->
+                 Onboarding.activate_portal(Accounts.get_user!(user.id), nil)
+               end)
+               |> Task.await()
+
+      assert activated.portal_consent == "accepted"
+      assert IncomingMessageRouting.get_rule(%{}).configured_agent_id == agent.id
+      assert {:ok, same} = Agent.get_agent_by_name("ZAQ Assistant")
+      assert same.id == agent.id
+      assert same.job == "Keep my customization"
+      assert System.get_ai_provider_credential_by_name("ZAQ Router").id == router.id
+
+      # Replaying after a caller-side consent write failure is also safe.
+      assert {:ok, _} = Onboarding.activate_portal(user, nil)
+    end
+
+    test "unmarked credentials and a different email still use the portal conflict path" do
+      user = declined_user(%{email: "first@zaq.local"})
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-manual"})
+      expect(ClientMock, :onboard_user, fn "first@zaq.local" -> {:error, {409, "taken"}} end)
+      assert {:error, {409, "taken"}} = Onboarding.activate_portal(user, nil)
+
+      expect(ClientMock, :onboard_user, fn "first@zaq.local" ->
+        {:ok, %{litellm_api_key: "sk-first"}}
+      end)
+
+      assert {:ok, user} = Onboarding.activate_portal(user, nil)
+      expect(ClientMock, :onboard_user, fn "different@zaq.local" -> {:error, {409, "taken"}} end)
+      assert {:error, {409, "taken"}} = Onboarding.activate_portal(user, "different@zaq.local")
+      assert Accounts.get_user!(user.id).email == "first@zaq.local"
+    end
+
+    test "a recorded claim with unavailable canonical authentication fails locally" do
+      user = declined_user(%{email: "missing-key@zaq.local"})
+      expect(ClientMock, :onboard_user, fn _ -> {:ok, %{litellm_api_key: "sk-claimed"}} end)
+      assert {:ok, _} = Onboarding.activate_portal(user, nil)
+      credential = System.get_ai_provider_credential_by_name("ZAQ Router")
+      assert {:ok, _} = System.update_ai_provider_credential(credential, %{auth_kind: "none"})
+
+      assert {:error, :portal_claim_credential_unavailable} =
+               Onboarding.activate_portal(user, nil)
+
+      assert System.get_ai_provider_credential_by_name("ZAQ Router").metadata ==
+               credential.metadata
+    end
+
     test "provisions, marks consent accepted, and creates the credential" do
       expect(ClientMock, :onboard_user, fn "portal@zaq.local" ->
         {:ok, %{litellm_api_key: "sk-test-key"}}
@@ -291,6 +402,44 @@ defmodule Zaq.UserPortal.OnboardingTest do
 
       assert {:error, %Ecto.Changeset{}} = Onboarding.activate_portal(user, "   ")
       assert Accounts.get_user!(user.id).portal_consent == "declined"
+    end
+  end
+
+  property "recorded claims replay without remote calls, duplicate agents or metadata loss" do
+    assert {:ok, credential} = Provisioner.ensure_offline_credential()
+
+    check all(
+            email <- member_of(["one@zaq.local", "two@zaq.local"]),
+            repeats <- integer(1..4),
+            max_runs: 10
+          ) do
+      # Existing credentials without valid provenance must still claim explicitly.
+      assert {:ok, _} =
+               System.update_ai_provider_credential(credential, %{
+                 metadata: %{
+                   "custom" => "keep",
+                   "user_portal_claim" => %{"version" => 0, "email" => email}
+                 }
+               })
+
+      expect(ClientMock, :onboard_user, 1, fn ^email ->
+        {:ok, %{litellm_api_key: "sk-property-claim"}}
+      end)
+
+      assert {:ok, claimed} = Provisioner.provision_for_user(email)
+      assert claimed.id == credential.id
+      assert {:ok, agent} = Agent.get_agent_by_name("ZAQ Assistant")
+      rule = IncomingMessageRouting.get_rule(%{})
+
+      for _ <- 1..repeats do
+        assert {:ok, replay} = Provisioner.provision_for_user(email)
+        assert replay.id == credential.id
+        assert replay.metadata["custom"] == "keep"
+        assert replay.metadata["user_portal_claim"] == %{"version" => 1, "email" => email}
+        assert {:ok, same} = Agent.get_agent_by_name("ZAQ Assistant")
+        assert same.id == agent.id
+        assert IncomingMessageRouting.get_rule(%{}) == rule
+      end
     end
   end
 

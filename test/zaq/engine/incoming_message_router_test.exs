@@ -51,6 +51,18 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
   end
 
   describe "route/1" do
+    setup do
+      agent = insert_agent!()
+
+      {:ok, _} =
+        IncomingMessageRouting.upsert_rule(%{}, %{
+          routing_mode: :agent,
+          configured_agent_id: agent.id
+        })
+
+      :ok
+    end
+
     test "history resolution logs the connector and error category without profile data" do
       event =
         Event.new(
@@ -334,13 +346,17 @@ defmodule Zaq.Engine.IncomingMessageRouterTest do
       assert_receive {:node_router_fire, ^routed}
     end
 
-    test "default route keeps agent selection absent" do
-      routed = route(incoming())
+    test "an unmatched route fires a workflow-only event without admitting agent work" do
+      {:ok, _} = IncomingMessageRouting.delete_rule(%{})
+      routed = route(incoming(), node_router: RecordingNodeRouter)
 
-      assert routed.next_hop.destination == :agent
-      assert routed.name == EventNames.message_received(routed.request, :agent_requested)
+      assert routed.next_hop == nil
+      assert routed.name == EventNames.message_received(routed.request, :workflow_only)
       refute Map.has_key?(routed.assigns, "agent_selection")
-      assert routed.assigns["incoming_message_routing"]["source"] == "default_zaq_agent"
+      refute Map.has_key?(routed.assigns, "conversation_binding")
+      assert routed.assigns["incoming_message_routing"]["source"] == "no_matching_rule"
+      assert routed.assigns["incoming_message_routing"]["mode"] == "none"
+      assert_receive {:node_router_fire, ^routed}
     end
 
     test "uses routing context channel config id in restored channel event name" do

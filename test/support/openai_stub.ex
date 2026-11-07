@@ -71,30 +71,6 @@ defmodule Zaq.TestSupport.OpenAIStub do
      port: port}
   end
 
-  def llm_config(endpoint, overrides \\ []) do
-    [
-      provider: "openai",
-      endpoint: endpoint,
-      api_key: "test-key",
-      model: "test-model",
-      temperature: 0.0,
-      top_p: 0.9,
-      supports_logprobs: false,
-      supports_json_mode: false
-    ]
-    |> Keyword.merge(overrides)
-  end
-
-  def seed_llm_config(endpoint, overrides \\ []) do
-    params =
-      llm_config(endpoint, overrides)
-      |> Map.new()
-      |> Map.merge(%{max_context_window: 5000, distance_threshold: 1.2})
-
-    SystemConfigFixtures.seed_llm_config(params)
-    :ok
-  end
-
   def chat_completion(content, opts \\ []) do
     logprobs = Keyword.get(opts, :logprobs)
 

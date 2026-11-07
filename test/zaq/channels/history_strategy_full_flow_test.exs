@@ -53,13 +53,11 @@ defmodule Zaq.Channels.HistoryStrategyFullFlowTest do
 
   @runtime_keys [
     :channels,
-    :chat_bridge_pipeline_module,
     :chat_bridge_node_router_module,
     :chat_bridge_accounts_module,
     :chat_bridge_permissions_module,
     :chat_bridge_supervisor_module,
     :chat_bridge_chat_module,
-    :email_bridge_pipeline_module,
     :email_bridge_node_router_module,
     :email_bridge_smtp_module,
     :pipeline_hooks_module

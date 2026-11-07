@@ -2,7 +2,7 @@ defmodule Storybook.Patterns.RAGConfiguration do
   use PhoenixStorybook.Story, :page
   use Phoenix.Component
 
-  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, LLMConfig, OperationModelConfig, RAGModelConfig}
+  alias Zaq.System.{EmbeddingConfig, ImageToTextConfig, OperationModelConfig, RAGModelConfig, RetrievalConfig}
   alias ZaqWeb.Live.BO.System.SystemConfig.RAGTab
 
   def description,
@@ -22,7 +22,7 @@ defmodule Storybook.Patterns.RAGConfiguration do
       )
       |> assign(
         :retrieval_form,
-        to_form(LLMConfig.retrieval_changeset(%LLMConfig{}, %{}), as: :retrieval_config)
+        to_form(RetrievalConfig.changeset(%RetrievalConfig{}, %{}), as: :retrieval_config)
       )
       |> assign(
         :model_forms,

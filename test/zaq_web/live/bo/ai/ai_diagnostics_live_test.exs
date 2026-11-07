@@ -5,9 +5,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
   import Zaq.AccountsFixtures
 
   alias Zaq.Accounts
-  alias Zaq.Agent.PromptTemplate
   alias Zaq.Embedding.Client, as: EmbeddingClient
-  alias Zaq.TestSupport.OpenAIStub
 
   setup %{conn: conn} do
     user = user_fixture(%{username: "ai_diag_admin"})
@@ -18,27 +16,11 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
     %{conn: conn}
   end
 
-  defp seed_retrieval_prompt do
-    case PromptTemplate.get_by_slug("retrieval") do
-      nil ->
-        {:ok, _} =
-          PromptTemplate.create(%{
-            slug: "retrieval",
-            name: "Retrieval Prompt",
-            body: "Rewrite the question into search queries. Respond in JSON.",
-            description: "System prompt for the retrieval agent",
-            active: true
-          })
-
-      template ->
-        {:ok, _} = PromptTemplate.update(template, %{active: true})
-    end
-  end
-
   test "renders diagnostics page with expected elements", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")
 
-    assert has_element?(view, "button[phx-click='test_llm']")
+    refute has_element?(view, "button[phx-click='test_llm']")
+    refute render(view) =~ "LLM Model"
     assert has_element?(view, "button[phx-click='test_embedding']")
     assert has_element?(view, "a[href='/bo/prompt-templates']")
   end
@@ -47,68 +29,6 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
     {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")
     # The button was removed from the template but the handler must still work
     assert render_hook(view, "test_token_estimator", %{})
-  end
-
-  test "test_llm shows connected state on HTTP 200", %{conn: conn} do
-    seed_retrieval_prompt()
-
-    {child_spec, endpoint} =
-      OpenAIStub.server(
-        fn _conn, _body ->
-          {200,
-           OpenAIStub.chat_completion("""
-           **Query:** ping
-           **Lexical Terms:** ["ping"]
-           **Language:** eng
-           **Positive Answer:** Searching...
-           **Negative Answer:** No answer
-           """)}
-        end,
-        self()
-      )
-
-    start_supervised!(child_spec)
-    OpenAIStub.seed_llm_config(endpoint)
-
-    {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")
-
-    view
-    |> element("button[phx-click='test_llm']")
-    |> render_click()
-
-    assert has_element?(view, "span", "connected")
-  end
-
-  test "test_llm handles config exceptions", %{conn: conn} do
-    OpenAIStub.seed_llm_config("http://[::1")
-
-    {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")
-
-    view
-    |> element("button[phx-click='test_llm']")
-    |> render_click()
-
-    assert_diagnostic_error(view)
-  end
-
-  test "test_llm shows error on non-200 response", %{conn: conn} do
-    seed_retrieval_prompt()
-
-    {child_spec, endpoint} =
-      OpenAIStub.server(fn _conn, _body -> {503, %{"error" => "down"}} end, self(),
-        retry_after: 0
-      )
-
-    start_supervised!(child_spec)
-    OpenAIStub.seed_llm_config(endpoint)
-
-    {:ok, view, _html} = live(conn, ~p"/bo/ai-diagnostics")
-
-    view
-    |> element("button[phx-click='test_llm']")
-    |> render_click()
-
-    assert_diagnostic_error(view, "503")
   end
 
   test "test_embedding handles API errors", %{conn: conn} do
@@ -190,7 +110,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLiveTest do
     assert html =~ "—"
   end
 
-  defp assert_diagnostic_error(view, message_fragment \\ nil) do
+  defp assert_diagnostic_error(view, message_fragment) do
     assert has_element?(view, "span", "✗ error")
 
     if message_fragment do

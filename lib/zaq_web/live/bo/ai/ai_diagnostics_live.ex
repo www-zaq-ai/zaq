@@ -3,7 +3,7 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
 
   import ZaqWeb.Components.DesignSystem.DiagnosticCard, only: [diagnostic_card: 1]
 
-  alias Zaq.Agent.{PromptTemplate, Retrieval, TokenEstimator}
+  alias Zaq.Agent.{PromptTemplate, TokenEstimator}
   alias Zaq.Embedding.Client, as: EmbeddingClient
   alias Zaq.Event
   alias Zaq.Ingestion.Python.{Runner, Steps.ImageToText}
@@ -14,10 +14,8 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
     {:ok,
      assign(socket,
        current_path: "/bo/ai-diagnostics",
-       llm_config: load_llm_config(),
        embedding_config: load_embedding_config(),
        image_to_text_config: load_image_to_text_config(),
-       llm_status: :idle,
        embedding_status: :idle,
        image_to_text_status: :idle,
        pdf_pipeline_status: :idle,
@@ -27,18 +25,6 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
        chunk_count: chunk_count(),
        embedding_ready: System.embedding_ready?()
      )}
-  end
-
-  def handle_event("test_llm", _params, socket) do
-    socket = assign(socket, llm_status: :loading)
-
-    status =
-      case Retrieval.ask("ping") do
-        {:ok, _} -> :ok
-        {:error, reason} -> {:error, inspect(reason)}
-      end
-
-    {:noreply, assign(socket, llm_status: status)}
   end
 
   def handle_event("test_embedding", _params, socket) do
@@ -90,21 +76,6 @@ defmodule ZaqWeb.Live.BO.AI.AIDiagnosticsLive do
       end
 
     {:noreply, assign(socket, pdf_pipeline_status: status)}
-  end
-
-  defp load_llm_config do
-    cfg = Zaq.System.get_llm_config()
-
-    %{
-      endpoint: cfg.endpoint || "not set",
-      model: cfg.model,
-      temperature: cfg.temperature,
-      top_p: cfg.top_p,
-      supports_logprobs: cfg.supports_logprobs,
-      supports_json_mode: cfg.supports_json_mode,
-      max_context_window: cfg.max_context_window,
-      max_cosine_distance: cfg.max_cosine_distance
-    }
   end
 
   defp load_embedding_config do

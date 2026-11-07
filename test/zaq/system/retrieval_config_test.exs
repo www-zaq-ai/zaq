@@ -1,28 +1,21 @@
-defmodule Zaq.System.LLMConfigTest do
+defmodule Zaq.System.RetrievalConfigTest do
   use ExUnit.Case, async: true
 
-  alias Zaq.System.LLMConfig
+  alias Zaq.System.RetrievalConfig
 
-  @base_attrs %{
-    "credential_id" => "1",
-    "model" => "gpt-4o",
-    "temperature" => "0.1",
-    "top_p" => "0.9",
-    "max_context_window" => "5000",
-    "distance_threshold" => "1.0"
-  }
+  @base_attrs %{}
 
-  test "cosine threshold has an independent inclusive range; L2 threshold is retained" do
-    assert %LLMConfig{max_cosine_distance: 0.45, distance_threshold: 1.2} = %LLMConfig{}
+  test "cosine threshold has an inclusive range and its own default" do
+    assert %RetrievalConfig{max_cosine_distance: 0.45} = %RetrievalConfig{}
 
     for valid <- ["0", "2"] do
-      assert LLMConfig.changeset(%LLMConfig{}, Map.put(@base_attrs, "max_cosine_distance", valid)).valid?
+      assert RetrievalConfig.changeset(%RetrievalConfig{}, %{"max_cosine_distance" => valid}).valid?
     end
 
     for invalid <- ["-0.01", "2.01"] do
-      refute LLMConfig.changeset(
-               %LLMConfig{},
-               Map.put(@base_attrs, "max_cosine_distance", invalid)
+      refute RetrievalConfig.changeset(
+               %RetrievalConfig{},
+               %{"max_cosine_distance" => invalid}
              ).valid?
     end
   end
@@ -35,7 +28,7 @@ defmodule Zaq.System.LLMConfigTest do
           "fusion_vector_weight" => "0.05"
         })
 
-      changeset = LLMConfig.changeset(%LLMConfig{}, attrs)
+      changeset = RetrievalConfig.changeset(%RetrievalConfig{}, attrs)
 
       refute changeset.valid?
 
@@ -51,14 +44,14 @@ defmodule Zaq.System.LLMConfigTest do
           "fusion_vector_weight" => "0.05"
         })
 
-      changeset = LLMConfig.changeset(%LLMConfig{}, attrs)
+      changeset = RetrievalConfig.changeset(%RetrievalConfig{}, attrs)
 
       assert changeset.valid?
       assert changeset.errors[:fusion_bm25_weight] == nil
     end
 
     test "is valid with default weights 0.5 + 0.5" do
-      changeset = LLMConfig.changeset(%LLMConfig{}, @base_attrs)
+      changeset = RetrievalConfig.changeset(%RetrievalConfig{}, @base_attrs)
 
       assert changeset.valid?
       assert changeset.errors[:fusion_bm25_weight] == nil

@@ -22,8 +22,8 @@ defmodule Zaq.Ingestion.ApiTest do
   end
 
   defmodule StubDocumentProcessor do
-    def limit_chunks(chunks) do
-      send(self(), {:limit_chunks, chunks})
+    def limit_chunks(chunks, maximum, token_budget) do
+      send(self(), {:limit_chunks, chunks, maximum, token_budget})
       Enum.take(chunks, 1)
     end
 
@@ -110,7 +110,7 @@ defmodule Zaq.Ingestion.ApiTest do
   test "limits knowledge results through the configured document processor" do
     first = %{content: "first"}
     second = %{content: "second"}
-    request = %{chunks: [first, second]}
+    request = %{chunks: [first, second], max_total_results: 10, token_budget: 200}
 
     event =
       Event.new(request, :ingestion,
@@ -120,7 +120,7 @@ defmodule Zaq.Ingestion.ApiTest do
     result = Api.handle_event(event, :limit_knowledge_results, nil)
 
     assert result.response == {:ok, [first]}
-    assert_received {:limit_chunks, [^first, ^second]}
+    assert_received {:limit_chunks, [^first, ^second], 10, 200}
     assert result.request == event.request
     assert result.opts == event.opts
   end

@@ -410,7 +410,6 @@ defmodule Zaq.Channels.EmailBridge do
            channel_config_id: Map.get(config, :id) || Map.get(config, "id"),
            topic_id: connection[:mailbox],
            acknowledge_response: true,
-           pipeline_module: pipeline_module(),
            node_router: node_router_module()
          ) do
       %Outgoing{} = outgoing -> normalize_runtime_delivery(deliver_outgoing_runtime(outgoing))
@@ -483,9 +482,6 @@ defmodule Zaq.Channels.EmailBridge do
       provider: incoming.provider
     }
   end
-
-  defp pipeline_module,
-    do: Application.get_env(:zaq, :email_bridge_pipeline_module, Zaq.Agent.Pipeline)
 
   defp node_router_module,
     do: Application.get_env(:zaq, :email_bridge_node_router_module, NodeRouter)

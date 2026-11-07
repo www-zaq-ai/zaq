@@ -43,7 +43,10 @@ defmodule Zaq.Agent.ProviderSpec do
   end
 
   @doc "Builds a dedicated operation runtime using canonical global authentication, never global LLM defaults."
-  def operation_runtime(config) do
+  def operation_runtime(config), do: operation_runtime(config, :generation)
+
+  @doc "Builds operation-appropriate options and validates reranking model capability when selected."
+  def operation_runtime(config, operation) when operation in [:generation, :reranking] do
     with id when is_integer(id) <- config.credential_id,
          model when is_binary(model) and model != "" <- config.model,
          credential when not is_nil(credential) <- System.get_ai_provider_credential(id),
@@ -52,13 +55,13 @@ defmodule Zaq.Agent.ProviderSpec do
         credential_id: id,
         credential: credential,
         model: model,
-        temperature: config.temperature,
-        top_p: config.top_p
+        temperature: Map.get(config, :temperature, 0.0),
+        top_p: Map.get(config, :top_p, 0.9)
       }
 
       with {:ok, spec} <- build(agent),
            {:ok, opts} <- llm_opts(agent, resolved) do
-        {:ok, spec, opts}
+        operation_options(operation, spec, opts)
       end
     else
       {:error, _} = error -> error
@@ -66,19 +69,25 @@ defmodule Zaq.Agent.ProviderSpec do
     end
   end
 
-  @doc """
-  Builds a ReqLLM model spec map from the system LLM config.
-  """
-  def build do
-    System.get_llm_config() |> build()
+  defp operation_options(:generation, spec, opts), do: {:ok, spec, opts}
+
+  defp operation_options(:reranking, spec, opts) do
+    catalog_spec =
+      case LLMDB.model(spec.provider, spec.id) do
+        {:ok, model} -> Map.merge(Map.from_struct(model), spec)
+        {:error, _} -> spec
+      end
+
+    with {:ok, model} <- ReqLLM.Rerank.validate_model(catalog_spec) do
+      {:ok, model, Keyword.drop(opts, [:temperature, :top_p])}
+    end
   end
 
   @doc """
   Builds a ReqLLM model spec map.
 
-  Accepts either a system LLM config map (`%{provider:, model:, ...}`) or a
-  `ConfiguredAgent`. Pass a pre-fetched config map when the config has already
-  been read to avoid a redundant `get_llm_config/0` call.
+  Accepts either an explicit config map (`%{provider:, model:, ...}`) or a
+  `ConfiguredAgent`.
 
   For a `ConfiguredAgent`, resolves the provider via LLMDB and the agent's
   credential, falling back to `:openai` for OpenAI-compatible custom endpoints.

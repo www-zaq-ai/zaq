@@ -3,8 +3,8 @@ defmodule Zaq.Agent.Api do
   Agent role boundary module used by `Zaq.NodeRouter.dispatch/1`.
 
   Handles the `:run_pipeline` action by normalizing caller identity into
-  `Event.actor`, scoping the request, and dispatching to either `Executor`
-  (direct agent run when an agent is selected) or `Pipeline` (full RAG pipeline).
+  `Event.actor`, scoping the request, and dispatching to `Executor` with an
+  explicitly selected configured agent. The action name is retained for compatibility.
   Attachment-only requests are normalized for explicitly selected agents before
   prompt validation so their media metadata reaches `Executor`.
 
@@ -25,7 +25,6 @@ defmodule Zaq.Agent.Api do
     Executor,
     HistorySync,
     MCP,
-    Pipeline,
     PromptGuard,
     RequestControl,
     RuntimeSync,
@@ -41,6 +40,7 @@ defmodule Zaq.Agent.Api do
   alias Zaq.Identity.ActorNormalizer
   alias Zaq.Identity.ExecutionActor
   alias Zaq.InternalBoundaries
+  alias Zaq.Utils.ParseUtils
 
   @doc """
   Dispatches an agent-role event routed by `Zaq.NodeRouter`.
@@ -48,8 +48,8 @@ defmodule Zaq.Agent.Api do
   Supported actions:
 
   - `:run_pipeline` — normalizes caller identity into `Event.actor`, then routes to
-    `Pipeline.run/2` (full RAG path) or `Executor.run/2` (direct agent run) depending
-    on whether `event.assigns["agent_selection"]` carries a non-nil `agent_id`.
+    `Executor.run/2` using `event.assigns["agent_selection"].agent_id`.
+    Missing selection is an execution error, never a built-in agent fallback.
 
   - `:processing_status` — confidential, read-only canonical input references
     and processing states for the current Person, for Engine authorization/projection.
@@ -255,17 +255,23 @@ defmodule Zaq.Agent.Api do
 
   # Channels build assigns from JSON (string keys); in-process callers such as
   # the workflow `RunAgent` tool set an atom-keyed `:agent_selection`. Accept both
-  # so a selected agent always routes to `Executor.run/2` (direct agent run)
-  # rather than falling through to the RAG `Pipeline`.
+  # so configured selection is preserved across both entry points.
   defp selected_agent_id(assigns) when is_map(assigns) do
     case Map.get(assigns, "agent_selection") || Map.get(assigns, :agent_selection) do
-      %{"agent_id" => id} when id not in [nil, ""] -> id
-      %{agent_id: id} when id not in [nil, ""] -> id
+      %{"agent_id" => id} -> configured_agent_id(id)
+      %{agent_id: id} -> configured_agent_id(id)
       _ -> nil
     end
   end
 
   defp selected_agent_id(_), do: nil
+
+  defp configured_agent_id(value) do
+    case ParseUtils.parse_int_strict(value) do
+      {:ok, id} when id > 0 -> value
+      _ -> nil
+    end
+  end
 
   defp normalize_selected_agent_attachment_input(
          %Incoming{content: nil, attachments: [_ | _]} = incoming,
@@ -400,7 +406,12 @@ defmodule Zaq.Agent.Api do
   defp admit_pipeline(event, incoming) do
     with {:ok, actor} <- ExecutionActor.from_event_request(event),
          {:ok, projection} <- validate_admission(%{event | actor: actor}, incoming) do
-      run_pipeline(%{event | actor: actor}, incoming, projection)
+      event = %{event | actor: actor}
+
+      case selected_agent_id(event.assigns) do
+        nil -> do_dispatch_pipeline(event, incoming)
+        _id -> run_pipeline(event, incoming, projection)
+      end
     else
       {:error, reason} -> %{event | response: {:error, admission_error(reason)}, next_hop: nil}
     end
@@ -477,7 +488,6 @@ defmodule Zaq.Agent.Api do
 
   defp do_dispatch_pipeline(event, incoming) do
     pipeline_opts = Keyword.get(event.opts, :pipeline_opts, [])
-    pipeline_module = Keyword.get(event.opts, :pipeline_module, Pipeline)
     executor_module = Keyword.get(event.opts, :executor_module, Executor)
 
     person_id = ActorNormalizer.person_id(event.actor)
@@ -485,24 +495,16 @@ defmodule Zaq.Agent.Api do
 
     incoming_dims = incoming.metadata |> Map.get("telemetry_dimensions", %{})
 
-    pipeline_opts =
-      pipeline_opts
-      |> Keyword.put_new(:telemetry_dimensions, incoming_dims)
-      |> Keyword.put(:conversation_binding, conversation_binding(event.assigns))
-      |> Keyword.put(:history_session, Keyword.fetch!(event.opts, :history_session))
-      |> Keyword.put(:history_reservation, Keyword.get(event.opts, :history_reservation))
-      |> Keyword.put(:live_followup, not Keyword.get(event.opts, :followup_attempted, false))
+    pipeline_opts = Keyword.put_new(pipeline_opts, :telemetry_dimensions, incoming_dims)
 
     outgoing =
       case selected_agent_id(event.assigns) do
         nil ->
-          pipeline_module.run(
-            incoming,
-            pipeline_opts
-            |> Keyword.put(:person_id, person_id)
-            |> Keyword.put(:team_ids, team_ids)
-            |> Keyword.put(:event, event)
-          )
+          Outgoing.from_pipeline_result(incoming, %{
+            answer: ErrorMessage.from_reason(:configured_agent_required),
+            error: true,
+            reason: ":configured_agent_required"
+          })
 
         selected_id ->
           executor_module.run(incoming,

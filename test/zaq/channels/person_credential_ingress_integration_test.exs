@@ -23,7 +23,6 @@ defmodule Zaq.Channels.PersonCredentialIngressIntegrationTest do
   @environment_keys [
     :agent_server_drain_timeout_ms,
     :channels,
-    :chat_bridge_pipeline_module,
     :chat_bridge_node_router_module,
     :chat_bridge_accounts_module,
     :chat_bridge_permissions_module,

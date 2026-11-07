@@ -10,6 +10,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
   attr :translation_form, :any, required: true
   attr :translation_model_options, :list, required: true
   attr :translation_manual_model, :boolean, default: false
+  attr :model_catalogs, :map, default: %{}
   attr :model_forms, :map, required: true
   attr :credential_options, :list, required: true
   attr :embedding_model_options, :list, required: true
@@ -27,6 +28,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
         form={@embedding_form}
         credential_options={@credential_options}
         model_options={@embedding_model_options}
+        model_catalogs={@model_catalogs}
         locked={@locked}
         unlock_modal={@unlock_modal}
         save_confirm_modal={@save_confirm_modal}
@@ -36,6 +38,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
         form={@image_to_text_form}
         credential_options={@credential_options}
         model_options={@image_to_text_model_options}
+        model_catalogs={@model_catalogs}
       />
       <CardShell.card_shell id="retrieval-section">
         <div class="space-y-5">
@@ -51,6 +54,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
             form={@translation_form}
             options={@translation_model_options}
             manual_model={@translation_manual_model}
+            model_catalogs={@model_catalogs}
             credential_options={@credential_options}
           />
           <details id="rag-retrieval-advanced" phx-hook="DetailsKeepOpen">
@@ -107,6 +111,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
           form={@model_forms[kind]}
           options={@model_options[kind]}
           credential_options={@credential_options}
+          model_catalogs={@model_catalogs}
         />
       </div>
     </div>
@@ -118,6 +123,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
   attr :form, :any, required: true
   attr :options, :list, required: true
   attr :credential_options, :list, required: true
+  attr :model_catalogs, :map, default: %{}
 
   defp model_section(assigns) do
     ~H"""
@@ -143,9 +149,16 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
             options={@options}
             credential_options={@credential_options}
             stacked={true}
+            model_catalogs={@model_catalogs}
+            manual_model={
+              Map.get(@model_catalogs, to_string(@form[:credential_id].value || "")) == []
+            }
           />
           <p
-            :if={@options == []}
+            :if={
+              @options == [] and
+                Map.get(@model_catalogs, to_string(@form[:credential_id].value || "")) != []
+            }
             class="zaq-text-caption"
             style="color: var(--zaq-text-color-body-secondary)"
           >

@@ -1056,7 +1056,6 @@ defmodule Zaq.Engine.ApiTest do
       {:system_config_delete_http_credential_provider, %{}},
       {:system_config_save_telemetry_config, %{}},
       {:system_config_set_global_default_agent_id, %{}},
-      {:system_config_save_llm_config, %{}},
       {:system_config_save_embedding_config, %{}},
       {:system_config_save_image_to_text_config, %{}},
       {:system_config_connect_change_credential, %{credential: %{id: 1}, attrs: :bad}},
