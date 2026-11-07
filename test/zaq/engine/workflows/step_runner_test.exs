@@ -1,10 +1,12 @@
 defmodule Zaq.Engine.Workflows.StepRunnerTest do
   use Zaq.DataCase, async: true
 
+  alias Zaq.Agent.Tools.ActionContract
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.Conditions.ConditionNotMet
   alias Zaq.Engine.Workflows.DateOperand
   alias Zaq.Engine.Workflows.StepRunner
+  alias Zaq.TestSupport.NestedActionProbe
 
   import ExUnit.CaptureLog
 
@@ -47,6 +49,91 @@ defmodule Zaq.Engine.Workflows.StepRunnerTest do
 
   defp wp(run, mod, step_name, step_index) do
     %{wrapped_module: mod, run_id: run.id, step_name: step_name, step_index: step_index}
+  end
+
+  defmodule BlockingChild do
+    use Jido.Action,
+      name: "workflow_blocking_child",
+      description: "Blocks until interrupted",
+      schema: []
+
+    def run(_, _), do: receive(do: (:release -> {:ok, %{}}))
+  end
+
+  defmodule BlockingParent do
+    def run(_, context),
+      do: ActionContract.execute(BlockingChild, %{}, context, timeout: 0, max_retries: 0)
+  end
+
+  test "nested Actions record against the persisted step root and terminal replay emits nothing" do
+    run = create_run()
+    params = run |> wp(NestedActionProbe, "nested", 0) |> Map.put(:depth, 2)
+    assert {:ok, %{value: 42}} = StepRunner.run(params, %{test_pid: self()})
+    [step] = Workflows.list_step_runs(run.id)
+    assert step.status == "completed"
+    assert length(step.trace_events) == 4
+    assert Enum.count(step.trace_events, &(&1["kind"] == "tool_started")) == 2
+    assert Enum.count(step.trace_events, &(&1["data"]["outcome"] == "succeeded")) == 2
+
+    assert Enum.all?(
+             step.trace_events,
+             &(hd(&1["data"]["invocation_path"]) == "workflow_step:#{step.id}")
+           )
+
+    assert length(step.logs) == 1
+    refute Jason.encode!(step.results) =~ "on_tool_event"
+    for _ <- 1..3, do: assert_receive({:nested_probe, _, _, true})
+    assert {:ok, _} = StepRunner.run(params, %{test_pid: self()})
+    refute_received {:nested_probe, _, _, _}
+    assert [reloaded] = Workflows.list_step_runs(run.id)
+    assert reloaded.id == step.id
+    assert reloaded.trace_events == step.trace_events
+  end
+
+  test "workflow timeout task inherits the synchronous recording callback" do
+    run = create_run()
+
+    params =
+      run
+      |> wp(NestedActionProbe, "nested_task", 0)
+      |> Map.merge(%{depth: 1, timeout_ms: 2_000})
+
+    assert {:ok, %{value: 42}} = StepRunner.run(params, %{})
+    [step] = Workflows.list_step_runs(run.id)
+    assert length(step.trace_events) == 2
+    assert List.last(step.trace_events)["data"]["outcome"] == "succeeded"
+  end
+
+  test "step timeout retains synchronously recorded child start without fabricating completion" do
+    run = create_run()
+    params = run |> wp(BlockingParent, "interrupted_child", 0) |> Map.put(:timeout_ms, 100)
+    assert {:error, :timeout} = StepRunner.run(params, %{})
+    [step] = Workflows.list_step_runs(run.id)
+    assert step.status == "failed"
+    assert [%{"kind" => "tool_started"}] = step.trace_events
+  end
+
+  test "map forks have independent persisted roots and do not serialize callback context" do
+    run = create_run()
+
+    for index <- 0..1 do
+      params =
+        run |> wp(NestedActionProbe, "fork", 0) |> Map.merge(%{depth: 1, __map_index__: index})
+
+      assert {:ok, _} = StepRunner.run(params, %{})
+    end
+
+    steps = Workflows.list_step_runs(run.id)
+    assert length(steps) == 2
+
+    roots =
+      Enum.map(steps, fn step ->
+        assert length(step.trace_events) == 2
+        refute Jason.encode!(step.results) =~ "on_tool_event"
+        hd(hd(step.trace_events)["data"]["invocation_path"])
+      end)
+
+    assert length(Enum.uniq(roots)) == 2
   end
 
   describe "run/2 — happy path" do

@@ -5,6 +5,43 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowComponentsTest do
 
   alias ZaqWeb.Live.BO.AI.WorkflowComponents
 
+  test "map/batch fork rows reuse the shared child panel with fork-scoped expansion" do
+    event = %{
+      "id" => "event",
+      "kind" => "tool_started",
+      "tool_call_id" => "fork-child",
+      "tool_name" => "lookup",
+      "data" => %{
+        "origin" => "zaq_action",
+        "invocation_path" => ["workflow_step:fork-0", "a"],
+        "parent_id" => "workflow_step:fork-0"
+      }
+    }
+
+    fork = %{
+      id: "fork-0",
+      step_name: "map/body[0]",
+      status: "failed",
+      started_at: nil,
+      logs: [],
+      errors: nil,
+      trace_events: [event]
+    }
+
+    html =
+      render_component(&WorkflowComponents.fork_run_list/1,
+        step: %{id: "map"},
+        groups: [{0, [fork]}],
+        expanded_trace_ids: %{"fork-0" => MapSet.new(["fork-child"])},
+        run_status: "failed"
+      )
+
+    assert html =~ "workflow-action-traces-fork-0"
+    assert html =~ "trace-details-fork-child"
+    assert html =~ ~s(phx-value-step_run_id="fork-0")
+    assert html =~ "Unknown"
+  end
+
   # ---------------------------------------------------------------------------
   # workflow_status_badge/1
   # ---------------------------------------------------------------------------

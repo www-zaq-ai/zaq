@@ -199,9 +199,7 @@ defmodule Zaq.Agent do
 
   @spec runtime_provider_for_agent(ConfiguredAgent.t()) :: {:ok, atom()} | {:error, atom()}
   def runtime_provider_for_agent(%ConfiguredAgent{} = configured_agent) do
-    configured_agent
-    |> provider_for_agent()
-    |> runtime_provider_from_id()
+    with {:ok, spec} <- ProviderSpec.build(configured_agent), do: {:ok, spec.provider}
   end
 
   @spec agent_server_id(integer() | String.t()) :: String.t()
@@ -326,14 +324,6 @@ defmodule Zaq.Agent do
     end
   end
 
-  defp runtime_provider_from_id(provider_id) when is_binary(provider_id) do
-    with {:ok, provider_atom} <- to_existing_atom(provider_id) do
-      runtime_provider_from_atom(provider_atom)
-    end
-  end
-
-  defp runtime_provider_from_id(_), do: {:error, :invalid_provider}
-
   defp usage_locations_for_agent(agent_id) do
     IncomingMessageRoutingRule
     |> where([rule], rule.configured_agent_id == ^agent_id)
@@ -374,37 +364,6 @@ defmodule Zaq.Agent do
     agent
     |> Changeset.change()
     |> Changeset.add_error(:base, message)
-  end
-
-  defp runtime_provider_from_atom(provider_atom) when is_atom(provider_atom) do
-    case ReqLLM.provider(provider_atom) do
-      {:ok, _provider_module} ->
-        {:ok, provider_atom}
-
-      {:error, _} ->
-        case LLMDB.provider(provider_atom) do
-          {:ok, %LLMDB.Provider{catalog_only: true}} -> {:ok, :openai}
-          {:ok, _provider} -> {:error, :provider_not_supported}
-          _ -> {:error, :provider_not_found}
-        end
-    end
-  end
-
-  @doc false
-  @spec to_existing_atom(String.t()) :: {:ok, atom()} | {:error, :provider_not_found}
-  # Provider ids come from DB/user-configured credentials. We only convert values
-  # that already exist as loaded atoms to avoid atom leaks. Unknown values return
-  # {:error, :provider_not_found}.
-  defp to_existing_atom(value) when is_binary(value) do
-    {:ok, String.to_existing_atom(value)}
-  rescue
-    ArgumentError ->
-      downcased = String.downcase(value)
-
-      case Enum.find(LLMDB.providers(), fn p -> Atom.to_string(p.id) == downcased end) do
-        %{id: atom} -> {:ok, atom}
-        _ -> {:error, :provider_not_found}
-      end
   end
 
   defp build_filter_query(filters) do

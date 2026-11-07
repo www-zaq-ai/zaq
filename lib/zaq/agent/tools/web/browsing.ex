@@ -26,6 +26,8 @@ defmodule Zaq.Agent.Tools.Web.Browsing do
     impossible.
   - Global Web browsing settings define the allowed hosts. An agent cannot
     change the policy by supplying tool arguments or environment variables.
+  - Screenshot folder/file Actions use ActionContract, inheriting the caller's
+    trace route without changing document inputs, permissions or retry policy.
 
   ## Example
 
@@ -125,6 +127,7 @@ defmodule Zaq.Agent.Tools.Web.Browsing do
 
   require Logger
 
+  alias Zaq.Agent.Tools.ActionContract
   alias Zaq.Agent.Tools.DataSource.CreateDocument
   alias Zaq.Event
   alias Zaq.Events.Helper
@@ -446,7 +449,9 @@ defmodule Zaq.Agent.Tools.Web.Browsing do
   end
 
   defp create_screenshot_folder(config, host, context) do
-    case Jido.Exec.run(CreateDocument, folder_params(config, host), context, max_retries: 0) do
+    case ActionContract.execute(CreateDocument, folder_params(config, host), context,
+           max_retries: 0
+         ) do
       {:ok, %{record: %{id: id} = folder}} when is_binary(id) and id != "" ->
         {:ok, folder}
 
@@ -501,7 +506,7 @@ defmodule Zaq.Agent.Tools.Web.Browsing do
       }
       |> reject_nil_values()
 
-    case Jido.Exec.run(CreateDocument, params, context) do
+    case ActionContract.execute(CreateDocument, params, context) do
       {:ok, %{record: %{id: id} = record}} when is_binary(id) and id != "" -> {:ok, record}
       _ -> {:error, "Screenshot could not be saved to the configured destination"}
     end

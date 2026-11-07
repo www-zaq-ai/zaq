@@ -15,6 +15,7 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   setup :verify_on_exit!
 
   setup %{conn: conn} do
+    owner = self()
     user = user_fixture(%{username: "wf-run-test-#{System.unique_integer([:positive])}"})
     {:ok, user} = Accounts.change_password(user, %{password: "StrongPass1!"})
     stub(Zaq.NodeRouterMock, :find_node, fn _supervisor -> :services@localhost end)
@@ -27,6 +28,11 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
         %{action: action} when is_binary(action) ->
           Api.handle_event(event, :workflow, nil)
 
+        {:broadcast, _topic, {:run_updated, %{id: id, status: "running"}}}
+        when self() != owner ->
+          send(owner, {:workflow_task_started, id, self()})
+          event
+
         _ ->
           event
       end
@@ -34,6 +40,15 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
 
     conn = init_test_session(conn, %{user_id: user.id})
     %{conn: conn, user: user}
+  end
+
+  # Observe the real engine's running broadcast, then wait for its task to exit
+  # before releasing SQL ownership. No production notification or fake run needed.
+  defp await_workflow_task(run_id) do
+    assert_receive {:workflow_task_started, ^run_id, task}, 5_000
+    monitor = Process.monitor(task)
+    assert_receive {:DOWN, ^monitor, :process, ^task, reason}, 5_000
+    assert reason in [:normal, :noproc]
   end
 
   @valid_node %{
@@ -626,6 +641,216 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
   end
 
   describe "agent trace panel on a step card" do
+    test "child snapshots preserve manual selection while newly running steps still focus", %{
+      conn: conn
+    } do
+      nodes = [
+        @valid_node,
+        %{@valid_node | name: "active", index: 1},
+        %{@valid_node | name: "next", index: 2}
+      ]
+
+      workflow =
+        workflow_fixture(%{
+          nodes: nodes,
+          edges: [
+            %{from: "fetch", to: "active"},
+            %{from: "active", to: "next"}
+          ]
+        })
+
+      run = run_fixture(workflow)
+      prior = step_run_fixture(run, %{results: %{"output" => "previous output"}})
+
+      active =
+        step_run_fixture(run, %{
+          step_name: "active",
+          step_index: 1,
+          status: "running",
+          finished_at: nil
+        })
+
+      {:ok, view, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      assert has_element?(view, "#step-output-#{prior.id}")
+
+      for kind <- ["tool_started", "tool_completed"] do
+        trace = %{
+          "id" => kind,
+          "kind" => kind,
+          "tool_call_id" => "child",
+          "data" => %{"origin" => "zaq_action", "outcome" => "succeeded"}
+        }
+
+        send(view.pid, {:step_updated, %{active | trace_events: [trace]}})
+        assert has_element?(view, "#step-output-#{prior.id}")
+      end
+
+      next =
+        step_run_fixture(run, %{
+          step_name: "next",
+          step_index: 2,
+          status: "running",
+          input: %{"target" => "next"},
+          finished_at: nil
+        })
+
+      send(view.pid, {:step_updated, next})
+      assert has_element?(view, "#step-input-#{next.id}")
+      refute has_element?(view, "#step-output-#{prior.id}")
+    end
+
+    test "paused child evidence stays unknown after reload and does not contaminate the resumed row",
+         %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+      step = step_run_fixture(run, %{status: "running", finished_at: nil})
+
+      trace = %{
+        "id" => "start",
+        "kind" => "tool_started",
+        "tool_call_id" => "paused-child",
+        "tool_name" => "paused_lookup",
+        "data" => %{
+          "origin" => "zaq_action",
+          "invocation_path" => ["workflow_step:#{step.id}", Ecto.UUID.generate()],
+          "parent_id" => "workflow_step:#{step.id}"
+        }
+      }
+
+      step |> StepRun.changeset(%{trace_events: [trace]}) |> Repo.update!()
+      assert {:ok, paused_run} = Workflows.pause_run(run)
+
+      {:ok, view, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      assert element(view, "[data-testid=trace-row-paused-child]") |> render() =~ "Unknown"
+
+      {:ok, _} = Workflows.update_run(paused_run, %{status: "running"})
+      {:ok, resumed} = Workflows.create_step_run(run, %{step_name: "fetch", step_index: 0})
+
+      resumed_trace = %{
+        trace
+        | "id" => "resumed-start",
+          "tool_call_id" => "resumed-child",
+          "data" =>
+            Map.merge(trace["data"], %{
+              "parent_id" => "workflow_step:#{resumed.id}",
+              "invocation_path" => ["workflow_step:#{resumed.id}", Ecto.UUID.generate()]
+            })
+      }
+
+      resumed |> StepRun.changeset(%{trace_events: [resumed_trace]}) |> Repo.update!()
+      {:ok, refreshed, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      assert element(refreshed, "[data-testid=trace-row-paused-child]") |> render() =~ "Unknown"
+      assert element(refreshed, "[data-testid=trace-row-resumed-child]") |> render() =~ "Running"
+    end
+
+    for status <- ["failed", "failed_fatal"] do
+      test "#{status} step retains expandable agent evidence on reload", %{conn: conn} do
+        workflow = workflow_fixture(%{nodes: [@valid_node]})
+        run = run_fixture(workflow, %{status: "failed"})
+
+        step =
+          step_run_fixture(run, %{
+            status: unquote(status),
+            errors: %{"reason" => "agent_failed::provider_rate_limited"},
+            results: %{
+              "agent" => %{"name" => "Workflow diagnostic agent"},
+              "model" => "fixture-model",
+              "trace" => [
+                %{
+                  "id" => "native.failed.root",
+                  "type" => "tool_call",
+                  "invocation_path" => ["native.failed.root"],
+                  "outcome" => "succeeded"
+                },
+                %{
+                  "id" => "known-child",
+                  "type" => "tool_call",
+                  "origin" => "zaq_action",
+                  "parent_id" => "native.failed.root",
+                  "invocation_path" => ["native.failed.root", Ecto.UUID.generate()],
+                  "outcome" => "succeeded",
+                  "response" => %{"observed" => 42}
+                }
+              ]
+            }
+          })
+
+        {:ok, view, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+        render_click(view, "select_step", %{"step_name" => "fetch"})
+        assert has_element?(view, "[data-testid=agent-trace-panel-#{step.id}]")
+        assert render(view) =~ "fixture-model"
+        assert render(view) =~ "Succeeded"
+        refute has_element?(view, "#step-output-#{step.id}")
+
+        assert render_click(view, "toggle_step_trace_details", %{
+                 "step_run_id" => step.id,
+                 "trace_id" => "known-child"
+               }) =~ "trace-details-known-child"
+
+        {:ok, reloaded, _html} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+        render_click(reloaded, "select_step", %{"step_name" => "fetch"})
+        assert has_element?(reloaded, "[data-testid=agent-trace-panel-#{step.id}]")
+      end
+    end
+
+    test "step children expand and survive reload and delayed active snapshots without changing the broadcast contract",
+         %{conn: conn} do
+      workflow = workflow_fixture(%{nodes: [@valid_node]})
+      run = run_fixture(workflow)
+      step = step_run_fixture(run, %{step_name: "fetch", status: "completed"})
+      root = "workflow_step:#{step.id}"
+
+      start = %{
+        "id" => "start",
+        "kind" => "tool_started",
+        "tool_call_id" => "child",
+        "tool_name" => "nested_lookup",
+        "data" => %{
+          "origin" => "zaq_action",
+          "invocation_path" => [root, "a"],
+          "parent_id" => root,
+          "arguments" => %{"query" => "example"}
+        }
+      }
+
+      done = %{
+        start
+        | "id" => "done",
+          "kind" => "tool_completed",
+          "data" =>
+            Map.merge(start["data"], %{
+              "outcome" => "succeeded",
+              "result" => ["ok", %{"value" => 42}, []]
+            })
+      }
+
+      step = step |> StepRun.changeset(%{trace_events: [start, done]}) |> Repo.update!()
+      {:ok, view, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(view, "select_step", %{"step_name" => "fetch"})
+      assert has_element?(view, "[data-testid=workflow-action-traces-#{step.id}]")
+
+      assert render_click(view, "toggle_step_trace_details", %{
+               "step_run_id" => step.id,
+               "trace_id" => "child"
+             }) =~ "trace-details-child"
+
+      Phoenix.PubSub.broadcast(
+        Zaq.PubSub,
+        "workflow_run:#{run.id}",
+        {:step_updated, %{step | status: "running", trace_events: [start]}}
+      )
+
+      html = render(view)
+      assert html =~ "Succeeded"
+      assert html =~ "trace-details-child"
+      assert html =~ "completed"
+      {:ok, refreshed, _} = live(conn, ~p"/bo/workflows/#{workflow.id}/runs/#{run.id}")
+      render_click(refreshed, "select_step", %{"step_name" => "fetch"})
+      assert render(refreshed) =~ "Succeeded"
+    end
+
     test "renders agent/model/trace detail for a step whose results carry them", %{conn: conn} do
       workflow = workflow_fixture(%{nodes: [@valid_node]})
       run = run_fixture(workflow)
@@ -1303,7 +1528,12 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowRunLiveTest do
       assert html =~ "Resume"
 
       view |> element("button[phx-click='resume_run']") |> render_click()
-      assert render(view) =~ "paused"
+
+      try do
+        assert render(view) =~ "paused"
+      after
+        await_workflow_task(run.id)
+      end
     end
   end
 
