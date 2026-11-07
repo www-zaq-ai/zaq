@@ -1021,8 +1021,13 @@ defmodule Zaq.Agent.Executor do
   defp llm_provider_and_model(_model, configured_provider), do: {configured_provider, nil}
 
   defp configured_provider(%Zaq.Agent.ConfiguredAgent{} = configured_agent) do
-    case Agent.runtime_provider_for_agent(configured_agent) do
-      {:ok, provider} -> to_string(provider)
+    with provider when is_binary(provider) <- Agent.provider_for_agent(configured_agent),
+         true <-
+           match?({:ok, _}, LLMDB.Spec.parse_provider(provider)) or
+             Enum.any?(ReqLLM.Providers.list(), &(Atom.to_string(&1) == provider)),
+         {:ok, runtime_provider} <- Agent.runtime_provider_for_agent(configured_agent) do
+      to_string(runtime_provider)
+    else
       _ -> nil
     end
   end

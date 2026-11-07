@@ -51,7 +51,8 @@ defmodule Zaq.Agent.ProviderSpec do
 
   Reranking preserves catalog model identity and execution metadata, including
   providers supported through ReqLLM's shared execution adapters. Generation
-  retains its configured-agent provider resolution and compatibility fallback.
+  uses the selected model's chat capability and configured-agent compatibility
+  rules, not a provider-wide executable flag.
   """
   @spec operation_runtime(map(), :generation | :reranking) ::
           {:ok, map(), keyword()} | {:error, term()}
@@ -105,7 +106,10 @@ defmodule Zaq.Agent.ProviderSpec do
   `ConfiguredAgent`.
 
   For a `ConfiguredAgent`, resolves the provider via LLMDB and the agent's
-  credential, falling back to `:openai` for OpenAI-compatible custom endpoints.
+  credential. Known non-chat models are rejected. Native adapters retain their
+  identity; catalog-only chat models require an explicit endpoint to use the
+  existing OpenAI-compatible path, regardless of other operations their provider
+  supports. Unknown providers still require an explicit custom endpoint.
   """
   def build(arg)
 
@@ -120,7 +124,8 @@ defmodule Zaq.Agent.ProviderSpec do
   def build(%ConfiguredAgent{} = configured_agent) do
     credential = resolve_credential(configured_agent)
 
-    with {:ok, runtime_provider} <- resolve_configured_provider(configured_agent, credential) do
+    with {:ok, runtime_provider} <-
+           resolve_generation_provider(credential, configured_agent.model) do
       spec = %{provider: runtime_provider, id: configured_agent.model}
       {:ok, put_base_url(spec, runtime_provider, credential)}
     end
@@ -158,14 +163,59 @@ defmodule Zaq.Agent.ProviderSpec do
     implementation.put_model_spec(spec, context)
   end
 
-  # Falls back to :openai only when the provider is unknown to both ReqLLM and LLMDB
-  # but the credential carries an explicit endpoint — signals an intentional
-  # OpenAI-compatible custom deployment.
-  defp resolve_configured_provider(configured_agent, credential) do
-    case Zaq.Agent.runtime_provider_for_agent(configured_agent) do
-      {:ok, _} = ok -> ok
+  defp resolve_generation_provider(%{provider: provider} = credential, id)
+       when is_binary(provider) do
+    case generation_provider_atom(provider) do
+      {:ok, provider} -> generation_adapter(provider, catalog_model(provider, id), credential)
       {:error, :provider_not_found} -> openai_if_custom_endpoint(credential)
-      error -> error
+    end
+  end
+
+  defp resolve_generation_provider(_credential, _id), do: {:error, :invalid_provider}
+
+  defp generation_provider_atom(provider) do
+    case LLMDB.Spec.parse_provider(String.downcase(provider)) do
+      {:ok, _} = found -> found
+      {:error, _} -> {:ok, String.to_existing_atom(provider)}
+    end
+  rescue
+    ArgumentError -> {:error, :provider_not_found}
+  end
+
+  defp catalog_model(provider, id) when is_binary(id) do
+    case LLMDB.model(provider, id) do
+      {:ok, model} -> model
+      {:error, _} -> nil
+    end
+  end
+
+  defp catalog_model(_provider, _id), do: nil
+
+  defp generation_adapter(_provider, %{capabilities: %{chat: false}}, _credential),
+    do: {:error, :model_not_supported}
+
+  defp generation_adapter(provider, model, credential) do
+    case ReqLLM.provider(provider) do
+      {:ok, _module} -> {:ok, provider}
+      {:error, _} -> generation_compatibility(model, provider, credential)
+    end
+  end
+
+  defp generation_compatibility(
+         %{catalog_only: true, capabilities: %{chat: true}},
+         _provider,
+         credential
+       ) do
+    case openai_if_custom_endpoint(credential) do
+      {:ok, _} = ok -> ok
+      {:error, _} -> {:error, :provider_not_supported}
+    end
+  end
+
+  defp generation_compatibility(_model, provider, credential) do
+    case LLMDB.provider(provider) do
+      {:ok, _} -> {:error, :provider_not_supported}
+      {:error, _} -> openai_if_custom_endpoint(credential)
     end
   end
 

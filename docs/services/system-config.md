@@ -74,8 +74,9 @@ uses the existing System/Connect boundary and provider adapters; ReqLLM owns
 reranking inference and batching, without text-generation sampling options.
 Catalog rerank execution contracts retain the configured provider identity even
 when ReqLLM has no dedicated provider module. Endpoint paths come from the catalog;
-ZAQ does not rewrite provider-specific paths. Reranking child traces retain only
-fixed failure stages/reasons and typed HTTP status codes, never raw provider errors,
+ZAQ does not rewrite provider-specific paths. Reranking child traces reuse
+`Zaq.Agent.ErrorMessage` diagnostic categories, retaining only fixed failure
+stages/reasons and typed HTTP status codes, never raw provider errors,
 response bodies or credential details. The outer search failure remains
 `knowledge_reranking_failed`.
 ZAQ Router uses LiteLLM's `/rerank` endpoint through the existing ReqLLM Cohere

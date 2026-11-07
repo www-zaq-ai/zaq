@@ -201,7 +201,7 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResultsTest do
                }
              })
 
-    assert error.message == "knowledge_reranking_failed: runtime/unsupported_model"
+    assert error.message == "knowledge_reranking_failed: runtime/invalid_parameter"
 
     for {client, expected} <- [
           {InvalidClient, "response/invalid_response"},
@@ -229,7 +229,7 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResultsTest do
     assert {:error, error} =
              Jido.Exec.run(RerankKnowledgeResults, %{query: "query", chunks: [chunk(1)]}, context)
 
-    assert error.message == "knowledge_reranking_failed: runtime/authentication_failed"
+    assert error.message == "knowledge_reranking_failed: runtime/credential_revoked"
     refute inspect(error) =~ "credential_id"
     refute inspect(error) =~ "owner_type"
   end
@@ -237,7 +237,12 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResultsTest do
   test "HTTP status and typed timeouts are retained without provider details" do
     context = configured(ErrorClient)
 
-    for status <- [401, 403, 429, 500] do
+    for {status, category} <- [
+          {401, :provider_authentication_failed},
+          {403, :provider_authentication_failed},
+          {429, :provider_rate_limited},
+          {500, :provider_unavailable}
+        ] do
       assert {:error, error} =
                Jido.Exec.run(
                  RerankKnowledgeResults,
@@ -245,7 +250,7 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResultsTest do
                  context
                )
 
-      assert error.message == "knowledge_reranking_failed: request/http_error (HTTP #{status})"
+      assert error.message == "knowledge_reranking_failed: request/#{category} (HTTP #{status})"
       refute inspect(error) =~ "PRIVATE_"
     end
 
@@ -275,7 +280,9 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResultsTest do
                configured(HttpClient)
              )
 
-    assert error.message == "knowledge_reranking_failed: request/http_error (HTTP 401)"
+    assert error.message ==
+             "knowledge_reranking_failed: request/provider_authentication_failed (HTTP 401)"
+
     refute inspect(error) =~ "PRIVATE_PROVIDER_RESPONSE"
   end
 
@@ -301,7 +308,10 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResultsTest do
                    max_retries: 0
                  )
 
-        assert error.message == "knowledge_reranking_failed: request/failed"
+        category =
+          if kind == "status", do: :provider_request_rejected, else: :agent_execution_failed
+
+        assert error.message == "knowledge_reranking_failed: request/#{category}"
         assert_receive {:rerank_trace, %{kind: :tool_started}}
         assert_receive {:rerank_trace, %{kind: :tool_completed, data: data}}
         assert {:error, evidence, []} = data.result

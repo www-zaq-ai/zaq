@@ -19,6 +19,7 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
     output_schema: Zoi.object(%{chunks: Zoi.list(Zoi.map())})
 
   alias Jido.Action.Error, as: ActionError
+  alias Zaq.Agent.ErrorMessage
   alias Zaq.Agent.ProviderSpec
   alias Zaq.System
 
@@ -97,11 +98,11 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
 
       {:ok, ranked}
     else
-      {:error, :invalid_reranking_response}
+      {:error, :invalid_response}
     end
   end
 
-  defp ranked_chunks(_response, _chunks), do: {:error, :invalid_reranking_response}
+  defp ranked_chunks(_response, _chunks), do: {:error, :invalid_response}
 
   defp valid_result?(%{index: index, relevance_score: score}),
     do: is_integer(index) and is_number(score)
@@ -109,40 +110,11 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
   defp valid_result?(_result), do: false
 
   defp failure(stage, reason) do
-    message = "knowledge_reranking_failed: #{stage}/#{failure_detail(reason)}"
+    diagnostic = ErrorMessage.diagnostic_for(reason)
+    status = if diagnostic[:http_status], do: " (HTTP #{diagnostic.http_status})", else: ""
+    message = "knowledge_reranking_failed: #{stage}/#{diagnostic.reason}#{status}"
     {:error, ActionError.execution_error(message)}
   end
-
-  defp failure_detail(%ReqLLM.Error.API.Request{status: status})
-       when is_integer(status) and status in 100..599,
-       do: "http_error (HTTP #{status})"
-
-  defp failure_detail(%ReqLLM.Error.API.Timeout{}), do: "timeout"
-  defp failure_detail(%Req.TransportError{reason: :timeout}), do: "timeout"
-  defp failure_detail(%ReqLLM.Error.Invalid.Parameter{}), do: "unsupported_model"
-  defp failure_detail(%ReqLLM.Error.Invalid.Provider{}), do: "unsupported_provider"
-  defp failure_detail(%ReqLLM.Error.API.Response{}), do: "invalid_response"
-
-  defp failure_detail(%{reason: reason})
-       when reason in [
-              :credential_unavailable,
-              :credential_revoked,
-              :credential_expired,
-              :credential_refresh_failed,
-              :credential_refresh_busy,
-              :global_credential_missing,
-              :personal_credential_required
-            ],
-       do: "authentication_failed"
-
-  defp failure_detail({:unsupported_ai_authentication, _}), do: "authentication_failed"
-  defp failure_detail(:invalid_reranking_response), do: "invalid_response"
-
-  defp failure_detail(reason)
-       when reason in [:model_not_configured, :timeout, :unexpected_exception],
-       do: Atom.to_string(reason)
-
-  defp failure_detail(_reason), do: "failed"
 
   defp restore_placeholders(chunks, ranked) do
     {restored, []} =

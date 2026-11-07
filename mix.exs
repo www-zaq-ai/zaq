@@ -128,7 +128,7 @@ defmodule Zaq.MixProject do
       # {:llm_db, "~> 2026.5", runtime: false, override: true},
       {:llm_db,
        github: "jfayad/llmdb",
-       ref: "fd098d1f642510a4c45793d9261aeb581fa086df",
+       ref: "4cd3db326b0ae9320c58161a7fc49235fb733968",
        runtime: false,
        override: true},
       {:jido, "~> 2.4"},
