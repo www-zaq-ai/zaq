@@ -222,6 +222,64 @@ defmodule ZaqWeb.Live.BO.AI.WorkflowsLiveTest do
   end
 
   describe "import workflow event" do
+    for translator <- ["Iterate", "Batch"] do
+      test "shows #{translator} post-process errors before persisting an import", %{conn: conn} do
+        {:ok, view, _html} = live(conn, ~p"/bo/workflows")
+        view |> element("button", "Import Workflow") |> render_click()
+
+        process = %{
+          "name" => "capture",
+          "type" => "action",
+          "module" => "Zaq.Engine.Workflows.Test.CaptureValue",
+          "params" => %{}
+        }
+
+        first = Map.merge(process, %{"name" => "first", "mapping" => %{"value" => 123}})
+
+        second =
+          Map.merge(process, %{"name" => "second", "mapping" => %{"value" => "capture.captured"}})
+
+        last = Map.put(first, "name", "last")
+        before = Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count)
+
+        for {first_node, error_index} <- [
+              {first, 0},
+              {Map.put(first, "mapping", %{"value" => "capture.captured"}), 2}
+            ] do
+          content =
+            Jason.encode!(%{
+              "name" => "Invalid post-process import #{System.unique_integer([:positive])}",
+              "nodes" => [
+                %{
+                  "name" => "loop",
+                  "type" => "action",
+                  "module" => "Zaq.Agent.Tools.Workflow." <> unquote(translator),
+                  "index" => 0,
+                  "params" => %{
+                    "process" => [process],
+                    "post_process" => [first_node, second, last]
+                  }
+                }
+              ],
+              "edges" => []
+            })
+
+          upload =
+            file_input(view, "form[phx-submit='import_workflow']", :workflow_file, [
+              %{name: "invalid-post-process.json", content: content, type: "application/json"}
+            ])
+
+          assert render_upload(upload, "invalid-post-process.json")
+          view |> form("form[phx-submit='import_workflow']") |> render_submit()
+
+          assert has_element?(view, "#import-modal", "post_process node #{error_index}")
+          assert has_element?(view, "#import-modal", "mapping")
+          refute has_element?(view, "#flash-info", "Workflow imported successfully.")
+          assert Zaq.Repo.aggregate(Zaq.Engine.Workflows.Workflow, :count) == before
+        end
+      end
+    end
+
     test "validate_import is a no-op", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/bo/workflows")
       view |> element("button", "Import Workflow") |> render_click()

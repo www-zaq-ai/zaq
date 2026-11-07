@@ -1344,7 +1344,7 @@ defmodule Zaq.Engine.Workflows do
       from sr in StepRun,
         where:
           sr.workflow_run_id == ^run_id and sr.step_name == ^step_name and
-            sr.status in ["completed", "failed", "skipped", "waiting"],
+            sr.status in ["completed", "failed", "failed_fatal", "skipped", "waiting"],
         order_by: [desc: sr.inserted_at],
         limit: 1
     )

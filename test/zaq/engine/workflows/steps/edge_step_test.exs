@@ -210,6 +210,25 @@ defmodule Zaq.Engine.Workflows.Steps.EdgeStepTest do
   end
 
   describe "cascade-aware field lookup" do
+    property "mapping the whole cascade copies data without consuming engine history" do
+      check all(
+              cascade_key <- member_of([:__cascade__, "__cascade__"]),
+              source_key <- member_of([:__cascade__, "__cascade__"]),
+              marker <- integer(),
+              max_runs: 30
+            ) do
+        cascade = %{"start" => %{"marker" => marker}}
+
+        params =
+          %{__edge_mapping__: %{"data" => source_key}, __edge_name__: "copy_cascade"}
+          |> Map.put(cascade_key, cascade)
+
+        assert {:ok, result} = run(params)
+        assert result.data == %{start: %{marker: marker}}
+        assert Map.fetch!(result, cascade_key) == cascade
+      end
+    end
+
     test "dotted path 'A.gender' resolves into __cascade__ (atom keys in step result)" do
       cascade = %{"A" => %{gender: "female"}}
 
