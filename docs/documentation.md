@@ -1,7 +1,7 @@
 # Documentation Organization and Hygiene
 
 This is the authoritative policy for organizing, authoring, and maintaining ZAQ
-documentation and its supporting project memories. [The documentation index](README.md)
+code comments, documentation, and supporting project memories. [The documentation index](README.md)
 provides navigation; it does not duplicate these rules.
 
 ## Information ownership
@@ -43,8 +43,54 @@ Do not move repository standards into a tool-specific memory or agent prompt.
 - Split documents by responsibility or audience, not an arbitrary line limit.
   Give long guides descriptive sections so readers can load only what they need.
 
+## Writing comments and documentation
+
+Write for the intended reader's question. Lead with the useful fact, use present
+tense for current behavior, and include only the detail needed to understand, use,
+maintain, or troubleshoot the system correctly.
+
+| Surface | Explain |
+| --- | --- |
+| Inline comments | Non-obvious reasons, invariants, and constraints a maintainer could accidentally break; not a narration of statements |
+| Module documentation (`@moduledoc`) | Responsibility, boundaries, and important relationships; not a walkthrough of private functions |
+| Function/API documentation (`@doc`) | Caller-visible inputs, results, errors, side effects, and relevant guarantees |
+| Architecture and service guides | Ownership, dependencies, boundaries, and significant design rationale |
+| How-to and operational guides | Prerequisites, steps, examples, expected results, and relevant failure recovery |
+
+Usage instructions describe the public contract, not internal mechanics. Include
+implementation details only when the reader needs them for the document's purpose;
+keep an internal explanation beside the code or in a focused maintainer guide.
+
+- Use plain language, short sentences, concrete verbs, and consistent terms.
+  Explain unfamiliar acronyms once; avoid jargon, filler, and promotional claims.
+- Add information the code does not express clearly. Do not merely repeat names,
+  types, or obvious control flow in prose.
+- Keep meaningful limits explicit: authorization, destructive effects, failure
+  behavior, and compatibility constraints must survive shortening.
+- Follow [information ownership](#information-ownership): link to the authoritative
+  explanation instead of copying it, while keeping the local summary understandable.
+- Use a small example when it resolves ambiguity. Omit exhaustive examples and
+  boilerplate sections that add no useful information.
+- Keep speculative improvements in tracked work. A comment about temporary code
+  explains the current constraint and removal condition under
+  [technical debt controls](code-quality.md#technical-debt-controls), not a future
+  refactoring wish list.
+- Update or remove stale prose with the code. Judge documentation by accuracy and
+  usefulness, not comment count or length targets. Retain required API documentation.
+
+Review each sentence: would removing it lose information the intended reader needs?
+Remove redundant prose, not necessary context or guarantees.
+
 ## Current, proposed and historical information
 
+- Describe the current state directly. Avoid change narration such as "now supports,"
+  "previously," "new implementation," or "replaces the old approach" in current-state
+  comments and documentation. Change history belongs in PRs, changelogs, migration
+  guides, or historical decision records.
+- In current-state documentation, retain historical context only when it explains an
+  active compatibility requirement or constraint; state that requirement directly.
+  For example, "Accepts both payload formats during the migration" describes behavior
+  rather than recounting a rewrite.
 - Describe shipped behavior as current only after checking the implementation and
   relevant tests. Verify dispatch actions, request shapes and permissions at the
   actual role API, not by copying a similar example.
@@ -70,6 +116,8 @@ Do not move repository standards into a tool-specific memory or agent prompt.
    documentation-only work without executable operation changes.
 2. Update behavior/architecture documentation alongside the change, before review
    completion. Record intentionally deferred documentation with an issue and scope.
+   Apply [the writing rules](#writing-comments-and-documentation) to touched comments
+   and documentation; flag misleading, stale, redundant, or missing useful information.
 3. Verify referenced modules, paths, commands, request/result examples and local
    links/anchors. Label schematic examples and their assumed inputs; do not present
    pseudocode or destructive commands as harmless runnable checks.

@@ -119,12 +119,24 @@ If a review file for the same PR already exists, overwrite it with the latest fu
 
 ## Auditing checklist
 
+Apply [Write for Humans](../../../docs/code-quality.md#write-for-humans) and the
+[naming conventions](../../../docs/conventions.md#naming) to changed code. Explain
+the concrete ambiguity and its consequence when raising readability findings.
+
+Apply the [function reuse decision](../../../docs/code-quality.md#function-reuse-decision)
+to changed functions; assess compatibility and risk before churn, and support reuse
+findings with concrete candidates and contract evidence.
+
+Apply the [Action reuse gate](../../../docs/action-reuse.md) before approval:
+inspect the assessment and relevant existing implementations, and resolve findings
+under its implementation and review requirements.
+
 Explicitly check, within the scope of the PR only:
 - duplicate code introduced or expanded by the PR that should be centralized into reusable functions
 - duplicate LiveView code introduced or expanded by the PR that should become reusable components
 - mismatching coding style in changed code relative to the local codebase
 - performance problems introduced, preserved in the changed path, or made more likely by the PR
-- lacking module/function documentation in touched code where documentation would materially improve maintainability
+- comments and documentation in touched code/files follow the [writing rules](../../../docs/documentation.md#writing-comments-and-documentation); flag misleading, stale, redundant, or missing useful information
 - whether the PR truly addresses the linked issue and issue comments
 
 ## Evidence standard

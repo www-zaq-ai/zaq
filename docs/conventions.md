@@ -2,6 +2,20 @@
 
 ## Naming
 
+Apply the [Write for Humans standard](code-quality.md#write-for-humans):
+
+- Name values for their domain meaning: `pending_invitations`, not `items`, when
+  that distinction matters. Avoid generic names such as `data`, `temp`, or `result`
+  when they hide useful meaning.
+- Use the same term for the same concept across related code. Avoid unexplained
+  abbreviations; short conventional names are appropriate in small, obvious scopes.
+  Prefer enough context to be clear, not the longest possible name.
+- Name functions for the operation they perform. Distinguish querying, validating,
+  transforming, and performing side effects; avoid vague verbs such as `process`
+  when a more precise domain verb exists.
+- Include units and roles where ambiguity is possible: `retry_delay_ms` rather than
+  `delay`, and `recipient_id` rather than `id` when several identifiers are in scope.
+
 | What | Convention | Example |
 |---|---|---|
 | Contexts | `lib/zaq/<context>/` | `Zaq.Accounts`, `Zaq.Ingestion` |
@@ -20,7 +34,7 @@
 - Public APIs use `{:ok, result}` / `{:error, reason}` for fallible operations.
 - Use `raise` and bang functions only for exceptional cases or explicit bang APIs.
 - Add `@spec` for public functions in contexts, behaviours, and adapters.
-- Document non-obvious invariants with `@doc`.
+- Document caller-visible invariants with `@doc`; follow the [comment and documentation writing rules](documentation.md#writing-comments-and-documentation) for placement and detail.
 - Keep functions small and composable; move branching-heavy logic into focused private functions.
 - Never nest multiple modules in the same file — causes cyclic dependencies and compilation errors.
 - For channel bridges, keep ingress callback names generic (`from_listener/3`) and transport-agnostic.
