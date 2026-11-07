@@ -43,9 +43,18 @@ defmodule Zaq.Agent.ProviderSpec do
   end
 
   @doc "Builds a dedicated operation runtime using canonical global authentication, never global LLM defaults."
+  @spec operation_runtime(map()) :: {:ok, map(), keyword()} | {:error, term()}
   def operation_runtime(config), do: operation_runtime(config, :generation)
 
-  @doc "Builds operation-appropriate options and validates reranking model capability when selected."
+  @doc """
+  Builds operation-appropriate options using canonical global authentication.
+
+  Reranking preserves catalog model identity and execution metadata, including
+  providers supported through ReqLLM's shared execution adapters. Generation
+  retains its configured-agent provider resolution and compatibility fallback.
+  """
+  @spec operation_runtime(map(), :generation | :reranking) ::
+          {:ok, map(), keyword()} | {:error, term()}
   def operation_runtime(config, operation) when operation in [:generation, :reranking] do
     with id when is_integer(id) <- config.credential_id,
          model when is_binary(model) and model != "" <- config.model,
@@ -59,7 +68,7 @@ defmodule Zaq.Agent.ProviderSpec do
         top_p: Map.get(config, :top_p, 0.9)
       }
 
-      with {:ok, spec} <- build(agent),
+      with {:ok, spec} <- operation_spec(operation, agent),
            {:ok, opts} <- llm_opts(agent, resolved) do
         operation_options(operation, spec, opts)
       end
@@ -69,16 +78,22 @@ defmodule Zaq.Agent.ProviderSpec do
     end
   end
 
+  defp operation_spec(:generation, agent), do: build(agent)
+
+  defp operation_spec(:reranking, %ConfiguredAgent{credential: credential, model: id} = agent) do
+    with {:ok, provider} <- LLMDB.Spec.parse_provider(credential.provider),
+         {:ok, model} <- LLMDB.model(provider, id) do
+      {:ok, put_base_url(Map.from_struct(model), model.provider, credential)}
+    else
+      {:error, _} ->
+        build(agent)
+    end
+  end
+
   defp operation_options(:generation, spec, opts), do: {:ok, spec, opts}
 
   defp operation_options(:reranking, spec, opts) do
-    catalog_spec =
-      case LLMDB.model(spec.provider, spec.id) do
-        {:ok, model} -> Map.merge(Map.from_struct(model), spec)
-        {:error, _} -> spec
-      end
-
-    with {:ok, model} <- ReqLLM.Rerank.validate_model(catalog_spec) do
+    with {:ok, model} <- ReqLLM.Rerank.validate_model(spec) do
       {:ok, model, Keyword.drop(opts, [:temperature, :top_p])}
     end
   end

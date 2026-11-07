@@ -10,6 +10,67 @@ defmodule Zaq.Agent.ProviderSpecTest do
   alias Zaq.System.RAGModelConfig
 
   describe "operation_runtime/2 reranking" do
+    test "catalog execution contracts preserve provider identity without a native adapter" do
+      credential =
+        ai_credential_fixture(%{
+          provider: "albert",
+          api_key: "test-albert-key"
+        })
+
+      assert {:error, _} = ReqLLM.provider(:albert)
+
+      for id <- ["bge-reranker-v2-m3", "openweight-rerank"] do
+        config = %RAGModelConfig{credential_id: credential.id, model: id}
+
+        assert {:ok, model, opts} = ProviderSpec.operation_runtime(config, :reranking)
+        assert model.provider == :albert
+        assert model.id == "bge-reranker-v2-m3"
+        assert model.provider_model_id == "openweight-rerank"
+        assert model.execution.rerank.supported
+        assert opts[:api_key] == "test-albert-key"
+        refute Keyword.has_key?(opts, :temperature)
+        refute Keyword.has_key?(opts, :top_p)
+      end
+    end
+
+    test "catalog reranking preserves the explicitly configured endpoint" do
+      endpoint = "https://reranker.example/v1"
+
+      credential =
+        ai_credential_fixture(%{provider: "albert", endpoint: endpoint, api_key: "test-key"})
+
+      config = %RAGModelConfig{credential_id: credential.id, model: "openweight-rerank"}
+
+      assert {:ok, model, opts} = ProviderSpec.operation_runtime(config, :reranking)
+      assert model.provider == :albert
+      assert model.base_url == endpoint
+      assert opts[:base_url] == endpoint
+    end
+
+    test "a catalog model without rerank execution does not fall back to another provider" do
+      credential = ai_credential_fixture(%{provider: "albert", api_key: "test-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "bge-m3"}
+
+      assert {:error, _} = ProviderSpec.operation_runtime(config, :reranking)
+    end
+
+    test "the generation runtime still requires its existing provider resolution" do
+      credential = ai_credential_fixture(%{provider: "albert", api_key: "test-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "openweight-rerank"}
+
+      assert {:error, :provider_not_supported} = ProviderSpec.operation_runtime(config)
+    end
+
+    test "registered ZAQ Router reranking keeps its configured model and authentication" do
+      credential = ai_credential_fixture(%{provider: "zaq_router", api_key: "test-router-key"})
+      config = %RAGModelConfig{credential_id: credential.id, model: "Qwen/Qwen3-Reranker-0.6B"}
+
+      assert {:ok, model, opts} = ProviderSpec.operation_runtime(config, :reranking)
+      assert model.provider == :zaq_router
+      assert model.id == config.model
+      assert opts[:api_key] == "test-router-key"
+    end
+
     test "resolves reranking model authentication without text-generation options" do
       credential = ai_credential_fixture(%{provider: "cohere", api_key: "test-rerank-key"})
       config = %RAGModelConfig{credential_id: credential.id, model: "rerank-v3.5"}

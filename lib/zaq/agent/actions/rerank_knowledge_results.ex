@@ -6,6 +6,9 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
   sanitized hard errors. Retrieval scores and original chunk metadata survive;
   provider document echoes never replace trusted content. Denied placeholders
   remain in their original positions and never leave for model inference.
+
+  Failure messages retain only a fixed stage/reason and typed HTTP status.
+  Raw provider errors, response bodies and authentication never enter diagnostics.
   """
 
   use Zaq.Engine.Workflows.Action,
@@ -15,6 +18,7 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
     schema: Zoi.object(%{query: Zoi.string() |> Zoi.min(1), chunks: Zoi.list(Zoi.map())}),
     output_schema: Zoi.object(%{chunks: Zoi.list(Zoi.map())})
 
+  alias Jido.Action.Error, as: ActionError
   alias Zaq.Agent.ProviderSpec
   alias Zaq.System
 
@@ -29,7 +33,7 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
       rerank(query, chunks, config, context)
     end
   rescue
-    _error -> {:error, :knowledge_reranking_failed}
+    _error -> failure(:runtime, :unexpected_exception)
   end
 
   defp rerank(query, chunks, config, context) do
@@ -38,13 +42,16 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
     if eligible == [] do
       {:ok, %{chunks: chunks}}
     else
-      with {:ok, model, opts} <- ProviderSpec.operation_runtime(config, :reranking),
-           {:ok, timeout} <- remaining_timeout(context),
-           {:ok, response} <- request(model, opts, query, eligible, timeout, context),
-           {:ok, ranked} <- ranked_chunks(response, eligible) do
+      with {:runtime, {:ok, model, opts}} <-
+             {:runtime, ProviderSpec.operation_runtime(config, :reranking)},
+           {:deadline, {:ok, timeout}} <- {:deadline, remaining_timeout(context)},
+           {:request, {:ok, response}} <-
+             {:request, request(model, opts, query, eligible, timeout, context)},
+           {:response, {:ok, ranked}} <- {:response, ranked_chunks(response, eligible)} do
         {:ok, %{chunks: restore_placeholders(chunks, ranked)}}
       else
-        _error -> {:error, :knowledge_reranking_failed}
+        {stage, {:error, reason}} -> failure(stage, reason)
+        {stage, _unexpected} -> failure(stage, :unexpected_result)
       end
     end
   end
@@ -70,14 +77,15 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
       )
 
     client.rerank(model, opts)
+  rescue
+    _error -> {:error, :unexpected_exception}
   end
 
   defp ranked_chunks(%{results: results}, chunks) when is_list(results) do
     expected = MapSet.new(0..(length(chunks) - 1))
-    valid = Enum.all?(results, &valid_result?/1)
-    indexes = Enum.map(results, &Map.get(&1, :index))
 
-    if valid and length(results) == length(chunks) and MapSet.new(indexes) == expected do
+    if Enum.all?(results, &valid_result?/1) and length(results) == length(chunks) and
+         MapSet.new(results, & &1.index) == expected do
       by_index = chunks |> Enum.with_index() |> Map.new(fn {chunk, index} -> {index, chunk} end)
 
       ranked =
@@ -99,6 +107,42 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResults do
     do: is_integer(index) and is_number(score)
 
   defp valid_result?(_result), do: false
+
+  defp failure(stage, reason) do
+    message = "knowledge_reranking_failed: #{stage}/#{failure_detail(reason)}"
+    {:error, ActionError.execution_error(message)}
+  end
+
+  defp failure_detail(%ReqLLM.Error.API.Request{status: status})
+       when is_integer(status) and status in 100..599,
+       do: "http_error (HTTP #{status})"
+
+  defp failure_detail(%ReqLLM.Error.API.Timeout{}), do: "timeout"
+  defp failure_detail(%Req.TransportError{reason: :timeout}), do: "timeout"
+  defp failure_detail(%ReqLLM.Error.Invalid.Parameter{}), do: "unsupported_model"
+  defp failure_detail(%ReqLLM.Error.Invalid.Provider{}), do: "unsupported_provider"
+  defp failure_detail(%ReqLLM.Error.API.Response{}), do: "invalid_response"
+
+  defp failure_detail(%{reason: reason})
+       when reason in [
+              :credential_unavailable,
+              :credential_revoked,
+              :credential_expired,
+              :credential_refresh_failed,
+              :credential_refresh_busy,
+              :global_credential_missing,
+              :personal_credential_required
+            ],
+       do: "authentication_failed"
+
+  defp failure_detail({:unsupported_ai_authentication, _}), do: "authentication_failed"
+  defp failure_detail(:invalid_reranking_response), do: "invalid_response"
+
+  defp failure_detail(reason)
+       when reason in [:model_not_configured, :timeout, :unexpected_exception],
+       do: Atom.to_string(reason)
+
+  defp failure_detail(_reason), do: "failed"
 
   defp restore_placeholders(chunks, ranked) do
     {restored, []} =

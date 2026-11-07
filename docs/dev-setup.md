@@ -57,6 +57,37 @@ For LAN or public server deployment, configure `PHX_HOST` and TLS using the
 [production HTTPS guide](operations/deployment.md#production-deployment-and-https);
 changing the browser URL to a server IP is not sufficient.
 
+### Testing an unreleased LLMDB catalog
+
+The experimental LLMDB dependency in [`mix.exs`](../mix.exs) includes Albert's
+rerank execution source changes, but upstream release automation owns its packaged
+snapshot. A Git pin alone does not regenerate that snapshot. Build an artifact
+from the exact pinned revision in a separate checkout using its
+[Albert acceptance guide](https://github.com/jfayad/llmdb/blob/fd098d1f642510a4c45793d9261aeb581fa086df/guides/albert-rerank-acceptance.md),
+without pulling fresh provider data or modifying ZAQ's dependency directory.
+
+Point ZAQ at the resulting artifact before compiling, running tests or starting:
+
+```bash
+export LLMDB_SNAPSHOT_PATH="/absolute/path/to/llmdb-checkout/tmp/albert-acceptance/snapshot.json"
+mix deps.get
+mix deps.compile llm_db --force
+iex -S mix phx.server
+```
+
+The override disables compile-time catalog embedding and requires strict snapshot
+integrity. Keep the variable exported for all acceptance commands, including tests.
+With the variable unset, normal packaged-catalog loading is unchanged. Restart
+after changing the artifact or override; no live catalog refresh is automatic.
+
+For Albert account acceptance, use the Albert credential with endpoint
+`https://albert.api.etalab.gouv.fr/v1` and select `bge-reranker-v2-m3` (alias
+`openweight-rerank`) under RAG re-ranking. Verify the active model with
+`LLMDB.model(:albert, "bge-reranker-v2-m3")`; its rerank contract must have the
+versioned base URL and `/rerank` path. BGE-M3 embeddings have a maximum of 1024
+dimensions, distinct from the 8192-token context limit. Save real API credentials
+through the existing secure System Config flow, not in shell history or source.
+
 ### Local secret encryption
 
 The checked-in development configuration uses a development-only encryption key. Do not use it for a deployed instance or real credentials. To use your own key, add the environment-backed configuration example from [SMTP password encryption](services/system-config.md#smtp-password-encryption) to the untracked `config/dev.secret.exs`, then export:

@@ -7,6 +7,13 @@
 # General application configuration
 import Config
 
+if snapshot_path = System.get_env("LLMDB_SNAPSHOT_PATH") do
+  config :llm_db,
+    compile_embed: false,
+    integrity_policy: :strict,
+    snapshot_path: Path.expand(snapshot_path)
+end
+
 # OAuth callback query values are credentials, including opaque one-use state.
 config :phoenix, :filter_parameters, ["password", "token", "secret", "code", "state"]
 

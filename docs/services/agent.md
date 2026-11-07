@@ -844,6 +844,9 @@ hierarchy/origin metadata, never a native ID prefix or a tool-name guess.
   adding provider-specific ReqLLM behavior does not add branches to the facade
 - Keeps OAuth protocol and selected-grant identity in Connect's separate OAuth behavior
 - Builds provider spec maps and generation options consumed by `Factory`
+- Dedicated reranking resolves catalog models before generation-provider fallback,
+  retaining provider identity, aliases and execution contracts for ReqLLM's shared
+  adapters; generation routing is unchanged
 - Resolves configured-agent provider configuration through
   `Zaq.System.get_ai_provider_credential/1` only on legacy/local paths; during lifecycle
   startup it translates Engine's secret-free provider projection plus the already-resolved
