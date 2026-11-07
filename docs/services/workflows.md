@@ -137,6 +137,63 @@ The triggering event's payload is preserved through the fact flow as `params.eve
 
 ---
 
+## Nested Action evidence
+
+`Step.Run.trace_events` stores JSON-safe child lifecycle events separately from
+replaceable `logs`, business `results`, cascade, and run `log_summary`. Existing
+rows default to `[]`; deploy the additive `AddWorkflowStepTraceEvents` migration
+before running code that reads this field. Rolling back that migration removes
+diagnostic child evidence, not workflow business results or lifecycle logs.
+
+After creating its step row, StepRunner supplies `tool_call_id` and
+`tool_invocation_path` rooted at that persisted UUID plus a local `on_tool_event`
+callback capturing only the step ID. Nested ActionContract executions inherit it
+and record synchronously using ordinary database timeouts, without a tracing wait
+budget. Existing step retries/timeouts, map-fork identity, HITL and pause/resume
+semantics remain authoritative. Cached terminal replay emits no new invocations;
+interruption can leave a persisted start without a completion, displayed as unknown
+once the enclosing execution is terminal. Callback failures do not replace Action
+outcomes, and closures never enter workflow snapshots or service events.
+
+The local `Workflows.record_step_event/2` API validates the captured
+`workflow_step:<step_run_uuid>` root, child identity/path and lifecycle kind, then
+locks the latest step row to deduplicate by event ID and append atomically.
+Child path/ID validation reuses `Zaq.Contracts.ActionInvocation`; workflow root,
+parent, lifecycle and run admission remain Engine checks. Persistence retains its
+stricter opaque-value rejection rather than using the legacy agent JSON serializer.
+Recording never changes step outcome, including for valid late evidence. It
+retains explicit child outcome through JSON conversion and redacts payloads;
+callbacks and materialized resource bytes are excluded. Lifecycle functions return
+and broadcast reloaded rows, preserving child evidence written after execution
+started. Broadcasts retain the existing post-commit step-snapshot contract; no
+per-broadcast reload is required. The BO viewer merges child events by ID and
+retains a settled/suspended snapshot over a delayed running snapshot of that same
+row. Resume creates a new step row. Mount/reload data access still goes through
+NodeRouter; the workflow engine remains the sole persistence owner.
+
+`WorkflowResultHelpers.step_trace_info/2` projects persisted starts/completions
+using explicit outcomes, preserving completion-only and late-start evidence.
+Unresolved children become unknown when the enclosing step/run is terminal or
+paused: pausing ends that execution, and resume creates a distinct step row.
+Known child completions are retained. Diagnostic-only snapshots of an already
+running step do not override the viewer's manually selected node; auto-focus is
+reserved for a newly running step (including its fork parent).
+Generic steps and map/batch forks reuse AgentTracePanel with the existing step
+card as their root; independently configured-agent traces remain separate.
+
+`RunAgent` also retains observed agent telemetry when an agent response fails.
+It uses the generic Action failure-results contract documented in
+`Zaq.Engine.Workflows.Action`: an ordinary `ExecutionFailureError` carries a
+JSON-safe `workflow_results` map. StepRunner stores that opaque map through
+`fail_step_run`'s `:results` option and keeps the same failure message and status.
+Diagnostic fields are neither cascaded as successful output nor dumped into step
+failure logs. Errors without observed telemetry retain their plain-string reason.
+The BO agent panel displays available evidence even on failed steps; business
+output remains limited to successful/waiting steps. Native agent roots and known
+child outcomes are preserved independently of the enclosing failure. A failure
+before any tool work does not manufacture tool spans. Previously discarded
+diagnostics cannot be recovered from an old step by reloading it.
+
 ## Crash-Safe Cursor (Step.Run)
 
 `StepRunner` implements a write-before/update-after pattern:

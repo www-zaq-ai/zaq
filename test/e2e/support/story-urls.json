@@ -1,5 +1,6 @@
 [
   "/storybook/_welcome",
+  "/storybook/chat/agent_trace_panel",
   "/storybook/chat/assistant_bubble",
   "/storybook/chat/composer",
   "/storybook/chat/conversations_sidebar",
@@ -99,5 +100,6 @@
   "/storybook/semantic/layout",
   "/storybook/semantic/shadows",
   "/storybook/semantic/text_styles",
-  "/storybook/semantic/text_styles_deprecated"
+  "/storybook/semantic/text_styles_deprecated",
+  "/storybook/workflows/action_traces"
 ]

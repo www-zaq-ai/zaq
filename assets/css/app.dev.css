@@ -1,6 +1,7 @@
 /* Dev-only Tailwind entry — built via `mix tailwind zaq_dev` (see config :tailwind, :zaq_dev).
    Imports production app.css, then scans storybook/ and adds preview-only helpers.
-   Production deploy uses app.css directly (`mix tailwind zaq`). */
+   Writes a separate app.dev.css bundle so production/E2E asset builds cannot
+   overwrite Storybook styles. Production uses app.css (`mix tailwind zaq`). */
 
 @import "./app.css";
 @source "../../storybook";

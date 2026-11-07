@@ -95,7 +95,7 @@ defmodule Zaq.ConnectorConfig.LiveUpdatesTest do
   end
 
   property "nonpositive integers cannot be used to disable throttling implicitly" do
-    check all(interval <- integer(), interval <= 0) do
+    check all(interval <- map(non_negative_integer(), &(-&1))) do
       assert {:error, %{"min_interval_ms" => _}} =
                LiveUpdates.normalize(%{"min_interval_ms" => interval})
     end

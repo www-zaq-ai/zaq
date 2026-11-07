@@ -1672,3 +1672,11 @@ a.zaq-chat-source-row:focus-visible {
   color: var(--zaq-text-color-body-default);
   max-width: calc(100vw - 16px);
 }
+/* Nested trace rows share the existing viewer; cap visual indentation on deep paths. */
+.zaq-trace-nested { border-left-color: var(--zaq-border-color-accent); }
+.zaq-trace-depth-1 { margin-left: var(--zaq-scale-16); }
+.zaq-trace-depth-2 { margin-left: var(--zaq-scale-32); }
+.zaq-trace-depth-3 { margin-left: var(--zaq-scale-48); }
+.zaq-trace-depth-4 { margin-left: var(--zaq-scale-64); }
+.zaq-trace-depth-5 { margin-left: var(--zaq-scale-80); }
+.zaq-trace-depth-6 { margin-left: var(--zaq-scale-96); }

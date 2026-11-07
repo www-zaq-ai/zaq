@@ -367,7 +367,7 @@ Icon **color** follows semantic tokens: `--zaq-icon-color-default` for neutral, 
 | `storybook/patterns/` | Composed patterns — upsell cards, credentials |
 | `storybook/layouts/` | Page shells — **`bo_layout` is the mandatory BO page wrapper**; also app layout, master-detail |
 | `storybook/modals/` + `storybook/bo_modal/` | Modal variants — prefer stories linked to `DesignSystem.*` modules |
-| Feature folders (`chat/`, `dashboard/`, `history/`, `ingestion/`) | Feature-composed components |
+| Feature folders (`chat/`, `dashboard/`, `history/`, `ingestion/`, `workflows/`) | Feature-composed components; workflow step previews belong in `workflows/`, not `chat/` |
 | `storybook/playground/` | Experiments — not a contract |
 | `storybook/legacy_ui/`, `storybook/not_used/` | Deprecated — do not reference or reuse |
 

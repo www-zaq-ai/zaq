@@ -4,9 +4,13 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
   alias Zaq.Agent.{Factory, ServerManager, StreamEvents}
   alias Zaq.Channels.Api, as: ChannelsApi
   alias Zaq.Contracts.ToolStep
+  alias Zaq.ConversationLifecycleFixtures
+  alias Zaq.Engine.Conversations
+  alias Zaq.Engine.Conversations.Message
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.TestSupport.{BudgetProbeTool, IntegrationAgent, MultiAgentOpenAIStub, OpenAIStub}
+  alias Zaq.TestSupport.NestedActionProbe
 
   defmodule RecordingRouter do
     def dispatch(event) do
@@ -24,6 +28,137 @@ defmodule Zaq.Agent.ToolStepsIntegrationTest do
       send(outgoing.metadata.session_id, {:final_tool_publication, outgoing})
       :ok
     end
+  end
+
+  test "native invocation identity and inherited callback survive real supervised execution" do
+    owner = self()
+
+    handler = fn _conn, body ->
+      body = Jason.decode!(body)
+
+      if Enum.any?(body["input"] || [], &(&1["type"] == "function_call_output")) do
+        {200, MultiAgentOpenAIStub.text_sse("Done", "gpt-4.1-mini")}
+      else
+        {200,
+         MultiAgentOpenAIStub.tool_call_sse("nested_action_probe", %{depth: 0},
+           call_id: "native.probe",
+           fc_id: "fc_probe"
+         )}
+      end
+    end
+
+    {child, endpoint} = OpenAIStub.server(handler, owner)
+    start_supervised!(child)
+    scope = "nested-#{Ecto.UUID.generate()}"
+    configured = IntegrationAgent.create!(endpoint, scope, "Use the probe.", [])
+
+    assert {:ok, server} =
+             ServerManager.ensure_server(configured, "#{configured.name}:#{scope}", nil,
+               actor: %{kind: :system, subject: "nested-trace-test"}
+             )
+
+    assert {:ok, _} = Jido.AI.register_tool(server, NestedActionProbe)
+    callback = fn _event -> :ok end
+
+    assert {:ok, %{request: request, events: events}} =
+             Factory.ask_with_config(server, "Use the probe", configured,
+               tool_context: %{test_pid: owner, on_tool_event: callback}
+             )
+
+    captured = Enum.to_list(events)
+    assert_receive {:nested_probe, worker, context, true}, 5_000
+    assert worker != owner
+    assert context.tool_call_id == "native.probe"
+    assert context.request_id == request.id
+    completed = Enum.find(captured, &(&1.kind == :tool_completed))
+    assert completed.tool_call_id == context.tool_call_id
+    assert completed.request_id == context.request_id
+    assert completed.run_id == context.run_id
+    assert {:ok, %{value: 42}, []} = completed.data.result
+  end
+
+  test "a real request collects three levels without changing native roots or model results" do
+    owner = self()
+
+    handler = fn _conn, raw_body ->
+      body = Jason.decode!(raw_body)
+
+      if Enum.any?(body["input"] || [], &(&1["type"] == "function_call_output")) do
+        {200, MultiAgentOpenAIStub.text_sse("Done", "gpt-4.1-mini")}
+      else
+        {200,
+         MultiAgentOpenAIStub.tool_call_sse("nested_action_probe", %{depth: 2},
+           call_id: "native.root"
+         )}
+      end
+    end
+
+    {child, endpoint} = OpenAIStub.server(handler, owner)
+    start_supervised!(child)
+    scope = "nested-stream-#{Ecto.UUID.generate()}"
+    configured = IntegrationAgent.create!(endpoint, scope, "Use the probe.", [])
+
+    assert {:ok, server} =
+             ServerManager.ensure_server(configured, "#{configured.name}:#{scope}", nil,
+               actor: %{kind: :system, subject: "nested-stream-test"}
+             )
+
+    assert {:ok, _} = Jido.AI.register_tool(server, NestedActionProbe)
+
+    assert {:ok, %{request: request, events: events}} =
+             Factory.ask_with_config(server, "Use the probe", configured)
+
+    incoming = %Incoming{
+      content: "probe",
+      provider: :web,
+      channel_id: "bo",
+      metadata: %{session_id: owner}
+    }
+
+    assert {:ok, result} =
+             StreamEvents.consume(events, incoming,
+               request: request,
+               node_router: RecordingRouter
+             )
+
+    assert result.answer == "Done"
+    assert length(result.tool_calls) == 3
+    {children, [root]} = Enum.split_with(result.tool_calls, &(&1["origin"] == "zaq_action"))
+    assert root["invocation_id"] == "native.root"
+    assert Enum.map(children, &length(&1["invocation_path"])) == [2, 3]
+    assert Enum.all?(children, &(&1["origin"] == "zaq_action" and &1["outcome"] == "succeeded"))
+    assert Enum.all?(children, &(&1["turn_id"] == root["turn_id"]))
+    assert Enum.all?(children, &(&1["response"] == ["ok", %{"value" => 42}, []]))
+    assert result.measurements["tool_call_count"] == 1
+    assert [%{"id" => "native.root"}] = ToolStep.project(result.tool_calls)
+    assert ToolStep.from_trace(result.trace) == ToolStep.project(result.tool_calls)
+    assert Enum.count(result.trace, &(&1["type"] == "tool_call")) == 3
+
+    user = user_fixture()
+
+    assert {:ok, conversation} =
+             Conversations.create_conversation(%{
+               user_id: user.id,
+               channel_type: "bo",
+               channel_user_id: "nested-trace-#{user.id}"
+             })
+
+    persisted_incoming = %{
+      incoming
+      | author_id: to_string(user.id),
+        metadata: %{conversation_id: conversation.id}
+    }
+
+    assert {:ok, %{assistant_message_id: message_id}} =
+             ConversationLifecycleFixtures.complete_exchange(persisted_incoming, result)
+
+    reloaded = Repo.get!(Message, message_id)
+    persisted_children = Enum.filter(reloaded.trace, &(&1["origin"] == "zaq_action"))
+
+    assert Enum.map(persisted_children, & &1["invocation_path"]) ==
+             Enum.map(children, & &1["invocation_path"])
+
+    assert ToolStep.from_trace(reloaded.trace) == ToolStep.project(result.tool_calls)
   end
 
   test "native worker exit leaves batch outcomes unknown even when one tool actually finished" do

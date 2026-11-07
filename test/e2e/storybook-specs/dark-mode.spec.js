@@ -115,7 +115,7 @@ test.describe("Storybook dark mode bridge", () => {
   });
 
   test("button playground: primary button background and secondary text switch in dark mode", async ({ page }) => {
-    await waitForStory(page, "/storybook/playground/button_playground");
+    await waitForStory(page, "/storybook/components/forms/button");
 
     const primaryBtn = page.locator(".zaq-btn-primary").first();
     const secondaryBtn = page.locator(".zaq-btn-secondary").first();
