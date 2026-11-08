@@ -757,10 +757,10 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
+  def handle_info({:DOWN, ref, :process, pid, reason}, state) do
     case HistoryLifecycle.owner_scope(Map.get(state, :history, %{}), ref) do
       nil ->
-        handle_runtime_down(ref, %{
+        handle_runtime_down(ref, pid, reason, %{
           state
           | history: HistoryLifecycle.drop_waiter(state.history, ref)
         })
@@ -791,14 +791,29 @@ defmodule Zaq.Agent.ServerManager do
     end
   end
 
-  defp handle_runtime_down(ref, state) do
+  defp handle_runtime_down(ref, pid, reason, state) do
     case Enum.find(state.monitors, fn {_sid, r} -> r == ref end) do
       nil ->
         {:noreply, check_retirements(state)}
 
       {server_id, _ref} ->
+        owner = crashed_history_owner(state, server_id, pid, reason)
         OpaqueAliases.clear_scope(server_id)
-        {:noreply, untrack_server(state, server_id)}
+        state = untrack_server(state, server_id)
+        if owner, do: Process.exit(owner, {:agent_runtime_down, reason})
+        {:noreply, state}
+    end
+  end
+
+  defp crashed_history_owner(state, server_id, pid, reason) do
+    case get_in(state, [:history, server_id]) do
+      %{pid: ^pid, lease: %{pid: ^pid, owner: owner}} when is_pid(owner) ->
+        if reason not in [:normal, :shutdown] and not match?({:shutdown, _}, reason) and
+             not draining?(state, server_id),
+           do: owner
+
+      _ ->
+        nil
     end
   end
 

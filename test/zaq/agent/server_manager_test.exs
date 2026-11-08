@@ -10,6 +10,7 @@ defmodule Zaq.Agent.ServerManagerTest do
   alias Zaq.Agent
   alias Zaq.Agent.ConfiguredAgent
   alias Zaq.Agent.Factory
+  alias Zaq.Agent.HistoryLifecycle
   alias Zaq.Agent.InputPrompt
   alias Zaq.Agent.MCP
   alias Zaq.Agent.ServerManager
@@ -2917,6 +2918,227 @@ defmodule Zaq.Agent.ServerManagerTest do
 
     assert {:ok, [%{runtime_pid: ^pid, lease_token: ^token}]} =
              ServerManager.runtime_candidates(@execution_actor, scope, %{agent_id: agent.id})
+  end
+
+  describe "runtime crash propagation" do
+    test "a crashed runtime terminates its stream owner and releases pending waiters" do
+      {agent, scope, pid} = start_history_runtime("crashed-owner")
+      parent = self()
+
+      {owner, owner_monitor, _lease} =
+        start_history_owner(scope, pid, fn _lease ->
+          request = Jido.AI.Request.Handle.new("crashed-owner-request", pid, "Question")
+          request |> Jido.AI.Request.Stream.events() |> Enum.to_list()
+        end)
+
+      {_other_agent, other_scope, other_pid} = start_history_runtime("unaffected-owner")
+      {other_owner, _, _} = start_history_owner(other_scope, other_pid)
+
+      manager = Process.whereis(ServerManager)
+      :erlang.trace(manager, true, [:receive])
+      on_exit(fn -> :erlang.trace(manager, false, [:receive]) end)
+
+      waiter =
+        start_supervised!(
+          {Task,
+           fn ->
+             result = ServerManager.reserve_history_request(pid, @execution_actor, "followup")
+             send(parent, {:crash_waiter_result, result})
+           end},
+          id: :crash_waiter
+        )
+
+      assert_receive {:trace, ^manager, :receive,
+                      {:"$gen_call", {^waiter, _}, {:reserve_history_request, ^pid, _, _, _}}},
+                     1_000
+
+      assert length(:sys.get_state(manager).history[scope].waiters) == 1
+      Process.exit(pid, :kill)
+
+      assert_receive {:DOWN, ^owner_monitor, :process, ^owner, {:agent_runtime_down, :killed}},
+                     1_000
+
+      assert_receive {:crash_waiter_result, {:error, :stale_runtime}}, 1_000
+      state = :sys.get_state(manager)
+      refute Map.has_key?(state.history, scope)
+      refute Map.has_key?(state.monitors, scope)
+      assert state.history[other_scope].lease.owner == other_owner
+      assert Process.alive?(other_owner)
+      assert :ok = ServerManager.stop_server(agent, scope)
+    end
+
+    test "a runtime without a lease only loses its tracking" do
+      {_agent, scope, pid} = start_history_runtime("no-owner")
+      manager = Process.whereis(ServerManager)
+      monitor = :sys.get_state(manager).monitors[scope]
+      :erlang.trace(manager, true, [:receive])
+      on_exit(fn -> :erlang.trace(manager, false, [:receive]) end)
+
+      Process.exit(pid, :kill)
+
+      assert_receive {:trace, ^manager, :receive, {:DOWN, ^monitor, :process, ^pid, :killed}},
+                     1_000
+
+      refute Map.has_key?(:sys.get_state(manager).history, scope)
+    end
+
+    test "a completed lease owner survives a later runtime crash" do
+      {_agent, scope, pid} = start_history_runtime("completed-owner")
+      parent = self()
+
+      {owner, _, _lease} =
+        start_history_owner(scope, pid, fn lease ->
+          assert :ok =
+                   ServerManager.complete_history_request(
+                     scope,
+                     lease.token,
+                     AIContext.new(),
+                     %{"transcript" => 0}
+                   )
+
+          send(parent, {:history_owner_completed, self()})
+
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      assert_receive {:history_owner_completed, ^owner}, 1_000
+      state = :sys.get_state(ServerManager)
+      assert state.history[scope].lease == nil
+      monitor = state.monitors[scope]
+
+      :erlang.trace(Process.whereis(ServerManager), true, [:receive])
+      on_exit(fn -> :erlang.trace(Process.whereis(ServerManager), false, [:receive]) end)
+      Process.exit(pid, :kill)
+
+      assert_receive {:trace, _, :receive, {:DOWN, ^monitor, :process, ^pid, :killed}}, 1_000
+      refute Map.has_key?(:sys.get_state(ServerManager).history, scope)
+      assert Process.alive?(owner)
+    end
+
+    test "explicit stop and forced drain do not terminate the lease owner" do
+      previous = Application.get_env(:zaq, :agent_server_force_drain)
+      on_exit(fn -> restore_env(:agent_server_force_drain, previous) end)
+
+      for force_drain? <- [false, true] do
+        Application.put_env(:zaq, :agent_server_force_drain, force_drain?)
+        {agent, scope, pid} = start_history_runtime("managed-stop")
+        {owner, _, _lease} = start_history_owner(scope, pid)
+        assert :ok = ServerManager.stop_server(agent, scope)
+        state = :sys.get_state(ServerManager)
+
+        if force_drain? do
+          ref = Map.fetch!(state.draining, scope)
+          send(ServerManager, {:force_stop_server, scope, ref})
+        end
+
+        refute Map.has_key?(:sys.get_state(ServerManager).history, scope)
+        assert Process.alive?(owner)
+      end
+    end
+
+    test "an abandoned owner still stops its runtime" do
+      {_agent, scope, pid} = start_history_runtime("abandoned-owner")
+      {owner, owner_monitor, _lease} = start_history_owner(scope, pid)
+      runtime_monitor = Process.monitor(pid)
+
+      send(owner, :stop)
+      assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :normal}, 1_000
+      assert_receive {:DOWN, ^runtime_monitor, :process, ^pid, _reason}, 1_000
+      refute Map.has_key?(:sys.get_state(ServerManager).history, scope)
+    end
+
+    property "only an unexpected crash of the leased incarnation terminates its owner" do
+      check all(
+              boundary <-
+                member_of([
+                  :unknown_monitor,
+                  :other_pid,
+                  :normal,
+                  :shutdown,
+                  :shutdown_tuple,
+                  :draining
+                ]),
+              max_runs: 20
+            ) do
+        owner = start_supervised!({Elixir.Agent, fn -> :owner end}, id: make_ref())
+        pid = self()
+        monitor = make_ref()
+        scope = "crash-boundary"
+
+        history =
+          HistoryLifecycle.initialize(%{}, scope, pid, %{"transcript" => 0})
+
+        {:reply, {:ok, _lease}, history} =
+          HistoryLifecycle.begin_request(history, scope, pid, {owner, make_ref()})
+
+        state = %{
+          empty_server_manager_state()
+          | monitors: %{scope => monitor},
+            history: history,
+            draining: if(boundary == :draining, do: %{scope => make_ref()}, else: %{})
+        }
+
+        ref = if boundary == :unknown_monitor, do: make_ref(), else: monitor
+        dead_pid = if boundary == :other_pid, do: owner, else: pid
+
+        reason =
+          case boundary do
+            :normal -> :normal
+            :shutdown -> :shutdown
+            :shutdown_tuple -> {:shutdown, :managed}
+            _ -> :killed
+          end
+
+        assert {:noreply, _state} =
+                 ServerManager.handle_info({:DOWN, ref, :process, dead_pid, reason}, state)
+
+        assert Elixir.Agent.get(owner, & &1) == :owner
+        HistoryLifecycle.drop(history, scope)
+      end
+    end
+  end
+
+  defp start_history_runtime(label) do
+    agent = valid_configured_agent(System.unique_integer([:positive]))
+    scope = "#{label}:#{agent.id}"
+
+    assert {:ok, ref} =
+             ServerManager.ensure_server(agent, scope, nil,
+               actor: @execution_actor,
+               history_cursors: %{"transcript" => 0}
+             )
+
+    on_exit(fn -> ServerManager.stop_server(agent, scope) end)
+    {agent, scope, GenServer.whereis(ref)}
+  end
+
+  defp start_history_owner(
+         scope,
+         pid,
+         consume \\ fn _lease ->
+           receive do
+             :stop -> :ok
+           end
+         end
+       ) do
+    parent = self()
+
+    owner =
+      start_supervised!(
+        {Task,
+         fn ->
+           assert {:ok, lease} = ServerManager.begin_history_request(scope, pid, @execution_actor)
+           send(parent, {:history_owner_ready, self(), lease})
+           consume.(lease)
+         end},
+        id: make_ref()
+      )
+
+    monitor = Process.monitor(owner)
+    assert_receive {:history_owner_ready, ^owner, lease}, 1_000
+    {owner, monitor, lease}
   end
 
   defp restart_manager do
