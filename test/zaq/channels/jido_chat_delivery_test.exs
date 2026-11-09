@@ -52,10 +52,18 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       send(self(), {:file_post, channel, text, opts})
 
       case URI.parse(opts[:url]).path do
-        "/post_failed" -> {:error, {500, %{"message" => "private-provider-detail"}}}
-        "/post_timeout" -> {:error, %Req.TransportError{reason: :timeout}}
-        "/missing_post_id" -> {:ok, %{"channel_id" => channel}}
-        _ -> {:ok, %{"id" => "final-post-id", "channel_id" => channel}}
+        "/post_failed" ->
+          {:error, {500, %{"message" => "private-provider-detail"}}}
+
+        "/post_timeout" ->
+          {:error, %Req.TransportError{reason: :timeout}}
+
+        "/missing_post_id" ->
+          {:ok, %{"channel_id" => channel, "file_ids" => opts[:file_ids]}}
+
+        _ ->
+          {:ok,
+           %{"id" => "final-post-id", "channel_id" => channel, "file_ids" => opts[:file_ids]}}
       end
     end
   end
@@ -319,8 +327,16 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
       OpenAIStub.server(
         fn conn, _body ->
           case conn.request_path do
-            "/api/v4/files" -> {201, %{"file_infos" => [%{"id" => "uploaded-file"}]}}
-            "/api/v4/posts" -> {201, %{"id" => "accepted-post", "channel_id" => "private-room"}}
+            "/api/v4/files" ->
+              {201, %{"file_infos" => [%{"id" => "uploaded-file"}]}}
+
+            "/api/v4/posts" ->
+              {201,
+               %{
+                 "id" => "accepted-post",
+                 "channel_id" => "private-room",
+                 "file_ids" => ["uploaded-file"]
+               }}
           end
         end,
         self()
@@ -489,7 +505,7 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
     end
   end
 
-  test "file delivery preserves Jido's generated post ID when the provider ID is absent" do
+  test "file delivery without a provider post ID is unconfirmed and does not invoke callbacks" do
     outgoing = %{
       file_outgoing()
       | metadata: %{
@@ -497,14 +513,15 @@ defmodule Zaq.Channels.JidoChatDeliveryTest do
         }
     }
 
-    assert {:ok, %{confirmation: :confirmed, action: :created, message_id: message_id}} =
+    assert {:error,
+            %DeliveryError{
+              reason: :unconfirmed_delivery,
+              stage: :transport,
+              delivery: :unconfirmed
+            }} =
              JidoChatBridge.send_reply(outgoing, file_connection("missing_post_id"))
 
-    assert is_binary(message_id) and byte_size(message_id) > 0
-    refute message_id in ["status-id", "upload-id"]
-
-    assert [%{args: %{"post_id" => ^message_id}}] =
-             Oban.Testing.all_enqueued(repo: Repo, worker: FileReplyWorker)
+    assert Oban.Testing.all_enqueued(repo: Repo, worker: FileReplyWorker) == []
 
     assert_received {:file_upload, _, _, _}
     assert_received {:file_post, _, _, _}

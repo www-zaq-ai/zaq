@@ -1333,8 +1333,8 @@
       </div>
 
       <details
-        :if={@provider == "mattermost"}
-        id="mattermost-advanced-settings"
+        :if={get_in(@capabilities_snapshot, [:resolved, :configurable_max_file_size]) == :native}
+        id="channel-advanced-settings"
         phx-mounted={JS.ignore_attributes("open")}
         class="mb-6 rounded-xl border p-4"
         style="background: var(--zaq-surface-color-elevated); border-color: var(--zaq-border-color-default)"
@@ -1342,7 +1342,7 @@
         <summary class="zaq-text-body-sm cursor-pointer">Advanced settings</summary>
         <div class="mt-4">
           <ZaqWeb.Components.DesignSystem.Input.input
-            id="mattermost-file-max-size"
+            id="channel-max-file-size"
             name="form[settings][max_file_size]"
             label="Maximum file size (bytes)"
             type="number"
@@ -1351,15 +1351,15 @@
             value={
               Map.get(Ecto.Changeset.get_field(@changeset, :settings) || %{}, "max_file_size")
             }
-            aria-describedby="mattermost-file-max-size-help"
+            aria-describedby="channel-max-file-size-help"
           />
           <p
-            id="mattermost-file-max-size-help"
+            id="channel-max-file-size-help"
             class="zaq-text-body-sm mt-2"
             style="color: var(--zaq-text-color-body-secondary)"
           >
-            Match this value to your Mattermost server’s maximum file size.
-            For example, 300 KiB is 307200 bytes. Leaving it blank keeps the limit unconfigured.
+            Match this value to the maximum file size accepted by your channel provider.
+            For example, 5 MB is 5000000 bytes. Leaving it blank keeps the limit unconfigured.
           </p>
         </div>
       </details>

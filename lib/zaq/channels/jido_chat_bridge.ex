@@ -308,6 +308,9 @@ defmodule Zaq.Channels.JidoChatBridge do
           )
         end)
 
+      resolved =
+        Map.merge(resolved, Map.take(adapter_capabilities, [:configurable_max_file_size]))
+
       {:ok, %{resolved: resolved}}
     end
   end

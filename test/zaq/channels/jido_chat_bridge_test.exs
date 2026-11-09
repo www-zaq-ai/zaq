@@ -9,6 +9,7 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   alias Jido.Chat.Media
   alias Zaq.Agent.{MCP, ServerManager}
   alias Zaq.Agent.Tools.DataSource.DownloadDocument
+  alias Zaq.Channels.Bridge
   alias Zaq.Channels.JidoChatBridge
   alias Zaq.Channels.JidoChatBridge.State
   alias Zaq.Channels.RetrievalChannel
@@ -2794,6 +2795,30 @@ defmodule Zaq.Channels.JidoChatBridgeTest do
   end
 
   describe "capability_snapshot/1" do
+    test "upload size configuration follows the adapter declaration, not file support or provider name" do
+      previous = Application.get_env(:zaq, :channels, %{})
+      on_exit(fn -> Application.put_env(:zaq, :channels, previous) end)
+
+      for {adapter, expected} <- [
+            {Jido.Chat.Mattermost.Adapter, :native},
+            {Jido.Chat.Discord.Adapter, nil},
+            {Jido.Chat.Telegram.Adapter, nil},
+            {StubAdapterCapabilitiesMedia, nil}
+          ] do
+        Application.put_env(:zaq, :channels, %{
+          discord: %{bridge: JidoChatBridge, adapter: adapter, ingress_mode: :gateway}
+        })
+
+        assert {:ok, %{resolved: resolved}} =
+                 Bridge.capability_snapshot("discord", %{scope: :provider})
+
+        assert resolved[:file] in [:native, :fallback, true]
+        assert resolved[:configurable_max_file_size] == expected
+
+        if is_nil(expected), do: refute(Map.has_key?(resolved, :configurable_max_file_size))
+      end
+    end
+
     test "resolves required capabilities and filters absent keys" do
       previous = Application.get_env(:zaq, :channels, %{})
 

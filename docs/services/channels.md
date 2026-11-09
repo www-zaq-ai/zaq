@@ -1383,6 +1383,18 @@ continues starting bridge infrastructure.
 
 ## Channel Config
 
+Adapters may declare `configurable_max_file_size: :native` in their existing
+Jido Chat capability matrix when they enforce a configured upload limit.
+`JidoChatBridge` forwards that declaration through the provider capability snapshot as
+`resolved.configurable_max_file_size`; the BO New/Edit modal uses it to show
+**Advanced settings → Maximum file size (bytes)**. File-upload support alone does
+not imply this capability. Mattermost currently declares it; adapters without the
+declaration do not show this setting. No provider registration flag is needed.
+The setting is persisted as
+`settings["max_file_size"]`, validated as a positive integer for any provider, and
+forwarded through adapter opts. Blank clears it; adapter-owned validation still
+determines whether file delivery requires the setting.
+
 Configuration persistence is owned by [`Zaq.Engine.ChannelConfig`](engine.md#connector-configuration-persistence).
 The `channel_configs` table and identity FKs are unchanged. Legacy Channels
 bootstrap/delivery/provider-only paths still call this schema locally; its namespace

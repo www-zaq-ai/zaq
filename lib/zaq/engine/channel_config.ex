@@ -57,7 +57,7 @@ defmodule Zaq.Engine.ChannelConfig do
     |> maybe_validate_imap_settings()
     |> maybe_validate_disk_settings()
     |> maybe_validate_widget_settings()
-    |> maybe_validate_mattermost_max_file_size()
+    |> maybe_validate_max_file_size()
     |> maybe_validate_live_updates()
     |> preserve_live_update_policy()
     |> maybe_require_widget_base_url_on_persist()
@@ -66,22 +66,24 @@ defmodule Zaq.Engine.ChannelConfig do
     |> reject_archived_reactivation()
   end
 
-  defp maybe_validate_mattermost_max_file_size(changeset) do
-    settings = get_field(changeset, :settings) || %{}
+  defp maybe_validate_max_file_size(changeset) do
+    settings = get_field(changeset, :settings)
 
-    if get_field(changeset, :provider) == "mattermost" do
-      case normalize_max_file_size(Map.get(settings, "max_file_size")) do
-        {:ok, nil} ->
-          put_change(changeset, :settings, Map.delete(settings, "max_file_size"))
+    if is_map(settings) and Map.has_key?(settings, "max_file_size"),
+      do: validate_max_file_size(changeset, settings),
+      else: changeset
+  end
 
-        {:ok, bytes} ->
-          put_change(changeset, :settings, Map.put(settings, "max_file_size", bytes))
+  defp validate_max_file_size(changeset, settings) do
+    case normalize_max_file_size(Map.get(settings, "max_file_size")) do
+      {:ok, nil} ->
+        put_change(changeset, :settings, Map.delete(settings, "max_file_size"))
 
-        :error ->
-          add_error(changeset, :settings, "max_file_size must be a positive integer in bytes")
-      end
-    else
-      changeset
+      {:ok, bytes} ->
+        put_change(changeset, :settings, Map.put(settings, "max_file_size", bytes))
+
+      :error ->
+        add_error(changeset, :settings, "max_file_size must be a positive integer in bytes")
     end
   end
 
