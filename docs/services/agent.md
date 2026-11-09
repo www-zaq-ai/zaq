@@ -693,6 +693,12 @@ internals are not included in child error evidence.
 - Authentication expiry uses an incarnation-bound timer and the same local fence/drain
   path. A restarted manager stops children that survived under the dynamic supervisor
   before accepting them as reusable runtimes.
+- An unexpected AgentServer crash terminates its active history-lease owner with
+  `{:agent_runtime_down, reason}`, interrupting an Executor blocked on stream events.
+  The monitor and lease must identify the same runtime PID. Pending lease waiters
+  still receive `{:error, :stale_runtime}`; steering-only callers, released owners
+  and managed stop/drain paths retain their existing behavior. Lease-free workflow
+  and nested-agent calls retain their outer step/tool timeout boundaries.
 - Executions fail closed when a live server lacks its cached runtime configuration;
   the warm path never reconstructs configuration or resolves authentication.
 - Runtime lifecycle details (hot patch vs stop-only + lazy restart) are documented in [Architecture → Configured Agent Runtime Lifecycle](../architecture.md#configured-agent-runtime-lifecycle).
