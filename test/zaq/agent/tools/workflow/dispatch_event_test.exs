@@ -26,11 +26,6 @@ defmodule Zaq.Agent.Tools.Workflow.DispatchEventTest do
 
   @ctx %{node_router: StubNodeRouter}
 
-  setup_all do
-    Logger.configure(level: :debug)
-    on_exit(fn -> Logger.configure(level: :warning) end)
-  end
-
   describe "run/2" do
     test "preserves trusted actor and never takes identity from tool parameters" do
       actor = %{person: %{id: 42, team_ids: [3]}}

@@ -259,6 +259,7 @@ defmodule ZaqWeb.Router do
       pipe_through :api_stream
 
       post "/llm/v1/chat/completions", E2EController, :fake_llm
+      post "/llm/v1/systemone", E2EController, :fake_decisions
     end
   end
 

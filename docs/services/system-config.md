@@ -46,7 +46,7 @@ AI model settings are configured in Back Office at `/bo/system-config` and
 persisted in `system_configs`.
 
 The **RAG** tab groups embeddings and chunking, image-to-text, Retrieval, re-ranking,
-and a saved-only decision model selection. Retrieval sits below Image to text and
+while Global owns the decision model selection. Retrieval sits below Image to text and
 contains the Knowledge-query translation credential/model selection. Retrieval tuning
 (maximum cosine distance and hybrid BM25/vector fusion weights) is under its collapsed
 **Advanced settings** and saves independently of embedding or translation changes.
@@ -64,7 +64,10 @@ All AI model configuration forms share `DesignSystem.AIModelSelector`, including
 manual model entry and catalog modalities. Missing modality metadata is displayed
 as unknown, not inferred from the model name. These selections
 are persisted as `rag.reranking.credential_id`, `rag.reranking.model`,
-`rag.decision.credential_id` and `rag.decision.model`. Re-ranking is active in
+`global.decision_model.credential_id` and `global.decision_model.model`. The decision
+pair is read and saved through `get_decision_model_config/0` and
+`save_decision_model_config/1`; legacy RAG decision APIs delegate to that namespace.
+Re-ranking is active in
 `SearchKnowledgeBase` for every search mode: the selected model ranks the merged
 authorized chunks before the global count/token limits. With both reranking
 fields unconfigured, results are unchanged. A partial/broken selection,
@@ -79,12 +82,31 @@ ZAQ does not rewrite provider-specific paths. Reranking child traces reuse
 stages/reasons and typed HTTP status codes, never raw provider errors,
 response bodies or credential details. The outer search failure remains
 `knowledge_reranking_failed`.
-ZAQ Router uses LiteLLM's `/rerank` endpoint through the existing ReqLLM Cohere
-adapter, preserving the configured gateway endpoint, credentials and model ID.
-Its temporary wire model selects the Cohere protocol adapter; transport telemetry
-identifies that adapter, not a separate configured Cohere credential.
-No denied content is sent to the model. Decision inference remains inactive.
+ZAQ Router declares the reranking `/rerank` and decision `/v1/systemone`
+execution contracts in its catalog overlay. Both delegate to ReqLLM's shared
+catalog gateway, preserving the configured gateway identity, endpoint,
+credentials and model ID. ReqLLM owns URL joining and wire encoding/decoding;
+ZAQ does not rewrite the model provider or implement endpoint routing.
+No denied content is sent to the model.
 Referenced AI credentials cannot be deleted until the selection is cleared.
+
+The global decision model is used by `EvaluateDecisions` from workflows and
+explicitly enabled agent tools. An unconfigured or unsupported model fails the
+operation; it never falls back to a conversational model. The deployed gateway
+must serve the declared decision route; catalog compatibility is not evidence of
+endpoint availability.
+
+`OperationModelConfig` validates all dedicated credential/model selections.
+Decision and reranking changesets accept only the pair; sampling parameters are
+accepted and persisted only for generation selections. Provider availability in
+the credential selector includes executable catalog contracts, not just native
+ReqLLM provider registrations, so providers such as Albert remain selectable.
+
+The decision migration copies the legacy `rag.decision.*` pair only when neither
+global decision key exists. Empty and partial selections are preserved; any existing
+global row takes precedence for the whole pair. Legacy rows remain inactive snapshots,
+not live configuration or credential references. Downgrades preserve global edits;
+rolling back to a release that reads legacy keys requires explicit reconciliation.
 
 Existing saved reranking selections become active on deployment. Verify the
 selected provider/model before rollout; clear the selection to disable reranking.

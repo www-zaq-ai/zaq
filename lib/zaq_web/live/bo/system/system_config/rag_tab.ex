@@ -1,5 +1,5 @@
 defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
-  @moduledoc "Theme-aware RAG configuration layout, including saved-only specialized selections."
+  @moduledoc "Theme-aware RAG configuration layout for retrieval, embeddings and reranking."
   use ZaqWeb, :html
   alias ZaqWeb.Components.DesignSystem.{Button, CardShell, Input}
   alias ZaqWeb.Live.BO.System.SystemConfig.{EmbeddingTab, ImageToTextTab, OperationModelFields}
@@ -34,12 +34,23 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
         save_confirm_modal={@save_confirm_modal}
         model_changed={@model_changed}
       />
-      <ImageToTextTab.panel
-        form={@image_to_text_form}
-        credential_options={@credential_options}
-        model_options={@image_to_text_model_options}
-        model_catalogs={@model_catalogs}
-      />
+      <div id="rag-image-model-row" class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        <ImageToTextTab.panel
+          form={@image_to_text_form}
+          credential_options={@credential_options}
+          model_options={@image_to_text_model_options}
+          model_catalogs={@model_catalogs}
+          stacked={true}
+        />
+        <.model_section
+          kind={:reranking}
+          title="Re-ranking"
+          form={@model_forms.reranking}
+          options={@model_options.reranking}
+          credential_options={@credential_options}
+          model_catalogs={@model_catalogs}
+        />
+      </div>
       <CardShell.card_shell id="retrieval-section">
         <div class="space-y-5">
           <header>
@@ -103,17 +114,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTab do
           </details>
         </div>
       </CardShell.card_shell>
-      <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <.model_section
-          :for={{kind, title} <- [reranking: "Re-ranking", decision: "Decision"]}
-          kind={kind}
-          title={title}
-          form={@model_forms[kind]}
-          options={@model_options[kind]}
-          credential_options={@credential_options}
-          model_catalogs={@model_catalogs}
-        />
-      </div>
     </div>
     """
   end

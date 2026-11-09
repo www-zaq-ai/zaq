@@ -6,7 +6,6 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTabTest do
     EmbeddingConfig,
     ImageToTextConfig,
     OperationModelConfig,
-    RAGModelConfig,
     RetrievalConfig
   }
 
@@ -31,7 +30,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTabTest do
           Map.new(
             [:reranking, :decision],
             &{&1,
-             Phoenix.Component.to_form(RAGModelConfig.changeset(%RAGModelConfig{}, %{}),
+             Phoenix.Component.to_form(
+               OperationModelConfig.changeset(%OperationModelConfig{}, %{}, &1),
                as: :rag_model_config
              )}
           ),
@@ -58,6 +58,8 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.RAGTabTest do
     refute html =~ "bg-white"
     refute html =~ "text-black"
     doc = LazyHTML.from_fragment(html)
+    assert Enum.count(LazyHTML.query(doc, "#rag-image-model-row > #image-to-text-section")) == 1
+    assert Enum.count(LazyHTML.query(doc, "#rag-image-model-row > #rag-reranking-section")) == 1
 
     refute Enum.empty?(
              LazyHTML.query(

@@ -116,13 +116,35 @@ defmodule Zaq.Agent.ZAQRouter do
                     "typesafe/jev-1.14" => %{
                       limits: %{context: 65_536},
                       modalities: %{input: [:text, :image], output: [:decisions]},
-                      capabilities: %{@non_generative_caps | evaluate: true}
+                      capabilities: %{@non_generative_caps | evaluate: true},
+                      catalog_only: false,
+                      execution: %{
+                        evaluate: %{
+                          supported: true,
+                          family: "typesafe_systemone",
+                          wire_protocol: "typesafe_systemone",
+                          transport: "http",
+                          path: "/v1/systemone",
+                          provider_model_id: "typesafe/jev-1.14"
+                        }
+                      }
                     },
                     # https://huggingface.co/Qwen/Qwen3-Reranker-0.6B
                     "Qwen/Qwen3-Reranker-0.6B" => %{
                       limits: %{context: 32_768},
                       modalities: %{input: [:text], output: [:rerank]},
-                      capabilities: %{@non_generative_caps | rerank: true}
+                      capabilities: %{@non_generative_caps | rerank: true},
+                      catalog_only: false,
+                      execution: %{
+                        rerank: %{
+                          supported: true,
+                          family: "cohere_rerank_compatible",
+                          wire_protocol: "cohere_rerank",
+                          transport: "http",
+                          path: "/rerank",
+                          provider_model_id: "Qwen/Qwen3-Reranker-0.6B"
+                        }
+                      }
                     }
                   })
 
@@ -207,6 +229,18 @@ defmodule Zaq.Agent.ZAQRouter do
   end
 
   defp build_opts(models) do
-    [custom: %{@provider_id => [name: "ZAQ Router", models: models]}]
+    [
+      custom: %{
+        @provider_id => [
+          name: "ZAQ Router",
+          catalog_only: false,
+          runtime: %{
+            base_url: default_endpoint() || "https://llm.zaq.ai",
+            auth: %{type: "bearer", env: []}
+          },
+          models: models
+        ]
+      }
+    ]
   end
 end

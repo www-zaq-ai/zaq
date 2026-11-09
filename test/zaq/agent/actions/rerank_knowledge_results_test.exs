@@ -6,7 +6,7 @@ defmodule Zaq.Agent.Actions.RerankKnowledgeResultsTest do
   alias Zaq.Agent.Actions.RerankKnowledgeResults
   alias Zaq.Agent.Tools.ActionContract
   alias Zaq.Engine.Connect
-  alias Zaq.System.RAGModelConfig
+  alias Zaq.System.OperationModelConfig, as: RAGModelConfig
   alias Zaq.SystemConfigFixtures
 
   defmodule ReverseClient do

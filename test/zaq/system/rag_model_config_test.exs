@@ -2,7 +2,7 @@ defmodule Zaq.System.RAGModelConfigTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias Zaq.System.RAGModelConfig
+  alias Zaq.System.OperationModelConfig, as: RAGModelConfig
 
   test "requires a complete selection, with blank configuration allowed" do
     assert RAGModelConfig.changeset(%RAGModelConfig{}, %{}).valid?

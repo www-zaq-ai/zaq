@@ -852,6 +852,10 @@ hierarchy/origin metadata, never a native ID prefix or a tool-name guess.
   adding provider-specific ReqLLM behavior does not add branches to the facade
 - Keeps OAuth protocol and selected-grant identity in Connect's separate OAuth behavior
 - Builds provider spec maps and generation options consumed by `Factory`
+- Dedicated decision evaluation requires catalog execution metadata and a compatible
+  ReqLLM evaluation adapter; it never uses generation-provider fallback. Generation-only
+  sampling options are omitted. ZAQRouter declares runtime and operation metadata and
+  delegates decision and reranking execution to ReqLLM's shared catalog gateway.
 - Dedicated reranking resolves catalog models before generation-provider fallback,
   retaining provider identity, aliases and execution contracts for ReqLLM's shared
   adapters. Generation rejects catalog models explicitly marked non-chat; native
@@ -865,6 +869,43 @@ hierarchy/origin metadata, never a native ID prefix or a tool-name guess.
   Connect result and does not query System or select Person versus global grants
 - Keeps OpenAI-compatible fallback behavior in the default runtime implementation so
   other modules do not branch by provider
+
+### Decision evaluation (`Zaq.Agent.Actions.EvaluateDecisions`)
+
+Evaluates supplied text or JSON state against named questions using the global
+decision model. It is one reusable Workflow Action; agent use requires explicit
+enablement of `general.evaluate_decisions`. It does not fetch data, grant access,
+or replace the invoking agent's chat model.
+
+`questions` maps string IDs to `type`, `instructions` and type-specific fields:
+`choice` uses named `criteria`, `score` uses an ordered list of distinct rubric
+labels, and `boolean` optionally sets a probability `threshold` (default `0.5`).
+Boolean values use an inclusive `probability >= threshold` comparison. Scores
+may be fractional indices between zero and the last rubric index.
+
+Successful output is `%{decisions: answers}`. Each named answer contains `type`
+and `value`. Choice/score answers include nullable `confidence` and
+`probabilities`; choice probabilities are keyed by option ID and score
+probabilities by zero-based index strings. Partial distributions remain partial,
+zero is preserved, and missing probabilities are never invented or renormalized.
+Boolean answers retain `probability` and the applied `threshold`.
+
+The model-facing tool schema includes the full question union, required fields,
+typed choice criteria and examples. Zoi remains the runtime validator; the Action
+exports the two dynamic map-value schemas explicitly because Zoi's key/value-map
+JSON encoder omits them. Parameter validation applies through both Jido and direct
+workflow execution. It does not infer types or repair malformed question shapes.
+
+No model selection, endpoint, credential or sampling override is accepted in
+tool arguments. System/Connect and ProviderSpec resolve the configured runtime;
+ReqLLM owns inference and wire protocols. Invalid inputs fail before inference.
+Missing configuration, refusals, malformed/incomplete answers and provider errors
+fail the whole operation with bounded `decision_*` errors, without raw provider
+content. HTTP and Action failures are marked non-retryable; an explicit workflow
+retry is a separate potentially billable invocation. Trusted callers can bound
+HTTP execution with a monotonic `decision_deadline`; normal Jido execution owns
+the outer timeout and cancellation. See [system configuration](system-config.md)
+for model ownership and migration.
 
 ### Query Filters (`Zaq.Agent.QueryFilters`)
 - Canonical helper module for retrieval filter normalization and composition

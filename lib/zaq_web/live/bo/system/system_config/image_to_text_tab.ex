@@ -7,6 +7,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ImageToTextTab do
   attr :credential_options, :list, required: true
   attr :model_options, :list, required: true
   attr :model_catalogs, :map, default: %{}
+  attr :stacked, :boolean, default: false
 
   def panel(assigns) do
     ~H"""
@@ -32,6 +33,7 @@ defmodule ZaqWeb.Live.BO.System.SystemConfig.ImageToTextTab do
             credential_options={@credential_options}
             model_catalogs={@model_catalogs}
             manual_model={@model_options == []}
+            layout={if @stacked, do: :stacked, else: :inline}
           />
           <p
             :if={Enum.any?(@model_options, &match?({_, _, "Compatibility unconfirmed"}, &1))}

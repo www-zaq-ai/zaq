@@ -8,7 +8,7 @@ defmodule Zaq.Agent.ProviderSpecTest do
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Engine.Connect
   alias Zaq.Engine.Connect.ResolvedCredential
-  alias Zaq.System.RAGModelConfig
+  alias Zaq.System.OperationModelConfig, as: RAGModelConfig
 
   describe "operation_runtime/2 reranking" do
     test "catalog execution contracts preserve provider identity without a native adapter" do

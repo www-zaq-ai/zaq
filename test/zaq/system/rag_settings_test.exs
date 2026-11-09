@@ -3,7 +3,7 @@ defmodule Zaq.System.RAGSettingsTest do
 
   alias Zaq.Engine.{Api, Events}
   alias Zaq.System
-  alias Zaq.System.RAGModelConfig
+  alias Zaq.System.OperationModelConfig, as: RAGModelConfig
   alias Zaq.System.RetrievalConfig
 
   test "retrieval defaults and invalid stored values retain the cosine cutoff default" do
