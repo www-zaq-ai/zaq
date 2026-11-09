@@ -4,6 +4,36 @@ defmodule Zaq.Contracts.ToolStepTest do
 
   alias Zaq.Contracts.ToolStep
 
+  property "live and reloaded public projections exclude explicit nested evidence, not ID prefixes" do
+    check all(suffix <- string(:alphanumeric, min_length: 1, max_length: 20)) do
+      root = %{
+        "id" => "zaq.native.#{suffix}",
+        "invocation_id" => "zaq.native.#{suffix}",
+        "sequence" => 1,
+        "name" => "root",
+        "outcome" => "succeeded",
+        "type" => "tool_call"
+      }
+
+      child =
+        Map.merge(root, %{
+          "invocation_id" => "child",
+          "origin" => "zaq_action",
+          "invocation_path" => [root["invocation_id"], suffix],
+          "arguments" => "PRIVATE",
+          "response" => "PRIVATE"
+        })
+
+      expected = ToolStep.project([root])
+      assert length(expected) == 1
+      assert ToolStep.project([child, root]) == expected
+      assert ToolStep.from_trace([root, child]) == expected
+      assert ToolStep.from_trace([Map.drop(child, ["origin"])]) == []
+      assert ToolStep.project([Map.drop(child, ["invocation_path"])]) == []
+      refute Jason.encode!(expected) =~ "PRIVATE"
+    end
+  end
+
   test "trace projection shares conservative legacy normalization with public snapshots" do
     legacy = %{
       "type" => "tool_call",

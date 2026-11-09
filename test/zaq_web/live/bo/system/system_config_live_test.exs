@@ -8870,6 +8870,35 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       end
     end
 
+    test "custom endpoint specialized models use manual fields, save and reload", %{conn: conn} do
+      credential = ai_credential_fixture(%{provider: "custom"})
+      {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=rag")
+
+      for kind <- ["reranking", "decision"] do
+        params = %{
+          "kind" => kind,
+          "rag_model_config" => %{"credential_id" => to_string(credential.id), "model" => ""}
+        }
+
+        render_change(view, "validate_rag_model", params)
+        assert has_element?(view, "#rag-#{kind}-form input[name='rag_model_config[model]']")
+        refute has_element?(view, "#rag-#{kind}-model-select")
+        assert has_element?(view, "#rag-#{kind}-modalities")
+
+        params = put_in(params, ["rag_model_config", "model"], "custom/#{kind}")
+        assert render_submit(view, "save_rag_model", params) =~ "RAG model settings saved"
+      end
+
+      {:ok, reloaded, _} = live(conn, ~p"/bo/system-config?tab=rag")
+
+      for kind <- ["reranking", "decision"] do
+        assert has_element?(
+                 reloaded,
+                 "#rag-#{kind}-form input[name='rag_model_config[model]'][value='custom/#{kind}']"
+               )
+      end
+    end
+
     test "specialized selectors filter, reject incompatible models, save and reload independently",
          %{conn: conn} do
       with_catalog(fn providers, models ->
@@ -8927,7 +8956,11 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
         assert System.get_rag_model_config(String.to_existing_atom(kind)).model == model
         switched = put_in(valid, ["rag_model_config", "credential_id"], to_string(other.id))
         render_change(view, "validate_rag_model", switched)
-        assert has_element?(view, "#rag-#{kind}-model-select input[data-select-value][value='']")
+
+        assert has_element?(
+                 view,
+                 "#rag-#{kind}-form input[name='rag_model_config[model]'][value='']"
+               )
       end
 
       {:ok, reloaded, _} = live(conn, ~p"/bo/system-config?tab=rag")

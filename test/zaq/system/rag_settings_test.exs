@@ -121,6 +121,28 @@ defmodule Zaq.System.RAGSettingsTest do
     assert {:error, _} = System.save_retrieval_config(%{"max_cosine_distance" => ""})
   end
 
+  test "custom endpoint models persist through System and Engine for both specialized selections" do
+    credential = Zaq.SystemConfigFixtures.ai_credential_fixture(%{provider: "custom"})
+
+    for kind <- [:reranking, :decision] do
+      attrs = %{credential_id: credential.id, model: "private/#{kind}-v1"}
+      assert {:ok, saved} = System.save_rag_model_config(kind, attrs)
+      assert saved.model == attrs.model
+
+      event =
+        Events.build_invoke_event(
+          %{kind: kind, attrs: %{attrs | model: "private/#{kind}-v2"}},
+          :system_config_save_rag_model_config
+        )
+
+      assert %{response: {:ok, updated}} =
+               Api.handle_event(event, :system_config_save_rag_model_config, nil)
+
+      assert System.get_rag_model_config(kind) == updated
+      assert updated.model == "private/#{kind}-v2"
+    end
+  end
+
   test "retrieval-only changesets ignore chat and credential fields" do
     cs =
       RetrievalConfig.changeset(%RetrievalConfig{}, %{

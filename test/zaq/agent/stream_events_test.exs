@@ -190,6 +190,116 @@ defmodule Zaq.Agent.StreamEventsTest do
              StreamEvents.consume(events, incoming(), status_module: FakeStatus)
   end
 
+  test "nested diagnostics retain hierarchy but cannot publish labels, sources or root counts" do
+    hierarchy = %{origin: "zaq_action", invocation_path: ["root", "child"], parent_id: "root"}
+
+    start =
+      event(:tool_started, 1, Map.put(hierarchy, :arguments, %{value: 42}), tool_call_id: "child")
+
+    done =
+      event(
+        :tool_completed,
+        2,
+        Map.merge(hierarchy, %{
+          outcome: "failed",
+          result: {:error, %{sources: ["private.md"]}, []}
+        }),
+        tool_call_id: "child"
+      )
+
+    root =
+      event(:tool_completed, 3, %{result: {:ok, %{sources: ["public.md"]}, []}},
+        tool_call_id: "root"
+      )
+
+    events = [start, done, done, start, root, event(:request_completed, 4, %{result: "done"})]
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: SnapshotStatus)
+    assert [child, _root] = result.tool_calls
+    assert child["invocation_path"] == ["root", "child"]
+    assert child["parent_id"] == "root"
+    assert child["outcome"] == "failed"
+    assert result.sources == ["public.md"]
+    assert result.measurements["tool_call_count"] == 1
+    refute_received {:snapshot, :tool_call, "Using tool", _}
+  end
+
+  test "nested document results use existing artifact storage without inline trace bytes" do
+    record = %Record{
+      id: "document",
+      kind: :document,
+      name: "example",
+      content: Base.encode64("raw bytes"),
+      attributes: %{"encoding" => "base64"}
+    }
+
+    for payload <- [record, %{record: record}, %ToolResult{output: %{record: record}}] do
+      data = %{
+        origin: "zaq_action",
+        invocation_path: ["root", "child"],
+        parent_id: "root",
+        result: {:ok, payload, []},
+        outcome: "succeeded"
+      }
+
+      events = [
+        event(:tool_completed, 1, data, tool_call_id: "child"),
+        event(:request_completed, 2, %{result: "done"})
+      ]
+
+      assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+      assert [%{content: "raw bytes", tool_call_id: "child"}] = result.trace_artifacts
+      refute Jason.encode!(result.trace) =~ record.content
+      refute Jason.encode!(result.trace) =~ "raw bytes"
+    end
+  end
+
+  test "rootless descendants retain the observed parent's turn" do
+    parent = %{
+      origin: "zaq_action",
+      invocation_path: ["absent-root", "parent"],
+      parent_id: "absent-root",
+      arguments: %{}
+    }
+
+    child = %{
+      origin: "zaq_action",
+      invocation_path: ["absent-root", "parent", "child"],
+      parent_id: "parent",
+      arguments: %{}
+    }
+
+    events = [
+      event(:tool_started, 1, parent, tool_call_id: "parent", iteration: 7),
+      event(:tool_started, 2, child, tool_call_id: "child", iteration: 0),
+      event(:request_completed, 3, %{result: "done"})
+    ]
+
+    assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+    assert Enum.map(result.tool_calls, & &1["turn_id"]) == ["7", "7"]
+    assert Enum.map(result.trace, & &1["turn_id"]) == ["7", "7"]
+  end
+
+  property "final native-root turn attribution is independent of descendant arrival order" do
+    check all(turn <- integer(1..100), order <- member_of([:root_first, :child_first])) do
+      root = event(:tool_started, 1, %{arguments: %{}}, tool_call_id: "root", iteration: turn)
+
+      child =
+        event(
+          :tool_started,
+          2,
+          %{origin: "zaq_action", invocation_path: ["root", "child"], parent_id: "root"},
+          tool_call_id: "child",
+          iteration: 0
+        )
+
+      calls = if order == :root_first, do: [root, child], else: [child, root]
+      events = calls ++ [event(:request_completed, 3, %{result: "done"})]
+      assert {:ok, result} = StreamEvents.consume(events, incoming(), status_module: FakeStatus)
+      assert Enum.all?(result.tool_calls, &(&1["turn_id"] == to_string(turn)))
+      assert Enum.all?(result.trace, &(&1["turn_id"] == to_string(turn)))
+    end
+  end
+
   test "declared sources accumulate per request without inspecting chunks or permissions" do
     completed = fn id, result ->
       event(:tool_completed, 1, %{tool_name: "knowledge", result: result}, tool_call_id: id)

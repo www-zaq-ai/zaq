@@ -57,7 +57,12 @@ continue to open RAG.
 Specialized selectors use saved AI provider credentials and filter their models
 by catalog metadata: `capabilities.rerank` for re-ranking and `decisions` output
 modality for decision models. Changing credentials clears the model selection;
-incompatible submissions are rejected by System persistence for both BO and Engine callers. These selections
+incompatible catalog submissions are rejected by System persistence for both BO and Engine callers.
+Custom endpoints without a catalog accept explicitly supplied model IDs; changing
+credentials cannot implicitly carry a previous provider's model into a custom endpoint.
+All AI model configuration forms share `DesignSystem.AIModelSelector`, including
+manual model entry and catalog modalities. Missing modality metadata is displayed
+as unknown, not inferred from the model name. These selections
 are persisted as `rag.reranking.credential_id`, `rag.reranking.model`,
 `rag.decision.credential_id` and `rag.decision.model`. Re-ranking is active in
 `SearchKnowledgeBase` for every search mode: the selected model ranks the merged
@@ -67,6 +72,17 @@ unsupported model, authentication failure, provider error or timeout fails the
 search rather than silently using unre-ranked results. Runtime authentication
 uses the existing System/Connect boundary and provider adapters; ReqLLM owns
 reranking inference and batching, without text-generation sampling options.
+Catalog rerank execution contracts retain the configured provider identity even
+when ReqLLM has no dedicated provider module. Endpoint paths come from the catalog;
+ZAQ does not rewrite provider-specific paths. Reranking child traces reuse
+`Zaq.Agent.ErrorMessage` diagnostic categories, retaining only fixed failure
+stages/reasons and typed HTTP status codes, never raw provider errors,
+response bodies or credential details. The outer search failure remains
+`knowledge_reranking_failed`.
+ZAQ Router uses LiteLLM's `/rerank` endpoint through the existing ReqLLM Cohere
+adapter, preserving the configured gateway endpoint, credentials and model ID.
+Its temporary wire model selects the Cohere protocol adapter; transport telemetry
+identifies that adapter, not a separate configured Cohere credential.
 No denied content is sent to the model. Decision inference remains inactive.
 Referenced AI credentials cannot be deleted until the selection is cleared.
 
@@ -92,7 +108,10 @@ manual entry. Pair saves are atomic; operation and specialized RAG selections ar
 read in a single database snapshot. Referenced credentials cannot be deleted.
 
 The rollout snapshots configured legacy global pairs and sampling once, without
-overwriting existing dedicated settings. Fresh installations remain unconfigured.
+overwriting existing dedicated settings. Fresh installations remain unconfigured
+until explicitly configured or [portal provisioning](onboarding.md#provisioning-details-provisioner)
+initializes its router defaults. Portal retries preserve saved empty selections as
+well as customized settings.
 Subsequent global changes do not affect these operations. Unconfigured translation
 reports failed target languages while preserving simple-language searches; title
 generation returns its deterministic first-message fallback. Neither falls back to

@@ -144,7 +144,8 @@ Use this to decide where new code belongs. When a function would violate the "Do
 | `ProviderSpec.Registry` and provider implementations | Static provider selection and pure provider-specific ReqLLM translation | Credential lookup/selection, authorization, OAuth protocol, HTTP, persistence |
 | `Factory` | Model spec assembly (`build_model_spec/0,1`), `ask/ask_with_config`, generation opts | Provider/URL logic (delegated to `ProviderSpec`), credential resolution, pipeline orchestration |
 | `Executor` | Configured-agent lifecycle, config loading, factory delegation, `:answering` status broadcast | LLM call details, response struct construction |
-| `StreamEvents` | Request-local stream reduction, accepted-answer correlation and native-input evidence dispatch, buffered updates, trace/tool capture, model/measurement extraction | Server lifecycle, provider config, database persistence or outcome finalization |
+| `StreamEvents` | Request-local stream reduction, accepted-answer correlation and native-input evidence dispatch, buffered updates, trace/tool capture, model/measurement extraction | Typed evidence conversion, artifact extraction (delegated to `TraceEvidence`), server lifecycle, provider config, database persistence or outcome finalization |
+| `TraceEvidence` | Bounded metadata/result preparation, supported artifact externalization, legacy JSON persistence conversion | Action execution, event collection/correlation, authorization or database persistence |
 | `ServerManager` | `AgentServer` start/stop/lookup per configured agent id | Provider logic, URL handling, answer building, branching by agent type |
 | `Api` | `NodeRouter` dispatch entrypoint, PromptGuard gate, `:validating` status broadcast, route decision | Business logic beyond routing |
 | `Status` | Ordered intermediate upserts routed via NodeRouter to Channels | Orchestration, agent lifecycle, UI logic, PubSub subscription |
@@ -680,6 +681,47 @@ without safe permission mutation support return `:unsupported`.
 - Defaults the stored message role to `"assistant"` so workflows can persist assistant-initiated notifications or follow-ups without creating a fake user turn.
 - Conversation creation/reuse is delegated to `Zaq.Engine.Conversations.persist_message_history/2`, which consumes the same Channels-computed conversation identity as admission.
 
+### Composed Action execution (`Zaq.Agent.Tools.ActionContract`)
+
+`execute/4` normalizes parameters and delegates validation, retries, timeouts, and
+execution to `Jido.Exec.run/4`, preserving the original result/effects. When trusted
+context contains `tool_call_id` and a trace destination, each call creates a UUID
+child segment and inherits `tool_invocation_path` and `on_tool_event`. Native root
+IDs remain opaque; child IDs are `zaq.<base64url(root)>.<UUID>...` with the explicit
+path retained as the structural source of truth. Internal Jido retries share that
+invocation; separate executions get distinct child IDs. The pure
+`Zaq.Contracts.ActionInvocation` contract owns the shared path/ID mapping used by
+this boundary and workflow admission; it neither executes nor authorizes calls.
+
+An arity-one `on_tool_event` receives existing Jido `tool_started` / `tool_completed`
+envelopes. The default sends to `tool_event_sink: {:pid, consumer}` with Jido's
+request/run correlation, without acknowledgements or tracing waits. Custom
+callbacks override that route and receive redacted metadata-only evidence suitable
+for synchronous workflow recording. The default route preserves supported typed
+artifact payloads until the existing trace artifact projection externalizes them.
+Result tuples are normalized only in evidence; outcome and duration are explicit.
+Unknown runtime objects are omitted, not inspected. Missing tracing context keeps
+execution untraced; callback errors never replace the Action result.
+
+`TraceEvidence.metadata/1` prepares arguments and custom-callback evidence;
+`TraceEvidence.result/1` retains supported typed bytes for the native stream only.
+Their shared bounded traversal reuses Observe redaction, Record metadata and tool
+error summaries without changing tagged envelopes. Generic transport sanitization
+is not interchangeable: its tuple, struct and truncation contracts differ.
+
+Knowledge search preserves its supervised deadline and zero-retry/inline child
+execution options while forwarding only tracing keys through its existing narrow
+context allowlists. Browsing uses the same boundary for screenshot folder/file
+creation. Skill resource loading uses it for GetDocument/DownloadDocument without
+changing the scoped permission bypass, actor, resource selection or decoded bytes.
+Trace evidence redacts materialization handles and provenance capabilities; custom
+workflow-style callbacks receive metadata, never inline loaded resource content.
+Record evidence reuses `Record.metadata/1`'s public-field projection, excluding
+provider `raw` payloads even when they contain a second copy of resource content.
+Known Jido Action errors retain their bounded message through the shared tool
+error formatter; exception details, workflow diagnostics and unknown struct
+internals are not included in child error evidence.
+
 ### Runtime Factory (`Zaq.Agent.Factory`)
 - Standard runtime agent for all configured agents
 - Supports per-request runtime tool/module selection and LLM options
@@ -723,6 +765,12 @@ without safe permission mutation support return `:unsupported`.
 - Authentication expiry uses an incarnation-bound timer and the same local fence/drain
   path. A restarted manager stops children that survived under the dynamic supervisor
   before accepting them as reusable runtimes.
+- An unexpected AgentServer crash terminates its active history-lease owner with
+  `{:agent_runtime_down, reason}`, interrupting an Executor blocked on stream events.
+  The monitor and lease must identify the same runtime PID. Pending lease waiters
+  still receive `{:error, :stale_runtime}`; steering-only callers, released owners
+  and managed stop/drain paths retain their existing behavior. Lease-free workflow
+  and nested-agent calls retain their outer step/tool timeout boundaries.
 - Executions fail closed when a live server lacks its cached runtime configuration;
   the warm path never reconstructs configuration or resolves authentication.
 - Runtime lifecycle details (hot patch vs stop-only + lazy restart) are documented in [Architecture → Configured Agent Runtime Lifecycle](../architecture.md#configured-agent-runtime-lifecycle).
@@ -739,6 +787,29 @@ without safe permission mutation support return `:unsupported`.
 - These checks are implemented in `Zaq.Agent.MCP.Runtime` and must remain centralized there.
 
 ### Stream Events (`Zaq.Agent.StreamEvents`)
+
+Nested Action lifecycle events enter the same request stream as native tool events.
+The canonical collection retains `invocation_path`, `parent_id`, and `origin` on
+both starts and completions; no second child collection or ID reconciliation is
+used. Child sequence/iteration envelopes use zero as a synthetic fallback, with
+first-observed collection order and the parent's displayed turn retained. Nested
+activity does not change public status labels, root tool counts, or source/result
+aggregation. Consumed completions survive request failure; unresolved starts become
+unknown at termination. The consumer never waits for events emitted after closure.
+Nested document Records are externalized by `TraceEvidence.externalize/4` through
+the existing trace artifact path. StreamEvents retains flat relationships and turn
+correlation; presentation owns tree construction. `StreamEvents.json_safe/1` remains
+a compatibility delegate to the helper's unchanged legacy serializer, including
+struct tags and inspection fallbacks; it is not a security sanitizer.
+Content-part and Record extraction compose for mixed payloads, and content-part
+artifact metadata is built only after Record bytes have been removed. Nested
+artifacts are marked optional diagnostics; Engine owns their limit/validation
+policy and records omission reasons without failing an otherwise valid answer.
+
+`ToolStep.project/1` and `from_trace/1` omit explicit nested diagnostics before
+applying public identity/display limits. Both live and final publication and
+history reload therefore retain root-only public steps. Classification uses
+hierarchy/origin metadata, never a native ID prefix or a tool-name guess.
 - Reduces `Jido.AI.Agent.ask_stream/3` events into one request result consumed by `Executor`.
 - `tool_calls` is the sole request-local invocation collection. Its records keep
   private arguments/results/timestamps alongside explicit native `invocation_id`,
@@ -847,10 +918,19 @@ without safe permission mutation support return `:unsupported`.
 
 ### Provider Spec (`Zaq.Agent.ProviderSpec`)
 - Generic facade for provider normalization, model specs and runtime options
+- `known_provider?/1` owns catalog/adapter recognition separately from execution
+  fallback, so telemetry consumers do not inspect LLMDB or ReqLLM registries
 - Selects pure Agent-owned implementations through `Zaq.Agent.ProviderSpec.Registry`;
   adding provider-specific ReqLLM behavior does not add branches to the facade
 - Keeps OAuth protocol and selected-grant identity in Connect's separate OAuth behavior
 - Builds provider spec maps and generation options consumed by `Factory`
+- Dedicated reranking resolves catalog models before generation-provider fallback,
+  retaining provider identity, aliases and execution contracts for ReqLLM's shared
+  adapters. Generation rejects catalog models explicitly marked non-chat; native
+  ReqLLM adapters retain their identity, while catalog-only chat models may use the
+  existing OpenAI-compatible path with an explicit configured endpoint, even when
+  their provider supports a different operation natively. Agent runtime preflight
+  delegates to the same model-spec resolution
 - Resolves configured-agent provider configuration through
   `Zaq.System.get_ai_provider_credential/1` only on legacy/local paths; during lifecycle
   startup it translates Engine's secret-free provider projection plus the already-resolved
@@ -1083,6 +1163,7 @@ lib/zaq/agent/
 ├── server_manager.ex           # Ensures one AgentServer per configured agent id
 ├── status.ex                   # Fire-and-forget PubSub status broadcast
 ├── supervisor.ex               # Agent role supervisor with dynamic AgentServer tree
+├── trace_evidence.ex           # Typed diagnostic preparation, artifact and legacy JSON conversion
 ├── tools/
 │   ├── list_knowledge_base_files.ex # Built-in tool: list KB files
 │   ├── registry.ex             # Code-defined tool allowlist and capability checks

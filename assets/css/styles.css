@@ -1574,34 +1574,60 @@ a.zaq-chat-source-row:focus-visible {
 .zaq-modal-preview .zaq-bo-modal-overlay {
   position: absolute !important;
 }
-/* Catalog model modalities shared by agent forms and selectable list rows. */
-.zaq-agent-model-settings {
+/* Provider spans the complete model + modalities row in stacked layouts. */
+.zaq-ai-model-selector {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--zaq-layout-grid-gap);
+  min-width: 0;
   align-items: start;
 }
 
-.zaq-agent-model-modalities {
+.zaq-ai-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--zaq-layout-inline-gap-compact);
+  align-items: start;
   min-width: 0;
+}
+
+.zaq-ai-model-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.zaq-ai-model-selector .zaq-field-label-uppercase {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zaq-ai-model-field[disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.zaq-ai-model-modalities {
+  min-width: 0;
+  max-width: var(--zaq-scale-120);
   overflow-x: auto;
+  padding-top: var(--zaq-scale-32);
 }
 
 @media (min-width: 1024px) {
-  .zaq-agent-model-settings {
+  .zaq-ai-model-selector--inline {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   }
 
-  .zaq-agent-model-modalities {
-    padding-top: var(--zaq-scale-32);
-    max-width: 240px;
-  }
-
-  .zaq-agent-model-warning {
-    grid-column: 1 / -1;
+  .zaq-ai-model-selector--inline > .zaq-ai-model-row {
+    display: contents;
   }
 }
 
+/* Catalog model modalities shared by agent forms and selectable list rows. */
 .zaq-model-modalities,
 .zaq-model-modalities-group,
 .zaq-model-modality {
@@ -1646,3 +1672,11 @@ a.zaq-chat-source-row:focus-visible {
   color: var(--zaq-text-color-body-default);
   max-width: calc(100vw - 16px);
 }
+/* Nested trace rows share the existing viewer; cap visual indentation on deep paths. */
+.zaq-trace-nested { border-left-color: var(--zaq-border-color-accent); }
+.zaq-trace-depth-1 { margin-left: var(--zaq-scale-16); }
+.zaq-trace-depth-2 { margin-left: var(--zaq-scale-32); }
+.zaq-trace-depth-3 { margin-left: var(--zaq-scale-48); }
+.zaq-trace-depth-4 { margin-left: var(--zaq-scale-64); }
+.zaq-trace-depth-5 { margin-left: var(--zaq-scale-80); }
+.zaq-trace-depth-6 { margin-left: var(--zaq-scale-96); }

@@ -2648,6 +2648,58 @@ defmodule Zaq.Agent.ExecutorIntegrationTest do
     end
   end
 
+  test "attributes known configured providers through their resolved runtime adapters" do
+    Process.put(:executor_usage_model, nil)
+    Sandbox.allow(Repo, self(), Process.whereis(Buffer))
+
+    for {provider, model, expected_provider} <- [
+          {"OpenAI", "gpt-4.1-mini", "openai"},
+          {"AlBeRt", "openweight-large", "openai"},
+          {"zaq_router", "custom-model", "zaq_router"},
+          {"OPENAI_CODEX", "gpt-5.1-codex", "openai_codex"}
+        ] do
+      credential =
+        ai_credential_fixture(%{
+          provider: provider,
+          endpoint: "https://provider.example/v1",
+          api_key: "test-key"
+        })
+
+      {:ok, configured_agent} =
+        Agent.create_agent(%{
+          name: "Telemetry Provider #{System.unique_integer([:positive, :monotonic])}",
+          job: "Reply to the question.",
+          model: model,
+          credential_id: credential.id,
+          strategy: "react",
+          enabled_tool_keys: [],
+          conversation_enabled: false,
+          active: true,
+          advanced_options: %{}
+        })
+
+      Buffer.flush()
+      Repo.delete_all(Point)
+
+      outgoing =
+        run_executor(%Incoming{content: "hi", channel_id: "known-provider", provider: :web},
+          event: execution_event(),
+          agent_id: configured_agent.id,
+          server_manager_module: StubServerManager,
+          factory_module: StubFactoryUsage
+        )
+
+      assert outgoing.metadata.error == false
+      assert :ok = Buffer.flush()
+
+      assert [%Point{value: 1.0, dimensions: dimensions}] =
+               Repo.all(from p in Point, where: p.metric_key == "qa.llm.call.count")
+
+      assert dimensions["llm_provider"] == expected_provider, provider
+      refute Map.has_key?(dimensions, "model")
+    end
+  end
+
   test "omits an unknown configured provider from per-call telemetry without creating an atom" do
     {configured_agent, _credential, _endpoint} = credential_agent_fixture(self())
     provider = "unregistered-telemetry-provider-#{System.unique_integer([:positive, :monotonic])}"

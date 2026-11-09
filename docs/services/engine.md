@@ -1203,6 +1203,14 @@ references; no historical repair is performed. The existing token aggregator
 uses completed execution counters in preference to Message counters, with a
 per-counter legacy fallback; retries still recompute totals once per answer.
 
+Trace artifact preparation owns configured byte limits and storage validation.
+Artifacts explicitly marked `optional: true` carry diagnostic evidence: invalid
+or oversized payloads are omitted individually, with a safe `artifact_omissions`
+reason on the matching trace row. Accepted siblings still use the ordinary
+transactional artifact storage and authorized reads. Unmarked/required artifacts
+retain strict failure behavior; authorization and database write failures are not
+converted into omissions or successful finalizations.
+
 `Conversations.reserve_answer_identity/3` is the Engine reservation boundary for a
 selected answer root. Under the existing admitted-input lock it verifies the
 finalization capability, active private execution owner and root admission evidence,
