@@ -110,8 +110,8 @@ read in a single database snapshot. Referenced credentials cannot be deleted.
 The rollout snapshots configured legacy global pairs and sampling once, without
 overwriting existing dedicated settings. Fresh installations remain unconfigured
 until explicitly configured or [portal provisioning](onboarding.md#provisioning-details-provisioner)
-initializes its router defaults. Portal retries preserve saved empty selections as
-well as customized settings.
+initializes its router defaults for both operations. Portal retries preserve
+customized, partial, sampling-only and explicitly cleared settings.
 Subsequent global changes do not affect these operations. Unconfigured translation
 reports failed target languages while preserving simple-language searches; title
 generation returns its deterministic first-message fallback. Neither falls back to

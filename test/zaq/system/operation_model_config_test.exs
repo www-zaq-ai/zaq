@@ -1,11 +1,42 @@
 defmodule Zaq.System.OperationModelConfigTest do
   use Zaq.DataCase, async: true
+  use ExUnitProperties
 
   alias Zaq.Agent.ProviderSpec
   alias Zaq.Engine.Conversations.TitleGenerator
   alias Zaq.System
   alias Zaq.System.OperationModelConfig
   import Zaq.SystemConfigFixtures
+
+  test "Small model initialization ignores translation and unrelated global settings" do
+    assert {:ok, _} = System.set_config("rag.translation.model", "openai/gpt-oss-20b")
+    assert {:ok, _} = System.set_config("global.small_model.unrelated", "saved")
+
+    refute System.model_config_initialized?(:small)
+  end
+
+  test "an explicitly cleared Small model selection is initialized" do
+    refute System.model_config_initialized?(:small)
+
+    assert {:ok, _} =
+             System.save_operation_model_config(:small, %{credential_id: nil, model: nil})
+
+    assert System.model_config_initialized?(:small)
+  end
+
+  property "any saved Small model field marks initialization regardless of its value" do
+    check all(
+            field <- member_of(~w(credential_id model temperature top_p)),
+            value <- one_of([constant(nil), constant(""), string(:printable, max_length: 30)])
+          ) do
+      refute System.model_config_initialized?(:small)
+      key = "global.small_model.#{field}"
+      assert {:ok, _} = System.set_config(key, value)
+      assert System.model_config_initialized?(:small)
+
+      Repo.delete_all(from(config in Zaq.System.Config, where: config.key == ^key))
+    end
+  end
 
   test "initialization distinguishes absent settings from partial or explicitly cleared choices" do
     for kind <- [:translation, :reranking, :decision] do

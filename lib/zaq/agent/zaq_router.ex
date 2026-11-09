@@ -27,6 +27,7 @@ defmodule Zaq.Agent.ZAQRouter do
   @default_embedding_dimension 1024
   @default_image_model "deepseek/deepseek-v4.1-flash"
   @default_translation_model "openai/gpt-oss-20b"
+  @default_small_model "openai/gpt-oss-20b"
   @default_reranking_model "Qwen/Qwen3-Reranker-0.6B"
   @default_decision_model "typesafe/jev-1.14"
 
@@ -131,6 +132,7 @@ defmodule Zaq.Agent.ZAQRouter do
         @default_embedding_model,
         @default_image_model,
         @default_translation_model,
+        @default_small_model,
         @default_reranking_model,
         @default_decision_model
       ] do
@@ -154,6 +156,10 @@ defmodule Zaq.Agent.ZAQRouter do
   @doc "Default knowledge-query translation model wired on first-run provisioning."
   @spec default_translation_model() :: String.t()
   def default_translation_model, do: @default_translation_model
+
+  @doc "Default Small model wired on first-run provisioning for conversation titles."
+  @spec default_small_model() :: String.t()
+  def default_small_model, do: @default_small_model
 
   @doc "Default reranking model wired on first-run provisioning."
   @spec default_reranking_model() :: String.t()
