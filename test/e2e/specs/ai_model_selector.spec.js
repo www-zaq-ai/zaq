@@ -17,7 +17,7 @@ const selectors = [
   { id: "image-to-text", tab: "rag", key: "image_to_text", form: "image-to-text-config-form" },
   { id: "translation", tab: "rag", key: "rag.translation", form: "translation-model-form" },
   { id: "rag-reranking", tab: "rag", key: "rag.reranking", form: "rag-reranking-form" },
-  { id: "rag-decision", tab: "rag", key: "rag.decision", form: "rag-decision-form" },
+  { id: "decision", tab: "global", key: "global.decision_model", form: "decision-model-form" },
 ]
 
 async function expectModelRowLayout(selector) {
