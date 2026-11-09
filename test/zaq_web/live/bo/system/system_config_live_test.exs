@@ -8950,7 +8950,15 @@ defmodule ZaqWeb.Live.BO.System.SystemConfigLiveTest do
       credential = ai_credential_fixture(%{provider: "custom"})
       {:ok, view, _} = live(conn, ~p"/bo/system-config?tab=global")
       assert has_element?(view, "#decision-model-section")
-      assert has_element?(view, "#decision-model-section .zaq-ai-model-selector--inline")
+
+      assert has_element?(
+               view,
+               "#global-model-row.grid-cols-1.xl\\:grid-cols-2 > #small-model-section"
+             )
+
+      assert has_element?(view, "#global-model-row > #decision-model-section")
+      assert has_element?(view, "#small-model-section .zaq-ai-model-selector--stacked")
+      assert has_element?(view, "#decision-model-section .zaq-ai-model-selector--stacked")
 
       params = %{
         "decision_model_config" => %{

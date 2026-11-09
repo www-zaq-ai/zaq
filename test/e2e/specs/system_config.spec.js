@@ -303,16 +303,29 @@ test.describe("System Config", () => {
           await page.locator("#rag-config").screenshot({ path: testInfo.outputPath(`rag-${theme}-${width}.png`) })
           await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=global`)
           await expect(page.locator("#decision-model-section")).toBeVisible()
-          const globalLayout = await page.locator("#decision-model-section").evaluate(section => ({
+          const globalLayout = await page.locator("#global-model-row").evaluate(row => ({
             overflow: document.documentElement.scrollWidth > innerWidth,
-            top: section.getBoundingClientRect().top,
-            smallBottom: document.querySelector("#small-model-section").getBoundingClientRect().bottom,
-            right: section.getBoundingClientRect().right,
+            cards: ["small", "decision"].map(kind => {
+              const rect = row.querySelector(`#${kind}-model-section`).getBoundingClientRect()
+              return { left: rect.left, top: rect.top, bottom: rect.bottom, right: rect.right, width: rect.width }
+            }),
+            stackedSelectors: row.querySelectorAll(".zaq-ai-model-selector--stacked").length,
+            offscreen: [...row.querySelectorAll("input,button")].filter(element => element.getBoundingClientRect().right > innerWidth + 1).length,
           }))
           expect(globalLayout.overflow).toBe(false)
-          expect(globalLayout.right).toBeLessThanOrEqual(width)
-          expect(globalLayout.top).toBeGreaterThan(globalLayout.smallBottom)
-          await page.locator("#decision-model-section").screenshot({ path: testInfo.outputPath(`decision-${theme}-${width}.png`) })
+          expect(globalLayout.offscreen).toBe(0)
+          expect(globalLayout.stackedSelectors).toBe(2)
+          const [small, decision] = globalLayout.cards
+          for (const card of globalLayout.cards) expect(card.right).toBeLessThanOrEqual(width)
+          expect(Math.abs(small.width - decision.width)).toBeLessThanOrEqual(1)
+          if (width === 390) {
+            expect(decision.left).toBe(small.left)
+            expect(decision.top).toBeGreaterThan(small.bottom)
+          } else {
+            expect(Math.abs(decision.top - small.top)).toBeLessThanOrEqual(1)
+            expect(decision.left).toBeGreaterThan(small.right)
+          }
+          await page.locator("#global-model-row").screenshot({ path: testInfo.outputPath(`global-models-${theme}-${width}.png`) })
           await gotoBackOfficeLive(page, `${CONFIG_PATH}?tab=rag`)
         }
       })
