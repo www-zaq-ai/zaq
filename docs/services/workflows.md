@@ -22,9 +22,10 @@ DAG-based workflow engine built on [Runic](https://hexdocs.pm/runic). Workflows 
 | `Zaq.Engine.Workflows.Composition` | Workflow-in-workflow composition: splices `"workflow"`-type nodes inline at run creation (`expand/2`), validates single entry/exit, namespacing, and acyclicity (`validate/2`) |
 | `Zaq.Engine.Workflows.Action` | Behaviour + contract every `action`/`agent` node must satisfy; `resolve/1`, `validate/1`, `validate_ref/1`; callbacks `on_success/2`, `on_failure/2`; `use Zaq.Engine.Workflows.Action` provides default implementations |
 | `Zaq.Engine.Workflows.EdgeCondition` | Operator vocabulary (`ops/0`) and pure evaluation (`evaluate/4`); used by `Step.Edge` for schema validation and `Steps.EdgeStep` at runtime |
-| `Zaq.Engine.Workflows.Steps.EdgeStep` | Infrastructure `Jido.Action` injected by `DagBuilder` on conditional/mapping edges; raises `ConditionNotMet` on false; not wrapped by `StepRunner`, but writes its own `completed`/`skipped`/`failed` guard row per edge — see Crash-Safe Cursor below |
+| `Zaq.Engine.Workflows.EdgeGate` | Native Runic predicate adapter for conditional edges; preserves input facts, records skipped edges through hooks, and records genuine evaluation failures before returning them to Runic |
+| `Zaq.Engine.Workflows.Steps.EdgeStep` | Infrastructure `Jido.Action` injected by `DagBuilder` to map edge facts; shares predicate evaluation and trace writing with `EdgeGate`; not wrapped by `StepRunner` — see Crash-Safe Cursor below |
 | `Zaq.Engine.Workflows.Steps.MapCollect` | Internal tail step for a `"map"` node; runs after the `FanIn` collects every successful per-item result; wrapped by `StepRunner` under the map node's own name and writes the single aggregate `Step.Run`; recovers per-item failures from the per-fork `Step.Run` rows |
-| `Zaq.Engine.Workflows.Conditions.ConditionNotMet` | Exception raised by `Steps.EdgeStep` when a condition evaluates to false; triggers branch pruning |
+| `Zaq.Engine.Workflows.Conditions.ConditionNotMet` | Exception retained for direct `Steps.EdgeStep` condition checks; compiled DAGs use native predicate outcomes |
 | `Zaq.Engine.Workflows.Conditions.WaitingForApproval` | Exception struct defined for the HITL approval signal; carries `step_name`, `run_id`, `approval_token`. Currently unused at runtime — `Steps.HumanInTheLoop` returns `{:error, {:waiting_for_human, approval_token}}` instead of raising this exception. Reserved for future use. |
 | `Zaq.Engine.Workflows.StepApproval` | Schema: per-step approval record for a suspended run; table `step_approvals`; fields `step_name`, `approval_token`, `message`, `decision`, `approved_by`, `approved_at`; statuses: `pending`, `approved`, `rejected` |
 | `Zaq.Engine.Workflows.Steps.HumanInTheLoop` | Jido action that suspends a run for human review; creates a `StepApproval` record and returns `{:error, {:waiting_for_human, approval_token}}` |
@@ -58,7 +59,7 @@ Trigger fires → Workflows.create_run/4   # snapshot steps + settings → Workf
               │         ├─ mod.run(params, context)
               │         └─ update Step.Run  status: "completed" | "failed"
               ├─ catch :pause_requested → return paused run (no dispatch)
-              └─ finalize/2
+              └─ finalize/3
                    ├─ any Step.Run "waiting"  → run = "waiting" + dispatch "run.waiting"
                    ├─ any Step.Run "failed" or "running" → run = "failed" + dispatch "run.failed"
                    ├─ no leaf (terminal) node completed → run = "incomplete" + dispatch "run.incomplete"
@@ -97,7 +98,7 @@ Iteration is **not** an authorable node type. Authors express it through the `Ba
 
 **Edge fields:**
 - `"from"` / `"to"` — node names (strings, matched to node `"name"` field).
-- `"condition"` — optional map with `"field"`, `"op"`, and optionally `"value"`. Supported ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `not_empty`, `empty`, `in`. When present, an `EdgeStep` is injected between the two nodes; a false condition raises `ConditionNotMet`, pruning that branch while sibling edges continue.
+- `"condition"` — optional map with `"field"`, `"op"`, and optionally `"value"`. Supported ops: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `not_empty`, `empty`, `in`. A native Runic gate precedes the edge's mapping action; false records a skipped edge and leaves sibling branches runnable.
   - **Date conditions:** add an optional `"type"` of `"date"` or `"datetime"` to compare `%Date{}` / `%DateTime{}` values chronologically instead of by term order (term order sorts date structs by map key, which is wrong). With a `"type"`, `"value"` accepts an ISO8601 string, a `"today"` / `"now"` sentinel, or a relative map `%{"from" => "now" | "today", "days" | "hours" | "minutes" | "seconds" => <int>}`. "Older than 7 days" is `type: "date", op: "lt", value: %{"from" => "today", "days" => -7}`. The same `"type"` works on the `Condition` node's per-condition maps. Examples:
     ```json
     {"from": "check", "to": "overdue",
@@ -131,7 +132,13 @@ For **event-driven triggers** (e.g., email received, webhook posted):
 5. `WorkflowRunAgent` extracts `run.source_event.assigns[:input]` (safely handling both atom and string keys from JSONB round-trips) as the initial Runic fact.
 6. Each action node receives the accumulated fact map as `params` and returns `{:ok, result_map}`.
 7. Runic merges the result map into the running fact for downstream nodes.
-8. On edges with a `condition`, an `EdgeStep` evaluates the condition against the upstream fact. A false result raises `ConditionNotMet`, pruning that branch. On edges with a `mapping`, the `EdgeStep` renames keys before the fact reaches the downstream node.
+8. On edges with a `condition`, `EdgeGate` evaluates a native `Runic.condition` using the shared edge evaluator. A false result records a skipped edge and activates no downstream work, while sibling branches continue. A true result forwards the original fact to `EdgeStep`, which applies the mapping and records completion before delivering the fact to the downstream node.
+
+Runic facts use canonical identities. Explicit `Runic.Identity.Projectable`
+implementations cover `Zaq.Contracts.Record`, `Zaq.Storage.FileExplorer.Entry`, and
+`DateTime`, `Date`, and `NaiveDateTime`, preserving the original typed payloads and including all their fields
+in versioned identity documents. Scalar facts are evaluated by edge gates as
+`%{input: value}`, matching ActionNode parameters, while the original fact is forwarded.
 
 The triggering event's payload is preserved through the fact flow as `params.event.payload` in the first action node.
 
@@ -204,17 +211,26 @@ diagnostics cannot be recovered from an old step by reloading it.
 4. On `{:error, reason}` → update to `"failed"` with `errors` map.
 5. If the action raises → exception is caught, row marked `"failed"`, `{:error, exception}` returned.
 
-`Steps.EdgeStep` is NOT wrapped by `StepRunner` — it is infrastructure — but it writes its own idempotent guard row per edge (same create-then-update cursor, guarded by `get_step_run_by_name/2` so a Jido retry never double-writes):
+`Steps.EdgeStep` is NOT wrapped by `StepRunner` — it is infrastructure. It shares idempotent edge trace writing with `EdgeGate` (the same create-then-update cursor, guarded by `get_step_run_by_name/2`):
 
 | Outcome | Guard row status | Written | Downstream / run effect |
 |---|---|---|---|
 | condition true (or absent) + mapping succeeds | `completed` | only after the mapping has been applied — a crash can never leave a `completed` row for an edge that produced no fact | downstream node runs normally |
-| condition false (`ConditionNotMet`) | `skipped` | before the raise | downstream subgraph pruned (no row for it); run may finalize `incomplete` if no leaf is ever reached |
-| any other unexpected raise (bad op, mapping crash, etc.) | `failed` | before re-raising the original exception | downstream subgraph pruned; `finalize/2` sees the `failed` row and marks the run `"failed"` with the edge in `failed_steps`, instead of a silent `incomplete` |
+| condition false | `skipped` | native predicate's after hook | downstream is not activated; siblings continue; run may finalize `incomplete` if no leaf is ever reached |
+| unexpected predicate error (bad op, etc.) | `failed` | predicate preflight hook | Runic receives a failed runnable and stops admission; `finalize/3` marks the run `"failed"` with the edge in `failed_steps` |
+| mapping crash | `failed` | before re-raising the original exception | Runic receives a failed runnable; `finalize/3` marks the run `"failed"` with the edge in `failed_steps` |
 
-An edge with no `run_id` (uninstrumented evaluation) writes no row in any of the three cases.
+An edge with no `run_id` (uninstrumented evaluation) writes no trace row.
 
-After `react_until_satisfied/3` returns, `WorkflowRunAgent.finalize/2` queries all `Step.Run` rows for the run — this includes `EdgeStep`'s own guard rows, not just `StepRunner`-wrapped node rows. Any row still at `"running"` (process crash mid-action) or `"failed"` causes the run to be marked `"failed"`.
+The native predicate remains side-effect free. Its before hook preflights the
+same evaluator because Runic treats some predicate exceptions as a normal
+non-match; genuine ZAQ errors must instead be recorded and returned as failures.
+Its after hook records false results. Passing gates leave completion recording
+to the mapping action, so a mapping crash cannot leave a completed edge trace.
+Direct `EdgeStep.run/2` callers still receive `ConditionNotMet` for false
+conditions; compiled DAGs route through native gates instead.
+
+After `Runic.Workflow.execute/3` returns, `WorkflowRunAgent.finalize/3` queries all `Step.Run` rows for the run — this includes `EdgeStep`'s own guard rows, not just `StepRunner`-wrapped node rows. Any row still at `"running"` (process crash mid-action) or `"failed"` causes the run to be marked `"failed"`. Canonical identity errors in the Runic driver also mark the run `"failed"`, with an `execution_error` in its log summary, even when the producing action already completed. Native failed runnable outcomes are also recorded as execution errors, so completed siblings cannot hide Batch driver failures. Intentional skips and human-approval waits retain their existing semantics. Other unexpected driver exceptions still propagate.
 
 On resume, `StepRunner` first calls `get_terminal_step_run/2` for the `(run_id, step_name)` pair. If a terminal row exists (`completed`, `failed`, `skipped`, or `waiting`), the stored result is returned immediately without calling the wrapped module. For `completed` rows the stored results are returned as `{:ok, results}`; for `failed` rows as `{:error, errors}`; for `skipped` as `{:error, :condition_not_met}`; for `waiting` as `{:error, :waiting_for_human}`. This makes resume idempotent and prevents duplicate step rows.
 
@@ -237,7 +253,7 @@ pending → running → completed
 ```
 
 - `waiting` means a `HumanInTheLoop` step has suspended execution pending approval. Call `Engine.Api.handle_event(event, :workflow, ctx)` with `action: "run.approve"` or `action: "run.reject"` to proceed.
-- `incomplete` means execution reached quiescence without any terminal (leaf) node of the authored DAG completing — a branch was pruned by a false edge condition (`EdgeStep` leaves the downstream subgraph rowless) or otherwise starved. No step errored, so it is not `failed`; but the run stopped short of its end, so it is not `completed` either. `finalize/2` records the unreached leaves in `log_summary.unreached_leaves`. Note: a guarded "nothing to do" terminal step (e.g. `notify` behind `count > 0` when `count == 0`) also yields `incomplete` — give such workflows an explicit else-branch to a real leaf if a `completed` outcome is desired.
+- `incomplete` means execution reached quiescence without any terminal (leaf) node of the authored DAG completing — a branch was pruned by a false edge condition (`EdgeStep` leaves the downstream subgraph rowless) or otherwise starved. No step errored, so it is not `failed`; but the run stopped short of its end, so it is not `completed` either. `finalize/3` records the unreached leaves in `log_summary.unreached_leaves`. Note: a guarded "nothing to do" terminal step (e.g. `notify` behind `count > 0` when `count == 0`) also yields `incomplete` — give such workflows an explicit else-branch to a real leaf if a `completed` outcome is desired.
 - A run can also reach `cancelled` (via `Workflows.cancel_run/2`) or `interrupted`. On engine boot, `Zaq.Engine.Workflows.StartupRecovery` finds runs stuck in `"running"`/`"pending"` (node restarted mid-flight) and enqueues one `RunRecoveryWorker` Oban job per run, which marks each run `"interrupted"` via `Workflows.interrupt_run/1`.
 
 ---
@@ -255,7 +271,7 @@ All workflow lifecycle changes are broadcast as a single `:workflow` `NodeRouter
 | `"run.failed"` | `Zaq.Engine.Workflows.WorkflowRunAgent` (runtime) / `Zaq.Engine.Workflows.ensure_prepared_dag/1` (build failure, before `run.started`) | `run_id`, `workflow_id` |
 | `"run.waiting"` | `Zaq.Engine.Workflows.WorkflowRunAgent` | `run_id`, `workflow_id` |
 
-`"run.waiting"` is dispatched by `finalize/2` when a `HumanInTheLoop` step has suspended the run. See [Human-in-the-Loop](#human-in-the-loop).
+`"run.waiting"` is dispatched by `finalize/3` when a `HumanInTheLoop` step has suspended the run. See [Human-in-the-Loop](#human-in-the-loop).
 
 Dispatch goes through `NodeRouter.dispatch/1` (async) to the Channels role, which re-broadcasts over `Zaq.PubSub` via `Zaq.Channels.Api` — engine code never calls `Phoenix.PubSub` directly.
 
@@ -421,17 +437,23 @@ A → B → C  condition {gender == "male"}   mapping {person_name ← name}  �
 
 - `B` emits `%{name: "Sam", age: 30, gender: "male"}`.
 - `DagBuilder` injects an `EdgeStep` on `B→C` and on `B→F`.
-- For `gender = "male"`: `B→C` EdgeStep passes (renames `name` → `person_name`); `B→F` EdgeStep raises `ConditionNotMet` → `F` is pruned, its `ActionResult` records `"skipped"`. Run status = `"completed"`.
+- For `gender = "male"`: the `B→C` gate passes and its mapping action renames `name` → `person_name`; the `B→F` gate returns false and records a skipped edge. `F` does not run. Run status = `"completed"`.
 - For `gender = "female"`: inverse — `C` and `D` are pruned.
-- For `gender = "other"`: both conditions fail; both branches pruned; run still `"completed"`.
+- For `gender = "other"`: both predicates return false; neither branch runs and no terminal step completes. Run status = `"incomplete"`.
 
 ---
 
 ## Key Invariants (Never Break)
 
-**1. EdgeStep must not use `Runic.condition/2`.**
+**1. Normal edge rejection is a native predicate result, not an execution failure.**
 
-`Runic.Workflow.Condition` is a `:match` node. It emits `ConditionSatisfied` events consumed only by Rule reactions — it does NOT produce `FactProduced` events that downstream `:execute` (ActionNode) nodes wait for. A guard built with `Runic.condition/2` will silently starve all downstream action nodes. `DagBuilder` injects `EdgeStep` as a `Jido.Runic.ActionNode` (a `:execute` node) that raises on false. Do not change this.
+`Runic.Workflow.Condition` is a `:match` node whose activator forwards the input
+fact to downstream action nodes when true. `DagBuilder` uses `EdgeGate` to wire
+native conditions before mapping actions. False predicates must leave sibling
+work runnable. Do not restore exception-based rejection in compiled graphs or
+globally skip action failures: Runic stops the execution call on a failed runnable.
+The authored Condition action retains its separate `on_fail: :halt` and
+`on_fail: :continue` contracts; it is not replaced by a bare predicate.
 
 **2. Steps snapshot is immutable for in-progress runs.**
 
@@ -443,7 +465,7 @@ The prepared DAG is built once (by `ensure_prepared_dag/1`) from `run.steps_snap
 
 **4. The HITL signal is a return value, not an exception.**
 
-`Steps.HumanInTheLoop.run/2` returns `{:error, {:waiting_for_human, approval_token}}`. `StepRunner` pattern-matches this in its `case` block, calls `Workflows.wait_step_run/1`, and returns `{:error, :waiting_for_human}`. The `"waiting"` detection is then done in `finalize/2` by inspecting `StepRun` statuses. `WaitingForApproval` is defined as an exception struct but is not raised by any current code path — do not add rescue clauses for it expecting it to carry HITL signals.
+`Steps.HumanInTheLoop.run/2` returns `{:error, {:waiting_for_human, approval_token}}`. `StepRunner` pattern-matches this in its `case` block, calls `Workflows.wait_step_run/1`, and returns `{:error, :waiting_for_human}`. The `"waiting"` detection is then done in `finalize/3` by inspecting `StepRun` statuses. `WaitingForApproval` is defined as an exception struct but is not raised by any current code path — do not add rescue clauses for it expecting it to carry HITL signals.
 
 **5. Module resolution uses `Module.concat/1`, never `String.to_atom/1`.**
 
@@ -461,7 +483,7 @@ The prepared DAG is built once (by `ensure_prepared_dag/1`) from `run.steps_snap
 
 ## What NOT to Do
 
-- **Do not call `Runic.condition/2`** to build guard logic. It creates `:match` nodes that do not propagate facts to downstream `:execute` nodes. Routing conditions belong on edges via the `"condition"` field — `DagBuilder` injects an `EdgeStep` (`ActionNode`) that raises on false.
+- **Do not bypass `EdgeGate`** when compiling conditional edges: native routing must preserve ZAQ's skipped/failed edge traces and existing field/date evaluation semantics. Mapping stays in `EdgeStep` after the gate passes.
 - **Do not read the live `Workflow` row inside `WorkflowRunAgent`** — only the snapshot fields and the prepared DAG on `WorkflowRun` are authoritative for a running execution.
 - **Do not skip `StepRunner`** when `run_id` is present. Calling action modules directly bypasses the crash-safe cursor and leaves no audit trail.
 - **Do not use `String.to_atom/1` for module resolution** from untrusted JSONB data. Always use `Module.concat/1` + `Code.ensure_loaded/1`.
@@ -489,7 +511,7 @@ WorkflowRunAgent.execute
         └─> StepRunner case-matches {:error, {:waiting_for_human, approval_token}}
               ├─ Workflows.wait_step_run(step_run) → StepRun{status: "waiting"}
               └─ returns {:error, :waiting_for_human}
-  └─> finalize/2 detects StepRun with status "waiting"
+  └─> finalize/3 detects StepRun with status "waiting"
         └─> Workflows.update_run(run, %{status: "waiting"}) + dispatch "run.waiting"
 ```
 

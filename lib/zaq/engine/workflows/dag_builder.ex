@@ -69,8 +69,8 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     `%Date{}`/`%DateTime{}` term order); `"value"` then accepts an ISO8601 string, a
     `"today"` / `"now"` sentinel, or a relative map like `%{"from" => "now", "days"
     => -7}` (e.g. "older than 7 days" = `type: "date", op: "lt"`). When present, an
-    `EdgeStep` is injected between the two nodes; a false condition prunes the
-    downstream branch (`ConditionNotMet` → `skip_downstream_subgraph`).
+    native Runic condition gates the edge's `EdgeStep`; a false predicate records
+    a skipped edge and leaves sibling branches runnable.
   - `"mapping"` — map of `target_key => source_key` string pairs. The EdgeStep
     renames upstream fact keys before delivering them to the downstream node.
     Source keys that appear in the mapping are consumed (not passed through).
@@ -84,6 +84,7 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
   alias Jido.Runic.ActionNode
   alias Zaq.Engine.Workflows.Action
   alias Zaq.Engine.Workflows.EdgeCondition
+  alias Zaq.Engine.Workflows.EdgeGate
   alias Zaq.Engine.Workflows.MapNodeBuilder
   alias Zaq.Engine.Workflows.StepRunner
 
@@ -349,30 +350,29 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     condition = Map.get(edge, "condition")
     mapping = Map.get(edge, "mapping") || %{}
 
-    cond do
-      is_nil(condition) and map_size(mapping) == 0 ->
-        Runic.Workflow.add(wf, runic_node, direct_edge_opts(from_name, node_map))
+    if is_nil(condition) and map_size(mapping) == 0 do
+      Runic.Workflow.add(wf, runic_node, direct_edge_opts(from_name, node_map))
+    else
+      edge_name = "#{from_name}__to__#{to_name}__edge"
+      from_index = get_in(node_map, [from_name, :index]) || 0
+      mapping_node = build_edge_step_node(mapping, edge_name, run_id, from_index)
+      incoming_opts = direct_edge_opts(from_name, node_map)
 
-      from_name == @start_sentinel and not Map.has_key?(node_map, from_name) ->
-        # Sentinel source: there is no upstream node, so the EdgeStep guard
-        # becomes a ROOT that transforms the planted initial fact. The target
-        # node is wired downstream of the guard, so it no longer reacts to the
-        # raw planted fact (avoids double-firing on the untransformed payload).
-        guard_name = "#{from_name}__to__#{to_name}__edge"
-        guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, 0)
+      {wf, mapping_opts} =
+        if condition do
+          gate_name = node_atom("#{edge_name}__condition")
 
-        wf
-        |> Runic.Workflow.add(guard_node, validate: :off)
-        |> Runic.Workflow.add(runic_node, to: node_atom(guard_name), validate: :off)
+          gated =
+            EdgeGate.add(wf, condition, gate_name, edge_name, run_id, from_index, incoming_opts)
 
-      true ->
-        guard_name = "#{from_name}__to__#{to_name}__edge"
-        from_index = get_in(node_map, [from_name, :index]) || 0
-        guard_node = build_edge_step_node(condition, mapping, guard_name, run_id, from_index)
+          {gated, [to: gate_name, validate: :off]}
+        else
+          {wf, incoming_opts}
+        end
 
-        wf
-        |> Runic.Workflow.add(guard_node, to: node_atom(from_name), validate: :off)
-        |> Runic.Workflow.add(runic_node, to: node_atom(guard_name), validate: :off)
+      wf
+      |> Runic.Workflow.add(mapping_node, mapping_opts)
+      |> Runic.Workflow.add(runic_node, to: node_atom(edge_name), validate: :off)
     end
   end
 
@@ -384,21 +384,17 @@ defmodule Zaq.Engine.Workflows.DagBuilder do
     end
   end
 
-  defp build_edge_step_node(condition, mapping, name, run_id, source_index) do
+  defp build_edge_step_node(mapping, name, run_id, source_index) do
     params =
       %{
-        __edge_condition__: condition,
         __edge_mapping__: mapping,
         __edge_name__: name,
         __edge_source_index__: source_index
       }
       |> then(fn p -> if run_id, do: Map.put(p, :run_id, run_id), else: p end)
 
-    # `max_retries: 0` — an EdgeStep "fails" only by raising `ConditionNotMet` to
-    # prune a branch, which is deterministic control flow: a retry re-evaluates the
-    # same pure condition, gets the same result, and only adds Jido's default
-    # backoff (250ms) plus retry log noise per pruned branch. Mirror StepRunner,
-    # which is also built non-retriable.
+    # Mapping errors are genuine failures. Mirror StepRunner's non-retriable
+    # execution and keep the edge trace authoritative for the workflow status.
     ActionNode.new(Zaq.Engine.Workflows.Steps.EdgeStep, params,
       name: node_atom(name),
       max_retries: 0

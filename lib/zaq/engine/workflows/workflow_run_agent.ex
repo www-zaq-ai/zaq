@@ -23,7 +23,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
      authors always read `params.event.payload` with atom keys regardless of
      whether the run was reloaded from the DB. Arbitrary payload/assigns values are
      preserved verbatim. Feeds this as the initial fact into
-     `Runic.Workflow.react_until_satisfied/3`.
+     `Runic.Workflow.execute/3`.
   4. After execution, checks `StepRun` rows: any `"failed"`/`"running"` row → run
      becomes `"failed"`; else if no terminal (leaf) step of the authored DAG
      completed (a branch was pruned or starved) → `"incomplete"`; otherwise
@@ -31,7 +31,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
 
   ## Pause / Resume
 
-  A `:checkpoint` function is passed to `react_until_satisfied/3`. After each
+  A `:checkpoint` function is passed to `execute/3`. After each
   react cycle it re-reads the `WorkflowRun` row; if the status is `"paused"` it
   throws `:pause_requested`, which is caught and returned as `{:ok, paused_run}`.
   To resume, call `Workflows.resume_run/2` — `StepRunner` skips completed steps
@@ -40,9 +40,12 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   ## Crash safety
 
   If a step raises, `StepRunner` marks its `StepRun` row as `"failed"` before
-  re-raising. `finalize/2` treats any `"running"` or `"failed"` rows as failures and
-  marks the run accordingly. Unexpected crashes in Runic itself propagate naturally
-  to the caller — they are not silently swallowed.
+  re-raising. `finalize/3` treats any `"running"` or `"failed"` rows as failures and
+  marks the run accordingly. Canonical identity errors also fail the run, with an
+  `execution_error` in its log summary, even when an action already completed.
+  Native failed runnable outcomes are also inspected; a completed sibling cannot
+  hide a driver failure. Skips and recorded human-approval waits remain nonfatal.
+  Other unexpected crashes in Runic propagate to the caller.
 
   ## Lifecycle Events
 
@@ -66,6 +69,7 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   require Logger
 
   alias Runic.Workflow
+  alias Runic.Workflow.Execution
   alias Zaq.Engine.Workflows
   alias Zaq.Engine.Workflows.RunWatcher
   alias Zaq.Engine.Workflows.WorkflowRun
@@ -145,18 +149,18 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
     checkpoint = fn _workflow -> pause_checkpoint!(run.id) end
 
     try do
-      # Run-driver mode: SEQUENTIAL today. `react_until_satisfied/3` also accepts
+      # Run-driver mode: SEQUENTIAL today. `execute/3` also accepts
       # `async: true, max_concurrency:, timeout:` to fan map forks out across
       # processes, but we intentionally do NOT thread them yet — sequential
       # execution keeps the map summary order deterministic (forks resolve in
       # index order). Enabling async additionally requires per-fork names that
       # cannot collide and `FanIn` `mergeable` accumulation; when enabling, pass
       # the opts here and re-confirm ordering.
-      Workflow.react_until_satisfied(dag, input, checkpoint: checkpoint)
-      result = finalize(run, started_ms)
+      execution_result = react_dag(dag, input, checkpoint)
+      result = finalize(run, started_ms, execution_result)
 
       # Guard: a `map` node whose collection exceeded its `max_items` cap
-      # writes a failed StepRun (so `finalize/2` already marked the run "failed")
+      # writes a failed StepRun (so `finalize/3` already marked the run "failed")
       # and skips its downstream fan-out via Runic. Surface the precise reason to
       # the caller rather than a generic failed run.
       outcome =
@@ -182,14 +186,54 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
     end
   end
 
-  defp finalize(%WorkflowRun{} = run, started_ms) do
+  # Observe native failures as well as exceptions that escape the driver. Preserve
+  # the existing runnable order rather than opting into execute/3's stable order.
+  # Rescue only this driver call, not finalization or observers.
+  defp react_dag(dag, input, checkpoint) do
+    {_dag, execution} = Workflow.execute(dag, input, checkpoint: checkpoint, runnable_order: nil)
+    {:ok, execution}
+  rescue
+    error in Runic.Identity.CanonicalError ->
+      {:error, failure_details(error)}
+  end
+
+  defp execution_error({:error, error}, _step_runs), do: error
+
+  defp execution_error({:ok, execution}, step_runs) do
+    # A human-approval action intentionally reports failure to suspend Runic;
+    # its durable waiting row owns that outcome. Other failures remain fatal.
+    waiting_names =
+      step_runs |> Enum.filter(&(&1.status == "waiting")) |> MapSet.new(& &1.step_name)
+
+    execution
+    |> Execution.failures()
+    |> Enum.find(fn outcome ->
+      outcome.kind in [:failed, :uncertain] and
+        not MapSet.member?(waiting_names, to_string(outcome.node_name))
+    end)
+    |> case do
+      nil -> nil
+      outcome -> Map.put(failure_details(outcome.error), :node, to_string(outcome.node_name))
+    end
+  end
+
+  defp failure_details(%Runic.Identity.CanonicalError{} = error),
+    do: %{type: "identity_encoding", message: Exception.message(error)}
+
+  defp failure_details(error) do
+    message = if is_exception(error), do: Exception.message(error), else: inspect(error)
+    %{type: "runnable_failure", message: message}
+  end
+
+  defp finalize(%WorkflowRun{} = run, started_ms, execution_result) do
     step_runs = Workflows.list_step_runs(run.id)
+    execution_error = execution_error(execution_result, step_runs)
     duration_ms = System.monotonic_time(:millisecond) - started_ms
 
     cond do
       # A "waiting" StepRun means a HumanInTheLoop step suspended execution.
       # StepRunner already marked the StepRun; we transition the run here.
-      Enum.any?(step_runs, &(&1.status == "waiting")) ->
+      is_nil(execution_error) and Enum.any?(step_runs, &(&1.status == "waiting")) ->
         Logger.info("[workflow] run waiting for human approval",
           workflow_id: run.workflow_id,
           run_id: run.id,
@@ -206,13 +250,17 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
       # :skip_and_continue/:retry) are recorded for visibility but never fail the
       # run — they are not in this list, so the aggregate map row carries the
       # run-relevant status.
-      Enum.any?(step_runs, &(&1.status in ["failed", "running"])) ->
+      not is_nil(execution_error) or
+          Enum.any?(step_runs, &(&1.status in ["failed", "running"])) ->
         failed_steps =
           step_runs
           |> Enum.filter(&(&1.status in ["failed", "running"]))
           |> Enum.map(& &1.step_name)
 
-        log_summary = build_log_summary(step_runs, failed_steps, duration_ms)
+        log_summary =
+          step_runs
+          |> build_log_summary(failed_steps, duration_ms)
+          |> put_execution_error(execution_error)
 
         Logger.error("[workflow] run failed",
           workflow_id: run.workflow_id,
@@ -360,6 +408,9 @@ defmodule Zaq.Engine.Workflows.WorkflowRunAgent do
   end
 
   defp snapshot_field(_map, _key), do: nil
+
+  defp put_execution_error(summary, nil), do: summary
+  defp put_execution_error(summary, error), do: Map.put(summary, :execution_error, error)
 
   defp build_log_summary(step_runs, failed_steps, duration_ms) do
     %{

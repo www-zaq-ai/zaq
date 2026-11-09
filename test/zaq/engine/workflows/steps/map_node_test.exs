@@ -18,6 +18,89 @@ defmodule Zaq.Engine.Workflows.Steps.MapNodeTest do
     "trace_id" => Ecto.UUID.generate()
   }
 
+  defmodule NonportableRecord do
+    @moduledoc false
+
+    alias Zaq.Contracts.Record
+
+    use Zaq.Engine.Workflows.Action,
+      name: "batch_nonportable_record",
+      schema: [input: [type: :any, required: true]],
+      output_schema: [record: [type: :any]]
+
+    @impl true
+    def run(_params, _context) do
+      {:ok, %{record: %Record{id: "nonportable", kind: :file, raw: %{process: self()}}}}
+    end
+  end
+
+  for sibling? <- [false, true] do
+    @sibling? sibling?
+    test "Batch encoding failure fails the run with completed sibling: #{sibling?}" do
+      body = %{
+        "name" => "produce",
+        "type" => "action",
+        "module" => Atom.to_string(NonportableRecord),
+        "params" => %{}
+      }
+
+      nodes = [
+        %{
+          name: "emit",
+          type: "action",
+          module: "Zaq.Engine.Workflows.Test.EmitItems",
+          params: %{},
+          index: 0
+        },
+        %{
+          name: "m",
+          type: "action",
+          module: "Zaq.Agent.Tools.Workflow.Batch",
+          params: %{"delivery" => "item", "strategy" => "fail_workflow", "process" => [body]},
+          index: 1
+        }
+      ]
+
+      nodes =
+        if @sibling?,
+          do:
+            nodes ++
+              [
+                %{
+                  name: "sibling",
+                  type: "action",
+                  module: "Zaq.Engine.Workflows.Test.Noop",
+                  params: %{},
+                  index: 2
+                }
+              ],
+          else: nodes
+
+      edges = [%{from: "emit", to: "m"}]
+      edges = if @sibling?, do: edges ++ [%{from: "emit", to: "sibling"}], else: edges
+
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: "Batch encoding #{System.unique_integer()}",
+          status: "active",
+          nodes: nodes,
+          edges: edges
+        })
+
+      assert {:ok, finished} = Workflows.create_and_start_run(workflow, @source_event)
+      assert finished.status == "failed"
+      persisted = Workflows.get_run!(finished.id)
+      assert persisted.status == "failed"
+      assert persisted.log_summary["execution_error"]["type"] == "identity_encoding"
+      assert persisted.log_summary["execution_error"]["node"] == "m__map_fork"
+      assert persisted.log_summary["execution_error"]["message"] =~ "unsupported pid"
+
+      if @sibling? do
+        assert Workflows.get_step_run_by_name(finished.id, "sibling").status == "completed"
+      end
+    end
+  end
+
   setup do
     stub(Zaq.NodeRouterMock, :dispatch, fn %Zaq.Event{} = event -> event end)
     :ok
