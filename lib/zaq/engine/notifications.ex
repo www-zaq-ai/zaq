@@ -43,6 +43,7 @@ defmodule Zaq.Engine.Notifications do
   alias Zaq.Engine.Notifications.Notification
   alias Zaq.Engine.Notifications.NotificationLog
   alias Zaq.Event
+  alias Zaq.Events.TrustedContext
   alias Zaq.Repo
 
   @type notification_result :: %{
@@ -233,7 +234,7 @@ defmodule Zaq.Engine.Notifications do
 
       {:ok, %{status: :skipped, notification_log_id: log.id, reason: :no_configured_channels}}
     else
-      dispatch_inline(log, channels, notification.metadata, opts, threading_ctx(notification))
+      dispatch_inline(log, channels, notification, opts, threading_ctx(notification))
     end
   end
 
@@ -287,7 +288,7 @@ defmodule Zaq.Engine.Notifications do
     {:error, %{status: :failed, notification_log_id: log.id, reason: :all_channels_failed}}
   end
 
-  defp dispatch_inline(log, [channel | rest], metadata, opts, ctx) do
+  defp dispatch_inline(log, [channel | rest], notification, opts, ctx) do
     platform = channel["platform"]
     identifier = channel["identifier"]
 
@@ -297,6 +298,7 @@ defmodule Zaq.Engine.Notifications do
 
     outgoing = %Outgoing{
       body: Map.get(log.payload, "body", ""),
+      attachments: notification.attachments,
       channel_id: identifier,
       # The platform string as configured — the channels node resolves its own
       # bridge from it; the engine never maps providers to bridge modules.
@@ -304,7 +306,7 @@ defmodule Zaq.Engine.Notifications do
       routing_context: %{channel_config_id: channel["channel_config_id"]},
       thread_anchor: anchor,
       metadata:
-        Map.merge(metadata, %{
+        Map.merge(notification.metadata, %{
           "subject" => Map.get(log.payload, "subject"),
           "html_body" => Map.get(log.payload, "html_body")
         })
@@ -320,7 +322,7 @@ defmodule Zaq.Engine.Notifications do
       {:error, _reason} ->
         # A failed attempt produces no receipt — nothing is surfaced or
         # persisted, so it can't become a phantom parent (Bug #3).
-        dispatch_inline(log, rest, metadata, opts, ctx)
+        dispatch_inline(log, rest, notification, opts, ctx)
     end
   end
 
@@ -418,10 +420,15 @@ defmodule Zaq.Engine.Notifications do
   end
 
   defp deliver_via_channels(%Outgoing{} = outgoing, opts) do
-    case ChannelEvents.build_and_dispatch_deliver_outgoing_event(outgoing,
-           node_router: node_router_module(),
-           event_opts: channels_event_opts(opts)
-         ) do
+    event_opts =
+      opts
+      |> Keyword.get(:trusted_context, %{})
+      |> TrustedContext.event_builder_opts(
+        node_router: node_router_module(),
+        event_opts: channels_event_opts(opts)
+      )
+
+    case ChannelEvents.build_and_dispatch_deliver_outgoing_event(outgoing, event_opts) do
       %{response: {:ok, receipt}} when is_map(receipt) -> {:ok, receipt}
       # A channels node still running the pre-receipt contract (rolling deploy).
       %{response: :ok} -> {:ok, %{}}
@@ -492,6 +499,7 @@ defmodule Zaq.Engine.Notifications do
       sender: get_attr(attrs, :sender, "system"),
       subject: get_attr(attrs, :subject),
       body: get_attr(attrs, :message) || get_attr(attrs, :body),
+      attachments: get_attr(attrs, :attachments, []),
       html_body: get_attr(attrs, :html_body),
       metadata: get_attr(attrs, :metadata, %{})
     })

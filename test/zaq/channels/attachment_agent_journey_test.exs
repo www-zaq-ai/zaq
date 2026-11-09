@@ -9,6 +9,9 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
   alias Zaq.Contracts.ToolStep
   alias Zaq.Engine.{ChannelConfig, IncomingMessageRouting}
   alias Zaq.Engine.Conversations.Message
+  alias Zaq.Engine.Notifications
+  alias Zaq.Engine.Notifications.NotificationLog
+  alias Zaq.Engine.Workflows
   alias Zaq.Permissions
   alias Zaq.Storage
   alias Zaq.Storage.{StorageEntry, VolumeConfig}
@@ -51,6 +54,249 @@ defmodule Zaq.Channels.AttachmentAgentJourneyTest do
 
   def observe_delivery([:zaq, :node_router, :async, :failed], _measurements, metadata, owner),
     do: send(owner, {:delivery_failed, metadata.trace_id, self()})
+
+  for provider <- [:mattermost, :email] do
+    @tag :workflow_attachment
+    test "workflow RunAgent selects a document and NotifyPerson delivers it through #{provider}" do
+      provider = unquote(provider)
+
+      stub(Zaq.NodeRouterMock, :dispatch, fn
+        %Zaq.Event{name: :workflow} = event -> event
+        %Zaq.Event{request: {:broadcast, "workflow:" <> _, _}} = event -> event
+        %Zaq.Event{request: {:broadcast, "workflow_run:" <> _, _}} = event -> event
+      end)
+
+      owner = self()
+      namespace = "workflow-attachment-#{Ecto.UUID.generate()}"
+      {:ok, person} = People.create_person(%{full_name: namespace})
+      {disk, files, root} = documents!(namespace, person)
+      destination = workflow_destination!(provider, namespace, owner)
+
+      {:ok, _} =
+        People.add_channel(%{
+          person_id: person.id,
+          platform: to_string(provider),
+          channel_identifier: destination.identifier,
+          channel_config_id: destination.config.id
+        })
+
+      {child, endpoint} =
+        AttachmentSelectionLLMStub.server(
+          [
+            get_document(disk, files.b.id),
+            &select_documents(&1, "add", [0]),
+            {:text, "Here is B."}
+          ],
+          owner
+        )
+
+      start_supervised!(child)
+
+      agent =
+        IntegrationAgent.create!(endpoint, namespace, "Retrieve B and attach it to the answer.", [
+          "data_source.get_document",
+          "data_source.attach_document"
+        ])
+
+      on_exit(fn -> ServerManager.stop_server(agent) end)
+
+      {:ok, workflow} =
+        Workflows.create_workflow(%{
+          name: namespace,
+          status: "active",
+          nodes: [
+            %{
+              name: "select_document",
+              type: "action",
+              module: "Zaq.Agent.Tools.Workflow.RunAgent",
+              params: %{"agent_id" => agent.id, "input" => "Retrieve B and attach it."},
+              index: 0
+            },
+            %{
+              name: "send_file",
+              type: "action",
+              module: "Zaq.Agent.Tools.People.NotifyPerson",
+              params: %{"person" => %{"id" => person.id}, "subject" => namespace},
+              index: 1
+            }
+          ],
+          edges: [
+            %{
+              from: "select_document",
+              to: "send_file",
+              mapping: %{"message" => "output", "attachments" => "attachments"}
+            }
+          ]
+        })
+
+      {:ok, run} =
+        Workflows.create_run(workflow, %{
+          "actor" => %{person_id: person.id},
+          "request" => nil,
+          "assigns" => %{}
+        })
+
+      execution = Task.async(fn -> Workflows.start_run(run) end)
+
+      try do
+        capture = await_workflow_delivery(execution, namespace, run.id)
+        assert {:ok, completed} = Task.await(execution, 15_000)
+        assert completed.status == "completed"
+
+        steps = Map.new(Workflows.list_step_runs(run.id), &{&1.step_name, &1})
+        assert steps["select_document"].status == "completed"
+        assert steps["send_file"].status == "completed"
+        assert steps["send_file"].results["notified"] == true
+
+        assert_received {:attachment_model_request, 2, request}
+
+        assert [%{output: loaded}, %{output: selected}] =
+                 MultiAgentOpenAIStub.tool_results(request)
+
+        assert %{"ok" => true, "result" => %{"record" => record}} = loaded
+
+        assert %{"ok" => true, "result" => %{"operation" => "add", "records" => [^record]}} =
+                 selected
+
+        assert_workflow_file(provider, capture, namespace, destination, files.b)
+        assert File.read!(Path.join(root, files.b.name)) == files.b.bytes
+        assert File.read!(Path.join(root, files.a.name)) == files.a.bytes
+        refute_received {:llm_stub_error, _}
+      after
+        Task.shutdown(execution, :brutal_kill)
+      end
+    end
+  end
+
+  defp await_workflow_delivery(execution, namespace, run_id) do
+    ref = execution.ref
+
+    receive do
+      {:delivery_boundary, ^namespace, transport, capture} ->
+        send(transport, :accept_delivery)
+        capture
+
+      {^ref, result} ->
+        flunk(
+          "Workflow finished without reaching delivery: #{inspect(result)}; " <>
+            "steps: #{inspect(Workflows.list_step_runs(run_id))}"
+        )
+    after
+      20_000 -> flunk("Workflow did not reach the #{namespace} transport")
+    end
+  end
+
+  for provider <- [:mattermost, :email], denial <- [:revoked, :missing_actor] do
+    @tag :workflow_attachment
+    @tag provider: provider, denial: denial
+    test "#{provider} notification cannot deliver selected files with #{denial} source access", %{
+      provider: provider,
+      denial: denial
+    } do
+      namespace = "denied-attachment-#{Ecto.UUID.generate()}"
+      {:ok, person} = People.create_person(%{full_name: namespace})
+      {disk, files, _root} = documents!(namespace, person)
+      destination = workflow_destination!(provider, namespace, self())
+      actor = %{person_id: person.id}
+
+      {:ok, _} =
+        People.add_channel(%{
+          person_id: person.id,
+          platform: to_string(provider),
+          channel_identifier: destination.identifier,
+          channel_config_id: destination.config.id
+        })
+
+      assert {:ok, %{record: record}} =
+               Jido.Exec.run(
+                 Zaq.Agent.Tools.DataSource.GetDocument,
+                 %{provider: "disk", document_id: files.b.id, config_id: to_string(disk.id)},
+                 %{actor: actor},
+                 timeout: 0
+               )
+
+      if denial == :revoked do
+        resource = %StorageEntry{id: files.b.id}
+        grant = Enum.find(Permissions.list(resource), &(&1.person_id == person.id))
+        assert :ok = Permissions.revoke(resource, grant)
+      end
+
+      execution =
+        Task.async(fn ->
+          Notifications.notify_person(
+            person.id,
+            %{subject: namespace, message: "Here is B.", attachments: [record]},
+            trusted_context: %{actor: if(denial == :revoked, do: actor)}
+          )
+        end)
+
+      try do
+        assert_receive {:delivery_boundary, ^namespace, transport, capture}, 10_000
+        send(transport, :accept_delivery)
+        assert {:error, %{status: :failed, notification_log_id: log_id}} = Task.await(execution)
+
+        if provider == :mattermost do
+          refute capture.post["file_ids"]
+          assert capture.post["message"] =~ "The attachment content could not be accessed."
+        else
+          mail = Mail.parse(capture.raw)
+          assert Mail.get_attachments(mail) == []
+          assert Mail.get_text(mail).body =~ "The attachment content could not be accessed."
+        end
+
+        refute_received {:delivery_upload, ^namespace, _}
+        log = Repo.get!(NotificationLog, log_id)
+
+        assert log.payload == %{
+                 "subject" => namespace,
+                 "body" => "Here is B.",
+                 "html_body" => nil
+               }
+      after
+        Task.shutdown(execution, :brutal_kill)
+      end
+    end
+  end
+
+  defp assert_workflow_file(:mattermost, capture, namespace, destination, file) do
+    assert capture.post["message"] == "Here is B."
+    assert capture.post["channel_id"] == destination.identifier
+    assert capture.post["file_ids"] == ["file-#{namespace}"]
+    assert_received {:delivery_upload, ^namespace, upload}
+    assert upload.filename == file.name
+    assert upload.bytes == file.bytes
+    assert upload.mime_type == "text/plain"
+    assert upload.channel_id == destination.identifier
+  end
+
+  defp assert_workflow_file(:email, capture, _namespace, destination, file) do
+    assert capture.sender == "bot@example.test"
+    assert capture.recipients == [destination.identifier]
+    mail = Mail.parse(capture.raw)
+    assert Mail.get_text(mail).body == "Here is B."
+    assert Mail.get_attachments(mail) == [{file.name, file.bytes}]
+  end
+
+  defp workflow_destination!(:mattermost, namespace, owner) do
+    handler = &MattermostHistoryFixture.delivery_http(&1, &2, owner, namespace)
+    {child, endpoint} = OpenAIStub.server(handler, owner)
+    start_supervised!(Supervisor.child_spec(child, id: make_ref()))
+
+    config =
+      config!("mattermost", namespace, %{
+        url: String.trim_trailing(endpoint, "/v1"),
+        token: "test-token",
+        settings: %{"max_file_size" => 307_200}
+      })
+
+    %{config: config, identifier: "workflow-room"}
+  end
+
+  defp workflow_destination!(:email, namespace, owner) do
+    destination = destination!(:email, namespace, owner, 1)
+    smtp = Repo.get!(ChannelConfig, destination.config.settings["imap"]["smtp_config_id"])
+    %{config: smtp, identifier: destination.identifier}
+  end
 
   for provider <- [:mattermost, :email], operation <- [:remove, :replace, :repeat, :clear] do
     @provider provider

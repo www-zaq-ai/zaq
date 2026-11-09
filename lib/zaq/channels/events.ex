@@ -7,6 +7,17 @@ defmodule Zaq.Channels.Events do
   alias Zaq.{Event, NodeRouter}
   alias Zaq.Events.Helper
 
+  @doc "Validates selected file metadata against the destination without materializing it."
+  @spec build_and_dispatch_validate_files_event(Outgoing.t(), keyword()) :: Event.t()
+  def build_and_dispatch_validate_files_event(%Outgoing{} = outgoing, opts \\ []) do
+    Event.new(outgoing, :channels,
+      type: :sync,
+      actor: Keyword.get(opts, :actor),
+      opts: [action: :validate_files, confidential: true] ++ Keyword.get(opts, :event_opts, [])
+    )
+    |> node_router(opts).dispatch()
+  end
+
   @spec build_deliver_outgoing_event(Outgoing.t(), keyword()) :: Event.t()
   def build_deliver_outgoing_event(%Outgoing{} = outgoing, opts \\ []) do
     event_type = Keyword.get(opts, :type, :sync)
@@ -14,6 +25,7 @@ defmodule Zaq.Channels.Events do
 
     Event.new(outgoing, :channels,
       type: event_type,
+      actor: Keyword.get(opts, :actor),
       opts: [action: :deliver_outgoing] ++ event_opts
     )
   end

@@ -8,6 +8,8 @@ defmodule Zaq.Engine.Notifications.Notification do
 
   @enforce_keys [:recipient_channels, :sender, :subject, :body]
 
+  alias Zaq.Contracts.Record
+
   defstruct [
     :recipient_name,
     :recipient_ref,
@@ -16,6 +18,7 @@ defmodule Zaq.Engine.Notifications.Notification do
     sender: "system",
     subject: nil,
     body: nil,
+    attachments: [],
     metadata: %{}
   ]
 
@@ -35,6 +38,7 @@ defmodule Zaq.Engine.Notifications.Notification do
           subject: String.t(),
           body: String.t(),
           html_body: String.t() | nil,
+          attachments: [Record.t()],
           metadata: map()
         }
 
@@ -56,7 +60,8 @@ defmodule Zaq.Engine.Notifications.Notification do
   def build(attrs) when is_map(attrs) do
     with :ok <- validate_subject(attrs),
          :ok <- validate_body(attrs),
-         :ok <- validate_channels(attrs) do
+         :ok <- validate_channels(attrs),
+         {:ok, attachments} <- normalize_attachments(Map.get(attrs, :attachments, [])) do
       notification = %__MODULE__{
         recipient_channels: Map.get(attrs, :recipient_channels, []),
         recipient_name: Map.get(attrs, :recipient_name),
@@ -65,12 +70,29 @@ defmodule Zaq.Engine.Notifications.Notification do
         subject: Map.get(attrs, :subject),
         body: Map.get(attrs, :body),
         html_body: Map.get(attrs, :html_body),
+        attachments: attachments,
         metadata: Map.get(attrs, :metadata, %{})
       }
 
       {:ok, notification}
     end
   end
+
+  defp normalize_attachments(records) when is_list(records) and length(records) <= 100 do
+    records
+    |> Enum.reduce_while({:ok, []}, fn value, {:ok, acc} ->
+      case Record.from_map(value) do
+        {:ok, %Record{kind: :file} = record} -> {:cont, {:ok, [record | acc]}}
+        _ -> {:halt, {:error, "attachments must contain signed file Records"}}
+      end
+    end)
+    |> case do
+      {:ok, records} -> {:ok, Enum.reverse(records)}
+      error -> error
+    end
+  end
+
+  defp normalize_attachments(_), do: {:error, "attachments must be a list of at most 100 Records"}
 
   defp validate_subject(attrs) do
     case Map.get(attrs, :subject) do

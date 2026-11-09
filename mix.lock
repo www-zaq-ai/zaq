@@ -56,7 +56,7 @@
   "jido_ai": {:git, "https://github.com/jfayad/jido_ai.git", "4cb999e139e2b21da035bf028d407fb252784b5b", [branch: "main"]},
   "jido_chat": {:git, "https://github.com/jat10/jido_chat.git", "5f27164b5d29036729afa94c1292e1c35ba74b52", [branch: "fix/attachment-edits"]},
   "jido_chat_discord": {:hex, :jido_chat_discord, "1.1.0", "1a97cd54dcee9ff649c79449a0eef1250bad78737470b37bf86cdd72d6519e8b", [:mix], [{:jido_chat, "~> 1.1", [hex: :jido_chat, repo: "hexpm", optional: false]}, {:nostrum, "~> 0.10", [hex: :nostrum, repo: "hexpm", optional: false]}, {:req, "~> 0.6", [hex: :req, repo: "hexpm", optional: false]}], "hexpm", "8e22a97d70dab2c6eb1c441375ff54cf2bd7f64d80adbf018a0f4b0a3df7d9b0"},
-  "jido_chat_mattermost": {:git, "https://github.com/jat10/jido_chat_mattermost.git", "aeb0019230ebd682c67b26e825597a7ca7e225d0", [branch: "fix/attachment-edit-history"]},
+  "jido_chat_mattermost": {:git, "https://github.com/jat10/jido_chat_mattermost.git", "28a200bed2cc114d179cc9daec7c8d303446ee5f", [branch: "fix/attachment-edit-history"]},
   "jido_chat_telegram": {:git, "https://github.com/agentjido/jido_chat_telegram.git", "1e69e21722437f5a383d8a6f1d9667bb0d1693c1", [branch: "main"]},
   "jido_connect": {:git, "https://github.com/agentjido/jido_connect.git", "e37095a5014dac7dcfe81ccf52a2c3462c7baf66", [branch: "main", sparse: "apps/jido_connect"]},
   "jido_connect_google": {:git, "https://github.com/agentjido/jido_connect.git", "e37095a5014dac7dcfe81ccf52a2c3462c7baf66", [branch: "main", sparse: "apps/jido_connect_google"]},

@@ -199,6 +199,24 @@ defmodule Zaq.Channels.Api do
     %{event | response: communication_bridge.materialize_record(request, opts)}
   end
 
+  def handle_event(%Event{request: %Outgoing{} = outgoing} = event, :validate_files, _context) do
+    resolver = bridge_module(event)
+
+    response =
+      with {:ok, bridge} <- resolve_bridge(resolver, outgoing.provider) do
+        if supports_callback?(bridge, :validate_files, 3) do
+          validate_destination_files(bridge, resolver, outgoing, event.opts)
+        else
+          :ok
+        end
+      end
+
+    %{event | response: response}
+  end
+
+  def handle_event(%Event{} = event, :validate_files, _context),
+    do: %{event | response: {:error, :invalid_attachments}}
+
   def handle_event(%Event{} = event, :deliver_outgoing, _context) do
     bridge_module = bridge_module(event)
 
@@ -1158,6 +1176,12 @@ defmodule Zaq.Channels.Api do
 
   defp delivery_context(details, %Outgoing{}, event),
     do: Map.put(details, :trusted_context, TrustedContext.from_event(event))
+
+  defp validate_destination_files(bridge, resolver, outgoing, opts) do
+    with {:ok, details} <- delivery_connection(resolver, outgoing, opts) do
+      bridge.validate_files(outgoing, details, opts)
+    end
+  end
 
   defp delivery_connection(bridge_module, %Outgoing{provider: provider}, _opts)
        when provider in [:web, "web"],

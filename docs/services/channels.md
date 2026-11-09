@@ -600,6 +600,16 @@ contract does not own People authentication or post-login redirection.
 
 ### Communication media attachments
 
+The `:validate_files` Channels event accepts an `Outgoing` containing selected
+lazy Records. It reuses delivery's connector lookup and delegates to the optional
+bridge `validate_files/3` callback. `JidoChatBridge` passes the Records and resolved
+adapter options to the adapter's `validate_files/2` extension. Mattermost checks
+declared size against `max_file_size`; unknown sizes and oversized files return
+errors before selection succeeds. Bridges/adapters without preflight retain their
+delivery behavior, except adapters declaring a configurable file limit must expose
+validation or return `:file_validation_unsupported`. Deploy this path with the
+Mattermost adapter revision providing `validate_files/2`.
+
 Communication bridges map inbound media to lazy `Zaq.Contracts.Record` values in
 `Incoming.attachments`. `Record.attachment_metadata/1` persists bounded display
 fields and `attributes["materialization_source"]`, a versioned Channels-owned

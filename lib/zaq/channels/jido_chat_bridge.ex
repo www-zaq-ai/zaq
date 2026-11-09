@@ -61,6 +61,28 @@ defmodule Zaq.Channels.JidoChatBridge do
 
   @test_message "✅ **Zaq Connection Test**\nThis is an automated test message. If you see this, the channel is configured correctly."
 
+  @doc "Checks lazy file metadata using the destination adapter, without acquiring content."
+  @impl Zaq.Channels.CommunicationBridge
+  def validate_files(%Outgoing{} = outgoing, connection, opts) do
+    with {:ok, adapter} <- adapter_for(outgoing.provider, opts) do
+      Code.ensure_loaded(adapter)
+
+      cond do
+        function_exported?(adapter, :validate_files, 2) ->
+          adapter.validate_files(
+            outgoing.attachments,
+            AdapterOptions.build(outgoing.provider, connection)
+          )
+
+        Adapter.capabilities(adapter)[:configurable_max_file_size] == :native ->
+          {:error, :file_validation_unsupported}
+
+        true ->
+          :ok
+      end
+    end
+  end
+
   @doc """
   Sink target for `sink_mfa`. Always routes through the bridge state process.
   """

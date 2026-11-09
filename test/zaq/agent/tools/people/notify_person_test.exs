@@ -8,6 +8,8 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
   alias Zaq.Accounts.Person
   alias Zaq.Agent.Tools.People.EnsurePerson
   alias Zaq.Agent.Tools.People.NotifyPerson
+  alias Zaq.Contracts.Record
+  alias Zaq.Contracts.Record.Provenance
 
   defmodule OkRouter do
     def dispatch(event) do
@@ -60,6 +62,51 @@ defmodule Zaq.Agent.Tools.People.NotifyPersonTest do
   end
 
   describe "Jido execution" do
+    test "forwards attachment maps and trusted identity without trusting payload permission flags" do
+      actor = %{person_id: 123}
+
+      {:ok, record} =
+        Provenance.seal(%Record{id: "file", kind: :file})
+
+      attachments = [Record.metadata(record)]
+
+      assert {:ok, _} =
+               Jido.Exec.run(
+                 NotifyPerson,
+                 %{
+                   person: %{id: 123},
+                   subject: "File",
+                   message: "Attached",
+                   attachments: attachments,
+                   skip_permissions: true,
+                   actor: %{person_id: 999}
+                 },
+                 %{node_router: OkRouter, actor: actor},
+                 timeout: 0
+               )
+
+      assert_received {:dispatched, event}
+      assert event.actor == actor
+      assert event.request.attachments == attachments
+      refute event.opts[:skip_permissions]
+    end
+
+    property "only the literal trusted true flag enables notification permission bypass" do
+      check all(bypass <- member_of([true, false, nil, "true", 1])) do
+        assert {:ok, _} =
+                 Jido.Exec.run(
+                   NotifyPerson,
+                   %{person: %{id: 123}, subject: "File", message: "Attached"},
+                   %{node_router: OkRouter, skip_permissions: bypass},
+                   timeout: 0
+                 )
+
+        assert_received {:dispatched, event}
+        assert event.opts[:skip_permissions] == true == (bypass == true)
+        assert event.actor == nil
+      end
+    end
+
     test "parameter confidentiality cannot change trusted defaults" do
       assert {:ok, _} =
                Jido.Exec.run(

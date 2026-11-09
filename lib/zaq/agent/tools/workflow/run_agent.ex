@@ -112,7 +112,13 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
       ]
     ],
     output_schema: [
-      output: [type: :string, required: true, doc: "Agent response text."]
+      output: [type: :string, required: true, doc: "Agent response text."],
+      attachments: [
+        type: {:list, :any},
+        required: false,
+        doc:
+          "Selected file Record metadata for downstream delivery, without content or provider internals."
+      ]
     ]
 
   require Logger
@@ -121,6 +127,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   alias Jido.AI.Context, as: AIContext
   alias Zaq.Agent.StreamEvents
   alias Zaq.Agent.TokenEstimator
+  alias Zaq.Contracts.Record
   alias Zaq.Engine.Messages.{Incoming, Outgoing}
   alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
@@ -290,6 +297,9 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
   defp maybe_put_actor(event, nil), do: event
   defp maybe_put_actor(event, actor), do: Map.put(event, :actor, actor)
 
+  defp handle_response(%Outgoing{attachment_error: :invalid_attachment_selection} = outgoing),
+    do: failure_result("agent_failed:invalid_attachment_selection", outgoing.metadata)
+
   defp handle_response(%Outgoing{} = outgoing) do
     if error_metadata?(outgoing.metadata) do
       reason = outgoing.metadata[:reason] || "unknown"
@@ -327,6 +337,7 @@ defmodule Zaq.Agent.Tools.Workflow.RunAgent do
     outgoing.metadata
     |> StreamEvents.telemetry_fields(json_safe: true)
     |> Map.put(:output, outgoing.body)
+    |> Map.put(:attachments, Enum.map(outgoing.attachments, &Record.metadata/1))
   end
 
   # Build the optional `context` param into a `Jido.AI.Context`, or nil when the

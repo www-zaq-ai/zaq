@@ -13,9 +13,12 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocuments do
   alias Jido.Action.Tool
   alias Zaq.Accounts.Person
   alias Zaq.Agent.Tools.DataSource.GetDocument
+  alias Zaq.Channels.Events
   alias Zaq.Contracts.Record
   alias Zaq.Contracts.Record.Authorization
   alias Zaq.Contracts.Record.Provenance
+  alias Zaq.Engine.Messages.{Incoming, Outgoing}
+  alias Zaq.Event
   alias Zaq.Identity.ActorNormalizer
 
   use Zaq.Engine.Workflows.Action,
@@ -46,7 +49,8 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocuments do
   @impl Jido.Action
   def run(%{operation: operation, records: records}, context) do
     with :ok <- active_request(context),
-         {:ok, records} <- authorize(records, context) do
+         {:ok, records} <- authorize(records, context),
+         :ok <- validate_destination(operation, records, context) do
       {:ok, %{operation: operation, records: records}}
     end
   end
@@ -74,6 +78,38 @@ defmodule Zaq.Agent.Tools.DataSource.AttachDocuments do
   end
 
   defp active_request(_context), do: {:error, :inactive_attachment_selection}
+
+  defp validate_destination("remove", _records, _context), do: :ok
+  defp validate_destination(_operation, [], _context), do: :ok
+
+  defp validate_destination(_operation, _records, %{incoming: %Incoming{provider: provider}})
+       when provider in [nil, ""],
+       do: :ok
+
+  defp validate_destination(_operation, records, %{incoming: %Incoming{} = incoming} = context) do
+    outgoing = %Outgoing{
+      body: "",
+      provider: incoming.provider,
+      channel_id: incoming.channel_id,
+      routing_context: incoming.routing_context,
+      attachments: Enum.map(records, &%{&1 | content: nil})
+    }
+
+    opts = [
+      actor: Map.get(context, :actor),
+      node_router: Map.get(context, :node_router, Zaq.NodeRouter)
+    ]
+
+    case Events.build_and_dispatch_validate_files_event(outgoing, opts) do
+      %Event{response: :ok} -> :ok
+      %Event{response: {:error, _} = error} -> error
+      {:error, _} = error -> error
+      _ -> {:error, :file_validation_unavailable}
+    end
+  end
+
+  # Workflow selections may not have a delivery destination until a later step.
+  defp validate_destination(_operation, _records, _context), do: :ok
 
   defp selection_identity(%Record{} = record) do
     {:ok, claims} = Provenance.verify(record)

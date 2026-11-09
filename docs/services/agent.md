@@ -83,6 +83,14 @@ bytes. Other signed Records use `Record.Authorization`; a missing or unusable
 permission projection fails closed. The entire batch must pass before selection
 changes. Selection success is not delivery.
 
+For requests with an incoming destination, `add` and nonempty `replace` dispatch
+a synchronous `:validate_files` event to Channels after authorization. Channels
+uses the destination connector's delivery configuration and asks its bridge and
+adapter to validate the unmaterialized Records. Adapter errors return to the
+tool before its selection instruction succeeds. No file content is sent in this
+event. Remove and clear operations, and workflow selections without a destination,
+do not perform this preflight. Delivery still checks the acquired bytes.
+
 `StreamEvents.consume/3` owns the selection in its existing fresh per-request
 accumulator. `AttachDocuments.reduce_selection/2` owns the pure document identity,
 ordering and add/remove/replace rules. The Action requires the native request ID
@@ -119,6 +127,14 @@ clears that error. Executor carries it into `Outgoing.attachment_error` for Chan
 to report through its delivery policy. Genuine request failures still fail the run.
 Executor preserves the final selection as `Outgoing.attachments`, outside
 metadata and public tool-step projections. Incoming files are never auto-selected.
+
+For workflow execution, `RunAgent` returns selected files in `attachments` as
+signed Record metadata, excluding content and raw provider internals. Map this
+output to `NotifyPerson.attachments` alongside `output` to `message`. Workflow
+step results retain these signed references across JSONB persistence; delivery
+reconstructs Records and rechecks source access using the workflow actor. A
+rejected selection fails the RunAgent step rather than producing a text-only
+success. File bytes are acquired by Channels at delivery time.
 
 Channels retains byte acquisition, final source authorization, MIME/name handling,
 and observable delivery. No file is delivered during a tool iteration. See

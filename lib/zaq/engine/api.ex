@@ -39,6 +39,7 @@ defmodule Zaq.Engine.Api do
   alias Zaq.Engine.Telemetry
   alias Zaq.Engine.Workflows
   alias Zaq.Event
+  alias Zaq.Events.TrustedContext
   alias Zaq.Identity.ExecutionActor
   alias Zaq.InternalBoundaries
   alias Zaq.People.IdentityResolver
@@ -487,10 +488,14 @@ defmodule Zaq.Engine.Api do
 
         attrs =
           event.request
-          |> Map.take([:subject, :message, :sender, :html_body, :metadata])
+          |> Map.take([:subject, :message, :sender, :html_body, :metadata, :attachments])
           |> Map.merge(%{subject: subject, message: message})
 
-        opts = [channels_event_opts: [confidential: event.opts[:confidential] == true]]
+        opts = [
+          trusted_context: TrustedContext.from_event(event),
+          channels_event_opts: [confidential: event.opts[:confidential] == true]
+        ]
+
         %{event | response: notifications_module.notify_person(person_id, attrs, opts)}
 
       other ->
