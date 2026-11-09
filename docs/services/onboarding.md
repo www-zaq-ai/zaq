@@ -127,12 +127,17 @@ Persisted on `users.portal_consent`:
   - Embedding: `baai/bge-m3`, 1024 dimensions.
   - Image-to-text: `deepseek/deepseek-v4.1-flash`.
   - Knowledge-query translation: `openai/gpt-oss-20b`.
+  - Global Small model (conversation titles): `openai/gpt-oss-20b`.
   - Re-ranking: `Qwen/Qwen3-Reranker-0.6B`.
   - Decision selection: `typesafe/jev-1.14` (does not activate decision inference).
-  Translation, re-ranking and decision defaults initialize only settings that have
-  never been saved. Retries preserve customized, partial and explicitly cleared
-  selections; clearing re-ranking disables that optional step. Failed model saves
-  are logged and can be retried without undoing credential/agent provisioning.
+  Translation, Small model, re-ranking and decision defaults initialize only
+  settings that have never been saved. Retries preserve customized, partial and
+  explicitly cleared selections; clearing re-ranking disables that optional step.
+  Failed model saves are logged and can be retried without undoing credential/agent
+  provisioning.
+  Sampling-only settings also count as saved selections. Existing installations
+  with absent selections receive these defaults on successful provisioning retry,
+  not on application startup.
   Existing embeddings and vector dimensions are not migrated or regenerated.
   No legacy `LLMConfig` is read or written.
 - Recorded matching claims survive local failures and successful bootstrap, so a

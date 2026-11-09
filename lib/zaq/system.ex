@@ -566,15 +566,16 @@ defmodule Zaq.System do
     }
   end
 
-  @doc "Whether a dedicated RAG selection has been saved, including an explicit empty selection."
-  @spec model_config_initialized?(:translation | :reranking | :decision) :: boolean()
-  def model_config_initialized?(kind) when kind in [:translation, :reranking, :decision] do
-    fields =
-      if kind == :translation,
-        do: ~w(credential_id model temperature top_p),
-        else: ~w(credential_id model)
+  @doc "Whether a dedicated model selection has been saved, including an explicit empty selection."
+  @spec model_config_initialized?(:translation | :small | :reranking | :decision) :: boolean()
+  def model_config_initialized?(kind) when kind in [:translation, :small] do
+    map_size(
+      read_config_fields(operation_model_prefix(kind), ~w(credential_id model temperature top_p))
+    ) > 0
+  end
 
-    map_size(read_config_fields("rag.#{kind}", fields)) > 0
+  def model_config_initialized?(kind) when kind in [:reranking, :decision] do
+    map_size(read_config_fields("rag.#{kind}", ~w(credential_id model))) > 0
   end
 
   @doc "Saves a specialized RAG model selection without invoking it."

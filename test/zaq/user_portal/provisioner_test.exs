@@ -131,7 +131,7 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       assert updated.api_key == "sk-updated"
     end
 
-    test "creates a knowledge agent and global routing, and wires all five operation selections" do
+    test "creates a knowledge agent and global routing, and wires model selections" do
       assert {:ok, credential} = Provisioner.provision_with_key(%{litellm_api_key: "sk-config"})
 
       assert {:ok, agent} = Agent.get_agent_by_name("ZAQ Assistant")
@@ -167,6 +167,90 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       decision = System.get_rag_model_config(:decision)
       assert decision.credential_id == credential.id
       assert decision.model == "typesafe/jev-1.14"
+    end
+
+    test "initializes the Small model with the router credential and preserves it on retry" do
+      assert {:ok, credential} = Provisioner.provision_with_key(%{litellm_api_key: "sk-small"})
+      small = System.get_operation_model_config(:small)
+      assert small.credential_id == credential.id
+      assert small.model == "openai/gpt-oss-20b"
+      assert small.temperature == 0.0
+      assert small.top_p == 0.9
+
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-small-retry"})
+      assert System.get_operation_model_config(:small) == small
+    end
+
+    test "preserves a customized Small model credential, model and sampling" do
+      credential = Zaq.SystemConfigFixtures.ai_credential_fixture(%{provider: "openai"})
+
+      assert {:ok, small} =
+               System.save_operation_model_config(:small, %{
+                 credential_id: credential.id,
+                 model: "gpt-4o",
+                 temperature: 0.4,
+                 top_p: 0.7
+               })
+
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-custom-small"})
+      assert System.get_operation_model_config(:small) == small
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-custom-retry"})
+      assert System.get_operation_model_config(:small) == small
+    end
+
+    test "preserves an explicitly cleared Small model selection on bootstrap and retry" do
+      assert {:ok, cleared} =
+               System.save_operation_model_config(:small, %{credential_id: nil, model: nil})
+
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-cleared-small"})
+      assert System.get_operation_model_config(:small) == cleared
+      assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-cleared-retry"})
+      assert System.get_operation_model_config(:small) == cleared
+    end
+
+    for {field, value} <- [
+          {"credential_id", "42"},
+          {"model", "user-partial-model"},
+          {"temperature", "0.4"},
+          {"top_p", "0.7"}
+        ] do
+      test "preserves a Small model selection with only #{field} saved" do
+        assert {:ok, _} =
+                 System.set_config("global.small_model.#{unquote(field)}", unquote(value))
+
+        small = System.get_operation_model_config(:small)
+
+        assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-partial-small"})
+        assert System.get_operation_model_config(:small) == small
+      end
+    end
+
+    test "logs a failed Small model save and initializes it on a later retry" do
+      snapshot = LLMDB.Store.snapshot()
+      previous_opts = LLMDB.Store.last_opts()
+      on_exit(fn -> LLMDB.Store.put!(snapshot, previous_opts) end)
+
+      opts = ZAQRouter.llmdb_opts()
+
+      custom =
+        update_in(opts[:custom], [:zaq_router, :models], &Map.delete(&1, "openai/gpt-oss-20b"))
+
+      assert {:ok, _} = LLMDB.load(Keyword.put(opts, :custom, custom))
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:ok, _} = Provisioner.provision_with_key(%{litellm_api_key: "sk-missing-model"})
+        end)
+
+      assert log =~ "ZAQ Router small config wiring failed"
+      refute System.model_config_initialized?(:small)
+      assert {:ok, _} = LLMDB.load(opts)
+
+      assert {:ok, credential} =
+               Provisioner.provision_with_key(%{litellm_api_key: "sk-retry-model"})
+
+      assert System.get_operation_model_config(:small).credential_id == credential.id
+      assert System.get_operation_model_config(:small).model == "openai/gpt-oss-20b"
     end
 
     test "retries preserve operation customizations and explicitly cleared selections" do
@@ -364,6 +448,7 @@ defmodule Zaq.UserPortal.ProvisionerTest do
       assert is_nil(System.get_operation_model_config(:translation).credential_id)
       assert is_nil(System.get_rag_model_config(:reranking).credential_id)
       assert is_nil(System.get_rag_model_config(:decision).credential_id)
+      refute System.model_config_initialized?(:small)
     end
 
     test "does not overwrite an existing credential or its key" do

@@ -128,13 +128,20 @@ defmodule Zaq.Agent.ZAQRouterTest do
       assert RAGModelConfig.supports?(decision, :decision)
     end
 
-    test "all six provisioning defaults are advertised" do
+    test "all provisioning defaults are advertised" do
       assert ZAQRouter.default_chat_model() == "openai/gpt-oss-120b"
       assert ZAQRouter.default_embedding_model() == {"baai/bge-m3", 1024}
       assert ZAQRouter.default_image_model() == "deepseek/deepseek-v4.1-flash"
       assert ZAQRouter.default_translation_model() == "openai/gpt-oss-20b"
       assert ZAQRouter.default_reranking_model() == "Qwen/Qwen3-Reranker-0.6B"
       assert ZAQRouter.default_decision_model() == "typesafe/jev-1.14"
+    end
+
+    test "Small model default is eligible for text generation" do
+      assert ZAQRouter.default_small_model() == "openai/gpt-oss-20b"
+      assert {:ok, _} = LLMDB.load(ZAQRouter.llmdb_opts())
+      assert {:ok, model} = LLMDB.model(:zaq_router, ZAQRouter.default_small_model())
+      assert OperationModelConfig.supports?(model)
     end
 
     test "advertises context limits and tool support for every default model" do
